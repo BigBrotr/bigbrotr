@@ -18,21 +18,19 @@ class TestServiceStateType:
     """Test ServiceStateType StrEnum."""
 
     def test_members(self):
-        assert len(ServiceStateType) == 3
+        assert len(ServiceStateType) == 2
         assert set(ServiceStateType) == {
-            ServiceStateType.CANDIDATE,
             ServiceStateType.CHECKPOINT,
             ServiceStateType.CURSOR,
         }
 
     def test_values(self):
-        assert ServiceStateType.CANDIDATE == "candidate"
         assert ServiceStateType.CHECKPOINT == "checkpoint"
         assert ServiceStateType.CURSOR == "cursor"
 
     def test_is_str_enum(self):
         assert issubclass(ServiceStateType, StrEnum)
-        assert isinstance(ServiceStateType.CANDIDATE, StrEnum)
+        assert isinstance(ServiceStateType.CHECKPOINT, StrEnum)
 
 
 # =============================================================================
@@ -49,13 +47,11 @@ class TestServiceStateConstruction:
             state_type=ServiceStateType.CURSOR,
             state_key="wss://relay.damus.io",
             state_value={"last_seen": 1700000000},
-            updated_at=1700000001,
         )
         assert state.service_name is ServiceName.FINDER
         assert state.state_type is ServiceStateType.CURSOR
         assert state.state_key == "wss://relay.damus.io"
         assert state.state_value == {"last_seen": 1700000000}
-        assert state.updated_at == 1700000001
 
     def test_string_coercion(self):
         state = ServiceState(
@@ -63,7 +59,6 @@ class TestServiceStateConstruction:
             state_type="cursor",  # type: ignore[arg-type]
             state_key="wss://relay.damus.io",
             state_value={},
-            updated_at=0,
         )
         assert state.service_name is ServiceName.FINDER
         assert state.state_type is ServiceStateType.CURSOR
@@ -77,7 +72,6 @@ class TestServiceStateConstruction:
                 state_type=ServiceStateType.CURSOR,
                 state_key="key",
                 state_value={},
-                updated_at=0,
             )
 
     def test_invalid_state_type(self):
@@ -87,7 +81,6 @@ class TestServiceStateConstruction:
                 state_type="invalid_type",  # type: ignore[arg-type]
                 state_key="key",
                 state_value={},
-                updated_at=0,
             )
 
     def test_frozen(self):
@@ -96,7 +89,6 @@ class TestServiceStateConstruction:
             state_type=ServiceStateType.CHECKPOINT,
             state_key="batch_1",
             state_value={"done": True},
-            updated_at=1700000000,
         )
         with pytest.raises(FrozenInstanceError):
             state.state_key = "batch_2"  # type: ignore[misc]
@@ -116,7 +108,6 @@ class TestServiceStateToDbParams:
             state_type=ServiceStateType.CURSOR,
             state_key="wss://relay.damus.io",
             state_value={"last_seen": 1700000000},
-            updated_at=1700000001,
         )
         result = state.to_db_params()
         assert isinstance(result, ServiceStateDbParams)
@@ -124,17 +115,15 @@ class TestServiceStateToDbParams:
     def test_field_values(self):
         state = ServiceState(
             service_name=ServiceName.FINDER,
-            state_type=ServiceStateType.CANDIDATE,
+            state_type=ServiceStateType.CHECKPOINT,
             state_key="wss://nos.lol",
             state_value={"source": "nip65"},
-            updated_at=1700000999,
         )
         params = state.to_db_params()
         assert params.service_name is ServiceName.FINDER
-        assert params.state_type is ServiceStateType.CANDIDATE
+        assert params.state_type is ServiceStateType.CHECKPOINT
         assert params.state_key == "wss://nos.lol"
         assert params.state_value == '{"source": "nip65"}'
-        assert params.updated_at == 1700000999
 
     def test_caching(self):
         state = ServiceState(
@@ -142,7 +131,6 @@ class TestServiceStateToDbParams:
             state_type=ServiceStateType.CURSOR,
             state_key="batch_pos",
             state_value={"index": 42},
-            updated_at=1700000000,
         )
         assert state.to_db_params() is state.to_db_params()
 
@@ -163,7 +151,6 @@ class TestTypeValidation:
                 state_type=ServiceStateType.CURSOR,
                 state_key=123,  # type: ignore[arg-type]
                 state_value={"key": "value"},
-                updated_at=1700000000,
             )
 
     def test_state_value_non_dict_rejected(self):
@@ -174,7 +161,6 @@ class TestTypeValidation:
                 state_type=ServiceStateType.CURSOR,
                 state_key="test",
                 state_value=[1, 2, 3],  # type: ignore[arg-type]
-                updated_at=1700000000,
             )
 
     def test_state_value_string_rejected(self):
@@ -185,40 +171,6 @@ class TestTypeValidation:
                 state_type=ServiceStateType.CURSOR,
                 state_key="test",
                 state_value="not a dict",  # type: ignore[arg-type]
-                updated_at=1700000000,
-            )
-
-    def test_updated_at_non_int_rejected(self):
-        """updated_at must be an int."""
-        with pytest.raises(TypeError, match="updated_at must be an int"):
-            ServiceState(
-                service_name=ServiceName.MONITOR,
-                state_type=ServiceStateType.CURSOR,
-                state_key="test",
-                state_value={"key": "value"},
-                updated_at="abc",  # type: ignore[arg-type]
-            )
-
-    def test_updated_at_bool_rejected(self):
-        """bool is not accepted as int for updated_at."""
-        with pytest.raises(TypeError, match="updated_at must be an int"):
-            ServiceState(
-                service_name=ServiceName.MONITOR,
-                state_type=ServiceStateType.CURSOR,
-                state_key="test",
-                state_value={"key": "value"},
-                updated_at=True,  # type: ignore[arg-type]
-            )
-
-    def test_updated_at_negative_rejected(self):
-        """updated_at must be non-negative."""
-        with pytest.raises(ValueError, match="updated_at must be non-negative"):
-            ServiceState(
-                service_name=ServiceName.MONITOR,
-                state_type=ServiceStateType.CURSOR,
-                state_key="test",
-                state_value={"key": "value"},
-                updated_at=-1,
             )
 
 
@@ -237,7 +189,6 @@ class TestImmutability:
             state_type=ServiceStateType.CURSOR,
             state_key="test",
             state_value={"key": "value"},
-            updated_at=1700000000,
         )
         with pytest.raises(TypeError):
             state.state_value["key"] = "modified"  # type: ignore[index]
@@ -249,7 +200,6 @@ class TestImmutability:
             state_type=ServiceStateType.CURSOR,
             state_key="test",
             state_value={"nested": {"inner": "value"}},
-            updated_at=1700000000,
         )
         with pytest.raises(TypeError):
             state.state_value["nested"]["inner"] = "modified"  # type: ignore[index]
@@ -262,7 +212,6 @@ class TestImmutability:
             state_type=ServiceStateType.CURSOR,
             state_key="test",
             state_value=original,
-            updated_at=1700000000,
         )
         original["key"] = "modified"
         assert state.state_value["key"] == "value"

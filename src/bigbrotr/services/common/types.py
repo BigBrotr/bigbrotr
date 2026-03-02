@@ -9,8 +9,8 @@ Each ``ServiceStateType`` has a corresponding typed class:
 - **CHECKPOINT** → [Checkpoint][bigbrotr.services.common.types.Checkpoint]
   (with subclasses [ApiCheckpoint][bigbrotr.services.common.types.ApiCheckpoint],
   [MonitorCheckpoint][bigbrotr.services.common.types.MonitorCheckpoint],
-  [PublishCheckpoint][bigbrotr.services.common.types.PublishCheckpoint])
-- **CANDIDATE** → [Candidate][bigbrotr.services.common.types.Candidate]
+  [PublishCheckpoint][bigbrotr.services.common.types.PublishCheckpoint],
+  [CandidateCheckpoint][bigbrotr.services.common.types.CandidateCheckpoint])
 - **CURSOR** → [Cursor][bigbrotr.services.common.types.Cursor]
   (with subclasses [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor],
   [EventCursor][bigbrotr.services.common.types.EventCursor])
@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from bigbrotr.models.relay import Relay
+    from bigbrotr.models.constants import NetworkType
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +38,7 @@ class Checkpoint:
     - [ApiCheckpoint][bigbrotr.services.common.types.ApiCheckpoint]
     - [MonitorCheckpoint][bigbrotr.services.common.types.MonitorCheckpoint]
     - [PublishCheckpoint][bigbrotr.services.common.types.PublishCheckpoint]
+    - [CandidateCheckpoint][bigbrotr.services.common.types.CandidateCheckpoint]
 
     Attributes:
         key: State key identifying the entity (relay URL, API source URL,
@@ -77,22 +78,27 @@ class PublishCheckpoint(Checkpoint):
 
 
 @dataclass(frozen=True, slots=True)
-class Candidate:
-    """Relay candidate pending validation.
+class CandidateCheckpoint(Checkpoint):
+    """Checkpoint for relay validation candidates (Validator).
 
-    Wraps a [Relay][bigbrotr.models.relay.Relay] with a failure counter.
+    Tracks candidate relay URLs with a failure counter and network type.
+    The ``key`` is the relay URL, ``timestamp`` is the insertion time
+    (for new candidates) or last validation attempt time (for retries).
+
     Created by
-    [insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates]
+    [insert_relays_as_candidates][bigbrotr.services.validator.queries.insert_relays_as_candidates]
     and fetched by
-    [fetch_candidates][bigbrotr.services.common.queries.fetch_candidates].
+    [fetch_candidates][bigbrotr.services.validator.queries.fetch_candidates].
 
     Attributes:
-        relay: [Relay][bigbrotr.models.relay.Relay] object with URL and
-            network information.
+        key: Relay URL (inherited from Checkpoint).
+        timestamp: Unix timestamp of creation or last attempt (inherited).
+        network: [NetworkType][bigbrotr.models.constants.NetworkType] of
+            the candidate relay.
         failures: Number of failed validation attempts (0 for new candidates).
     """
 
-    relay: Relay
+    network: NetworkType
     failures: int = 0
 
 

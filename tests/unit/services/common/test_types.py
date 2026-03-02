@@ -3,7 +3,7 @@
 Tests:
 - Checkpoint: creation, frozen immutability, subclass inheritance
 - ApiCheckpoint, MonitorCheckpoint, PublishCheckpoint: creation, isinstance
-- Candidate: creation, failures default, frozen immutability
+- CandidateCheckpoint: creation, failures default, frozen immutability, isinstance
 - Cursor: base class, subclass inheritance
 - EventRelayCursor: valid combinations, partial cursor rejection, frozen, isinstance
 - EventCursor: valid combinations, partial cursor rejection, frozen, isinstance
@@ -15,10 +15,10 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from bigbrotr.models import Relay
+from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.types import (
     ApiCheckpoint,
-    Candidate,
+    CandidateCheckpoint,
     Checkpoint,
     Cursor,
     EventCursor,
@@ -136,35 +136,69 @@ class TestPublishCheckpoint:
 
 
 # ============================================================================
-# Candidate Tests
+# CandidateCheckpoint Tests
 # ============================================================================
 
 
-class TestCandidate:
-    """Tests for Candidate dataclass."""
+class TestCandidateCheckpoint:
+    """Tests for CandidateCheckpoint dataclass."""
 
     def test_creation(self) -> None:
-        """Test basic Candidate construction."""
-        relay = Relay("wss://relay.example.com")
-        candidate = Candidate(relay=relay, failures=3)
+        """Test basic CandidateCheckpoint construction."""
+        candidate = CandidateCheckpoint(
+            key="wss://relay.example.com",
+            timestamp=1700000000,
+            network=NetworkType.CLEARNET,
+            failures=3,
+        )
 
-        assert candidate.relay is relay
+        assert candidate.key == "wss://relay.example.com"
+        assert candidate.timestamp == 1700000000
+        assert candidate.network == NetworkType.CLEARNET
         assert candidate.failures == 3
 
     def test_failures_default_zero(self) -> None:
-        """Test Candidate defaults to zero failures."""
-        relay = Relay("wss://relay.example.com")
-        candidate = Candidate(relay=relay)
+        """Test CandidateCheckpoint defaults to zero failures."""
+        candidate = CandidateCheckpoint(
+            key="wss://relay.example.com",
+            timestamp=1700000000,
+            network=NetworkType.CLEARNET,
+        )
 
         assert candidate.failures == 0
 
+    def test_isinstance_checkpoint(self) -> None:
+        """Test that CandidateCheckpoint is a Checkpoint."""
+        candidate = CandidateCheckpoint(
+            key="wss://relay.example.com",
+            timestamp=1700000000,
+            network=NetworkType.CLEARNET,
+        )
+
+        assert isinstance(candidate, Checkpoint)
+
+    def test_not_isinstance_other_subclasses(self) -> None:
+        """Test that CandidateCheckpoint is not an ApiCheckpoint, MonitorCheckpoint, or PublishCheckpoint."""
+        candidate = CandidateCheckpoint(
+            key="wss://relay.example.com",
+            timestamp=1700000000,
+            network=NetworkType.CLEARNET,
+        )
+
+        assert not isinstance(candidate, ApiCheckpoint)
+        assert not isinstance(candidate, MonitorCheckpoint)
+        assert not isinstance(candidate, PublishCheckpoint)
+
     def test_frozen(self) -> None:
-        """Test that Candidate instances are immutable."""
-        relay = Relay("wss://relay.example.com")
-        candidate = Candidate(relay=relay)
+        """Test that CandidateCheckpoint instances are immutable."""
+        candidate = CandidateCheckpoint(
+            key="wss://relay.example.com",
+            timestamp=1700000000,
+            network=NetworkType.CLEARNET,
+        )
 
         with pytest.raises(FrozenInstanceError):
-            candidate.relay = Relay("wss://other.example.com")  # type: ignore[misc]
+            candidate.network = NetworkType.TOR  # type: ignore[misc]
 
 
 # ============================================================================

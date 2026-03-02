@@ -35,7 +35,6 @@ from ._validation import (
     sanitize_data,
     validate_mapping,
     validate_str_not_empty,
-    validate_timestamp,
 )
 from .constants import ServiceName
 
@@ -51,9 +50,9 @@ class ServiceStateType(StrEnum):
     distinguish between different kinds of persisted state.
 
     Attributes:
-        CANDIDATE: A candidate URL discovered but not yet validated.
         CHECKPOINT: A timestamp marker recording when an action was last
-            performed (e.g., API fetch, relay health check, event publish).
+            performed (e.g., API fetch, relay health check, candidate
+            validation attempt).
         CURSOR: A processing cursor marking the last-processed position
             in an ordered data source (e.g., event timestamp, relay index).
 
@@ -62,7 +61,6 @@ class ServiceStateType(StrEnum):
             model that carries this type.
     """
 
-    CANDIDATE = "candidate"
     CHECKPOINT = "checkpoint"
     CURSOR = "cursor"
 
@@ -72,7 +70,7 @@ class ServiceStateDbParams(NamedTuple):
 
     Column order matches the ``service_state_upsert`` stored procedure
     signature: ``(service_names TEXT[], state_types TEXT[], state_keys TEXT[],
-    state_values JSONB[], updated_ats BIGINT[])``.
+    state_values JSONB[])``.
 
     The ``state_value`` field is pre-serialized to a JSON string, consistent
     with how ``EventDbParams.tags`` and ``MetadataDbParams.data`` handle
@@ -88,7 +86,6 @@ class ServiceStateDbParams(NamedTuple):
     state_type: ServiceStateType
     state_key: str
     state_value: str
-    updated_at: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,8 +102,9 @@ class ServiceState:
             [ServiceStateType][bigbrotr.models.service_state.ServiceStateType]).
         state_key: Application-defined key within the service and type
             (e.g., a relay URL for cursor state).
-        state_value: Arbitrary JSON-compatible dictionary with service-specific data.
-        updated_at: Unix timestamp of the last state update.
+        state_value: Arbitrary JSON-compatible dictionary with service-specific
+            data.  Each state type stores its own business timestamp inside
+            this dict (e.g. ``{"timestamp": 1700000000}`` for checkpoints).
 
     Examples:
         ```python
@@ -114,8 +112,7 @@ class ServiceState:
             service_name=ServiceName.SYNCHRONIZER,
             state_type=ServiceStateType.CURSOR,
             state_key="wss://relay.damus.io",
-            state_value={"last_seen": 1700000000},
-            updated_at=1700000001,
+            state_value={"timestamp": 1700000000},
         )
         state.to_db_params()  # ServiceStateDbParams(...)
         ```
@@ -138,7 +135,6 @@ class ServiceState:
     state_type: ServiceStateType
     state_key: str
     state_value: Mapping[str, Any]
-    updated_at: int
     _json_value: str = field(default="", init=False, repr=False, compare=False)
     _db_params: ServiceStateDbParams = field(
         default=None,
@@ -151,7 +147,6 @@ class ServiceState:
     def __post_init__(self) -> None:
         validate_str_not_empty(self.state_key, "state_key")
         validate_mapping(self.state_value, "state_value")
-        validate_timestamp(self.updated_at, "updated_at")
 
         object.__setattr__(self, "service_name", ServiceName(self.service_name))
         object.__setattr__(self, "state_type", ServiceStateType(self.state_type))
@@ -166,7 +161,6 @@ class ServiceState:
             state_type=self.state_type,
             state_key=self.state_key,
             state_value=self._json_value,
-            updated_at=self.updated_at,
         )
 
     def to_db_params(self) -> ServiceStateDbParams:
