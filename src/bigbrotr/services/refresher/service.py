@@ -38,7 +38,6 @@ Examples:
 
 from __future__ import annotations
 
-import time
 from typing import ClassVar
 
 import asyncpg
@@ -64,6 +63,9 @@ class Refresher(BaseService[RefresherConfig]):
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.REFRESHER
     CONFIG_CLASS: ClassVar[type[RefresherConfig]] = RefresherConfig
 
+    async def cleanup(self) -> None:
+        """No-op: Refresher does not use service state."""
+
     async def run(self) -> None:
         """Execute one refresh cycle over all configured views."""
         views = self._config.refresh.views
@@ -71,15 +73,12 @@ class Refresher(BaseService[RefresherConfig]):
 
         refreshed = 0
         failed = 0
-        cycle_start = time.monotonic()
 
         for view in views:
             try:
-                start = time.monotonic()
                 await self._brotr.refresh_materialized_view(view)
-                elapsed = round(time.monotonic() - start, 2)
                 refreshed += 1
-                self._logger.info("view_refreshed", view=view, duration=elapsed)
+                self._logger.info("view_refreshed", view=view)
             except (asyncpg.PostgresError, OSError) as exc:
                 failed += 1
                 self._logger.error("view_refresh_failed", view=view, error=str(exc))
@@ -88,5 +87,4 @@ class Refresher(BaseService[RefresherConfig]):
         self.set_gauge("views_failed", failed)
         self.inc_counter("total_views_refreshed", refreshed)
         self.inc_counter("total_views_failed", failed)
-        self.set_gauge("total_refresh_duration", round(time.monotonic() - cycle_start, 2))
         self._logger.info("cycle_completed", refreshed=refreshed, failed=failed)

@@ -112,6 +112,9 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             self._logger.info("client_disconnected")
         await super().__aexit__(_exc_type, _exc_val, _exc_tb)
 
+    async def cleanup(self) -> None:
+        """No-op: Dvm does not use service state."""
+
     async def run(self) -> None:
         """Fetch and process NIP-90 job requests for one cycle."""
         if self._client is None:

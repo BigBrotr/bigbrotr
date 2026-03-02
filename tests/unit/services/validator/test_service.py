@@ -2,8 +2,6 @@
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceStateType
@@ -70,27 +68,6 @@ class TestValidatorRun:
 
         assert validator.chunk_progress.succeeded == 0
         assert validator.chunk_progress.failed == 0
-
-    async def test_cleanup_promoted_called_at_end_of_run(self, mock_validator_brotr: Brotr) -> None:
-        """Test cleanup of promoted candidates is called at end of run cycle."""
-        mock_validator_brotr._pool.fetch = AsyncMock(
-            side_effect=[[make_candidate_row("wss://relay.com")], []]
-        )
-        mock_validator_brotr._pool.fetchval = AsyncMock(return_value=0)
-
-        validator = Validator(brotr=mock_validator_brotr)
-
-        with patch(
-            "bigbrotr.services.validator.service.is_nostr_relay",
-            new_callable=AsyncMock,
-            return_value=False,
-        ):
-            await validator.run()
-
-        assert mock_validator_brotr._pool.fetchval.called
-        calls = mock_validator_brotr._pool.fetchval.call_args_list
-        cleanup_called = any("AND EXISTS" in str(c) and "NOT EXISTS" not in str(c) for c in calls)
-        assert cleanup_called
 
     async def test_run_validates_candidates(self, mock_validator_brotr: Brotr) -> None:
         """Test basic validation flow."""
@@ -518,53 +495,63 @@ class TestPersistence:
 class TestCleanup:
     """Tests for cleanup operations."""
 
-    async def test_cleanup_stale(self, mock_validator_brotr: Brotr) -> None:
-        """Test stale candidates (already in relays) are cleaned up."""
-        mock_validator_brotr._pool.fetchval = AsyncMock(return_value=5)
+    async def test_cleanup_calls_query(self, mock_validator_brotr: Brotr) -> None:
+        """Test cleanup() delegates to cleanup_stale query."""
+        with patch(
+            "bigbrotr.services.validator.service.cleanup_stale",
+            new_callable=AsyncMock,
+            return_value=5,
+        ) as mock_query:
+            validator = Validator(brotr=mock_validator_brotr)
+            await validator.cleanup()
+            mock_query.assert_awaited_once_with(mock_validator_brotr, validator.SERVICE_NAME)
 
-        validator = Validator(brotr=mock_validator_brotr)
-        await validator.cleanup_stale()
+    async def test_cleanup_increments_counter(self, mock_validator_brotr: Brotr) -> None:
+        """Test cleanup() increments counter when stale states removed."""
+        with patch(
+            "bigbrotr.services.validator.service.cleanup_stale",
+            new_callable=AsyncMock,
+            return_value=3,
+        ):
+            validator = Validator(brotr=mock_validator_brotr)
+            with patch.object(validator, "inc_counter") as mock_counter:
+                await validator.cleanup()
+            mock_counter.assert_called_once_with("total_stale_states_removed", 3)
 
-        mock_validator_brotr._pool.fetchval.assert_called_once()
-        call_args = mock_validator_brotr._pool.fetchval.call_args[0]
-        query = call_args[0]
-        assert "DELETE FROM service_state" in query
-        assert "AND EXISTS" in query
-        assert "NOT EXISTS" not in query
-        assert call_args[1] == ServiceName.VALIDATOR
-        assert call_args[2] == ServiceStateType.CANDIDATE
-
-    async def test_cleanup_exhausted_when_enabled(self, mock_validator_brotr: Brotr) -> None:
-        """Test exhausted candidates are cleaned up when enabled."""
-        mock_validator_brotr._pool.fetchval = AsyncMock(return_value=3)
-
-        config = ValidatorConfig(cleanup={"enabled": True, "max_failures": 5})
-        validator = Validator(brotr=mock_validator_brotr, config=config)
-        await validator.cleanup_exhausted()
-
-        mock_validator_brotr._pool.fetchval.assert_called_once()
-        call_args = mock_validator_brotr._pool.fetchval.call_args
-        assert call_args[0][3] == 5  # max_failures threshold
-
-    async def test_cleanup_exhausted_not_called_when_disabled(
+    async def test_cleanup_deletes_exhausted_when_enabled(
         self, mock_validator_brotr: Brotr
     ) -> None:
-        """Test exhausted cleanup is skipped when disabled."""
-        mock_validator_brotr._pool._mock_connection.fetchval = AsyncMock(return_value=0)
+        """Test cleanup() deletes exhausted candidates when enabled."""
+        with patch(
+            "bigbrotr.services.validator.service.cleanup_stale",
+            new_callable=AsyncMock,
+            return_value=0,
+        ), patch(
+            "bigbrotr.services.validator.service.delete_exhausted_candidates",
+            new_callable=AsyncMock,
+            return_value=3,
+        ) as mock_delete:
+            config = ValidatorConfig(cleanup={"enabled": True, "max_failures": 5})
+            validator = Validator(brotr=mock_validator_brotr, config=config)
+            await validator.cleanup()
+            mock_delete.assert_awaited_once_with(mock_validator_brotr, 5)
 
-        config = ValidatorConfig(cleanup={"enabled": False})
-        validator = Validator(brotr=mock_validator_brotr, config=config)
-        await validator.cleanup_exhausted()
-
-        mock_validator_brotr._pool._mock_connection.fetchval.assert_not_called()
-
-    async def test_cleanup_propagates_db_errors(self, mock_validator_brotr: Brotr) -> None:
-        """Test cleanup propagates database errors (no internal error handling)."""
-        mock_validator_brotr._pool.fetchval = AsyncMock(side_effect=Exception("DB error"))
-
-        validator = Validator(brotr=mock_validator_brotr)
-        with pytest.raises(Exception, match="DB error"):
-            await validator.cleanup_stale()
+    async def test_cleanup_skips_exhausted_when_disabled(
+        self, mock_validator_brotr: Brotr
+    ) -> None:
+        """Test cleanup() skips exhausted deletion when disabled."""
+        with patch(
+            "bigbrotr.services.validator.service.cleanup_stale",
+            new_callable=AsyncMock,
+            return_value=0,
+        ), patch(
+            "bigbrotr.services.validator.service.delete_exhausted_candidates",
+            new_callable=AsyncMock,
+        ) as mock_delete:
+            config = ValidatorConfig(cleanup={"enabled": False})
+            validator = Validator(brotr=mock_validator_brotr, config=config)
+            await validator.cleanup()
+            mock_delete.assert_not_awaited()
 
 
 # ============================================================================

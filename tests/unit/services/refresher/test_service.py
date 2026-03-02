@@ -89,8 +89,8 @@ class TestRefresherRun:
 
         assert mock_refresher_brotr.refresh_materialized_view.call_count == 11
 
-    async def test_run_logs_per_view_duration(self, mock_refresher_brotr: Brotr) -> None:
-        """Test run logs duration for each view."""
+    async def test_run_logs_per_view(self, mock_refresher_brotr: Brotr) -> None:
+        """Test run logs each successfully refreshed view."""
         config = RefresherConfig(
             refresh=RefreshConfig(views=["event_stats"]),
         )
@@ -104,7 +104,6 @@ class TestRefresherRun:
             ]
             assert len(view_refreshed_calls) == 1
             assert view_refreshed_calls[0][1]["view"] == "event_stats"
-            assert "duration" in view_refreshed_calls[0][1]
 
     async def test_run_continues_on_failure(self, mock_refresher_brotr: Brotr) -> None:
         """Test run continues refreshing after a view fails."""
@@ -280,21 +279,3 @@ class TestRefresherMetrics:
 
         mock_counter.assert_any_call("total_views_failed", 1)
 
-    async def test_set_gauge_duration(self, mock_refresher_brotr: Brotr) -> None:
-        """Total refresh duration gauge emitted with deterministic timing."""
-        config = RefresherConfig(
-            refresh=RefreshConfig(views=["event_stats", "relay_stats"]),
-        )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
-
-        # 6 calls: cycle_start, view1_start, view1_end, view2_start, view2_end, cycle_end
-        with (
-            patch.object(refresher, "set_gauge") as mock_gauge,
-            patch(
-                "bigbrotr.services.refresher.service.time.monotonic",
-                side_effect=[100.0, 100.5, 101.0, 101.0, 102.0, 102.5],
-            ),
-        ):
-            await refresher.run()
-
-        mock_gauge.assert_any_call("total_refresh_duration", 2.5)

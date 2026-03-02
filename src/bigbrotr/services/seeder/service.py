@@ -90,6 +90,9 @@ class Seeder(BaseService[SeederConfig]):
         inserted = await self.seed()
         self._logger.info("cycle_completed", inserted=inserted)
 
+    async def cleanup(self) -> None:
+        """No-op: Seeder does not use service state."""
+
     async def seed(self) -> int:
         """Parse the seed file and insert relays.
 

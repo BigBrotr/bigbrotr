@@ -90,7 +90,7 @@ from bigbrotr.services.common.mixins import (
     NetworkSemaphoresMixin,
 )
 from bigbrotr.services.common.queries import (
-    cleanup_service_state,
+    cleanup_stale,
     fetch_relays_to_monitor,
     insert_relay_metadata,
     upsert_service_states,
@@ -243,6 +243,14 @@ class Monitor(
         finally:
             self.geo_readers.close()
 
+    async def cleanup(self) -> None:
+        """Remove stale checkpoint state for relays that no longer exist."""
+        self._logger.info("cleanup_started")
+        removed = await cleanup_stale(self._brotr, self.SERVICE_NAME)
+        if removed > 0:
+            self.inc_counter("total_stale_states_removed", removed)
+        self._logger.info("cleanup_completed", removed=removed)
+
     async def _update_geo_db(self, path: Path, url: str, db_name: str) -> None:
         """Download a single GeoLite2 database if missing or stale."""
         max_size = self._config.geo.max_download_size
@@ -307,17 +315,6 @@ class Monitor(
             self._logger.warning("no_networks_enabled")
             self._emit_progress_gauges()
             return self.chunk_progress.processed
-
-        try:
-            removed = await cleanup_service_state(
-                self._brotr, self.SERVICE_NAME, ServiceStateType.MONITORING
-            )
-            if removed:
-                self._logger.info("stale_checkpoints_removed", count=removed)
-        except (asyncpg.PostgresError, OSError) as e:
-            self._logger.warning(
-                "stale_checkpoint_cleanup_failed", error=str(e), error_type=type(e).__name__
-            )
 
         relays = await self._fetch_relays(networks)
         self.chunk_progress.total = len(relays)
@@ -736,7 +733,7 @@ class Monitor(
             markers: list[ServiceState] = [
                 ServiceState(
                     service_name=self.SERVICE_NAME,
-                    state_type=ServiceStateType.MONITORING,
+                    state_type=ServiceStateType.CHECKPOINT,
                     state_key=relay.url,
                     state_value={"monitored_at": now},
                     updated_at=now,
@@ -769,7 +766,7 @@ class Monitor(
 
         results = await self._brotr.get_service_state(
             self.SERVICE_NAME,
-            ServiceStateType.PUBLICATION,
+            ServiceStateType.CHECKPOINT,
             state_key,
         )
         last_ts = results[0].state_value.get("published_at", 0) if results else 0
@@ -792,7 +789,7 @@ class Monitor(
             [
                 ServiceState(
                     service_name=self.SERVICE_NAME,
-                    state_type=ServiceStateType.PUBLICATION,
+                    state_type=ServiceStateType.CHECKPOINT,
                     state_key=state_key,
                     state_value={"published_at": now},
                     updated_at=now,
