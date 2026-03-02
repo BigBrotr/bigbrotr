@@ -150,7 +150,7 @@ class SourceConfig(BaseModel):
     See Also:
         [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
             Parent config that embeds this model.
-        [fetch_all_relays][bigbrotr.services.common.queries.fetch_all_relays]:
+        [fetch_relays][bigbrotr.services.common.queries.fetch_relays]:
             Query used when ``from_database`` is ``True``.
     """
 
