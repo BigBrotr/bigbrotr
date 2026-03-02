@@ -8,6 +8,7 @@ Re-exports all public symbols for backwards-compatible imports::
 from .configs import (
     ApiConfig,
     ApiSourceConfig,
+    ConcurrencyConfig,
     EventsConfig,
     FinderConfig,
 )
@@ -17,6 +18,7 @@ from .service import Finder
 __all__ = [
     "ApiConfig",
     "ApiSourceConfig",
+    "ConcurrencyConfig",
     "EventsConfig",
     "Finder",
     "FinderConfig",

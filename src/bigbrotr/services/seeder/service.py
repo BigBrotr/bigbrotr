@@ -82,11 +82,13 @@ class Seeder(BaseService[SeederConfig]):
 
     async def run(self) -> None:
         """Execute the full seeding sequence: parse file and insert relays."""
-        await self.seed()
-
-    async def cleanup(self) -> int:
-        """No-op: Seeder does not use service state."""
-        return 0
+        self._logger.info(
+            "cycle_started",
+            file=self._config.seed.file_path,
+            to_validate=self._config.seed.to_validate,
+        )
+        inserted = await self.seed()
+        self._logger.info("cycle_completed", inserted=inserted)
 
     async def seed(self) -> int:
         """Parse the seed file and insert relays.

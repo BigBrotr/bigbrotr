@@ -61,7 +61,7 @@ from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.mixins import ChunkProgressMixin, NetworkSemaphoresMixin
 from bigbrotr.services.common.queries import (
-    cleanup_stale,
+    cleanup_service_state,
     count_candidates,
     delete_exhausted_candidates,
     fetch_candidates,
@@ -117,26 +117,31 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
         self._config: ValidatorConfig
 
     async def run(self) -> None:
-        """Execute one complete validation cycle."""
+        """Execute one complete validation cycle.
+
+        Orchestrates cleanup, validation, and cycle-level logging.
+        Delegates the core work to ``cleanup_stale``, ``cleanup_exhausted``,
+        and ``validate``.
+        """
+        self._logger.info(
+            "cycle_started",
+            chunk_size=self._config.processing.chunk_size,
+            max_candidates=self._config.processing.max_candidates,
+            networks=self._config.networks.get_enabled_networks(),
+        )
+
         self.chunk_progress.reset()
+        await self.cleanup_stale()
+        await self.cleanup_exhausted()
         await self.validate()
 
-    async def cleanup(self) -> int:
-        """Remove stale candidate state and exhausted candidates."""
-        removed = await cleanup_stale(self._brotr, self.SERVICE_NAME)
-        if removed > 0:
-            self.inc_counter("total_stale_states_removed", removed)
-
-        exhausted = 0
-        if self._config.cleanup.enabled:
-            exhausted = await delete_exhausted_candidates(
-                self._brotr,
-                self._config.cleanup.max_failures,
-            )
-            if exhausted > 0:
-                self.inc_counter("total_exhausted_removed", exhausted)
-
-        return removed + exhausted
+        self._logger.info(
+            "cycle_completed",
+            validated=self.chunk_progress.succeeded,
+            invalidated=self.chunk_progress.failed,
+            chunks=self.chunk_progress.chunks,
+            duration_s=self.chunk_progress.elapsed,
+        )
 
     async def validate(self) -> int:
         """Count, validate, and persist all pending candidates.
@@ -173,14 +178,60 @@ class Validator(ChunkProgressMixin, NetworkSemaphoresMixin, BaseService[Validato
                 )
 
         self._emit_progress_gauges()
-        self._logger.info(
-            "validation_completed",
-            validated=self.chunk_progress.succeeded,
-            invalidated=self.chunk_progress.failed,
-            chunks=self.chunk_progress.chunks,
-            duration_s=self.chunk_progress.elapsed,
-        )
         return self.chunk_progress.processed
+
+    async def cleanup_stale(self) -> int:
+        """Remove candidates whose URLs already exist in the relays table.
+
+        Stale candidates appear when a relay was validated by another cycle,
+        manually added, or re-discovered by the
+        [Finder][bigbrotr.services.finder.Finder]. Removing them prevents
+        wasted validation attempts.
+
+        Returns:
+            Number of stale candidates removed.
+
+        See Also:
+            [cleanup_service_state][bigbrotr.services.common.queries.cleanup_service_state]:
+                The SQL query executed by this method.
+        """
+        count = await cleanup_service_state(
+            self._brotr, ServiceName.VALIDATOR, ServiceStateType.CANDIDATE
+        )
+        if count > 0:
+            self.inc_counter("total_stale_removed", count)
+            self._logger.info("stale_removed", count=count)
+        return count
+
+    async def cleanup_exhausted(self) -> int:
+        """Remove candidates that have exceeded the maximum failure threshold.
+
+        Prevents permanently broken relays from consuming validation resources.
+        Controlled by ``cleanup.enabled`` and ``cleanup.max_failures`` in
+        [CleanupConfig][bigbrotr.services.validator.CleanupConfig].
+
+        Returns:
+            Number of exhausted candidates removed.
+
+        See Also:
+            [delete_exhausted_candidates][bigbrotr.services.common.queries.delete_exhausted_candidates]:
+                The SQL query executed by this method.
+        """
+        if not self._config.cleanup.enabled:
+            return 0
+
+        count = await delete_exhausted_candidates(
+            self._brotr,
+            self._config.cleanup.max_failures,
+        )
+        if count > 0:
+            self.inc_counter("total_exhausted_removed", count)
+            self._logger.info(
+                "exhausted_removed",
+                count=count,
+                threshold=self._config.cleanup.max_failures,
+            )
+        return count
 
     async def validate_candidate(self, candidate: Candidate) -> bool:
         """Validate a single relay candidate by connecting and testing the Nostr protocol.

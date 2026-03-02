@@ -161,7 +161,7 @@ flowchart TD
 | `events.kinds` | list[int] | `[2, 3, 10002]` | Nostr event kinds to scan |
 | `api.enabled` | bool | `true` | Enable API-based discovery |
 | `api.sources[].url` | string | -- | API endpoint URL |
-| `api.request_delay` | float | `1.0` | Delay between API calls |
+| `api.delay_between_requests` | float | `1.0` | Delay between API calls |
 
 !!! tip "API Reference"
     See [`bigbrotr.services.finder`](../reference/services/finder/index.md) for the complete Finder API.
