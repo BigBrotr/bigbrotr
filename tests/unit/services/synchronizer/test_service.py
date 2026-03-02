@@ -5,9 +5,9 @@ Tests:
 - Synchronizer initialization and factory methods
 - Relay fetching from database
 - Cursor fetching and start time resolution from cache
-- Run cycle orchestration (overrides merge, relay dispatch)
+- Run cycle orchestration and relay dispatch
 - _run_sync structured concurrency (TaskGroup, semaphores,
-  cursor flush, overrides, error handling, ExceptionGroup)
+  cursor flush, error handling, ExceptionGroup)
 - Prometheus metric emission
 - Network filtering
 - Stale cursor cleanup
@@ -22,16 +22,15 @@ from bigbrotr.models import Relay
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.configs import NetworksConfig, TorConfig
-from bigbrotr.services.common.types import EventRelayCursor
 from bigbrotr.services.synchronizer import (
     ConcurrencyConfig,
-    RelayOverride,
-    RelayOverrideTimeouts,
     SourceConfig,
     Synchronizer,
     SynchronizerConfig,
+    TimeoutsConfig,
     TimeRangeConfig,
 )
+from bigbrotr.services.synchronizer.utils import SyncBatchState
 
 
 # ============================================================================
@@ -194,8 +193,8 @@ class TestSynchronizerFetchCursors:
             ServiceName.SYNCHRONIZER, ServiceStateType.CURSOR
         )
         assert result == {
-            "wss://r1.com": EventRelayCursor(relay_url="wss://r1.com", seen_at=1000),
-            "wss://r2.com": EventRelayCursor(relay_url="wss://r2.com", seen_at=2000),
+            "wss://r1.com": 1000,
+            "wss://r2.com": 2000,
         }
 
     async def test_filters_cursors_with_missing_field(self, mock_synchronizer_brotr: Brotr) -> None:
@@ -226,7 +225,7 @@ class TestSynchronizerFetchCursors:
         result = await sync.fetch_cursors()
 
         assert result == {
-            "wss://r1.com": EventRelayCursor(relay_url="wss://r1.com", seen_at=1000),
+            "wss://r1.com": 1000,
         }
 
 
@@ -250,11 +249,7 @@ class TestSynchronizerGetStartTime:
 
         result = sync._get_start_time(
             relay,
-            {
-                "wss://relay.example.com": EventRelayCursor(
-                    relay_url="wss://relay.example.com", seen_at=1000
-                )
-            },
+            {"wss://relay.example.com": 1000},
         )
         assert result == 42
 
@@ -268,11 +263,7 @@ class TestSynchronizerGetStartTime:
 
         result = sync._get_start_time(
             relay,
-            {
-                "wss://relay.example.com": EventRelayCursor(
-                    relay_url="wss://relay.example.com", seen_at=1000
-                )
-            },
+            {"wss://relay.example.com": 1000},
         )
         assert result == 1001
 
@@ -286,11 +277,7 @@ class TestSynchronizerGetStartTime:
 
         result = sync._get_start_time(
             relay,
-            {
-                "wss://relay.example.com": EventRelayCursor(
-                    relay_url="wss://relay.example.com", seen_at=1000
-                )
-            },
+            {"wss://relay.example.com": 1000},
         )
         assert result == 500
 
@@ -343,79 +330,6 @@ class TestSynchronizerRun:
         relays_arg = sync._run_sync.call_args[0][0]
         assert len(relays_arg) == 1
 
-    async def test_run_merges_overrides(self, mock_synchronizer_brotr: Brotr) -> None:
-        """Test run() merges relay overrides not already in the list."""
-        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
-            return_value=[
-                {
-                    "url": "wss://relay1.example.com",
-                    "network": "clearnet",
-                    "discovered_at": 1700000000,
-                },
-            ]
-        )
-
-        config = SynchronizerConfig(
-            overrides=[
-                RelayOverride(url="wss://override.relay.com"),
-            ],
-        )
-        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
-        sync._run_sync = AsyncMock(return_value=0)  # type: ignore[method-assign]
-        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
-
-        await sync.run()
-
-        sync._run_sync.assert_called_once()
-        relays_arg = sync._run_sync.call_args[0][0]
-        assert len(relays_arg) == 2
-        urls = {str(r.url) for r in relays_arg}
-        assert "wss://override.relay.com" in urls or "wss://override.relay.com/" in urls
-
-    async def test_run_skips_duplicate_override(self, mock_synchronizer_brotr: Brotr) -> None:
-        """Test run() does not duplicate overrides already in DB relays."""
-        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
-            return_value=[
-                {
-                    "url": "wss://relay1.example.com",
-                    "network": "clearnet",
-                    "discovered_at": 1700000000,
-                },
-            ]
-        )
-
-        config = SynchronizerConfig(
-            overrides=[
-                RelayOverride(url="wss://relay1.example.com"),
-            ],
-        )
-        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
-        sync._run_sync = AsyncMock(return_value=0)  # type: ignore[method-assign]
-        sync.fetch_cursors = AsyncMock(return_value={})  # type: ignore[method-assign]
-
-        await sync.run()
-
-        relays_arg = sync._run_sync.call_args[0][0]
-        assert len(relays_arg) == 1
-
-    async def test_run_handles_invalid_override_url(self, mock_synchronizer_brotr: Brotr) -> None:
-        """Test run() handles invalid override URLs gracefully."""
-        mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
-            return_value=[]
-        )
-
-        config = SynchronizerConfig(
-            overrides=[
-                RelayOverride(url="not-a-valid-url"),
-            ],
-        )
-        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
-        sync._run_sync = AsyncMock(return_value=0)  # type: ignore[method-assign]
-
-        await sync.run()
-
-        # No relays to sync (DB empty + override invalid) -> _run_sync not called
-        sync._run_sync.assert_not_called()
 
 
 # ============================================================================
@@ -623,41 +537,13 @@ class TestSynchronizerRunSync:
 
         mock_sync.assert_not_called()
 
-    async def test_run_sync_with_override_timeouts(
-        self, mock_synchronizer_brotr: Brotr
-    ) -> None:
-        """Test relay override timeouts are applied."""
-        config = SynchronizerConfig(
-            overrides=[
-                RelayOverride(
-                    url="wss://relay.example.com",
-                    timeouts=RelayOverrideTimeouts(relay=999.0, request=88.0),
-                ),
-            ],
-        )
-        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
-
-        relay = Relay("wss://relay.example.com")
-
-        with patch(
-            "bigbrotr.services.synchronizer.service.sync_relay_events",
-            new_callable=AsyncMock,
-            return_value=(0, 0),
-        ):
-            await sync._run_sync(
-                [relay],
-                {},
-            )
-
     async def test_run_sync_with_cached_cursor(self, mock_synchronizer_brotr: Brotr) -> None:
         """Test relay uses cached cursor for start time."""
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
 
         relay = Relay("wss://relay.example.com")
-        cursors = {
-            "wss://relay.example.com": EventRelayCursor(
-                relay_url="wss://relay.example.com", seen_at=100
-            ),
+        cursors: dict[str, int] = {
+            "wss://relay.example.com": 100,
         }
 
         with patch(
@@ -668,6 +554,150 @@ class TestSynchronizerRunSync:
             result = await sync._run_sync([relay], cursors)
 
         assert result == 1
+
+
+# ============================================================================
+# Synchronizer Phase Timeout Tests
+# ============================================================================
+
+
+class TestSynchronizerPhaseTimeout:
+    """Tests for max_duration phase-level timeout and is_running early exit."""
+
+    async def test_max_duration_skips_relay(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test relay is skipped when max_duration is exceeded."""
+        import asyncio
+        import time as time_mod
+
+        config = SynchronizerConfig(
+            timeouts=TimeoutsConfig(max_duration=60.0),
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+
+        relay = Relay("wss://relay.example.com")
+        phase_start = time_mod.monotonic() - 61.0  # 61s ago → exceeds 60s limit
+        batch = SyncBatchState(
+            cursor_updates=[], cursor_lock=asyncio.Lock(), cursor_flush_interval=50
+        )
+
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            new_callable=AsyncMock,
+            return_value=(5, 0),
+        ) as mock_sync:
+            result = await sync._sync_single_relay(relay, {}, batch, phase_start)
+
+        assert result is None
+        mock_sync.assert_not_called()
+
+    async def test_max_duration_within_limit_proceeds(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Test relay proceeds when max_duration is not exceeded."""
+        import asyncio
+        import time as time_mod
+
+        config = SynchronizerConfig(
+            timeouts=TimeoutsConfig(max_duration=3600.0),
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+
+        relay = Relay("wss://relay.example.com")
+        phase_start = time_mod.monotonic()  # Just started → within limit
+        batch = SyncBatchState(
+            cursor_updates=[], cursor_lock=asyncio.Lock(), cursor_flush_interval=50
+        )
+
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            new_callable=AsyncMock,
+            return_value=(10, 0),
+        ):
+            result = await sync._sync_single_relay(relay, {}, batch, phase_start)
+
+        assert result == (10, 0)
+
+    async def test_max_duration_none_allows_unlimited(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Test max_duration=None does not limit sync phase."""
+        config = SynchronizerConfig(
+            timeouts=TimeoutsConfig(max_duration=None),
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+        sync.set_gauge = MagicMock()  # type: ignore[method-assign]
+
+        relay = Relay("wss://relay.example.com")
+
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            new_callable=AsyncMock,
+            return_value=(10, 0),
+        ):
+            result = await sync._run_sync([relay], {})
+
+        assert result == 10
+        sync.set_gauge.assert_any_call("relays_scanned", 1)
+
+    async def test_max_duration_run_sync_integration(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        """Test max_duration=60 via _run_sync skips relays when phase exceeded."""
+        import time as time_mod
+
+        config = SynchronizerConfig(
+            timeouts=TimeoutsConfig(max_duration=60.0),
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+        sync.set_gauge = MagicMock()  # type: ignore[method-assign]
+
+        relay = Relay("wss://relay.example.com")
+
+        original_monotonic = time_mod.monotonic
+
+        call_count = 0
+
+        def fake_monotonic() -> float:
+            nonlocal call_count
+            call_count += 1
+            # First call: phase_start in _run_sync → return real time
+            # Subsequent calls: return time far in the future to exceed max_duration
+            if call_count == 1:
+                return original_monotonic()
+            return original_monotonic() + 61.0
+
+        with (
+            patch(
+                "bigbrotr.services.synchronizer.service.sync_relay_events",
+                new_callable=AsyncMock,
+                return_value=(5, 0),
+            ) as mock_sync,
+            patch("bigbrotr.services.synchronizer.service.time.monotonic", side_effect=fake_monotonic),
+        ):
+            result = await sync._run_sync([relay], {})
+
+        assert result == 0
+        mock_sync.assert_not_called()
+        sync.set_gauge.assert_any_call("relays_scanned", 0)
+
+    async def test_shutdown_skips_relay(self, mock_synchronizer_brotr: Brotr) -> None:
+        """Test relay is skipped when shutdown is requested."""
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        sync.set_gauge = MagicMock()  # type: ignore[method-assign]
+        sync.request_shutdown()
+
+        relay = Relay("wss://relay.example.com")
+
+        with patch(
+            "bigbrotr.services.synchronizer.service.sync_relay_events",
+            new_callable=AsyncMock,
+            return_value=(5, 0),
+        ) as mock_sync:
+            result = await sync._run_sync([relay], {})
+
+        assert result == 0
+        mock_sync.assert_not_called()
+        sync.set_gauge.assert_any_call("relays_scanned", 0)
 
 
 # ============================================================================
