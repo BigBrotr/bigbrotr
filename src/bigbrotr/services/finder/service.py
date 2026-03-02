@@ -77,8 +77,6 @@ from .utils import extract_relays_from_response, extract_relays_from_tagvalues
 
 
 if TYPE_CHECKING:
-    import ssl
-
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
 
@@ -113,21 +111,14 @@ class Finder(BaseService[FinderConfig]):
 
     async def run(self) -> None:
         """Execute a single discovery cycle across all configured sources."""
-        self._logger.info(
-            "cycle_started",
-            events_enabled=self._config.events.enabled,
-            api_enabled=self._config.api.enabled,
-        )
-        found = await self.find()
-        self._logger.info("cycle_completed", found=found)
+        await self.find()
 
-    async def cleanup(self) -> None:
+    async def cleanup(self) -> int:
         """Remove stale cursor state for relays that no longer exist."""
-        self._logger.info("cleanup_started")
         removed = await cleanup_stale(self._brotr, self.SERVICE_NAME)
         if removed > 0:
             self.inc_counter("total_stale_states_removed", removed)
-        self._logger.info("cleanup_completed", removed=removed)
+        return removed
 
     async def find(self) -> int:
         """Discover relay URLs from all configured sources.
@@ -167,12 +158,7 @@ class Finder(BaseService[FinderConfig]):
         all_relays: list[Relay] = []
         fetched_sources: list[str] = []
 
-        ssl_context: ssl.SSLContext | bool = True
-        if not self._config.api.verify_ssl:
-            ssl_context = False
-
-        connector = aiohttp.TCPConnector(ssl=ssl_context)
-        async with aiohttp.ClientSession(connector=connector) as session:
+        async with aiohttp.ClientSession() as session:
             enabled = [s for s in self._config.api.sources if s.enabled]
             for i, source in enumerate(enabled):
                 if not self.is_running:
@@ -230,7 +216,7 @@ class Finder(BaseService[FinderConfig]):
 
         self.set_gauge("api_candidates", found)
         self.inc_counter("total_api_candidates", found)
-        self._logger.info("apis_completed", found=found, fetched=len(all_relays))
+        self._logger.info("apis_completed", found=found, collected=len(all_relays))
         return found
 
     async def _fetch_single_api(
@@ -255,7 +241,7 @@ class Finder(BaseService[FinderConfig]):
             connect=min(source.connect_timeout, source.timeout),
             sock_read=source.timeout,
         )
-        async with session.get(source.url, timeout=timeout) as resp:
+        async with session.get(source.url, timeout=timeout, ssl=not source.allow_insecure) as resp:
             resp.raise_for_status()
             data = await read_bounded_json(resp, self._config.api.max_response_size)
             return extract_relays_from_response(data, source.expression)
@@ -268,7 +254,7 @@ class Finder(BaseService[FinderConfig]):
             )
             if records:
                 return dict(records[0].state_value)
-        except (asyncpg.PostgresError, OSError) as e:
+        except (asyncpg.PostgresError, OSError, ValueError, TypeError) as e:
             self._logger.warning(
                 "load_api_state_failed", error=str(e), error_type=type(e).__name__
             )
@@ -356,25 +342,20 @@ class Finder(BaseService[FinderConfig]):
         phase_start = time.monotonic()
         max_duration = self._config.events.max_duration
 
-        async def _bounded_scan(cursor: EventRelayCursor) -> tuple[int, int]:
+        async def _bounded_scan(cursor: EventRelayCursor) -> tuple[int, int] | None:
             async with semaphore:
                 if not self.is_running:
-                    return 0, 0
+                    return None
                 if time.monotonic() - phase_start > max_duration:
-                    return 0, 0
+                    return None
                 return await self._scan_relay_events(cursor)
 
-        tasks: list[asyncio.Task[tuple[int, int]]] = []
+        tasks: list[asyncio.Task[tuple[int, int] | None]] = []
         try:
             async with asyncio.TaskGroup() as tg:
                 tasks.extend(tg.create_task(_bounded_scan(c)) for c in cursors)
-        except ExceptionGroup as eg:
-            for exc in eg.exceptions:
-                self._logger.error(
-                    "event_scan_worker_failed",
-                    error=str(exc),
-                    error_type=type(exc).__name__,
-                )
+        except ExceptionGroup:
+            pass  # Individual errors are logged in the task loop below
 
         total_found = 0
         total_events = 0
@@ -384,13 +365,22 @@ class Finder(BaseService[FinderConfig]):
         for task in tasks:
             if task.cancelled():
                 continue
-            if task.exception() is None:
-                events, found = task.result()
-                total_events += events
-                total_found += found
-                relays_scanned += 1
-            else:
+            exc = task.exception()
+            if exc is not None:
+                self._logger.error(
+                    "event_scan_worker_failed",
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
                 scan_failures += 1
+                continue
+            result = task.result()
+            if result is None:
+                continue
+            events, found = result
+            total_events += events
+            total_found += found
+            relays_scanned += 1
 
         return total_found, total_events, relays_scanned, scan_failures
 

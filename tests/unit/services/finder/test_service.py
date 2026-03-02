@@ -1120,6 +1120,44 @@ class TestFinderMetrics:
 
 
 # ============================================================================
+# Finder _load_api_state Tests
+# ============================================================================
+
+
+class TestFinderLoadApiState:
+    """Tests for Finder._load_api_state() error handling."""
+
+    async def test_corrupt_state_value_returns_empty(self, mock_brotr: Brotr) -> None:
+        """Corrupted state_value (TypeError/ValueError) returns empty dict."""
+        mock_record = MagicMock()
+        mock_record.state_value = "not-a-dict"  # dict() on a string yields chars as keys
+        mock_brotr.get_service_state = AsyncMock(return_value=[mock_record])  # type: ignore[method-assign]
+
+        finder = Finder(brotr=mock_brotr)
+        # dict("not-a-dict") raises ValueError, should be caught
+        result = await finder._load_api_state()
+        assert result == {}
+
+    async def test_db_error_returns_empty(self, mock_brotr: Brotr) -> None:
+        """PostgresError from get_service_state returns empty dict."""
+        mock_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
+            side_effect=asyncpg.PostgresError("db error")
+        )
+
+        finder = Finder(brotr=mock_brotr)
+        result = await finder._load_api_state()
+        assert result == {}
+
+    async def test_empty_records_returns_empty(self, mock_brotr: Brotr) -> None:
+        """Empty records list returns empty dict."""
+        mock_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+        finder = Finder(brotr=mock_brotr)
+        result = await finder._load_api_state()
+        assert result == {}
+
+
+# ============================================================================
 # Finder _save_cursor Tests
 # ============================================================================
 

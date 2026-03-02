@@ -87,6 +87,10 @@ class ApiSourceConfig(BaseModel):
         default="[*]",
         description="JMESPath expression to extract URL strings from the JSON response",
     )
+    allow_insecure: bool = Field(
+        default=False,
+        description="Allow insecure connections without TLS certificate verification",
+    )
 
     @model_validator(mode="after")
     def _validate_connect_timeout(self) -> ApiSourceConfig:
@@ -126,10 +130,6 @@ class ApiConfig(BaseModel):
     )
     request_delay: float = Field(
         default=1.0, ge=0.0, le=10.0, description="Delay between API requests"
-    )
-    verify_ssl: bool = Field(
-        default=True,
-        description="Verify TLS certificates (disable only for testing/internal APIs)",
     )
     max_response_size: int = Field(
         default=5_242_880,

@@ -152,6 +152,16 @@ class TestApiSourceConfig:
         config = ApiSourceConfig(url="https://api.com", timeout=10.0, connect_timeout=10.0)
         assert config.connect_timeout == 10.0
 
+    def test_allow_insecure_default_false(self) -> None:
+        """Test insecure connections are disabled by default."""
+        config = ApiSourceConfig(url="https://api.com")
+        assert config.allow_insecure is False
+
+    def test_allow_insecure_enabled(self) -> None:
+        """Test insecure connections can be enabled per source."""
+        config = ApiSourceConfig(url="https://internal.api.com", allow_insecure=True)
+        assert config.allow_insecure is True
+
 
 # ============================================================================
 # ApiConfig Tests
@@ -168,7 +178,6 @@ class TestApiConfig:
         assert config.enabled is True
         assert len(config.sources) == 2
         assert config.request_delay == 1.0
-        assert config.verify_ssl is True
 
     def test_default_sources(self) -> None:
         """Test default API sources include nostr.watch."""
@@ -189,11 +198,6 @@ class TestApiConfig:
 
         assert len(config.sources) == 2
         assert config.sources[0].url == "https://custom1.api.com"
-
-    def test_verify_ssl_disabled(self) -> None:
-        """Test SSL verification can be disabled."""
-        config = ApiConfig(verify_ssl=False)
-        assert config.verify_ssl is False
 
     def test_max_response_size_default(self) -> None:
         """Test default max_response_size is 5 MB."""
