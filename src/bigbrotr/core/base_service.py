@@ -256,6 +256,7 @@ class BaseService(ABC, Generic[ConfigT]):
             cycle_start = time.monotonic()
 
             try:
+                await self.cleanup()
                 await self.run()
 
                 duration = time.monotonic() - cycle_start
@@ -396,3 +397,17 @@ class BaseService(ABC, Generic[ConfigT]):
         if not self._config.metrics.enabled:
             return
         SERVICE_COUNTER.labels(service=self.SERVICE_NAME, name=name).inc(value)
+
+    @abstractmethod
+    async def cleanup(self) -> None:
+        """Pre-cycle cleanup hook invoked by ``run_forever()`` before ``run()``.
+
+        Called automatically at the beginning of each cycle. Services
+        implement this to remove stale state, expired records, or any
+        other housekeeping that should precede the main cycle logic.
+
+        See Also:
+            [run_forever()][bigbrotr.core.base_service.BaseService.run_forever]:
+                The loop that calls this method before each ``run()``.
+        """
+        ...
