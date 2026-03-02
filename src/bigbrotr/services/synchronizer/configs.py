@@ -173,7 +173,7 @@ class SynchronizerConfig(BaseServiceConfig):
         [Synchronizer][bigbrotr.services.synchronizer.Synchronizer]: The
             service class that consumes this configuration.
         [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
-            Base class providing ``interval`` and ``metrics`` fields.
+            Base class providing ``interval``, ``max_consecutive_failures``, and ``metrics`` fields.
         [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig]:
             Per-network timeout and proxy settings.
         [KeysConfig][bigbrotr.utils.keys.KeysConfig]: Nostr key management

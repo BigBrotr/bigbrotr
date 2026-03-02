@@ -146,7 +146,7 @@ class FinderConfig(BaseServiceConfig):
         [Finder][bigbrotr.services.finder.Finder]: The service class
             that consumes this configuration.
         [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
-            Base class providing ``interval`` and ``metrics`` fields.
+            Base class providing ``interval``, ``max_consecutive_failures``, and ``metrics`` fields.
     """
 
     events: EventsConfig = Field(default_factory=EventsConfig)
