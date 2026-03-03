@@ -301,10 +301,8 @@ class BaseNip(BaseModel, ABC):
     @abstractmethod
     def to_relay_metadata_tuple(self) -> tuple[Any, ...]:
         """Convert to a database-ready tuple of RelayMetadata records."""
-        ...
 
     @classmethod
     @abstractmethod
     async def create(cls, relay: Relay, **kwargs: Any) -> Self:
         """Async factory method. Never raises — check logs.success."""
-        ...

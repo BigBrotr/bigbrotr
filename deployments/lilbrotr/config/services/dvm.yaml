@@ -5,16 +5,16 @@
 # Only values that differ from defaults are specified here.
 # =============================================================================
 
+name: "LilBrotr DVM"
+about: "Read-only access to LilBrotr relay monitoring data"
+d_tag: "lilbrotr-dvm"
+
 pool:
-  user: lilbrotr_reader
+  user: reader
   password_env: DB_READER_PASSWORD
   max_size: 3
 
 interval: 60.0
-relays:
-  - "wss://relay.damus.io"
-  - "wss://nos.lol"
-  - "wss://relay.nostr.band"
 
 tables:
   relay:

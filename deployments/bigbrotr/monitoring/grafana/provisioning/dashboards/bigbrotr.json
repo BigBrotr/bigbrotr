@@ -1330,7 +1330,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "service_counter{service=\"synchronizer\", name=\"total_events_invalid\"}",
+          "expr": "service_counter_total{service=\"synchronizer\", name=\"total_events_invalid\"}",
           "legendFormat": "__auto",
           "range": false,
           "instant": true,
@@ -1392,7 +1392,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "service_counter{service=\"synchronizer\", name=\"total_sync_failures\"}",
+          "expr": "service_counter_total{service=\"synchronizer\", name=\"total_sync_failures\"}",
           "legendFormat": "__auto",
           "range": false,
           "instant": true,
@@ -1478,7 +1478,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(service_counter{service=\"synchronizer\", name=\"total_events_invalid\"}[5m])",
+          "expr": "increase(service_counter_total{service=\"synchronizer\", name=\"total_events_invalid\"}[5m])",
           "legendFormat": "Invalid (5m)",
           "range": true,
           "instant": false,
@@ -1490,7 +1490,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(service_counter{service=\"synchronizer\", name=\"total_sync_failures\"}[5m])",
+          "expr": "increase(service_counter_total{service=\"synchronizer\", name=\"total_sync_failures\"}[5m])",
           "legendFormat": "Failures (5m)",
           "range": true,
           "instant": false,
@@ -1656,7 +1656,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "service_counter{service=\"api\", name=\"requests_total\"}",
+          "expr": "service_counter_total{service=\"api\", name=\"requests_total\"}",
           "legendFormat": "__auto",
           "range": false,
           "instant": true,
@@ -1718,7 +1718,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "service_counter{service=\"api\", name=\"requests_failed\"}",
+          "expr": "service_counter_total{service=\"api\", name=\"requests_failed\"}",
           "legendFormat": "__auto",
           "range": false,
           "instant": true,
@@ -1780,7 +1780,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(service_counter{service=\"api\", name=\"requests_total\"}[5m])",
+          "expr": "increase(service_counter_total{service=\"api\", name=\"requests_total\"}[5m])",
           "legendFormat": "Requests (5m)",
           "range": true,
           "instant": false,
@@ -1792,7 +1792,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(service_counter{service=\"api\", name=\"requests_failed\"}[5m])",
+          "expr": "increase(service_counter_total{service=\"api\", name=\"requests_failed\"}[5m])",
           "legendFormat": "Failed (5m)",
           "range": true,
           "instant": false,
@@ -1943,7 +1943,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "service_counter{service=\"dvm\", name=\"jobs_processed\"}",
+          "expr": "service_counter_total{service=\"dvm\", name=\"jobs_processed\"}",
           "legendFormat": "__auto",
           "range": false,
           "instant": true,
@@ -2005,7 +2005,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "service_counter{service=\"dvm\", name=\"jobs_failed\"}",
+          "expr": "service_counter_total{service=\"dvm\", name=\"jobs_failed\"}",
           "legendFormat": "__auto",
           "range": false,
           "instant": true,
@@ -2067,7 +2067,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "service_counter{service=\"dvm\", name=\"jobs_payment_required\"}",
+          "expr": "service_counter_total{service=\"dvm\", name=\"jobs_payment_required\"}",
           "legendFormat": "__auto",
           "range": false,
           "instant": true,
@@ -2141,7 +2141,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(service_counter{service=\"dvm\", name=\"jobs_processed\"}[5m])",
+          "expr": "increase(service_counter_total{service=\"dvm\", name=\"jobs_processed\"}[5m])",
           "legendFormat": "Processed (5m)",
           "range": true,
           "instant": false,
@@ -2153,7 +2153,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(service_counter{service=\"dvm\", name=\"jobs_failed\"}[5m])",
+          "expr": "increase(service_counter_total{service=\"dvm\", name=\"jobs_failed\"}[5m])",
           "legendFormat": "Failed (5m)",
           "range": true,
           "instant": false,
@@ -2165,7 +2165,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(service_counter{service=\"dvm\", name=\"jobs_payment_required\"}[5m])",
+          "expr": "increase(service_counter_total{service=\"dvm\", name=\"jobs_payment_required\"}[5m])",
           "legendFormat": "Payment Required (5m)",
           "range": true,
           "instant": false,
@@ -2236,6 +2236,355 @@
       }
     },
     {
+      "id": 701,
+      "type": "row",
+      "title": "Refresher",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 78
+      },
+      "panels": []
+    },
+    {
+      "id": 702,
+      "type": "stat",
+      "title": "Views Refreshed",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 79
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "service_gauge{service=\"refresher\", name=\"views_refreshed\"}",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 703,
+      "type": "stat",
+      "title": "Total Refreshed",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 79
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "service_counter_total{service=\"refresher\", name=\"total_views_refreshed\"}",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 704,
+      "type": "stat",
+      "title": "Views Failed",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 79
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "service_gauge{service=\"refresher\", name=\"views_failed\"}",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 705,
+      "type": "stat",
+      "title": "Total Failed",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 79
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "service_counter_total{service=\"refresher\", name=\"total_views_failed\"}",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 706,
+      "type": "timeseries",
+      "title": "Refresh Activity",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 83
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "service_gauge{service=\"refresher\", name=\"views_refreshed\"}",
+          "legendFormat": "Views Refreshed",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(service_counter_total{service=\"refresher\", name=\"total_views_failed\"}[5m])",
+          "legendFormat": "Failed (5m)",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failed (5m)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
       "id": 49,
       "type": "row",
       "title": "Database Health",
@@ -2244,7 +2593,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 78
+        "y": 91
       },
       "panels": []
     },
@@ -2260,7 +2609,7 @@
         "h": 4,
         "w": 8,
         "x": 0,
-        "y": 79
+        "y": 92
       },
       "targets": [
         {
@@ -2330,7 +2679,7 @@
         "h": 4,
         "w": 8,
         "x": 8,
-        "y": 79
+        "y": 92
       },
       "targets": [
         {
@@ -2400,7 +2749,7 @@
         "h": 4,
         "w": 8,
         "x": 16,
-        "y": 79
+        "y": 92
       },
       "targets": [
         {
@@ -2462,7 +2811,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 83
+        "y": 96
       },
       "targets": [
         {
@@ -2471,7 +2820,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(pg_stat_database_xact_commit_total{datname=\"bigbrotr\"}[5m])",
+          "expr": "rate(pg_stat_database_xact_commit{datname=\"bigbrotr\"}[5m])",
           "legendFormat": "Commits",
           "range": true,
           "refId": "A"
@@ -2482,7 +2831,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(pg_stat_database_xact_rollback_total{datname=\"bigbrotr\"}[5m])",
+          "expr": "rate(pg_stat_database_xact_rollback{datname=\"bigbrotr\"}[5m])",
           "legendFormat": "Rollbacks",
           "range": true,
           "refId": "B"
@@ -2598,7 +2947,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 83
+        "y": 96
       },
       "targets": [
         {
@@ -2607,7 +2956,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (relname) (rate(pg_stat_user_tables_n_tup_ins_total[5m]))",
+          "expr": "sum by (relname) (rate(pg_stat_user_tables_n_tup_ins[5m]))",
           "legendFormat": "Inserts",
           "range": true,
           "refId": "A"
@@ -2618,7 +2967,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (relname) (rate(pg_stat_user_tables_n_tup_upd_total[5m]))",
+          "expr": "sum by (relname) (rate(pg_stat_user_tables_n_tup_upd[5m]))",
           "legendFormat": "Updates",
           "range": true,
           "refId": "B"
@@ -2629,7 +2978,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (relname) (rate(pg_stat_user_tables_n_tup_del_total[5m]))",
+          "expr": "sum by (relname) (rate(pg_stat_user_tables_n_tup_del[5m]))",
           "legendFormat": "Deletes",
           "range": true,
           "refId": "C"
@@ -2714,7 +3063,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 91
+        "y": 104
       },
       "targets": [
         {
@@ -2805,7 +3154,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 99
+        "y": 112
       },
       "panels": []
     },
@@ -2821,7 +3170,7 @@
         "h": 4,
         "w": 8,
         "x": 0,
-        "y": 100
+        "y": 113
       },
       "targets": [
         {
@@ -2883,7 +3232,7 @@
         "h": 4,
         "w": 8,
         "x": 8,
-        "y": 100
+        "y": 113
       },
       "targets": [
         {
@@ -2946,7 +3295,7 @@
         "h": 4,
         "w": 8,
         "x": 16,
-        "y": 100
+        "y": 113
       },
       "targets": [
         {
@@ -3008,7 +3357,7 @@
         "h": 4,
         "w": 8,
         "x": 0,
-        "y": 104
+        "y": 117
       },
       "targets": [
         {
@@ -3071,7 +3420,7 @@
         "h": 4,
         "w": 8,
         "x": 8,
-        "y": 104
+        "y": 117
       },
       "targets": [
         {
@@ -3134,7 +3483,7 @@
         "h": 4,
         "w": 8,
         "x": 16,
-        "y": 104
+        "y": 117
       },
       "targets": [
         {
@@ -3196,7 +3545,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 108
+        "y": 121
       },
       "targets": [
         {
@@ -3260,7 +3609,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 108
+        "y": 121
       },
       "targets": [
         {

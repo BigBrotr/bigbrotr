@@ -6,7 +6,7 @@
 # =============================================================================
 
 pool:
-  user: lilbrotr_refresher
+  user: refresher
   password_env: DB_REFRESHER_PASSWORD
   max_size: 2
 

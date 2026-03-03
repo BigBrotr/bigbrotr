@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.7.0] - 2026-03-03
+
+Major service refactoring release: all 8 services restructured with dedicated query modules, typed domain objects, and cleanup lifecycle. Synchronizer gains forward-progression binary split algorithm for complete event synchronization.
+
+### DEPLOYMENT CHANGES
+
+- **ServiceState `updated_at` column removed**: The `service_state` table no longer has an `updated_at` column. SQL init scripts regenerated accordingly. Existing deployments should drop the column if present
+- **ServiceState type consolidation**: `CANDIDATE` state type replaced with `CHECKPOINT`; `MONITORING` and `PUBLICATION` types merged back into `CHECKPOINT`. Existing rows must be migrated
+- **API route prefix configurable**: Api service now supports `route_prefix` in config YAML (default `/api/v1`)
+
+### Added
+
+- **Forward-progression binary split sync algorithm** (#346): `iter_relay_events()` async generator in Synchronizer guarantees all events are fetched from a relay by splitting time windows when the response hits the limit. Events are yielded in ascending time order for cursor-based resumption
+- **`cleanup()` lifecycle hook**: Abstract method on `BaseService` with implementations across all 8 services for stale state removal (orphaned cursors, exhausted candidates, obsolete checkpoints)
+- **`cleanup_stale()` shared query**: Common query for service state cleanup by composite key
+- **Grafana dashboards**: Dedicated panels (4 stat + 1 timeseries) for Finder, Monitor, Synchronizer services
+- **Postgres-exporter queries**: `relay_metadata` and `event_relay` approximate row counts
+
+### Changed
+
+- **Service-specific query modules**: Extracted queries from `common/queries.py` into per-service `queries.py` modules (finder, monitor, synchronizer, validator), decoupling query functions from service instances (#345)
+- **Finder restructured**: `find_from_events()` rewritten as async generator with per-relay streaming metrics; API cooldown moved from per-source interval to shared `api.cooldown` config; default `batch_size` lowered from 1000 to 100
+- **Monitor simplified**: Inlined `_fetch_nip11_info()` closure, merged `check_chunks()`/`_check_chunk()` into single method, removed redundant gauge updates
+- **Synchronizer restructured**: Client lifecycle extracted into `_fetch_and_insert()` method consuming the `iter_relay_events()` generator; cursor tracking returns value to caller for testability; removed `SyncContext` in favor of direct parameters
+- **Seeder simplified**: Publicized `batched_insert`, consolidated test structure
+- **Validator queries**: Use `batched_insert` pattern, consolidate test file
+- **`BaseService.run_forever()` lifecycle logging**: Centralized start/stop/error logging in base class
+- **Checkpoint/Cursor types**: Added `ApiCheckpoint`, `EventRelayCursor` typed domain objects replacing raw dicts
+- **`parse_relay_url` renamed to `parse_relay`**: Added `parse_relay_row` for database row parsing
+
+### Fixed
+
+- **SQL template drift**: Removed stale `updated_at` column and parameter from SQL generation templates
+- **Docstring cross-references**: Updated 6 broken references for query functions moved to service-specific modules
+- **Ruff lint errors**: Fixed TC003, PIE804, RUF003, ERA001 across test files
+- **Monitor `_check_chunk`**: Properly re-raise `BaseException` (including `CancelledError`)
+- **DVM `default_page_size`**: Added missing config field and fixed FFI comment
+
+### Tests
+
+- **Consolidated test structure**: All service tests moved from subdirectories (`tests/unit/services/<service>/`) to flat files (`tests/unit/services/test_<service>.py`) with configs, queries, utils, and service tests in a single file per service (#346)
+- **`TestIterRelayEvents`**: 9 tests covering empty relay, single batch, binary split, nested splits, degenerate single-second window, exception propagation, partial completion on error
+- **Updated service-level tests**: Synchronizer tests mock `_fetch_and_insert` instead of old `sync_relay_events`
+
+### Docs
+
+- **README**: Removed Resources column from Container Stack table, updated NIP references
+- **Docstrings**: Updated cross-references for cleanup lifecycle, service review, and moved query functions
+- **`DEFAULT_VIEWS` reference**: Replaced unresolvable mkdocs cross-reference with code literal
+
 ## [5.6.0] - 2026-03-01
 
 Observability, code quality, and deployment alignment release.

@@ -31,6 +31,7 @@ class ApiConfig(BaseServiceConfig):
         request_timeout: HTTP request timeout in seconds.
     """
 
+    title: str = Field(default="BigBrotr API", min_length=1)
     host: str = Field(default="0.0.0.0", min_length=1, description="HTTP bind address")  # noqa: S104
     port: int = Field(default=8080, ge=1, le=65535, description="HTTP port")
     route_prefix: str = Field(default="/v1", min_length=1)
@@ -57,4 +58,12 @@ class ApiConfig(BaseServiceConfig):
                 f"must not exceed max_page_size ({self.max_page_size})"
             )
             raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _validate_port_conflict(self) -> ApiConfig:
+        if self.metrics.enabled and self.metrics.port == self.port:
+            raise ValueError(
+                f"metrics.port ({self.metrics.port}) must differ from HTTP port ({self.port})"
+            )
         return self

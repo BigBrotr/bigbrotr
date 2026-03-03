@@ -16,8 +16,6 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import time
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Self
 
 from bigbrotr.models.constants import NetworkType
@@ -28,110 +26,6 @@ if TYPE_CHECKING:
 
     from .catalog import Catalog
     from .configs import NetworksConfig, TableConfig
-
-
-@dataclass(slots=True)
-class ChunkProgress:
-    """Tracks progress of a chunk-based processing cycle.
-
-    All counters are reset at the start of each cycle via ``reset()``.
-    Use ``record()`` after processing each chunk to update counters.
-
-    Attributes:
-        started_at: Timestamp when the cycle started (``time.time()``).
-        total: Total items to process in this cycle.
-        processed: Items processed so far.
-        succeeded: Items that succeeded.
-        failed: Items that failed.
-        chunks: Number of chunks completed.
-
-    Note:
-        ``started_at`` uses ``time.time()`` for Unix timestamps (used in
-        SQL comparisons), while ``elapsed`` uses ``time.monotonic()`` for
-        accurate duration measurement unaffected by clock adjustments.
-
-    See Also:
-        [ChunkProgressMixin][bigbrotr.services.common.mixins.ChunkProgressMixin]:
-            Mixin that exposes a ``chunk_progress`` attribute of this type.
-    """
-
-    started_at: float = field(default=0.0)
-    _monotonic_start: float = field(default=0.0, repr=False)
-    total: int = field(default=0)
-    processed: int = field(default=0)
-    succeeded: int = field(default=0)
-    failed: int = field(default=0)
-    chunks: int = field(default=0)
-
-    def reset(self) -> None:
-        """Reset all counters and set ``started_at`` to the current time."""
-        self.started_at = time.time()
-        self._monotonic_start = time.monotonic()
-        self.total = 0
-        self.processed = 0
-        self.succeeded = 0
-        self.failed = 0
-        self.chunks = 0
-
-    def record(self, succeeded: int, failed: int) -> None:
-        """Record the results of one processed chunk.
-
-        Args:
-            succeeded: Number of items that succeeded in this chunk.
-            failed: Number of items that failed in this chunk.
-        """
-        self.processed += succeeded + failed
-        self.succeeded += succeeded
-        self.failed += failed
-        self.chunks += 1
-
-    @property
-    def remaining(self) -> int:
-        """Number of items left to process."""
-        return self.total - self.processed
-
-    @property
-    def elapsed(self) -> float:
-        """Seconds elapsed since processing started, rounded to 1 decimal."""
-        return round(time.monotonic() - self._monotonic_start, 1)
-
-
-class ChunkProgressMixin:
-    """Mixin providing chunk-based processing progress tracking.
-
-    Services that process items in chunks compose this mixin to get
-    a ``chunk_progress`` attribute with counters and timing. Initialization
-    is automatic via ``__init__``.
-
-    See Also:
-        [ChunkProgress][bigbrotr.services.common.mixins.ChunkProgress]:
-            The dataclass this mixin manages.
-        [Validator][bigbrotr.services.validator.Validator],
-        [Monitor][bigbrotr.services.monitor.Monitor]: Services that
-            compose this mixin.
-
-    Examples:
-        ```python
-        class MyService(ChunkProgressMixin, BaseService[MyConfig]):
-            async def run(self):
-                self.chunk_progress.reset()
-                ...
-                self.chunk_progress.record(succeeded=len(ok), failed=len(err))
-        ```
-    """
-
-    chunk_progress: ChunkProgress
-
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.chunk_progress = ChunkProgress()
-
-    def _emit_progress_gauges(self) -> None:
-        """Emit Prometheus gauges for batch progress."""
-        self.set_gauge("total", self.chunk_progress.total)  # type: ignore[attr-defined]
-        self.set_gauge("processed", self.chunk_progress.processed)  # type: ignore[attr-defined]
-        self.set_gauge("success", self.chunk_progress.succeeded)  # type: ignore[attr-defined]
-        self.set_gauge("failure", self.chunk_progress.failed)  # type: ignore[attr-defined]
 
 
 #: Network types that support concurrent relay connections.

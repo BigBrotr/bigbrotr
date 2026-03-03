@@ -618,6 +618,8 @@ class TestProfileConfig:
         assert config.enabled is False
         assert config.interval == 86400
         assert config.relays is None
+        assert config.name == "BigBrotr Monitor"
+        assert config.about == "Nostr relay monitoring service"
 
     def test_custom_values(self) -> None:
         config = ProfileConfig(

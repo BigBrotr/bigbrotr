@@ -62,6 +62,7 @@ class BaseServiceConfig(BaseModel):
     interval: float = Field(
         default=300.0,
         ge=60.0,
+        le=604_800.0,
         description="Target seconds between cycle starts (fixed-schedule)",
     )
     max_consecutive_failures: int = Field(
@@ -153,7 +154,6 @@ class BaseService(ABC, Generic[ConfigT]):
             [run_forever()][bigbrotr.core.base_service.BaseService.run_forever]:
                 The loop that calls this method repeatedly.
         """
-        ...
 
     def request_shutdown(self) -> None:
         """Request a graceful shutdown of the service.
@@ -416,4 +416,3 @@ class BaseService(ABC, Generic[ConfigT]):
             [run_forever()][bigbrotr.core.base_service.BaseService.run_forever]:
                 The loop that calls this method before each ``run()``.
         """
-        ...

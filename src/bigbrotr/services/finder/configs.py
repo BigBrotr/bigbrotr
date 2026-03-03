@@ -37,11 +37,13 @@ class EventsConfig(BaseModel):
     max_relay_time: float | None = Field(
         default=None,
         ge=1.0,
+        le=86_400.0,
         description="Maximum seconds to scan a single relay (None = unlimited)",
     )
     max_duration: float = Field(
         default=86400.0,
         ge=1.0,
+        le=604_800.0,
         description="Maximum seconds for the entire event scanning phase",
     )
 

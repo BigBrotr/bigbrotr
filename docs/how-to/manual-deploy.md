@@ -31,8 +31,8 @@ sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE bigbrotr TO admin;"
 ### Create application roles
 
 ```bash
-sudo -u postgres psql -d bigbrotr -c "CREATE ROLE bigbrotr_writer LOGIN PASSWORD 'your_writer_password';"
-sudo -u postgres psql -d bigbrotr -c "CREATE ROLE bigbrotr_reader LOGIN PASSWORD 'your_reader_password';"
+sudo -u postgres psql -d bigbrotr -c "CREATE ROLE writer LOGIN PASSWORD 'your_writer_password';"
+sudo -u postgres psql -d bigbrotr -c "CREATE ROLE reader LOGIN PASSWORD 'your_reader_password';"
 ```
 
 ### Apply the schema
@@ -49,11 +49,11 @@ done
 
 # Apply grants (run the shell script manually or apply the SQL equivalent)
 psql -U admin -d bigbrotr -c "
-    GRANT USAGE ON SCHEMA public TO bigbrotr_writer;
-    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO bigbrotr_writer;
-    GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO bigbrotr_writer;
-    GRANT USAGE ON SCHEMA public TO bigbrotr_reader;
-    GRANT SELECT ON ALL TABLES IN SCHEMA public TO bigbrotr_reader;
+    GRANT USAGE ON SCHEMA public TO writer;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO writer;
+    GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO writer;
+    GRANT USAGE ON SCHEMA public TO reader;
+    GRANT SELECT ON ALL TABLES IN SCHEMA public TO reader;
 "
 ```
 

@@ -422,14 +422,14 @@ class TestApplyPoolOverrides:
         """Test all override fields are applied correctly."""
         brotr_dict: dict = {"pool": {"database": {"host": "pgbouncer"}}}
         overrides = {
-            "user": "bigbrotr_writer",
+            "user": "writer",
             "password_env": "DB_WRITER_PASSWORD",  # pragma: allowlist secret
             "min_size": 1,
             "max_size": 3,
         }
         _apply_pool_overrides(brotr_dict, overrides, "monitor")
 
-        assert brotr_dict["pool"]["database"]["user"] == "bigbrotr_writer"
+        assert brotr_dict["pool"]["database"]["user"] == "writer"
         assert brotr_dict["pool"]["database"]["password_env"] == "DB_WRITER_PASSWORD"
         assert brotr_dict["pool"]["database"]["host"] == "pgbouncer"
         assert brotr_dict["pool"]["limits"]["min_size"] == 1
@@ -1025,7 +1025,7 @@ pool:
         service_config = tmp_path / "monitor.yaml"
         service_config.write_text("""
 pool:
-  user: bigbrotr_writer
+  user: writer
   password_env: DB_WRITER_PASSWORD  # pragma: allowlist secret
   min_size: 1
   max_size: 3
@@ -1066,7 +1066,7 @@ metrics:
 
         # Brotr.from_dict should receive merged config
         brotr_call_dict = mock_from_dict.call_args[0][0]
-        assert brotr_call_dict["pool"]["database"]["user"] == "bigbrotr_writer"
+        assert brotr_call_dict["pool"]["database"]["user"] == "writer"
         assert brotr_call_dict["pool"]["database"]["password_env"] == "DB_WRITER_PASSWORD"
         assert brotr_call_dict["pool"]["database"]["host"] == "pgbouncer"
         assert brotr_call_dict["pool"]["limits"]["min_size"] == 1

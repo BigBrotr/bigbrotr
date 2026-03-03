@@ -1,13 +1,12 @@
 #!/bin/bash
-# Create application-specific database roles (writer + reader + refresher).
-# Role names are derived from POSTGRES_DB to match the deployment.
+# Create application database roles (writer + reader + refresher).
 # Idempotent: skips creation if roles already exist.
 
 set -euo pipefail
 
-WRITER_ROLE="${POSTGRES_DB}_writer"
-READER_ROLE="${POSTGRES_DB}_reader"
-REFRESHER_ROLE="${POSTGRES_DB}_refresher"
+WRITER_ROLE="writer"
+READER_ROLE="reader"
+REFRESHER_ROLE="refresher"
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
     DO \$\$

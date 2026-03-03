@@ -95,12 +95,17 @@ def test_client(api_service: Api) -> TestClient:
 class TestApiConfig:
     def test_default_values(self) -> None:
         config = ApiConfig()
+        assert config.title == "BigBrotr API"
         assert config.host == "0.0.0.0"
         assert config.port == 8080
         assert config.max_page_size == 1000
         assert config.default_page_size == 100
         assert config.tables == {}
         assert config.cors_origins == []
+
+    def test_custom_title(self) -> None:
+        config = ApiConfig(title="LilBrotr API")
+        assert config.title == "LilBrotr API"
 
     def test_custom_values(self) -> None:
         config = ApiConfig(
@@ -137,6 +142,20 @@ class TestApiConfig:
     def test_empty_host_rejected(self) -> None:
         with pytest.raises(ValueError):
             ApiConfig(host="")
+
+    def test_port_conflict_with_metrics_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"metrics\.port.*must differ.*HTTP port"):
+            ApiConfig(port=8000, metrics={"enabled": True, "port": 8000})
+
+    def test_port_conflict_ignored_when_metrics_disabled(self) -> None:
+        config = ApiConfig(port=8000, metrics={"enabled": False, "port": 8000})
+        assert config.port == 8000
+        assert config.metrics.port == 8000
+
+    def test_different_ports_accepted(self) -> None:
+        config = ApiConfig(port=8080, metrics={"enabled": True, "port": 9090})
+        assert config.port == 8080
+        assert config.metrics.port == 9090
 
 
 class TestApiConfigRoutePrefix:
@@ -368,6 +387,19 @@ class TestApiEndpointTimeouts:
 # ============================================================================
 # Custom Route Prefix Tests
 # ============================================================================
+
+
+class TestApiBuildApp:
+    def test_app_title_from_config(self, mock_brotr: object, sample_catalog: object) -> None:
+        config = ApiConfig(title="LilBrotr API", tables={"relay": TableConfig(enabled=True)})
+        service = Api(brotr=mock_brotr, config=config)  # type: ignore[arg-type]
+        service._catalog = sample_catalog  # type: ignore[assignment]
+        app = service._build_app()
+        assert app.title == "LilBrotr API"
+
+    def test_app_title_default(self, api_service: Api) -> None:
+        app = api_service._build_app()
+        assert app.title == "BigBrotr API"
 
 
 class TestApiCustomPrefix:

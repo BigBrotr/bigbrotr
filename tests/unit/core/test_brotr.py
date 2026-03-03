@@ -116,6 +116,25 @@ class TestTimeoutsConfig:
         with pytest.raises(ValidationError):
             TimeoutsConfig(query=0.05)
 
+    def test_maximum_validation(self) -> None:
+        """Test maximum value validation (query/batch/cleanup <= 3600)."""
+        config = TimeoutsConfig(query=3600.0, batch=3600.0, cleanup=3600.0)
+        assert config.query == 3600.0
+
+        with pytest.raises(ValidationError):
+            TimeoutsConfig(query=3601.0)
+
+        with pytest.raises(ValidationError):
+            TimeoutsConfig(batch=3601.0)
+
+        with pytest.raises(ValidationError):
+            TimeoutsConfig(cleanup=3601.0)
+
+    def test_refresh_has_no_upper_bound(self) -> None:
+        """Test that refresh timeout has no upper bound (matview refreshes can be long)."""
+        config = TimeoutsConfig(refresh=7200.0)
+        assert config.refresh == 7200.0
+
 
 class TestBrotrConfig:
     """Tests for BrotrConfig composite model."""

@@ -237,7 +237,7 @@ Each service declares its own database connection settings in its YAML config fi
 ```yaml
 # config/services/monitor.yaml
 pool:
-  user: bigbrotr_writer
+  user: writer
   password_env: DB_WRITER_PASSWORD
   min_size: 1
   max_size: 3
@@ -249,7 +249,7 @@ pool:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `user` | string | Database role for this service (e.g., `bigbrotr_writer`, `bigbrotr_reader`) |
+| `user` | string | Database role for this service (e.g., `writer`, `reader`, `refresher`) |
 | `password_env` | string | Environment variable containing the role's password |
 | `min_size` | int | Minimum pool connections for this service |
 | `max_size` | int | Maximum pool connections for this service |
@@ -644,9 +644,6 @@ concurrency:
   max_parallel: 10                           # Concurrent relays per process
   cursor_flush_interval: 50                  # Flush cursors every N relays
 
-source:
-  from_database: true                        # Fetch relay list from database
-
 overrides: []                                # Per-relay timeout overrides
 # - url: "wss://relay.damus.io"
 #   timeouts:
@@ -687,12 +684,6 @@ overrides: []                                # Per-relay timeout overrides
 |-------|------|---------|-------|-------------|
 | `concurrency.max_parallel` | int | `10` | 1-100 | Concurrent relays per process |
 | `concurrency.cursor_flush_interval` | int | `50` | - | Flush cursors every N relays |
-
-### Source Reference
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `source.from_database` | bool | `true` | Fetch relay list from database |
 
 ---
 
@@ -745,7 +736,7 @@ pool:
 ```yaml
 # services/finder.yaml -- per-service pool overrides
 pool:
-  user: bigbrotr_writer
+  user: writer
   password_env: DB_WRITER_PASSWORD
   min_size: 1
   max_size: 3
@@ -773,8 +764,6 @@ pool:
 interval: 300.0
 concurrency:
   max_parallel: 50
-source:
-  from_database: true
 ```
 
 ### Monitoring-Only (No Event Archiving)

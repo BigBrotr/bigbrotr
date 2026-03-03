@@ -105,6 +105,14 @@ class TestBaseServiceConfig:
         with pytest.raises(ValidationError):
             BaseServiceConfig(interval=30.0)
 
+    def test_interval_maximum_validation(self) -> None:
+        """Test that interval must be <= 604800 seconds (1 week)."""
+        config = BaseServiceConfig(interval=604_800.0)
+        assert config.interval == 604_800.0
+
+        with pytest.raises(ValidationError):
+            BaseServiceConfig(interval=604_801.0)
+
     def test_max_consecutive_failures_zero_allowed(self) -> None:
         """Test that max_consecutive_failures=0 (unlimited) is allowed."""
         config = BaseServiceConfig(max_consecutive_failures=0)
