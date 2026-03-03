@@ -33,7 +33,5 @@ processing:
       max_attempts: 2               # Retry failed HTTP status checks
 
 networks:
-  clearnet:
-    max_tasks: 100                 # Double the default for faster health checks
   tor:
     enabled: true                  # Monitor Tor (.onion) relays

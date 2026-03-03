@@ -41,7 +41,14 @@ class DvmConfig(BaseServiceConfig, KeysConfig):
     relays: Annotated[
         list[Relay],
         BeforeValidator(lambda v: [Relay(url) if isinstance(url, str) else url for url in v]),
-    ] = Field(min_length=1)
+    ] = Field(
+        default_factory=lambda: [
+            Relay("wss://relay.damus.io"),
+            Relay("wss://nos.lol"),
+            Relay("wss://relay.nostr.band"),
+        ],
+        min_length=1,
+    )
     kind: int = Field(default=5050, ge=5000, le=5999)
 
     default_page_size: int = Field(default=100, ge=1, le=10000)

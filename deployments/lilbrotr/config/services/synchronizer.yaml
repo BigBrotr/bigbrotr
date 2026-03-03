@@ -17,7 +17,5 @@ metrics:
   host: "0.0.0.0"                  # Bind to all interfaces for Docker access
 
 networks:
-  clearnet:
-    max_tasks: 100                 # Double the default for faster sync
   tor:
     enabled: true                  # Sync from Tor (.onion) relays

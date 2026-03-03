@@ -11,10 +11,6 @@ pool:
   max_size: 3
 
 interval: 60.0
-relays:
-  - "wss://relay.damus.io"
-  - "wss://nos.lol"
-  - "wss://relay.nostr.band"
 
 tables:
   relay:
