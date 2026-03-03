@@ -15,19 +15,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from bigbrotr.core.base_service import BaseServiceConfig
 
 
-class ConcurrencyConfig(BaseModel):
-    """Concurrency limits for parallel operations.
-
-    See Also:
-        [FinderConfig][bigbrotr.services.finder.FinderConfig]: Parent
-            config that embeds this model.
-    """
-
-    max_parallel_events: int = Field(
-        default=10, ge=1, le=50, description="Maximum concurrent relay event scans"
-    )
-
-
 class EventsConfig(BaseModel):
     """Event scanning configuration for discovering relay URLs from stored events.
 
@@ -46,12 +33,25 @@ class EventsConfig(BaseModel):
     batch_size: int = Field(
         default=1000, ge=100, le=10_000, description="Events to process per batch"
     )
+    parallel_relays: int = Field(
+        default=50, ge=1, le=200, description="Maximum concurrent relay event scans"
+    )
+    max_relay_time: float | None = Field(
+        default=None,
+        ge=1.0,
+        description="Maximum seconds to scan a single relay (None = unlimited)",
+    )
+    max_duration: float = Field(
+        default=86400.0,
+        ge=1.0,
+        description="Maximum seconds for the entire event scanning phase",
+    )
 
 
 class ApiSourceConfig(BaseModel):
     """Single API source configuration.
 
-    The ``jmespath`` field declares how relay URL strings are extracted from
+    The ``expression`` field declares how relay URL strings are extracted from
     the JSON response.  It accepts any valid
     `JMESPath <https://jmespath.org/>`_ expression.  The default ``[*]``
     assumes the response is a flat JSON array of URL strings.
@@ -64,7 +64,7 @@ class ApiSourceConfig(BaseModel):
         keys(@)               -- dict keys are the URLs
 
     See Also:
-        [extract_urls_from_response][bigbrotr.services.finder.utils.extract_urls_from_response]:
+        [extract_relays_from_response][bigbrotr.services.finder.utils.extract_relays_from_response]:
             The extraction function driven by this field.
     """
 
@@ -77,9 +77,13 @@ class ApiSourceConfig(BaseModel):
         le=60.0,
         description="HTTP connection timeout (capped to total timeout)",
     )
-    jmespath: str = Field(
+    expression: str = Field(
         default="[*]",
         description="JMESPath expression to extract URL strings from the JSON response",
+    )
+    allow_insecure: bool = Field(
+        default=False,
+        description="Allow insecure connections without TLS certificate verification",
     )
 
     @model_validator(mode="after")
@@ -90,9 +94,9 @@ class ApiSourceConfig(BaseModel):
             )
         return self
 
-    @field_validator("jmespath")
+    @field_validator("expression")
     @classmethod
-    def _validate_jmespath(cls, v: str) -> str:
+    def _validate_expression(cls, v: str) -> str:
         try:
             jmespath.compile(v)
         except jmespath.exceptions.ParseError as e:
@@ -112,18 +116,20 @@ class ApiConfig(BaseModel):
     """
 
     enabled: bool = Field(default=True, description="Enable API fetching")
+    cooldown: float = Field(
+        default=86400.0,
+        ge=1.0,
+        le=604_800.0,
+        description="Minimum seconds to wait before querying any source again",
+    )
     sources: list[ApiSourceConfig] = Field(
         default_factory=lambda: [
             ApiSourceConfig(url="https://api.nostr.watch/v1/online"),
             ApiSourceConfig(url="https://api.nostr.watch/v1/offline"),
         ]
     )
-    delay_between_requests: float = Field(
+    request_delay: float = Field(
         default=1.0, ge=0.0, le=10.0, description="Delay between API requests"
-    )
-    verify_ssl: bool = Field(
-        default=True,
-        description="Verify TLS certificates (disable only for testing/internal APIs)",
     )
     max_response_size: int = Field(
         default=5_242_880,
@@ -140,9 +146,8 @@ class FinderConfig(BaseServiceConfig):
         [Finder][bigbrotr.services.finder.Finder]: The service class
             that consumes this configuration.
         [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
-            Base class providing ``interval`` and ``metrics`` fields.
+            Base class providing ``interval``, ``max_consecutive_failures``, and ``metrics`` fields.
     """
 
-    concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
-    events: EventsConfig = Field(default_factory=EventsConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
+    events: EventsConfig = Field(default_factory=EventsConfig)

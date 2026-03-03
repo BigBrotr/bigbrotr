@@ -11,6 +11,7 @@ Tests:
 - Error handling
 """
 
+import time
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -19,15 +20,11 @@ import asyncpg
 import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import Relay
-from bigbrotr.models.constants import ServiceName
-from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.types import EventRelayCursor
-from bigbrotr.services.common.utils import parse_relay_url
+from bigbrotr.services.common.utils import parse_relay
 from bigbrotr.services.finder import (
     ApiConfig,
     ApiSourceConfig,
-    ConcurrencyConfig,
     EventsConfig,
     Finder,
     FinderConfig,
@@ -139,8 +136,12 @@ class TestFinderFindFromApi:
             )
         )
         finder = Finder(brotr=mock_brotr, config=config)
-
-        result = await finder.find_from_api()
+        with patch(
+            "bigbrotr.services.finder.service.load_api_checkpoints",
+            new_callable=AsyncMock,
+            return_value={},
+        ):
+            result = await finder.find_from_api()
 
         assert result == 0
 
@@ -150,14 +151,22 @@ class TestFinderFindFromApi:
             api=ApiConfig(
                 enabled=True,
                 sources=[ApiSourceConfig(url="https://api.example.com")],
-                delay_between_requests=0,
+                request_delay=0,
             )
         )
         finder = Finder(brotr=mock_brotr, config=config)
-
         mock_response = _mock_api_response(["wss://relay1.com", "wss://relay2.com"])
 
         with (
+            patch(
+                "bigbrotr.services.finder.service.load_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "bigbrotr.services.finder.service.save_api_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
             patch("aiohttp.ClientSession") as mock_session_cls,
             patch(
                 "bigbrotr.services.finder.service.insert_relays_as_candidates",
@@ -174,6 +183,7 @@ class TestFinderFindFromApi:
             result = await finder.find_from_api()
 
             assert result == 2
+            mock_save.assert_awaited_once()
 
     async def test_find_from_api_handles_errors(self, mock_brotr: Brotr) -> None:
         """Test API fetch handles errors gracefully."""
@@ -181,12 +191,22 @@ class TestFinderFindFromApi:
             api=ApiConfig(
                 enabled=True,
                 sources=[ApiSourceConfig(url="https://api.example.com")],
-                delay_between_requests=0,
+                request_delay=0,
             )
         )
         finder = Finder(brotr=mock_brotr, config=config)
-
-        with patch("aiohttp.ClientSession") as mock_session_cls:
+        with (
+            patch(
+                "bigbrotr.services.finder.service.load_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "bigbrotr.services.finder.service.save_api_checkpoints",
+                new_callable=AsyncMock,
+            ),
+            patch("aiohttp.ClientSession") as mock_session_cls,
+        ):
             mock_session = MagicMock()
             mock_session.get = MagicMock(side_effect=aiohttp.ClientError("Connection failed"))
             mock_session.__aenter__ = AsyncMock(return_value=mock_session)
@@ -196,6 +216,76 @@ class TestFinderFindFromApi:
             result = await finder.find_from_api()
 
             assert result == 0
+
+    async def test_find_from_api_skips_source_within_cooldown(self, mock_brotr: Brotr) -> None:
+        """Test that sources within their cooldown are skipped."""
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                sources=[
+                    ApiSourceConfig(url="https://api.example.com", cooldown=3600.0),
+                ],
+                request_delay=0,
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+        with (
+            patch(
+                "bigbrotr.services.finder.service.load_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value={"https://api.example.com": int(time.time()) - 100},
+            ),
+            patch(
+                "bigbrotr.services.finder.service.save_api_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
+        ):
+            result = await finder.find_from_api()
+
+            assert result == 0
+            mock_save.assert_not_awaited()
+
+    async def test_find_from_api_fetches_source_past_cooldown(self, mock_brotr: Brotr) -> None:
+        """Test that sources past their cooldown are fetched."""
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                sources=[
+                    ApiSourceConfig(url="https://api.example.com", cooldown=3600.0),
+                ],
+                request_delay=0,
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+        mock_response = _mock_api_response(["wss://relay1.com"])
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.load_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value={"https://api.example.com": int(time.time()) - 7200},
+            ),
+            patch(
+                "bigbrotr.services.finder.service.save_api_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
+            patch("aiohttp.ClientSession") as mock_session_cls,
+            patch(
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+        ):
+            mock_session = MagicMock()
+            mock_session.get = MagicMock(return_value=mock_response)
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_session_cls.return_value = mock_session
+
+            result = await finder.find_from_api()
+
+            assert result == 1
+            mock_save.assert_awaited_once()
 
 
 # ============================================================================
@@ -218,7 +308,7 @@ class TestFinderFetchSingleApi:
         result = await finder._fetch_single_api(mock_session, source)
 
         assert len(result) == 2
-        result_urls = [str(r) for r in result]
+        result_urls = [r.url for r in result]
         assert "wss://relay1.com" in result_urls
         assert "wss://relay2.com" in result_urls
 
@@ -234,7 +324,7 @@ class TestFinderFetchSingleApi:
         result = await finder._fetch_single_api(mock_session, source)
 
         assert len(result) == 1
-        result_urls = [str(r) for r in result]
+        result_urls = [r.url for r in result]
         assert "wss://valid.relay.com" in result_urls
 
     async def test_fetch_single_api_handles_non_list_response(self, mock_brotr: Brotr) -> None:
@@ -289,7 +379,7 @@ class TestFinderFetchSingleApi:
         finder = Finder(brotr=mock_brotr)
         source = ApiSourceConfig(
             url="https://api.example.com",
-            jmespath="data.relays",
+            expression="data.relays",
         )
 
         mock_response = _mock_api_response(
@@ -301,7 +391,7 @@ class TestFinderFetchSingleApi:
         result = await finder._fetch_single_api(mock_session, source)
 
         assert len(result) == 2
-        result_urls = [str(r) for r in result]
+        result_urls = [r.url for r in result]
         assert "wss://relay1.com" in result_urls
         assert "wss://relay2.com" in result_urls
 
@@ -310,7 +400,7 @@ class TestFinderFetchSingleApi:
         finder = Finder(brotr=mock_brotr)
         source = ApiSourceConfig(
             url="https://api.example.com",
-            jmespath="[*].address",
+            expression="[*].address",
         )
 
         mock_response = _mock_api_response(
@@ -322,7 +412,7 @@ class TestFinderFetchSingleApi:
         result = await finder._fetch_single_api(mock_session, source)
 
         assert len(result) == 2
-        result_urls = [str(r) for r in result]
+        result_urls = [r.url for r in result]
         assert "wss://relay1.com" in result_urls
         assert "wss://relay2.com" in result_urls
 
@@ -331,7 +421,7 @@ class TestFinderFetchSingleApi:
         finder = Finder(brotr=mock_brotr)
         source = ApiSourceConfig(
             url="https://api.example.com",
-            jmespath="keys(@)",
+            expression="keys(@)",
         )
 
         mock_response = _mock_api_response(
@@ -343,7 +433,7 @@ class TestFinderFetchSingleApi:
         result = await finder._fetch_single_api(mock_session, source)
 
         assert len(result) == 2
-        result_urls = [str(r) for r in result]
+        result_urls = [r.url for r in result]
         assert "wss://relay1.com" in result_urls
         assert "wss://relay2.com" in result_urls
 
@@ -375,7 +465,7 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.fetch_event_relay_cursors", new_callable=AsyncMock
             ) as mock_get_relays,
             patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
@@ -386,7 +476,9 @@ class TestFinderFindFromEvents:
                 new_callable=AsyncMock,
             ) as mock_insert,
         ):
-            mock_get_relays.return_value = [Relay("wss://source.relay.com")]
+            mock_get_relays.return_value = [
+                EventRelayCursor(relay_url="wss://source.relay.com"),
+            ]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 1
 
@@ -413,7 +505,7 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.fetch_event_relay_cursors", new_callable=AsyncMock
             ) as mock_get_relays,
             patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
@@ -424,7 +516,9 @@ class TestFinderFindFromEvents:
                 new_callable=AsyncMock,
             ) as mock_insert,
         ):
-            mock_get_relays.return_value = [Relay("wss://source.relay.com")]
+            mock_get_relays.return_value = [
+                EventRelayCursor(relay_url="wss://source.relay.com"),
+            ]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 2
 
@@ -452,7 +546,7 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.fetch_event_relay_cursors", new_callable=AsyncMock
             ) as mock_get_relays,
             patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
@@ -463,7 +557,9 @@ class TestFinderFindFromEvents:
                 new_callable=AsyncMock,
             ) as mock_insert,
         ):
-            mock_get_relays.return_value = [Relay("wss://source.relay.com")]
+            mock_get_relays.return_value = [
+                EventRelayCursor(relay_url="wss://source.relay.com"),
+            ]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 1
 
@@ -490,7 +586,7 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.fetch_event_relay_cursors", new_callable=AsyncMock
             ) as mock_get_relays,
             patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
@@ -501,7 +597,9 @@ class TestFinderFindFromEvents:
                 new_callable=AsyncMock,
             ) as mock_insert,
         ):
-            mock_get_relays.return_value = [Relay("wss://source.relay.com")]
+            mock_get_relays.return_value = [
+                EventRelayCursor(relay_url="wss://source.relay.com"),
+            ]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 0
 
@@ -526,7 +624,7 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.fetch_event_relay_cursors", new_callable=AsyncMock
             ) as mock_get_relays,
             patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
@@ -537,7 +635,9 @@ class TestFinderFindFromEvents:
                 new_callable=AsyncMock,
             ) as mock_insert,
         ):
-            mock_get_relays.return_value = [Relay("wss://source.relay.com")]
+            mock_get_relays.return_value = [
+                EventRelayCursor(relay_url="wss://source.relay.com"),
+            ]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 1
 
@@ -562,7 +662,7 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.fetch_event_relay_cursors", new_callable=AsyncMock
             ) as mock_get_relays,
             patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
@@ -573,7 +673,9 @@ class TestFinderFindFromEvents:
                 new_callable=AsyncMock,
             ) as mock_insert,
         ):
-            mock_get_relays.return_value = [Relay("wss://source.relay.com")]
+            mock_get_relays.return_value = [
+                EventRelayCursor(relay_url="wss://source.relay.com"),
+            ]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 1
 
@@ -610,7 +712,7 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_all_relays", new_callable=AsyncMock
+                "bigbrotr.services.finder.service.fetch_event_relay_cursors", new_callable=AsyncMock
             ) as mock_get_relays,
             patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
@@ -621,7 +723,9 @@ class TestFinderFindFromEvents:
                 new_callable=AsyncMock,
             ) as mock_insert,
         ):
-            mock_get_relays.return_value = [Relay("wss://source.relay.com")]
+            mock_get_relays.return_value = [
+                EventRelayCursor(relay_url="wss://source.relay.com"),
+            ]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 2
 
@@ -665,12 +769,12 @@ class TestFinderEventScanConcurrency:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_all_relays",
+                "bigbrotr.services.finder.service.fetch_event_relay_cursors",
                 new_callable=AsyncMock,
                 return_value=[
-                    Relay("wss://relay1.com"),
-                    Relay("wss://relay2.com"),
-                    Relay("wss://relay3.com"),
+                    EventRelayCursor(relay_url="wss://relay1.com"),
+                    EventRelayCursor(relay_url="wss://relay2.com"),
+                    EventRelayCursor(relay_url="wss://relay3.com"),
                 ],
             ),
             patch(
@@ -687,7 +791,7 @@ class TestFinderEventScanConcurrency:
             mock_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
             config = FinderConfig(
-                concurrency=ConcurrencyConfig(max_parallel_events=10),
+                events=EventsConfig(parallel_relays=10),
             )
             finder = Finder(brotr=mock_brotr, config=config)
             finder.set_gauge = MagicMock()  # type: ignore[method-assign]
@@ -696,7 +800,7 @@ class TestFinderEventScanConcurrency:
             result = await finder.find_from_events()
 
             assert result == 3
-            finder.set_gauge.assert_any_call("relays_processed", 3)
+            finder.set_gauge.assert_any_call("relays_scanned", 3)
 
     async def test_task_failure_does_not_block_others(self, mock_brotr: Brotr) -> None:
         """A DB error in one relay scan does not prevent other relays from completing."""
@@ -719,9 +823,12 @@ class TestFinderEventScanConcurrency:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_all_relays",
+                "bigbrotr.services.finder.service.fetch_event_relay_cursors",
                 new_callable=AsyncMock,
-                return_value=[Relay("wss://good.relay.com"), Relay("wss://failing.relay.com")],
+                return_value=[
+                    EventRelayCursor(relay_url="wss://good.relay.com"),
+                    EventRelayCursor(relay_url="wss://failing.relay.com"),
+                ],
             ),
             patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
@@ -746,7 +853,7 @@ class TestFinderEventScanConcurrency:
             # returns (0, 0) and the good relay returns (1, 1). Both tasks
             # complete without exception, so both count as processed.
             assert result == 1
-            finder.set_gauge.assert_any_call("relays_processed", 2)
+            finder.set_gauge.assert_any_call("relays_scanned", 2)
 
     async def test_semaphore_limits_concurrency(self, mock_brotr: Brotr) -> None:
         """Semaphore limits the number of concurrent scans."""
@@ -758,26 +865,24 @@ class TestFinderEventScanConcurrency:
 
         original_scan = Finder._scan_relay_events
 
-        async def _tracking_scan(
-            self: Any, relay_url: str, cursors: dict[str, EventRelayCursor]
-        ) -> tuple[int, int]:
+        async def _tracking_scan(self: Any, cursor: EventRelayCursor) -> tuple[int, int]:
             nonlocal max_concurrent, current_concurrent
             async with lock:
                 current_concurrent += 1
                 max_concurrent = max(max_concurrent, current_concurrent)
             try:
-                return await original_scan(self, relay_url, cursors)
+                return await original_scan(self, cursor)
             finally:
                 async with lock:
                     current_concurrent -= 1
 
-        relays = [Relay(f"wss://relay{i}.com") for i in range(20)]
+        cursors = [EventRelayCursor(relay_url=f"wss://relay{i}.com") for i in range(20)]
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_all_relays",
+                "bigbrotr.services.finder.service.fetch_event_relay_cursors",
                 new_callable=AsyncMock,
-                return_value=relays,
+                return_value=cursors,
             ),
             patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
@@ -787,7 +892,7 @@ class TestFinderEventScanConcurrency:
             patch.object(Finder, "_scan_relay_events", _tracking_scan),
         ):
             config = FinderConfig(
-                concurrency=ConcurrencyConfig(max_parallel_events=3),
+                events=EventsConfig(parallel_relays=3),
             )
             finder = Finder(brotr=mock_brotr, config=config)
             finder.set_gauge = MagicMock()  # type: ignore[method-assign]
@@ -804,46 +909,46 @@ class TestFinderEventScanConcurrency:
 
 
 class TestParseRelayUrl:
-    """Tests for parse_relay_url() utility function."""
+    """Tests for parse_relay() utility function."""
 
     def test_parse_valid_wss_url(self) -> None:
         """Test parsing valid wss:// URL."""
-        result = parse_relay_url("wss://relay.example.com")
+        result = parse_relay("wss://relay.example.com")
 
         assert result is not None
         assert result.url == "wss://relay.example.com"
 
     def test_parse_valid_ws_url(self) -> None:
         """Clearnet ws:// URL is automatically upgraded to wss://."""
-        result = parse_relay_url("ws://relay.example.com")
+        result = parse_relay("ws://relay.example.com")
 
         assert result is not None
         assert result.url == "wss://relay.example.com"
 
     def test_parse_invalid_url(self) -> None:
         """Test parsing invalid URL returns None."""
-        assert parse_relay_url("not-a-url") is None
-        assert parse_relay_url("http://wrong-scheme.com") is None
-        assert parse_relay_url("") is None
-        assert parse_relay_url(None) is None  # type: ignore[arg-type]
+        assert parse_relay("not-a-url") is None
+        assert parse_relay("http://wrong-scheme.com") is None
+        assert parse_relay("") is None
+        assert parse_relay(None) is None  # type: ignore[arg-type]
 
     def test_parse_tor_url(self) -> None:
         """Test parsing Tor .onion URL."""
-        result = parse_relay_url("ws://example.onion")
+        result = parse_relay("ws://example.onion")
 
         assert result is not None
         assert "onion" in result.url
 
     def test_parse_i2p_url(self) -> None:
         """Test parsing I2P .i2p URL."""
-        result = parse_relay_url("ws://example.i2p")
+        result = parse_relay("ws://example.i2p")
 
         assert result is not None
         assert "i2p" in result.url
 
     def test_parse_strips_whitespace(self) -> None:
         """Test parsing strips whitespace."""
-        result = parse_relay_url("  wss://relay.example.com  ")
+        result = parse_relay("  wss://relay.example.com  ")
 
         assert result is not None
         assert result.url == "wss://relay.example.com"
@@ -867,9 +972,11 @@ class TestFinderMetrics:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_all_relays",
+                "bigbrotr.services.finder.service.fetch_event_relay_cursors",
                 new_callable=AsyncMock,
-                return_value=[Relay("wss://source.relay.com")],
+                return_value=[
+                    EventRelayCursor(relay_url="wss://source.relay.com"),
+                ],
             ),
             patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
@@ -890,13 +997,11 @@ class TestFinderMetrics:
 
             await finder.find_from_events()
 
-            finder.set_gauge.assert_any_call("events_scanned", 1)
-            finder.set_gauge.assert_any_call("relays_found", 2)
-            finder.set_gauge.assert_any_call("relays_processed", 1)
-            finder.inc_counter.assert_any_call("total_events_scanned", 1)
-            finder.inc_counter.assert_any_call("total_relays_found", 2)
-            finder.inc_counter.assert_any_call("total_relays_processed", 1)
-            finder.inc_counter.assert_any_call("total_relays_failed", 0)
+            finder.set_gauge.assert_any_call("event_candidates", 2)
+            finder.set_gauge.assert_any_call("relays_scanned", 1)
+            finder.inc_counter.assert_any_call("total_event_candidates", 2)
+            finder.inc_counter.assert_any_call("total_events_processed", 1)
+            finder.inc_counter.assert_any_call("total_scan_failures", 0)
 
     async def test_find_from_events_disabled_no_metrics(self, mock_brotr: Brotr) -> None:
         """Test find_from_events emits no metrics when events disabled."""
@@ -917,15 +1022,23 @@ class TestFinderMetrics:
             api=ApiConfig(
                 enabled=True,
                 sources=[ApiSourceConfig(url="https://api.example.com")],
-                delay_between_requests=0,
+                request_delay=0,
             )
         )
         finder = Finder(brotr=mock_brotr, config=config)
         finder.set_gauge = MagicMock()  # type: ignore[method-assign]
-
         mock_response = _mock_api_response(["wss://relay1.com", "wss://relay2.com"])
 
         with (
+            patch(
+                "bigbrotr.services.finder.service.load_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "bigbrotr.services.finder.service.save_api_checkpoints",
+                new_callable=AsyncMock,
+            ),
             patch("aiohttp.ClientSession") as mock_session_cls,
             patch(
                 "bigbrotr.services.finder.service.insert_relays_as_candidates",
@@ -941,7 +1054,7 @@ class TestFinderMetrics:
 
             await finder.find_from_api()
 
-            finder.set_gauge.assert_any_call("api_relays", 2)
+            finder.set_gauge.assert_any_call("api_candidates", 2)
 
     async def test_find_from_api_disabled_no_metrics(self, mock_brotr: Brotr) -> None:
         """Test find_from_api emits no metrics when API disabled."""
@@ -960,16 +1073,24 @@ class TestFinderMetrics:
             api=ApiConfig(
                 enabled=True,
                 sources=[ApiSourceConfig(url="https://api.example.com")],
-                delay_between_requests=0,
+                request_delay=0,
             )
         )
         finder = Finder(brotr=mock_brotr, config=config)
         finder.set_gauge = MagicMock()  # type: ignore[method-assign]
         finder.inc_counter = MagicMock()  # type: ignore[method-assign]
-
         mock_response = _mock_api_response(["wss://relay1.com", "wss://relay2.com"])
 
         with (
+            patch(
+                "bigbrotr.services.finder.service.load_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "bigbrotr.services.finder.service.save_api_checkpoints",
+                new_callable=AsyncMock,
+            ),
             patch("aiohttp.ClientSession") as mock_session_cls,
             patch(
                 "bigbrotr.services.finder.service.insert_relays_as_candidates",
@@ -985,7 +1106,7 @@ class TestFinderMetrics:
 
             await finder.find_from_api()
 
-            finder.inc_counter.assert_any_call("total_api_relays_found", 2)
+            finder.inc_counter.assert_any_call("total_api_candidates", 2)
 
     async def test_find_from_events_emits_relays_failed_gauge(self, mock_brotr: Brotr) -> None:
         """Test find_from_events emits relays_failed gauge when tasks fail."""
@@ -1001,9 +1122,12 @@ class TestFinderMetrics:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_all_relays",
+                "bigbrotr.services.finder.service.fetch_event_relay_cursors",
                 new_callable=AsyncMock,
-                return_value=[Relay("wss://good.relay.com"), Relay("wss://bad.relay.com")],
+                return_value=[
+                    EventRelayCursor(relay_url="wss://good.relay.com"),
+                    EventRelayCursor(relay_url="wss://bad.relay.com"),
+                ],
             ),
             patch(
                 "bigbrotr.services.finder.service.scan_event_relay",
@@ -1017,177 +1141,27 @@ class TestFinderMetrics:
 
             await finder.find_from_events()
 
-            finder.set_gauge.assert_any_call("relays_failed", 1)
-            finder.set_gauge.assert_any_call("relays_processed", 1)
+            finder.inc_counter.assert_any_call("total_scan_failures", 1)
+            finder.set_gauge.assert_any_call("relays_scanned", 1)
 
 
 # ============================================================================
-# Finder _persist_scan_chunk Tests
+# Finder Cleanup State Tests
 # ============================================================================
 
 
-class TestFinderPersistScanChunk:
-    """Tests for Finder._persist_scan_chunk() cursor error handling."""
+class TestFinderCleanup:
+    """Tests for cleanup() in Finder."""
 
-    async def test_cursor_update_failure_does_not_propagate(self, mock_brotr: Brotr) -> None:
-        """Cursor update failure is logged but does not raise."""
-        mock_brotr.upsert_service_state = AsyncMock(  # type: ignore[method-assign]
-            side_effect=asyncpg.PostgresError("cursor flush failed")
-        )
-
-        with patch(
-            "bigbrotr.services.finder.service.insert_relays_as_candidates",
-            new_callable=AsyncMock,
-            return_value=1,
-        ):
-            finder = Finder(brotr=mock_brotr)
-            relays = {
-                "wss://found.relay.com": MagicMock(url="wss://found.relay.com"),
-            }
-
-            # Should NOT raise despite cursor update failure
-            cursor = EventRelayCursor(
-                relay_url="wss://source.relay.com",
-                seen_at=1700000001,
-                event_id=b"\xab" * 32,
-            )
-            result = await finder._persist_scan_chunk(relays, cursor)
-
-            assert result == 1
-
-    async def test_cursor_update_failure_with_empty_relays(self, mock_brotr: Brotr) -> None:
-        """Cursor update failure with no relays still does not raise."""
-        mock_brotr.upsert_service_state = AsyncMock(  # type: ignore[method-assign]
-            side_effect=OSError("connection lost")
-        )
-
+    async def test_cleanup_removes_orphaned_cursors_and_stale_checkpoints(
+        self, mock_brotr: Brotr
+    ) -> None:
+        mock_brotr.fetchval = AsyncMock(side_effect=[3, 2])
         finder = Finder(brotr=mock_brotr)
-
-        # Should NOT raise
-        cursor = EventRelayCursor(
-            relay_url="wss://source.relay.com",
-            seen_at=1700000001,
-            event_id=b"\xab" * 32,
-        )
-        result = await finder._persist_scan_chunk({}, cursor)
-
-        assert result == 0
-
-
-# ============================================================================
-# Finder Stale Cursor Cleanup Tests
-# ============================================================================
-
-
-class TestFinderStaleCursorCleanup:
-    """Tests for stale cursor cleanup in find_from_events()."""
-
-    async def test_stale_cursors_cleaned_before_scan(self, mock_brotr: Brotr) -> None:
-        """cleanup_service_state is called before relay fetch."""
-        call_order: list[str] = []
-
-        async def _mock_delete_stale(*args: Any, **kwargs: Any) -> int:
-            call_order.append("cleanup_service_state")
-            return 3
-
-        async def _mock_get_relays(*args: Any, **kwargs: Any) -> list[Relay]:
-            call_order.append("fetch_all_relays")
-            return []
-
-        with (
-            patch(
-                "bigbrotr.services.finder.service.cleanup_service_state",
-                new_callable=AsyncMock,
-                side_effect=_mock_delete_stale,
-            ),
-            patch(
-                "bigbrotr.services.finder.service.fetch_all_relays",
-                new_callable=AsyncMock,
-                side_effect=_mock_get_relays,
-            ),
-        ):
-            finder = Finder(brotr=mock_brotr)
-            await finder.find_from_events()
-
-            assert call_order == ["cleanup_service_state", "fetch_all_relays"]
-
-    async def test_stale_cursor_cleanup_failure_does_not_block(self, mock_brotr: Brotr) -> None:
-        """Stale cursor cleanup DB error does not prevent event scanning."""
-        with (
-            patch(
-                "bigbrotr.services.finder.service.cleanup_service_state",
-                new_callable=AsyncMock,
-                side_effect=asyncpg.PostgresError("cleanup failed"),
-            ),
-            patch(
-                "bigbrotr.services.finder.service.fetch_all_relays",
-                new_callable=AsyncMock,
-                return_value=[],
-            ) as mock_get_relays,
-        ):
-            finder = Finder(brotr=mock_brotr)
-            result = await finder.find_from_events()
-
-            assert result == 0
-            mock_get_relays.assert_awaited_once()
-
-
-class TestFinderFetchAllCursors:
-    """Tests for Finder._fetch_all_cursors() cursor parsing and validation."""
-
-    async def test_invalid_event_id_hex_skipped_with_warning(self, mock_brotr: Brotr) -> None:
-        """Non-hex event_id is skipped and a warning is logged."""
-        mock_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
-            return_value=[
-                ServiceState(
-                    service_name=ServiceName.FINDER,
-                    state_type=ServiceStateType.CURSOR,
-                    state_key="wss://good.com",
-                    state_value={"seen_at": 100, "event_id": "ab" * 32},
-                    updated_at=100,
-                ),
-                ServiceState(
-                    service_name=ServiceName.FINDER,
-                    state_type=ServiceStateType.CURSOR,
-                    state_key="wss://bad.com",
-                    state_value={"seen_at": 200, "event_id": "not-hex"},
-                    updated_at=200,
-                ),
-            ]
-        )
-        finder = Finder(brotr=mock_brotr)
-        cursors = await finder._fetch_all_cursors()
-
-        assert "wss://good.com" in cursors
-        assert "wss://bad.com" not in cursors
-
-    async def test_invalid_seen_at_skipped_with_warning(self, mock_brotr: Brotr) -> None:
-        """Non-integer seen_at is skipped and a warning is logged."""
-        mock_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
-            return_value=[
-                ServiceState(
-                    service_name=ServiceName.FINDER,
-                    state_type=ServiceStateType.CURSOR,
-                    state_key="wss://good.com",
-                    state_value={"seen_at": 100, "event_id": "cd" * 32},
-                    updated_at=100,
-                ),
-                ServiceState(
-                    service_name=ServiceName.FINDER,
-                    state_type=ServiceStateType.CURSOR,
-                    state_key="wss://bad.com",
-                    state_value={"seen_at": "not-a-number", "event_id": "ab" * 32},
-                    updated_at=200,
-                ),
-            ]
-        )
-        finder = Finder(brotr=mock_brotr)
-        cursors = await finder._fetch_all_cursors()
-
-        assert "wss://good.com" in cursors
-        assert cursors["wss://good.com"] == EventRelayCursor(
-            relay_url="wss://good.com",
-            seen_at=100,
-            event_id=bytes.fromhex("cd" * 32),
-        )
-        assert "wss://bad.com" not in cursors
+        result = await finder.cleanup()
+        assert mock_brotr.fetchval.await_count == 2
+        cursor_sql = mock_brotr.fetchval.call_args_list[0][0][0]
+        checkpoint_sql = mock_brotr.fetchval.call_args_list[1][0][0]
+        assert "NOT EXISTS" in cursor_sql
+        assert "NOT (state_key = ANY" in checkpoint_sql
+        assert result == 5

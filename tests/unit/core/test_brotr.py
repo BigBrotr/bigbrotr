@@ -537,7 +537,6 @@ class TestUpsertServiceState:
                 state_type=ServiceStateType.CURSOR,
                 state_key="key1",
                 state_value={"count": 1},
-                updated_at=1700000000,
             )
         ]
         result = await mock_brotr.upsert_service_state(records)
@@ -551,21 +550,18 @@ class TestUpsertServiceState:
                 state_type=ServiceStateType.CURSOR,
                 state_key="key1",
                 state_value={"count": 1},
-                updated_at=1700000000,
             ),
             ServiceState(
                 service_name=ServiceName.FINDER,
                 state_type=ServiceStateType.CURSOR,
                 state_key="key2",
                 state_value={"count": 2},
-                updated_at=1700000000,
             ),
             ServiceState(
                 service_name=ServiceName.MONITOR,
-                state_type=ServiceStateType.MONITORING,
+                state_type=ServiceStateType.CHECKPOINT,
                 state_key="key3",
                 state_value={"status": "ok"},
-                updated_at=1700000000,
             ),
         ]
         result = await mock_brotr.upsert_service_state(records)
@@ -579,7 +575,6 @@ class TestUpsertServiceState:
                 state_type=ServiceStateType.CURSOR,
                 state_key=f"key{i}",
                 state_value={"i": i},
-                updated_at=1700000000,
             )
             for i in range(1001)
         ]
@@ -630,7 +625,7 @@ class TestDeleteServiceState:
         mock_pool._mock_connection.fetchval = AsyncMock(return_value=3)  # type: ignore[attr-defined]
         result = await mock_brotr.delete_service_state(
             [ServiceName.FINDER, ServiceName.FINDER, ServiceName.MONITOR],
-            [ServiceStateType.CURSOR, ServiceStateType.CURSOR, ServiceStateType.PUBLICATION],
+            [ServiceStateType.CURSOR, ServiceStateType.CURSOR, ServiceStateType.CHECKPOINT],
             ["key1", "key2", "key3"],
         )
         assert result == 3

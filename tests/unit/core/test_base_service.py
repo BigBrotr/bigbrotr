@@ -53,6 +53,10 @@ class ConcreteService(BaseService[ConcreteServiceConfig]):
         self.fail_count = 0
         self.fail_exception: type[Exception] = RuntimeError
 
+    async def cleanup(self) -> int:
+        """No-op for test service."""
+        return 0
+
     async def run(self) -> None:
         """Execute service logic."""
         self.run_count += 1
@@ -613,6 +617,11 @@ class TestIncCounter:
 
 
 # ============================================================================
+# Abstract Method Tests
+# ============================================================================
+
+
+# ============================================================================
 # Abstract Class Behavior Tests
 # ============================================================================
 
@@ -642,6 +651,9 @@ class TestAbstractBehavior:
             SERVICE_NAME = "complete_service"
             CONFIG_CLASS = BaseServiceConfig
 
+            async def cleanup(self) -> int:
+                return 0
+
             async def run(self) -> None:
                 pass
 
@@ -654,6 +666,9 @@ class TestAbstractBehavior:
         class CompleteService(BaseService[BaseServiceConfig]):
             SERVICE_NAME = "complete_service"
             CONFIG_CLASS = BaseServiceConfig
+
+            async def cleanup(self) -> int:
+                return 0
 
             async def run(self) -> None:
                 pass

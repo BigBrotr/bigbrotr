@@ -24,7 +24,7 @@ See Also:
         class providing ``run()`` and ``from_yaml()`` lifecycle.
     [Brotr][bigbrotr.core.brotr.Brotr]: Database facade used for relay
         insertion.
-    [insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates]:
+    [insert_relays_as_candidates][bigbrotr.services.validator.queries.insert_relays_as_candidates]:
         Query used to insert seed URLs as validation candidates.
 
 Examples:
@@ -44,20 +44,15 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
-
-import asyncpg
+from typing import ClassVar
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.queries import insert_relays, insert_relays_as_candidates
+from bigbrotr.services.validator.queries import insert_relays_as_candidates
 
 from .configs import SeederConfig
+from .queries import insert_relays
 from .utils import parse_seed_file
-
-
-if TYPE_CHECKING:
-    from bigbrotr.models import Relay
 
 
 class Seeder(BaseService[SeederConfig]):
@@ -82,13 +77,11 @@ class Seeder(BaseService[SeederConfig]):
 
     async def run(self) -> None:
         """Execute the full seeding sequence: parse file and insert relays."""
-        self._logger.info(
-            "cycle_started",
-            file=self._config.seed.file_path,
-            to_validate=self._config.seed.to_validate,
-        )
-        inserted = await self.seed()
-        self._logger.info("cycle_completed", inserted=inserted)
+        await self.seed()
+
+    async def cleanup(self) -> int:
+        """No-op: Seeder does not use service state."""
+        return 0
 
     async def seed(self) -> int:
         """Parse the seed file and insert relays.
@@ -109,35 +102,10 @@ class Seeder(BaseService[SeederConfig]):
             return 0
 
         if self._config.seed.to_validate:
-            return await self._seed_as_candidates(relays)
-        return await self._seed_as_relays(relays)
-
-    async def _seed_as_candidates(self, relays: list[Relay]) -> int:
-        """Insert relays as validation candidates in ``service_state``."""
-        try:
             count = await insert_relays_as_candidates(self._brotr, relays)
-        except (asyncpg.PostgresError, OSError) as e:
-            self._logger.error(
-                "candidates_insert_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                total=len(relays),
-            )
-            return 0
-        self._logger.info("candidates_inserted", total=len(relays), inserted=count)
-        return count
-
-    async def _seed_as_relays(self, relays: list[Relay]) -> int:
-        """Insert relays directly into the relays table."""
-        try:
+            self._logger.info("candidates_inserted", total=len(relays), inserted=count)
+        else:
             count = await insert_relays(self._brotr, relays)
-        except (asyncpg.PostgresError, OSError) as e:
-            self._logger.error(
-                "relays_insert_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                total=len(relays),
-            )
-            return 0
-        self._logger.info("relays_inserted", total=len(relays), inserted=count)
+            self._logger.info("relays_inserted", total=len(relays), inserted=count)
+
         return count

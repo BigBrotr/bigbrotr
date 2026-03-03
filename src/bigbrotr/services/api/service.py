@@ -95,6 +95,10 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         self._logger.info("http_server_stopped")
         await super().__aexit__(_exc_type, _exc_val, _exc_tb)
 
+    async def cleanup(self) -> int:
+        """No-op: Api does not use service state."""
+        return 0
+
     async def run(self) -> None:
         """Log request stats and update Prometheus counters."""
         if self._server_task is not None and self._server_task.done():

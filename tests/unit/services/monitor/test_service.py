@@ -19,6 +19,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import Relay, RelayMetadata
 from bigbrotr.models.constants import NetworkType, ServiceName
@@ -35,6 +37,12 @@ from bigbrotr.services.monitor import (
     ProcessingConfig,
     ProfileConfig,
     PublishingConfig,
+)
+from bigbrotr.services.monitor.utils import (
+    build_kind_0,
+    build_kind_10166,
+    build_kind_30166,
+    get_publish_relays,
 )
 from tests.unit.services.monitor.conftest import (
     FIXED_TIME,
@@ -392,51 +400,6 @@ class TestMonitorInit:
 
 
 # ============================================================================
-# Monitor Fetch Relays Tests
-# ============================================================================
-
-
-class TestMonitorFetchRelays:
-    """Tests for Monitor._fetch_relays() method."""
-
-    @patch(
-        "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
-        new_callable=AsyncMock,
-        return_value=[],
-    )
-    async def test_fetch_relays_empty(
-        self, mock_fetch: AsyncMock, mock_brotr: Brotr, tmp_path: Path
-    ) -> None:
-        """Test fetching relays when none need checking."""
-        config = _make_config()
-        monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor.chunk_progress.reset()
-        relays = await monitor._fetch_relays([NetworkType.CLEARNET])
-
-        assert relays == []
-        mock_fetch.assert_awaited_once()
-
-    @patch("bigbrotr.services.monitor.service.fetch_relays_to_monitor", new_callable=AsyncMock)
-    async def test_fetch_relays_with_results(
-        self, mock_fetch: AsyncMock, mock_brotr: Brotr, tmp_path: Path
-    ) -> None:
-        """Test fetching relays that need checking."""
-        mock_fetch.return_value = [
-            Relay("wss://relay1.example.com"),
-            Relay("wss://relay2.example.com"),
-        ]
-
-        config = _make_config()
-        monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor.chunk_progress.reset()
-        relays = await monitor._fetch_relays([NetworkType.CLEARNET])
-
-        assert len(relays) == 2
-        assert relays[0].url == "wss://relay1.example.com"
-        assert relays[1].url == "wss://relay2.example.com"
-
-
-# ============================================================================
 # Monitor Run Tests
 # ============================================================================
 
@@ -462,31 +425,7 @@ class TestMonitorRun:
         monitor = Monitor(brotr=mock_brotr, config=config)
         await monitor.run()
 
-        assert monitor.chunk_progress.processed == 0
-
-    @patch(
-        "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
-        new_callable=AsyncMock,
-        return_value=[],
-    )
-    async def test_run_resets_progress(
-        self,
-        mock_fetch: AsyncMock,
-        mock_brotr: Brotr,
-        tmp_path: Path,
-    ) -> None:
-        """Test run cycle resets progress at start."""
-        mock_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
-
-        config = _make_config()
-        monitor = Monitor(brotr=mock_brotr, config=config)
-        monitor.chunk_progress.succeeded = 10
-        monitor.chunk_progress.failed = 5
-
-        await monitor.run()
-
-        assert monitor.chunk_progress.succeeded == 0
-        assert monitor.chunk_progress.failed == 0
+        mock_fetch.assert_awaited_once()
 
 
 # ============================================================================
@@ -548,6 +487,139 @@ class TestMonitorPersistResults:
 
 
 # ============================================================================
+# Check Chunk Tests
+# ============================================================================
+
+
+class TestMonitorCheckChunk:
+    """Tests for Monitor._check_chunk() method."""
+
+    async def test_check_chunk_cancelled_error_propagates(self, mock_brotr: Brotr) -> None:
+        """CancelledError captured by gather(return_exceptions=True) is re-raised."""
+        import asyncio
+
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        with (
+            patch.object(
+                monitor,
+                "check_relay",
+                new_callable=AsyncMock,
+                side_effect=asyncio.CancelledError,
+            ),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await monitor._check_chunk([relay])
+
+    async def test_check_chunk_keyboard_interrupt_in_results_propagates(
+        self, mock_brotr: Brotr
+    ) -> None:
+        """KeyboardInterrupt in gather results (defensive) is re-raised."""
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        # asyncio's task step re-raises KI before gather can capture it,
+        # but we mock gather to test our defensive re-raise code path.
+        with (
+            patch.object(monitor, "check_relay", return_value="sentinel"),
+            patch(
+                "bigbrotr.services.monitor.service.asyncio.gather",
+                new_callable=AsyncMock,
+                return_value=[KeyboardInterrupt()],
+            ),
+            pytest.raises(KeyboardInterrupt),
+        ):
+            await monitor._check_chunk([relay])
+
+    async def test_check_chunk_system_exit_in_results_propagates(self, mock_brotr: Brotr) -> None:
+        """SystemExit in gather results (defensive) is re-raised."""
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        with (
+            patch.object(monitor, "check_relay", return_value="sentinel"),
+            patch(
+                "bigbrotr.services.monitor.service.asyncio.gather",
+                new_callable=AsyncMock,
+                return_value=[SystemExit(1)],
+            ),
+            pytest.raises(SystemExit),
+        ):
+            await monitor._check_chunk([relay])
+
+    async def test_check_chunk_regular_exception_goes_to_failed(self, mock_brotr: Brotr) -> None:
+        """Regular Exception ends up in the failed list, not re-raised."""
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        with patch.object(
+            monitor,
+            "check_relay",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("connection lost"),
+        ):
+            successful, failed = await monitor._check_chunk([relay])
+
+        assert successful == []
+        assert failed == [relay]
+
+    async def test_check_chunk_successful_result(self, mock_brotr: Brotr) -> None:
+        """CheckResult with data goes to successful list."""
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
+
+        with patch.object(monitor, "check_relay", new_callable=AsyncMock, return_value=result):
+            successful, failed = await monitor._check_chunk([relay])
+
+        assert len(successful) == 1
+        assert successful[0] == (relay, result)
+        assert failed == []
+
+    async def test_check_chunk_empty_result_goes_to_failed(self, mock_brotr: Brotr) -> None:
+        """CheckResult with no data goes to the failed list."""
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        empty_result = _make_check_result()  # no metadata fields set
+
+        with patch.object(
+            monitor, "check_relay", new_callable=AsyncMock, return_value=empty_result
+        ):
+            successful, failed = await monitor._check_chunk([relay])
+
+        assert successful == []
+        assert failed == [relay]
+
+    async def test_check_chunk_base_exception_precedes_later_results(
+        self, mock_brotr: Brotr
+    ) -> None:
+        """BaseException in first result is raised even if later results are OK."""
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay1 = Relay("wss://relay1.example.com")
+        relay2 = Relay("wss://relay2.example.com")
+        good_result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
+
+        with (
+            patch.object(monitor, "check_relay", return_value="sentinel"),
+            patch(
+                "bigbrotr.services.monitor.service.asyncio.gather",
+                new_callable=AsyncMock,
+                return_value=[KeyboardInterrupt(), good_result],
+            ),
+            pytest.raises(KeyboardInterrupt),
+        ):
+            await monitor._check_chunk([relay1, relay2])
+
+
+# ============================================================================
 # Network Configuration Tests
 # ============================================================================
 
@@ -582,26 +654,25 @@ class TestMonitorNetworkConfiguration:
 
 
 class TestGetPublishRelays:
-    """Tests for _get_publish_relays with primary and fallback logic."""
+    """Tests for get_publish_relays with primary and fallback logic."""
 
     def test_get_publish_relays_returns_discovery_primary(self, stub: _MonitorStub) -> None:
-        """Test _get_publish_relays returns discovery-specific relays when set."""
-        relays = stub._get_publish_relays(stub._config.discovery.relays)
+        """Test get_publish_relays returns discovery-specific relays when set."""
+        relays = get_publish_relays(stub._config.discovery.relays, stub._config.publishing.relays)
         assert len(relays) == 1
         assert relays[0].url == "wss://disc.relay.com"
 
     def test_get_publish_relays_discovery_falls_back_to_publishing(self, test_keys: Keys) -> None:
-        """Test _get_publish_relays falls back to publishing.relays when discovery relays unset."""
+        """Test get_publish_relays falls back to publishing.relays when discovery relays unset."""
         config = _make_config(
             publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
         )
-        harness = _MonitorStub(config, test_keys)
-        relays = harness._get_publish_relays(harness._config.discovery.relays)
+        relays = get_publish_relays(config.discovery.relays, config.publishing.relays)
         assert len(relays) == 1
         assert relays[0].url == "wss://fallback.relay.com"
 
     def test_get_publish_relays_discovery_empty_list_no_fallback(self, test_keys: Keys) -> None:
-        """Test _get_publish_relays returns empty list when discovery relays explicitly []."""
+        """Test get_publish_relays returns empty list when discovery relays explicitly []."""
         config = _make_config(
             discovery=DiscoveryConfig(
                 include=MetadataFlags(nip66_geo=False, nip66_net=False),
@@ -609,62 +680,59 @@ class TestGetPublishRelays:
             ),
             publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
         )
-        harness = _MonitorStub(config, test_keys)
-        relays = harness._get_publish_relays(harness._config.discovery.relays)
+        relays = get_publish_relays(config.discovery.relays, config.publishing.relays)
         assert relays == []
 
     def test_get_publish_relays_returns_announcement_primary(self, stub: _MonitorStub) -> None:
-        """Test _get_publish_relays returns announcement-specific relays when set."""
-        relays = stub._get_publish_relays(stub._config.announcement.relays)
+        """Test get_publish_relays returns announcement-specific relays when set."""
+        relays = get_publish_relays(
+            stub._config.announcement.relays, stub._config.publishing.relays
+        )
         assert len(relays) == 1
         assert relays[0].url == "wss://ann.relay.com"
 
     def test_get_publish_relays_announcement_falls_back_to_publishing(
         self, test_keys: Keys
     ) -> None:
-        """Test _get_publish_relays falls back to publishing.relays when announcement relays unset."""
+        """Test get_publish_relays falls back to publishing.relays when announcement relays unset."""
         config = _make_config(
             publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
         )
-        harness = _MonitorStub(config, test_keys)
-        relays = harness._get_publish_relays(harness._config.announcement.relays)
+        relays = get_publish_relays(config.announcement.relays, config.publishing.relays)
         assert len(relays) == 1
         assert relays[0].url == "wss://fallback.relay.com"
 
     def test_get_publish_relays_announcement_empty_list_no_fallback(self, test_keys: Keys) -> None:
-        """Test _get_publish_relays returns empty list when announcement relays explicitly []."""
+        """Test get_publish_relays returns empty list when announcement relays explicitly []."""
         config = _make_config(
             announcement=AnnouncementConfig(relays=[]),
             publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
         )
-        harness = _MonitorStub(config, test_keys)
-        relays = harness._get_publish_relays(harness._config.announcement.relays)
+        relays = get_publish_relays(config.announcement.relays, config.publishing.relays)
         assert relays == []
 
     def test_get_publish_relays_returns_profile_primary(self, stub: _MonitorStub) -> None:
-        """Test _get_publish_relays returns profile-specific relays when set."""
-        relays = stub._get_publish_relays(stub._config.profile.relays)
+        """Test get_publish_relays returns profile-specific relays when set."""
+        relays = get_publish_relays(stub._config.profile.relays, stub._config.publishing.relays)
         assert len(relays) == 1
         assert relays[0].url == "wss://profile.relay.com"
 
     def test_get_publish_relays_profile_falls_back_to_publishing(self, test_keys: Keys) -> None:
-        """Test _get_publish_relays falls back to publishing.relays when profile relays unset."""
+        """Test get_publish_relays falls back to publishing.relays when profile relays unset."""
         config = _make_config(
             publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
         )
-        harness = _MonitorStub(config, test_keys)
-        relays = harness._get_publish_relays(harness._config.profile.relays)
+        relays = get_publish_relays(config.profile.relays, config.publishing.relays)
         assert len(relays) == 1
         assert relays[0].url == "wss://fallback.relay.com"
 
     def test_get_publish_relays_profile_empty_list_no_fallback(self, test_keys: Keys) -> None:
-        """Test _get_publish_relays returns empty list when profile relays explicitly []."""
+        """Test get_publish_relays returns empty list when profile relays explicitly []."""
         config = _make_config(
             profile=ProfileConfig(relays=[]),
             publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
         )
-        harness = _MonitorStub(config, test_keys)
-        relays = harness._get_publish_relays(harness._config.profile.relays)
+        relays = get_publish_relays(config.profile.relays, config.publishing.relays)
         assert relays == []
 
 
@@ -699,10 +767,9 @@ class TestPublishAnnouncement:
             return_value=[
                 ServiceState(
                     service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.PUBLICATION,
+                    state_type=ServiceStateType.CHECKPOINT,
                     state_key="last_announcement",
-                    state_value={"published_at": FIXED_TIME},
-                    updated_at=int(FIXED_TIME),
+                    state_value={"timestamp": FIXED_TIME},
                 )
             ]
         )
@@ -738,10 +805,9 @@ class TestPublishAnnouncement:
             return_value=[
                 ServiceState(
                     service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.PUBLICATION,
+                    state_type=ServiceStateType.CHECKPOINT,
                     state_key="last_announcement",
-                    state_value={"published_at": old_timestamp},
-                    updated_at=int(old_timestamp),
+                    state_value={"timestamp": old_timestamp},
                 )
             ]
         )
@@ -808,10 +874,9 @@ class TestPublishProfile:
             return_value=[
                 ServiceState(
                     service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.PUBLICATION,
+                    state_type=ServiceStateType.CHECKPOINT,
                     state_key="last_profile",
-                    state_value={"published_at": FIXED_TIME},
-                    updated_at=int(FIXED_TIME),
+                    state_value={"timestamp": FIXED_TIME},
                 )
             ]
         )
@@ -929,24 +994,26 @@ class TestPublishRelayDiscoveries:
         result1 = _make_check_result()
         result2 = _make_check_result(nip11=_make_nip11_meta(name="Test"))
 
-        # Patch _build_kind_30166 to raise on the first relay only
-        original_build = Monitor._build_kind_30166
         call_count = 0
 
-        def _patched_build(self_: Any, relay: Relay, result: CheckResult) -> Any:
+        def _patched_build(relay: Relay, result: CheckResult, include: Any) -> Any:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 raise ValueError("build failed for relay1")
-            return original_build(self_, relay, result)
+            return build_kind_30166(relay, result, include)
 
-        stub._build_kind_30166 = lambda r, res: _patched_build(stub, r, res)  # type: ignore[assignment]
-
-        with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
-            new_callable=AsyncMock,
-            return_value=1,
-        ) as mock_broadcast:
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.build_kind_30166",
+                side_effect=_patched_build,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+                return_value=1,
+            ) as mock_broadcast,
+        ):
             await stub.publish_relay_discoveries([(relay1, result1), (relay2, result2)])
 
         mock_broadcast.assert_awaited_once()
@@ -976,30 +1043,22 @@ class TestPublishRelayDiscoveries:
 
 
 class TestBuildKind0:
-    """Tests for Monitor._build_kind_0 (profile metadata)."""
+    """Tests for build_kind_0 (profile metadata)."""
 
     def test_build_kind_0_all_fields(self, stub: _MonitorStub) -> None:
         """Test Kind 0 builder with all profile fields populated."""
-        builder = stub._build_kind_0()
+        builder = build_kind_0(stub._config.profile)
         assert builder is not None
 
-    def test_build_kind_0_minimal_fields(self, test_keys: Keys) -> None:
+    def test_build_kind_0_minimal_fields(self) -> None:
         """Test Kind 0 builder with only name field set."""
-        config = _make_config(
-            profile=ProfileConfig(
-                enabled=True,
-                name="MinimalMonitor",
-            ),
-        )
-        harness = _MonitorStub(config, test_keys)
-        builder = harness._build_kind_0()
+        profile = ProfileConfig(enabled=True, name="MinimalMonitor")
+        builder = build_kind_0(profile)
         assert builder is not None
 
-    def test_build_kind_0_no_fields(self, test_keys: Keys) -> None:
+    def test_build_kind_0_no_fields(self) -> None:
         """Test Kind 0 builder with no profile fields set."""
-        config = _make_config(profile=ProfileConfig(enabled=True))
-        harness = _MonitorStub(config, test_keys)
-        builder = harness._build_kind_0()
+        builder = build_kind_0(ProfileConfig(enabled=True))
         assert builder is not None
 
 
@@ -1009,14 +1068,14 @@ class TestBuildKind0:
 
 
 class TestBuildKind10166:
-    """Tests for Monitor._build_kind_10166 (monitor announcement)."""
+    """Tests for build_kind_10166 (monitor announcement)."""
 
     def test_build_kind_10166_all_flags_enabled(self, stub: _MonitorStub) -> None:
         """Test Kind 10166 builder with all metadata flags enabled."""
-        builder = stub._build_kind_10166()
+        builder = build_kind_10166(stub._config)
         assert builder is not None
 
-    def test_build_kind_10166_subset_flags(self, test_keys: Keys) -> None:
+    def test_build_kind_10166_subset_flags(self) -> None:
         """Test Kind 10166 builder with only RTT and NIP-11 flags enabled."""
         config = MonitorConfig(
             interval=1800.0,
@@ -1050,11 +1109,10 @@ class TestBuildKind10166:
             ),
             networks=NetworksConfig(clearnet=ClearnetConfig(timeout=5.0)),
         )
-        harness = _MonitorStub(config, test_keys)
-        builder = harness._build_kind_10166()
+        builder = build_kind_10166(config)
         assert builder is not None
 
-    def test_build_kind_10166_no_flags(self, test_keys: Keys) -> None:
+    def test_build_kind_10166_no_flags(self) -> None:
         """Test Kind 10166 builder with all flags disabled."""
         config = MonitorConfig(
             interval=600.0,
@@ -1092,8 +1150,7 @@ class TestBuildKind10166:
             ),
             networks=NetworksConfig(clearnet=ClearnetConfig(timeout=10.0)),
         )
-        harness = _MonitorStub(config, test_keys)
-        builder = harness._build_kind_10166()
+        builder = build_kind_10166(config)
         assert builder is not None
 
 
@@ -1103,7 +1160,7 @@ class TestBuildKind10166:
 
 
 class TestBuildKind30166:
-    """Tests for Monitor._build_kind_30166 (relay discovery orchestration)."""
+    """Tests for build_kind_30166 (relay discovery orchestration)."""
 
     def test_build_kind_30166_full_event(self, stub: _MonitorStub) -> None:
         """Test full Kind 30166 event construction with all metadata."""
@@ -1118,28 +1175,28 @@ class TestBuildKind30166:
             nip66_rtt=_make_rtt_meta(rtt_open=45, rtt_read=120, rtt_write=85),
             nip66_ssl=_make_ssl_meta(ssl_valid=True, ssl_expires=1735689600),
         )
-        builder = stub._build_kind_30166(relay, result)
+        builder = build_kind_30166(relay, result, stub._config.discovery.include)
         assert builder is not None
 
     def test_build_kind_30166_minimal(self, stub: _MonitorStub) -> None:
         """Test Kind 30166 event with no metadata results."""
         relay = Relay("wss://relay.example.com")
         result = _make_check_result()
-        builder = stub._build_kind_30166(relay, result)
+        builder = build_kind_30166(relay, result, stub._config.discovery.include)
         assert builder is not None
 
     def test_build_kind_30166_content_from_nip11(self, stub: _MonitorStub) -> None:
         """Test that Kind 30166 content contains NIP-11 canonical JSON when available."""
         relay = Relay("wss://relay.example.com")
         result = _make_check_result(nip11=_make_nip11_meta(name="Test Relay"))
-        builder = stub._build_kind_30166(relay, result)
+        builder = build_kind_30166(relay, result, stub._config.discovery.include)
         assert builder is not None
 
     def test_build_kind_30166_empty_content_when_no_nip11(self, stub: _MonitorStub) -> None:
         """Test that Kind 30166 content is empty string when no NIP-11 data."""
         relay = Relay("wss://relay.example.com")
         result = _make_check_result()
-        builder = stub._build_kind_30166(relay, result)
+        builder = build_kind_30166(relay, result, stub._config.discovery.include)
         assert builder is not None
 
     def test_build_kind_30166_tor_relay_network_tag(self, stub: _MonitorStub) -> None:
@@ -1147,7 +1204,7 @@ class TestBuildKind30166:
         onion = "a" * 56
         relay = Relay(f"ws://{onion}.onion")
         result = _make_check_result()
-        builder = stub._build_kind_30166(relay, result)
+        builder = build_kind_30166(relay, result, stub._config.discovery.include)
         assert builder is not None
 
 
@@ -1157,7 +1214,7 @@ class TestBuildKind30166:
 
 
 class TestEndToEndTagGeneration:
-    """Integration-style tests verifying complete tag generation via Monitor._build_kind_30166."""
+    """Integration-style tests verifying complete tag generation via build_kind_30166."""
 
     def test_full_relay_with_all_metadata(self, stub: _MonitorStub) -> None:
         """Test a relay with RTT, SSL, NIP-11 produces a valid builder."""
@@ -1188,7 +1245,7 @@ class TestEndToEndTagGeneration:
         )
 
         relay = Relay("wss://relay.example.com")
-        builder = stub._build_kind_30166(relay, result)
+        builder = build_kind_30166(relay, result, stub._config.discovery.include)
         assert builder is not None
 
 
@@ -1221,15 +1278,14 @@ class TestMonitorMetrics:
 
         with (
             patch.object(monitor, "inc_counter") as mock_counter,
-            patch.object(monitor, "_fetch_relays", new_callable=AsyncMock, return_value=[relay1]),
+            patch(
+                "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
+                new_callable=AsyncMock,
+                return_value=[relay1, relay2],
+            ),
             patch.object(monitor, "check_chunks", side_effect=fake_check_chunks),
             patch.object(monitor, "publish_relay_discoveries", new_callable=AsyncMock),
             patch.object(monitor, "_persist_results", new_callable=AsyncMock),
-            patch(
-                "bigbrotr.services.monitor.service.cleanup_service_state",
-                new_callable=AsyncMock,
-                return_value=0,
-            ),
         ):
             await monitor.monitor()
 

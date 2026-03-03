@@ -256,17 +256,21 @@ class BaseService(ABC, Generic[ConfigT]):
             cycle_start = time.monotonic()
 
             try:
-                await self.run()
+                self._logger.info("cleanup_started")
+                removed = await self.cleanup()
+                self._logger.info("cleanup_completed", removed=removed)
 
-                duration = time.monotonic() - cycle_start
+                self._logger.info("run_started", config=self._config.model_dump())
+                await self.run()
+                run_duration = time.monotonic() - cycle_start
+                self._logger.info("run_completed", duration_s=run_duration)
+
                 self.inc_counter("cycles_success")
                 if metrics_enabled:
-                    CYCLE_DURATION_SECONDS.labels(service=self.SERVICE_NAME).observe(duration)
+                    CYCLE_DURATION_SECONDS.labels(service=self.SERVICE_NAME).observe(run_duration)
                 self.set_gauge("last_cycle_timestamp", time.time())
                 self.set_gauge("consecutive_failures", 0)
-
                 consecutive_failures = 0
-                self._logger.info("cycle_completed", duration_s=duration)
 
             except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
                 raise  # Always propagate shutdown signals
@@ -396,3 +400,20 @@ class BaseService(ABC, Generic[ConfigT]):
         if not self._config.metrics.enabled:
             return
         SERVICE_COUNTER.labels(service=self.SERVICE_NAME, name=name).inc(value)
+
+    @abstractmethod
+    async def cleanup(self) -> int:
+        """Pre-cycle cleanup hook invoked by ``run_forever()`` before ``run()``.
+
+        Called automatically at the beginning of each cycle. Services
+        implement this to remove stale state, expired records, or any
+        other housekeeping that should precede the main cycle logic.
+
+        Returns:
+            Number of items removed or cleaned up (0 if nothing to do).
+
+        See Also:
+            [run_forever()][bigbrotr.core.base_service.BaseService.run_forever]:
+                The loop that calls this method before each ``run()``.
+        """
+        ...

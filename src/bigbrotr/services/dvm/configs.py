@@ -12,7 +12,7 @@ See Also:
 
 from __future__ import annotations
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
@@ -29,6 +29,7 @@ class DvmConfig(BaseServiceConfig, KeysConfig):
     Attributes:
         relays: Relay URLs to listen on and publish to.
         kind: NIP-90 request event kind (result = kind + 1000).
+        default_page_size: Default ``limit`` when not specified.
         max_page_size: Hard ceiling on query limit.
         tables: Per-table policies (enable/disable, pricing).
         announce: Whether to publish a NIP-89 handler announcement at startup.
@@ -49,7 +50,19 @@ class DvmConfig(BaseServiceConfig, KeysConfig):
                 raise ValueError(f"Invalid relay URL '{url}': {e}") from e
         return v
 
+    default_page_size: int = Field(default=100, ge=1, le=10000)
     max_page_size: int = Field(default=1000, ge=1, le=10000)
     tables: dict[str, TableConfig] = Field(default_factory=dict)
     announce: bool = Field(default=True)
     fetch_timeout: float = Field(default=30.0, ge=1.0, le=300.0)
+
+    @model_validator(mode="after")
+    def _validate_page_sizes(self) -> DvmConfig:
+        """Ensure default_page_size does not exceed max_page_size."""
+        if self.default_page_size > self.max_page_size:
+            msg = (
+                f"default_page_size ({self.default_page_size}) "
+                f"must not exceed max_page_size ({self.max_page_size})"
+            )
+            raise ValueError(msg)
+        return self

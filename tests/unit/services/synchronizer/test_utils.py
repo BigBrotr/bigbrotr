@@ -8,7 +8,6 @@ Tests:
 - insert_batch: batch insertion with valid, invalid, empty, chunked events
 - sync_relay_events: per-relay sync logic (success, empty, timeout, OSError, proxy)
 - TimeoutsConfig.get_relay_timeout additional coverage
-- RelayOverride configuration model
 - SyncContext frozen dataclass
 """
 
@@ -23,8 +22,6 @@ from bigbrotr.services.common.configs import NetworksConfig, TorConfig
 from bigbrotr.services.synchronizer import (
     EventBatch,
     FilterConfig,
-    RelayOverride,
-    RelayOverrideTimeouts,
     SyncContext,
     TimeoutsConfig,
 )
@@ -845,30 +842,6 @@ class TestTimeoutsConfigGetRelayTimeout:
         """Test LOKI returns relay_loki."""
         config = TimeoutsConfig(relay_loki=2500.0)
         assert config.get_relay_timeout(NetworkType.LOKI) == 2500.0
-
-
-# ============================================================================
-# RelayOverride Tests
-# ============================================================================
-
-
-class TestRelayOverride:
-    """Tests for RelayOverride configuration model."""
-
-    def test_default_timeouts(self) -> None:
-        """Test override with default (None) timeouts."""
-        override = RelayOverride(url="wss://relay.example.com")
-        assert override.timeouts.request is None
-        assert override.timeouts.relay is None
-
-    def test_custom_timeouts(self) -> None:
-        """Test override with custom timeouts."""
-        override = RelayOverride(
-            url="wss://relay.example.com",
-            timeouts=RelayOverrideTimeouts(request=30.0, relay=600.0),
-        )
-        assert override.timeouts.request == 30.0
-        assert override.timeouts.relay == 600.0
 
 
 # ============================================================================

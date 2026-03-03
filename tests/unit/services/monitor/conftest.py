@@ -98,12 +98,6 @@ class _MonitorStub:
     publish_announcement = Monitor.publish_announcement
     publish_profile = Monitor.publish_profile
     publish_relay_discoveries = Monitor.publish_relay_discoveries
-    _get_publish_relays = Monitor._get_publish_relays
-
-    # Event builder methods bound from Monitor
-    _build_kind_0 = Monitor._build_kind_0
-    _build_kind_10166 = Monitor._build_kind_10166
-    _build_kind_30166 = Monitor._build_kind_30166
 
 
 # ============================================================================

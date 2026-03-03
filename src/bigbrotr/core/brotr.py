@@ -844,7 +844,6 @@ class Brotr:
                 state_type=state_type,
                 state_key=row["state_key"],
                 state_value=row["state_value"],
-                updated_at=row["updated_at"],
             )
             for row in rows
         ]
