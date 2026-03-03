@@ -49,7 +49,7 @@ class CleanupConfig(BaseModel):
         max_failures: Failure threshold after which candidates are removed.
 
     See Also:
-        [delete_exhausted_candidates][bigbrotr.services.common.queries.delete_exhausted_candidates]:
+        [delete_exhausted_candidates][bigbrotr.services.validator.queries.delete_exhausted_candidates]:
             The SQL query driven by ``max_failures``.
         [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig]:
             Parent config that embeds this model.

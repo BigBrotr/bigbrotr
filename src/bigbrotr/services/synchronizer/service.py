@@ -6,7 +6,7 @@ Uses ``asyncio.TaskGroup`` with per-network semaphores for structured, bounded c
 The synchronization workflow proceeds as follows:
 
 1. Fetch relays from the database via
-   [fetch_relays][bigbrotr.services.common.queries.fetch_relays]
+   [fetch_relays][bigbrotr.services.synchronizer.queries.fetch_relays]
    (optionally filtered by metadata age).
 2. Load per-relay sync cursors from ``service_state`` via
    [Brotr.get_service_state][bigbrotr.core.brotr.Brotr.get_service_state].

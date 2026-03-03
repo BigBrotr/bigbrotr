@@ -31,7 +31,7 @@ See Also:
         that health-checks promoted relays.
     [is_nostr_relay][bigbrotr.utils.protocol.is_nostr_relay]: WebSocket
         probe function used for validation.
-    [promote_candidates][bigbrotr.services.common.queries.promote_candidates]:
+    [promote_candidates][bigbrotr.services.validator.queries.promote_candidates]:
         Insert+delete for promotion (with cleanup safety net).
 
 Examples:
@@ -85,7 +85,7 @@ class Validator(NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
     Processes candidate URLs discovered by the
     [Finder][bigbrotr.services.finder.Finder] service. Valid relays are
     promoted to the relays table via
-    [promote_candidates][bigbrotr.services.common.queries.promote_candidates];
+    [promote_candidates][bigbrotr.services.validator.queries.promote_candidates];
     invalid ones have their failure counter incremented for retry in
     future cycles.
 
