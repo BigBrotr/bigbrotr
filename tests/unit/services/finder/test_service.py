@@ -217,13 +217,13 @@ class TestFinderFindFromApi:
 
             assert result == 0
 
-    async def test_find_from_api_skips_source_within_interval(self, mock_brotr: Brotr) -> None:
-        """Test that sources within their interval are skipped."""
+    async def test_find_from_api_skips_source_within_cooldown(self, mock_brotr: Brotr) -> None:
+        """Test that sources within their cooldown are skipped."""
         config = FinderConfig(
             api=ApiConfig(
                 enabled=True,
                 sources=[
-                    ApiSourceConfig(url="https://api.example.com", interval=3600.0),
+                    ApiSourceConfig(url="https://api.example.com", cooldown=3600.0),
                 ],
                 request_delay=0,
             )
@@ -245,13 +245,13 @@ class TestFinderFindFromApi:
             assert result == 0
             mock_save.assert_not_awaited()
 
-    async def test_find_from_api_fetches_source_past_interval(self, mock_brotr: Brotr) -> None:
-        """Test that sources past their interval are fetched."""
+    async def test_find_from_api_fetches_source_past_cooldown(self, mock_brotr: Brotr) -> None:
+        """Test that sources past their cooldown are fetched."""
         config = FinderConfig(
             api=ApiConfig(
                 enabled=True,
                 sources=[
-                    ApiSourceConfig(url="https://api.example.com", interval=3600.0),
+                    ApiSourceConfig(url="https://api.example.com", cooldown=3600.0),
                 ],
                 request_delay=0,
             )

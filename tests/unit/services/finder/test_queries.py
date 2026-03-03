@@ -226,39 +226,44 @@ class TestLoadApiCheckpoints:
     """Tests for load_api_checkpoints()."""
 
     async def test_happy_path(self, query_brotr: MagicMock) -> None:
-        r1 = MagicMock()
-        r1.state_key = "https://api1.example.com"
-        r1.state_value = {"timestamp": 1700000000}
-        r2 = MagicMock()
-        r2.state_key = "https://api2.example.com"
-        r2.state_value = {"timestamp": 1700001000}
-        query_brotr.get_service_state = AsyncMock(return_value=[r1, r2])
-
-        result = await load_api_checkpoints(query_brotr)
-
-        query_brotr.get_service_state.assert_awaited_once_with(
-            ServiceName.FINDER, ServiceStateType.CHECKPOINT
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                {"state_key": "https://api1.example.com", "state_value": {"timestamp": 1700000000}},
+                {"state_key": "https://api2.example.com", "state_value": {"timestamp": 1700001000}},
+            ]
         )
+        urls = ["https://api1.example.com", "https://api2.example.com"]
+
+        result = await load_api_checkpoints(query_brotr, urls)
+
         assert result == {
             "https://api1.example.com": 1700000000,
             "https://api2.example.com": 1700001000,
         }
 
     async def test_skips_malformed(self, query_brotr: MagicMock) -> None:
-        good = MagicMock()
-        good.state_key = "https://api1.example.com"
-        good.state_value = {"timestamp": 1700000000}
-        bad = MagicMock()
-        bad.state_key = "https://api2.example.com"
-        bad.state_value = {}
-        query_brotr.get_service_state = AsyncMock(return_value=[good, bad])
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                {"state_key": "https://api1.example.com", "state_value": {"timestamp": 1700000000}},
+                {"state_key": "https://api2.example.com", "state_value": {}},
+            ]
+        )
+        urls = ["https://api1.example.com", "https://api2.example.com"]
 
-        result = await load_api_checkpoints(query_brotr)
+        result = await load_api_checkpoints(query_brotr, urls)
 
         assert result == {"https://api1.example.com": 1700000000}
 
-    async def test_empty(self, query_brotr: MagicMock) -> None:
-        result = await load_api_checkpoints(query_brotr)
+    async def test_empty_urls(self, query_brotr: MagicMock) -> None:
+        result = await load_api_checkpoints(query_brotr, [])
+
+        assert result == {}
+
+    async def test_no_rows(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(return_value=[])
+        urls = ["https://api.example.com"]
+
+        result = await load_api_checkpoints(query_brotr, urls)
 
         assert result == {}
 

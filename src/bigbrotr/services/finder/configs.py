@@ -70,12 +70,6 @@ class ApiSourceConfig(BaseModel):
 
     url: str = Field(description="API endpoint URL")
     enabled: bool = Field(default=True, description="Enable this source")
-    interval: float = Field(
-        default=86400.0,
-        ge=1.0,
-        le=604_800.0,
-        description="Minimum seconds to wait before querying this source again",
-    )
     timeout: float = Field(default=30.0, ge=0.1, le=120.0, description="Request timeout")
     connect_timeout: float = Field(
         default=10.0,
@@ -122,6 +116,12 @@ class ApiConfig(BaseModel):
     """
 
     enabled: bool = Field(default=True, description="Enable API fetching")
+    cooldown: float = Field(
+        default=86400.0,
+        ge=1.0,
+        le=604_800.0,
+        description="Minimum seconds to wait before querying any source again",
+    )
     sources: list[ApiSourceConfig] = Field(
         default_factory=lambda: [
             ApiSourceConfig(url="https://api.nostr.watch/v1/online"),
