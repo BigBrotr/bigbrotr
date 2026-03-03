@@ -17,7 +17,6 @@ from bigbrotr.services.synchronizer import (
     ConcurrencyConfig,
     EventBatch,
     FilterConfig,
-    SourceConfig,
     Synchronizer,
     SynchronizerConfig,
     TimeoutsConfig,
@@ -227,8 +226,14 @@ class TestTimeoutsConfig:
 
         assert config.max_duration == 3600.0
 
-    def test_max_duration_minimum(self) -> None:
-        config = TimeoutsConfig(max_duration=60.0)
+    def test_max_duration_at_min_relay_timeout(self) -> None:
+        config = TimeoutsConfig(
+            relay_clearnet=60.0,
+            relay_tor=60.0,
+            relay_i2p=60.0,
+            relay_loki=60.0,
+            max_duration=60.0,
+        )
 
         assert config.max_duration == 60.0
 
@@ -236,26 +241,20 @@ class TestTimeoutsConfig:
         with pytest.raises(ValueError, match="greater than or equal to 60"):
             TimeoutsConfig(max_duration=1.0)
 
+    def test_max_duration_below_shortest_relay_raises(self) -> None:
+        with pytest.raises(ValueError, match="must be >= the shortest relay timeout"):
+            TimeoutsConfig(max_duration=60.0)
+
+    def test_max_duration_above_upper_bound_raises(self) -> None:
+        with pytest.raises(ValueError, match="less than or equal to 86400"):
+            TimeoutsConfig(max_duration=100_000.0)
+
 
 class TestConcurrencyConfig:
     def test_default_values(self) -> None:
         config = ConcurrencyConfig()
 
         assert config.cursor_flush_interval == 50
-
-
-class TestSourceConfig:
-    def test_default_values(self) -> None:
-        config = SourceConfig()
-
-        assert config.from_database is True
-
-    def test_custom_values(self) -> None:
-        config = SourceConfig(
-            from_database=False,
-        )
-
-        assert config.from_database is False
 
 
 class TestSynchronizerConfig:
@@ -269,7 +268,6 @@ class TestSynchronizerConfig:
         assert config.networks.clearnet.timeout == 10.0
         assert config.timeouts.relay_clearnet == 1800.0
         assert config.concurrency.cursor_flush_interval == 50
-        assert config.source.from_database is True
         assert config.interval == 300.0
 
     def test_custom_nested_config(self) -> None:
@@ -1051,13 +1049,6 @@ class TestSynchronizerFetchRelays:
 
         assert relays == []
 
-    async def test_fetch_relays_disabled(self, mock_synchronizer_brotr: Brotr) -> None:
-        config = SynchronizerConfig(source=SourceConfig(from_database=False))
-        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
-        relays = await sync.fetch_relays()
-
-        assert relays == []
-
     async def test_fetch_relays_with_results(self, mock_synchronizer_brotr: Brotr) -> None:
         mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
             return_value=[
@@ -1430,7 +1421,13 @@ class TestSynchronizerPhaseTimeout:
         import time as time_mod
 
         config = SynchronizerConfig(
-            timeouts=TimeoutsConfig(max_duration=60.0),
+            timeouts=TimeoutsConfig(
+                relay_clearnet=60.0,
+                relay_tor=60.0,
+                relay_i2p=60.0,
+                relay_loki=60.0,
+                max_duration=60.0,
+            ),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
@@ -1484,7 +1481,13 @@ class TestSynchronizerPhaseTimeout:
         import time as time_mod
 
         config = SynchronizerConfig(
-            timeouts=TimeoutsConfig(max_duration=60.0),
+            timeouts=TimeoutsConfig(
+                relay_clearnet=60.0,
+                relay_tor=60.0,
+                relay_i2p=60.0,
+                relay_loki=60.0,
+                max_duration=60.0,
+            ),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
         sync.set_gauge = MagicMock()  # type: ignore[method-assign]

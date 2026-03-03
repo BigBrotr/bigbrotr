@@ -164,9 +164,6 @@ class Synchronizer(
         Returns:
             List of relays to sync (filtered by enabled networks).
         """
-        if not self._config.source.from_database:
-            return []
-
         all_relays = await fetch_relays(self._brotr)
         enabled = set(self._config.networks.get_enabled_networks())
         relays = [r for r in all_relays if r.network in enabled]

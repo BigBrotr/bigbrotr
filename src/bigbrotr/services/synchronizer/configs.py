@@ -9,7 +9,7 @@ See Also:
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models.constants import EVENT_KIND_MAX, NetworkType
@@ -126,8 +126,22 @@ class TimeoutsConfig(BaseModel):
     max_duration: float | None = Field(
         default=None,
         ge=60.0,
+        le=86_400.0,
         description="Maximum seconds for the entire sync phase (None = unlimited)",
     )
+
+    @model_validator(mode="after")
+    def _validate_max_duration_covers_relay_timeouts(self) -> TimeoutsConfig:
+        """Ensure max_duration is at least as long as the shortest relay timeout."""
+        if self.max_duration is None:
+            return self
+        min_relay = min(self.relay_clearnet, self.relay_tor, self.relay_i2p, self.relay_loki)
+        if self.max_duration < min_relay:
+            raise ValueError(
+                f"max_duration ({self.max_duration}) must be >= the shortest "
+                f"relay timeout ({min_relay})"
+            )
+        return self
 
     def get_relay_timeout(self, network: NetworkType) -> float:
         """Get the maximum sync duration for a relay on the given network."""
@@ -153,19 +167,6 @@ class ConcurrencyConfig(BaseModel):
     )
 
 
-class SourceConfig(BaseModel):
-    """Configuration for selecting which relays to sync from.
-
-    See Also:
-        [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
-            Parent config that embeds this model.
-        [fetch_relays][bigbrotr.services.synchronizer.queries.fetch_relays]:
-            Query used when ``from_database`` is ``True``.
-    """
-
-    from_database: bool = Field(default=True, description="Fetch relays from database")
-
-
 class SynchronizerConfig(BaseServiceConfig):
     """Synchronizer service configuration.
 
@@ -186,4 +187,3 @@ class SynchronizerConfig(BaseServiceConfig):
     time_range: TimeRangeConfig = Field(default_factory=TimeRangeConfig)
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
-    source: SourceConfig = Field(default_factory=SourceConfig)

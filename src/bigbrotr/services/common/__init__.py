@@ -10,9 +10,7 @@ Attributes:
         [I2pConfig][bigbrotr.services.common.configs.I2pConfig],
         [LokiConfig][bigbrotr.services.common.configs.LokiConfig]) with
         sensible defaults for timeouts, proxy URLs, and max concurrent tasks.
-    mixins: [ChunkProgress][bigbrotr.services.common.mixins.ChunkProgress]
-        dataclass for tracking chunk processing cycles,
-        [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin]
+    mixins: [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin]
         for per-network concurrency control, and
         [GeoReaders][bigbrotr.services.common.mixins.GeoReaders] for GeoIP
         database reader lifecycle management.

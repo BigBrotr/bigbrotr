@@ -8,7 +8,6 @@ Re-exports all public symbols for backwards-compatible imports::
 from .configs import (
     ConcurrencyConfig,
     FilterConfig,
-    SourceConfig,
     SynchronizerConfig,
     TimeoutsConfig,
     TimeRangeConfig,
@@ -21,7 +20,6 @@ __all__ = [
     "ConcurrencyConfig",
     "EventBatch",
     "FilterConfig",
-    "SourceConfig",
     "Synchronizer",
     "SynchronizerConfig",
     "TimeRangeConfig",
