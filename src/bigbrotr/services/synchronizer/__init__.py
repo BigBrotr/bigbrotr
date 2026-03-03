@@ -14,7 +14,7 @@ from .configs import (
     TimeRangeConfig,
 )
 from .service import Synchronizer
-from .utils import EventBatch, SyncContext
+from .utils import EventBatch
 
 
 __all__ = [
@@ -22,7 +22,6 @@ __all__ = [
     "EventBatch",
     "FilterConfig",
     "SourceConfig",
-    "SyncContext",
     "Synchronizer",
     "SynchronizerConfig",
     "TimeRangeConfig",

@@ -23,16 +23,14 @@ class EventsConfig(BaseModel):
     URL becomes a validation candidate.
 
     See Also:
-        [scan_event_relay][bigbrotr.services.common.queries.scan_event_relay]:
+        [scan_event_relay][bigbrotr.services.finder.queries.scan_event_relay]:
             The SQL query driven by ``batch_size``.
         [FinderConfig][bigbrotr.services.finder.FinderConfig]: Parent
             config that embeds this model.
     """
 
     enabled: bool = Field(default=True, description="Enable event scanning")
-    batch_size: int = Field(
-        default=1000, ge=100, le=10_000, description="Events to process per batch"
-    )
+    batch_size: int = Field(default=100, ge=10, le=1000, description="Events to process per batch")
     parallel_relays: int = Field(
         default=50, ge=1, le=200, description="Maximum concurrent relay event scans"
     )

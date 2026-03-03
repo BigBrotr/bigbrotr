@@ -265,9 +265,9 @@ class Monitor(
 
         self._logger.info("relays_available", total=total)
         self.set_gauge("total", total)
-        self.set_gauge("processed", processed)
-        self.set_gauge("success", succeeded)
-        self.set_gauge("failure", failed_count)
+        self.set_gauge("processed", 0)
+        self.set_gauge("success", 0)
+        self.set_gauge("failure", 0)
 
         async for successful, failed in self.check_chunks(relays):
             succeeded += len(successful)
@@ -278,7 +278,6 @@ class Monitor(
             self.inc_counter("total_checks_failed", len(failed))
             await self.publish_relay_discoveries(successful)
             await self._persist_results(successful, failed)
-            self.set_gauge("total", total)
             self.set_gauge("processed", processed)
             self.set_gauge("success", succeeded)
             self.set_gauge("failure", failed_count)
@@ -291,10 +290,6 @@ class Monitor(
             )
 
         elapsed = round(time.monotonic() - monotonic_start, 1)
-        self.set_gauge("total", total)
-        self.set_gauge("processed", processed)
-        self.set_gauge("success", succeeded)
-        self.set_gauge("failure", failed_count)
         self._logger.info(
             "monitoring_completed",
             checked=processed,
@@ -309,18 +304,13 @@ class Monitor(
         self,
         relays: list[Relay],
     ) -> AsyncIterator[tuple[list[tuple[Relay, CheckResult]], list[Relay]]]:
-        """Yield (successful, failed) for each processed chunk of relays.
+        """Yield (successful, failed) for each chunk of relays.
 
-        Requires ``geo_readers.open()`` for full checks. Handles budget
-        calculation and concurrent health checks. Persistence and publishing
-        are left to the caller.
-
-        Args:
-            relays: Pre-fetched relays to process, already ordered by
-                least-recently-checked.
-
-        Yields:
-            Tuple of (successful relay-result pairs, failed relays) per chunk.
+        Uses ``asyncio.gather`` with ``return_exceptions=True`` to run
+        health checks concurrently.  Non-Exception ``BaseException``
+        instances (``CancelledError``, ``KeyboardInterrupt``,
+        ``SystemExit``) are re-raised so they propagate instead of being
+        silently swallowed.
         """
         chunk_size = self._config.processing.chunk_size
         max_relays = self._config.processing.max_relays
@@ -332,66 +322,22 @@ class Monitor(
             if not self.is_running:
                 break
             chunk = relays[i : i + chunk_size]
-            successful, failed = await self._check_chunk(chunk)
+
+            tasks = [self.check_relay(r) for r in chunk]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            successful: list[tuple[Relay, CheckResult]] = []
+            failed: list[Relay] = []
+
+            for relay, result in zip(chunk, results, strict=True):
+                if isinstance(result, BaseException) and not isinstance(result, Exception):
+                    raise result
+                if isinstance(result, CheckResult) and result.has_data:
+                    successful.append((relay, result))
+                else:
+                    failed.append(relay)
+
             yield successful, failed
-
-    async def _check_chunk(
-        self, relays: list[Relay]
-    ) -> tuple[list[tuple[Relay, CheckResult]], list[Relay]]:
-        """Run health checks on a chunk of relays concurrently.
-
-        Uses ``asyncio.gather`` with per-network semaphores to bound
-        concurrency. A relay is considered successful if any field in
-        its [CheckResult][bigbrotr.services.monitor.CheckResult] is
-        non-``None``.
-
-        Returns:
-            Tuple of (successful relay-result pairs, failed relays).
-        """
-        tasks = [self.check_relay(r) for r in relays]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        successful: list[tuple[Relay, CheckResult]] = []
-        failed: list[Relay] = []
-
-        for relay, result in zip(relays, results, strict=True):
-            # gather(return_exceptions=True) captures all exceptions as results;
-            # re-raise non-Exception BaseExceptions (CancelledError, KeyboardInterrupt,
-            # SystemExit) so they propagate instead of being silently swallowed.
-            if isinstance(result, BaseException) and not isinstance(result, Exception):
-                raise result
-            if isinstance(result, CheckResult) and result.has_data:
-                successful.append((relay, result))
-            else:
-                failed.append(relay)
-
-        return successful, failed
-
-    async def _fetch_nip11_info(
-        self,
-        relay: Relay,
-        timeout: float,  # noqa: ASYNC109
-        proxy_url: str | None,
-    ) -> Nip11InfoMetadata | None:
-        """Fetch NIP-11 info and return the metadata container.
-
-        Unwraps the [Nip11][bigbrotr.nips.nip11.Nip11] wrapper so that
-        the returned [Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]
-        is directly compatible with
-        [_with_retry][bigbrotr.services.monitor.Monitor._with_retry]
-        (which calls [get_success][bigbrotr.services.monitor.utils.get_success]
-        on the result's ``.logs`` attribute).
-        """
-        nip11 = await Nip11.create(
-            relay,
-            timeout=timeout,
-            proxy_url=proxy_url,
-            options=Nip11Options(
-                allow_insecure=self._config.processing.allow_insecure,
-                max_size=self._config.processing.nip11_info_max_size,
-            ),
-        )
-        return nip11.info
 
     async def _with_retry(
         self,
@@ -578,8 +524,22 @@ class Monitor(
 
             try:
                 if compute.nip11_info:
+
+                    async def _fetch_nip11() -> Nip11InfoMetadata | None:
+                        return (
+                            await Nip11.create(
+                                relay,
+                                timeout=timeout,
+                                proxy_url=proxy_url,
+                                options=Nip11Options(
+                                    allow_insecure=self._config.processing.allow_insecure,
+                                    max_size=self._config.processing.nip11_info_max_size,
+                                ),
+                            )
+                        ).info
+
                     nip11_info = await self._with_retry(
-                        lambda: self._fetch_nip11_info(relay, timeout, proxy_url),
+                        _fetch_nip11,
                         self._config.processing.retries.nip11_info,
                         "nip11_info",
                         relay.url,

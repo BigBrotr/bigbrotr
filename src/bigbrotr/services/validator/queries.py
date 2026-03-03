@@ -102,8 +102,9 @@ async def delete_promoted_candidates(brotr: Brotr) -> int:
     Returns:
         Number of deleted rows.
     """
-    count: int = await brotr.fetchval(
-        """
+    count: int = (
+        await brotr.fetchval(
+            """
         WITH deleted AS (
             DELETE FROM service_state
             WHERE service_name = $1
@@ -113,9 +114,11 @@ async def delete_promoted_candidates(brotr: Brotr) -> int:
         )
         SELECT count(*)::int FROM deleted
         """,
-        ServiceName.VALIDATOR,
-        ServiceStateType.CHECKPOINT,
-    ) or 0
+            ServiceName.VALIDATOR,
+            ServiceStateType.CHECKPOINT,
+        )
+        or 0
+    )
     return count
 
 
