@@ -220,7 +220,7 @@ BigBrotr supports multiple deployment configurations from the same codebase via 
 
 ### BigBrotr (Full Archive)
 
-Stores complete Nostr events (id, pubkey, created_at, kind, tags, content, sig). 11 materialized views for analytics. Tor enabled. All 8 services + Prometheus + Grafana.
+Stores complete Nostr events (id, pubkey, created_at, kind, tags, content, sig).
 
 ```bash
 cd deployments/bigbrotr && docker compose up -d
@@ -228,7 +228,7 @@ cd deployments/bigbrotr && docker compose up -d
 
 ### LilBrotr (Lightweight)
 
-Stores all 8 event columns but keeps tags, content, and sig as NULL for approximately 60% disk savings. Same eight services and all 11 materialized views.
+Stores all 8 event columns but keeps tags, content, and sig as NULL for approximately 60% disk savings.
 
 ```bash
 cd deployments/lilbrotr && docker compose up -d
@@ -268,7 +268,7 @@ PostgreSQL 16 with PGBouncer (transaction-mode pooling) and asyncpg async driver
 
 All functions use `SECURITY INVOKER`, bulk array parameters, and `ON CONFLICT DO NOTHING`.
 
-### Materialized Views (11, BigBrotr Only)
+### Materialized Views (11)
 
 `relay_metadata_latest`, `event_stats`, `relay_stats`, `kind_counts`, `kind_counts_by_relay`, `pubkey_counts`, `pubkey_counts_by_relay`, `network_stats`, `relay_software_counts`, `supported_nip_counts`, `event_daily_counts` -- all support `REFRESH CONCURRENTLY` via unique indexes.
 
@@ -324,21 +324,23 @@ JSON mode available for cloud aggregation:
 | NIP | Usage |
 |-----|-------|
 | **NIP-01** | Event model, relay communication |
-| **NIP-02** | Contact list relay discovery (kind 3) |
 | **NIP-11** | Relay information document fetch and parse |
-| **NIP-65** | Relay list metadata (kind 10002) |
-| **NIP-66** | Relay monitoring and discovery (kinds 10166, 30166) |
+| **NIP-42** | Relay authentication (Synchronizer auth, Validator detection) |
+| **NIP-66** | Relay monitoring and discovery (kinds 10166, 22456, 30166) |
+| **NIP-89** | Handler information (DVM announcement, kind 31990) |
+| **NIP-90** | Data Vending Machine (DVM job requests/results, kinds 5050/6050) |
 
 ### Event Kinds
 
 | Kind | Direction | Purpose |
 |------|-----------|---------|
 | 0 | Published | Monitor profile metadata |
-| 2 | Consumed | Deprecated relay recommendation |
-| 3 | Consumed | Contact list (relay URLs from tag values) |
-| 10002 | Consumed | NIP-65 relay list (`r` tags) |
+| 5050 | Consumed | NIP-90 DVM job request |
+| 6050 | Published | NIP-90 DVM job result |
 | 10166 | Published | Monitor announcement (capabilities, networks, timeouts) |
+| 22456 | Published | NIP-66 ephemeral relay test |
 | 30166 | Published | Relay discovery (addressable, one per relay, health check tags) |
+| 31990 | Published | NIP-89 handler information (DVM announcement) |
 
 ### NIP-66 Health Checks
 
@@ -360,9 +362,9 @@ JSON mode available for cloud aggregation:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin password |
-| `DB_WRITER_PASSWORD` | Yes | Writer role password (all eight services) |
+| `DB_WRITER_PASSWORD` | Yes | Writer role password (Seeder, Finder, Validator, Monitor, Synchronizer) |
 | `DB_REFRESHER_PASSWORD` | Yes | Refresher role password (matview ownership) |
-| `DB_READER_PASSWORD` | Yes | Reader role password (read-only access) |
+| `DB_READER_PASSWORD` | Yes | Reader role password (Api, Dvm, postgres-exporter) |
 | `NOSTR_PRIVATE_KEY` | For Monitor, Validator, Synchronizer, Dvm | Nostr private key (hex or nsec) for event signing and NIP-42 auth |
 | `GRAFANA_PASSWORD` | For Grafana | Grafana admin password |
 
@@ -419,7 +421,7 @@ make clean            # remove build artifacts and caches
 
 ### Test Suite
 
-- ~2,400 unit tests + ~94 integration tests (testcontainers PostgreSQL)
+- ~2,500 unit tests + ~94 integration tests (testcontainers PostgreSQL)
 - `asyncio_mode = "auto"` -- no `@pytest.mark.asyncio` needed
 - Global timeout: 120s per test
 - Shared fixtures via `tests/fixtures/relays.py` (registered as pytest plugin)
@@ -495,7 +497,7 @@ bigbrotr/
 │   └── lilbrotr/                    # Lightweight deployment
 ├── tests/
 │   ├── fixtures/relays.py           # Shared relay fixtures
-│   ├── unit/                        # ~2,400 tests (mirrors src/ structure)
+│   ├── unit/                        # ~2,500 tests (mirrors src/ structure)
 │   └── integration/                 # ~94 tests (testcontainers PostgreSQL)
 ├── docs/                            # MkDocs Material documentation
 ├── Makefile                         # Development targets
@@ -602,5 +604,8 @@ MIT -- see [LICENSE](LICENSE).
 - [Changelog](CHANGELOG.md)
 - [Nostr Protocol](https://nostr.com)
 - [NIP-11: Relay Information Document](https://github.com/nostr-protocol/nips/blob/master/11.md)
+- [NIP-42: Authentication of Clients to Relays](https://github.com/nostr-protocol/nips/blob/master/42.md)
 - [NIP-66: Relay Discovery and Monitoring](https://github.com/nostr-protocol/nips/blob/master/66.md)
+- [NIP-89: Recommended Application Handlers](https://github.com/nostr-protocol/nips/blob/master/89.md)
+- [NIP-90: Data Vending Machines](https://github.com/nostr-protocol/nips/blob/master/90.md)
 - [NIPs Repository](https://github.com/nostr-protocol/nips)

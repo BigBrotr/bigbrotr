@@ -600,6 +600,7 @@ All materialized views have unique indexes (required for `REFRESH MATERIALIZED V
 | Role | Permissions |
 |------|------------|
 | `bigbrotr_writer` | SELECT, INSERT, UPDATE, DELETE on all tables + EXECUTE on all functions |
+| `bigbrotr_refresher` | SELECT on all tables + EXECUTE on all functions + ownership of materialized views |
 | `bigbrotr_reader` | SELECT on all tables + EXECUTE on all functions + `pg_monitor` |
 
 ---
@@ -610,25 +611,23 @@ All materialized views have unique indexes (required for `REFRESH MATERIALIZED V
 
 15 containers on 2 bridge networks:
 
-| Container | Image | CPU | RAM | Purpose |
-|-----------|-------|-----|-----|---------|
-| PostgreSQL 16 | postgres:16-alpine | 2 | 2G | Primary database |
-| PGBouncer | edoburu/pgbouncer:v1.25.1 | 0.5 | 256M | Connection pooler (transaction mode) |
-| Tor | osminogin/tor-simple:0.4.8.10 | 0.5 | 256M | SOCKS5 proxy for .onion relays |
-| Seeder | bigbrotr (custom) | 0.5 | 256M | One-shot relay bootstrapping |
-| Finder | bigbrotr (custom) | 1 | 512M | Continuous relay discovery |
-| Validator | bigbrotr (custom) | 1 | 512M | WebSocket protocol validation |
-| Monitor | bigbrotr (custom) | 1 | 512M | Health checks + event publishing |
-| Synchronizer | bigbrotr (custom) | 1 | 512M | Event collection |
-| Refresher | bigbrotr (custom) | 0.25 | 256M | Materialized view refresh |
-| Api | bigbrotr (custom) | 0.5 | 256M | REST API (read-only) |
-| Dvm | bigbrotr (custom) | 0.5 | 256M | NIP-90 Data Vending Machine |
-| postgres-exporter | prometheuscommunity | 0.25 | 128M | PostgreSQL metrics for Prometheus |
-| Prometheus | prom/prometheus:v2.51.0 | 0.5 | 512M | Time-series metrics database (30-day retention) |
-| Alertmanager | prom/alertmanager:v0.27.0 | 0.25 | 128M | Alert routing and grouping |
-| Grafana | grafana/grafana:10.4.1 | 0.5 | 512M | Dashboards and visualization |
-
-**Total resources**: ~9.75 CPUs, ~6.9 GB RAM
+| Container | Image | Purpose |
+|-----------|-------|---------|
+| PostgreSQL 16 | postgres:16-alpine | Primary database |
+| PGBouncer | edoburu/pgbouncer:v1.25.1 | Connection pooler (transaction mode) |
+| Tor | osminogin/tor-simple:0.4.8.10 | SOCKS5 proxy for .onion relays |
+| Seeder | bigbrotr (custom) | One-shot relay bootstrapping |
+| Finder | bigbrotr (custom) | Continuous relay discovery |
+| Validator | bigbrotr (custom) | WebSocket protocol validation |
+| Monitor | bigbrotr (custom) | Health checks + event publishing |
+| Synchronizer | bigbrotr (custom) | Event collection |
+| Refresher | bigbrotr (custom) | Materialized view refresh |
+| Api | bigbrotr (custom) | REST API (read-only) |
+| Dvm | bigbrotr (custom) | NIP-90 Data Vending Machine |
+| postgres-exporter | prometheuscommunity | PostgreSQL metrics for Prometheus |
+| Prometheus | prom/prometheus:v2.51.0 | Time-series metrics database (30-day retention) |
+| Alertmanager | prom/alertmanager:v0.27.0 | Alert routing and grouping |
+| Grafana | grafana/grafana:10.4.1 | Dashboards and visualization |
 
 **Networks**:
 - `bigbrotr-data-network`: PostgreSQL, PGBouncer, Tor, services
@@ -724,7 +723,7 @@ JSON output mode available for machine parsing:
 
 | Category | Count | Description |
 |----------|-------|-------------|
-| Unit tests | ~2,400 | Isolated logic tests with mocked I/O |
+| Unit tests | ~2,500 | Isolated logic tests with mocked I/O |
 | Integration tests | ~90 | Real PostgreSQL via testcontainers |
 | Total | ~2,490 | Full suite |
 
@@ -977,7 +976,7 @@ Both share the same Dockerfile, service codebase, CLI, and service configuration
 | Database tables | 6 |
 | Stored procedures | 25 |
 | Materialized views | 11 |
-| Unit tests | ~2,400 |
+| Unit tests | ~2,500 |
 | Integration tests | ~90 |
 | CI/CD pipelines | 4 |
 | Pre-commit hooks | 15 |

@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.6.0] - 2026-03-01
+
+Observability, code quality, and deployment alignment release.
+
+### DEPLOYMENT CHANGES
+
+- **Renamed `PRIVATE_KEY` to `NOSTR_PRIVATE_KEY`** across all services, Docker Compose files, and `.env.example` templates. Update your `.env` files accordingly (#337)
+- **Rewrote `.env.example`** for both bigbrotr and lilbrotr with cleaner format and sections
+- **Aligned lilbrotr deployment** with bigbrotr: unified SQL init scripts, config structure, docker-compose topology, and PGBouncer setup (#337)
+
+### Added
+
+- Prometheus counters for all 8 services: relay-level counters (Finder), total_promoted (Validator), check/metadata/publishing counters (Monitor), relay sync/fail counters (Synchronizer), view counters and cycle duration gauge (Refresher), total_jobs_received (Dvm) (#331)
+- Grafana dashboard rows for Refresher metrics and candidate queue gauge (#334)
+
+### Fixed
+
+- Resolve ambiguous alias in `filter_new_relays` query (#333)
+
+### Changed
+
+- Extract `CatalogAccessMixin` from Api and Dvm services to share catalog initialization logic (#335)
+- Extract `ApiConfig` and `DvmConfig` into dedicated config modules (#335)
+- Move `_emit_progress_gauges` into `ChunkProgressMixin` (#335)
+
+### Tests
+
+- Restructure all service tests into uniform 1:1 directory layout (api, dvm, refresher, seeder, validator, finder, synchronizer) (#332)
+- Add tests for common types and utils modules (#332)
+- Add deterministic time patching to publishing tests, fix mock targets (#332)
+- Add Prometheus counter tests for all services (#331)
+
+### Docs
+
+- Comprehensive documentation update for all eight services (#336)
+- Add CatalogAccessMixin and catalog.py to architecture docs (#336)
+- Clean up ASCII diagrams in README and PROJECT_SPECIFICATION (#338)
+- Fix mermaid connection pooling chart in architecture docs (#338)
+
 ## [5.5.0] - 2026-03-01
 
 Hardening release: security fixes, configuration constraints, code quality improvements, and deployment changes across all services.
@@ -809,7 +848,8 @@ Initial prototype release.
 
 ---
 
-[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v5.5.0...HEAD
+[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v5.6.0...HEAD
+[5.6.0]: https://github.com/bigbrotr/bigbrotr/compare/v5.5.0...v5.6.0
 [5.5.0]: https://github.com/bigbrotr/bigbrotr/compare/v5.4.0...v5.5.0
 [5.4.0]: https://github.com/bigbrotr/bigbrotr/compare/v5.3.1...v5.4.0
 [5.3.1]: https://github.com/bigbrotr/bigbrotr/compare/v5.3.0...v5.3.1
