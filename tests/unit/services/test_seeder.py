@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
@@ -13,6 +13,10 @@ from bigbrotr.models import Relay
 from bigbrotr.services.seeder import SeedConfig, Seeder, SeederConfig
 from bigbrotr.services.seeder.queries import insert_relays
 from bigbrotr.services.seeder.utils import parse_seed_file
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 # ============================================================================
@@ -72,7 +76,7 @@ class TestSeederConfig:
         assert config.seed.to_validate is False
 
     def test_from_dict(self) -> None:
-        config = SeederConfig(**{"seed": {"file_path": "t.txt"}, "interval": 120.0})
+        config = SeederConfig(seed=SeedConfig(file_path="t.txt"), interval=120.0)
         assert config.seed.file_path == "t.txt"
         assert config.interval == 120.0
 
@@ -147,7 +151,7 @@ class TestInsertRelays:
         relays = [Relay("wss://a.example.com"), Relay("wss://b.example.com")]
         result = await insert_relays(brotr, relays)
 
-        assert result == 4  # 2 batches × 2 each
+        assert result == 4  # 2 batches x 2 each
         assert brotr.insert_relay.await_count == 2
 
     async def test_empty_returns_zero(self) -> None:
@@ -163,7 +167,11 @@ class TestInsertRelays:
         brotr.insert_relay = AsyncMock(return_value=3)
         brotr.config.batch.max_size = 1000
 
-        relays = [Relay("wss://a.example.com"), Relay("wss://b.example.com"), Relay("wss://c.example.com")]
+        relays = [
+            Relay("wss://a.example.com"),
+            Relay("wss://b.example.com"),
+            Relay("wss://c.example.com"),
+        ]
         assert await insert_relays(brotr, relays) == 3
         brotr.insert_relay.assert_awaited_once()
 
@@ -235,9 +243,7 @@ class TestSeed:
         assert await seeder.seed() == 2
         seeder_brotr.insert_relay.assert_called()
 
-    async def test_skips_comments_and_invalid(
-        self, seeder_brotr: Brotr, tmp_path: Path
-    ) -> None:
+    async def test_skips_comments_and_invalid(self, seeder_brotr: Brotr, tmp_path: Path) -> None:
         f = tmp_path / "seed.txt"
         f.write_text("# Comment\n\ninvalid\nwss://relay.example.com\n")
 
@@ -320,11 +326,14 @@ class TestSeederErrors:
         config = SeederConfig(seed=SeedConfig(file_path=str(f), to_validate=True))
         seeder = Seeder(brotr=seeder_brotr, config=config)
 
-        with patch(
-            "bigbrotr.services.seeder.service.insert_relays_as_candidates",
-            new_callable=AsyncMock,
-            side_effect=asyncpg.PostgresError("connection lost"),
-        ), pytest.raises(asyncpg.PostgresError):
+        with (
+            patch(
+                "bigbrotr.services.seeder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
+                side_effect=asyncpg.PostgresError("connection lost"),
+            ),
+            pytest.raises(asyncpg.PostgresError),
+        ):
             await seeder.seed()
 
     async def test_postgres_error_in_relays_propagates(
@@ -336,9 +345,12 @@ class TestSeederErrors:
         config = SeederConfig(seed=SeedConfig(file_path=str(f), to_validate=False))
         seeder = Seeder(brotr=seeder_brotr, config=config)
 
-        with patch(
-            "bigbrotr.services.seeder.service.insert_relays",
-            new_callable=AsyncMock,
-            side_effect=asyncpg.PostgresError("connection lost"),
-        ), pytest.raises(asyncpg.PostgresError):
+        with (
+            patch(
+                "bigbrotr.services.seeder.service.insert_relays",
+                new_callable=AsyncMock,
+                side_effect=asyncpg.PostgresError("connection lost"),
+            ),
+            pytest.raises(asyncpg.PostgresError),
+        ):
             await seeder.seed()
