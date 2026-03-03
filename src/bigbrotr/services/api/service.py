@@ -95,6 +95,10 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         self._logger.info("http_server_stopped")
         await super().__aexit__(_exc_type, _exc_val, _exc_tb)
 
+    async def cleanup(self) -> int:
+        """No-op: Api does not use service state."""
+        return 0
+
     async def run(self) -> None:
         """Log request stats and update Prometheus counters."""
         if self._server_task is not None and self._server_task.done():
@@ -180,7 +184,9 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
             return {"status": "ok"}
 
         # Schema endpoints
-        @app.get("/api/v1/schema")
+        prefix = self._config.route_prefix
+
+        @app.get(f"{prefix}/schema")
         async def list_schema() -> JSONResponse:
             tables = [
                 {
@@ -194,7 +200,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
             ]
             return JSONResponse({"data": tables})
 
-        @app.get("/api/v1/schema/{table}")
+        @app.get(f"{prefix}/schema/{{table}}")
         async def get_schema(table: str) -> JSONResponse:
             if table not in self._catalog.tables or not self._is_table_enabled(table):
                 return JSONResponse(
@@ -237,7 +243,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         schema = self._catalog.tables[table_name]
         pk_cols = schema.primary_key
 
-        @app.get(f"/api/v1/{table_name}")
+        @app.get(f"{self._config.route_prefix}/{table_name}")
         async def list_rows(request: Request) -> JSONResponse:
             params = dict(request.query_params)
             try:
@@ -289,7 +295,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
             else:
                 pk_path = "/".join(f"{{{pk}}}" for pk in pk_cols)
 
-            @app.get(f"/api/v1/{table_name}/{pk_path}")
+            @app.get(f"{self._config.route_prefix}/{table_name}/{pk_path}")
             async def get_row(request: Request) -> JSONResponse:
                 pk_values = {col: request.path_params[col] for col in pk_cols}
                 try:

@@ -358,65 +358,60 @@ COMMENT ON FUNCTION relay_metadata_insert_cascade(TEXT [], TEXT [], BIGINT [], B
 
 
 /*
- * service_state_upsert(TEXT[], TEXT[], TEXT[], JSONB[], BIGINT[]) -> VOID
+ * service_state_upsert(TEXT[], TEXT[], TEXT[], JSONB[]) -> VOID
  *
  * Bulk upsert (insert or replace) service state records. When a record with
  * the same (service_name, state_type, state_key) already exists, its
- * state_value and timestamp are fully replaced. DISTINCT ON deduplicates
- * within the batch.
+ * state_value is fully replaced. DISTINCT ON deduplicates within the batch.
  *
  * Parameters:
  *   p_service_names   - Array of service identifiers
  *   p_state_types     - Array of state categories
  *   p_state_keys      - Array of unique keys within each service+type
  *   p_state_values    - Array of JSONB values
- *   p_updated_ats     - Array of Unix update timestamps
  */
 CREATE OR REPLACE FUNCTION service_state_upsert(
     p_service_names TEXT [],
     p_state_types TEXT [],
     p_state_keys TEXT [],
-    p_state_values JSONB [],
-    p_updated_ats BIGINT []
+    p_state_values JSONB []
 )
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    INSERT INTO service_state (service_name, state_type, state_key, state_value, updated_at)
+    INSERT INTO service_state (service_name, state_type, state_key, state_value)
     SELECT DISTINCT ON (service_name, state_type, state_key)
-        service_name, state_type, state_key, state_value, updated_at
+        service_name, state_type, state_key, state_value
     FROM unnest(
         p_service_names,
         p_state_types,
         p_state_keys,
-        p_state_values,
-        p_updated_ats
-    ) AS t(service_name, state_type, state_key, state_value, updated_at)
+        p_state_values
+    ) AS t(service_name, state_type, state_key, state_value)
     ON CONFLICT (service_name, state_type, state_key)
     DO UPDATE SET
-        state_value = EXCLUDED.state_value,
-        updated_at = EXCLUDED.updated_at;
+        state_value = EXCLUDED.state_value;
 END;
 $$;
 
-COMMENT ON FUNCTION service_state_upsert(TEXT [], TEXT [], TEXT [], JSONB [], BIGINT []) IS
+COMMENT ON FUNCTION service_state_upsert(TEXT [], TEXT [], TEXT [], JSONB []) IS
 'Bulk upsert service state with deduplication and full replacement semantics';
 
 
 /*
- * service_state_get(TEXT, TEXT, TEXT) -> TABLE(state_key, state_value, updated_at)
+ * service_state_get(TEXT, TEXT, TEXT) -> TABLE(state_key, state_value)
  *
  * Retrieves service state records. When p_state_key is provided, returns the
  * single matching record. When NULL, returns all records for the given
- * service and state type, ordered by update timestamp ascending.
+ * service and state type, ordered by state_key ascending.
  *
  * Parameters:
  *   p_service_name  - Service identifier
  *   p_state_type    - State category
  *   p_state_key     - Specific key to retrieve (NULL for all records)
  *
- * Returns: Table of (state_key TEXT, state_value JSONB, updated_at BIGINT)
+ * Returns: Table of (state_key TEXT, state_value JSONB)
  */
 CREATE OR REPLACE FUNCTION service_state_get(
     p_service_name TEXT,
@@ -425,26 +420,25 @@ CREATE OR REPLACE FUNCTION service_state_get(
 )
 RETURNS TABLE (
     state_key TEXT,
-    state_value JSONB,
-    updated_at BIGINT
+    state_value JSONB
 )
 LANGUAGE plpgsql
 AS $$
 BEGIN
     IF p_state_key IS NOT NULL THEN
         RETURN QUERY
-        SELECT ss.state_key, ss.state_value, ss.updated_at
+        SELECT ss.state_key, ss.state_value
         FROM service_state ss
         WHERE ss.service_name = p_service_name
           AND ss.state_type = p_state_type
           AND ss.state_key = p_state_key;
     ELSE
         RETURN QUERY
-        SELECT ss.state_key, ss.state_value, ss.updated_at
+        SELECT ss.state_key, ss.state_value
         FROM service_state ss
         WHERE ss.service_name = p_service_name
           AND ss.state_type = p_state_type
-        ORDER BY ss.updated_at ASC;
+        ORDER BY ss.state_key ASC;
     END IF;
 END;
 $$;

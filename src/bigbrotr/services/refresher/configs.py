@@ -71,7 +71,7 @@ class RefresherConfig(BaseServiceConfig):
         [Refresher][bigbrotr.services.refresher.Refresher]: The service class
             that consumes this configuration.
         [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
-            Base class providing ``interval`` and ``metrics`` fields.
+            Base class providing ``interval``, ``max_consecutive_failures``, and ``metrics`` fields.
     """
 
     interval: float = Field(

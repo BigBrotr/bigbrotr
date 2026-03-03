@@ -161,13 +161,11 @@ CREATE TABLE IF NOT EXISTS service_state (
     state_type TEXT NOT NULL,
     state_key TEXT NOT NULL,
     state_value JSONB NOT NULL DEFAULT '{}',
-    updated_at BIGINT NOT NULL,
     PRIMARY KEY (service_name, state_type, state_key)
 );
 
-COMMENT ON TABLE service_state IS 'Per-service persistent state (candidates, cursors, checkpoints)';
+COMMENT ON TABLE service_state IS 'Per-service persistent state (cursors, checkpoints)';
 COMMENT ON COLUMN service_state.service_name IS 'Service identifier (finder, validator, synchronizer, monitor)';
-COMMENT ON COLUMN service_state.state_type IS 'State category (candidate, cursor, checkpoint, config)';
+COMMENT ON COLUMN service_state.state_type IS 'State category (cursor, checkpoint)';
 COMMENT ON COLUMN service_state.state_key IS 'Unique key within service+type (typically a relay URL or entity ID)';
-COMMENT ON COLUMN service_state.state_value IS 'JSONB value specific to the service and state type';
-COMMENT ON COLUMN service_state.updated_at IS 'Unix timestamp of last update';
+COMMENT ON COLUMN service_state.state_value IS 'JSONB payload; each state type stores its own business timestamp';

@@ -24,14 +24,18 @@ class ProcessingConfig(BaseModel):
             chunks reduce DB round-trips but increase memory usage.
         max_candidates: Optional cap on total candidates per cycle
             (``None`` = all).
+        interval: Minimum seconds before retrying a failed candidate.
+            Candidates whose ``timestamp`` is within this window are
+            skipped.
 
     See Also:
         [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig]:
             Parent config that embeds this model.
     """
 
-    chunk_size: int = Field(default=100, ge=10, le=1000)
+    chunk_size: int = Field(default=1000, ge=100, le=10000)
     max_candidates: int | None = Field(default=None, ge=1)
+    interval: float = Field(default=3600.0, ge=0.0, le=604_800.0)
 
 
 class CleanupConfig(BaseModel):
@@ -45,14 +49,14 @@ class CleanupConfig(BaseModel):
         max_failures: Failure threshold after which candidates are removed.
 
     See Also:
-        [delete_exhausted_candidates][bigbrotr.services.common.queries.delete_exhausted_candidates]:
+        [delete_exhausted_candidates][bigbrotr.services.validator.queries.delete_exhausted_candidates]:
             The SQL query driven by ``max_failures``.
         [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig]:
             Parent config that embeds this model.
     """
 
     enabled: bool = Field(default=False)
-    max_failures: int = Field(default=100, ge=1)
+    max_failures: int = Field(default=720, ge=1)
 
 
 class ValidatorConfig(BaseServiceConfig):

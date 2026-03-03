@@ -9,7 +9,7 @@ See Also:
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models.constants import EVENT_KIND_MAX, NetworkType
@@ -96,11 +96,15 @@ class TimeRangeConfig(BaseModel):
 
 
 class TimeoutsConfig(BaseModel):
-    """Per-relay sync timeout limits by network type.
+    """Sync timeout limits: per-relay bounds and optional phase-level cap.
 
-    These are the maximum total times allowed for syncing a single relay.
-    The per-request WebSocket timeout comes from
+    The ``relay_*`` fields control the maximum wall-clock time for syncing
+    a single relay (enforced via ``asyncio.wait_for``).  The per-request
+    WebSocket timeout comes from
     [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig].
+
+    ``max_duration`` caps the entire sync phase: once exceeded, remaining
+    relays are skipped.  ``None`` (the default) means unlimited.
 
     See Also:
         [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
@@ -119,6 +123,25 @@ class TimeoutsConfig(BaseModel):
     relay_loki: float = Field(
         default=3600.0, ge=60.0, le=14_400.0, description="Max time per Loki relay sync"
     )
+    max_duration: float | None = Field(
+        default=None,
+        ge=60.0,
+        le=86_400.0,
+        description="Maximum seconds for the entire sync phase (None = unlimited)",
+    )
+
+    @model_validator(mode="after")
+    def _validate_max_duration_covers_relay_timeouts(self) -> TimeoutsConfig:
+        """Ensure max_duration is at least as long as the shortest relay timeout."""
+        if self.max_duration is None:
+            return self
+        min_relay = min(self.relay_clearnet, self.relay_tor, self.relay_i2p, self.relay_loki)
+        if self.max_duration < min_relay:
+            raise ValueError(
+                f"max_duration ({self.max_duration}) must be >= the shortest "
+                f"relay timeout ({min_relay})"
+            )
+        return self
 
     def get_relay_timeout(self, network: NetworkType) -> float:
         """Get the maximum sync duration for a relay on the given network."""
@@ -144,42 +167,6 @@ class ConcurrencyConfig(BaseModel):
     )
 
 
-class SourceConfig(BaseModel):
-    """Configuration for selecting which relays to sync from.
-
-    See Also:
-        [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
-            Parent config that embeds this model.
-        [fetch_all_relays][bigbrotr.services.common.queries.fetch_all_relays]:
-            Query used when ``from_database`` is ``True``.
-    """
-
-    from_database: bool = Field(default=True, description="Fetch relays from database")
-
-
-class RelayOverrideTimeouts(BaseModel):
-    """Per-relay timeout overrides (None means use the network default)."""
-
-    request: float | None = None
-    relay: float | None = None
-
-    @field_validator("request", "relay", mode="after")
-    @classmethod
-    def validate_timeout(cls, v: float | None) -> float | None:
-        """Validate timeout: None (use default) or >= 0.1 seconds."""
-        min_timeout = 0.1
-        if v is not None and v < min_timeout:
-            raise ValueError(f"Timeout must be None or >= {min_timeout} seconds")
-        return v
-
-
-class RelayOverride(BaseModel):
-    """Per-relay configuration overrides (e.g., for high-traffic relays)."""
-
-    url: str = Field(min_length=1)
-    timeouts: RelayOverrideTimeouts = Field(default_factory=RelayOverrideTimeouts)
-
-
 class SynchronizerConfig(BaseServiceConfig):
     """Synchronizer service configuration.
 
@@ -187,7 +174,7 @@ class SynchronizerConfig(BaseServiceConfig):
         [Synchronizer][bigbrotr.services.synchronizer.Synchronizer]: The
             service class that consumes this configuration.
         [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
-            Base class providing ``interval`` and ``metrics`` fields.
+            Base class providing ``interval``, ``max_consecutive_failures``, and ``metrics`` fields.
         [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig]:
             Per-network timeout and proxy settings.
         [KeysConfig][bigbrotr.utils.keys.KeysConfig]: Nostr key management
@@ -200,5 +187,3 @@ class SynchronizerConfig(BaseServiceConfig):
     time_range: TimeRangeConfig = Field(default_factory=TimeRangeConfig)
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
-    source: SourceConfig = Field(default_factory=SourceConfig)
-    overrides: list[RelayOverride] = Field(default_factory=list)

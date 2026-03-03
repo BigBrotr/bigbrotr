@@ -14,7 +14,8 @@ from .configs import (
     ProfileConfig,
     PublishingConfig,
 )
-from .service import CheckResult, Monitor
+from .service import Monitor
+from .utils import CheckResult
 
 
 __all__ = [

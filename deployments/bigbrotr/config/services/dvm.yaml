@@ -6,15 +6,11 @@
 # =============================================================================
 
 pool:
-  user: bigbrotr_reader
+  user: reader
   password_env: DB_READER_PASSWORD
   max_size: 3
 
 interval: 60.0
-relays:
-  - "wss://relay.damus.io"
-  - "wss://nos.lol"
-  - "wss://relay.nostr.band"
 
 tables:
   relay:

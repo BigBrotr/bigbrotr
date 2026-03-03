@@ -258,7 +258,7 @@ class MonitorConfig(BaseServiceConfig):
         [Monitor][bigbrotr.services.monitor.Monitor]: The service class
             that consumes this configuration.
         [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
-            Base class providing ``interval`` and ``metrics`` fields.
+            Base class providing ``interval``, ``max_consecutive_failures``, and ``metrics`` fields.
         [KeysConfig][bigbrotr.utils.keys.KeysConfig]: Nostr key
             management for event signing.
     """

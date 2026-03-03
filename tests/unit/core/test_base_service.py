@@ -53,6 +53,10 @@ class ConcreteService(BaseService[ConcreteServiceConfig]):
         self.fail_count = 0
         self.fail_exception: type[Exception] = RuntimeError
 
+    async def cleanup(self) -> int:
+        """No-op for test service."""
+        return 0
+
     async def run(self) -> None:
         """Execute service logic."""
         self.run_count += 1
@@ -100,6 +104,14 @@ class TestBaseServiceConfig:
         # Invalid: below minimum
         with pytest.raises(ValidationError):
             BaseServiceConfig(interval=30.0)
+
+    def test_interval_maximum_validation(self) -> None:
+        """Test that interval must be <= 604800 seconds (1 week)."""
+        config = BaseServiceConfig(interval=604_800.0)
+        assert config.interval == 604_800.0
+
+        with pytest.raises(ValidationError):
+            BaseServiceConfig(interval=604_801.0)
 
     def test_max_consecutive_failures_zero_allowed(self) -> None:
         """Test that max_consecutive_failures=0 (unlimited) is allowed."""
@@ -613,6 +625,11 @@ class TestIncCounter:
 
 
 # ============================================================================
+# Abstract Method Tests
+# ============================================================================
+
+
+# ============================================================================
 # Abstract Class Behavior Tests
 # ============================================================================
 
@@ -642,6 +659,9 @@ class TestAbstractBehavior:
             SERVICE_NAME = "complete_service"
             CONFIG_CLASS = BaseServiceConfig
 
+            async def cleanup(self) -> int:
+                return 0
+
             async def run(self) -> None:
                 pass
 
@@ -654,6 +674,9 @@ class TestAbstractBehavior:
         class CompleteService(BaseService[BaseServiceConfig]):
             SERVICE_NAME = "complete_service"
             CONFIG_CLASS = BaseServiceConfig
+
+            async def cleanup(self) -> int:
+                return 0
 
             async def run(self) -> None:
                 pass

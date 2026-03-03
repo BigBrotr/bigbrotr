@@ -97,12 +97,14 @@ class TimeoutsConfig(BaseModel):
             Lower-level pool acquisition and health-check timeouts.
     """
 
-    query: float | None = Field(default=60.0, description="Query timeout (seconds, None=infinite)")
+    query: float | None = Field(
+        default=60.0, le=3600.0, description="Query timeout (seconds, None=infinite)"
+    )
     batch: float | None = Field(
-        default=120.0, description="Batch insert timeout (seconds, None=infinite)"
+        default=120.0, le=3600.0, description="Batch insert timeout (seconds, None=infinite)"
     )
     cleanup: float | None = Field(
-        default=90.0, description="Cleanup procedure timeout (seconds, None=infinite)"
+        default=90.0, le=3600.0, description="Cleanup procedure timeout (seconds, None=infinite)"
     )
     refresh: float | None = Field(
         default=None, description="Materialized view refresh timeout (seconds, None=infinite)"
@@ -844,7 +846,6 @@ class Brotr:
                 state_type=state_type,
                 state_key=row["state_key"],
                 state_value=row["state_value"],
-                updated_at=row["updated_at"],
             )
             for row in rows
         ]

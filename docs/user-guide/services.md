@@ -161,7 +161,7 @@ flowchart TD
 | `events.kinds` | list[int] | `[2, 3, 10002]` | Nostr event kinds to scan |
 | `api.enabled` | bool | `true` | Enable API-based discovery |
 | `api.sources[].url` | string | -- | API endpoint URL |
-| `api.delay_between_requests` | float | `1.0` | Delay between API calls |
+| `api.request_delay` | float | `1.0` | Delay between API calls |
 
 !!! tip "API Reference"
     See [`bigbrotr.services.finder`](../reference/services/finder/index.md) for the complete Finder API.
@@ -367,7 +367,6 @@ class EventBatch:
 | `time_range.use_relay_state` | bool | `true` | Use per-relay incremental cursors |
 | `time_range.lookback_seconds` | int | `86400` | Lookback window from cursor position |
 | `concurrency.max_parallel` | int | `10` | Concurrent relays |
-| `source.from_database` | bool | `true` | Fetch relay list from database |
 | `networks` | NetworkConfig | -- | Per-network timeouts and concurrency |
 
 !!! tip "API Reference"

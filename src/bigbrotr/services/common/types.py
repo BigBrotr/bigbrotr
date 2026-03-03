@@ -3,65 +3,133 @@
 Lightweight dataclasses produced by query functions and consumed by
 services.  Keeping them in their own module avoids circular imports
 between ``queries`` and individual service packages.
+
+Each ``ServiceStateType`` has a corresponding typed class:
+
+- **CHECKPOINT** → [Checkpoint][bigbrotr.services.common.types.Checkpoint]
+  (with subclasses [ApiCheckpoint][bigbrotr.services.common.types.ApiCheckpoint],
+  [MonitorCheckpoint][bigbrotr.services.common.types.MonitorCheckpoint],
+  [PublishCheckpoint][bigbrotr.services.common.types.PublishCheckpoint],
+  [CandidateCheckpoint][bigbrotr.services.common.types.CandidateCheckpoint])
+- **CURSOR** → [Cursor][bigbrotr.services.common.types.Cursor]
+  (with subclasses [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor],
+  [EventCursor][bigbrotr.services.common.types.EventCursor])
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
-    from bigbrotr.models.relay import Relay
+    from bigbrotr.models.constants import NetworkType
 
 
 @dataclass(frozen=True, slots=True)
-class Candidate:
-    """Relay candidate pending validation.
+class Checkpoint:
+    """Timestamp-based progress marker stored in ``service_state``.
 
-    Wraps a [Relay][bigbrotr.models.relay.Relay] object with its
-    ``service_state`` metadata, providing convenient access to validation
-    state (e.g., failure count).
+    Represents a CHECKPOINT record: a named key with a Unix timestamp
+    tracking when the associated entity was last processed.
+
+    Subclass per usage to enable type-level disambiguation:
+
+    - [ApiCheckpoint][bigbrotr.services.common.types.ApiCheckpoint]
+    - [MonitorCheckpoint][bigbrotr.services.common.types.MonitorCheckpoint]
+    - [PublishCheckpoint][bigbrotr.services.common.types.PublishCheckpoint]
+    - [CandidateCheckpoint][bigbrotr.services.common.types.CandidateCheckpoint]
 
     Attributes:
-        relay: [Relay][bigbrotr.models.relay.Relay] object with URL and
-            network information.
-        data: Metadata from the ``service_state`` table (``network``,
-            ``failures``, etc.).
-
-    See Also:
-        [fetch_candidates][bigbrotr.services.common.queries.fetch_candidates]:
-            Query that produces candidates.
+        key: State key identifying the entity (relay URL, API source URL,
+            or a named marker like ``"last_announcement"``).
+        timestamp: Unix timestamp of the last processing event.
     """
 
-    relay: Relay
-    data: Mapping[str, Any]
-
-    @property
-    def failures(self) -> int:
-        """Return the number of failed validation attempts for this candidate."""
-        return int(self.data.get("failures", 0))
+    key: str
+    timestamp: int
 
 
 @dataclass(frozen=True, slots=True)
-class EventRelayCursor:
+class ApiCheckpoint(Checkpoint):
+    """Checkpoint for API source polling (Finder).
+
+    Tracks when an external API endpoint was last queried for relay
+    discovery.  The ``key`` is the API source URL.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class MonitorCheckpoint(Checkpoint):
+    """Checkpoint for relay health monitoring (Monitor).
+
+    Tracks when a relay was last health-checked.  The ``key`` is the
+    relay URL.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class PublishCheckpoint(Checkpoint):
+    """Checkpoint for Nostr event publishing (Monitor).
+
+    Tracks when a periodic event (announcement, profile) was last
+    published.  The ``key`` is a named marker (e.g. ``"last_announcement"``).
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateCheckpoint(Checkpoint):
+    """Checkpoint for relay validation candidates (Validator).
+
+    Tracks candidate relay URLs with a failure counter and network type.
+    The ``key`` is the relay URL, ``timestamp`` is the insertion time
+    (for new candidates) or last validation attempt time (for retries).
+
+    Created by
+    [insert_relays_as_candidates][bigbrotr.services.validator.queries.insert_relays_as_candidates]
+    and fetched by
+    [fetch_candidates][bigbrotr.services.validator.queries.fetch_candidates].
+
+    Attributes:
+        key: Relay URL (inherited from Checkpoint).
+        timestamp: Unix timestamp of creation or last attempt (inherited).
+        network: [NetworkType][bigbrotr.models.constants.NetworkType] of
+            the candidate relay.
+        failures: Number of failed validation attempts (0 for new candidates).
+    """
+
+    network: NetworkType
+    failures: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class Cursor:
+    """Base class for pagination cursors stored in ``service_state``.
+
+    Subclass per usage to enable type-level disambiguation:
+
+    - [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor]
+    - [EventCursor][bigbrotr.services.common.types.EventCursor]
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class EventRelayCursor(Cursor):
     """Per-relay cursor for event scanning pagination.
 
     Tracks how far event scanning has progressed for a given relay.
     The cursor position is defined by ``seen_at`` (timestamp) and
-    optionally ``event_id`` (for deterministic tie-breaking within
-    the same timestamp).
+    ``event_id`` (for deterministic tie-breaking within the same
+    timestamp).
 
     Valid field combinations:
 
-    - ``seen_at=None, event_id=None`` — no cursor, scan from beginning.
-    - ``seen_at=<int>, event_id=None`` — timestamp-only cursor.
-    - ``seen_at=<int>, event_id=<bytes>`` — full composite cursor.
+    - ``seen_at=None, event_id=None`` — new cursor, scan from beginning.
+    - ``seen_at=<int>, event_id=<bytes>`` — composite cursor pointing
+      to a specific row.
 
-    ``event_id`` without ``seen_at`` is invalid and rejected at
-    construction.
+    Partial cursors (one field set, the other ``None``) are invalid and
+    rejected at construction.
 
     Attributes:
         relay_url: Relay URL this cursor belongs to.
@@ -74,13 +142,13 @@ class EventRelayCursor:
     event_id: bytes | None = None
 
     def __post_init__(self) -> None:
-        if self.seen_at is None and self.event_id is not None:
-            msg = "event_id requires seen_at"
+        if (self.seen_at is None) != (self.event_id is None):
+            msg = "seen_at and event_id must both be None or both be set"
             raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True)
-class EventCursor:
+class EventCursor(Cursor):
     """Cursor for paginating through Nostr events.
 
     Tracks the scanning position within an event stream.  The cursor
@@ -90,12 +158,12 @@ class EventCursor:
 
     Valid field combinations:
 
-    - ``created_at=None, event_id=None`` — no cursor, scan from beginning.
-    - ``created_at=<int>, event_id=None`` — timestamp-only cursor.
-    - ``created_at=<int>, event_id=<bytes>`` — full composite cursor.
+    - ``created_at=None, event_id=None`` — new cursor, scan from beginning.
+    - ``created_at=<int>, event_id=<bytes>`` — composite cursor pointing
+      to a specific row.
 
-    ``event_id`` without ``created_at`` is invalid and rejected at
-    construction.
+    Partial cursors (one field set, the other ``None``) are invalid and
+    rejected at construction.
 
     Attributes:
         created_at: Unix timestamp of the last processed event, or None.
@@ -106,6 +174,6 @@ class EventCursor:
     event_id: bytes | None = None
 
     def __post_init__(self) -> None:
-        if self.created_at is None and self.event_id is not None:
-            msg = "event_id requires created_at"
+        if (self.created_at is None) != (self.event_id is None):
+            msg = "created_at and event_id must both be None or both be set"
             raise ValueError(msg)

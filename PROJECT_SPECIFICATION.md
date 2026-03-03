@@ -599,9 +599,9 @@ All materialized views have unique indexes (required for `REFRESH MATERIALIZED V
 
 | Role | Permissions |
 |------|------------|
-| `bigbrotr_writer` | SELECT, INSERT, UPDATE, DELETE on all tables + EXECUTE on all functions |
-| `bigbrotr_refresher` | SELECT on all tables + EXECUTE on all functions + ownership of materialized views |
-| `bigbrotr_reader` | SELECT on all tables + EXECUTE on all functions + `pg_monitor` |
+| `writer` | SELECT, INSERT, UPDATE, DELETE on all tables + EXECUTE on all functions |
+| `refresher` | SELECT on all tables + EXECUTE on all functions + ownership of materialized views |
+| `reader` | SELECT on all tables + EXECUTE on all functions + `pg_monitor` |
 
 ---
 

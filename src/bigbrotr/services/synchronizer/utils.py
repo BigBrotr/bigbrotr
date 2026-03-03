@@ -1,13 +1,12 @@
 """Synchronizer service utility functions.
 
-Module-level sync logic, event batch management, and context types.
+Module-level sync algorithm, event batch management, and shared state types.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -15,28 +14,26 @@ from nostr_sdk import (
     Alphabet,
     Filter,
     Kind,
-    NostrSdkError,
-    RelayUrl,
     SingleLetterTag,
     Timestamp,
 )
 
 from bigbrotr.core.logger import format_kv_pairs
 from bigbrotr.models import Event, EventRelay
-from bigbrotr.services.common.queries import insert_event_relays
-from bigbrotr.utils.protocol import create_client
+
+from .queries import insert_event_relays
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    import asyncio
+    from collections.abc import AsyncIterator, Iterator
 
+    from nostr_sdk import Client
     from nostr_sdk import Event as NostrEvent
-    from nostr_sdk import Keys
 
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
     from bigbrotr.models.service_state import ServiceState
-    from bigbrotr.services.common.configs import NetworksConfig
 
     from .configs import FilterConfig
 
@@ -254,31 +251,6 @@ async def insert_batch(
 
 
 @dataclass(slots=True)
-class SyncCycleCounters:
-    """Per-cycle synchronization counters.
-
-    Groups relay/event outcome counts and the lock that guards
-    concurrent updates from ``TaskGroup`` workers.
-
-    See Also:
-        [Synchronizer][bigbrotr.services.synchronizer.Synchronizer]:
-            Service that owns an instance of this dataclass.
-    """
-
-    synced_events: int = 0
-    synced_relays: int = 0
-    failed_relays: int = 0
-    invalid_events: int = 0
-    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-
-    def reset(self) -> None:
-        self.synced_events = 0
-        self.synced_relays = 0
-        self.failed_relays = 0
-        self.invalid_events = 0
-
-
-@dataclass(slots=True)
 class SyncBatchState:
     """Shared mutable cursor state across sync workers within a single cycle.
 
@@ -296,81 +268,68 @@ class SyncBatchState:
     cursor_flush_interval: int
 
 
-@dataclass(frozen=True, slots=True)
-class SyncContext:
-    """Immutable context shared across all relay sync operations in a cycle.
-
-    See Also:
-        ``sync_relay_events``:
-            The function that consumes this context.
-    """
-
-    filter_config: FilterConfig
-    network_config: NetworksConfig
-    request_timeout: float
-    brotr: Brotr
-    keys: Keys
-
-
-async def sync_relay_events(
-    relay: Relay,
+async def iter_relay_events(
+    client: Client,
     start_time: int,
     end_time: int,
-    ctx: SyncContext,
-) -> tuple[int, int]:
-    """Core sync algorithm: connect to a relay, fetch events, and insert into the database.
+    filter_config: FilterConfig,
+    request_timeout: float,
+) -> AsyncIterator[EventBatch]:
+    """Forward-progression sync algorithm yielding event batches in ascending time order.
 
-    Uses [create_client][bigbrotr.utils.protocol.create_client] to
-    establish a WebSocket connection (with optional SOCKS5 proxy for
-    overlay networks), fetches events matching the configured filter,
-    and batch-inserts valid events.
+    Uses a time-window stack with binary splitting to guarantee that all
+    events in ``[start_time, end_time]`` are retrieved, even when the relay
+    caps its response at ``filter_config.limit`` events per request.
+
+    When a fetch returns ``limit`` events (indicating the relay may have
+    truncated its response), the current window is split in half and the
+    left (earlier) half is retried first. This ensures batches are always
+    yielded in ascending time order, suitable for cursor-based resumption.
 
     Args:
-        relay: [Relay][bigbrotr.models.relay.Relay] to sync from.
-        start_time: Inclusive start timestamp (since).
-        end_time: Inclusive end timestamp (until).
-        ctx: [SyncContext][bigbrotr.services.synchronizer.SyncContext]
-            with filter, network, timeout, database, and key settings.
+        client: Connected nostr-sdk ``Client`` with the target relay added.
+        start_time: Inclusive lower timestamp bound (since).
+        end_time: Inclusive upper timestamp bound (until).
+        filter_config: [FilterConfig][bigbrotr.services.synchronizer.FilterConfig]
+            with limit, kinds, authors, and tag constraints.
+        request_timeout: Seconds to wait for each ``fetch_events`` call.
 
-    Returns:
-        Tuple of (events_synced, invalid_events).
+    Yields:
+        [EventBatch][bigbrotr.services.synchronizer.EventBatch] for each
+        completed sub-window, in ascending time order. Each batch's
+        ``since``/``until`` reflect the sub-window boundaries.
     """
-    events_synced = 0
-    invalid_events = 0
+    until_stack = [end_time]
+    current_since = start_time
 
-    proxy_url = ctx.network_config.get_proxy_url(relay.network)
-    client = await create_client(ctx.keys, proxy_url)
-    await client.add_relay(RelayUrl.parse(relay.url))
+    while until_stack:
+        current_until = until_stack[0]
 
-    try:
-        await client.connect()
-
-        f = create_filter(start_time, end_time, ctx.filter_config)
-        events = await client.fetch_events(f, timedelta(seconds=ctx.request_timeout))
+        f = create_filter(current_since, current_until, filter_config)
+        events = await client.fetch_events(f, timedelta(seconds=request_timeout))
         event_list = events.to_vec()
 
-        if event_list:
-            # Convert to batch format
-            batch = EventBatch(start_time, end_time, len(event_list))
-            for evt in event_list:
-                try:
-                    batch.append(evt)
-                except OverflowError:
-                    break
+        if not event_list:
+            until_stack.pop(0)
+            current_since = current_until + 1
+            continue
 
-            events_synced, invalid_events = await insert_batch(
-                batch, relay, ctx.brotr, start_time, end_time
-            )
+        batch = EventBatch(current_since, current_until, len(event_list))
+        for evt in event_list:
+            try:
+                batch.append(evt)
+            except OverflowError:
+                break
 
-        await client.disconnect()
-    except (TimeoutError, OSError, NostrSdkError) as e:
-        _log("WARNING", "sync_relay_error", relay=relay.url, error=str(e))
-    finally:
-        # nostr-sdk client.shutdown() can raise arbitrary errors from the
-        # Rust FFI layer during cleanup; log and suppress in this finally block.
-        try:
-            await client.shutdown()
-        except Exception as e:
-            _log("DEBUG", "client_shutdown_error", relay=relay.url, error=str(e))
+        if batch.is_empty():
+            until_stack.pop(0)
+            current_since = current_until + 1
+            continue
 
-    return events_synced, invalid_events
+        if len(event_list) < filter_config.limit or current_since == current_until:
+            yield batch
+            until_stack.pop(0)
+            current_since = current_until + 1
+        else:
+            mid = current_since + (current_until - current_since) // 2
+            until_stack.insert(0, mid)

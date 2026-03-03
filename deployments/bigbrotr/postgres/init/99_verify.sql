@@ -14,7 +14,7 @@ BEGIN
     RAISE NOTICE '============================================================================';
     RAISE NOTICE '';
     RAISE NOTICE 'Roles:';
-    RAISE NOTICE '  bigbrotr_writer (DML + EXECUTE), bigbrotr_reader (SELECT + EXECUTE + pg_monitor)';
+    RAISE NOTICE '  writer (DML + EXECUTE), reader (SELECT + EXECUTE + pg_monitor), refresher (matview owner)';
     RAISE NOTICE '';
     RAISE NOTICE 'Extensions:';
     RAISE NOTICE '  btree_gin, pg_stat_statements';

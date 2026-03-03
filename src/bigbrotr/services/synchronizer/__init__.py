@@ -8,25 +8,18 @@ Re-exports all public symbols for backwards-compatible imports::
 from .configs import (
     ConcurrencyConfig,
     FilterConfig,
-    RelayOverride,
-    RelayOverrideTimeouts,
-    SourceConfig,
     SynchronizerConfig,
     TimeoutsConfig,
     TimeRangeConfig,
 )
 from .service import Synchronizer
-from .utils import EventBatch, SyncContext
+from .utils import EventBatch
 
 
 __all__ = [
     "ConcurrencyConfig",
     "EventBatch",
     "FilterConfig",
-    "RelayOverride",
-    "RelayOverrideTimeouts",
-    "SourceConfig",
-    "SyncContext",
     "Synchronizer",
     "SynchronizerConfig",
     "TimeRangeConfig",
