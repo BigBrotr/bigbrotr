@@ -508,23 +508,23 @@ bigbrotr/
 
 ### Container Stack
 
-| Container | Image | Purpose | Resources |
-|-----------|-------|---------|-----------|
-| postgres | `postgres:16-alpine` | Primary storage | 2 CPU, 2 GB |
-| pgbouncer | `edoburu/pgbouncer:v1.25.1-p0` | Transaction-mode connection pooling | 0.5 CPU, 256 MB |
-| tor | `osminogin/tor-simple:0.4.8.10` | SOCKS5 proxy for .onion relays | 0.5 CPU, 256 MB |
-| seeder | bigbrotr (parametric) | Relay bootstrapping (one-shot) | 0.5 CPU, 256 MB |
-| finder | bigbrotr (parametric) | Relay discovery | 1 CPU, 512 MB |
-| validator | bigbrotr (parametric) | Candidate validation | 1 CPU, 512 MB |
-| monitor | bigbrotr (parametric) | Health monitoring + event publishing | 1 CPU, 512 MB |
-| synchronizer | bigbrotr (parametric) | Event archiving | 1 CPU, 512 MB |
-| refresher | bigbrotr (parametric) | Materialized view refresh | 0.25 CPU, 256 MB |
-| api | bigbrotr (parametric) | REST API (FastAPI) | 0.5 CPU, 256 MB |
-| dvm | bigbrotr (parametric) | NIP-90 Data Vending Machine | 0.5 CPU, 256 MB |
-| postgres-exporter | `prometheuscommunity/postgres-exporter:v0.16.0` | PostgreSQL metrics | 0.25 CPU, 128 MB |
-| prometheus | `prom/prometheus:v2.51.0` | Metrics collection (30d retention) | 0.5 CPU, 512 MB |
-| alertmanager | `prom/alertmanager:v0.27.0` | Alert routing and grouping | 0.25 CPU, 128 MB |
-| grafana | `grafana/grafana:10.4.1` | Dashboards | 0.5 CPU, 512 MB |
+| Container | Image | Purpose |
+|-----------|-------|---------|
+| postgres | `postgres:16-alpine` | Primary storage |
+| pgbouncer | `edoburu/pgbouncer:v1.25.1-p0` | Transaction-mode connection pooling |
+| tor | `osminogin/tor-simple:0.4.8.10` | SOCKS5 proxy for .onion relays |
+| seeder | bigbrotr (parametric) | Relay bootstrapping (one-shot) |
+| finder | bigbrotr (parametric) | Relay discovery |
+| validator | bigbrotr (parametric) | Candidate validation |
+| monitor | bigbrotr (parametric) | Health monitoring + event publishing |
+| synchronizer | bigbrotr (parametric) | Event archiving |
+| refresher | bigbrotr (parametric) | Materialized view refresh |
+| api | bigbrotr (parametric) | REST API (FastAPI) |
+| dvm | bigbrotr (parametric) | NIP-90 Data Vending Machine |
+| postgres-exporter | `prometheuscommunity/postgres-exporter:v0.16.0` | PostgreSQL metrics |
+| prometheus | `prom/prometheus:v2.51.0` | Metrics collection (30d retention) |
+| alertmanager | `prom/alertmanager:v0.27.0` | Alert routing and grouping |
+| grafana | `grafana/grafana:10.4.1` | Dashboards |
 
 ### Networks
 
