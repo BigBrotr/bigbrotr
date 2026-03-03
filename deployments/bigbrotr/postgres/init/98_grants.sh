@@ -7,9 +7,9 @@
 
 set -euo pipefail
 
-WRITER_ROLE="${POSTGRES_DB}_writer"
-READER_ROLE="${POSTGRES_DB}_reader"
-REFRESHER_ROLE="${POSTGRES_DB}_refresher"
+WRITER_ROLE="writer"
+READER_ROLE="reader"
+REFRESHER_ROLE="refresher"
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
     -- Writer: full DML + function execution

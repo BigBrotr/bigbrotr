@@ -6,7 +6,7 @@
 # =============================================================================
 
 pool:
-  user: lilbrotr_reader
+  user: reader
   password_env: DB_READER_PASSWORD
   min_size: 2
 

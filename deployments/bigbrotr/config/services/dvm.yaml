@@ -6,7 +6,7 @@
 # =============================================================================
 
 pool:
-  user: bigbrotr_reader
+  user: reader
   password_env: DB_READER_PASSWORD
   max_size: 3
 

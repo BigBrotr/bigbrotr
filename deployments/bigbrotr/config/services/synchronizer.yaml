@@ -8,7 +8,7 @@
 # =============================================================================
 
 pool:
-  user: bigbrotr_writer
+  user: writer
   password_env: DB_WRITER_PASSWORD
   min_size: 2
 

@@ -237,7 +237,7 @@ Each service declares its own database connection settings in its YAML config fi
 ```yaml
 # config/services/monitor.yaml
 pool:
-  user: bigbrotr_writer
+  user: writer
   password_env: DB_WRITER_PASSWORD
   min_size: 1
   max_size: 3
@@ -249,7 +249,7 @@ pool:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `user` | string | Database role for this service (e.g., `bigbrotr_writer`, `bigbrotr_reader`) |
+| `user` | string | Database role for this service (e.g., `writer`, `reader`, `refresher`) |
 | `password_env` | string | Environment variable containing the role's password |
 | `min_size` | int | Minimum pool connections for this service |
 | `max_size` | int | Maximum pool connections for this service |
@@ -736,7 +736,7 @@ pool:
 ```yaml
 # services/finder.yaml -- per-service pool overrides
 pool:
-  user: bigbrotr_writer
+  user: writer
   password_env: DB_WRITER_PASSWORD
   min_size: 1
   max_size: 3

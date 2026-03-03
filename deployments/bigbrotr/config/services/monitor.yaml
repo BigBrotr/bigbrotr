@@ -7,7 +7,7 @@
 # =============================================================================
 
 pool:
-  user: bigbrotr_writer
+  user: writer
   password_env: DB_WRITER_PASSWORD
   max_size: 3
 

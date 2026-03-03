@@ -602,7 +602,7 @@ services:
     restart: unless-stopped
 
     environment:
-      DATA_SOURCE_NAME: "postgresql://bigbrotr_reader:${DB_READER_PASSWORD}@postgres:5432/bigbrotr?sslmode=disable"
+      DATA_SOURCE_NAME: "postgresql://reader:${DB_READER_PASSWORD}@postgres:5432/bigbrotr?sslmode=disable"
 
     volumes:
       - ./monitoring/postgres-exporter/queries.yaml:/etc/postgres-exporter/queries.yaml:ro
