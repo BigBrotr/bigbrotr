@@ -6,6 +6,10 @@
 # See brotr/config/services/monitor.yaml for all options and documentation.
 # =============================================================================
 
+profile:
+  name: "LilBrotr Monitor"
+  about: "Nostr relay monitoring service"
+
 pool:
   user: writer
   password_env: DB_WRITER_PASSWORD

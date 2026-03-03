@@ -143,6 +143,9 @@ class Synchronizer(
         """
         relays = await self.fetch_relays()
 
+        self.set_gauge("relays_scanned", 0)
+        self.set_gauge("events_synced", 0)
+
         if not relays:
             self._logger.info("no_relays_to_sync")
             return 0
@@ -253,8 +256,11 @@ class Synchronizer(
             total_invalid += invalid
             relays_scanned += 1
 
-        self.set_gauge("events_synced", total_events)
+            self.set_gauge("relays_scanned", relays_scanned)
+            self.set_gauge("events_synced", total_events)
+
         self.set_gauge("relays_scanned", relays_scanned)
+        self.set_gauge("events_synced", total_events)
         self.inc_counter("total_events_synced", total_events)
         self.inc_counter("total_events_invalid", total_invalid)
         self.inc_counter("total_sync_failures", scan_failures)

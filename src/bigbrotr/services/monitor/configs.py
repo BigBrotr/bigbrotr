@@ -232,8 +232,8 @@ class ProfileConfig(BaseModel):
         list[Relay] | None,
         BeforeValidator(lambda v: safe_parse(v, Relay) if v is not None else None),
     ] = Field(default=None)
-    name: str | None = Field(default=None)
-    about: str | None = Field(default=None)
+    name: str | None = Field(default="BigBrotr Monitor")
+    about: str | None = Field(default="Nostr relay monitoring service")
     picture: str | None = Field(default=None)
     nip05: str | None = Field(default=None)
     website: str | None = Field(default=None)

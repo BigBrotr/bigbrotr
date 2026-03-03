@@ -1,13 +1,12 @@
 #!/bin/sh
 # Generate PgBouncer userlist from environment variables and start PgBouncer.
 # Userlist includes admin (for pool management) + writer/reader/refresher application roles.
-# Role names are derived from POSTGRES_DB environment variable.
 
 set -eu
 
-WRITER_ROLE="${POSTGRES_DB}_writer"
-READER_ROLE="${POSTGRES_DB}_reader"
-REFRESHER_ROLE="${POSTGRES_DB}_refresher"
+WRITER_ROLE="writer"
+READER_ROLE="reader"
+REFRESHER_ROLE="refresher"
 
 mkdir -p /tmp/pgbouncer
 cat > /tmp/pgbouncer/userlist.txt <<EOF

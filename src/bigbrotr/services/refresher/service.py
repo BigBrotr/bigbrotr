@@ -73,6 +73,9 @@ class Refresher(BaseService[RefresherConfig]):
         refreshed = 0
         failed = 0
 
+        self.set_gauge("views_refreshed", 0)
+        self.set_gauge("views_failed", 0)
+
         for view in views:
             try:
                 await self._brotr.refresh_materialized_view(view)
