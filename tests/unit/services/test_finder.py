@@ -132,6 +132,14 @@ class TestEventsConfig:
         with pytest.raises(ValueError):
             EventsConfig(max_duration=0.5)
 
+    def test_max_relay_time_above_upper_bound(self) -> None:
+        with pytest.raises(ValueError):
+            EventsConfig(max_relay_time=86_401.0)
+
+    def test_max_duration_above_upper_bound(self) -> None:
+        with pytest.raises(ValueError):
+            EventsConfig(max_duration=604_801.0)
+
 
 class TestApiSourceConfig:
     def test_default_values(self) -> None:

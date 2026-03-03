@@ -86,9 +86,9 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         pubkey = self._config.keys.public_key().to_hex()
         self._logger.info("client_created", pubkey=pubkey)
 
-        for url in self._config.relays:
-            await client.add_relay(RelayUrl.parse(url))
-            self._logger.info("relay_connected", url=url)
+        for relay in self._config.relays:
+            await client.add_relay(RelayUrl.parse(relay.url))
+            self._logger.info("relay_connected", url=relay.url)
         await client.connect()
 
         if self._config.announce:

@@ -12,7 +12,9 @@ See Also:
 
 from __future__ import annotations
 
-from pydantic import Field, field_validator, model_validator
+from typing import Annotated
+
+from pydantic import BeforeValidator, Field, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
@@ -36,19 +38,11 @@ class DvmConfig(BaseServiceConfig, KeysConfig):
         fetch_timeout: Timeout in seconds for relay event fetching.
     """
 
-    relays: list[str] = Field(min_length=1)
+    relays: Annotated[
+        list[Relay],
+        BeforeValidator(lambda v: [Relay(url) if isinstance(url, str) else url for url in v]),
+    ] = Field(min_length=1)
     kind: int = Field(default=5050, ge=5000, le=5999)
-
-    @field_validator("relays")
-    @classmethod
-    def validate_relay_urls(cls, v: list[str]) -> list[str]:
-        """Validate that all relay URLs are valid WebSocket URLs."""
-        for url in v:
-            try:
-                Relay(url)
-            except (ValueError, TypeError) as e:
-                raise ValueError(f"Invalid relay URL '{url}': {e}") from e
-        return v
 
     default_page_size: int = Field(default=100, ge=1, le=10000)
     max_page_size: int = Field(default=1000, ge=1, le=10000)

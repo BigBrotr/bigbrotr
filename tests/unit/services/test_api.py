@@ -138,6 +138,20 @@ class TestApiConfig:
         with pytest.raises(ValueError):
             ApiConfig(host="")
 
+    def test_port_conflict_with_metrics_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"metrics\.port.*must differ.*HTTP port"):
+            ApiConfig(port=8000, metrics={"enabled": True, "port": 8000})
+
+    def test_port_conflict_ignored_when_metrics_disabled(self) -> None:
+        config = ApiConfig(port=8000, metrics={"enabled": False, "port": 8000})
+        assert config.port == 8000
+        assert config.metrics.port == 8000
+
+    def test_different_ports_accepted(self) -> None:
+        config = ApiConfig(port=8080, metrics={"enabled": True, "port": 9090})
+        assert config.port == 8080
+        assert config.metrics.port == 9090
+
 
 class TestApiConfigRoutePrefix:
     def test_default(self) -> None:

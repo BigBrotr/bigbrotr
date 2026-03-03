@@ -62,6 +62,7 @@ class BaseServiceConfig(BaseModel):
     interval: float = Field(
         default=300.0,
         ge=60.0,
+        le=604_800.0,
         description="Target seconds between cycle starts (fixed-schedule)",
     )
     max_consecutive_failures: int = Field(

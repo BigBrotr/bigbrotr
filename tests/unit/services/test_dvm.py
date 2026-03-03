@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from bigbrotr.core.brotr import Brotr
+from bigbrotr.models import Relay
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.catalog import (
     Catalog,
@@ -137,7 +138,7 @@ class TestDvmConfig:
 
     def test_kind_range(self) -> None:
         with pytest.raises(ValueError):
-            DvmConfig(relays=["wss://x"], kind=4000)
+            DvmConfig(relays=["wss://relay.example.com"], kind=4000)
 
     def test_custom_tables(self) -> None:
         config = DvmConfig(
@@ -152,12 +153,13 @@ class TestDvmConfig:
         assert config.interval == 120.0
 
     def test_invalid_relay_url_rejected(self) -> None:
-        with pytest.raises(ValueError, match="Invalid relay URL"):
+        with pytest.raises(ValueError):
             DvmConfig(relays=["not_a_url"])
 
     def test_valid_relay_urls_accepted(self) -> None:
         config = DvmConfig(relays=["wss://relay.damus.io", "wss://nos.lol"])
         assert len(config.relays) == 2
+        assert all(isinstance(r, Relay) for r in config.relays)
 
 
 # ============================================================================

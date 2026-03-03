@@ -58,3 +58,11 @@ class ApiConfig(BaseServiceConfig):
             )
             raise ValueError(msg)
         return self
+
+    @model_validator(mode="after")
+    def _validate_port_conflict(self) -> ApiConfig:
+        if self.metrics.enabled and self.metrics.port == self.port:
+            raise ValueError(
+                f"metrics.port ({self.metrics.port}) must differ from HTTP port ({self.port})"
+            )
+        return self
