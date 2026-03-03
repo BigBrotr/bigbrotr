@@ -62,16 +62,18 @@ import time
 from typing import TYPE_CHECKING, ClassVar
 
 import asyncpg
+from nostr_sdk import NostrSdkError, RelayUrl
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.mixins import NetworkSemaphoresMixin
 from bigbrotr.services.common.queries import upsert_service_states
+from bigbrotr.utils.protocol import create_client
 
 from .configs import SynchronizerConfig
 from .queries import delete_stale_cursors, fetch_relays
-from .utils import SyncBatchState, SyncContext, sync_relay_events
+from .utils import SyncBatchState, insert_batch, iter_relay_events
 
 
 if TYPE_CHECKING:
@@ -278,6 +280,14 @@ class Synchronizer(
     ) -> tuple[int, int] | None:
         """Sync events from a single relay with semaphore-bounded concurrency.
 
+        Creates a WebSocket client, connects to the relay, and consumes the
+        [iter_relay_events][bigbrotr.services.synchronizer.utils.iter_relay_events]
+        generator to fetch and insert events in ascending time order.
+
+        The cursor is updated to ``end_time`` on normal completion, or to the
+        last completed sub-window boundary on partial completion (error or
+        shutdown). No cursor update occurs when no batches are processed.
+
         Returns:
             Tuple of (events_synced, invalid_events), or None if skipped.
         """
@@ -302,21 +312,76 @@ class Synchronizer(
             if start >= end_time:
                 return None
 
-            ctx = SyncContext(
-                filter_config=self._config.filter,
-                network_config=self._config.networks,
-                request_timeout=request_timeout,
-                brotr=self._brotr,
-                keys=self._keys,
-            )
-
-            events_synced, invalid_events = await asyncio.wait_for(
-                sync_relay_events(relay=relay, start_time=start, end_time=end_time, ctx=ctx),
+            events_synced, invalid_events, cursor_value = await asyncio.wait_for(
+                self._fetch_and_insert(relay, start, end_time, request_timeout),
                 timeout=relay_timeout,
             )
 
-            await self._batch_cursor_update(cursor_batch, relay, end_time)
+            if cursor_value is not None:
+                await self._batch_cursor_update(cursor_batch, relay, cursor_value)
+
             return events_synced, invalid_events
+
+    async def _fetch_and_insert(
+        self,
+        relay: Relay,
+        start_time: int,
+        end_time: int,
+        request_timeout: float,
+    ) -> tuple[int, int, int | None]:
+        """Connect to a relay, iterate over event batches, and insert them.
+
+        Manages the nostr-sdk client lifecycle and consumes the
+        [iter_relay_events][bigbrotr.services.synchronizer.utils.iter_relay_events]
+        async generator. Returns the cursor value for the caller to persist.
+
+        The cursor is set to ``end_time`` when all sub-windows complete
+        successfully, or to the last completed sub-window's ``until`` on
+        partial completion (error or shutdown). Returns ``None`` when no
+        batches were processed.
+
+        Args:
+            relay: Target relay.
+            start_time: Inclusive lower timestamp bound.
+            end_time: Inclusive upper timestamp bound.
+            request_timeout: Seconds per WebSocket fetch call.
+
+        Returns:
+            Tuple of (events_synced, invalid_events, cursor_value).
+        """
+        proxy_url = self._config.networks.get_proxy_url(relay.network)
+        client = await create_client(self._keys, proxy_url)
+        await client.add_relay(RelayUrl.parse(relay.url))
+
+        events_synced = 0
+        invalid_events = 0
+        cursor_value: int | None = None
+
+        try:
+            await client.connect()
+
+            async for batch in iter_relay_events(
+                client, start_time, end_time, self._config.filter, request_timeout
+            ):
+                inserted, invalid = await insert_batch(
+                    batch, relay, self._brotr, batch.since, batch.until
+                )
+                events_synced += inserted
+                invalid_events += invalid
+                cursor_value = batch.until
+
+            # Generator completed — all sub-windows processed
+            cursor_value = end_time
+            await client.disconnect()
+        except (TimeoutError, OSError, NostrSdkError) as e:
+            self._logger.warning("sync_relay_error", relay=relay.url, error=str(e))
+        finally:
+            try:
+                await client.shutdown()
+            except Exception as e:
+                self._logger.debug("client_shutdown_error", relay=relay.url, error=str(e))
+
+        return events_synced, invalid_events, cursor_value
 
     # ── Helpers ────────────────────────────────────────────────────
 
