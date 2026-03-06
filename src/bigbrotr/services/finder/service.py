@@ -260,7 +260,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
 
         Fetches current cursor positions, scans all relays concurrently
         (bounded by ``events.parallel_relays``) via
-        [_iter_concurrent][bigbrotr.services.common.mixins.ConcurrentStreamMixin._iter_concurrent],
+        ``_iter_concurrent()``,
         and updates Prometheus gauges per relay as results stream in.
 
         Returns:

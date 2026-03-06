@@ -205,7 +205,7 @@ class Synchronizer(
         """Sync all relays concurrently and aggregate results.
 
         Uses
-        [_iter_concurrent][bigbrotr.services.common.mixins.ConcurrentStreamMixin._iter_concurrent]
+        ``_iter_concurrent()``
         with per-network semaphores to bound simultaneous WebSocket
         connections. Results stream per-relay, enabling progressive
         metric updates as each relay completes.

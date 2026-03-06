@@ -129,7 +129,7 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
 
         Fetches candidates in pages (``chunk_size``), validates each page
         concurrently via
-        [_iter_concurrent][bigbrotr.services.common.mixins.ConcurrentStreamMixin._iter_concurrent],
+        ``_iter_concurrent()``,
         and flushes results at each pagination boundary.
 
         Returns:

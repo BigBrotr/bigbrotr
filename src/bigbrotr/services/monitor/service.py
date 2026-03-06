@@ -233,7 +233,7 @@ class Monitor(
         """Count, check, persist, and publish all pending relays.
 
         Uses
-        [_iter_concurrent][bigbrotr.services.common.mixins.ConcurrentStreamMixin._iter_concurrent]
+        ``_iter_concurrent()``
         to stream per-relay health check results as they complete. Results
         are accumulated and flushed to the database every ``chunk_size``
         relays for progressive persistence.
