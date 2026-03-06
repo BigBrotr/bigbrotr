@@ -35,7 +35,7 @@ Deployments (`deployments/{bigbrotr,lilbrotr}/`) sit outside the package and con
 | `EventRelay` | `event_relay.py` | Event-relay junction with `seen_at` timestamp |
 | `Metadata` | `metadata.py` | Content-addressed metadata: SHA-256 hash over canonical JSON |
 | `RelayMetadata` | `relay_metadata.py` | Relay-metadata junction with `metadata_type` and `generated_at` |
-| `ServiceState` | `service_state.py` | Per-service operational state (candidates, cursors, monitoring, publications) |
+| `ServiceState` | `service_state.py` | Per-service operational state (checkpoints, cursors) |
 
 ### Enumerations
 
@@ -43,7 +43,7 @@ Deployments (`deployments/{bigbrotr,lilbrotr}/`) sit outside the package and con
 |------|------|--------|
 | `NetworkType` | `constants.py` | `clearnet`, `tor`, `i2p`, `loki`, `local`, `unknown` |
 | `MetadataType` | `metadata.py` | `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
-| `ServiceStateType` | `service_state.py` | `candidate`, `cursor`, `monitoring`, `publication` |
+| `ServiceStateType` | `service_state.py` | `checkpoint`, `cursor` |
 | `ServiceName` | `constants.py` | `seeder`, `finder`, `validator`, `monitor`, `synchronizer`, `refresher`, `api`, `dvm` |
 | `EventKind` | `constants.py` | `SET_METADATA=0`, `RECOMMEND_RELAY=2`, `CONTACTS=3`, `RELAY_LIST=10002`, `NIP66_TEST=22456`, `MONITOR_ANNOUNCEMENT=10166`, `RELAY_DISCOVERY=30166` |
 
@@ -441,7 +441,7 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 | Module | Purpose |
 |--------|---------|
 | `queries.py` | 15 domain SQL query functions |
-| `mixins.py` | `ChunkProgress`, `NetworkSemaphores`, `GeoReaders`, `CatalogAccess` + cooperative-inheritance mixins |
+| `mixins.py` | `ConcurrentStreamMixin`, `NetworkSemaphoresMixin`, `GeoReaderMixin`, `CatalogAccessMixin` — cooperative-inheritance mixins |
 | `catalog.py` | Schema-driven `Catalog` for table discovery (Api, Dvm) and `CatalogError` |
 | `configs.py` | Per-network and per-table Pydantic config models |
 
@@ -477,19 +477,17 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 
 `NetworksConfig` wraps all four and provides `get(network)`, `is_enabled(network)`, `get_proxy_url(network)`, `get_enabled_networks()`.
 
-**ChunkProgress** (`mixins.py`):
+**ConcurrentStreamMixin** (`mixins.py`):
 
-Mutable tracker for chunk-based processing (not frozen -- has `reset()` method):
+Provides `_iter_concurrent(items, worker)` for concurrent item processing with streaming results.
+Internally uses `asyncio.TaskGroup` to launch one task per item and an `asyncio.Queue` bridge
+to stream non-None results as workers complete — enabling progressive metric updates.
+Composed by: Finder, Validator, Monitor, Synchronizer.
 
 ```python
-@dataclass(slots=True)
-class ChunkProgress:
-    started_at: float      # wall-clock
-    total: int
-    processed: int
-    success: int
-    failed: int
-    chunks: int
+async for result in self._iter_concurrent(items, worker):
+    # results arrive as each worker completes
+    update_metrics(result)
 ```
 
 **NetworkSemaphores** (`mixins.py`): creates one `asyncio.Semaphore` per enabled network, limiting concurrency to `max_tasks`.
@@ -621,7 +619,7 @@ service = Monitor(brotr=mock_brotr)
 
 Services use mixins from `services/common/mixins.py` to compose shared behavior:
 
-- `ChunkProgressMixin` -- chunk processing tracking (Validator, Monitor)
+- `ConcurrentStreamMixin` -- concurrent item processing with streaming results (Finder, Validator, Monitor, Synchronizer)
 - `NetworkSemaphoresMixin` -- per-network concurrency (Validator, Monitor, Synchronizer)
 - `GeoReaderMixin` -- GeoIP database lifecycle (Monitor)
 - `CatalogAccessMixin` -- schema-driven table catalog (Api, Dvm)

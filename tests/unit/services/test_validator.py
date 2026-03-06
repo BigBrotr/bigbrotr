@@ -97,19 +97,19 @@ def _row(data: dict[str, Any]) -> dict[str, Any]:
 class TestProcessingConfig:
     def test_defaults(self) -> None:
         cfg = ProcessingConfig()
-        assert cfg.chunk_size == 1000
+        assert cfg.chunk_size == 100
         assert cfg.max_candidates is None
         assert cfg.interval == 3600.0
 
     def test_chunk_size_bounds(self) -> None:
-        assert ProcessingConfig(chunk_size=100).chunk_size == 100
-        assert ProcessingConfig(chunk_size=10000).chunk_size == 10000
+        assert ProcessingConfig(chunk_size=10).chunk_size == 10
+        assert ProcessingConfig(chunk_size=1000).chunk_size == 1000
 
     def test_chunk_size_out_of_range(self) -> None:
         with pytest.raises(ValueError):
-            ProcessingConfig(chunk_size=99)
+            ProcessingConfig(chunk_size=9)
         with pytest.raises(ValueError):
-            ProcessingConfig(chunk_size=10001)
+            ProcessingConfig(chunk_size=1001)
 
     def test_max_candidates_valid(self) -> None:
         assert ProcessingConfig(max_candidates=None).max_candidates is None
@@ -194,7 +194,7 @@ class TestValidatorConfig:
 
     def test_processing_validation_propagated(self) -> None:
         with pytest.raises(ValueError):
-            ValidatorConfig(processing={"chunk_size": 50})
+            ValidatorConfig(processing={"chunk_size": 5})
 
 
 # ============================================================================
@@ -575,7 +575,7 @@ class TestValidatorInit:
     def test_default_config(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
         assert v._config.interval == 300.0
-        assert v._config.processing.chunk_size == 1000
+        assert v._config.processing.chunk_size == 100
 
     def test_custom_config(self, validator_brotr: Brotr) -> None:
         cfg = ValidatorConfig(interval=600.0, processing={"chunk_size": 200})
@@ -740,7 +740,7 @@ class TestValidate:
 
         assert fail_mock.call_args[0][1][0].key == "wss://broken.com"
 
-    async def test_cancelled_error_propagates(self, validator_brotr: Brotr) -> None:
+    async def test_cancelled_worker_does_not_abort_validation(self, validator_brotr: Brotr) -> None:
         with (
             patch(f"{_SVC}.count_candidates", new_callable=AsyncMock, return_value=1),
             patch(
@@ -753,9 +753,12 @@ class TestValidate:
                 new_callable=AsyncMock,
                 side_effect=asyncio.CancelledError,
             ),
-            pytest.raises(asyncio.CancelledError),
+            patch(f"{_SVC}.fail_candidates", new_callable=AsyncMock, return_value=0),
+            patch(f"{_SVC}.promote_candidates", new_callable=AsyncMock, return_value=0),
         ):
-            await Validator(validator_brotr).validate()
+            result = await Validator(validator_brotr).validate()
+
+        assert result == 0
 
     async def test_db_error_propagates(self, validator_brotr: Brotr) -> None:
         with (

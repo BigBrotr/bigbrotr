@@ -78,6 +78,7 @@ from bigbrotr.nips.nip66 import (
     Nip66SslMetadata,
 )
 from bigbrotr.services.common.mixins import (
+    ConcurrentStreamMixin,
     GeoReaderMixin,
     NetworkSemaphoresMixin,
 )
@@ -105,7 +106,7 @@ from .utils import (
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable, Coroutine
+    from collections.abc import Callable, Coroutine
 
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
@@ -118,6 +119,7 @@ _T = TypeVar("_T")
 
 
 class Monitor(
+    ConcurrentStreamMixin,
     NetworkSemaphoresMixin,
     GeoReaderMixin,
     BaseService[MonitorConfig],
@@ -230,14 +232,11 @@ class Monitor(
     async def monitor(self) -> int:
         """Count, check, persist, and publish all pending relays.
 
-        High-level entry point that counts relays due for checking, processes
-        them in chunks via ``check_chunks``, publishes Kind 30166 discovery
-        events, persists metadata results, and emits progress metrics.
-        Returns the total number of relays processed.
-
-        This is the method ``run()`` delegates to after setup. It can also
-        be called standalone when GeoIP update and profile/announcement
-        publishing are not desired.
+        Uses
+        ``_iter_concurrent()``
+        to stream per-relay health check results as they complete. Results
+        are accumulated and flushed to the database every ``chunk_size``
+        relays for progressive persistence.
 
         Returns:
             Total number of relays processed (successful + failed).
@@ -257,6 +256,10 @@ class Monitor(
         monitored_before = int(started_at - self._config.discovery.interval)
         relays = await fetch_relays_to_monitor(self._brotr, monitored_before, networks)
 
+        max_relays = self._config.processing.max_relays
+        if max_relays is not None:
+            relays = relays[:max_relays]
+
         total = len(relays)
         processed = 0
         succeeded = 0
@@ -269,25 +272,34 @@ class Monitor(
         self.set_gauge("success", 0)
         self.set_gauge("failure", 0)
 
-        async for successful, failed in self.check_chunks(relays):
-            succeeded += len(successful)
-            failed_count += len(failed)
-            processed += len(successful) + len(failed)
-            chunks += 1
-            self.inc_counter("total_checks_succeeded", len(successful))
-            self.inc_counter("total_checks_failed", len(failed))
-            await self.publish_relay_discoveries(successful)
-            await self._persist_results(successful, failed)
+        chunk_size = self._config.processing.chunk_size
+        batch_successful: list[tuple[Relay, CheckResult]] = []
+        batch_failed: list[Relay] = []
+
+        async for relay, result in self._iter_concurrent(relays, self._check_relay_safe):
+            if result is not None:
+                batch_successful.append((relay, result))
+                succeeded += 1
+            else:
+                batch_failed.append(relay)
+                failed_count += 1
+            processed += 1
+
             self.set_gauge("processed", processed)
             self.set_gauge("success", succeeded)
             self.set_gauge("failure", failed_count)
-            self._logger.info(
-                "chunk_completed",
-                chunk=chunks,
-                successful=len(successful),
-                failed=len(failed),
-                remaining=total - processed,
-            )
+
+            if processed % chunk_size == 0:
+                chunks += 1
+                await self._flush_check_batch(
+                    batch_successful, batch_failed, chunks, total - processed
+                )
+                batch_successful = []
+                batch_failed = []
+
+        if batch_successful or batch_failed:
+            chunks += 1
+            await self._flush_check_batch(batch_successful, batch_failed, chunks, total - processed)
 
         elapsed = round(time.monotonic() - monotonic_start, 1)
         self._logger.info(
@@ -300,44 +312,43 @@ class Monitor(
         )
         return processed
 
-    async def check_chunks(
-        self,
-        relays: list[Relay],
-    ) -> AsyncIterator[tuple[list[tuple[Relay, CheckResult]], list[Relay]]]:
-        """Yield (successful, failed) for each chunk of relays.
+    async def _check_relay_safe(self, relay: Relay) -> tuple[Relay, CheckResult | None]:
+        """Wrap ``check_relay`` for use with ``_iter_concurrent``.
 
-        Uses ``asyncio.gather`` with ``return_exceptions=True`` to run
-        health checks concurrently.  Non-Exception ``BaseException``
-        instances (``CancelledError``, ``KeyboardInterrupt``,
-        ``SystemExit``) are re-raised so they propagate instead of being
-        silently swallowed.
+        Returns ``(relay, result)`` when the check produces data, or
+        ``(relay, None)`` on failure or exception.
         """
-        chunk_size = self._config.processing.chunk_size
-        max_relays = self._config.processing.max_relays
+        try:
+            result = await self.check_relay(relay)
+            return (relay, result) if result.has_data else (relay, None)
+        except Exception as e:
+            self._logger.error(
+                "check_relay_failed",
+                error=str(e),
+                error_type=type(e).__name__,
+                relay=relay.url,
+            )
+            return relay, None
 
-        if max_relays is not None:
-            relays = relays[:max_relays]
-
-        for i in range(0, len(relays), chunk_size):
-            if not self.is_running:
-                break
-            chunk = relays[i : i + chunk_size]
-
-            tasks = [self.check_relay(r) for r in chunk]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            successful: list[tuple[Relay, CheckResult]] = []
-            failed: list[Relay] = []
-
-            for relay, result in zip(chunk, results, strict=True):
-                if isinstance(result, BaseException) and not isinstance(result, Exception):
-                    raise result
-                if isinstance(result, CheckResult) and result.has_data:
-                    successful.append((relay, result))
-                else:
-                    failed.append(relay)
-
-            yield successful, failed
+    async def _flush_check_batch(
+        self,
+        successful: list[tuple[Relay, CheckResult]],
+        failed: list[Relay],
+        chunk: int,
+        remaining: int,
+    ) -> None:
+        """Flush accumulated check results to the database."""
+        self.inc_counter("total_checks_succeeded", len(successful))
+        self.inc_counter("total_checks_failed", len(failed))
+        await self.publish_relay_discoveries(successful)
+        await self._persist_results(successful, failed)
+        self._logger.info(
+            "chunk_completed",
+            chunk=chunk,
+            successful=len(successful),
+            failed=len(failed),
+            remaining=remaining,
+        )
 
     async def _with_retry(
         self,
