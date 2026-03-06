@@ -10,8 +10,9 @@ The synchronization workflow proceeds as follows:
    (optionally filtered by metadata age).
 2. Load per-relay sync cursors from ``service_state`` via
    [Brotr.get_service_state][bigbrotr.core.brotr.Brotr.get_service_state].
-3. Connect to each relay and fetch events since the last sync timestamp.
-4. Validate event signatures and timestamps before insertion.
+3. Connect to each relay and stream events since the last sync timestamp.
+4. Insert pre-validated events (filtering, signature verification, and
+   deduplication are handled at the fetch layer by ``_fetch_dedup``).
 5. Update per-relay cursors for the next cycle.
 
 Note:
@@ -69,18 +70,22 @@ from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin, NetworkSemaphoresMixin
 from bigbrotr.services.common.queries import upsert_service_states
+from bigbrotr.services.common.types import SyncCursor
 from bigbrotr.utils.protocol import create_client
+from bigbrotr.utils.sync import iter_relay_events
 
 from .configs import SynchronizerConfig
 from .queries import delete_stale_cursors, fetch_relays
-from .utils import SyncBatchState, insert_batch, iter_relay_events
+from .utils import build_filters, insert_events
 
+
+_CURSOR_SENTINEL_ID = b"\xff" * 32
 
 if TYPE_CHECKING:
     from nostr_sdk import Keys
 
     from bigbrotr.core.brotr import Brotr
-    from bigbrotr.models import Relay
+    from bigbrotr.models import Event, Relay
 
 
 class Synchronizer(
@@ -95,9 +100,9 @@ class Synchronizer(
     structured, bounded concurrency.
 
     Each cycle fetches relays from the database, loads per-relay sync
-    cursors from ``service_state``, connects to each relay to fetch events
-    since the last sync, validates signatures and timestamps, batch-inserts
-    events, and updates per-relay cursors for the next cycle.
+    cursors from ``service_state``, connects to each relay to stream events
+    since the last sync, batch-inserts pre-validated events, and updates
+    per-relay cursors for the next cycle.
 
     Note:
         The relay list is shuffled before processing to prevent all
@@ -175,22 +180,22 @@ class Synchronizer(
         self._logger.debug("relays_fetched", count=len(relays))
         return relays
 
-    async def fetch_cursors(self) -> dict[str, int]:
+    async def fetch_cursors(self) -> dict[str, SyncCursor]:
         """Batch-fetch all relay sync cursors in a single query.
 
         Returns:
-            Dict mapping relay URL to sync timestamp.
+            Dict mapping relay URL to SyncCursor.
         """
-        if not self._config.time_range.use_relay_state:
-            return {}
-
         states = await self._brotr.get_service_state(self.SERVICE_NAME, ServiceStateType.CURSOR)
-        cursors: dict[str, int] = {}
+        cursors: dict[str, SyncCursor] = {}
         for s in states:
             if "timestamp" not in s.state_value:
                 continue
             try:
-                cursors[s.state_key] = int(s.state_value["timestamp"])
+                ts = int(s.state_value["timestamp"])
+                id_hex = s.state_value.get("id")
+                event_id = bytes.fromhex(str(id_hex)) if id_hex is not None else _CURSOR_SENTINEL_ID
+                cursors[s.state_key] = SyncCursor(key=s.state_key, timestamp=ts, id=event_id)
             except (ValueError, TypeError) as e:
                 self._logger.warning("invalid_cursor_data", relay=s.state_key, error=str(e))
         return cursors
@@ -200,15 +205,13 @@ class Synchronizer(
     async def _run_sync(
         self,
         relays: list[Relay],
-        cursors: dict[str, int],
+        cursors: dict[str, SyncCursor],
     ) -> int:
         """Sync all relays concurrently and aggregate results.
 
-        Uses
-        ``_iter_concurrent()``
-        with per-network semaphores to bound simultaneous WebSocket
-        connections. Results stream per-relay, enabling progressive
-        metric updates as each relay completes.
+        Uses ``_iter_concurrent()`` with per-network semaphores to bound
+        simultaneous WebSocket connections. Results stream per-relay,
+        enabling progressive metric updates as each relay completes.
 
         Cursor updates are batched and flushed every
         ``cursor_flush_interval`` relays for crash resilience.
@@ -216,26 +219,20 @@ class Synchronizer(
         Returns:
             Total events synced.
         """
-        cursor_batch = SyncBatchState(
-            cursor_updates=[],
-            cursor_lock=asyncio.Lock(),
-            cursor_flush_interval=self._config.concurrency.cursor_flush_interval,
-        )
-
+        cursor_updates: list[ServiceState] = []
+        cursor_lock = asyncio.Lock()
         phase_start = time.monotonic()
 
         total_events = 0
-        total_invalid = 0
         relays_scanned = 0
         scan_failures = 0
 
-        async def _bounded_sync(relay: Relay) -> tuple[int, int, bool] | None:
+        async def _worker(relay: Relay) -> int | None:
+            nonlocal scan_failures
             try:
-                result = await self._sync_single_relay(relay, cursors, cursor_batch, phase_start)
-                if result is None:
-                    return None
-                events, invalid = result
-                return events, invalid, False
+                return await self._sync_single_relay(
+                    relay, cursors, cursor_updates, cursor_lock, phase_start
+                )
             except Exception as e:  # Worker exception boundary — protects TaskGroup
                 self._logger.error(
                     "sync_worker_failed",
@@ -243,30 +240,25 @@ class Synchronizer(
                     error_type=type(e).__name__,
                     relay=relay.url,
                 )
-                return 0, 0, True
-
-        async for events, invalid, failed in self._iter_concurrent(relays, _bounded_sync):
-            if failed:
                 scan_failures += 1
-                continue
+                return None
+
+        async for events in self._iter_concurrent(relays, _worker):
             total_events += events
-            total_invalid += invalid
             relays_scanned += 1
             self.set_gauge("relays_scanned", relays_scanned)
             self.set_gauge("events_synced", total_events)
 
-        await self._flush_cursor_batch(cursor_batch)
+        await self._flush_cursors(cursor_updates)
 
         self.set_gauge("relays_scanned", relays_scanned)
         self.set_gauge("events_synced", total_events)
         self.inc_counter("total_events_synced", total_events)
-        self.inc_counter("total_events_invalid", total_invalid)
         self.inc_counter("total_sync_failures", scan_failures)
 
         self._logger.info(
             "sync_completed",
             events_synced=total_events,
-            events_invalid=total_invalid,
             relays_scanned=relays_scanned,
             scan_failures=scan_failures,
         )
@@ -275,22 +267,24 @@ class Synchronizer(
     async def _sync_single_relay(
         self,
         relay: Relay,
-        cursors: dict[str, int],
-        cursor_batch: SyncBatchState,
+        cursors: dict[str, SyncCursor],
+        cursor_updates: list[ServiceState],
+        cursor_lock: asyncio.Lock,
         phase_start: float,
-    ) -> tuple[int, int] | None:
+    ) -> int | None:
         """Sync events from a single relay with semaphore-bounded concurrency.
 
         Creates a WebSocket client, connects to the relay, and consumes the
         [iter_relay_events][bigbrotr.services.synchronizer.utils.iter_relay_events]
         generator to fetch and insert events in ascending time order.
 
-        The cursor is updated to ``end_time`` on normal completion, or to the
-        last completed sub-window boundary on partial completion (error or
-        shutdown). No cursor update occurs when no batches are processed.
+        The cursor is updated to ``end_time`` on normal completion. On
+        partial completion (error), the cursor is set to the ``created_at``
+        of the last successfully persisted event. No cursor update occurs
+        when no events are processed.
 
         Returns:
-            Tuple of (events_synced, invalid_events), or None if skipped.
+            Number of events synced, or None if skipped.
         """
         semaphore = self.network_semaphores.get(relay.network)
         if semaphore is None:
@@ -309,19 +303,19 @@ class Synchronizer(
             relay_timeout = self._config.timeouts.get_relay_timeout(relay.network)
 
             start = self._get_start_time(relay, cursors)
-            end_time = int(time.time()) - self._config.time_range.lookback_seconds
+            end_time = int(time.time()) - self._config.time_range.end_lag_seconds
             if start >= end_time:
                 return None
 
-            events_synced, invalid_events, cursor_value = await asyncio.wait_for(
+            events_synced, cursor = await asyncio.wait_for(
                 self._fetch_and_insert(relay, start, end_time, request_timeout),
                 timeout=relay_timeout,
             )
 
-            if cursor_value is not None:
-                await self._batch_cursor_update(cursor_batch, relay, cursor_value)
+            if cursor is not None:
+                await self._queue_cursor_update(cursor_updates, cursor_lock, cursor)
 
-            return events_synced, invalid_events
+            return events_synced
 
     async def _fetch_and_insert(
         self,
@@ -329,17 +323,18 @@ class Synchronizer(
         start_time: int,
         end_time: int,
         request_timeout: float,
-    ) -> tuple[int, int, int | None]:
-        """Connect to a relay, iterate over event batches, and insert them.
+    ) -> tuple[int, SyncCursor | None]:
+        """Connect to a relay, stream events, and insert them.
 
         Manages the nostr-sdk client lifecycle and consumes the
         [iter_relay_events][bigbrotr.services.synchronizer.utils.iter_relay_events]
-        async generator. Returns the cursor value for the caller to persist.
+        async generator. Events are buffered and inserted in batches for
+        efficiency.
 
-        The cursor is set to ``end_time`` when all sub-windows complete
-        successfully, or to the last completed sub-window's ``until`` on
-        partial completion (error or shutdown). Returns ``None`` when no
-        batches were processed.
+        The cursor is set to ``end_time`` when all events are fetched
+        successfully, or to the ``created_at`` of the last persisted event
+        on partial completion (error or shutdown). Returns ``None`` when no
+        events are processed.
 
         Args:
             relay: Target relay.
@@ -348,31 +343,51 @@ class Synchronizer(
             request_timeout: Seconds per WebSocket fetch call.
 
         Returns:
-            Tuple of (events_synced, invalid_events, cursor_value).
+            Tuple of (events_synced, cursor).
         """
         proxy_url = self._config.networks.get_proxy_url(relay.network)
         client = await create_client(self._keys, proxy_url)
         await client.add_relay(RelayUrl.parse(relay.url))
 
+        filters = build_filters(self._config.filters)
         events_synced = 0
-        invalid_events = 0
-        cursor_value: int | None = None
+        cursor: SyncCursor | None = None
+        buffer: list[Event] = []
 
         try:
             await client.connect()
 
-            async for batch in iter_relay_events(
-                client, start_time, end_time, self._config.filter, request_timeout
+            async for event in iter_relay_events(
+                client,
+                filters,
+                start_time,
+                end_time,
+                self._config.fetch_limit,
+                request_timeout,
             ):
-                inserted, invalid = await insert_batch(
-                    batch, relay, self._brotr, batch.since, batch.until
-                )
-                events_synced += inserted
-                invalid_events += invalid
-                cursor_value = batch.until
+                buffer.append(event)
 
-            # Generator completed — all sub-windows processed
-            cursor_value = end_time
+                if len(buffer) >= self._config.fetch_limit:
+                    events_synced += await insert_events(buffer, relay, self._brotr)
+                    last_ts = buffer[-1].created_at().as_secs()
+                    cursor = SyncCursor(
+                        key=relay.url,
+                        timestamp=last_ts,
+                        id=_CURSOR_SENTINEL_ID,
+                    )
+                    buffer.clear()
+
+            # Flush remaining buffer
+            if buffer:
+                events_synced += await insert_events(buffer, relay, self._brotr)
+                buffer.clear()
+
+            # Generator completed — all events in [start_time, end_time] fetched
+            cursor = SyncCursor(
+                key=relay.url,
+                timestamp=end_time,
+                id=_CURSOR_SENTINEL_ID,
+            )
             await client.disconnect()
         except (TimeoutError, OSError, NostrSdkError) as e:
             self._logger.warning("sync_relay_error", relay=relay.url, error=str(e))
@@ -382,54 +397,50 @@ class Synchronizer(
             except Exception as e:
                 self._logger.debug("client_shutdown_error", relay=relay.url, error=str(e))
 
-        return events_synced, invalid_events, cursor_value
+        return events_synced, cursor
 
     # ── Helpers ────────────────────────────────────────────────────
 
-    def _get_start_time(self, relay: Relay, cursors: dict[str, int]) -> int:
+    def _get_start_time(self, relay: Relay, cursors: dict[str, SyncCursor]) -> int:
         """Look up the sync start timestamp from a pre-fetched cursor cache."""
-        if not self._config.time_range.use_relay_state:
-            return self._config.time_range.default_start
-
-        cursor_ts = cursors.get(relay.url)
-        if cursor_ts is not None:
-            return cursor_ts + 1
+        cursor = cursors.get(relay.url)
+        if cursor is not None and cursor.timestamp is not None:
+            return cursor.timestamp + 1
 
         return self._config.time_range.default_start
 
-    async def _batch_cursor_update(
-        self, batch: SyncBatchState, relay: Relay, end_time: int
+    async def _queue_cursor_update(
+        self,
+        cursor_updates: list[ServiceState],
+        cursor_lock: asyncio.Lock,
+        cursor: SyncCursor,
     ) -> None:
-        """Add a cursor update to the batch, flushing if interval reached."""
-        async with batch.cursor_lock:
-            batch.cursor_updates.append(
+        """Add a cursor update to the buffer, flushing if interval reached."""
+        async with cursor_lock:
+            cursor_updates.append(
                 ServiceState(
                     service_name=self.SERVICE_NAME,
                     state_type=ServiceStateType.CURSOR,
-                    state_key=relay.url,
-                    state_value={"timestamp": end_time},
+                    state_key=cursor.key,
+                    state_value={
+                        "timestamp": cursor.timestamp,
+                        "id": cursor.id.hex() if cursor.id else None,
+                    },
                 )
             )
-            if len(batch.cursor_updates) >= batch.cursor_flush_interval:
-                try:
-                    await upsert_service_states(self._brotr, batch.cursor_updates)
-                except (asyncpg.PostgresError, OSError) as e:
-                    self._logger.error(
-                        "cursor_batch_flush_failed",
-                        error=str(e),
-                        count=len(batch.cursor_updates),
-                    )
-                batch.cursor_updates.clear()
+            if len(cursor_updates) >= self._config.cursor_flush_interval:
+                await self._flush_cursors(cursor_updates)
 
-    async def _flush_cursor_batch(self, batch: SyncBatchState) -> None:
-        """Flush remaining cursor updates after all relays are processed."""
-        if not batch.cursor_updates:
+    async def _flush_cursors(self, cursor_updates: list[ServiceState]) -> None:
+        """Flush pending cursor updates to the database and clear the buffer."""
+        if not cursor_updates:
             return
         try:
-            await upsert_service_states(self._brotr, batch.cursor_updates)
+            await upsert_service_states(self._brotr, cursor_updates)
         except (asyncpg.PostgresError, OSError) as e:
             self._logger.error(
-                "cursor_batch_upsert_failed",
+                "cursor_flush_failed",
                 error=str(e),
-                count=len(batch.cursor_updates),
+                count=len(cursor_updates),
             )
+        cursor_updates.clear()

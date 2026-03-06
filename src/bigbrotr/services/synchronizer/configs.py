@@ -20,21 +20,38 @@ from bigbrotr.utils.keys import KeysConfig
 _HEX_STRING_LENGTH = 64
 
 
+def _validate_hex_list(v: list[str] | None) -> list[str] | None:
+    """Validate a list of 64-character hex strings (event IDs or pubkeys)."""
+    if v is None:
+        return v
+    for hex_str in v:
+        if len(hex_str) != _HEX_STRING_LENGTH:
+            raise ValueError(
+                f"Invalid hex string length: {len(hex_str)} (expected {_HEX_STRING_LENGTH})"
+            )
+        try:
+            bytes.fromhex(hex_str)
+        except ValueError as e:
+            raise ValueError(f"Invalid hex string: {hex_str}") from e
+    return v
+
+
 class FilterConfig(BaseModel):
-    """Nostr event filter configuration for sync subscriptions.
+    """NIP-01 REQ filter configuration (minus since/until/limit).
+
+    Supports ``ids``, ``kinds``, ``authors``, and single-letter tag filters
+    per the NIP-01 specification.  Time range and limit are managed by the
+    sync algorithm, not by this config.
 
     See Also:
-        ``_create_filter``:
-            Converts this config into a nostr-sdk ``Filter`` object.
         [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
-            Parent config that embeds this model.
+            Parent config that embeds a list of these.
     """
 
-    ids: list[str] | None = Field(default=None, description="Event IDs to sync (None = all)")
+    ids: list[str] | None = Field(default=None, description="Event IDs to fetch (None = all)")
     kinds: list[int] | None = Field(default=None, description="Event kinds to sync (None = all)")
     authors: list[str] | None = Field(default=None, description="Authors to sync (None = all)")
     tags: dict[str, list[str]] | None = Field(default=None, description="Tag filters (None = all)")
-    limit: int = Field(default=500, ge=1, le=5000, description="Events per request")
 
     @field_validator("kinds", mode="after")
     @classmethod
@@ -51,47 +68,43 @@ class FilterConfig(BaseModel):
     @classmethod
     def validate_hex_strings(cls, v: list[str] | None) -> list[str] | None:
         """Validate that all entries are valid 64-character hex strings."""
+        return _validate_hex_list(v)
+
+    @field_validator("tags", mode="after")
+    @classmethod
+    def validate_tags(cls, v: dict[str, list[str]] | None) -> dict[str, list[str]] | None:
+        """Validate tag filter keys per NIP-01: single English letter (a-zA-Z)."""
         if v is None:
             return v
-        for hex_str in v:
-            if len(hex_str) != _HEX_STRING_LENGTH:
+        for key, values in v.items():
+            if len(key) != 1 or not key.isascii() or not key.isalpha():
                 raise ValueError(
-                    f"Invalid hex string length: {len(hex_str)} (expected {_HEX_STRING_LENGTH})"
+                    f"Invalid tag key '{key}': must be a single letter a-zA-Z (NIP-01)"
                 )
-            try:
-                bytes.fromhex(hex_str)
-            except ValueError as e:
-                raise ValueError(f"Invalid hex string: {hex_str}") from e
+            if not values:
+                raise ValueError(f"Tag '{key}' has empty values list")
         return v
 
 
 class TimeRangeConfig(BaseModel):
     """Time range configuration controlling the sync window boundaries.
 
-    Note:
-        When ``use_relay_state`` is ``True`` (the default), the sync
-        start time is determined by the per-relay cursor plus one second
-        (to avoid re-fetching the last event). When ``False``, all relays
-        start from ``default_start``. The ``lookback_seconds`` parameter
-        controls how far back from ``now()`` the sync window extends.
+    The sync start time is determined by the per-relay cursor plus one
+    second (to avoid re-fetching the last event). Relays without a cursor
+    start from ``default_start``. The ``end_lag_seconds`` parameter
+    controls how far back from ``now()`` the sync window extends.
 
     See Also:
         [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
             Parent config that embeds this model.
-        [Brotr.get_service_state][bigbrotr.core.brotr.Brotr.get_service_state]:
-            Fetches the per-relay cursor values used when
-            ``use_relay_state`` is enabled.
     """
 
     default_start: int = Field(default=0, ge=0, description="Default start timestamp (0 = epoch)")
-    use_relay_state: bool = Field(
-        default=True, description="Use per-relay state for start timestamp"
-    )
-    lookback_seconds: int = Field(
+    end_lag_seconds: int = Field(
         default=86_400,
         ge=3_600,
         le=604_800,
-        description="Lookback window in seconds (default: 86400 = 24 hours)",
+        description="Lag from now for sync upper bound: end_time = now - end_lag_seconds",
     )
 
 
@@ -154,19 +167,6 @@ class TimeoutsConfig(BaseModel):
         return self.relay_clearnet
 
 
-class ConcurrencyConfig(BaseModel):
-    """Concurrency settings for parallel relay connections.
-
-    See Also:
-        [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
-            Parent config that embeds this model.
-    """
-
-    cursor_flush_interval: int = Field(
-        default=50, ge=1, description="Flush cursor updates every N relays"
-    )
-
-
 class SynchronizerConfig(BaseServiceConfig):
     """Synchronizer service configuration.
 
@@ -183,7 +183,12 @@ class SynchronizerConfig(BaseServiceConfig):
 
     networks: NetworksConfig = Field(default_factory=NetworksConfig)
     keys: KeysConfig = Field(default_factory=lambda: KeysConfig.model_validate({}))
-    filter: FilterConfig = Field(default_factory=FilterConfig)
+    filters: list[FilterConfig] = Field(default_factory=lambda: [FilterConfig()])
     time_range: TimeRangeConfig = Field(default_factory=TimeRangeConfig)
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
-    concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
+    cursor_flush_interval: int = Field(
+        default=50, ge=1, description="Flush cursor updates every N relays"
+    )
+    fetch_limit: int = Field(
+        default=500, ge=1, le=5000, description="Max events per relay request (REQ limit)"
+    )
