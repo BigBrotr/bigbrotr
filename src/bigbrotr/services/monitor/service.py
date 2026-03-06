@@ -321,7 +321,7 @@ class Monitor(
         try:
             result = await self.check_relay(relay)
             return (relay, result) if result.has_data else (relay, None)
-        except Exception as e:
+        except Exception as e:  # Worker exception boundary — protects TaskGroup
             self._logger.error(
                 "check_relay_failed",
                 error=str(e),

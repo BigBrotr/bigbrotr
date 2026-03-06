@@ -236,7 +236,7 @@ class Synchronizer(
                     return None
                 events, invalid = result
                 return events, invalid, False
-            except Exception as e:
+            except Exception as e:  # Worker exception boundary — protects TaskGroup
                 self._logger.error(
                     "sync_worker_failed",
                     error=str(e),
@@ -412,7 +412,7 @@ class Synchronizer(
             )
             if len(batch.cursor_updates) >= batch.cursor_flush_interval:
                 try:
-                    await upsert_service_states(self._brotr, batch.cursor_updates.copy())
+                    await upsert_service_states(self._brotr, batch.cursor_updates)
                 except (asyncpg.PostgresError, OSError) as e:
                     self._logger.error(
                         "cursor_batch_flush_failed",

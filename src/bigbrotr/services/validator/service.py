@@ -215,11 +215,12 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
         try:
             is_valid = await self._validate_candidate(candidate)
             return candidate, is_valid
-        except Exception as e:
-            self._logger.warning(
+        except Exception as e:  # Worker exception boundary — protects TaskGroup
+            self._logger.error(
                 "validate_unexpected_error",
                 url=candidate.key,
                 error=str(e),
+                error_type=type(e).__name__,
             )
             return candidate, False
 
