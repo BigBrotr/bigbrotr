@@ -618,6 +618,8 @@ class TestProfileConfig:
         assert config.enabled is False
         assert config.interval == 86400
         assert config.relays is None
+        assert config.name == "BigBrotr Monitor"
+        assert config.about == "Nostr relay monitoring service"
 
     def test_custom_values(self) -> None:
         config = ProfileConfig(
@@ -1568,7 +1570,49 @@ class TestMonitorPersistResults:
 # ============================================================================
 
 
-class TestMonitorCheckChunks:
+class TestMonitorCheckRelaySafe:
+    async def test_successful_result(self, mock_brotr: Brotr) -> None:
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
+
+        with patch.object(monitor, "check_relay", new_callable=AsyncMock, return_value=result):
+            r, res = await monitor._check_relay_safe(relay)
+
+        assert r is relay
+        assert res is result
+
+    async def test_empty_result_returns_none(self, mock_brotr: Brotr) -> None:
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        empty_result = _make_check_result()
+
+        with patch.object(
+            monitor, "check_relay", new_callable=AsyncMock, return_value=empty_result
+        ):
+            r, res = await monitor._check_relay_safe(relay)
+
+        assert r is relay
+        assert res is None
+
+    async def test_exception_returns_none(self, mock_brotr: Brotr) -> None:
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        with patch.object(
+            monitor,
+            "check_relay",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("connection lost"),
+        ):
+            r, res = await monitor._check_relay_safe(relay)
+
+        assert r is relay
+        assert res is None
+
     async def test_cancelled_error_propagates(self, mock_brotr: Brotr) -> None:
         config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
@@ -1583,109 +1627,39 @@ class TestMonitorCheckChunks:
             ),
             pytest.raises(asyncio.CancelledError),
         ):
-            async for _ in monitor.check_chunks([relay]):
-                pass
+            await monitor._check_relay_safe(relay)
 
-    async def test_keyboard_interrupt_in_results_propagates(self, mock_brotr: Brotr) -> None:
+    async def test_keyboard_interrupt_propagates(self, mock_brotr: Brotr) -> None:
         config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
         relay = Relay("wss://relay.example.com")
 
-        # asyncio's task step re-raises KI before gather can capture it,
-        # but we mock gather to test our defensive re-raise code path.
         with (
-            patch.object(monitor, "check_relay", return_value="sentinel"),
-            patch(
-                "bigbrotr.services.monitor.service.asyncio.gather",
+            patch.object(
+                monitor,
+                "check_relay",
                 new_callable=AsyncMock,
-                return_value=[KeyboardInterrupt()],
+                side_effect=KeyboardInterrupt,
             ),
             pytest.raises(KeyboardInterrupt),
         ):
-            async for _ in monitor.check_chunks([relay]):
-                pass
+            await monitor._check_relay_safe(relay)
 
-    async def test_system_exit_in_results_propagates(self, mock_brotr: Brotr) -> None:
+    async def test_system_exit_propagates(self, mock_brotr: Brotr) -> None:
         config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
         relay = Relay("wss://relay.example.com")
 
         with (
-            patch.object(monitor, "check_relay", return_value="sentinel"),
-            patch(
-                "bigbrotr.services.monitor.service.asyncio.gather",
+            patch.object(
+                monitor,
+                "check_relay",
                 new_callable=AsyncMock,
-                return_value=[SystemExit(1)],
+                side_effect=SystemExit(1),
             ),
             pytest.raises(SystemExit),
         ):
-            async for _ in monitor.check_chunks([relay]):
-                pass
-
-    async def test_regular_exception_goes_to_failed(self, mock_brotr: Brotr) -> None:
-        config = _make_config()
-        monitor = Monitor(brotr=mock_brotr, config=config)
-        relay = Relay("wss://relay.example.com")
-
-        with patch.object(
-            monitor,
-            "check_relay",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("connection lost"),
-        ):
-            chunks = [chunk async for chunk in monitor.check_chunks([relay])]
-
-        successful, failed = chunks[0]
-        assert successful == []
-        assert failed == [relay]
-
-    async def test_successful_result(self, mock_brotr: Brotr) -> None:
-        config = _make_config()
-        monitor = Monitor(brotr=mock_brotr, config=config)
-        relay = Relay("wss://relay.example.com")
-        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
-
-        with patch.object(monitor, "check_relay", new_callable=AsyncMock, return_value=result):
-            chunks = [chunk async for chunk in monitor.check_chunks([relay])]
-
-        successful, failed = chunks[0]
-        assert len(successful) == 1
-        assert successful[0] == (relay, result)
-        assert failed == []
-
-    async def test_empty_result_goes_to_failed(self, mock_brotr: Brotr) -> None:
-        config = _make_config()
-        monitor = Monitor(brotr=mock_brotr, config=config)
-        relay = Relay("wss://relay.example.com")
-        empty_result = _make_check_result()  # no metadata fields set
-
-        with patch.object(
-            monitor, "check_relay", new_callable=AsyncMock, return_value=empty_result
-        ):
-            chunks = [chunk async for chunk in monitor.check_chunks([relay])]
-
-        successful, failed = chunks[0]
-        assert successful == []
-        assert failed == [relay]
-
-    async def test_base_exception_precedes_later_results(self, mock_brotr: Brotr) -> None:
-        config = _make_config()
-        monitor = Monitor(brotr=mock_brotr, config=config)
-        relay1 = Relay("wss://relay1.example.com")
-        relay2 = Relay("wss://relay2.example.com")
-        good_result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
-
-        with (
-            patch.object(monitor, "check_relay", return_value="sentinel"),
-            patch(
-                "bigbrotr.services.monitor.service.asyncio.gather",
-                new_callable=AsyncMock,
-                return_value=[KeyboardInterrupt(), good_result],
-            ),
-            pytest.raises(KeyboardInterrupt),
-        ):
-            async for _ in monitor.check_chunks([relay1, relay2]):
-                pass
+            await monitor._check_relay_safe(relay)
 
 
 # ============================================================================
@@ -2279,11 +2253,11 @@ class TestMonitorMetrics:
         relay1 = Relay("wss://ok.example.com")
         relay2 = Relay("wss://fail.example.com")
         result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
-        successful = [(relay1, result)]
-        failed_relays = [relay2]
 
-        async def fake_check_chunks(relays):  # type: ignore[no-untyped-def]
-            yield successful, failed_relays
+        async def fake_check_relay_safe(relay: Relay) -> tuple[Relay, CheckResult | None]:
+            if relay.url == relay1.url:
+                return (relay, result)
+            return (relay, None)
 
         with (
             patch.object(monitor, "inc_counter") as mock_counter,
@@ -2292,7 +2266,7 @@ class TestMonitorMetrics:
                 new_callable=AsyncMock,
                 return_value=[relay1, relay2],
             ),
-            patch.object(monitor, "check_chunks", side_effect=fake_check_chunks),
+            patch.object(monitor, "_check_relay_safe", side_effect=fake_check_relay_safe),
             patch.object(monitor, "publish_relay_discoveries", new_callable=AsyncMock),
             patch.object(monitor, "_persist_results", new_callable=AsyncMock),
         ):

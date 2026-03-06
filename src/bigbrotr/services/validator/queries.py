@@ -248,7 +248,7 @@ async def fetch_candidates(
                 )
             )
         except (ValueError, TypeError) as e:
-            logger.warning("Skipping invalid candidate URL %s: %s", row["state_key"], e)
+            logger.warning("invalid_candidate_skipped: %s (%s)", row["state_key"], e)
     return candidates
 
 

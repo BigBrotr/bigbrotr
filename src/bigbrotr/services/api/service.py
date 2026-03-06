@@ -71,6 +71,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         app = self._build_app()
         endpoint_count = sum(1 for name in self._catalog.tables if self._is_table_enabled(name))
         self._logger.info("endpoints_registered", count=endpoint_count)
+        self.set_gauge("tables_exposed", endpoint_count)
 
         self._server_task = asyncio.create_task(self._run_server(app))
         self._logger.info(
@@ -125,7 +126,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
 
     def _build_app(self) -> FastAPI:
         """Construct the FastAPI application with auto-generated routes."""
-        app = FastAPI(title="BigBrotr API")
+        app = FastAPI(title=self._config.title)
 
         if self._config.cors_origins:
             app.add_middleware(

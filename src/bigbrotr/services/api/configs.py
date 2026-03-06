@@ -31,6 +31,7 @@ class ApiConfig(BaseServiceConfig):
         request_timeout: HTTP request timeout in seconds.
     """
 
+    title: str = Field(default="BigBrotr API", min_length=1)
     host: str = Field(default="0.0.0.0", min_length=1, description="HTTP bind address")  # noqa: S104
     port: int = Field(default=8080, ge=1, le=65535, description="HTTP port")
     route_prefix: str = Field(default="/v1", min_length=1)

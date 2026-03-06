@@ -67,7 +67,7 @@ from nostr_sdk import NostrSdkError, RelayUrl
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.services.common.mixins import NetworkSemaphoresMixin
+from bigbrotr.services.common.mixins import ConcurrentStreamMixin, NetworkSemaphoresMixin
 from bigbrotr.services.common.queries import upsert_service_states
 from bigbrotr.utils.protocol import create_client
 
@@ -84,6 +84,7 @@ if TYPE_CHECKING:
 
 
 class Synchronizer(
+    ConcurrentStreamMixin,
     NetworkSemaphoresMixin,
     BaseService[SynchronizerConfig],
 ):
@@ -143,6 +144,9 @@ class Synchronizer(
         """
         relays = await self.fetch_relays()
 
+        self.set_gauge("relays_scanned", 0)
+        self.set_gauge("events_synced", 0)
+
         if not relays:
             self._logger.info("no_relays_to_sync")
             return 0
@@ -200,9 +204,14 @@ class Synchronizer(
     ) -> int:
         """Sync all relays concurrently and aggregate results.
 
-        Uses ``asyncio.TaskGroup`` with per-network semaphores to bound
-        simultaneous WebSocket connections. Cursor updates are batched and
-        flushed every ``cursor_flush_interval`` relays for crash resilience.
+        Uses
+        ``_iter_concurrent()``
+        with per-network semaphores to bound simultaneous WebSocket
+        connections. Results stream per-relay, enabling progressive
+        metric updates as each relay completes.
+
+        Cursor updates are batched and flushed every
+        ``cursor_flush_interval`` relays for crash resilience.
 
         Returns:
             Total events synced.
@@ -214,47 +223,42 @@ class Synchronizer(
         )
 
         phase_start = time.monotonic()
-        tasks: list[asyncio.Task[tuple[int, int] | None]] = []
-        try:
-            async with asyncio.TaskGroup() as tg:
-                tasks.extend(
-                    tg.create_task(
-                        self._sync_single_relay(relay, cursors, cursor_batch, phase_start)
-                    )
-                    for relay in relays
-                )
-        except ExceptionGroup:
-            pass  # Individual errors are logged in the task loop below
-
-        await self._flush_cursor_batch(cursor_batch)
 
         total_events = 0
         total_invalid = 0
         relays_scanned = 0
         scan_failures = 0
 
-        for task in tasks:
-            if task.cancelled():
-                continue
-            exc = task.exception()
-            if exc is not None:
+        async def _bounded_sync(relay: Relay) -> tuple[int, int, bool] | None:
+            try:
+                result = await self._sync_single_relay(relay, cursors, cursor_batch, phase_start)
+                if result is None:
+                    return None
+                events, invalid = result
+                return events, invalid, False
+            except Exception as e:  # Worker exception boundary — protects TaskGroup
                 self._logger.error(
                     "sync_worker_failed",
-                    error=str(exc),
-                    error_type=type(exc).__name__,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    relay=relay.url,
                 )
+                return 0, 0, True
+
+        async for events, invalid, failed in self._iter_concurrent(relays, _bounded_sync):
+            if failed:
                 scan_failures += 1
                 continue
-            result = task.result()
-            if result is None:
-                continue
-            events, invalid = result
             total_events += events
             total_invalid += invalid
             relays_scanned += 1
+            self.set_gauge("relays_scanned", relays_scanned)
+            self.set_gauge("events_synced", total_events)
 
-        self.set_gauge("events_synced", total_events)
+        await self._flush_cursor_batch(cursor_batch)
+
         self.set_gauge("relays_scanned", relays_scanned)
+        self.set_gauge("events_synced", total_events)
         self.inc_counter("total_events_synced", total_events)
         self.inc_counter("total_events_invalid", total_invalid)
         self.inc_counter("total_sync_failures", scan_failures)
@@ -408,7 +412,7 @@ class Synchronizer(
             )
             if len(batch.cursor_updates) >= batch.cursor_flush_interval:
                 try:
-                    await upsert_service_states(self._brotr, batch.cursor_updates.copy())
+                    await upsert_service_states(self._brotr, batch.cursor_updates)
                 except (asyncpg.PostgresError, OSError) as e:
                     self._logger.error(
                         "cursor_batch_flush_failed",

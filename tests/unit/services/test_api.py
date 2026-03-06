@@ -95,12 +95,17 @@ def test_client(api_service: Api) -> TestClient:
 class TestApiConfig:
     def test_default_values(self) -> None:
         config = ApiConfig()
+        assert config.title == "BigBrotr API"
         assert config.host == "0.0.0.0"
         assert config.port == 8080
         assert config.max_page_size == 1000
         assert config.default_page_size == 100
         assert config.tables == {}
         assert config.cors_origins == []
+
+    def test_custom_title(self) -> None:
+        config = ApiConfig(title="LilBrotr API")
+        assert config.title == "LilBrotr API"
 
     def test_custom_values(self) -> None:
         config = ApiConfig(
@@ -382,6 +387,19 @@ class TestApiEndpointTimeouts:
 # ============================================================================
 # Custom Route Prefix Tests
 # ============================================================================
+
+
+class TestApiBuildApp:
+    def test_app_title_from_config(self, mock_brotr: object, sample_catalog: object) -> None:
+        config = ApiConfig(title="LilBrotr API", tables={"relay": TableConfig(enabled=True)})
+        service = Api(brotr=mock_brotr, config=config)  # type: ignore[arg-type]
+        service._catalog = sample_catalog  # type: ignore[assignment]
+        app = service._build_app()
+        assert app.title == "LilBrotr API"
+
+    def test_app_title_default(self, api_service: Api) -> None:
+        app = api_service._build_app()
+        assert app.title == "BigBrotr API"
 
 
 class TestApiCustomPrefix:

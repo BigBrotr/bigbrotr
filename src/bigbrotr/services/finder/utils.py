@@ -69,6 +69,8 @@ def extract_relays_from_tagvalues(rows: list[dict[str, Any]]) -> list[Relay]:
         if not tagvalues:
             continue
         for val in tagvalues:
+            if not isinstance(val, str):
+                continue
             _, _, raw_val = val.partition(":")
             validated = parse_relay(raw_val)
             if validated and validated.url not in seen:

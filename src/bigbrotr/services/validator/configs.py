@@ -33,7 +33,7 @@ class ProcessingConfig(BaseModel):
             Parent config that embeds this model.
     """
 
-    chunk_size: int = Field(default=1000, ge=100, le=10000)
+    chunk_size: int = Field(default=100, ge=10, le=1000)
     max_candidates: int | None = Field(default=None, ge=1)
     interval: float = Field(default=3600.0, ge=0.0, le=604_800.0)
 

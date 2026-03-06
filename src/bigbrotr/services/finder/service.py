@@ -54,7 +54,6 @@ Examples:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import time
 from typing import TYPE_CHECKING, ClassVar
 
@@ -63,6 +62,7 @@ import asyncpg
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
+from bigbrotr.services.common.mixins import ConcurrentStreamMixin
 from bigbrotr.services.common.types import ApiCheckpoint, EventRelayCursor
 from bigbrotr.services.validator.queries import insert_relays_as_candidates
 from bigbrotr.utils.http import read_bounded_json
@@ -87,7 +87,7 @@ if TYPE_CHECKING:
     from bigbrotr.models import Relay
 
 
-class Finder(BaseService[FinderConfig]):
+class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
     """Relay discovery service.
 
     Discovers Nostr relay URLs from external APIs and stored database events,
@@ -259,8 +259,9 @@ class Finder(BaseService[FinderConfig]):
         """Discover relay URLs from stored events using cursor pagination.
 
         Fetches current cursor positions, scans all relays concurrently
-        (bounded by ``events.parallel_relays``), and updates Prometheus
-        gauges per relay as results stream in.
+        (bounded by ``events.parallel_relays``) via
+        ``_iter_concurrent()``,
+        and updates Prometheus gauges per relay as results stream in.
 
         Returns:
             Number of relay URLs discovered and inserted as candidates.
@@ -287,7 +288,26 @@ class Finder(BaseService[FinderConfig]):
         total_events = 0
         relays_scanned = 0
 
-        async for events, found in self._iter_event_scans(cursors):
+        semaphore = asyncio.Semaphore(self._config.events.parallel_relays)
+        phase_start = time.monotonic()
+        max_duration = self._config.events.max_duration
+
+        async def _bounded_scan(cursor: EventRelayCursor) -> tuple[int, int] | None:
+            async with semaphore:
+                if not self.is_running or time.monotonic() - phase_start > max_duration:
+                    return None
+                try:
+                    return await self._scan_relay_events(cursor)
+                except Exception as e:  # Worker exception boundary — protects TaskGroup
+                    self._logger.error(
+                        "event_scan_worker_failed",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        relay=cursor.relay_url,
+                    )
+                    return 0, 0
+
+        async for events, found in self._iter_concurrent(cursors, _bounded_scan):
             total_found += found
             total_events += events
             relays_scanned += 1
@@ -304,63 +324,6 @@ class Finder(BaseService[FinderConfig]):
             relays_scanned=relays_scanned,
         )
         return total_found
-
-    async def _iter_event_scans(
-        self, cursors: list[EventRelayCursor]
-    ) -> AsyncIterator[tuple[int, int]]:
-        """Yield ``(events_scanned, candidates_found)`` per relay as each completes.
-
-        Launches bounded concurrent scans for all relays and streams
-        per-relay results via an :class:`asyncio.Queue` bridge between the
-        :class:`asyncio.TaskGroup` producers and this async generator.
-
-        Args:
-            cursors: Per-relay cursor positions for pagination.
-
-        Yields:
-            ``(events_scanned, candidates_found)`` for each scanned relay.
-        """
-        semaphore = asyncio.Semaphore(self._config.events.parallel_relays)
-        phase_start = time.monotonic()
-        max_duration = self._config.events.max_duration
-        queue: asyncio.Queue[tuple[int, int] | None] = asyncio.Queue()
-
-        async def _bounded_scan(cursor: EventRelayCursor) -> None:
-            async with semaphore:
-                if not self.is_running or time.monotonic() - phase_start > max_duration:
-                    return
-                try:
-                    result = await self._scan_relay_events(cursor)
-                    await queue.put(result)
-                except Exception as e:
-                    self._logger.error(
-                        "event_scan_worker_failed",
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        relay=cursor.relay_url,
-                    )
-                    await queue.put((0, 0))
-
-        async def _run_all() -> None:
-            try:
-                async with asyncio.TaskGroup() as tg:
-                    for c in cursors:
-                        tg.create_task(_bounded_scan(c))
-            finally:
-                await queue.put(None)
-
-        runner = asyncio.create_task(_run_all())
-        try:
-            while True:
-                item = await queue.get()
-                if item is None:
-                    break
-                yield item
-        finally:
-            if not runner.done():
-                runner.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await runner
 
     async def _scan_relay_events(self, cursor: EventRelayCursor) -> tuple[int, int]:
         """Scan events from a single relay using composite cursor pagination.

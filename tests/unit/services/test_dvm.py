@@ -122,11 +122,25 @@ def _make_mock_event(
 class TestDvmConfig:
     def test_default_values(self) -> None:
         config = DvmConfig(relays=["wss://relay.example.com"])
+        assert config.name == "BigBrotr DVM"
+        assert config.about == "Read-only access to BigBrotr relay monitoring data"
+        assert config.d_tag == "bigbrotr-dvm"
         assert config.kind == 5050
         assert config.max_page_size == 1000
         assert config.announce is True
         assert config.tables == {}
         assert config.fetch_timeout == 30.0
+
+    def test_custom_branding(self) -> None:
+        config = DvmConfig(
+            relays=["wss://relay.example.com"],
+            name="LilBrotr DVM",
+            about="LilBrotr relay data",
+            d_tag="lilbrotr-dvm",
+        )
+        assert config.name == "LilBrotr DVM"
+        assert config.about == "LilBrotr relay data"
+        assert config.d_tag == "lilbrotr-dvm"
 
     def test_custom_fetch_timeout(self) -> None:
         config = DvmConfig(relays=["wss://relay.example.com"], fetch_timeout=60.0)

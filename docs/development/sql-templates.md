@@ -46,9 +46,9 @@ The 10 base templates define the minimal Brotr schema shared by all deployments:
 | `03_functions_crud.sql.j2` | 10 CRUD functions (inserts, upserts, cascade operations) |
 | `04_functions_cleanup.sql.j2` | 2 cleanup functions (orphan metadata + orphan event deletion) |
 | `05_views.sql.j2` | Regular views (extension point for future use) |
-| `06_materialized_views.sql.j2` | 1 materialized view: `relay_metadata_latest` |
-| `07_functions_refresh.sql.j2` | 1 refresh function: `relay_metadata_latest_refresh()` |
-| `08_indexes.sql.j2` | Performance indexes for tables and `relay_metadata_latest` |
+| `06_materialized_views.sql.j2` | 11 materialized views: `relay_metadata_latest` + 10 statistics/analytics views |
+| `07_functions_refresh.sql.j2` | 12 refresh functions: one per matview + `all_statistics_refresh()` |
+| `08_indexes.sql.j2` | Performance indexes for tables and materialized views |
 | `99_verify.sql.j2` | Post-init verification script (schema summary) |
 
 ---

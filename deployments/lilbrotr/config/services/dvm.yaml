@@ -5,6 +5,10 @@
 # Only values that differ from defaults are specified here.
 # =============================================================================
 
+name: "LilBrotr DVM"
+about: "Read-only access to LilBrotr relay monitoring data"
+d_tag: "lilbrotr-dvm"
+
 pool:
   user: reader
   password_env: DB_READER_PASSWORD

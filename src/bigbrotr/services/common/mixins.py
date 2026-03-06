@@ -16,13 +16,22 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any, Self
+import contextlib
+from typing import TYPE_CHECKING, Any, Self, TypeVar
 
 from bigbrotr.models.constants import NetworkType
 
 
+T = TypeVar("T")
+R = TypeVar("R")
+
+
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+
     import geoip2.database
+
+    from bigbrotr.core.logger import Logger
 
     from .catalog import Catalog
     from .configs import NetworksConfig, TableConfig
@@ -89,6 +98,84 @@ class NetworkSemaphoresMixin:
         networks: NetworksConfig = kwargs.pop("networks")
         super().__init__(**kwargs)
         self.network_semaphores = NetworkSemaphores(networks)
+
+
+class ConcurrentStreamMixin:
+    """Mixin providing concurrent item processing with streaming results.
+
+    Adds ``_iter_concurrent()`` which launches ``asyncio.TaskGroup`` tasks
+    and streams results through an ``asyncio.Queue`` bridge as each worker
+    completes — enabling progressive metric updates instead of waiting for
+    all items to finish.
+
+    See Also:
+        [Finder][bigbrotr.services.finder.Finder],
+        [Synchronizer][bigbrotr.services.synchronizer.Synchronizer],
+        [Monitor][bigbrotr.services.monitor.Monitor],
+        [Validator][bigbrotr.services.validator.Validator]:
+            Services that compose this mixin.
+    """
+
+    _logger: Logger
+
+    async def _iter_concurrent(
+        self,
+        items: Sequence[T],
+        worker: Callable[[T], Awaitable[R | None]],
+    ) -> AsyncIterator[R]:
+        """Launch concurrent tasks and yield non-None results as they complete.
+
+        Each item is processed by ``worker`` in a separate
+        ``asyncio.TaskGroup`` task. Results stream through an
+        ``asyncio.Queue`` so the caller can update metrics progressively.
+
+        Workers MUST catch their own ``Exception``\\s and return
+        appropriate error results (or ``None`` to skip).
+        ``CancelledError`` propagates naturally through the
+        ``TaskGroup``.
+
+        Args:
+            items: Items to process concurrently.
+            worker: Async callable receiving a single item. Returns a
+                result or ``None`` to skip.
+
+        Yields:
+            Non-None results in completion order.
+        """
+        queue: asyncio.Queue[R | None] = asyncio.Queue()
+
+        async def _run_worker(item: T) -> None:
+            result = await worker(item)
+            if result is not None:
+                await queue.put(result)
+
+        async def _run_all() -> None:
+            try:
+                async with asyncio.TaskGroup() as tg:
+                    for item in items:
+                        tg.create_task(_run_worker(item))
+            except ExceptionGroup as eg:
+                for exc in eg.exceptions:
+                    self._logger.error(
+                        "concurrent_worker_error",
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                    )
+            finally:
+                await queue.put(None)
+
+        runner = asyncio.create_task(_run_all())
+        try:
+            while True:
+                result = await queue.get()
+                if result is None:
+                    break
+                yield result
+        finally:
+            if not runner.done():
+                runner.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await runner  # ensure cancellation completes
 
 
 class GeoReaders:

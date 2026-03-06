@@ -94,6 +94,12 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         if self._config.announce:
             await self._publish_announcement()
 
+        self.set_gauge("jobs_received", 0)
+        self.set_gauge(
+            "tables_exposed",
+            sum(1 for n in self._catalog.tables if self._is_table_enabled(n)),
+        )
+
         self._last_fetch_ts = int(time.time())
         return self
 
@@ -432,7 +438,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             return
 
         tags = [
-            Tag.parse(["d", "bigbrotr-dvm"]),
+            Tag.parse(["d", self._config.d_tag]),
             Tag.parse(["k", str(self._config.kind)]),
         ]
 
@@ -441,8 +447,8 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         ]
         content = json.dumps(
             {
-                "name": "BigBrotr DVM",
-                "about": "Read-only access to BigBrotr relay monitoring data",
+                "name": self._config.name,
+                "about": self._config.about,
                 "tables": tables_info,
             }
         )

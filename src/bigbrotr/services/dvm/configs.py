@@ -38,6 +38,9 @@ class DvmConfig(BaseServiceConfig, KeysConfig):
         fetch_timeout: Timeout in seconds for relay event fetching.
     """
 
+    name: str = Field(default="BigBrotr DVM", min_length=1)
+    about: str = Field(default="Read-only access to BigBrotr relay monitoring data", min_length=1)
+    d_tag: str = Field(default="bigbrotr-dvm", min_length=1)
     relays: Annotated[
         list[Relay],
         BeforeValidator(lambda v: [Relay(url) if isinstance(url, str) else url for url in v]),

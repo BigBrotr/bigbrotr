@@ -1,6 +1,7 @@
 """Unit tests for services.common.mixins module.
 
 Tests:
+- ConcurrentStreamMixin - Concurrent item processing with streaming results
 - NetworkSemaphores - Per-network concurrency semaphore container
 - NetworkSemaphoresMixin - Mixin that provides a network_semaphores attribute via __init__
 - CatalogAccessMixin - Mixin for schema catalog lifecycle and table access policy
@@ -14,9 +15,156 @@ from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.catalog import Catalog
 from bigbrotr.services.common.mixins import (
     CatalogAccessMixin,
+    ConcurrentStreamMixin,
     NetworkSemaphores,
     NetworkSemaphoresMixin,
 )
+
+
+# =============================================================================
+# Helper: fake base class for ConcurrentStreamMixin tests
+# =============================================================================
+
+
+class _FakeConcurrentBase:
+    """Minimal stand-in for BaseService with _logger."""
+
+    def __init__(self) -> None:
+        self._logger = MagicMock()
+
+
+class _TestConcurrentService(ConcurrentStreamMixin, _FakeConcurrentBase):
+    """Concrete class combining ConcurrentStreamMixin with fake base."""
+
+
+# =============================================================================
+# ConcurrentStreamMixin Tests
+# =============================================================================
+
+
+class TestConcurrentStreamMixinEmpty:
+    async def test_empty_items_yields_nothing(self) -> None:
+        svc = _TestConcurrentService()
+        results = [r async for r in svc._iter_concurrent([], AsyncMock())]
+        assert results == []
+
+
+class TestConcurrentStreamMixinResults:
+    async def test_single_item(self) -> None:
+        svc = _TestConcurrentService()
+
+        async def worker(item: int) -> int:
+            return item * 2
+
+        results = [r async for r in svc._iter_concurrent([5], worker)]
+        assert results == [10]
+
+    async def test_multiple_items_all_returned(self) -> None:
+        svc = _TestConcurrentService()
+
+        async def worker(item: int) -> int:
+            return item * 10
+
+        results = [r async for r in svc._iter_concurrent([1, 2, 3], worker)]
+        assert sorted(results) == [10, 20, 30]
+
+    async def test_none_results_are_skipped(self) -> None:
+        svc = _TestConcurrentService()
+
+        async def worker(item: int) -> int | None:
+            return item * 2 if item % 2 == 0 else None
+
+        results = [r async for r in svc._iter_concurrent([1, 2, 3, 4], worker)]
+        assert sorted(results) == [4, 8]
+
+    async def test_mixed_none_and_values(self) -> None:
+        svc = _TestConcurrentService()
+
+        async def worker(item: str) -> str | None:
+            return item.upper() if item != "skip" else None
+
+        results = [r async for r in svc._iter_concurrent(["a", "skip", "b"], worker)]
+        assert sorted(results) == ["A", "B"]
+
+    async def test_results_stream_in_completion_order(self) -> None:
+        svc = _TestConcurrentService()
+        arrival_order: list[int] = []
+
+        async def worker(item: int) -> int:
+            await asyncio.sleep(0.01 * (3 - item))
+            return item
+
+        async for result in svc._iter_concurrent([1, 2, 3], worker):
+            arrival_order.append(result)
+
+        assert set(arrival_order) == {1, 2, 3}
+        assert arrival_order[0] == 3  # shortest sleep finishes first
+
+
+class TestConcurrentStreamMixinErrorHandling:
+    async def test_worker_exception_logged_via_exception_group(self) -> None:
+        svc = _TestConcurrentService()
+
+        async def worker(item: int) -> int:
+            raise RuntimeError(f"fail-{item}")
+
+        results = [r async for r in svc._iter_concurrent([1], worker)]
+        assert results == []
+        svc._logger.error.assert_called_once_with(
+            "concurrent_worker_error",
+            error="fail-1",
+            error_type="RuntimeError",
+        )
+
+    async def test_multiple_worker_exceptions_all_logged(self) -> None:
+        svc = _TestConcurrentService()
+
+        async def worker(item: int) -> int:
+            raise ValueError(f"bad-{item}")
+
+        results = [r async for r in svc._iter_concurrent([1, 2], worker)]
+        assert results == []
+        assert svc._logger.error.call_count == 2
+
+    async def test_worker_catching_own_exception_returns_error_result(self) -> None:
+        svc = _TestConcurrentService()
+
+        async def worker(item: int) -> tuple[int, bool]:
+            try:
+                if item == 2:
+                    raise OSError("network down")
+                return (item, True)
+            except OSError:
+                return (item, False)
+
+        results = [r async for r in svc._iter_concurrent([1, 2, 3], worker)]
+        assert sorted(results) == [(1, True), (2, False), (3, True)]
+
+
+class TestConcurrentStreamMixinCancellation:
+    async def test_worker_cancelled_error_does_not_propagate(self) -> None:
+        svc = _TestConcurrentService()
+
+        async def worker(item: int) -> int:
+            raise asyncio.CancelledError
+
+        results = [r async for r in svc._iter_concurrent([1], worker)]
+        assert results == []
+
+    async def test_break_out_of_iteration_cleans_up(self) -> None:
+        svc = _TestConcurrentService()
+        collected: list[int] = []
+
+        async def worker(item: int) -> int:
+            await asyncio.sleep(0.01)
+            return item
+
+        async for result in svc._iter_concurrent([1, 2, 3, 4, 5], worker):
+            collected.append(result)
+            if len(collected) >= 2:
+                break
+
+        assert len(collected) >= 2
 
 
 # =============================================================================
