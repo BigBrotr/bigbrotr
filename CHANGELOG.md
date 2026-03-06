@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.8.0] - 2026-03-06
+
+Service quality and correctness release: concurrent processing extracted into shared mixin, error handling normalized across all services, and two production bugs fixed.
+
+### Added
+
+- **`ConcurrentStreamMixin`**: shared mixin extracted from Finder/Validator/Monitor/Synchronizer for concurrent item processing via TaskGroup + Queue streaming (#349)
+
+### Fixed
+
+- **Reason validation**: `BaseLogs` and `Nip66RttMultiPhaseLogs` used truthiness check (`not self.reason`) instead of `self.reason is None`, rejecting empty string reasons with `ValidationError`. Fixed in 4 locations (#350)
+- **NULL tagvalue handling**: `extract_relays_from_tagvalues()` crashed on `None` elements in PostgreSQL `text[]` arrays (`None.partition(":")` → `AttributeError`). Added type guard (#350)
+
+### Changed
+
+- Worker exception boundary in Validator upgraded from `warning` to `error` log level, with `error_type` diagnostic field (#350)
+- Boundary comments added to all worker `except Exception` blocks (Finder, Monitor, Synchronizer) documenting TaskGroup protection (#350)
+- Module-level log messages normalized to `snake_case_event: context` format across common/utils, finder/queries, validator/queries (#350)
+
+### Removed
+
+- Dead `validator/utils.py` module (empty, no imports) (#350)
+- Unnecessary `.copy()` in Synchronizer cursor flush (already under lock) (#350)
+
 ## [5.7.0] - 2026-03-03
 
 Major service refactoring release: all 8 services restructured with dedicated query modules, typed domain objects, and cleanup lifecycle. Synchronizer gains forward-progression binary split algorithm for complete event synchronization.
