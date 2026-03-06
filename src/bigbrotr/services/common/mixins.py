@@ -175,7 +175,7 @@ class ConcurrentStreamMixin:
             if not runner.done():
                 runner.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
-                    await runner
+                    await runner  # ensure cancellation completes
 
 
 class GeoReaders:
