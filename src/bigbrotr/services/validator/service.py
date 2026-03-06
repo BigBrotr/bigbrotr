@@ -50,14 +50,13 @@ Examples:
 
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import TYPE_CHECKING, ClassVar
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.relay import Relay
-from bigbrotr.services.common.mixins import NetworkSemaphoresMixin
+from bigbrotr.services.common.mixins import ConcurrentStreamMixin, NetworkSemaphoresMixin
 from bigbrotr.utils.protocol import is_nostr_relay
 
 from .configs import ValidatorConfig
@@ -72,14 +71,11 @@ from .queries import (
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
     from bigbrotr.core.brotr import Brotr
-    from bigbrotr.models.constants import NetworkType
     from bigbrotr.services.common.types import CandidateCheckpoint
 
 
-class Validator(NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
+class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
     """Validates relay candidates by checking if they speak the Nostr protocol.
 
     Processes candidate URLs discovered by the
@@ -131,6 +127,11 @@ class Validator(NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
     async def validate(self) -> int:
         """Validate all pending candidates and persist results.
 
+        Fetches candidates in pages (``chunk_size``), validates each page
+        concurrently via
+        [_iter_concurrent][bigbrotr.services.common.mixins.ConcurrentStreamMixin._iter_concurrent],
+        and flushes results at each pagination boundary.
+
         Returns:
             Total number of candidates processed (valid + invalid).
         """
@@ -149,16 +150,41 @@ class Validator(NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
         self.set_gauge("not_validated", 0)
         self.set_gauge("chunk", 0)
 
+        chunk_size = self._config.processing.chunk_size
+        max_candidates = self._config.processing.max_candidates
         processed = 0
         cumulative_promoted = 0
         cumulative_failed = 0
         chunk_num = 0
 
-        async for valid, invalid in self._validate_chunks(networks, attempted_before):
-            failed_count = await fail_candidates(self._brotr, invalid)
-            promoted_count = await promote_candidates(self._brotr, valid)
+        while self.is_running:
+            if max_candidates is not None:
+                budget = max_candidates - processed
+                if budget <= 0:
+                    break
+                limit = min(chunk_size, budget)
+            else:
+                limit = chunk_size
 
-            processed += len(valid) + len(invalid)
+            candidates = await fetch_candidates(self._brotr, networks, attempted_before, limit)
+            if not candidates:
+                break
+
+            chunk_valid: list[CandidateCheckpoint] = []
+            chunk_invalid: list[CandidateCheckpoint] = []
+
+            async for candidate, is_valid in self._iter_concurrent(
+                candidates, self._validate_candidate_safe
+            ):
+                if is_valid:
+                    chunk_valid.append(candidate)
+                else:
+                    chunk_invalid.append(candidate)
+
+            failed_count = await fail_candidates(self._brotr, chunk_invalid)
+            promoted_count = await promote_candidates(self._brotr, chunk_valid)
+
+            processed += len(chunk_valid) + len(chunk_invalid)
             cumulative_promoted += promoted_count
             cumulative_failed += failed_count
             chunk_num += 1
@@ -177,6 +203,25 @@ class Validator(NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
             )
 
         return processed
+
+    async def _validate_candidate_safe(
+        self, candidate: CandidateCheckpoint
+    ) -> tuple[CandidateCheckpoint, bool]:
+        """Wrap ``_validate_candidate`` for use with ``_iter_concurrent``.
+
+        Returns ``(candidate, is_valid)`` — never ``None``, so every
+        candidate produces a result for the caller to classify.
+        """
+        try:
+            is_valid = await self._validate_candidate(candidate)
+            return candidate, is_valid
+        except Exception as e:
+            self._logger.warning(
+                "validate_unexpected_error",
+                url=candidate.key,
+                error=str(e),
+            )
+            return candidate, False
 
     async def _validate_candidate(self, candidate: CandidateCheckpoint) -> bool:
         """Validate a single relay candidate by connecting and testing the Nostr protocol.
@@ -208,61 +253,3 @@ class Validator(NetworkSemaphoresMixin, BaseService[ValidatorConfig]):
                 return await is_nostr_relay(relay, proxy_url, network_config.timeout)
             except (TimeoutError, OSError):
                 return False
-
-    async def _validate_chunks(
-        self,
-        networks: list[NetworkType],
-        attempted_before: int,
-    ) -> AsyncIterator[tuple[list[CandidateCheckpoint], list[CandidateCheckpoint]]]:
-        """Fetch, validate, and yield candidate chunks.
-
-        Handles chunk fetching, budget calculation, and concurrent validation.
-        Persistence is left to the caller.
-
-        Args:
-            networks: Enabled network types to process.
-            attempted_before: Unix timestamp cutoff for candidate retry interval.
-
-        Yields:
-            Tuple of (valid CandidateCheckpoint list, invalid CandidateCheckpoint list) per chunk.
-        """
-        chunk_size = self._config.processing.chunk_size
-        max_candidates = self._config.processing.max_candidates
-        processed = 0
-
-        while self.is_running:
-            if max_candidates is not None:
-                budget = max_candidates - processed
-                if budget <= 0:
-                    break
-                limit = min(chunk_size, budget)
-            else:
-                limit = chunk_size
-
-            candidates = await fetch_candidates(self._brotr, networks, attempted_before, limit)
-            if not candidates:
-                break
-
-            tasks = [self._validate_candidate(c) for c in candidates]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            valid: list[CandidateCheckpoint] = []
-            invalid: list[CandidateCheckpoint] = []
-
-            for candidate, result in zip(candidates, results, strict=True):
-                if isinstance(result, asyncio.CancelledError):
-                    raise result
-                if isinstance(result, BaseException):
-                    self._logger.warning(
-                        "validate_unexpected_error",
-                        url=candidate.key,
-                        error=str(result),
-                    )
-                    invalid.append(candidate)
-                elif result is True:
-                    valid.append(candidate)
-                else:
-                    invalid.append(candidate)
-
-            processed += len(valid) + len(invalid)
-            yield valid, invalid
