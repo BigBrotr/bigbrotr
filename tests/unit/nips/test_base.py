@@ -333,10 +333,10 @@ class TestBaseLogsFailure:
         with pytest.raises(ValidationError, match="reason is required when success is False"):
             BaseLogs(success=False, reason=None)
 
-    def test_failure_with_empty_reason(self):
-        """success=False with empty string reason raises (empty is not meaningful)."""
-        with pytest.raises(ValidationError, match="reason is required when success is False"):
-            BaseLogs(success=False, reason="")
+    def test_failure_with_empty_reason_accepted(self):
+        """success=False with empty string reason is accepted (empty is not None)."""
+        logs = BaseLogs(success=False, reason="")
+        assert logs.reason == ""
 
 
 class TestBaseLogsTypeValidation:

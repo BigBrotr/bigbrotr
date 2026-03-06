@@ -68,7 +68,7 @@ async def fetch_event_relay_cursors(brotr: Brotr) -> list[EventRelayCursor]:
                     )
                 )
             except (ValueError, TypeError):
-                logger.warning("Skipping invalid cursor for %s", url)
+                logger.warning("invalid_cursor_skipped: %s", url)
                 cursors.append(EventRelayCursor(relay_url=url))
         else:
             cursors.append(EventRelayCursor(relay_url=url))

@@ -179,7 +179,7 @@ class BaseLogs(BaseModel):
         """Enforce success/reason consistency."""
         if self.success and self.reason is not None:
             raise ValueError("reason must be None when success is True")
-        if not self.success and not self.reason:
+        if not self.success and self.reason is None:
             raise ValueError("reason is required when success is False")
         return self
 

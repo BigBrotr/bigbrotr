@@ -73,7 +73,7 @@ def parse_relay_row(row: Any) -> Relay | None:
     try:
         relay = Relay(row["url"], row["discovered_at"])
     except (ValueError, TypeError) as e:
-        logger.warning("Skipping invalid relay URL %s: %s", row["url"], e)
+        logger.warning("invalid_relay_row_skipped: %s (%s)", row["url"], e)
         return None
     if relay.network.value != row["network"]:
         logger.warning(

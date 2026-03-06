@@ -120,7 +120,7 @@ class TestParseRelayRow:
             result = parse_relay_row(row)
 
         assert result is None
-        assert "Skipping invalid relay URL" in caplog.text
+        assert "invalid_relay_row_skipped" in caplog.text
 
     def test_network_mismatch_logs_warning(self, caplog: logging.LogRecord) -> None:
         """Test that network mismatch logs a warning but still returns the relay."""
