@@ -405,14 +405,14 @@ class TestDeleteExhaustedCandidates:
 
 class TestCountCandidates:
     async def test_counts_with_filters(self, query_brotr: MagicMock) -> None:
-        query_brotr.fetchrow = AsyncMock(return_value={"count": 15})
+        query_brotr.fetchval = AsyncMock(return_value=15)
         result = await count_candidates(
             query_brotr,
             networks=[NetworkType.CLEARNET, NetworkType.TOR],
             attempted_before=1700000000,
         )
 
-        args = query_brotr.fetchrow.call_args
+        args = query_brotr.fetchval.call_args
         sql = args[0][0]
         assert "COUNT(*)" in sql
         assert "service_name = $1" in sql
@@ -422,10 +422,6 @@ class TestCountCandidates:
         assert args[0][3] == [NetworkType.CLEARNET, NetworkType.TOR]
         assert args[0][4] == 1700000000
         assert result == 15
-
-    async def test_returns_zero_on_none_row(self, query_brotr: MagicMock) -> None:
-        query_brotr.fetchrow = AsyncMock(return_value=None)
-        assert await count_candidates(query_brotr, [NetworkType.CLEARNET], 1700000000) == 0
 
 
 # ============================================================================

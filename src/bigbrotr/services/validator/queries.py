@@ -101,9 +101,9 @@ async def count_candidates(
     Returns:
         Total count of matching candidates.
     """
-    row = await brotr.fetchrow(
+    count: int = await brotr.fetchval(
         """
-        SELECT COUNT(*)::int AS count
+        SELECT COUNT(*)::int
         FROM service_state
         WHERE service_name = $1
           AND state_type = $2
@@ -116,7 +116,7 @@ async def count_candidates(
         networks,
         attempted_before,
     )
-    return row["count"] if row else 0
+    return count
 
 
 async def fetch_candidates(
