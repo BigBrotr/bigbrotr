@@ -71,7 +71,8 @@ from nostr_sdk import (
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.utils.transport import DEFAULT_TIMEOUT, InsecureWebSocketTransport
+
+from .transport import DEFAULT_TIMEOUT, InsecureWebSocketTransport
 
 
 if TYPE_CHECKING:

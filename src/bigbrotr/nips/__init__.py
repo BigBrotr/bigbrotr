@@ -43,8 +43,8 @@ See Also:
         Service that orchestrates NIP-11 and NIP-66 checks per relay.
 """
 
-from bigbrotr.nips.nip11 import Nip11
-from bigbrotr.nips.nip66 import Nip66
+from .nip11 import Nip11
+from .nip66 import Nip66
 
 
 __all__ = [
