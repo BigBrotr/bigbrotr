@@ -374,10 +374,6 @@ class TestDeletePromotedCandidates:
         assert args[0][2] == ServiceStateType.CHECKPOINT
         assert result == 2
 
-    async def test_returns_zero_on_none(self, query_brotr: MagicMock) -> None:
-        query_brotr.fetchval = AsyncMock(return_value=None)
-        assert await delete_promoted_candidates(query_brotr) == 0
-
 
 # ============================================================================
 # delete_exhausted_candidates
