@@ -172,7 +172,7 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
             chunk_invalid: list[CandidateCheckpoint] = []
 
             async for candidate, is_valid in self._iter_concurrent(
-                candidates, self._validate_candidate_safe
+                candidates, self._validation_worker
             ):
                 if is_valid:
                     chunk_valid.append(candidate)
@@ -195,16 +195,31 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
 
         return validated + not_validated
 
-    async def _validate_candidate_safe(
+    async def _validation_worker(
         self, candidate: CandidateCheckpoint
     ) -> tuple[CandidateCheckpoint, bool]:
-        """Wrap ``_validate_candidate`` for use with ``_iter_concurrent``.
+        """Validate a single candidate for use with ``_iter_concurrent``.
 
-        Returns ``(candidate, is_valid)`` — never ``None``, so every
+        Resolves per-network config (semaphore, proxy, timeout), then
+        delegates the WebSocket probe to
+        [validate_candidate][bigbrotr.services.validator.utils.validate_candidate].
+
+        Returns ``(candidate, is_valid)`` — never raises, so every
         candidate produces a result for the caller to classify.
         """
         try:
-            is_valid = await self._validate_candidate(candidate)
+            network = candidate.network
+            semaphore = self.network_semaphores.get(network)
+
+            if semaphore is None:
+                self._logger.warning("unknown_network", url=candidate.key, network=network.value)
+                return candidate, False
+
+            network_config = self._config.networks.get(network)
+            proxy_url = self._config.networks.get_proxy_url(network)
+            relay = Relay(candidate.key)
+
+            is_valid = await validate_candidate(relay, semaphore, proxy_url, network_config.timeout)
             return candidate, is_valid
         except Exception as e:  # Worker exception boundary — protects TaskGroup
             self._logger.error(
@@ -214,31 +229,3 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
                 error_type=type(e).__name__,
             )
             return candidate, False
-
-    async def _validate_candidate(self, candidate: CandidateCheckpoint) -> bool:
-        """Validate a single relay candidate by connecting and testing the Nostr protocol.
-
-        Uses the network-specific semaphore and proxy settings from
-        [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig].
-        Delegates the actual WebSocket probe to
-        [is_nostr_relay][bigbrotr.utils.protocol.is_nostr_relay].
-
-        Args:
-            candidate: [CandidateCheckpoint][bigbrotr.services.common.types.CandidateCheckpoint]
-                to validate.
-
-        Returns:
-            ``True`` if the relay speaks Nostr protocol, ``False`` otherwise.
-        """
-        network = candidate.network
-        semaphore = self.network_semaphores.get(network)
-
-        if semaphore is None:
-            self._logger.warning("unknown_network", url=candidate.key, network=network.value)
-            return False
-
-        network_config = self._config.networks.get(network)
-        proxy_url = self._config.networks.get_proxy_url(network)
-        relay = Relay(candidate.key)
-
-        return await validate_candidate(relay, semaphore, proxy_url, network_config.timeout)

@@ -774,49 +774,69 @@ class TestValidate:
 
 
 # ============================================================================
-# Validator._validate_candidate
+# Validator._validation_worker
 # ============================================================================
 
 
-class TestValidateCandidate:
+class TestValidateCandidateSafe:
     async def test_valid_returns_true(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
+        c = _candidate("wss://good.com")
         with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True):
-            assert await v._validate_candidate(_candidate("wss://good.com")) is True
+            result = await v._validation_worker(c)
+        assert result == (c, True)
 
     async def test_invalid_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
+        c = _candidate("wss://bad.com")
         with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=False):
-            assert await v._validate_candidate(_candidate("wss://bad.com")) is False
+            result = await v._validation_worker(c)
+        assert result == (c, False)
 
     async def test_timeout_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
+        c = _candidate()
         with patch(
             f"{_UTILS}.is_nostr_relay",
             new_callable=AsyncMock,
             side_effect=TimeoutError,
         ):
-            assert await v._validate_candidate(_candidate()) is False
+            result = await v._validation_worker(c)
+        assert result == (c, False)
 
     async def test_os_error_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
+        c = _candidate()
         with patch(
             f"{_UTILS}.is_nostr_relay",
             new_callable=AsyncMock,
             side_effect=OSError("refused"),
         ):
-            assert await v._validate_candidate(_candidate()) is False
+            result = await v._validation_worker(c)
+        assert result == (c, False)
 
     async def test_unknown_network_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
         c = _candidate(network=NetworkType.UNKNOWN)
-        assert await v._validate_candidate(c) is False
+        result = await v._validation_worker(c)
+        assert result == (c, False)
 
     async def test_clearnet_no_proxy(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
         with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
-            await v._validate_candidate(_candidate())
+            await v._validation_worker(_candidate())
         assert mock.call_args[0][1] is None
+
+    async def test_unexpected_error_returns_false(self, validator_brotr: Brotr) -> None:
+        v = Validator(validator_brotr)
+        c = _candidate("wss://broken.com")
+        with patch(
+            f"{_UTILS}.is_nostr_relay",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("boom"),
+        ):
+            result = await v._validation_worker(c)
+        assert result == (c, False)
 
 
 # ============================================================================
@@ -833,7 +853,7 @@ class TestNetworkRouting:
     ) -> tuple[str | None, float]:
         v = Validator(validator_brotr, config=cfg)
         with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
-            await v._validate_candidate(candidate)
+            await v._validation_worker(candidate)
         return mock.call_args[0][1], mock.call_args[0][2]
 
     async def test_clearnet(self, validator_brotr: Brotr) -> None:
