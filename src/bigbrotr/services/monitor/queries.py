@@ -57,10 +57,51 @@ async def delete_stale_checkpoints(brotr: Brotr, keep_keys: list[str]) -> int:
     return count
 
 
+_RELAYS_TO_MONITOR_WHERE = """
+    FROM relay r
+    LEFT JOIN service_state ss ON
+        ss.service_name = $3
+        AND ss.state_type = $4
+        AND ss.state_key = r.url
+    WHERE
+        r.network = ANY($1)
+        AND (ss.state_key IS NULL
+             OR (ss.state_value->>'timestamp')::BIGINT < $2)
+"""
+
+
+async def count_relays_to_monitor(
+    brotr: Brotr,
+    monitored_before: int,
+    networks: list[NetworkType],
+) -> int:
+    """Count relays due for monitoring.
+
+    Args:
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
+        monitored_before: Exclusive upper bound -- only relays whose
+            checkpoint ``timestamp`` is before this Unix timestamp (or NULL)
+            are counted.
+        networks: Network types to include.
+
+    Returns:
+        Total count of matching relays.
+    """
+    count: int = await brotr.fetchval(
+        f"SELECT count(*)::int {_RELAYS_TO_MONITOR_WHERE}",
+        networks,
+        monitored_before,
+        ServiceName.MONITOR,
+        ServiceStateType.CHECKPOINT,
+    )
+    return count
+
+
 async def fetch_relays_to_monitor(
     brotr: Brotr,
     monitored_before: int,
     networks: list[NetworkType],
+    limit: int,
 ) -> list[Relay]:
     """Fetch relays due for monitoring, ordered by least-recently-monitored.
 
@@ -75,30 +116,25 @@ async def fetch_relays_to_monitor(
             checkpoint ``timestamp`` is before this Unix timestamp (or NULL)
             are returned.
         networks: Network types to include.
+        limit: Maximum relays to return.
 
     Returns:
         List of [Relay][bigbrotr.models.relay.Relay] instances.
     """
     rows = await brotr.fetch(
-        """
+        f"""
         SELECT r.url, r.network, r.discovered_at
-        FROM relay r
-        LEFT JOIN service_state ss ON
-            ss.service_name = $3
-            AND ss.state_type = $4
-            AND ss.state_key = r.url
-        WHERE
-            r.network = ANY($1)
-            AND (ss.state_key IS NULL
-                 OR (ss.state_value->>'timestamp')::BIGINT < $2)
+        {_RELAYS_TO_MONITOR_WHERE}
         ORDER BY
             COALESCE((ss.state_value->>'timestamp')::BIGINT, 0) ASC,
             r.discovered_at ASC
+        LIMIT $5
         """,
         networks,
         monitored_before,
         ServiceName.MONITOR,
         ServiceStateType.CHECKPOINT,
+        limit,
     )
     relays: list[Relay] = []
     for row in rows:

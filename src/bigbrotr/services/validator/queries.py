@@ -84,6 +84,16 @@ async def delete_exhausted_candidates(brotr: Brotr, max_failures: int) -> int:
     return count
 
 
+_CANDIDATES_WHERE = """
+    FROM service_state
+    WHERE service_name = $1
+      AND state_type = $2
+      AND state_value->>'network' = ANY($3)
+      AND (COALESCE((state_value->>'failures')::int, 0) = 0
+           OR (state_value->>'timestamp')::BIGINT < $4)
+"""
+
+
 async def count_candidates(
     brotr: Brotr,
     networks: list[NetworkType],
@@ -102,15 +112,7 @@ async def count_candidates(
         Total count of matching candidates.
     """
     count: int = await brotr.fetchval(
-        """
-        SELECT COUNT(*)::int
-        FROM service_state
-        WHERE service_name = $1
-          AND state_type = $2
-          AND state_value->>'network' = ANY($3)
-          AND (COALESCE((state_value->>'failures')::int, 0) = 0
-               OR (state_value->>'timestamp')::BIGINT < $4)
-        """,
+        f"SELECT count(*)::int {_CANDIDATES_WHERE}",
         ServiceName.VALIDATOR,
         ServiceStateType.CHECKPOINT,
         networks,
@@ -146,14 +148,9 @@ async def fetch_candidates(
         instances.
     """
     rows = await brotr.fetch(
-        """
+        f"""
         SELECT state_key, state_value
-        FROM service_state
-        WHERE service_name = $1
-          AND state_type = $2
-          AND state_value->>'network' = ANY($3)
-          AND (COALESCE((state_value->>'failures')::int, 0) = 0
-               OR (state_value->>'timestamp')::BIGINT < $4)
+        {_CANDIDATES_WHERE}
         ORDER BY COALESCE((state_value->>'failures')::int, 0) ASC,
                  COALESCE((state_value->>'timestamp')::BIGINT, 0) ASC
         LIMIT $5

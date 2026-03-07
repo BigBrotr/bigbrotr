@@ -75,6 +75,7 @@ from bigbrotr.utils.protocol import broadcast_events, connect_clients, disconnec
 
 from .configs import MonitorConfig
 from .queries import (
+    count_relays_to_monitor,
     delete_stale_checkpoints,
     fetch_relays_to_monitor,
     is_publish_due,
@@ -206,98 +207,46 @@ class Monitor(
             except (OSError, ValueError) as e:
                 self._logger.warning("geo_db_update_failed", db=name, error=str(e))
 
-    async def monitor(self) -> int:
-        """Count, check, persist, and publish all pending relays.
+    async def publish_profile(self) -> None:
+        """Publish Kind 0 profile metadata if the configured interval has elapsed."""
+        profile = self._config.profile
+        relays = get_publish_relays(profile.relays, self._config.publishing.relays)
+        if not profile.enabled or not relays:
+            return
 
-        Uses
-        ``_iter_concurrent()``
-        to stream per-relay health check results as they complete. Results
-        are accumulated and flushed to the database every ``chunk_size``
-        relays for progressive persistence.
+        if not await is_publish_due(self._brotr, "profile", profile.interval):
+            return
 
-        Returns:
-            Total number of relays processed (succeeded + failed).
-        """
-        networks = self._config.networks.get_enabled_networks()
+        timeout = self._config.publishing.timeout
+        clients = await connect_clients(relays, self._keys, timeout, allow_insecure=True)
+        if not clients:
+            self._logger.warning("publish_failed", event="profile", error="no relays reachable")
+            return
 
-        if not networks:
-            self._logger.warning("no_networks_enabled")
-            self.set_gauge("total", 0)
-            self.set_gauge("succeeded", 0)
-            self.set_gauge("failed", 0)
-            return 0
-
-        started_at = time.time()
-        monotonic_start = time.monotonic()
-        monitored_before = int(started_at - self._config.discovery.interval)
-        relays = await fetch_relays_to_monitor(self._brotr, monitored_before, networks)
-
-        max_relays = self._config.processing.max_relays
-        if max_relays is not None:
-            relays = relays[:max_relays]
-
-        total = len(relays)
-        succeeded = 0
-        failed = 0
-
-        self.set_gauge("total", total)
-        self.set_gauge("succeeded", succeeded)
-        self.set_gauge("failed", failed)
-
-        self._logger.info("relays_available", total=total)
-
-        chunk_size = self._config.processing.chunk_size
-        chunk_successful: list[tuple[Relay, CheckResult]] = []
-        chunk_failed: list[Relay] = []
-
-        async for relay, result in self._iter_concurrent(relays, self._monitoring_worker):
-            if result is not None:
-                chunk_successful.append((relay, result))
-                succeeded += 1
-            else:
-                chunk_failed.append(relay)
-                failed += 1
-            self.set_gauge("succeeded", succeeded)
-            self.set_gauge("failed", failed)
-
-            if (succeeded + failed) % chunk_size == 0:
-                await flush_check_batch(
-                    self, chunk_successful, chunk_failed, total - succeeded - failed
-                )
-                chunk_successful = []
-                chunk_failed = []
-
-        if chunk_successful or chunk_failed:
-            await flush_check_batch(
-                self, chunk_successful, chunk_failed, total - succeeded - failed
-            )
-
-        elapsed = round(time.monotonic() - monotonic_start, 1)
-        self._logger.info(
-            "monitoring_completed",
-            succeeded=succeeded,
-            failed=failed,
-            duration_s=elapsed,
-        )
-        return succeeded + failed
-
-    async def _monitoring_worker(self, relay: Relay) -> tuple[Relay, CheckResult | None]:
-        """Health-check a single relay for use with ``_iter_concurrent``.
-
-        Returns ``(relay, result)`` when the check produces data, or
-        ``(relay, None)`` on failure or exception.
-        """
         try:
-            result = await check_relay(self, relay)
-            return (relay, result) if result.has_data else (relay, None)
-        except Exception as e:  # Worker exception boundary — protects TaskGroup
-            self._logger.error(
-                "check_relay_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                relay=relay.url,
+            sent = await broadcast_events(
+                [
+                    build_profile_event(
+                        name=profile.name,
+                        about=profile.about,
+                        picture=profile.picture,
+                        nip05=profile.nip05,
+                        website=profile.website,
+                        banner=profile.banner,
+                        lud16=profile.lud16,
+                    ),
+                ],
+                clients,
             )
-            return relay, None
+        finally:
+            await disconnect_clients(clients)
+
+        if not sent:
+            self._logger.warning("publish_failed", event="profile", error="no relays reachable")
+            return
+
+        self._logger.info("publish_completed", event="profile", relays=sent)
+        await save_publish_checkpoint(self._brotr, "profile")
 
     async def publish_announcement(self) -> None:
         """Publish Kind 10166 monitor announcement if the configured interval has elapsed."""
@@ -356,43 +305,82 @@ class Monitor(
         self._logger.info("publish_completed", event="announcement", relays=sent)
         await save_publish_checkpoint(self._brotr, "announcement")
 
-    async def publish_profile(self) -> None:
-        """Publish Kind 0 profile metadata if the configured interval has elapsed."""
-        profile = self._config.profile
-        relays = get_publish_relays(profile.relays, self._config.publishing.relays)
-        if not profile.enabled or not relays:
-            return
+    async def monitor(self) -> int:
+        """Check, persist, and publish all pending relays.
 
-        if not await is_publish_due(self._brotr, "profile", profile.interval):
-            return
+        Fetches relays in pages (``chunk_size``), checks each page
+        concurrently via ``_iter_concurrent()``, and flushes results
+        at each pagination boundary.
 
-        timeout = self._config.publishing.timeout
-        clients = await connect_clients(relays, self._keys, timeout, allow_insecure=True)
-        if not clients:
-            self._logger.warning("publish_failed", event="profile", error="no relays reachable")
-            return
+        Returns:
+            Total number of relays processed (succeeded + failed).
+        """
+        networks = self._config.networks.get_enabled_networks()
+        if not networks:
+            self._logger.warning("no_networks_enabled")
+            return 0
 
-        try:
-            sent = await broadcast_events(
-                [
-                    build_profile_event(
-                        name=profile.name,
-                        about=profile.about,
-                        picture=profile.picture,
-                        nip05=profile.nip05,
-                        website=profile.website,
-                        banner=profile.banner,
-                        lud16=profile.lud16,
-                    ),
-                ],
-                clients,
+        monitored_before = int(time.time() - self._config.discovery.interval)
+
+        total = await count_relays_to_monitor(self._brotr, monitored_before, networks)
+        succeeded = 0
+        failed = 0
+
+        self.set_gauge("total", total)
+        self.set_gauge("succeeded", succeeded)
+        self.set_gauge("failed", failed)
+
+        self._logger.info("relays_available", total=total)
+
+        chunk_size = self._config.processing.chunk_size
+        max_relays = self._config.processing.max_relays
+
+        while self.is_running:
+            if max_relays is not None:
+                budget = max_relays - succeeded - failed
+                if budget <= 0:
+                    break
+                limit = min(chunk_size, budget)
+            else:
+                limit = chunk_size
+
+            relays = await fetch_relays_to_monitor(self._brotr, monitored_before, networks, limit)
+            if not relays:
+                break
+
+            chunk_successful: list[tuple[Relay, CheckResult]] = []
+            chunk_failed: list[Relay] = []
+
+            async for relay, result in self._iter_concurrent(relays, self._monitoring_worker):
+                if result is not None:
+                    chunk_successful.append((relay, result))
+                    succeeded += 1
+                else:
+                    chunk_failed.append(relay)
+                    failed += 1
+                self.set_gauge("succeeded", succeeded)
+                self.set_gauge("failed", failed)
+
+            await flush_check_batch(
+                self, chunk_successful, chunk_failed, total - succeeded - failed
             )
-        finally:
-            await disconnect_clients(clients)
 
-        if not sent:
-            self._logger.warning("publish_failed", event="profile", error="no relays reachable")
-            return
+        return succeeded + failed
 
-        self._logger.info("publish_completed", event="profile", relays=sent)
-        await save_publish_checkpoint(self._brotr, "profile")
+    async def _monitoring_worker(self, relay: Relay) -> tuple[Relay, CheckResult | None]:
+        """Health-check a single relay for use with ``_iter_concurrent``.
+
+        Returns ``(relay, result)`` when the check produces data, or
+        ``(relay, None)`` on failure or exception.
+        """
+        try:
+            result = await check_relay(self, relay)
+            return (relay, result) if result.has_data else (relay, None)
+        except Exception as e:  # Worker exception boundary — protects TaskGroup
+            self._logger.error(
+                "check_relay_failed",
+                error=str(e),
+                error_type=type(e).__name__,
+                relay=relay.url,
+            )
+            return relay, None

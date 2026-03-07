@@ -42,6 +42,7 @@ from bigbrotr.services.monitor import (
 )
 from bigbrotr.services.monitor.configs import RetriesConfig, RetryConfig
 from bigbrotr.services.monitor.queries import (
+    count_relays_to_monitor,
     delete_stale_checkpoints,
     fetch_relays_to_monitor,
     insert_relay_metadata,
@@ -1113,12 +1114,36 @@ class TestDeleteStaleCheckpoints:
         assert result == 4
 
 
+class TestCountRelaysToMonitor:
+    async def test_calls_fetchval_with_correct_params(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetchval = AsyncMock(return_value=42)
+
+        result = await count_relays_to_monitor(
+            query_brotr,
+            monitored_before=1700000000,
+            networks=[NetworkType.CLEARNET],
+        )
+
+        query_brotr.fetchval.assert_awaited_once()
+        args = query_brotr.fetchval.call_args
+        sql = args[0][0]
+        assert "count(*)::int" in sql
+        assert "FROM relay r" in sql
+        assert "LEFT JOIN service_state ss" in sql
+        assert args[0][1] == [NetworkType.CLEARNET]
+        assert args[0][2] == 1700000000
+        assert args[0][3] == ServiceName.MONITOR
+        assert args[0][4] == ServiceStateType.CHECKPOINT
+        assert result == 42
+
+
 class TestFetchRelaysToMonitor:
     async def test_calls_fetch_with_correct_params(self, query_brotr: MagicMock) -> None:
         await fetch_relays_to_monitor(
             query_brotr,
             monitored_before=1700000000,
             networks=[NetworkType.CLEARNET],
+            limit=100,
         )
 
         query_brotr.fetch.assert_awaited_once()
@@ -1128,10 +1153,12 @@ class TestFetchRelaysToMonitor:
         assert "LEFT JOIN service_state ss" in sql
         assert "service_name = $3" in sql
         assert "state_type = $4" in sql
+        assert "LIMIT $5" in sql
         assert args[0][1] == [NetworkType.CLEARNET]
         assert args[0][2] == 1700000000
         assert args[0][3] == ServiceName.MONITOR
         assert args[0][4] == ServiceStateType.CHECKPOINT
+        assert args[0][5] == 100
 
     async def test_returns_relay_objects(self, query_brotr: MagicMock) -> None:
         row = _make_dict_row(
@@ -1139,7 +1166,7 @@ class TestFetchRelaysToMonitor:
         )
         query_brotr.fetch = AsyncMock(return_value=[row])
 
-        result = await fetch_relays_to_monitor(query_brotr, 1700000000, [NetworkType.CLEARNET])
+        result = await fetch_relays_to_monitor(query_brotr, 1700000000, [NetworkType.CLEARNET], 100)
 
         assert len(result) == 1
         assert result[0].url == "wss://relay.example.com"
@@ -1155,13 +1182,13 @@ class TestFetchRelaysToMonitor:
         ]
         query_brotr.fetch = AsyncMock(return_value=rows)
 
-        result = await fetch_relays_to_monitor(query_brotr, 1700000000, [NetworkType.CLEARNET])
+        result = await fetch_relays_to_monitor(query_brotr, 1700000000, [NetworkType.CLEARNET], 100)
 
         assert len(result) == 1
         assert result[0].url == "wss://valid.relay.com"
 
     async def test_empty_result(self, query_brotr: MagicMock) -> None:
-        result = await fetch_relays_to_monitor(query_brotr, 1700000000, [NetworkType.CLEARNET])
+        result = await fetch_relays_to_monitor(query_brotr, 1700000000, [NetworkType.CLEARNET], 100)
 
         assert result == []
 
@@ -1619,8 +1646,14 @@ class TestMonitorRun:
         new_callable=AsyncMock,
         return_value=[],
     )
+    @patch(
+        "bigbrotr.services.monitor.service.count_relays_to_monitor",
+        new_callable=AsyncMock,
+        return_value=0,
+    )
     async def test_run_no_relays(
         self,
+        mock_count: AsyncMock,
         mock_fetch: AsyncMock,
         mock_checkpoint: AsyncMock,
         mock_brotr: Brotr,
@@ -1630,6 +1663,7 @@ class TestMonitorRun:
         monitor = Monitor(brotr=mock_brotr, config=config)
         await monitor.run()
 
+        mock_count.assert_awaited_once()
         mock_fetch.assert_awaited_once()
 
 
@@ -2511,9 +2545,14 @@ class TestMonitorMetrics:
         gauge_calls: list[tuple[str, int]] = []
         with (
             patch(
+                "bigbrotr.services.monitor.service.count_relays_to_monitor",
+                new_callable=AsyncMock,
+                return_value=2,
+            ),
+            patch(
                 "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
                 new_callable=AsyncMock,
-                return_value=[relay1, relay2],
+                side_effect=[[relay1, relay2], []],
             ),
             patch.object(monitor, "_monitoring_worker", side_effect=fake_monitoring_worker),
             patch("bigbrotr.services.monitor.service.flush_check_batch", new_callable=AsyncMock),
