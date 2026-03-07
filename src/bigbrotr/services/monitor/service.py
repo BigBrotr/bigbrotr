@@ -83,14 +83,15 @@ from .queries import (
 )
 from .utils import (
     CheckResult,
+    build_discovery_event,
     check_relay,
-    flush_check_batch,
+    flush_results,
     get_publish_relays,
 )
 
 
 if TYPE_CHECKING:
-    from nostr_sdk import Keys
+    from nostr_sdk import Client, Keys
 
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
@@ -310,7 +311,8 @@ class Monitor(
 
         Fetches relays in pages (``chunk_size``), checks each page
         concurrently via ``_iter_concurrent()``, and flushes results
-        at each pagination boundary.
+        at each pagination boundary. Discovery events are published
+        per-result as they complete.
 
         Returns:
             Total number of relays processed (succeeded + failed).
@@ -335,37 +337,87 @@ class Monitor(
         chunk_size = self._config.processing.chunk_size
         max_relays = self._config.processing.max_relays
 
-        while self.is_running:
-            if max_relays is not None:
-                budget = max_relays - succeeded - failed
-                if budget <= 0:
-                    break
-                limit = min(chunk_size, budget)
-            else:
-                limit = chunk_size
-
-            relays = await fetch_relays_to_monitor(self._brotr, monitored_before, networks, limit)
-            if not relays:
-                break
-
-            chunk_successful: list[tuple[Relay, CheckResult]] = []
-            chunk_failed: list[Relay] = []
-
-            async for relay, result in self._iter_concurrent(relays, self._monitoring_worker):
-                if result is not None:
-                    chunk_successful.append((relay, result))
-                    succeeded += 1
-                else:
-                    chunk_failed.append(relay)
-                    failed += 1
-                self.set_gauge("succeeded", succeeded)
-                self.set_gauge("failed", failed)
-
-            await flush_check_batch(
-                self, chunk_successful, chunk_failed, total - succeeded - failed
+        disc = self._config.discovery
+        disc_relays = get_publish_relays(disc.relays, self._config.publishing.relays)
+        clients = (
+            await connect_clients(
+                disc_relays, self._keys, self._config.publishing.timeout, allow_insecure=True
             )
+            if disc.enabled and disc_relays
+            else []
+        )
+
+        try:
+            while self.is_running:
+                if max_relays is not None:
+                    budget = max_relays - succeeded - failed
+                    if budget <= 0:
+                        break
+                    limit = min(chunk_size, budget)
+                else:
+                    limit = chunk_size
+
+                relays = await fetch_relays_to_monitor(
+                    self._brotr, monitored_before, networks, limit
+                )
+                if not relays:
+                    break
+
+                chunk_successful: list[tuple[Relay, CheckResult]] = []
+                chunk_failed: list[Relay] = []
+
+                async for relay, result in self._iter_concurrent(relays, self._monitoring_worker):
+                    if result is not None:
+                        chunk_successful.append((relay, result))
+                        succeeded += 1
+                        await self.publish_discovery(clients, relay, result)
+                    else:
+                        chunk_failed.append(relay)
+                        failed += 1
+                    self.set_gauge("succeeded", succeeded)
+                    self.set_gauge("failed", failed)
+
+                await flush_results(
+                    self, chunk_successful, chunk_failed, total - succeeded - failed
+                )
+        finally:
+            if clients:
+                await disconnect_clients(clients)
 
         return succeeded + failed
+
+    async def publish_discovery(
+        self,
+        clients: list[Client],
+        relay: Relay,
+        result: CheckResult,
+    ) -> None:
+        """Publish a Kind 30166 relay discovery event for a single relay.
+
+        Builds the event via
+        [build_discovery_event][bigbrotr.services.monitor.utils.build_discovery_event]
+        and broadcasts it to the provided clients.
+
+        Args:
+            clients: Pre-connected Nostr clients for broadcasting.
+            relay: The relay that was health-checked.
+            result: Health check result containing metadata.
+        """
+        if not clients:
+            return
+
+        include = self._config.discovery.include
+        try:
+            builder = build_discovery_event(relay, result, include)
+        except (ValueError, KeyError, TypeError) as e:
+            self._logger.debug("build_30166_failed", url=relay.url, error=str(e))
+            return
+
+        sent = await broadcast_events([builder], clients)
+        if sent:
+            self.inc_counter("total_events_published", 1)
+        else:
+            self._logger.debug("discovery_broadcast_failed", url=relay.url)
 
     async def _monitoring_worker(self, relay: Relay) -> tuple[Relay, CheckResult | None]:
         """Health-check a single relay for use with ``_iter_concurrent``.

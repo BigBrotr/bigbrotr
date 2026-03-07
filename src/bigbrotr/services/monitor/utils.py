@@ -30,7 +30,6 @@ from bigbrotr.nips.nip66 import (
     Nip66SslMetadata,
 )
 from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs
-from bigbrotr.utils.protocol import broadcast_events, connect_clients, disconnect_clients
 
 from .queries import insert_relay_metadata, save_monitoring_markers
 
@@ -462,30 +461,54 @@ async def check_relay(monitor: Monitor, relay: Relay) -> CheckResult:
             return empty
 
 
-async def persist_results(
+def build_discovery_event(
+    relay: Relay,
+    result: CheckResult,
+    include: MetadataFlags,
+) -> EventBuilder:
+    """Build a Kind 30166 relay discovery event for a single relay.
+
+    Args:
+        relay: The relay that was health-checked.
+        result: Health check result containing metadata.
+        include: Flags controlling which metadata types to include.
+
+    Returns:
+        An [EventBuilder][nostr_sdk.EventBuilder] ready for signing and broadcast.
+    """
+    nip11_canonical_json = ""
+    if result.nip11 and include.nip11_info:
+        meta = Metadata(type=MetadataType.NIP11_INFO, data=result.nip11.to_dict())
+        nip11_canonical_json = meta.canonical_json
+
+    return build_relay_discovery(
+        relay.url,
+        relay.network.value,
+        nip11_canonical_json,
+        rtt_data=result.nip66_rtt.data if result.nip66_rtt and include.nip66_rtt else None,
+        ssl_data=result.nip66_ssl.data if result.nip66_ssl and include.nip66_ssl else None,
+        net_data=result.nip66_net.data if result.nip66_net and include.nip66_net else None,
+        geo_data=result.nip66_geo.data if result.nip66_geo and include.nip66_geo else None,
+        nip11_data=result.nip11.data if result.nip11 and include.nip11_info else None,
+        rtt_logs=result.nip66_rtt.logs if result.nip66_rtt else None,
+    )
+
+
+async def flush_results(
     monitor: Monitor,
     successful: list[tuple[Relay, CheckResult]],
     failed: list[Relay],
+    remaining: int,
 ) -> None:
-    """Persist health check results to the database.
+    """Persist health check results and log chunk completion.
 
     Inserts [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
     records for successful checks and saves monitoring timestamps
-    (as [ServiceState][bigbrotr.models.service_state.ServiceState]
-    records with ``state_type='monitoring'``) for all checked relays
-    (both successful and failed) to avoid re-checking within the
-    same interval.
-
-    Note:
-        Monitoring markers are saved for *all* relays, including failed ones.
-        This prevents the monitor from repeatedly retrying a relay
-        that is temporarily down within the same discovery interval.
-        The relay will be rechecked in the next cycle after the
-        interval elapses.
+    for all checked relays (both successful and failed) to prevent
+    re-checking within the same interval.
     """
     now = int(time.time())
 
-    # Insert metadata for successful checks
     if successful:
         metadata = collect_metadata(successful, monitor._config.processing.store)
         if metadata:
@@ -496,7 +519,6 @@ async def persist_results(
             except (asyncpg.PostgresError, OSError) as e:
                 monitor._logger.error("metadata_insert_failed", error=str(e), count=len(metadata))
 
-    # Save monitoring markers for all checked relays
     all_relays = [relay for relay, _ in successful] + failed
     if all_relays:
         try:
@@ -504,88 +526,6 @@ async def persist_results(
         except (asyncpg.PostgresError, OSError) as e:
             monitor._logger.error("monitoring_save_failed", error=str(e))
 
-
-async def publish_relay_discoveries(
-    monitor: Monitor, successful: list[tuple[Relay, CheckResult]]
-) -> None:
-    """Publish Kind 30166 relay discovery events for successful health checks."""
-    disc = monitor._config.discovery
-    relays = get_publish_relays(disc.relays, monitor._config.publishing.relays)
-    if not disc.enabled or not relays:
-        return
-
-    include = disc.include
-    builders: list[EventBuilder] = []
-    for relay, result in successful:
-        try:
-            nip11_canonical_json = ""
-            if result.nip11 and include.nip11_info:
-                meta = Metadata(type=MetadataType.NIP11_INFO, data=result.nip11.to_dict())
-                nip11_canonical_json = meta.canonical_json
-
-            builders.append(
-                build_relay_discovery(
-                    relay.url,
-                    relay.network.value,
-                    nip11_canonical_json,
-                    rtt_data=result.nip66_rtt.data
-                    if result.nip66_rtt and include.nip66_rtt
-                    else None,
-                    ssl_data=result.nip66_ssl.data
-                    if result.nip66_ssl and include.nip66_ssl
-                    else None,
-                    net_data=result.nip66_net.data
-                    if result.nip66_net and include.nip66_net
-                    else None,
-                    geo_data=result.nip66_geo.data
-                    if result.nip66_geo and include.nip66_geo
-                    else None,
-                    nip11_data=result.nip11.data if result.nip11 and include.nip11_info else None,
-                    rtt_logs=result.nip66_rtt.logs if result.nip66_rtt else None,
-                )
-            )
-        except (ValueError, KeyError, TypeError) as e:
-            monitor._logger.debug("build_30166_failed", url=relay.url, error=str(e))
-
-    if not builders:
-        return
-
-    clients = await connect_clients(
-        relays, monitor._keys, monitor._config.publishing.timeout, allow_insecure=True
-    )
-    if not clients:
-        monitor._logger.warning(
-            "discoveries_broadcast_failed",
-            count=len(builders),
-            error="no relays reachable",
-        )
-        return
-
-    try:
-        sent = await broadcast_events(builders, clients)
-    finally:
-        await disconnect_clients(clients)
-
-    if sent:
-        monitor._logger.debug("discoveries_published", count=len(builders))
-        monitor.inc_counter("total_events_published", len(builders))
-    else:
-        monitor._logger.warning(
-            "discoveries_broadcast_failed",
-            count=len(builders),
-            error="no relays reachable",
-        )
-
-
-async def flush_check_batch(
-    monitor: Monitor,
-    successful: list[tuple[Relay, CheckResult]],
-    failed: list[Relay],
-    remaining: int,
-) -> None:
-    """Flush accumulated check results to the database."""
-    await publish_relay_discoveries(monitor, successful)
-    await persist_results(monitor, successful, failed)
     monitor._logger.info(
         "chunk_completed",
         succeeded=len(successful),

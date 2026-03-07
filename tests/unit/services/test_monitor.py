@@ -52,11 +52,10 @@ from bigbrotr.services.monitor.queries import (
 )
 from bigbrotr.services.monitor.utils import (
     collect_metadata,
+    flush_results,
     get_publish_relays,
     get_reason,
     get_success,
-    persist_results,
-    publish_relay_discoveries,
     safe_result,
 )
 
@@ -1642,6 +1641,11 @@ class TestMonitorRun:
         return_value=False,
     )
     @patch(
+        "bigbrotr.services.monitor.service.connect_clients",
+        new_callable=AsyncMock,
+        return_value=[],
+    )
+    @patch(
         "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
         new_callable=AsyncMock,
         return_value=[],
@@ -1655,6 +1659,7 @@ class TestMonitorRun:
         self,
         mock_count: AsyncMock,
         mock_fetch: AsyncMock,
+        mock_connect: AsyncMock,
         mock_checkpoint: AsyncMock,
         mock_brotr: Brotr,
         tmp_path: Path,
@@ -1741,18 +1746,18 @@ class TestMonitorCleanup:
 # ============================================================================
 
 
-class TestMonitorPersistResults:
-    async def test_persist_results_empty(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+class TestFlushResults:
+    async def test_flush_results_empty(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         mock_brotr.insert_relay_metadata = AsyncMock(return_value=0)  # type: ignore[method-assign]
         mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
 
         config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
-        await persist_results(monitor, [], [])
+        await flush_results(monitor, [], [], 0)
 
         mock_brotr.insert_relay_metadata.assert_not_called()  # type: ignore[attr-defined]
 
-    async def test_persist_results_with_successful(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+    async def test_flush_results_with_successful(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         mock_brotr.insert_relay_metadata = AsyncMock(return_value=2)  # type: ignore[method-assign]
         mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
 
@@ -1766,12 +1771,12 @@ class TestMonitorPersistResults:
         result2 = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=200))
 
         successful = [(relay1, result1), (relay2, result2)]
-        await persist_results(monitor, successful, [])
+        await flush_results(monitor, successful, [], 0)
 
         mock_brotr.insert_relay_metadata.assert_called_once()  # type: ignore[attr-defined]
         mock_brotr.upsert_service_state.assert_called_once()  # type: ignore[attr-defined]
 
-    async def test_persist_results_with_failed(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+    async def test_flush_results_with_failed(self, mock_brotr: Brotr, tmp_path: Path) -> None:
         mock_brotr.insert_relay_metadata = AsyncMock(return_value=0)  # type: ignore[method-assign]
         mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
 
@@ -1781,7 +1786,7 @@ class TestMonitorPersistResults:
         relay1 = Relay("wss://failed1.example.com")
         relay2 = Relay("wss://failed2.example.com")
 
-        await persist_results(monitor, [], [relay1, relay2])
+        await flush_results(monitor, [], [relay1, relay2], 0)
 
         # insert_relay_metadata should not be called for failed relays
         mock_brotr.insert_relay_metadata.assert_not_called()  # type: ignore[attr-defined]
@@ -2229,130 +2234,71 @@ class TestPublishProfile:
 # ============================================================================
 
 
-class TestPublishRelayDiscoveries:
-    async def test_publish_discoveries_when_disabled(self, test_keys: Keys) -> None:
-        config = _make_config(
-            discovery=DiscoveryConfig(
-                enabled=False,
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-        )
-        harness = _MonitorStub(config, test_keys)
-
+class TestPublishDiscovery:
+    async def test_publish_discovery_no_clients(self, mock_brotr: Brotr) -> None:
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
         relay = Relay("wss://relay.example.com")
-        result = _make_check_result()
+        result = _make_check_result(nip11=_make_nip11_meta(name="Test"))
 
         with patch(
-            "bigbrotr.services.monitor.utils.connect_clients", new_callable=AsyncMock
-        ) as mock_connect:
-            await publish_relay_discoveries(harness, [(relay, result)])
-            mock_connect.assert_not_awaited()
+            "bigbrotr.services.monitor.service.broadcast_events",
+            new_callable=AsyncMock,
+        ) as mock_broadcast:
+            await monitor.publish_discovery([], relay, result)
+            mock_broadcast.assert_not_awaited()
 
-    async def test_publish_discoveries_when_no_relays(self, test_keys: Keys) -> None:
-        config = _make_config(
-            discovery=DiscoveryConfig(
-                enabled=True,
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-                relays=[],
-            ),
-            publishing=PublishingConfig(relays=[]),
-        )
-        harness = _MonitorStub(config, test_keys)
-
-        relay = Relay("wss://relay.example.com")
-        result = _make_check_result()
-
-        with patch(
-            "bigbrotr.services.monitor.utils.connect_clients", new_callable=AsyncMock
-        ) as mock_connect:
-            await publish_relay_discoveries(harness, [(relay, result)])
-            mock_connect.assert_not_awaited()
-
-    async def test_publish_discoveries_successful(self, stub: _MonitorStub) -> None:
+    async def test_publish_discovery_successful(self, mock_brotr: Brotr) -> None:
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
         relay = Relay("wss://relay.example.com")
         result = _make_check_result(nip11=_make_nip11_meta(name="Test Relay"))
 
         with (
             patch(
-                "bigbrotr.services.monitor.utils.connect_clients",
-                new_callable=AsyncMock,
-                return_value=[AsyncMock()],
-            ),
-            patch(
-                "bigbrotr.services.monitor.utils.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events",
                 new_callable=AsyncMock,
                 return_value=1,
             ) as mock_broadcast,
-            patch("bigbrotr.services.monitor.utils.disconnect_clients", new_callable=AsyncMock),
+            patch.object(monitor, "inc_counter") as mock_counter,
         ):
-            await publish_relay_discoveries(stub, [(relay, result)])
+            await monitor.publish_discovery([AsyncMock()], relay, result)
 
         mock_broadcast.assert_awaited_once()
-        stub._logger.debug.assert_any_call("discoveries_published", count=1)
+        mock_counter.assert_called_once_with("total_events_published", 1)
 
-    async def test_publish_discoveries_build_failure_for_individual(
-        self, stub: _MonitorStub
-    ) -> None:
-        relay1 = Relay("wss://relay1.example.com")
-        relay2 = Relay("wss://relay2.example.com")
-        result1 = _make_check_result()
-        result2 = _make_check_result(nip11=_make_nip11_meta(name="Test"))
-
-        call_count = 0
-        _original = build_relay_discovery
-
-        def _patched_build(*args: Any, **kwargs: Any) -> Any:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise ValueError("build failed for relay1")
-            return _original(*args, **kwargs)
-
-        with (
-            patch(
-                "bigbrotr.services.monitor.utils.build_relay_discovery",
-                side_effect=_patched_build,
-            ),
-            patch(
-                "bigbrotr.services.monitor.utils.connect_clients",
-                new_callable=AsyncMock,
-                return_value=[AsyncMock()],
-            ),
-            patch(
-                "bigbrotr.services.monitor.utils.broadcast_events",
-                new_callable=AsyncMock,
-                return_value=1,
-            ) as mock_broadcast,
-            patch("bigbrotr.services.monitor.utils.disconnect_clients", new_callable=AsyncMock),
-        ):
-            await publish_relay_discoveries(stub, [(relay1, result1), (relay2, result2)])
-
-        mock_broadcast.assert_awaited_once()
-        stub._logger.debug.assert_any_call(
-            "build_30166_failed", url=relay1.url, error="build failed for relay1"
-        )
-
-    async def test_publish_discoveries_broadcast_failure(self, stub: _MonitorStub) -> None:
+    async def test_publish_discovery_build_failure(self, mock_brotr: Brotr) -> None:
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
         relay = Relay("wss://relay.example.com")
         result = _make_check_result()
 
         with (
             patch(
-                "bigbrotr.services.monitor.utils.connect_clients",
-                new_callable=AsyncMock,
-                return_value=[AsyncMock()],
+                "bigbrotr.services.monitor.service.build_discovery_event",
+                side_effect=ValueError("build failed"),
             ),
             patch(
-                "bigbrotr.services.monitor.utils.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events",
                 new_callable=AsyncMock,
-                return_value=0,
-            ),
-            patch("bigbrotr.services.monitor.utils.disconnect_clients", new_callable=AsyncMock),
+            ) as mock_broadcast,
         ):
-            await publish_relay_discoveries(stub, [(relay, result)])
+            await monitor.publish_discovery([AsyncMock()], relay, result)
 
-        stub._logger.warning.assert_called_once()
-        assert "discoveries_broadcast_failed" in stub._logger.warning.call_args[0]
+        mock_broadcast.assert_not_awaited()
+
+    async def test_publish_discovery_broadcast_failure(self, mock_brotr: Brotr) -> None:
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result(nip11=_make_nip11_meta(name="Test"))
+
+        with patch(
+            "bigbrotr.services.monitor.service.broadcast_events",
+            new_callable=AsyncMock,
+            return_value=0,
+        ):
+            await monitor.publish_discovery([AsyncMock()], relay, result)
 
 
 # ============================================================================
@@ -2554,8 +2500,13 @@ class TestMonitorMetrics:
                 new_callable=AsyncMock,
                 side_effect=[[relay1, relay2], []],
             ),
+            patch(
+                "bigbrotr.services.monitor.service.connect_clients",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
             patch.object(monitor, "_monitoring_worker", side_effect=fake_monitoring_worker),
-            patch("bigbrotr.services.monitor.service.flush_check_batch", new_callable=AsyncMock),
+            patch("bigbrotr.services.monitor.service.flush_results", new_callable=AsyncMock),
             patch.object(
                 monitor,
                 "set_gauge",
@@ -2569,7 +2520,7 @@ class TestMonitorMetrics:
         assert ("succeeded", 1) in calls
         assert ("failed", 1) in calls
 
-    async def test_persist_results_emits_metadata_counter(self, mock_brotr: Brotr) -> None:
+    async def test_flush_results_emits_metadata_counter(self, mock_brotr: Brotr) -> None:
         mock_brotr.insert_relay_metadata = AsyncMock(return_value=3)  # type: ignore[method-assign]
         mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
 
@@ -2581,19 +2532,12 @@ class TestMonitorMetrics:
         successful = [(relay, result)]
 
         with patch.object(monitor, "inc_counter") as mock_counter:
-            await persist_results(monitor, successful, [])
+            await flush_results(monitor, successful, [], 0)
 
         mock_counter.assert_any_call("total_metadata_stored", 3)
 
-    async def test_publish_discoveries_emits_counter(self, mock_brotr: Brotr) -> None:
-        config = _make_config(
-            discovery=DiscoveryConfig(
-                enabled=True,
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-                relays=["wss://disc.relay.com"],
-            ),
-            publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
-        )
+    async def test_publish_discovery_emits_counter(self, mock_brotr: Brotr) -> None:
+        config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
 
         relay = Relay("wss://relay.example.com")
@@ -2602,17 +2546,11 @@ class TestMonitorMetrics:
         with (
             patch.object(monitor, "inc_counter") as mock_counter,
             patch(
-                "bigbrotr.services.monitor.utils.connect_clients",
+                "bigbrotr.services.monitor.service.broadcast_events",
                 new_callable=AsyncMock,
-                return_value=[AsyncMock()],
+                return_value=1,
             ),
-            patch(
-                "bigbrotr.services.monitor.utils.broadcast_events",
-                new_callable=AsyncMock,
-                return_value=True,
-            ),
-            patch("bigbrotr.services.monitor.utils.disconnect_clients", new_callable=AsyncMock),
         ):
-            await publish_relay_discoveries(monitor, [(relay, result)])
+            await monitor.publish_discovery([AsyncMock()], relay, result)
 
         mock_counter.assert_any_call("total_events_published", 1)
