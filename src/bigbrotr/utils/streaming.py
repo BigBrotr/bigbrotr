@@ -1,11 +1,11 @@
-"""Data-driven event sync algorithm with binary-split fallback.
+"""Data-driven event streaming algorithm with binary-split fallback.
 
-Provides ``iter_relay_events`` — the core windowing algorithm that streams
-Nostr events from a relay in ascending ``(created_at, id)`` order, ensuring
+Provides ``stream_events`` — the core windowing algorithm that streams
+Nostr events in ascending ``(created_at, id)`` order, ensuring
 completeness even when a relay truncates responses.
 
-``_fetch_dedup`` is the single source of truth for event validation.
-``iter_relay_events`` orchestrates windowing, sorting, and domain conversion.
+``_fetch_validated`` is the single source of truth for event validation.
+``stream_events`` orchestrates windowing, sorting, and domain conversion.
 
 This module lives in ``bigbrotr.utils`` (not ``services``) because it has
 no service-layer dependencies — only ``nostr_sdk`` and ``bigbrotr.models``.
@@ -66,7 +66,9 @@ class _FetchContext:
     fetch_timeout: timedelta
 
 
-async def _fetch_dedup(ctx: _FetchContext, since: int, until: int, limit: int) -> list[NostrEvent]:
+async def _fetch_validated(
+    ctx: _FetchContext, since: int, until: int, limit: int
+) -> list[NostrEvent]:
     """Fetch events from all filters via streaming with full validation.
 
     Single source of truth for all event validation in the sync pipeline.
@@ -78,12 +80,12 @@ async def _fetch_dedup(ctx: _FetchContext, since: int, until: int, limit: int) -
     4. **Limited** — at most ``limit`` events returned; streaming stops early.
 
     Events are returned in **arbitrary order**. Sorting and domain model
-    conversion happen at the yield boundary in ``iter_relay_events``.
+    conversion happen at the yield boundary in ``stream_events``.
 
     Uses ``stream_events`` (not ``fetch_events``) to consume events one at a
     time, preventing relay flooding when responses exceed the requested limit.
     """
-    event_list: list[NostrEvent] = []
+    events: list[NostrEvent] = []
     seen_ids: set[object] = set()
     since_ts = Timestamp.from_secs(since)
     until_ts = Timestamp.from_secs(until)
@@ -91,7 +93,7 @@ async def _fetch_dedup(ctx: _FetchContext, since: int, until: int, limit: int) -
     for base in ctx.filters:
         windowed = base.since(since_ts).until(until_ts).limit(limit)
         stream = await ctx.client.stream_events(windowed, ctx.fetch_timeout)
-        while len(event_list) < limit:
+        while len(events) < limit:
             evt = await stream.next()
             if evt is None:
                 break
@@ -100,14 +102,14 @@ async def _fetch_dedup(ctx: _FetchContext, since: int, until: int, limit: int) -
             eid = evt.id()
             if eid not in seen_ids:
                 seen_ids.add(eid)
-                event_list.append(evt)
-        if len(event_list) >= limit:
+                events.append(evt)
+        if len(events) >= limit:
             break
 
-    return event_list
+    return events
 
 
-async def _try_smart_verify(
+async def _try_verify_completeness(
     ctx: _FetchContext,
     events: list[NostrEvent],
     current_since: int,
@@ -115,7 +117,7 @@ async def _try_smart_verify(
     """Attempt data-driven verification when a fetch hits the limit.
 
     Input events may be in any order — only ``min(created_at)`` is used.
-    The combined result is unordered; ``iter_relay_events`` sorts before
+    The combined result is unordered; ``stream_events`` sorts before
     yielding.
 
     Returns the combined event list on success, or ``None`` to signal
@@ -123,35 +125,35 @@ async def _try_smart_verify(
     """
     min_ts = min(e.created_at().as_secs() for e in events)
 
-    verify = await _fetch_dedup(ctx, current_since, min_ts, ctx.limit)
+    boundary_events = await _fetch_validated(ctx, current_since, min_ts, ctx.limit)
 
-    if not verify:
+    if not boundary_events:
         logger.warning("inconsistent_relay_empty_verify")
         return None
 
-    verify_max = max(e.created_at().as_secs() for e in verify)
-    if verify_max != min_ts:
-        logger.warning("inconsistent_relay_verify_max expected=%s got=%s", min_ts, verify_max)
+    boundary_max = max(e.created_at().as_secs() for e in boundary_events)
+    if boundary_max != min_ts:
+        logger.warning("inconsistent_relay_verify_max expected=%s got=%s", min_ts, boundary_max)
         return None
 
-    verify_min = min(e.created_at().as_secs() for e in verify)
-    if verify_min != min_ts:
+    boundary_min = min(e.created_at().as_secs() for e in boundary_events)
+    if boundary_min != min_ts:
         return None
 
-    # All verify events are at min_ts. Probe for events before min_ts.
+    # All boundary events are at min_ts. Probe for events before min_ts.
     if min_ts > current_since:
-        probe = await _fetch_dedup(ctx, current_since, min_ts - 1, 1)
+        probe = await _fetch_validated(ctx, current_since, min_ts - 1, 1)
         if probe:
             return None
 
-    # Combine: verify events at min_ts + original events above min_ts.
+    # Combine: boundary events at min_ts + original events above min_ts.
     # Dedup by EventId across both sets. Order is arbitrary — caller sorts.
     above_min = {evt.id(): evt for evt in events if evt.created_at().as_secs() != min_ts}
-    at_min = {evt.id(): evt for evt in verify}
+    at_min = {evt.id(): evt for evt in boundary_events}
     return [*at_min.values(), *above_min.values()]
 
 
-async def iter_relay_events(  # noqa: PLR0913
+async def stream_events(  # noqa: PLR0913
     client: Client,
     filters: list[Filter],
     start_time: int,
@@ -168,7 +170,7 @@ async def iter_relay_events(  # noqa: PLR0913
     Falls back to binary-split windowing on inconsistent relay responses.
 
     Validation (filter matching, signature verification, deduplication) is
-    handled by ``_fetch_dedup``. This function orchestrates windowing, then
+    handled by ``_fetch_validated``. This function orchestrates windowing, then
     sorts and converts raw events to domain ``Event`` models at each yield
     boundary via ``_to_domain_events``.
 
@@ -197,7 +199,7 @@ async def iter_relay_events(  # noqa: PLR0913
     while until_stack:
         current_until = until_stack[0]
 
-        events = await _fetch_dedup(ctx, current_since, current_until, limit)
+        events = await _fetch_validated(ctx, current_since, current_until, limit)
 
         if not events:
             until_stack.pop(0)
@@ -215,7 +217,7 @@ async def iter_relay_events(  # noqa: PLR0913
         # Multi-second window: always verify completeness. A relay may
         # enforce its own limit lower than ours, returning fewer events
         # even when more exist in the window.
-        verified = await _try_smart_verify(ctx, events, current_since)
+        verified = await _try_verify_completeness(ctx, events, current_since)
 
         if verified is not None:
             for evt in _to_domain_events(verified):

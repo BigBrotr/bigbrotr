@@ -16,22 +16,16 @@ from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.configs import NetworksConfig, TorConfig
 from bigbrotr.services.common.types import SyncCursor
 from bigbrotr.services.synchronizer import (
-    FilterConfig,
     Synchronizer,
     SynchronizerConfig,
     TimeoutsConfig,
-    TimeRangeConfig,
 )
 from bigbrotr.services.synchronizer.queries import (
     delete_stale_cursors,
     insert_event_relays,
 )
-from bigbrotr.services.synchronizer.utils import (
-    build_filter,
-    build_filters,
-    insert_events,
-)
-from bigbrotr.utils.sync import _to_domain_events, iter_relay_events
+from bigbrotr.services.synchronizer.utils import insert_events
+from bigbrotr.utils.streaming import _to_domain_events, stream_events
 
 
 # Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
@@ -120,87 +114,53 @@ def _make_mock_filter() -> MagicMock:
 # ============================================================================
 
 
-class TestFilterConfig:
-    def test_default_values(self) -> None:
-        config = FilterConfig()
+class TestFilterParsing:
+    def test_default_empty_filter(self) -> None:
+        config = SynchronizerConfig()
+        assert len(config.filters) == 1
+        assert isinstance(config.filters[0], Filter)
 
-        assert config.ids is None
-        assert config.kinds is None
-        assert config.authors is None
-        assert config.tags is None
+    def test_kinds_filter(self) -> None:
+        config = SynchronizerConfig(filters=[{"kinds": [1, 3, 30023]}])
+        assert len(config.filters) == 1
+        assert isinstance(config.filters[0], Filter)
 
-    def test_custom_values(self) -> None:
-        valid_author = "c" * 64
-        config = FilterConfig(
-            kinds=[1, 3, 4],
-            authors=[valid_author],
-            tags={"e": ["event1"]},
+    def test_authors_filter(self) -> None:
+        config = SynchronizerConfig(filters=[{"authors": ["a" * 64]}])
+        assert isinstance(config.filters[0], Filter)
+
+    def test_tag_filter(self) -> None:
+        config = SynchronizerConfig(filters=[{"#e": ["b" * 64]}])
+        assert isinstance(config.filters[0], Filter)
+
+    def test_multiple_filters(self) -> None:
+        config = SynchronizerConfig(filters=[{"kinds": [1]}, {"kinds": [2]}])
+        assert len(config.filters) == 2
+
+    def test_temporal_fields_accepted(self) -> None:
+        config = SynchronizerConfig(
+            filters=[{"kinds": [1], "since": 100, "until": 200, "limit": 50}]
         )
+        assert isinstance(config.filters[0], Filter)
 
-        assert config.kinds == [1, 3, 4]
-        assert config.authors == [valid_author]
-        assert config.tags == {"e": ["event1"]}
+    def test_invalid_authors_hex_raises(self) -> None:
+        with pytest.raises(ValueError, match="filters"):
+            SynchronizerConfig(filters=[{"authors": ["zz"]}])
 
-    def test_kinds_validation_valid_range(self) -> None:
-        config = FilterConfig(kinds=[0, 1, 30023, 65535])
-        assert config.kinds == [0, 1, 30023, 65535]
+    def test_non_dict_raises(self) -> None:
+        with pytest.raises(TypeError, match="expected dict"):
+            SynchronizerConfig(filters=["not a dict"])
 
-    def test_kinds_validation_invalid_range(self) -> None:
-        with pytest.raises(ValueError, match="out of valid range"):
-            FilterConfig(kinds=[70000])
+    def test_non_list_raises(self) -> None:
+        with pytest.raises(TypeError, match="expected list"):
+            SynchronizerConfig(filters="not a list")  # type: ignore[arg-type]
 
-        with pytest.raises(ValueError, match="out of valid range"):
-            FilterConfig(kinds=[-1])
+    def test_filter_passthrough(self) -> None:
+        from nostr_sdk import Kind
 
-    def test_authors_validation_valid_hex(self) -> None:
-        valid_hex = "b" * 64
-        config = FilterConfig(authors=[valid_hex])
-        assert config.authors == [valid_hex]
-
-    def test_authors_validation_invalid_hex_chars(self) -> None:
-        with pytest.raises(ValueError, match="Invalid hex string"):
-            FilterConfig(authors=["z" * 64])
-
-    def test_tags_validation_valid_lowercase(self) -> None:
-        config = FilterConfig(tags={"e": ["event1"], "p": ["pubkey1"]})
-        assert config.tags == {"e": ["event1"], "p": ["pubkey1"]}
-
-    def test_tags_validation_valid_uppercase(self) -> None:
-        config = FilterConfig(tags={"P": ["pubkey1"], "E": ["event1"]})
-        assert config.tags == {"P": ["pubkey1"], "E": ["event1"]}
-
-    def test_tags_validation_multi_letter_key_raises(self) -> None:
-        with pytest.raises(ValueError, match="single letter a-zA-Z"):
-            FilterConfig(tags={"ee": ["value"]})
-
-    def test_tags_validation_numeric_key_raises(self) -> None:
-        with pytest.raises(ValueError, match="single letter a-zA-Z"):
-            FilterConfig(tags={"1": ["value"]})
-
-    def test_tags_validation_empty_values_raises(self) -> None:
-        with pytest.raises(ValueError, match="empty values list"):
-            FilterConfig(tags={"e": []})
-
-    def test_tags_validation_none_passes(self) -> None:
-        config = FilterConfig(tags=None)
-        assert config.tags is None
-
-
-class TestTimeRangeConfig:
-    def test_default_values(self) -> None:
-        config = TimeRangeConfig()
-
-        assert config.default_start == 0
-        assert config.end_lag_seconds == 86400
-
-    def test_custom_values(self) -> None:
-        config = TimeRangeConfig(
-            default_start=1000000,
-            end_lag_seconds=3600,
-        )
-
-        assert config.default_start == 1000000
-        assert config.end_lag_seconds == 3600
+        f = Filter().kinds([Kind(1)])
+        config = SynchronizerConfig(filters=[f])
+        assert config.filters[0] is f
 
 
 class TestTimeoutsConfig:
@@ -268,23 +228,44 @@ class TestSynchronizerConfig:
         config = SynchronizerConfig()
 
         assert config.networks.clearnet.enabled is True
-        assert config.networks.tor.enabled is False  # disabled by default
-        assert config.fetch_limit == 500
-        assert config.time_range.default_start == 0
+        assert config.networks.tor.enabled is False
+        assert config.since == 0
+        assert config.until is None
+        assert config.limit == 500
+        assert config.end_lag == 86_400
         assert config.networks.clearnet.timeout == 10.0
         assert config.timeouts.relay_clearnet == 1800.0
-        assert config.cursor_flush_interval == 50
+        assert config.flush_interval == 50
         assert config.interval == 300.0
+
+    def test_get_end_time_default(self) -> None:
+        config = SynchronizerConfig()
+        end = config.get_end_time()
+        import time
+
+        assert abs(end - (int(time.time()) - 86_400)) <= 2
+
+    def test_get_end_time_with_until(self) -> None:
+        config = SynchronizerConfig(until=1_000_000, end_lag=3600)
+        assert config.get_end_time() == 1_000_000 - 3600
+
+    def test_until_minus_lag_below_since_raises(self) -> None:
+        with pytest.raises(ValueError, match="must be >= since"):
+            SynchronizerConfig(since=1000, until=1500, end_lag=600)
+
+    def test_until_minus_lag_equals_since_ok(self) -> None:
+        config = SynchronizerConfig(since=1000, until=2000, end_lag=1000)
+        assert config.get_end_time() == 1000
 
     def test_custom_nested_config(self) -> None:
         config = SynchronizerConfig(
             networks=NetworksConfig(tor=TorConfig(enabled=True)),
-            cursor_flush_interval=25,
+            flush_interval=25,
             interval=1800.0,
         )
 
         assert config.networks.tor.enabled is True
-        assert config.cursor_flush_interval == 25
+        assert config.flush_interval == 25
         assert config.interval == 1800.0
 
     def test_no_worker_log_level_field(self) -> None:
@@ -296,92 +277,11 @@ class TestSynchronizerConfig:
 # ============================================================================
 
 
-class TestBuildFilter:
-    def test_default_config(self) -> None:
-        config = FilterConfig()
-        f = build_filter(config)
-        assert f is not None
-
-    def test_with_kinds(self) -> None:
-        config = FilterConfig(kinds=[1, 3, 30023])
-        f = build_filter(config)
-        assert f is not None
-
-    def test_with_authors(self) -> None:
-        valid_author = "a" * 64
-        config = FilterConfig(authors=[valid_author])
-
-        mock_filter = MagicMock()
-        mock_filter.authors.return_value = mock_filter
-
-        with patch("bigbrotr.services.synchronizer.utils.Filter", return_value=mock_filter):
-            f = build_filter(config)
-
-        mock_filter.authors.assert_called_once_with([valid_author])
-        assert f is not None
-
-    def test_with_tag_filters(self) -> None:
-        config = FilterConfig(tags={"e": ["event_id_1"], "t": ["hashtag"]})
-        f = build_filter(config)
-        assert f is not None
-
-    def test_with_uppercase_tag(self) -> None:
-        config = FilterConfig(tags={"P": ["pubkey1"]})
-
-        mock_filter = MagicMock()
-        mock_filter.custom_tag.return_value = mock_filter
-
-        with (
-            patch("bigbrotr.services.synchronizer.utils.Filter", return_value=mock_filter),
-            patch("bigbrotr.services.synchronizer.utils.SingleLetterTag") as mock_slt,
-        ):
-            mock_slt.uppercase.return_value = "P_tag"
-            build_filter(config)
-            mock_slt.uppercase.assert_called_once()
-
-    def test_with_all_options(self) -> None:
-        config = FilterConfig(
-            kinds=[1, 4],
-            authors=["b" * 64],
-            tags={"e": ["c" * 64], "p": ["d" * 64]},
-        )
-
-        mock_filter = MagicMock()
-        mock_filter.kinds.return_value = mock_filter
-        mock_filter.authors.return_value = mock_filter
-        mock_filter.custom_tag.return_value = mock_filter
-
-        with patch("bigbrotr.services.synchronizer.utils.Filter", return_value=mock_filter):
-            f = build_filter(config)
-
-        mock_filter.kinds.assert_called_once()
-        mock_filter.authors.assert_called_once()
-        # Two tag letters with one value each = 2 custom_tag calls
-        assert mock_filter.custom_tag.call_count == 2
-        assert f is not None
-
-    def test_no_since_until_limit_in_output(self) -> None:
-        import json
-
-        config = FilterConfig(kinds=[1])
-        f = build_filter(config)
-        keys = set(json.loads(f.as_json()))
-        assert not keys & {"since", "until", "limit"}
-
-
-class TestBuildFilters:
-    def test_builds_list(self) -> None:
-        configs = [FilterConfig(kinds=[1]), FilterConfig(kinds=[2])]
-        filters = build_filters(configs)
-        assert len(filters) == 2
-        assert all(isinstance(f, Filter) for f in filters)
-
-
 class TestToDomainEvents:
     def test_sorts_ascending(self) -> None:
         evts = [_make_mock_event(300), _make_mock_event(100), _make_mock_event(200)]
 
-        with patch("bigbrotr.utils.sync.Event", side_effect=lambda x: x):
+        with patch("bigbrotr.utils.streaming.Event", side_effect=lambda x: x):
             result = _to_domain_events(evts)
 
         timestamps = [e.created_at().as_secs() for e in result]
@@ -402,7 +302,7 @@ class TestToDomainEvents:
                 raise ValueError("null byte")
             return x
 
-        with patch("bigbrotr.utils.sync.Event", side_effect=fail_second):
+        with patch("bigbrotr.utils.streaming.Event", side_effect=fail_second):
             result = _to_domain_events(evts)
 
         assert len(result) == 1
@@ -410,7 +310,7 @@ class TestToDomainEvents:
     def test_type_error_skipped(self) -> None:
         evts = [_make_mock_event(100)]
 
-        with patch("bigbrotr.utils.sync.Event", side_effect=TypeError("bad")):
+        with patch("bigbrotr.utils.streaming.Event", side_effect=TypeError("bad")):
             result = _to_domain_events(evts)
 
         assert result == []
@@ -418,7 +318,7 @@ class TestToDomainEvents:
     def test_overflow_error_skipped(self) -> None:
         evts = [_make_mock_event(100)]
 
-        with patch("bigbrotr.utils.sync.Event", side_effect=OverflowError("overflow")):
+        with patch("bigbrotr.utils.streaming.Event", side_effect=OverflowError("overflow")):
             result = _to_domain_events(evts)
 
         assert result == []
@@ -465,7 +365,7 @@ class TestIterRelayEvents:
     @pytest.fixture(autouse=True)
     def _bypass_event_model(self) -> None:  # type: ignore[misc]
         """Patch Event constructor to passthrough so mock events survive conversion."""
-        with patch("bigbrotr.utils.sync.Event", side_effect=lambda x: x):
+        with patch("bigbrotr.utils.streaming.Event", side_effect=lambda x: x):
             yield
 
     async def test_empty_relay_yields_nothing(self) -> None:
@@ -473,7 +373,7 @@ class TestIterRelayEvents:
         client.stream_events = AsyncMock(return_value=_make_event_stream([]))
         filters = [_make_mock_filter()]
 
-        events = [e async for e in iter_relay_events(client, filters, 100, 1000, 500, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0)]
 
         assert events == []
 
@@ -492,7 +392,7 @@ class TestIterRelayEvents:
         client.stream_events = AsyncMock(side_effect=[call1, call2, call3])
         filters = [_make_mock_filter()]
 
-        events = [e async for e in iter_relay_events(client, filters, 100, 1000, 500, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0)]
 
         assert len(events) == 3
         timestamps = [e.created_at().as_secs() for e in events]
@@ -512,7 +412,7 @@ class TestIterRelayEvents:
         client.stream_events = AsyncMock(side_effect=[call1, call2, call3])
         filters = [_make_mock_filter()]
 
-        events = [e async for e in iter_relay_events(client, filters, 100, 200, 3, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 200, 3, 10.0)]
 
         # Should yield all events (combined from main + verify)
         assert len(events) >= 3
@@ -545,7 +445,7 @@ class TestIterRelayEvents:
         )
         filters = [_make_mock_filter()]
 
-        events = [e async for e in iter_relay_events(client, filters, 100, 200, 2, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 200, 2, 10.0)]
 
         assert len(events) == 2
         timestamps = [e.created_at().as_secs() for e in events]
@@ -577,7 +477,7 @@ class TestIterRelayEvents:
         )
         filters = [_make_mock_filter()]
 
-        events = [e async for e in iter_relay_events(client, filters, 100, 200, 2, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 200, 2, 10.0)]
 
         assert len(events) == 2
 
@@ -587,7 +487,7 @@ class TestIterRelayEvents:
         client.stream_events = AsyncMock(return_value=_make_event_stream(evts))
         filters = [_make_mock_filter()]
 
-        events = [e async for e in iter_relay_events(client, filters, 500, 500, 3, 10.0)]
+        events = [e async for e in stream_events(client, filters, 500, 500, 3, 10.0)]
 
         assert len(events) == 3
 
@@ -597,7 +497,7 @@ class TestIterRelayEvents:
         filters = [_make_mock_filter()]
 
         with pytest.raises(TimeoutError, match="fetch timeout"):
-            async for _ in iter_relay_events(client, filters, 100, 1000, 500, 10.0):
+            async for _ in stream_events(client, filters, 100, 1000, 500, 10.0):
                 pass
 
     async def test_ascending_order_within_window(self) -> None:
@@ -605,7 +505,7 @@ class TestIterRelayEvents:
         evt200 = _make_mock_event(200)
         evt300 = _make_mock_event(300)
         evt400 = _make_mock_event(400)
-        # Main [100, 1000]: sorted by _fetch_dedup to [200, 300, 400]
+        # Main [100, 1000]: sorted by _fetch_validated to [200, 300, 400]
         call1 = _make_event_stream([evt400, evt200, evt300])
         # Verify [100, 200]: event at min_ts=200
         call2 = _make_event_stream([evt200])
@@ -616,7 +516,7 @@ class TestIterRelayEvents:
         client.stream_events = AsyncMock(side_effect=[call1, call2, call3])
         filters = [_make_mock_filter()]
 
-        events = [e async for e in iter_relay_events(client, filters, 100, 1000, 500, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0)]
 
         timestamps = [e.created_at().as_secs() for e in events]
         assert timestamps == [200, 300, 400]
@@ -640,7 +540,7 @@ class TestIterRelayEvents:
         client.stream_events = AsyncMock(side_effect=[s1, s2, s3, s4, s5, s6])
         filters = [_make_mock_filter(), _make_mock_filter()]
 
-        events = [e async for e in iter_relay_events(client, filters, 100, 1000, 500, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0)]
 
         # Each event appears once despite two filters returning same events
         assert len(events) == 2
@@ -666,7 +566,7 @@ class TestIterRelayEvents:
 
         events: list[MagicMock] = []
         with pytest.raises(OSError, match="connection lost"):
-            async for e in iter_relay_events(client, filters, 100, 1000, 2, 10.0):
+            async for e in stream_events(client, filters, 100, 1000, 2, 10.0):
                 events.append(e)
 
         # First event yielded before the error on the right half
@@ -699,7 +599,7 @@ class TestIterRelayEvents:
         )
         filters = [_make_mock_filter()]
 
-        events = [e async for e in iter_relay_events(client, filters, 100, 200, 2, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 200, 2, 10.0)]
 
         assert len(events) == 2
         timestamps = [e.created_at().as_secs() for e in events]
@@ -734,7 +634,7 @@ class TestIterRelayEvents:
         )
         filters = [_make_mock_filter()]
 
-        events = [e async for e in iter_relay_events(client, filters, 100, 300, 3, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 300, 3, 10.0)]
 
         assert len(events) >= 2
         timestamps = [e.created_at().as_secs() for e in events]
@@ -826,22 +726,22 @@ class TestSynchronizerInit:
     def test_init_with_custom_config(self, mock_synchronizer_brotr: Brotr) -> None:
         config = SynchronizerConfig(
             networks=NetworksConfig(tor=TorConfig(enabled=True)),
-            cursor_flush_interval=25,
+            flush_interval=25,
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
         assert sync.config.networks.tor.enabled is True
-        assert sync.config.cursor_flush_interval == 25
+        assert sync.config.flush_interval == 25
 
     def test_from_dict(self, mock_synchronizer_brotr: Brotr) -> None:
         data = {
             "networks": {"tor": {"enabled": True}},
-            "cursor_flush_interval": 25,
+            "flush_interval": 25,
         }
         sync = Synchronizer.from_dict(data, brotr=mock_synchronizer_brotr)
 
         assert sync.config.networks.tor.enabled is True
-        assert sync.config.cursor_flush_interval == 25
+        assert sync.config.flush_interval == 25
 
 
 class TestSynchronizerFetchRelays:
@@ -972,7 +872,7 @@ class TestSynchronizerFetchCursors:
 class TestSynchronizerGetStartTime:
     def test_returns_default_when_cursors_empty(self, mock_synchronizer_brotr: Brotr) -> None:
         config = SynchronizerConfig(
-            time_range=TimeRangeConfig(default_start=42),
+            since=42,
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
         relay = Relay("wss://relay.example.com")
@@ -982,7 +882,7 @@ class TestSynchronizerGetStartTime:
 
     def test_returns_cursor_plus_one_when_found(self, mock_synchronizer_brotr: Brotr) -> None:
         config = SynchronizerConfig(
-            time_range=TimeRangeConfig(default_start=0),
+            since=0,
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
         relay = Relay("wss://relay.example.com")
@@ -997,7 +897,7 @@ class TestSynchronizerGetStartTime:
 
     def test_returns_default_when_cursor_not_found(self, mock_synchronizer_brotr: Brotr) -> None:
         config = SynchronizerConfig(
-            time_range=TimeRangeConfig(default_start=500),
+            since=500,
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
         relay = Relay("wss://other.relay.com")
@@ -1012,7 +912,7 @@ class TestSynchronizerGetStartTime:
 
     def test_returns_default_with_empty_cursors(self, mock_synchronizer_brotr: Brotr) -> None:
         config = SynchronizerConfig(
-            time_range=TimeRangeConfig(default_start=0),
+            since=0,
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
         relay = Relay("wss://relay.example.com")
@@ -1131,7 +1031,7 @@ class TestSynchronizerRunSync:
         sync.inc_counter.assert_any_call("total_sync_failures", 1)
 
     async def test_run_sync_cursor_update_flushed(self, mock_synchronizer_brotr: Brotr) -> None:
-        config = SynchronizerConfig(cursor_flush_interval=50)
+        config = SynchronizerConfig(flush_interval=50)
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
         relay = Relay("wss://relay.example.com")
@@ -1144,7 +1044,7 @@ class TestSynchronizerRunSync:
 
     async def test_run_sync_cursor_periodic_flush(self, mock_synchronizer_brotr: Brotr) -> None:
         config = SynchronizerConfig(
-            cursor_flush_interval=1,  # Flush after every relay
+            flush_interval=1,  # Flush after every relay
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
@@ -1162,7 +1062,7 @@ class TestSynchronizerRunSync:
         assert mock_synchronizer_brotr.upsert_service_state.call_count >= 2
 
     async def test_run_sync_final_cursor_flush_error(self, mock_synchronizer_brotr: Brotr) -> None:
-        config = SynchronizerConfig(cursor_flush_interval=999)
+        config = SynchronizerConfig(flush_interval=999)
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
         relay = Relay("wss://relay.example.com")
@@ -1178,22 +1078,6 @@ class TestSynchronizerRunSync:
         result = await sync._run_sync([relay], {})
 
         assert result == 1
-
-    async def test_run_sync_skip_when_start_ge_end(self, mock_synchronizer_brotr: Brotr) -> None:
-        config = SynchronizerConfig(
-            time_range=TimeRangeConfig(
-                default_start=999_999_999_999,  # Far future
-            ),
-        )
-        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
-
-        relay = Relay("wss://relay.example.com")
-        sync._fetch_and_insert = AsyncMock(
-            return_value=(5, SyncCursor(key="r", timestamp=1000, id=b"\xff" * 32))
-        )  # type: ignore[method-assign]
-        await sync._run_sync([relay], {})
-
-        sync._fetch_and_insert.assert_not_called()
 
     async def test_run_sync_with_cached_cursor(self, mock_synchronizer_brotr: Brotr) -> None:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)

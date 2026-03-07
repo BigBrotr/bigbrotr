@@ -9,103 +9,40 @@ See Also:
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+import json
+import time
+from typing import Any
+
+from nostr_sdk import Filter
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
-from bigbrotr.models.constants import EVENT_KIND_MAX, NetworkType
+from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.configs import NetworksConfig
 from bigbrotr.utils.keys import KeysConfig
 
 
-_HEX_STRING_LENGTH = 64
+def _parse_filter(raw: Any, index: int) -> Filter:
+    """Parse a single NIP-01 filter dict into a nostr-sdk ``Filter``.
 
+    Accepts any dict with NIP-01 REQ filter keys (``ids``, ``authors``,
+    ``kinds``, ``#<letter>``, ``since``, ``until``, ``limit``).
+    Temporal fields (``since``, ``until``, ``limit``) are accepted but
+    ignored at runtime — the sync algorithm manages those.
 
-def _validate_hex_list(v: list[str] | None) -> list[str] | None:
-    """Validate a list of 64-character hex strings (event IDs or pubkeys)."""
-    if v is None:
-        return v
-    for hex_str in v:
-        if len(hex_str) != _HEX_STRING_LENGTH:
-            raise ValueError(
-                f"Invalid hex string length: {len(hex_str)} (expected {_HEX_STRING_LENGTH})"
-            )
-        try:
-            bytes.fromhex(hex_str)
-        except ValueError as e:
-            raise ValueError(f"Invalid hex string: {hex_str}") from e
-    return v
-
-
-class FilterConfig(BaseModel):
-    """NIP-01 REQ filter configuration (minus since/until/limit).
-
-    Supports ``ids``, ``kinds``, ``authors``, and single-letter tag filters
-    per the NIP-01 specification.  Time range and limit are managed by the
-    sync algorithm, not by this config.
-
-    See Also:
-        [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
-            Parent config that embeds a list of these.
+    Raises:
+        TypeError: If the value is not a dict.
+        ValueError: If ``Filter.from_json`` rejects the content
+            (e.g. invalid hex in ``authors``).
     """
-
-    ids: list[str] | None = Field(default=None, description="Event IDs to fetch (None = all)")
-    kinds: list[int] | None = Field(default=None, description="Event kinds to sync (None = all)")
-    authors: list[str] | None = Field(default=None, description="Authors to sync (None = all)")
-    tags: dict[str, list[str]] | None = Field(default=None, description="Tag filters (None = all)")
-
-    @field_validator("kinds", mode="after")
-    @classmethod
-    def validate_kinds(cls, v: list[int] | None) -> list[int] | None:
-        """Validate that all event kinds are within the valid range (0-65535)."""
-        if v is None:
-            return v
-        for kind in v:
-            if not 0 <= kind <= EVENT_KIND_MAX:
-                raise ValueError(f"Event kind {kind} out of valid range (0-{EVENT_KIND_MAX})")
-        return v
-
-    @field_validator("ids", "authors", mode="after")
-    @classmethod
-    def validate_hex_strings(cls, v: list[str] | None) -> list[str] | None:
-        """Validate that all entries are valid 64-character hex strings."""
-        return _validate_hex_list(v)
-
-    @field_validator("tags", mode="after")
-    @classmethod
-    def validate_tags(cls, v: dict[str, list[str]] | None) -> dict[str, list[str]] | None:
-        """Validate tag filter keys per NIP-01: single English letter (a-zA-Z)."""
-        if v is None:
-            return v
-        for key, values in v.items():
-            if len(key) != 1 or not key.isascii() or not key.isalpha():
-                raise ValueError(
-                    f"Invalid tag key '{key}': must be a single letter a-zA-Z (NIP-01)"
-                )
-            if not values:
-                raise ValueError(f"Tag '{key}' has empty values list")
-        return v
-
-
-class TimeRangeConfig(BaseModel):
-    """Time range configuration controlling the sync window boundaries.
-
-    The sync start time is determined by the per-relay cursor plus one
-    second (to avoid re-fetching the last event). Relays without a cursor
-    start from ``default_start``. The ``end_lag_seconds`` parameter
-    controls how far back from ``now()`` the sync window extends.
-
-    See Also:
-        [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
-            Parent config that embeds this model.
-    """
-
-    default_start: int = Field(default=0, ge=0, description="Default start timestamp (0 = epoch)")
-    end_lag_seconds: int = Field(
-        default=86_400,
-        ge=3_600,
-        le=604_800,
-        description="Lag from now for sync upper bound: end_time = now - end_lag_seconds",
-    )
+    if isinstance(raw, Filter):
+        return raw
+    if not isinstance(raw, dict):
+        raise TypeError(f"filters[{index}]: expected dict, got {type(raw).__name__}")
+    try:
+        return Filter.from_json(json.dumps(raw))
+    except Exception as e:
+        raise ValueError(f"filters[{index}]: {e}") from e
 
 
 class TimeoutsConfig(BaseModel):
@@ -170,6 +107,16 @@ class TimeoutsConfig(BaseModel):
 class SynchronizerConfig(BaseServiceConfig):
     """Synchronizer service configuration.
 
+    Sync parameters follow NIP-01 REQ semantics:
+
+    - ``filters`` — NIP-01 filter dicts, converted to ``nostr_sdk.Filter``
+      at load time for fail-fast validation.
+    - ``since`` — default start timestamp for relays without a cursor.
+    - ``until`` — upper bound; ``None`` (default) means ``now()``.
+    - ``limit`` — max events per relay request (REQ limit).
+    - ``end_lag`` — seconds subtracted from ``until`` to compute the
+      actual sync end time: ``(until or now()) - end_lag``.
+
     See Also:
         [Synchronizer][bigbrotr.services.synchronizer.Synchronizer]: The
             service class that consumes this configuration.
@@ -181,14 +128,46 @@ class SynchronizerConfig(BaseServiceConfig):
             for NIP-42 authentication during event fetching.
     """
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     networks: NetworksConfig = Field(default_factory=NetworksConfig)
     keys: KeysConfig = Field(default_factory=lambda: KeysConfig.model_validate({}))
-    filters: list[FilterConfig] = Field(default_factory=lambda: [FilterConfig()])
-    time_range: TimeRangeConfig = Field(default_factory=TimeRangeConfig)
-    timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
-    cursor_flush_interval: int = Field(
-        default=50, ge=1, description="Flush cursor updates every N relays"
+    filters: list[Filter] = Field(default_factory=lambda: [Filter()])
+    since: int = Field(default=0, ge=0, description="Default start timestamp (0 = epoch)")
+    until: int | None = Field(
+        default=None,
+        ge=0,
+        description="Upper bound timestamp (None = now())",
     )
-    fetch_limit: int = Field(
+    limit: int = Field(
         default=500, ge=1, le=5000, description="Max events per relay request (REQ limit)"
     )
+    end_lag: int = Field(
+        default=86_400,
+        ge=0,
+        le=604_800,
+        description="Seconds subtracted from until: end_time = (until or now()) - end_lag",
+    )
+    timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
+    flush_interval: int = Field(default=50, ge=1, description="Flush cursor updates every N relays")
+
+    @field_validator("filters", mode="before")
+    @classmethod
+    def parse_filters(cls, v: Any) -> list[Filter]:
+        """Convert raw NIP-01 filter dicts to ``nostr_sdk.Filter`` objects."""
+        if not isinstance(v, list):
+            raise TypeError(f"filters: expected list, got {type(v).__name__}")
+        return [_parse_filter(raw, i) for i, raw in enumerate(v)]
+
+    def get_end_time(self) -> int:
+        """Compute the sync end timestamp: ``(until or now()) - end_lag``."""
+        base = self.until if self.until is not None else int(time.time())
+        return base - self.end_lag
+
+    @model_validator(mode="after")
+    def _validate_end_time_after_since(self) -> SynchronizerConfig:
+        """Ensure ``get_end_time() >= since``."""
+        end = self.get_end_time()
+        if end < self.since:
+            raise ValueError(f"get_end_time() = {end} must be >= since ({self.since})")
+        return self

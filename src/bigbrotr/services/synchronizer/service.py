@@ -12,7 +12,7 @@ The synchronization workflow proceeds as follows:
    [Brotr.get_service_state][bigbrotr.core.brotr.Brotr.get_service_state].
 3. Connect to each relay and stream events since the last sync timestamp.
 4. Insert pre-validated events (filtering, signature verification, and
-   deduplication are handled at the fetch layer by ``_fetch_dedup``).
+   deduplication are handled at the fetch layer by ``_fetch_validated``).
 5. Update per-relay cursors for the next cycle.
 
 Note:
@@ -20,7 +20,7 @@ Note:
     The cursor (``timestamp``) is stored as a
     [ServiceState][bigbrotr.models.service_state.ServiceState] record
     with ``state_type='cursor'``.  Cursor updates are batched (flushed
-    every ``cursor_flush_interval`` relays) for crash resilience.
+    every ``flush_interval`` relays) for crash resilience.
 
     Relay processing order is randomized (shuffled) to avoid
     thundering-herd effects when multiple synchronizer instances run
@@ -72,11 +72,11 @@ from bigbrotr.services.common.mixins import ConcurrentStreamMixin, NetworkSemaph
 from bigbrotr.services.common.queries import upsert_service_states
 from bigbrotr.services.common.types import SyncCursor
 from bigbrotr.utils.protocol import create_client
-from bigbrotr.utils.sync import iter_relay_events
+from bigbrotr.utils.streaming import stream_events
 
 from .configs import SynchronizerConfig
 from .queries import delete_stale_cursors, fetch_relays
-from .utils import build_filters, insert_events
+from .utils import insert_events
 
 
 _CURSOR_SENTINEL_ID = b"\xff" * 32
@@ -214,7 +214,7 @@ class Synchronizer(
         enabling progressive metric updates as each relay completes.
 
         Cursor updates are batched and flushed every
-        ``cursor_flush_interval`` relays for crash resilience.
+        ``flush_interval`` relays for crash resilience.
 
         Returns:
             Total events synced.
@@ -275,7 +275,7 @@ class Synchronizer(
         """Sync events from a single relay with semaphore-bounded concurrency.
 
         Creates a WebSocket client, connects to the relay, and consumes the
-        [iter_relay_events][bigbrotr.services.synchronizer.utils.iter_relay_events]
+        [stream_events][bigbrotr.services.synchronizer.utils.stream_events]
         generator to fetch and insert events in ascending time order.
 
         The cursor is updated to ``end_time`` on normal completion. On
@@ -303,7 +303,7 @@ class Synchronizer(
             relay_timeout = self._config.timeouts.get_relay_timeout(relay.network)
 
             start = self._get_start_time(relay, cursors)
-            end_time = int(time.time()) - self._config.time_range.end_lag_seconds
+            end_time = self._config.get_end_time()
             if start >= end_time:
                 return None
 
@@ -327,7 +327,7 @@ class Synchronizer(
         """Connect to a relay, stream events, and insert them.
 
         Manages the nostr-sdk client lifecycle and consumes the
-        [iter_relay_events][bigbrotr.services.synchronizer.utils.iter_relay_events]
+        [stream_events][bigbrotr.services.synchronizer.utils.stream_events]
         async generator. Events are buffered and inserted in batches for
         efficiency.
 
@@ -349,7 +349,7 @@ class Synchronizer(
         client = await create_client(self._keys, proxy_url)
         await client.add_relay(RelayUrl.parse(relay.url))
 
-        filters = build_filters(self._config.filters)
+        filters = self._config.filters
         events_synced = 0
         cursor: SyncCursor | None = None
         buffer: list[Event] = []
@@ -357,17 +357,17 @@ class Synchronizer(
         try:
             await client.connect()
 
-            async for event in iter_relay_events(
+            async for event in stream_events(
                 client,
                 filters,
                 start_time,
                 end_time,
-                self._config.fetch_limit,
+                self._config.limit,
                 request_timeout,
             ):
                 buffer.append(event)
 
-                if len(buffer) >= self._config.fetch_limit:
+                if len(buffer) >= self._config.limit:
                     events_synced += await insert_events(buffer, relay, self._brotr)
                     last_ts = buffer[-1].created_at().as_secs()
                     cursor = SyncCursor(
@@ -407,7 +407,7 @@ class Synchronizer(
         if cursor is not None and cursor.timestamp is not None:
             return cursor.timestamp + 1
 
-        return self._config.time_range.default_start
+        return self._config.since
 
     async def _queue_cursor_update(
         self,
@@ -428,7 +428,7 @@ class Synchronizer(
                     },
                 )
             )
-            if len(cursor_updates) >= self._config.cursor_flush_interval:
+            if len(cursor_updates) >= self._config.flush_interval:
                 await self._flush_cursors(cursor_updates)
 
     async def _flush_cursors(self, cursor_updates: list[ServiceState]) -> None:
