@@ -13,7 +13,6 @@ import ssl
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from nostr_sdk import Keys
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay
@@ -439,19 +438,13 @@ class TestIsNostrRelayDisconnect:
 # broadcast_events() Tests
 # =============================================================================
 
-# Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
-_VALID_HEX_KEY = (
-    "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"  # pragma: allowlist secret
-)
-
 
 class TestBroadcastEvents:
     """Tests for broadcast_events().
 
     Accesses ``broadcast_events`` through ``sys.modules`` at test runtime
     to survive module reloading by pytest-typeguard, which can capture
-    stale references to ``connect_relay`` when both functions are in the
-    same module.
+    stale references when functions are in the same module.
     """
 
     @staticmethod
@@ -461,127 +454,148 @@ class TestBroadcastEvents:
 
         return sys.modules["bigbrotr.utils.protocol"].broadcast_events
 
-    async def test_broadcasts_to_single_relay(self) -> None:
+    async def test_sends_to_single_client(self) -> None:
         mock_client = AsyncMock()
-        relay = Relay("wss://relay.example.com")
         mock_builder = MagicMock()
-        keys = Keys.parse(_VALID_HEX_KEY)
 
-        with patch(
-            "bigbrotr.utils.protocol.connect_relay",
-            new_callable=AsyncMock,
-            return_value=mock_client,
-        ):
-            await self._get_broadcast()([mock_builder], [relay], keys)
+        result = await self._get_broadcast()([mock_builder], [mock_client])
 
         mock_client.send_event_builder.assert_awaited_once_with(mock_builder)
-        mock_client.shutdown.assert_awaited_once()
+        assert result == 1
 
-    async def test_per_relay_client(self) -> None:
-        """Each relay gets its own client via connect_relay."""
+    async def test_sends_to_multiple_clients(self) -> None:
         clients = [AsyncMock(), AsyncMock()]
-        relays = [Relay("wss://relay1.example.com"), Relay("wss://relay2.example.com")]
         builders = [MagicMock(), MagicMock(), MagicMock()]
-        keys = Keys.parse(_VALID_HEX_KEY)
 
-        with patch(
-            "bigbrotr.utils.protocol.connect_relay",
-            new_callable=AsyncMock,
-            side_effect=clients,
-        ):
-            await self._get_broadcast()(builders, relays, keys)
+        result = await self._get_broadcast()(builders, clients)
 
         for client in clients:
             assert client.send_event_builder.await_count == 3
-            client.shutdown.assert_awaited_once()
+        assert result == 2
 
     async def test_empty_builders(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        keys = Keys.parse(_VALID_HEX_KEY)
+        result = await self._get_broadcast()([], [AsyncMock()])
+        assert result == 0
 
-        with patch("bigbrotr.utils.protocol.connect_relay") as mock_connect:
-            await self._get_broadcast()([], [relay], keys)
-            mock_connect.assert_not_called()
+    async def test_empty_clients(self) -> None:
+        result = await self._get_broadcast()([MagicMock()], [])
+        assert result == 0
 
-    async def test_empty_relays(self) -> None:
-        keys = Keys.parse(_VALID_HEX_KEY)
-
-        with patch("bigbrotr.utils.protocol.connect_relay") as mock_connect:
-            await self._get_broadcast()([MagicMock()], [], keys)
-            mock_connect.assert_not_called()
-
-    async def test_connect_failure_skips_relay(self) -> None:
-        """Connection failure on one relay does not block the others."""
+    async def test_send_error_skips_client(self) -> None:
+        bad_client = AsyncMock()
+        bad_client.send_event_builder.side_effect = OSError("send failed")
         good_client = AsyncMock()
-        relays = [Relay("wss://bad.example.com"), Relay("wss://good.example.com")]
-        keys = Keys.parse(_VALID_HEX_KEY)
 
-        with patch(
-            "bigbrotr.utils.protocol.connect_relay",
-            new_callable=AsyncMock,
-            side_effect=[OSError("connect failed"), good_client],
-        ):
-            await self._get_broadcast()([MagicMock()], relays, keys)
-
-        good_client.send_event_builder.assert_awaited_once()
-        good_client.shutdown.assert_awaited_once()
-
-    async def test_shutdown_called_on_send_error(self) -> None:
-        """Client shutdown is called even when send_event_builder raises."""
-        mock_client = AsyncMock()
-        mock_client.send_event_builder.side_effect = OSError("send failed")
-        relay = Relay("wss://relay.example.com")
-        keys = Keys.parse(_VALID_HEX_KEY)
-
-        with patch(
-            "bigbrotr.utils.protocol.connect_relay",
-            new_callable=AsyncMock,
-            return_value=mock_client,
-        ):
-            await self._get_broadcast()([MagicMock()], [relay], keys)
-
-        mock_client.shutdown.assert_awaited_once()
-
-    async def test_passes_timeout_and_allow_insecure(self) -> None:
-        """Keyword args are forwarded to connect_relay."""
-        mock_client = AsyncMock()
-        relay = Relay("wss://relay.example.com")
-        keys = Keys.parse(_VALID_HEX_KEY)
-
-        with patch(
-            "bigbrotr.utils.protocol.connect_relay",
-            new_callable=AsyncMock,
-            return_value=mock_client,
-        ) as mock_connect:
-            await self._get_broadcast()(
-                [MagicMock()],
-                [relay],
-                keys,
-                timeout=5.0,
-                allow_insecure=False,
-            )
-
-        mock_connect.assert_awaited_once_with(
-            relay,
-            keys=keys,
-            timeout=5.0,
-            allow_insecure=False,
-        )
-
-    async def test_returns_success_count(self) -> None:
-        """Returns number of relays that received all events."""
-        relays = [Relay("wss://r1.example.com"), Relay("wss://r2.example.com")]
-        keys = Keys.parse(_VALID_HEX_KEY)
-
-        with patch(
-            "bigbrotr.utils.protocol.connect_relay",
-            new_callable=AsyncMock,
-            side_effect=[OSError("fail"), AsyncMock()],
-        ):
-            result = await self._get_broadcast()([MagicMock()], relays, keys)
+        result = await self._get_broadcast()([MagicMock()], [bad_client, good_client])
 
         assert result == 1
+        good_client.send_event_builder.assert_awaited_once()
+
+    async def test_returns_zero_on_all_failures(self) -> None:
+        client = AsyncMock()
+        client.send_event_builder.side_effect = TimeoutError("timeout")
+
+        result = await self._get_broadcast()([MagicMock()], [client])
+        assert result == 0
 
     async def test_returns_zero_on_empty_input(self) -> None:
-        keys = Keys.parse(_VALID_HEX_KEY)
-        assert await self._get_broadcast()([], [], keys) == 0
+        assert await self._get_broadcast()([], []) == 0
+
+
+# =============================================================================
+# connect_clients() Tests
+# =============================================================================
+
+
+class TestConnectClients:
+    @staticmethod
+    def _get_connect_clients():
+        import sys
+
+        return sys.modules["bigbrotr.utils.protocol"].connect_clients
+
+    @patch("bigbrotr.utils.protocol.connect_relay", new_callable=AsyncMock)
+    async def test_connects_all_relays(self, mock_connect: AsyncMock) -> None:
+        relays = [Relay("wss://r1.example.com"), Relay("wss://r2.example.com")]
+        mock_connect.return_value = AsyncMock()
+
+        clients = await self._get_connect_clients()(relays)
+
+        assert len(clients) == 2
+        assert mock_connect.await_count == 2
+
+    @patch("bigbrotr.utils.protocol.connect_relay", new_callable=AsyncMock)
+    async def test_skips_failed_connections(self, mock_connect: AsyncMock) -> None:
+        relays = [Relay("wss://good.example.com"), Relay("wss://bad.example.com")]
+        mock_connect.side_effect = [AsyncMock(), OSError("connection refused")]
+
+        clients = await self._get_connect_clients()(relays)
+
+        assert len(clients) == 1
+
+    @patch("bigbrotr.utils.protocol.connect_relay", new_callable=AsyncMock)
+    async def test_skips_timeout(self, mock_connect: AsyncMock) -> None:
+        mock_connect.side_effect = TimeoutError("timed out")
+
+        clients = await self._get_connect_clients()([Relay("wss://slow.example.com")])
+
+        assert clients == []
+
+    @patch("bigbrotr.utils.protocol.connect_relay", new_callable=AsyncMock)
+    async def test_empty_relays(self, mock_connect: AsyncMock) -> None:
+        clients = await self._get_connect_clients()([])
+
+        assert clients == []
+        mock_connect.assert_not_awaited()
+
+    @patch("bigbrotr.utils.protocol.connect_relay", new_callable=AsyncMock)
+    async def test_passes_keys_and_timeout(self, mock_connect: AsyncMock) -> None:
+        from nostr_sdk import Keys
+
+        keys = Keys.parse(
+            "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"  # pragma: allowlist secret
+        )
+        mock_connect.return_value = AsyncMock()
+
+        await self._get_connect_clients()(
+            [Relay("wss://r.example.com")], keys, 42.0, allow_insecure=True
+        )
+
+        mock_connect.assert_awaited_once()
+        call_kwargs = mock_connect.call_args
+        assert call_kwargs.kwargs["keys"] is keys
+        assert call_kwargs.kwargs["timeout"] == 42.0
+        assert call_kwargs.kwargs["allow_insecure"] is True
+
+
+# =============================================================================
+# disconnect_clients() Tests
+# =============================================================================
+
+
+class TestDisconnectClients:
+    @staticmethod
+    def _get_disconnect_clients():
+        import sys
+
+        return sys.modules["bigbrotr.utils.protocol"].disconnect_clients
+
+    async def test_shuts_down_all_clients(self) -> None:
+        clients = [AsyncMock(), AsyncMock()]
+
+        await self._get_disconnect_clients()(clients)
+
+        for client in clients:
+            client.shutdown.assert_awaited_once()
+
+    async def test_suppresses_errors(self) -> None:
+        bad_client = AsyncMock()
+        bad_client.shutdown.side_effect = RuntimeError("shutdown failed")
+        good_client = AsyncMock()
+
+        await self._get_disconnect_clients()([bad_client, good_client])
+
+        good_client.shutdown.assert_awaited_once()
+
+    async def test_empty_list(self) -> None:
+        await self._get_disconnect_clients()([])  # should not raise

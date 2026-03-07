@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -14,11 +15,16 @@ from bigbrotr.models import Relay, RelayMetadata
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.nips.base import BaseLogs
-from bigbrotr.nips.nip11 import Nip11
+from bigbrotr.nips.event_builders import (
+    build_monitor_announcement,
+    build_profile_event,
+    build_relay_discovery,
+)
+from bigbrotr.nips.nip11 import Nip11, Nip11Selection
 from bigbrotr.nips.nip11.data import Nip11InfoData, Nip11InfoDataLimitation
 from bigbrotr.nips.nip11.info import Nip11InfoMetadata
 from bigbrotr.nips.nip11.logs import Nip11InfoLogs
-from bigbrotr.nips.nip66 import Nip66, Nip66RttMetadata, Nip66SslMetadata
+from bigbrotr.nips.nip66 import Nip66, Nip66RttMetadata, Nip66Selection, Nip66SslMetadata
 from bigbrotr.nips.nip66.data import Nip66RttData, Nip66SslData
 from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs, Nip66SslLogs
 from bigbrotr.services.common.configs import ClearnetConfig, NetworksConfig, TorConfig
@@ -39,16 +45,17 @@ from bigbrotr.services.monitor.queries import (
     delete_stale_checkpoints,
     fetch_relays_to_monitor,
     insert_relay_metadata,
+    is_publish_due,
     save_monitoring_markers,
+    save_publish_checkpoint,
 )
 from bigbrotr.services.monitor.utils import (
-    build_kind_0,
-    build_kind_10166,
-    build_kind_30166,
     collect_metadata,
     get_publish_relays,
     get_reason,
     get_success,
+    persist_results,
+    publish_relay_discoveries,
     safe_result,
 )
 
@@ -61,10 +68,6 @@ if TYPE_CHECKING:
 VALID_HEX_KEY = (
     "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"  # pragma: allowlist secret
 )
-
-# Fixed timestamp for deterministic time-based tests
-FIXED_TIME = 1_700_000_000.0
-
 
 # ============================================================================
 # Fixtures & Helpers
@@ -106,10 +109,8 @@ class _MonitorStub:
         self.set_gauge = MagicMock()
 
     # Publishing methods bound from Monitor
-    _publish_if_due = Monitor._publish_if_due
     publish_announcement = Monitor.publish_announcement
     publish_profile = Monitor.publish_profile
-    publish_relay_discoveries = Monitor.publish_relay_discoveries
 
 
 @pytest.fixture
@@ -1224,6 +1225,78 @@ class TestSaveMonitoringMarkers:
         query_brotr.upsert_service_state.assert_not_awaited()
 
 
+class TestIsPublishDue:
+    async def test_no_prior_state_returns_true(self, query_brotr: MagicMock) -> None:
+        query_brotr.get_service_state = AsyncMock(return_value=[])
+        assert await is_publish_due(query_brotr, "announcement", 86400) is True
+
+    async def test_interval_not_elapsed_returns_false(self, query_brotr: MagicMock) -> None:
+        now = int(time.time())
+        query_brotr.get_service_state = AsyncMock(
+            return_value=[
+                ServiceState(
+                    service_name=ServiceName.MONITOR,
+                    state_type=ServiceStateType.CHECKPOINT,
+                    state_key="announcement",
+                    state_value={"timestamp": now},
+                )
+            ]
+        )
+        assert await is_publish_due(query_brotr, "announcement", 86400) is False
+
+    async def test_interval_elapsed_returns_true(self, query_brotr: MagicMock) -> None:
+        old = int(time.time()) - 100_000
+        query_brotr.get_service_state = AsyncMock(
+            return_value=[
+                ServiceState(
+                    service_name=ServiceName.MONITOR,
+                    state_type=ServiceStateType.CHECKPOINT,
+                    state_key="profile",
+                    state_value={"timestamp": old},
+                )
+            ]
+        )
+        assert await is_publish_due(query_brotr, "profile", 86400) is True
+
+    async def test_missing_timestamp_key_returns_true(self, query_brotr: MagicMock) -> None:
+        query_brotr.get_service_state = AsyncMock(
+            return_value=[
+                ServiceState(
+                    service_name=ServiceName.MONITOR,
+                    state_type=ServiceStateType.CHECKPOINT,
+                    state_key="announcement",
+                    state_value={},
+                )
+            ]
+        )
+        assert await is_publish_due(query_brotr, "announcement", 86400) is True
+
+    async def test_invalid_key_raises(self, query_brotr: MagicMock) -> None:
+        with pytest.raises(ValueError, match="invalid publish key 'bogus'"):
+            await is_publish_due(query_brotr, "bogus", 86400)
+
+
+class TestSavePublishCheckpoint:
+    async def test_upserts_checkpoint(self, query_brotr: MagicMock) -> None:
+        query_brotr.upsert_service_state = AsyncMock(return_value=1)
+
+        await save_publish_checkpoint(query_brotr, "announcement")
+
+        query_brotr.upsert_service_state.assert_awaited_once()
+        states = query_brotr.upsert_service_state.call_args[0][0]
+        assert len(states) == 1
+        state = states[0]
+        assert isinstance(state, ServiceState)
+        assert state.service_name == ServiceName.MONITOR
+        assert state.state_type == ServiceStateType.CHECKPOINT
+        assert state.state_key == "announcement"
+        assert "timestamp" in state.state_value
+
+    async def test_invalid_key_raises(self, query_brotr: MagicMock) -> None:
+        with pytest.raises(ValueError, match="invalid publish key 'bogus'"):
+            await save_publish_checkpoint(query_brotr, "bogus")
+
+
 # ============================================================================
 # Service -- Nip11 dataclass
 # ============================================================================
@@ -1537,6 +1610,11 @@ class TestMonitorInit:
 
 class TestMonitorRun:
     @patch(
+        "bigbrotr.services.monitor.service.is_publish_due",
+        new_callable=AsyncMock,
+        return_value=False,
+    )
+    @patch(
         "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
         new_callable=AsyncMock,
         return_value=[],
@@ -1544,11 +1622,10 @@ class TestMonitorRun:
     async def test_run_no_relays(
         self,
         mock_fetch: AsyncMock,
+        mock_checkpoint: AsyncMock,
         mock_brotr: Brotr,
         tmp_path: Path,
     ) -> None:
-        mock_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
-
         config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
         await monitor.run()
@@ -1637,7 +1714,7 @@ class TestMonitorPersistResults:
 
         config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
-        await monitor._persist_results([], [])
+        await persist_results(monitor, [], [])
 
         mock_brotr.insert_relay_metadata.assert_not_called()  # type: ignore[attr-defined]
 
@@ -1655,7 +1732,7 @@ class TestMonitorPersistResults:
         result2 = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=200))
 
         successful = [(relay1, result1), (relay2, result2)]
-        await monitor._persist_results(successful, [])
+        await persist_results(monitor, successful, [])
 
         mock_brotr.insert_relay_metadata.assert_called_once()  # type: ignore[attr-defined]
         mock_brotr.upsert_service_state.assert_called_once()  # type: ignore[attr-defined]
@@ -1670,7 +1747,7 @@ class TestMonitorPersistResults:
         relay1 = Relay("wss://failed1.example.com")
         relay2 = Relay("wss://failed2.example.com")
 
-        await monitor._persist_results([], [relay1, relay2])
+        await persist_results(monitor, [], [relay1, relay2])
 
         # insert_relay_metadata should not be called for failed relays
         mock_brotr.insert_relay_metadata.assert_not_called()  # type: ignore[attr-defined]
@@ -1690,7 +1767,11 @@ class TestMonitoringWorker:
         relay = Relay("wss://relay.example.com")
         result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
 
-        with patch.object(monitor, "check_relay", new_callable=AsyncMock, return_value=result):
+        with patch(
+            "bigbrotr.services.monitor.service.check_relay",
+            new_callable=AsyncMock,
+            return_value=result,
+        ):
             r, res = await monitor._monitoring_worker(relay)
 
         assert r is relay
@@ -1702,8 +1783,10 @@ class TestMonitoringWorker:
         relay = Relay("wss://relay.example.com")
         empty_result = _make_check_result()
 
-        with patch.object(
-            monitor, "check_relay", new_callable=AsyncMock, return_value=empty_result
+        with patch(
+            "bigbrotr.services.monitor.service.check_relay",
+            new_callable=AsyncMock,
+            return_value=empty_result,
         ):
             r, res = await monitor._monitoring_worker(relay)
 
@@ -1715,9 +1798,8 @@ class TestMonitoringWorker:
         monitor = Monitor(brotr=mock_brotr, config=config)
         relay = Relay("wss://relay.example.com")
 
-        with patch.object(
-            monitor,
-            "check_relay",
+        with patch(
+            "bigbrotr.services.monitor.service.check_relay",
             new_callable=AsyncMock,
             side_effect=RuntimeError("connection lost"),
         ):
@@ -1732,9 +1814,8 @@ class TestMonitoringWorker:
         relay = Relay("wss://relay.example.com")
 
         with (
-            patch.object(
-                monitor,
-                "check_relay",
+            patch(
+                "bigbrotr.services.monitor.service.check_relay",
                 new_callable=AsyncMock,
                 side_effect=asyncio.CancelledError,
             ),
@@ -1748,9 +1829,8 @@ class TestMonitoringWorker:
         relay = Relay("wss://relay.example.com")
 
         with (
-            patch.object(
-                monitor,
-                "check_relay",
+            patch(
+                "bigbrotr.services.monitor.service.check_relay",
                 new_callable=AsyncMock,
                 side_effect=KeyboardInterrupt,
             ),
@@ -1764,9 +1844,8 @@ class TestMonitoringWorker:
         relay = Relay("wss://relay.example.com")
 
         with (
-            patch.object(
-                monitor,
-                "check_relay",
+            patch(
+                "bigbrotr.services.monitor.service.check_relay",
                 new_callable=AsyncMock,
                 side_effect=SystemExit(1),
             ),
@@ -1886,8 +1965,11 @@ class TestPublishAnnouncement:
     async def test_publish_announcement_when_disabled(self, test_keys: Keys) -> None:
         config = _make_config(announcement=AnnouncementConfig(enabled=False, include=_NO_GEO_NET))
         harness = _MonitorStub(config, test_keys)
-        await harness.publish_announcement()
-        harness._brotr.get_service_state.assert_not_awaited()
+        with patch(
+            "bigbrotr.services.monitor.service.is_publish_due", new_callable=AsyncMock
+        ) as mock_get:
+            await harness.publish_announcement()
+            mock_get.assert_not_awaited()
 
     async def test_publish_announcement_when_no_relays(self, test_keys: Keys) -> None:
         config = _make_config(
@@ -1895,81 +1977,110 @@ class TestPublishAnnouncement:
             publishing=PublishingConfig(relays=[]),
         )
         harness = _MonitorStub(config, test_keys)
-        await harness.publish_announcement()
-        harness._brotr.get_service_state.assert_not_awaited()
+        with patch(
+            "bigbrotr.services.monitor.service.is_publish_due", new_callable=AsyncMock
+        ) as mock_get:
+            await harness.publish_announcement()
+            mock_get.assert_not_awaited()
 
     async def test_publish_announcement_interval_not_elapsed(self, stub: _MonitorStub) -> None:
-        stub._brotr.get_service_state = AsyncMock(
-            return_value=[
-                ServiceState(
-                    service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key="announcement",
-                    state_value={"timestamp": FIXED_TIME},
-                )
-            ]
-        )
         with (
-            patch("bigbrotr.services.monitor.service.time") as mock_time,
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
-            ) as mock_broadcast,
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.connect_clients",
+                new_callable=AsyncMock,
+            ) as mock_connect,
         ):
-            mock_time.time.return_value = FIXED_TIME
             await stub.publish_announcement()
-            mock_broadcast.assert_not_awaited()
+            mock_connect.assert_not_awaited()
 
     async def test_publish_announcement_no_prior_state(self, stub: _MonitorStub) -> None:
-        stub._brotr.get_service_state = AsyncMock(return_value=[])
-
-        with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
-            new_callable=AsyncMock,
-            return_value=1,
-        ) as mock_broadcast:
-            await stub.publish_announcement()
-
-        mock_broadcast.assert_awaited_once()
-        stub._brotr.upsert_service_state.assert_awaited_once()
-        stub._logger.info.assert_called_with("publish_completed", event="announcement", relays=1)
-
-    async def test_publish_announcement_interval_elapsed(self, stub: _MonitorStub) -> None:
-        old_timestamp = FIXED_TIME - 100_000  # well past the 86400 interval
-        stub._brotr.get_service_state = AsyncMock(
-            return_value=[
-                ServiceState(
-                    service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key="announcement",
-                    state_value={"timestamp": old_timestamp},
-                )
-            ]
-        )
-
         with (
-            patch("bigbrotr.services.monitor.service.time") as mock_time,
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.connect_clients",
+                new_callable=AsyncMock,
+                return_value=[AsyncMock()],
+            ),
             patch(
                 "bigbrotr.services.monitor.service.broadcast_events",
                 new_callable=AsyncMock,
                 return_value=1,
             ) as mock_broadcast,
+            patch("bigbrotr.services.monitor.service.disconnect_clients", new_callable=AsyncMock),
+            patch(
+                "bigbrotr.services.monitor.service.save_publish_checkpoint",
+                new_callable=AsyncMock,
+            ) as mock_save,
         ):
-            mock_time.time.return_value = FIXED_TIME
             await stub.publish_announcement()
 
         mock_broadcast.assert_awaited_once()
-        stub._brotr.upsert_service_state.assert_awaited_once()
+        mock_save.assert_awaited_once()
+        stub._logger.info.assert_called_with("publish_completed", event="announcement", relays=1)
 
-    async def test_publish_announcement_broadcast_failure(self, stub: _MonitorStub) -> None:
-        stub._brotr.get_service_state = AsyncMock(return_value=[])
-
-        with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
-            new_callable=AsyncMock,
-            return_value=0,
+    async def test_publish_announcement_interval_elapsed(self, stub: _MonitorStub) -> None:
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.connect_clients",
+                new_callable=AsyncMock,
+                return_value=[AsyncMock()],
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+                return_value=1,
+            ) as mock_broadcast,
+            patch("bigbrotr.services.monitor.service.disconnect_clients", new_callable=AsyncMock),
+            patch(
+                "bigbrotr.services.monitor.service.save_publish_checkpoint",
+                new_callable=AsyncMock,
+            ) as mock_save,
         ):
             await stub.publish_announcement()
 
+        mock_broadcast.assert_awaited_once()
+        mock_save.assert_awaited_once()
+
+    async def test_publish_announcement_broadcast_failure(self, stub: _MonitorStub) -> None:
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.connect_clients",
+                new_callable=AsyncMock,
+                return_value=[AsyncMock()],
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch("bigbrotr.services.monitor.service.disconnect_clients", new_callable=AsyncMock),
+            patch(
+                "bigbrotr.services.monitor.service.save_publish_checkpoint",
+                new_callable=AsyncMock,
+            ) as mock_save,
+        ):
+            await stub.publish_announcement()
+
+        mock_save.assert_not_awaited()
         stub._logger.warning.assert_called_once()
         stub._logger.warning.assert_called_once_with(
             "publish_failed", event="announcement", error="no relays reachable"
@@ -1985,8 +2096,11 @@ class TestPublishProfile:
     async def test_publish_profile_when_disabled(self, test_keys: Keys) -> None:
         config = _make_config(profile=ProfileConfig(enabled=False))
         harness = _MonitorStub(config, test_keys)
-        await harness.publish_profile()
-        harness._brotr.get_service_state.assert_not_awaited()
+        with patch(
+            "bigbrotr.services.monitor.service.is_publish_due", new_callable=AsyncMock
+        ) as mock_get:
+            await harness.publish_profile()
+            mock_get.assert_not_awaited()
 
     async def test_publish_profile_when_no_relays(self, test_keys: Keys) -> None:
         config = _make_config(
@@ -1994,54 +2108,82 @@ class TestPublishProfile:
             publishing=PublishingConfig(relays=[]),
         )
         harness = _MonitorStub(config, test_keys)
-        await harness.publish_profile()
-        harness._brotr.get_service_state.assert_not_awaited()
+        with patch(
+            "bigbrotr.services.monitor.service.is_publish_due", new_callable=AsyncMock
+        ) as mock_get:
+            await harness.publish_profile()
+            mock_get.assert_not_awaited()
 
     async def test_publish_profile_interval_not_elapsed(self, stub: _MonitorStub) -> None:
-        stub._brotr.get_service_state = AsyncMock(
-            return_value=[
-                ServiceState(
-                    service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key="profile",
-                    state_value={"timestamp": FIXED_TIME},
-                )
-            ]
-        )
         with (
-            patch("bigbrotr.services.monitor.service.time") as mock_time,
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
-            ) as mock_broadcast,
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.connect_clients",
+                new_callable=AsyncMock,
+            ) as mock_connect,
         ):
-            mock_time.time.return_value = FIXED_TIME
             await stub.publish_profile()
-            mock_broadcast.assert_not_awaited()
+            mock_connect.assert_not_awaited()
 
     async def test_publish_profile_successful(self, stub: _MonitorStub) -> None:
-        stub._brotr.get_service_state = AsyncMock(return_value=[])
-
-        with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
-            new_callable=AsyncMock,
-            return_value=1,
-        ) as mock_broadcast:
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.connect_clients",
+                new_callable=AsyncMock,
+                return_value=[AsyncMock()],
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+                return_value=1,
+            ) as mock_broadcast,
+            patch("bigbrotr.services.monitor.service.disconnect_clients", new_callable=AsyncMock),
+            patch(
+                "bigbrotr.services.monitor.service.save_publish_checkpoint",
+                new_callable=AsyncMock,
+            ) as mock_save,
+        ):
             await stub.publish_profile()
 
         mock_broadcast.assert_awaited_once()
-        stub._brotr.upsert_service_state.assert_awaited_once()
+        mock_save.assert_awaited_once()
         stub._logger.info.assert_called_with("publish_completed", event="profile", relays=1)
 
     async def test_publish_profile_broadcast_failure(self, stub: _MonitorStub) -> None:
-        stub._brotr.get_service_state = AsyncMock(return_value=[])
-
-        with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
-            new_callable=AsyncMock,
-            return_value=0,
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.connect_clients",
+                new_callable=AsyncMock,
+                return_value=[AsyncMock()],
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch("bigbrotr.services.monitor.service.disconnect_clients", new_callable=AsyncMock),
+            patch(
+                "bigbrotr.services.monitor.service.save_publish_checkpoint",
+                new_callable=AsyncMock,
+            ) as mock_save,
         ):
             await stub.publish_profile()
 
+        mock_save.assert_not_awaited()
         stub._logger.warning.assert_called_once()
         stub._logger.warning.assert_called_once_with(
             "publish_failed", event="profile", error="no relays reachable"
@@ -2067,10 +2209,10 @@ class TestPublishRelayDiscoveries:
         result = _make_check_result()
 
         with patch(
-            "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
-        ) as mock_broadcast:
-            await harness.publish_relay_discoveries([(relay, result)])
-            mock_broadcast.assert_not_awaited()
+            "bigbrotr.services.monitor.utils.connect_clients", new_callable=AsyncMock
+        ) as mock_connect:
+            await publish_relay_discoveries(harness, [(relay, result)])
+            mock_connect.assert_not_awaited()
 
     async def test_publish_discoveries_when_no_relays(self, test_keys: Keys) -> None:
         config = _make_config(
@@ -2087,21 +2229,29 @@ class TestPublishRelayDiscoveries:
         result = _make_check_result()
 
         with patch(
-            "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
-        ) as mock_broadcast:
-            await harness.publish_relay_discoveries([(relay, result)])
-            mock_broadcast.assert_not_awaited()
+            "bigbrotr.services.monitor.utils.connect_clients", new_callable=AsyncMock
+        ) as mock_connect:
+            await publish_relay_discoveries(harness, [(relay, result)])
+            mock_connect.assert_not_awaited()
 
     async def test_publish_discoveries_successful(self, stub: _MonitorStub) -> None:
         relay = Relay("wss://relay.example.com")
         result = _make_check_result(nip11=_make_nip11_meta(name="Test Relay"))
 
-        with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
-            new_callable=AsyncMock,
-            return_value=1,
-        ) as mock_broadcast:
-            await stub.publish_relay_discoveries([(relay, result)])
+        with (
+            patch(
+                "bigbrotr.services.monitor.utils.connect_clients",
+                new_callable=AsyncMock,
+                return_value=[AsyncMock()],
+            ),
+            patch(
+                "bigbrotr.services.monitor.utils.broadcast_events",
+                new_callable=AsyncMock,
+                return_value=1,
+            ) as mock_broadcast,
+            patch("bigbrotr.services.monitor.utils.disconnect_clients", new_callable=AsyncMock),
+        ):
+            await publish_relay_discoveries(stub, [(relay, result)])
 
         mock_broadcast.assert_awaited_once()
         stub._logger.debug.assert_any_call("discoveries_published", count=1)
@@ -2115,26 +2265,33 @@ class TestPublishRelayDiscoveries:
         result2 = _make_check_result(nip11=_make_nip11_meta(name="Test"))
 
         call_count = 0
+        _original = build_relay_discovery
 
-        def _patched_build(relay: Relay, result: CheckResult, include: Any) -> Any:
+        def _patched_build(*args: Any, **kwargs: Any) -> Any:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 raise ValueError("build failed for relay1")
-            return build_kind_30166(relay, result, include)
+            return _original(*args, **kwargs)
 
         with (
             patch(
-                "bigbrotr.services.monitor.service.build_kind_30166",
+                "bigbrotr.services.monitor.utils.build_relay_discovery",
                 side_effect=_patched_build,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.utils.connect_clients",
+                new_callable=AsyncMock,
+                return_value=[AsyncMock()],
+            ),
+            patch(
+                "bigbrotr.services.monitor.utils.broadcast_events",
                 new_callable=AsyncMock,
                 return_value=1,
             ) as mock_broadcast,
+            patch("bigbrotr.services.monitor.utils.disconnect_clients", new_callable=AsyncMock),
         ):
-            await stub.publish_relay_discoveries([(relay1, result1), (relay2, result2)])
+            await publish_relay_discoveries(stub, [(relay1, result1), (relay2, result2)])
 
         mock_broadcast.assert_awaited_once()
         stub._logger.debug.assert_any_call(
@@ -2145,12 +2302,20 @@ class TestPublishRelayDiscoveries:
         relay = Relay("wss://relay.example.com")
         result = _make_check_result()
 
-        with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
-            new_callable=AsyncMock,
-            return_value=0,
+        with (
+            patch(
+                "bigbrotr.services.monitor.utils.connect_clients",
+                new_callable=AsyncMock,
+                return_value=[AsyncMock()],
+            ),
+            patch(
+                "bigbrotr.services.monitor.utils.broadcast_events",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch("bigbrotr.services.monitor.utils.disconnect_clients", new_callable=AsyncMock),
         ):
-            await stub.publish_relay_discoveries([(relay, result)])
+            await publish_relay_discoveries(stub, [(relay, result)])
 
         stub._logger.warning.assert_called_once()
         assert "discoveries_broadcast_failed" in stub._logger.warning.call_args[0]
@@ -2161,18 +2326,25 @@ class TestPublishRelayDiscoveries:
 # ============================================================================
 
 
-class TestBuildKind0:
-    def test_build_kind_0_all_fields(self, stub: _MonitorStub) -> None:
-        builder = build_kind_0(stub._config.profile)
+class TestBuildProfileEvent:
+    def test_all_fields(self) -> None:
+        builder = build_profile_event(
+            name="BigBrotr Monitor",
+            about="A relay monitor",
+            picture="https://example.com/pic.png",
+            nip05="monitor@example.com",
+            website="https://example.com",
+            banner="https://example.com/banner.png",
+            lud16="monitor@ln.example.com",
+        )
         assert builder is not None
 
-    def test_build_kind_0_minimal_fields(self) -> None:
-        profile = ProfileConfig(enabled=True, name="MinimalMonitor")
-        builder = build_kind_0(profile)
+    def test_minimal_fields(self) -> None:
+        builder = build_profile_event(name="MinimalMonitor")
         assert builder is not None
 
-    def test_build_kind_0_no_fields(self) -> None:
-        builder = build_kind_0(ProfileConfig(enabled=True))
+    def test_no_fields(self) -> None:
+        builder = build_profile_event()
         assert builder is not None
 
 
@@ -2181,108 +2353,47 @@ class TestBuildKind0:
 # ============================================================================
 
 
-class TestBuildKind10166:
-    def test_build_kind_10166_all_flags_enabled(self, stub: _MonitorStub) -> None:
-        builder = build_kind_10166(stub._config)
+class TestBuildMonitorAnnouncement:
+    def test_all_flags_enabled(self) -> None:
+        flags = MetadataFlags()
+        builder = build_monitor_announcement(
+            interval=3600,
+            timeout_ms=5000,
+            enabled_networks=[NetworkType.CLEARNET],
+            nip11_selection=Nip11Selection(info=flags.nip11_info),
+            nip66_selection=Nip66Selection(
+                rtt=flags.nip66_rtt,
+                ssl=flags.nip66_ssl,
+                geo=flags.nip66_geo,
+                net=flags.nip66_net,
+                dns=flags.nip66_dns,
+                http=flags.nip66_http,
+            ),
+        )
         assert builder is not None
 
-    def test_build_kind_10166_subset_flags(self) -> None:
-        config = MonitorConfig(
-            interval=1800.0,
-            processing=ProcessingConfig(
-                compute=MetadataFlags(
-                    nip66_geo=False,
-                    nip66_net=False,
-                    nip66_ssl=False,
-                    nip66_dns=False,
-                    nip66_http=False,
-                ),
-                store=MetadataFlags(
-                    nip66_geo=False,
-                    nip66_net=False,
-                    nip66_ssl=False,
-                    nip66_dns=False,
-                    nip66_http=False,
-                ),
+    def test_subset_flags(self) -> None:
+        builder = build_monitor_announcement(
+            interval=1800,
+            timeout_ms=5000,
+            enabled_networks=[NetworkType.CLEARNET],
+            nip11_selection=Nip11Selection(info=True),
+            nip66_selection=Nip66Selection(
+                rtt=True, ssl=False, geo=False, net=False, dns=False, http=False
             ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(
-                    nip11_info=True,
-                    nip66_rtt=True,
-                    nip66_ssl=False,
-                    nip66_geo=False,
-                    nip66_net=False,
-                    nip66_dns=False,
-                    nip66_http=False,
-                ),
-                relays=["wss://disc.relay.com"],
-            ),
-            announcement=AnnouncementConfig(
-                include=MetadataFlags(
-                    nip11_info=True,
-                    nip66_rtt=True,
-                    nip66_ssl=False,
-                    nip66_geo=False,
-                    nip66_net=False,
-                    nip66_dns=False,
-                    nip66_http=False,
-                ),
-            ),
-            networks=NetworksConfig(clearnet=ClearnetConfig(timeout=5.0)),
         )
-        builder = build_kind_10166(config)
         assert builder is not None
 
-    def test_build_kind_10166_no_flags(self) -> None:
-        config = MonitorConfig(
-            interval=600.0,
-            processing=ProcessingConfig(
-                compute=MetadataFlags(
-                    nip11_info=False,
-                    nip66_rtt=False,
-                    nip66_ssl=False,
-                    nip66_geo=False,
-                    nip66_net=False,
-                    nip66_dns=False,
-                    nip66_http=False,
-                ),
-                store=MetadataFlags(
-                    nip11_info=False,
-                    nip66_rtt=False,
-                    nip66_ssl=False,
-                    nip66_geo=False,
-                    nip66_net=False,
-                    nip66_dns=False,
-                    nip66_http=False,
-                ),
+    def test_no_flags(self) -> None:
+        builder = build_monitor_announcement(
+            interval=600,
+            timeout_ms=10000,
+            enabled_networks=[NetworkType.CLEARNET],
+            nip11_selection=Nip11Selection(info=False),
+            nip66_selection=Nip66Selection(
+                rtt=False, ssl=False, geo=False, net=False, dns=False, http=False
             ),
-            discovery=DiscoveryConfig(
-                enabled=False,
-                include=MetadataFlags(
-                    nip11_info=False,
-                    nip66_rtt=False,
-                    nip66_ssl=False,
-                    nip66_geo=False,
-                    nip66_net=False,
-                    nip66_dns=False,
-                    nip66_http=False,
-                ),
-            ),
-            announcement=AnnouncementConfig(
-                enabled=False,
-                include=MetadataFlags(
-                    nip11_info=False,
-                    nip66_rtt=False,
-                    nip66_ssl=False,
-                    nip66_geo=False,
-                    nip66_net=False,
-                    nip66_dns=False,
-                    nip66_http=False,
-                ),
-            ),
-            networks=NetworksConfig(clearnet=ClearnetConfig(timeout=10.0)),
         )
-        builder = build_kind_10166(config)
         assert builder is not None
 
 
@@ -2291,8 +2402,8 @@ class TestBuildKind10166:
 # ============================================================================
 
 
-class TestBuildKind30166:
-    def test_build_kind_30166_full_event(self, stub: _MonitorStub) -> None:
+class TestBuildRelayDiscovery:
+    def test_full_event(self) -> None:
         relay = Relay("wss://relay.example.com")
         result = _make_check_result(
             nip11=_make_nip11_meta(
@@ -2304,32 +2415,26 @@ class TestBuildKind30166:
             nip66_rtt=_make_rtt_meta(rtt_open=45, rtt_read=120, rtt_write=85),
             nip66_ssl=_make_ssl_meta(ssl_valid=True, ssl_expires=1735689600),
         )
-        builder = build_kind_30166(relay, result, stub._config.discovery.include)
+        builder = build_relay_discovery(
+            relay.url,
+            relay.network.value,
+            "",
+            rtt_data=result.nip66_rtt.data if result.nip66_rtt else None,
+            ssl_data=result.nip66_ssl.data if result.nip66_ssl else None,
+            nip11_data=result.nip11.data if result.nip11 else None,
+            rtt_logs=result.nip66_rtt.logs if result.nip66_rtt else None,
+        )
         assert builder is not None
 
-    def test_build_kind_30166_minimal(self, stub: _MonitorStub) -> None:
+    def test_minimal(self) -> None:
         relay = Relay("wss://relay.example.com")
-        result = _make_check_result()
-        builder = build_kind_30166(relay, result, stub._config.discovery.include)
+        builder = build_relay_discovery(relay.url, relay.network.value, "")
         assert builder is not None
 
-    def test_build_kind_30166_content_from_nip11(self, stub: _MonitorStub) -> None:
-        relay = Relay("wss://relay.example.com")
-        result = _make_check_result(nip11=_make_nip11_meta(name="Test Relay"))
-        builder = build_kind_30166(relay, result, stub._config.discovery.include)
-        assert builder is not None
-
-    def test_build_kind_30166_empty_content_when_no_nip11(self, stub: _MonitorStub) -> None:
-        relay = Relay("wss://relay.example.com")
-        result = _make_check_result()
-        builder = build_kind_30166(relay, result, stub._config.discovery.include)
-        assert builder is not None
-
-    def test_build_kind_30166_tor_relay_network_tag(self, stub: _MonitorStub) -> None:
+    def test_tor_relay_network(self) -> None:
         onion = "a" * 56
         relay = Relay(f"ws://{onion}.onion")
-        result = _make_check_result()
-        builder = build_kind_30166(relay, result, stub._config.discovery.include)
+        builder = build_relay_discovery(relay.url, relay.network.value, "")
         assert builder is not None
 
 
@@ -2339,7 +2444,7 @@ class TestBuildKind30166:
 
 
 class TestEndToEndTagGeneration:
-    def test_full_relay_with_all_metadata(self, stub: _MonitorStub) -> None:
+    def test_full_relay_with_all_metadata(self) -> None:
         result = _make_check_result(
             nip11=_make_nip11_meta(
                 name="Production Relay",
@@ -2367,7 +2472,15 @@ class TestEndToEndTagGeneration:
         )
 
         relay = Relay("wss://relay.example.com")
-        builder = build_kind_30166(relay, result, stub._config.discovery.include)
+        builder = build_relay_discovery(
+            relay.url,
+            relay.network.value,
+            "",
+            rtt_data=result.nip66_rtt.data if result.nip66_rtt else None,
+            ssl_data=result.nip66_ssl.data if result.nip66_ssl else None,
+            nip11_data=result.nip11.data if result.nip11 else None,
+            rtt_logs=result.nip66_rtt.logs if result.nip66_rtt else None,
+        )
         assert builder is not None
 
 
@@ -2403,8 +2516,7 @@ class TestMonitorMetrics:
                 return_value=[relay1, relay2],
             ),
             patch.object(monitor, "_monitoring_worker", side_effect=fake_monitoring_worker),
-            patch.object(monitor, "publish_relay_discoveries", new_callable=AsyncMock),
-            patch.object(monitor, "_persist_results", new_callable=AsyncMock),
+            patch("bigbrotr.services.monitor.service.flush_check_batch", new_callable=AsyncMock),
             patch.object(
                 monitor,
                 "set_gauge",
@@ -2430,7 +2542,7 @@ class TestMonitorMetrics:
         successful = [(relay, result)]
 
         with patch.object(monitor, "inc_counter") as mock_counter:
-            await monitor._persist_results(successful, [])
+            await persist_results(monitor, successful, [])
 
         mock_counter.assert_any_call("total_metadata_stored", 3)
 
@@ -2451,11 +2563,17 @@ class TestMonitorMetrics:
         with (
             patch.object(monitor, "inc_counter") as mock_counter,
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.utils.connect_clients",
+                new_callable=AsyncMock,
+                return_value=[AsyncMock()],
+            ),
+            patch(
+                "bigbrotr.services.monitor.utils.broadcast_events",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
+            patch("bigbrotr.services.monitor.utils.disconnect_clients", new_callable=AsyncMock),
         ):
-            await monitor.publish_relay_discoveries([(relay, result)])
+            await publish_relay_discoveries(monitor, [(relay, result)])
 
         mock_counter.assert_any_call("total_events_published", 1)

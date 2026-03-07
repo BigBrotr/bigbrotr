@@ -338,50 +338,83 @@ async def connect_relay(
 
 async def broadcast_events(
     builders: list[EventBuilder],
-    relays: list[Relay],
-    keys: Keys,
-    *,
-    timeout: float = 30.0,  # noqa: ASYNC109
-    allow_insecure: bool = True,
+    clients: list[Client],
 ) -> int:
-    """Sign and broadcast Nostr events to relays.
+    """Broadcast Nostr events to pre-connected clients.
 
-    Creates a separate client per relay so that SSL fallback can be
-    applied independently.  Relays that fail to connect or send are
-    logged at WARNING level and skipped.
+    Each client must already be connected and configured with a signer.
+    The caller is responsible for creating, connecting, and shutting down
+    the clients.
+
+    Args:
+        builders: Event builders to sign and send.
+        clients: Pre-connected ``Client`` instances.
 
     Returns:
-        Number of relays that successfully received all events.
+        Number of clients that successfully received all events.
     """
-    if not builders or not relays:
+    if not builders or not clients:
         return 0
 
     success = 0
-    for relay in relays:
-        try:
-            client = await connect_relay(
-                relay,
-                keys=keys,
-                timeout=timeout,
-                allow_insecure=allow_insecure,
-            )
-        except (OSError, TimeoutError) as e:
-            logger.warning("broadcast_connect_failed relay=%s error=%s", relay.url, e)
-            continue
-
+    for client in clients:
         try:
             for builder in builders:
                 await client.send_event_builder(builder)
             success += 1
         except (OSError, TimeoutError) as e:
-            logger.warning("broadcast_send_failed relay=%s error=%s", relay.url, e)
-        finally:
-            try:
-                await client.shutdown()
-            except Exception as e:
-                logger.debug("client_shutdown_error relay=%s error=%s", relay.url, e)
+            logger.warning("broadcast_send_failed error=%s", e)
 
     return success
+
+
+async def connect_clients(
+    relays: list[Relay],
+    keys: Keys | None = None,
+    timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
+    *,
+    allow_insecure: bool = False,
+) -> list[Client]:
+    """Connect to multiple relays, skipping failures.
+
+    Creates one client per relay via
+    [connect_relay][bigbrotr.utils.protocol.connect_relay]. Failed
+    connections are logged at WARNING level and skipped.
+
+    Args:
+        relays: Relays to connect to.
+        keys: Optional signing keys.
+        timeout: Per-relay connection timeout in seconds.
+        allow_insecure: If ``True``, fall back to insecure transport
+            on SSL failure.
+
+    Returns:
+        List of connected ``Client`` instances (may be shorter than
+        *relays* if some connections failed).
+    """
+    clients: list[Client] = []
+    for relay in relays:
+        try:
+            client = await connect_relay(
+                relay, keys=keys, timeout=timeout, allow_insecure=allow_insecure
+            )
+            clients.append(client)
+        except (OSError, TimeoutError) as e:
+            logger.warning("connect_client_failed relay=%s error=%s", relay.url, e)
+    return clients
+
+
+async def disconnect_clients(clients: list[Client]) -> None:
+    """Shut down a list of clients, suppressing errors.
+
+    Args:
+        clients: ``Client`` instances to disconnect.
+    """
+    for client in clients:
+        try:
+            await client.shutdown()
+        except (OSError, RuntimeError, TimeoutError) as e:
+            logger.debug("client_shutdown_error error=%s", e)
 
 
 async def is_nostr_relay(
@@ -455,5 +488,5 @@ async def is_nostr_relay(
             if client is not None:
                 try:
                     await asyncio.wait_for(client.disconnect(), timeout=timeout)
-                except Exception as e:
+                except (OSError, RuntimeError, TimeoutError) as e:
                     logger.debug("client_disconnect_error error=%s", e)

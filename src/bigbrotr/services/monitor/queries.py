@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING
 
 from bigbrotr.models.constants import ServiceName
@@ -149,3 +150,64 @@ async def save_monitoring_markers(brotr: Brotr, relays: list[Relay], now: int) -
         for relay in relays
     ]
     await upsert_service_states(brotr, records)
+
+
+_PUBLISH_KEYS: frozenset[str] = frozenset({"announcement", "profile"})
+
+
+def _validate_publish_key(state_key: str) -> None:
+    if state_key not in _PUBLISH_KEYS:
+        msg = f"invalid publish key {state_key!r}, expected one of {sorted(_PUBLISH_KEYS)}"
+        raise ValueError(msg)
+
+
+async def is_publish_due(brotr: Brotr, state_key: str, interval: float) -> bool:
+    """Check whether enough time has elapsed since the last publish checkpoint.
+
+    Args:
+        brotr: Database interface.
+        state_key: Checkpoint key — must be one of ``"announcement"``
+            or ``"profile"``.
+        interval: Minimum seconds between publishes.
+
+    Returns:
+        ``True`` if the interval has elapsed or no checkpoint exists.
+
+    Raises:
+        ValueError: If *state_key* is not in the whitelist.
+    """
+    _validate_publish_key(state_key)
+    results = await brotr.get_service_state(
+        ServiceName.MONITOR,
+        ServiceStateType.CHECKPOINT,
+        state_key,
+    )
+    if not results:
+        return True
+    last_ts: int = results[0].state_value.get("timestamp", 0)
+    return time.time() - last_ts >= interval
+
+
+async def save_publish_checkpoint(brotr: Brotr, state_key: str) -> None:
+    """Save the current time as a publish checkpoint.
+
+    Args:
+        brotr: Database interface.
+        state_key: Checkpoint key — must be one of ``"announcement"``
+            or ``"profile"``.
+
+    Raises:
+        ValueError: If *state_key* is not in the whitelist.
+    """
+    _validate_publish_key(state_key)
+    now = int(time.time())
+    await brotr.upsert_service_state(
+        [
+            ServiceState(
+                service_name=ServiceName.MONITOR,
+                state_type=ServiceStateType.CHECKPOINT,
+                state_key=state_key,
+                state_value={"timestamp": now},
+            ),
+        ]
+    )
