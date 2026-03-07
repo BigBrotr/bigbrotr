@@ -1060,13 +1060,6 @@ class TestDeleteStaleCheckpoints:
         assert args[0][2] == ServiceStateType.CHECKPOINT
         assert result == 4
 
-    async def test_returns_zero_on_none(self, query_brotr: MagicMock) -> None:
-        query_brotr.fetchval = AsyncMock(return_value=None)
-
-        result = await delete_stale_checkpoints(query_brotr)
-
-        assert result == 0
-
 
 class TestFetchRelaysToMonitor:
     async def test_calls_fetch_with_correct_params(self, query_brotr: MagicMock) -> None:

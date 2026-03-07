@@ -675,13 +675,6 @@ class TestDeleteStaleCursors:
         assert args[0][2] == ServiceStateType.CURSOR
         assert result == 5
 
-    async def test_returns_zero_on_none(self, query_brotr: MagicMock) -> None:
-        query_brotr.fetchval = AsyncMock(return_value=None)
-
-        result = await delete_stale_cursors(query_brotr)
-
-        assert result == 0
-
 
 class TestInsertEventRelays:
     async def test_delegates_to_insert_event_relay(self, query_brotr: MagicMock) -> None:

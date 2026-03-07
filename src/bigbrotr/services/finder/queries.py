@@ -215,20 +215,21 @@ async def delete_stale_cursors(brotr: Brotr) -> int:
     Returns:
         Number of stale cursor records deleted.
     """
-    rows = await brotr.fetch(
+    count: int = await brotr.fetchval(
         """
-        DELETE FROM service_state ss
-        WHERE ss.service_name = $1
-          AND ss.state_type = $2
-          AND NOT EXISTS (
-              SELECT 1 FROM relay r WHERE r.url = ss.state_key
-          )
-        RETURNING 1
+        WITH deleted AS (
+            DELETE FROM service_state
+            WHERE service_name = $1
+              AND state_type = $2
+              AND NOT EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)
+            RETURNING 1
+        )
+        SELECT count(*)::int FROM deleted
         """,
         ServiceName.FINDER,
         ServiceStateType.CURSOR,
     )
-    return len(rows)
+    return count
 
 
 async def delete_stale_api_checkpoints(brotr: Brotr, active_urls: list[str]) -> int:
@@ -241,16 +242,19 @@ async def delete_stale_api_checkpoints(brotr: Brotr, active_urls: list[str]) -> 
     Returns:
         Number of stale checkpoint records deleted.
     """
-    rows = await brotr.fetch(
+    count: int = await brotr.fetchval(
         """
-        DELETE FROM service_state
-        WHERE service_name = $1
-          AND state_type = $2
-          AND NOT (state_key = ANY($3::text[]))
-        RETURNING 1
+        WITH deleted AS (
+            DELETE FROM service_state
+            WHERE service_name = $1
+              AND state_type = $2
+              AND NOT (state_key = ANY($3::text[]))
+            RETURNING 1
+        )
+        SELECT count(*)::int FROM deleted
         """,
         ServiceName.FINDER,
         ServiceStateType.CHECKPOINT,
         active_urls,
     )
-    return len(rows)
+    return count

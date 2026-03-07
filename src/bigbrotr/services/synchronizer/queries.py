@@ -55,9 +55,8 @@ async def delete_stale_cursors(brotr: Brotr) -> int:
     Returns:
         Number of deleted rows.
     """
-    count: int = (
-        await brotr.fetchval(
-            """
+    count: int = await brotr.fetchval(
+        """
         WITH deleted AS (
             DELETE FROM service_state
             WHERE service_name = $1
@@ -67,10 +66,8 @@ async def delete_stale_cursors(brotr: Brotr) -> int:
         )
         SELECT count(*)::int FROM deleted
         """,
-            ServiceName.SYNCHRONIZER,
-            ServiceStateType.CURSOR,
-        )
-        or 0
+        ServiceName.SYNCHRONIZER,
+        ServiceStateType.CURSOR,
     )
     return count
 
