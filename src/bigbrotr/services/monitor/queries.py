@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.services.common.queries import upsert_service_states
+from bigbrotr.services.common.queries import batched_insert, upsert_service_states
 from bigbrotr.services.common.utils import parse_relay_row
 
 
@@ -21,15 +21,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-async def delete_stale_checkpoints(brotr: Brotr) -> int:
-    """Remove checkpoint state for relays that no longer exist.
+async def delete_stale_checkpoints(brotr: Brotr, keep_keys: list[str]) -> int:
+    """Remove stale monitor checkpoints.
 
-    Deletes CHECKPOINT records whose relay-URL key (``state_key LIKE 'ws%'``)
-    does not match any relay in the relay table.  Named keys such as
-    ``last_announcement`` and ``last_profile`` are not touched.
+    Deletes every monitor CHECKPOINT whose ``state_key`` neither exists
+    as a relay URL in the ``relay`` table nor appears in ``keep_keys``.
+    This covers both orphaned relay markers (relay deleted) and orphaned
+    named keys (feature disabled) in one pass.
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
+        keep_keys: Named keys to preserve (e.g. ``["announcement", "profile"]``
+            for enabled publishing features).
 
     Returns:
         Number of deleted rows.
@@ -40,7 +43,7 @@ async def delete_stale_checkpoints(brotr: Brotr) -> int:
             DELETE FROM service_state
             WHERE service_name = $1
               AND state_type = $2
-              AND state_key LIKE 'ws%'
+              AND state_key != ALL($3)
               AND NOT EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)
             RETURNING 1
         )
@@ -48,6 +51,7 @@ async def delete_stale_checkpoints(brotr: Brotr) -> int:
         """,
         ServiceName.MONITOR,
         ServiceStateType.CHECKPOINT,
+        keep_keys,
     )
     return count
 
@@ -120,13 +124,7 @@ async def insert_relay_metadata(brotr: Brotr, records: list[RelayMetadata]) -> i
     Returns:
         Number of new relay-metadata records inserted.
     """
-    if not records:
-        return 0
-    total = 0
-    batch_size = brotr.config.batch.max_size
-    for i in range(0, len(records), batch_size):
-        total += await brotr.insert_relay_metadata(records[i : i + batch_size])
-    return total
+    return await batched_insert(brotr, records, brotr.insert_relay_metadata)
 
 
 async def save_monitoring_markers(brotr: Brotr, relays: list[Relay], now: int) -> None:

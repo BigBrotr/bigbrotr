@@ -183,8 +183,13 @@ class Monitor(
             self.geo_readers.close()
 
     async def cleanup(self) -> int:
-        """Remove stale checkpoint state for relays that no longer exist."""
-        return await delete_stale_checkpoints(self._brotr)
+        """Remove stale relay checkpoints and orphaned publishing state."""
+        keep_keys: list[str] = []
+        if self._config.announcement.enabled:
+            keep_keys.append("announcement")
+        if self._config.profile.enabled:
+            keep_keys.append("profile")
+        return await delete_stale_checkpoints(self._brotr, keep_keys)
 
     async def _update_geo_db(self, path: Path, url: str, db_name: str) -> None:
         """Download a single GeoLite2 database if missing or stale."""
@@ -239,16 +244,15 @@ class Monitor(
         relays for progressive persistence.
 
         Returns:
-            Total number of relays processed (successful + failed).
+            Total number of relays processed (succeeded + failed).
         """
         networks = self._config.networks.get_enabled_networks()
 
         if not networks:
             self._logger.warning("no_networks_enabled")
             self.set_gauge("total", 0)
-            self.set_gauge("processed", 0)
-            self.set_gauge("success", 0)
-            self.set_gauge("failure", 0)
+            self.set_gauge("succeeded", 0)
+            self.set_gauge("failed", 0)
             return 0
 
         started_at = time.time()
@@ -261,59 +265,52 @@ class Monitor(
             relays = relays[:max_relays]
 
         total = len(relays)
-        processed = 0
         succeeded = 0
-        failed_count = 0
-        chunks = 0
+        failed = 0
+
+        self.set_gauge("total", total)
+        self.set_gauge("succeeded", succeeded)
+        self.set_gauge("failed", failed)
 
         self._logger.info("relays_available", total=total)
-        self.set_gauge("total", total)
-        self.set_gauge("processed", 0)
-        self.set_gauge("success", 0)
-        self.set_gauge("failure", 0)
 
         chunk_size = self._config.processing.chunk_size
-        batch_successful: list[tuple[Relay, CheckResult]] = []
-        batch_failed: list[Relay] = []
+        chunk_successful: list[tuple[Relay, CheckResult]] = []
+        chunk_failed: list[Relay] = []
 
-        async for relay, result in self._iter_concurrent(relays, self._check_relay_safe):
+        async for relay, result in self._iter_concurrent(relays, self._monitoring_worker):
             if result is not None:
-                batch_successful.append((relay, result))
+                chunk_successful.append((relay, result))
                 succeeded += 1
             else:
-                batch_failed.append(relay)
-                failed_count += 1
-            processed += 1
+                chunk_failed.append(relay)
+                failed += 1
+            self.set_gauge("succeeded", succeeded)
+            self.set_gauge("failed", failed)
 
-            self.set_gauge("processed", processed)
-            self.set_gauge("success", succeeded)
-            self.set_gauge("failure", failed_count)
-
-            if processed % chunk_size == 0:
-                chunks += 1
+            if (succeeded + failed) % chunk_size == 0:
                 await self._flush_check_batch(
-                    batch_successful, batch_failed, chunks, total - processed
+                    chunk_successful, chunk_failed, total - succeeded - failed
                 )
-                batch_successful = []
-                batch_failed = []
+                chunk_successful = []
+                chunk_failed = []
 
-        if batch_successful or batch_failed:
-            chunks += 1
-            await self._flush_check_batch(batch_successful, batch_failed, chunks, total - processed)
+        if chunk_successful or chunk_failed:
+            await self._flush_check_batch(
+                chunk_successful, chunk_failed, total - succeeded - failed
+            )
 
         elapsed = round(time.monotonic() - monotonic_start, 1)
         self._logger.info(
             "monitoring_completed",
-            checked=processed,
-            successful=succeeded,
-            failed=failed_count,
-            chunks=chunks,
+            succeeded=succeeded,
+            failed=failed,
             duration_s=elapsed,
         )
-        return processed
+        return succeeded + failed
 
-    async def _check_relay_safe(self, relay: Relay) -> tuple[Relay, CheckResult | None]:
-        """Wrap ``check_relay`` for use with ``_iter_concurrent``.
+    async def _monitoring_worker(self, relay: Relay) -> tuple[Relay, CheckResult | None]:
+        """Health-check a single relay for use with ``_iter_concurrent``.
 
         Returns ``(relay, result)`` when the check produces data, or
         ``(relay, None)`` on failure or exception.
@@ -334,18 +331,14 @@ class Monitor(
         self,
         successful: list[tuple[Relay, CheckResult]],
         failed: list[Relay],
-        chunk: int,
         remaining: int,
     ) -> None:
         """Flush accumulated check results to the database."""
-        self.inc_counter("total_checks_succeeded", len(successful))
-        self.inc_counter("total_checks_failed", len(failed))
         await self.publish_relay_discoveries(successful)
         await self._persist_results(successful, failed)
         self._logger.info(
             "chunk_completed",
-            chunk=chunk,
-            successful=len(successful),
+            succeeded=len(successful),
             failed=len(failed),
             remaining=remaining,
         )
@@ -719,7 +712,7 @@ class Monitor(
             enabled=ann.enabled,
             relays=get_publish_relays(ann.relays, self._config.publishing.relays),
             interval=ann.interval,
-            state_key="last_announcement",
+            state_key="announcement",
             builder=build_kind_10166(self._config),
             event_name="announcement",
             timeout=self._config.publishing.timeout,
@@ -732,7 +725,7 @@ class Monitor(
             enabled=profile.enabled,
             relays=get_publish_relays(profile.relays, self._config.publishing.relays),
             interval=profile.interval,
-            state_key="last_profile",
+            state_key="profile",
             builder=build_kind_0(self._config.profile),
             event_name="profile",
             timeout=self._config.publishing.timeout,

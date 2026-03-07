@@ -191,7 +191,7 @@ def build_kind_0(profile: ProfileConfig) -> EventBuilder:
 
 def build_kind_10166(config: MonitorConfig) -> EventBuilder:
     """Build Kind 10166 monitor announcement event per NIP-66."""
-    include = config.discovery.include
+    include = config.announcement.include
     enabled_networks = [network for network in NetworkType if config.networks.is_enabled(network)]
     first_network = enabled_networks[0] if enabled_networks else NetworkType.CLEARNET
     timeout_ms = int(config.networks.get(first_network).timeout * 1000)

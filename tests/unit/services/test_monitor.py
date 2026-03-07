@@ -83,6 +83,7 @@ def _make_config(**overrides: Any) -> MonitorConfig:
     defaults: dict[str, Any] = {
         "processing": ProcessingConfig(compute=_NO_GEO_NET, store=_NO_GEO_NET),
         "discovery": DiscoveryConfig(include=_NO_GEO_NET),
+        "announcement": AnnouncementConfig(include=_NO_GEO_NET),
     }
     defaults.update(overrides)
     return MonitorConfig(**defaults)
@@ -128,6 +129,7 @@ def all_flags_config() -> MonitorConfig:
         announcement=AnnouncementConfig(
             enabled=True,
             interval=86400,
+            include=_NO_GEO_NET,
             relays=["wss://ann.relay.com"],
         ),
         profile=ProfileConfig(
@@ -647,6 +649,9 @@ class TestMonitorConfig:
             discovery=DiscoveryConfig(
                 include=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
+            announcement=AnnouncementConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
         )
 
         assert config.networks.clearnet.enabled is True
@@ -677,6 +682,9 @@ class TestMonitorConfig:
             discovery=DiscoveryConfig(
                 include=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
+            announcement=AnnouncementConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
             networks=NetworksConfig(
                 clearnet=ClearnetConfig(timeout=5.0),
                 tor=TorConfig(enabled=True, timeout=30.0),
@@ -695,6 +703,9 @@ class TestMonitorConfig:
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
             discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            announcement=AnnouncementConfig(
                 include=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
         )
@@ -729,6 +740,9 @@ class TestMonitorConfigValidateGeoDatabases:
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
             discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            announcement=AnnouncementConfig(
                 include=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
             geo=GeoConfig(city_download_url="", asn_download_url=""),
@@ -798,8 +812,44 @@ class TestMonitorConfigValidatePublishRequiresCompute:
                 enabled=False,
                 include=MetadataFlags(nip66_ssl=True),
             ),
+            announcement=AnnouncementConfig(
+                enabled=False,
+                include=MetadataFlags(nip66_ssl=True),
+            ),
         )
         assert config.discovery.enabled is False
+
+    def test_announcement_without_compute_raises(self) -> None:
+        with pytest.raises(ValueError, match="Cannot announce metadata that is not computed"):
+            MonitorConfig(
+                processing=ProcessingConfig(
+                    compute=MetadataFlags(nip66_dns=False),
+                    store=MetadataFlags(nip66_dns=False),
+                ),
+                discovery=DiscoveryConfig(
+                    include=MetadataFlags(nip66_dns=False),
+                ),
+                announcement=AnnouncementConfig(
+                    enabled=True,
+                    include=MetadataFlags(nip66_dns=True),
+                ),
+            )
+
+    def test_announcement_check_skipped_when_disabled(self) -> None:
+        config = MonitorConfig(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_dns=False),
+                store=MetadataFlags(nip66_dns=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_dns=False),
+            ),
+            announcement=AnnouncementConfig(
+                enabled=False,
+                include=MetadataFlags(nip66_dns=True),
+            ),
+        )
+        assert config.announcement.enabled is False
 
 
 # ============================================================================
@@ -1048,16 +1098,17 @@ class TestDeleteStaleCheckpoints:
     async def test_calls_fetchval_with_correct_params(self, query_brotr: MagicMock) -> None:
         query_brotr.fetchval = AsyncMock(return_value=4)
 
-        result = await delete_stale_checkpoints(query_brotr)
+        result = await delete_stale_checkpoints(query_brotr, ["announcement", "profile"])
 
         query_brotr.fetchval.assert_awaited_once()
         args = query_brotr.fetchval.call_args
         sql = args[0][0]
         assert "DELETE FROM service_state" in sql
-        assert "LIKE 'ws%'" in sql
+        assert "!= ALL" in sql
         assert "NOT EXISTS" in sql
         assert args[0][1] == ServiceName.MONITOR
         assert args[0][2] == ServiceStateType.CHECKPOINT
+        assert args[0][3] == ["announcement", "profile"]
         assert result == 4
 
 
@@ -1506,6 +1557,75 @@ class TestMonitorRun:
 
 
 # ============================================================================
+# Service: Monitor cleanup
+# ============================================================================
+
+
+class TestMonitorCleanup:
+    @patch(
+        "bigbrotr.services.monitor.service.delete_stale_checkpoints",
+        new_callable=AsyncMock,
+        return_value=3,
+    )
+    async def test_cleanup_both_enabled(self, mock_delete: AsyncMock, mock_brotr: Brotr) -> None:
+        config = _make_config(profile=ProfileConfig(enabled=True))
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        result = await monitor.cleanup()
+
+        mock_delete.assert_awaited_once_with(mock_brotr, ["announcement", "profile"])
+        assert result == 3
+
+    @patch(
+        "bigbrotr.services.monitor.service.delete_stale_checkpoints",
+        new_callable=AsyncMock,
+        return_value=2,
+    )
+    async def test_cleanup_announcement_disabled(
+        self, mock_delete: AsyncMock, mock_brotr: Brotr
+    ) -> None:
+        config = _make_config(
+            announcement=AnnouncementConfig(enabled=False, include=_NO_GEO_NET),
+            profile=ProfileConfig(enabled=True),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        result = await monitor.cleanup()
+
+        mock_delete.assert_awaited_once_with(mock_brotr, ["profile"])
+        assert result == 2
+
+    @patch(
+        "bigbrotr.services.monitor.service.delete_stale_checkpoints",
+        new_callable=AsyncMock,
+        return_value=1,
+    )
+    async def test_cleanup_profile_disabled(
+        self, mock_delete: AsyncMock, mock_brotr: Brotr
+    ) -> None:
+        config = _make_config(profile=ProfileConfig(enabled=False))
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        result = await monitor.cleanup()
+
+        mock_delete.assert_awaited_once_with(mock_brotr, ["announcement"])
+        assert result == 1
+
+    @patch(
+        "bigbrotr.services.monitor.service.delete_stale_checkpoints",
+        new_callable=AsyncMock,
+        return_value=5,
+    )
+    async def test_cleanup_both_disabled(self, mock_delete: AsyncMock, mock_brotr: Brotr) -> None:
+        config = _make_config(
+            announcement=AnnouncementConfig(enabled=False, include=_NO_GEO_NET),
+            profile=ProfileConfig(enabled=False),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        result = await monitor.cleanup()
+
+        mock_delete.assert_awaited_once_with(mock_brotr, [])
+        assert result == 5
+
+
+# ============================================================================
 # Service: Monitor persist results
 # ============================================================================
 
@@ -1559,11 +1679,11 @@ class TestMonitorPersistResults:
 
 
 # ============================================================================
-# Service: Check chunks
+# Service: Monitoring worker
 # ============================================================================
 
 
-class TestMonitorCheckRelaySafe:
+class TestMonitoringWorker:
     async def test_successful_result(self, mock_brotr: Brotr) -> None:
         config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
@@ -1571,7 +1691,7 @@ class TestMonitorCheckRelaySafe:
         result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
 
         with patch.object(monitor, "check_relay", new_callable=AsyncMock, return_value=result):
-            r, res = await monitor._check_relay_safe(relay)
+            r, res = await monitor._monitoring_worker(relay)
 
         assert r is relay
         assert res is result
@@ -1585,7 +1705,7 @@ class TestMonitorCheckRelaySafe:
         with patch.object(
             monitor, "check_relay", new_callable=AsyncMock, return_value=empty_result
         ):
-            r, res = await monitor._check_relay_safe(relay)
+            r, res = await monitor._monitoring_worker(relay)
 
         assert r is relay
         assert res is None
@@ -1601,7 +1721,7 @@ class TestMonitorCheckRelaySafe:
             new_callable=AsyncMock,
             side_effect=RuntimeError("connection lost"),
         ):
-            r, res = await monitor._check_relay_safe(relay)
+            r, res = await monitor._monitoring_worker(relay)
 
         assert r is relay
         assert res is None
@@ -1620,7 +1740,7 @@ class TestMonitorCheckRelaySafe:
             ),
             pytest.raises(asyncio.CancelledError),
         ):
-            await monitor._check_relay_safe(relay)
+            await monitor._monitoring_worker(relay)
 
     async def test_keyboard_interrupt_propagates(self, mock_brotr: Brotr) -> None:
         config = _make_config()
@@ -1636,7 +1756,7 @@ class TestMonitorCheckRelaySafe:
             ),
             pytest.raises(KeyboardInterrupt),
         ):
-            await monitor._check_relay_safe(relay)
+            await monitor._monitoring_worker(relay)
 
     async def test_system_exit_propagates(self, mock_brotr: Brotr) -> None:
         config = _make_config()
@@ -1652,7 +1772,7 @@ class TestMonitorCheckRelaySafe:
             ),
             pytest.raises(SystemExit),
         ):
-            await monitor._check_relay_safe(relay)
+            await monitor._monitoring_worker(relay)
 
 
 # ============================================================================
@@ -1729,7 +1849,7 @@ class TestGetPublishRelays:
 
     def test_get_publish_relays_announcement_empty_list_no_fallback(self, test_keys: Keys) -> None:
         config = _make_config(
-            announcement=AnnouncementConfig(relays=[]),
+            announcement=AnnouncementConfig(include=_NO_GEO_NET, relays=[]),
             publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
         )
         relays = get_publish_relays(config.announcement.relays, config.publishing.relays)
@@ -1764,14 +1884,14 @@ class TestGetPublishRelays:
 
 class TestPublishAnnouncement:
     async def test_publish_announcement_when_disabled(self, test_keys: Keys) -> None:
-        config = _make_config(announcement=AnnouncementConfig(enabled=False))
+        config = _make_config(announcement=AnnouncementConfig(enabled=False, include=_NO_GEO_NET))
         harness = _MonitorStub(config, test_keys)
         await harness.publish_announcement()
         harness._brotr.get_service_state.assert_not_awaited()
 
     async def test_publish_announcement_when_no_relays(self, test_keys: Keys) -> None:
         config = _make_config(
-            announcement=AnnouncementConfig(enabled=True, relays=[]),
+            announcement=AnnouncementConfig(enabled=True, include=_NO_GEO_NET, relays=[]),
             publishing=PublishingConfig(relays=[]),
         )
         harness = _MonitorStub(config, test_keys)
@@ -1784,7 +1904,7 @@ class TestPublishAnnouncement:
                 ServiceState(
                     service_name=ServiceName.MONITOR,
                     state_type=ServiceStateType.CHECKPOINT,
-                    state_key="last_announcement",
+                    state_key="announcement",
                     state_value={"timestamp": FIXED_TIME},
                 )
             ]
@@ -1820,7 +1940,7 @@ class TestPublishAnnouncement:
                 ServiceState(
                     service_name=ServiceName.MONITOR,
                     state_type=ServiceStateType.CHECKPOINT,
-                    state_key="last_announcement",
+                    state_key="announcement",
                     state_value={"timestamp": old_timestamp},
                 )
             ]
@@ -1883,7 +2003,7 @@ class TestPublishProfile:
                 ServiceState(
                     service_name=ServiceName.MONITOR,
                     state_type=ServiceStateType.CHECKPOINT,
-                    state_key="last_profile",
+                    state_key="profile",
                     state_value={"timestamp": FIXED_TIME},
                 )
             ]
@@ -2097,6 +2217,17 @@ class TestBuildKind10166:
                 ),
                 relays=["wss://disc.relay.com"],
             ),
+            announcement=AnnouncementConfig(
+                include=MetadataFlags(
+                    nip11_info=True,
+                    nip66_rtt=True,
+                    nip66_ssl=False,
+                    nip66_geo=False,
+                    nip66_net=False,
+                    nip66_dns=False,
+                    nip66_http=False,
+                ),
+            ),
             networks=NetworksConfig(clearnet=ClearnetConfig(timeout=5.0)),
         )
         builder = build_kind_10166(config)
@@ -2126,6 +2257,18 @@ class TestBuildKind10166:
                 ),
             ),
             discovery=DiscoveryConfig(
+                enabled=False,
+                include=MetadataFlags(
+                    nip11_info=False,
+                    nip66_rtt=False,
+                    nip66_ssl=False,
+                    nip66_geo=False,
+                    nip66_net=False,
+                    nip66_dns=False,
+                    nip66_http=False,
+                ),
+            ),
+            announcement=AnnouncementConfig(
                 enabled=False,
                 include=MetadataFlags(
                     nip11_info=False,
@@ -2234,7 +2377,7 @@ class TestEndToEndTagGeneration:
 
 
 class TestMonitorMetrics:
-    async def test_monitor_emits_check_counters(self, mock_brotr: Brotr) -> None:
+    async def test_monitor_emits_gauges(self, mock_brotr: Brotr) -> None:
         config = _make_config(
             discovery=DiscoveryConfig(
                 enabled=False,
@@ -2247,26 +2390,33 @@ class TestMonitorMetrics:
         relay2 = Relay("wss://fail.example.com")
         result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
 
-        async def fake_check_relay_safe(relay: Relay) -> tuple[Relay, CheckResult | None]:
+        async def fake_monitoring_worker(relay: Relay) -> tuple[Relay, CheckResult | None]:
             if relay.url == relay1.url:
                 return (relay, result)
             return (relay, None)
 
+        gauge_calls: list[tuple[str, int]] = []
         with (
-            patch.object(monitor, "inc_counter") as mock_counter,
             patch(
                 "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
                 new_callable=AsyncMock,
                 return_value=[relay1, relay2],
             ),
-            patch.object(monitor, "_check_relay_safe", side_effect=fake_check_relay_safe),
+            patch.object(monitor, "_monitoring_worker", side_effect=fake_monitoring_worker),
             patch.object(monitor, "publish_relay_discoveries", new_callable=AsyncMock),
             patch.object(monitor, "_persist_results", new_callable=AsyncMock),
+            patch.object(
+                monitor,
+                "set_gauge",
+                side_effect=lambda n, val: gauge_calls.append((n, val)),
+            ),
         ):
             await monitor.monitor()
 
-        mock_counter.assert_any_call("total_checks_succeeded", 1)
-        mock_counter.assert_any_call("total_checks_failed", 1)
+        calls = {(n, v) for n, v in gauge_calls}
+        assert ("total", 2) in calls
+        assert ("succeeded", 1) in calls
+        assert ("failed", 1) in calls
 
     async def test_persist_results_emits_metadata_counter(self, mock_brotr: Brotr) -> None:
         mock_brotr.insert_relay_metadata = AsyncMock(return_value=3)  # type: ignore[method-assign]

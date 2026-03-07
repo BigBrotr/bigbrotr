@@ -212,6 +212,7 @@ class AnnouncementConfig(BaseModel):
 
     enabled: bool = Field(default=True)
     interval: float = Field(default=86_400.0, ge=60.0, le=604800.0)
+    include: MetadataFlags = Field(default_factory=MetadataFlags)
     relays: Annotated[
         list[Relay] | None,
         BeforeValidator(lambda v: safe_parse(v, Relay) if v is not None else None),
@@ -311,12 +312,18 @@ class MonitorConfig(BaseServiceConfig):
     @model_validator(mode="after")
     def validate_publish_requires_compute(self) -> MonitorConfig:
         """Ensure every published metadata type is also computed."""
-        if not self.discovery.enabled:
-            return self
-        errors = self.discovery.include.get_missing_from(self.processing.compute)
-        if errors:
-            raise ValueError(
-                f"Cannot publish metadata that is not computed: {', '.join(errors)}. "
-                "Enable in processing.compute.* or disable in discovery.include.*"
-            )
+        if self.discovery.enabled:
+            errors = self.discovery.include.get_missing_from(self.processing.compute)
+            if errors:
+                raise ValueError(
+                    f"Cannot publish metadata that is not computed: {', '.join(errors)}. "
+                    "Enable in processing.compute.* or disable in discovery.include.*"
+                )
+        if self.announcement.enabled:
+            errors = self.announcement.include.get_missing_from(self.processing.compute)
+            if errors:
+                raise ValueError(
+                    f"Cannot announce metadata that is not computed: {', '.join(errors)}. "
+                    "Enable in processing.compute.* or disable in announcement.include.*"
+                )
         return self
