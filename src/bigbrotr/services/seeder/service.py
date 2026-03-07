@@ -24,7 +24,7 @@ See Also:
         class providing ``run()`` and ``from_yaml()`` lifecycle.
     [Brotr][bigbrotr.core.brotr.Brotr]: Database facade used for relay
         insertion.
-    [insert_relays_as_candidates][bigbrotr.services.validator.queries.insert_relays_as_candidates]:
+    [insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates]:
         Query used to insert seed URLs as validation candidates.
 
 Examples:

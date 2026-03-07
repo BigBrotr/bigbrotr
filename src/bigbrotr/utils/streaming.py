@@ -178,7 +178,7 @@ async def stream_events(  # noqa: PLR0913
         client: Connected nostr-sdk ``Client`` with the target relay added.
         filters: Pre-validated base ``Filter`` objects **without**
             ``since``/``until``/``limit`` (use
-            [build_filters][bigbrotr.services.synchronizer.utils.build_filters]).
+            ``SynchronizerConfig.filters``).
         start_time: Inclusive lower timestamp bound (since).
         end_time: Inclusive upper timestamp bound (until).
         limit: Max events per relay request (REQ limit).
