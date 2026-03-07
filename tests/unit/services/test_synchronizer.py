@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
 import pytest
+from nostr_sdk import Filter
 
 from bigbrotr.core.brotr import Brotr, BrotrConfig
 from bigbrotr.core.brotr import TimeoutsConfig as BrotrTimeoutsConfig
@@ -13,26 +14,18 @@ from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.configs import NetworksConfig, TorConfig
+from bigbrotr.services.common.types import SyncCursor
 from bigbrotr.services.synchronizer import (
-    ConcurrencyConfig,
-    EventBatch,
-    FilterConfig,
     Synchronizer,
     SynchronizerConfig,
     TimeoutsConfig,
-    TimeRangeConfig,
 )
 from bigbrotr.services.synchronizer.queries import (
     delete_stale_cursors,
     insert_event_relays,
 )
-from bigbrotr.services.synchronizer.utils import (
-    SyncBatchState,
-    _log,
-    create_filter,
-    insert_batch,
-    iter_relay_events,
-)
+from bigbrotr.services.synchronizer.utils import insert_events
+from bigbrotr.utils.streaming import _to_domain_events, stream_events
 
 
 # Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
@@ -73,12 +66,17 @@ def query_brotr() -> MagicMock:
     return brotr
 
 
+_mock_event_counter = 0
+
+
 def _make_mock_event(created_at_secs: int) -> MagicMock:
+    global _mock_event_counter  # noqa: PLW0603
+    _mock_event_counter += 1
     event = MagicMock()
     mock_timestamp = MagicMock()
     mock_timestamp.as_secs.return_value = created_at_secs
     event.created_at.return_value = mock_timestamp
-    event.id.return_value.to_hex.return_value = "a" * 64
+    event.id.return_value.to_hex.return_value = f"{_mock_event_counter:064x}"
     event.author.return_value.to_hex.return_value = "b" * 64
     event.kind.return_value.as_u16.return_value = 1
     event.content.return_value = "test content"
@@ -94,100 +92,75 @@ def _make_mock_event(created_at_secs: int) -> MagicMock:
     return event
 
 
+def _make_event_stream(events: list[MagicMock]) -> AsyncMock:
+    iterator = iter([*events, None])
+    stream = AsyncMock()
+    stream.next = AsyncMock(side_effect=lambda: next(iterator))
+    return stream
+
+
+def _make_mock_filter() -> MagicMock:
+    f = MagicMock(spec=Filter)
+    f.since.return_value = f
+    f.until.return_value = f
+    f.limit.return_value = f
+    f.match_event.return_value = True
+    f.as_json.return_value = "{}"
+    return f
+
+
 # ============================================================================
 # Configs
 # ============================================================================
 
 
-class TestFilterConfig:
-    def test_default_values(self) -> None:
-        config = FilterConfig()
+class TestFilterParsing:
+    def test_default_empty_filter(self) -> None:
+        config = SynchronizerConfig()
+        assert len(config.filters) == 1
+        assert isinstance(config.filters[0], Filter)
 
-        assert config.ids is None
-        assert config.kinds is None
-        assert config.authors is None
-        assert config.tags is None
-        assert config.limit == 500
+    def test_kinds_filter(self) -> None:
+        config = SynchronizerConfig(filters=[{"kinds": [1, 3, 30023]}])
+        assert len(config.filters) == 1
+        assert isinstance(config.filters[0], Filter)
 
-    def test_custom_values(self) -> None:
-        valid_id1 = "a" * 64
-        valid_id2 = "b" * 64
-        valid_author = "c" * 64
-        config = FilterConfig(
-            ids=[valid_id1, valid_id2],
-            kinds=[1, 3, 4],
-            authors=[valid_author],
-            tags={"e": ["event1"]},
-            limit=1000,
+    def test_authors_filter(self) -> None:
+        config = SynchronizerConfig(filters=[{"authors": ["a" * 64]}])
+        assert isinstance(config.filters[0], Filter)
+
+    def test_tag_filter(self) -> None:
+        config = SynchronizerConfig(filters=[{"#e": ["b" * 64]}])
+        assert isinstance(config.filters[0], Filter)
+
+    def test_multiple_filters(self) -> None:
+        config = SynchronizerConfig(filters=[{"kinds": [1]}, {"kinds": [2]}])
+        assert len(config.filters) == 2
+
+    def test_temporal_fields_accepted(self) -> None:
+        config = SynchronizerConfig(
+            filters=[{"kinds": [1], "since": 100, "until": 200, "limit": 50}]
         )
+        assert isinstance(config.filters[0], Filter)
 
-        assert config.ids == [valid_id1, valid_id2]
-        assert config.kinds == [1, 3, 4]
-        assert config.authors == [valid_author]
-        assert config.tags == {"e": ["event1"]}
-        assert config.limit == 1000
+    def test_invalid_authors_hex_raises(self) -> None:
+        with pytest.raises(ValueError, match="filters"):
+            SynchronizerConfig(filters=[{"authors": ["zz"]}])
 
-    def test_limit_validation(self) -> None:
-        config = FilterConfig(limit=1)
-        assert config.limit == 1
+    def test_non_dict_raises(self) -> None:
+        with pytest.raises(TypeError, match="expected dict"):
+            SynchronizerConfig(filters=["not a dict"])
 
-        config = FilterConfig(limit=5000)
-        assert config.limit == 5000
+    def test_non_list_raises(self) -> None:
+        with pytest.raises(TypeError, match="expected list"):
+            SynchronizerConfig(filters="not a list")  # type: ignore[arg-type]
 
-        with pytest.raises(ValueError):
-            FilterConfig(limit=0)
+    def test_filter_passthrough(self) -> None:
+        from nostr_sdk import Kind
 
-        with pytest.raises(ValueError):
-            FilterConfig(limit=5001)
-
-    def test_kinds_validation_valid_range(self) -> None:
-        config = FilterConfig(kinds=[0, 1, 30023, 65535])
-        assert config.kinds == [0, 1, 30023, 65535]
-
-    def test_kinds_validation_invalid_range(self) -> None:
-        with pytest.raises(ValueError, match="out of valid range"):
-            FilterConfig(kinds=[70000])
-
-        with pytest.raises(ValueError, match="out of valid range"):
-            FilterConfig(kinds=[-1])
-
-    def test_ids_validation_valid_hex(self) -> None:
-        valid_hex = "a" * 64
-        config = FilterConfig(ids=[valid_hex])
-        assert config.ids == [valid_hex]
-
-    def test_ids_validation_invalid_length(self) -> None:
-        with pytest.raises(ValueError, match="Invalid hex string length"):
-            FilterConfig(ids=["short"])
-
-    def test_authors_validation_valid_hex(self) -> None:
-        valid_hex = "b" * 64
-        config = FilterConfig(authors=[valid_hex])
-        assert config.authors == [valid_hex]
-
-    def test_authors_validation_invalid_hex_chars(self) -> None:
-        with pytest.raises(ValueError, match="Invalid hex string"):
-            FilterConfig(authors=["z" * 64])
-
-
-class TestTimeRangeConfig:
-    def test_default_values(self) -> None:
-        config = TimeRangeConfig()
-
-        assert config.default_start == 0
-        assert config.use_relay_state is True
-        assert config.lookback_seconds == 86400
-
-    def test_custom_values(self) -> None:
-        config = TimeRangeConfig(
-            default_start=1000000,
-            use_relay_state=False,
-            lookback_seconds=3600,
-        )
-
-        assert config.default_start == 1000000
-        assert config.use_relay_state is False
-        assert config.lookback_seconds == 3600
+        f = Filter().kinds([Kind(1)])
+        config = SynchronizerConfig(filters=[f])
+        assert config.filters[0] is f
 
 
 class TestTimeoutsConfig:
@@ -250,35 +223,49 @@ class TestTimeoutsConfig:
             TimeoutsConfig(max_duration=100_000.0)
 
 
-class TestConcurrencyConfig:
-    def test_default_values(self) -> None:
-        config = ConcurrencyConfig()
-
-        assert config.cursor_flush_interval == 50
-
-
 class TestSynchronizerConfig:
     def test_default_values(self) -> None:
         config = SynchronizerConfig()
 
         assert config.networks.clearnet.enabled is True
-        assert config.networks.tor.enabled is False  # disabled by default
-        assert config.filter.limit == 500
-        assert config.time_range.default_start == 0
+        assert config.networks.tor.enabled is False
+        assert config.since == 0
+        assert config.until is None
+        assert config.limit == 500
+        assert config.end_lag == 86_400
         assert config.networks.clearnet.timeout == 10.0
         assert config.timeouts.relay_clearnet == 1800.0
-        assert config.concurrency.cursor_flush_interval == 50
+        assert config.flush_interval == 50
         assert config.interval == 300.0
+
+    def test_get_end_time_default(self) -> None:
+        config = SynchronizerConfig()
+        end = config.get_end_time()
+        import time
+
+        assert abs(end - (int(time.time()) - 86_400)) <= 2
+
+    def test_get_end_time_with_until(self) -> None:
+        config = SynchronizerConfig(until=1_000_000, end_lag=3600)
+        assert config.get_end_time() == 1_000_000 - 3600
+
+    def test_until_minus_lag_below_since_raises(self) -> None:
+        with pytest.raises(ValueError, match="must be >= since"):
+            SynchronizerConfig(since=1000, until=1500, end_lag=600)
+
+    def test_until_minus_lag_equals_since_ok(self) -> None:
+        config = SynchronizerConfig(since=1000, until=2000, end_lag=1000)
+        assert config.get_end_time() == 1000
 
     def test_custom_nested_config(self) -> None:
         config = SynchronizerConfig(
             networks=NetworksConfig(tor=TorConfig(enabled=True)),
-            concurrency=ConcurrencyConfig(cursor_flush_interval=25),
+            flush_interval=25,
             interval=1800.0,
         )
 
         assert config.networks.tor.enabled is True
-        assert config.concurrency.cursor_flush_interval == 25
+        assert config.flush_interval == 25
         assert config.interval == 1800.0
 
     def test_no_worker_log_level_field(self) -> None:
@@ -290,651 +277,368 @@ class TestSynchronizerConfig:
 # ============================================================================
 
 
-class TestLogUtility:
-    def test_log_info_level(self) -> None:
-        with patch("bigbrotr.services.synchronizer.utils._logger") as mock_logger:
-            mock_logger.isEnabledFor.return_value = True
-            _log("INFO", "test_message", relay="wss://test.com", count=5)
-            mock_logger.log.assert_called_once()
-            args = mock_logger.log.call_args
-            assert args[0][0] == 20  # logging.INFO
-            assert "test_message" in args[0][1]
+class TestToDomainEvents:
+    def test_sorts_ascending(self) -> None:
+        evts = [_make_mock_event(300), _make_mock_event(100), _make_mock_event(200)]
 
-    def test_log_when_disabled(self) -> None:
-        with patch("bigbrotr.services.synchronizer.utils._logger") as mock_logger:
-            mock_logger.isEnabledFor.return_value = False
-            _log("DEBUG", "should_not_log")
-            mock_logger.log.assert_not_called()
+        with patch("bigbrotr.utils.streaming.Event", side_effect=lambda x: x):
+            result = _to_domain_events(evts)
 
+        timestamps = [e.created_at().as_secs() for e in result]
+        assert timestamps == [100, 200, 300]
 
-class TestEventBatch:
-    def test_init(self) -> None:
-        batch = EventBatch(since=100, until=200, limit=10)
+    def test_empty_input(self) -> None:
+        assert _to_domain_events([]) == []
 
-        assert batch.since == 100
-        assert batch.until == 200
-        assert batch.limit == 10
-        assert batch.size == 0
-        assert batch.events == []
-        assert batch.min_created_at is None
-        assert batch.max_created_at is None
+    def test_parse_error_skipped(self) -> None:
+        evts = [_make_mock_event(100), _make_mock_event(200)]
 
-    def test_append_valid_event(self) -> None:
-        batch = EventBatch(since=100, until=200, limit=10)
-        event = _make_mock_event(150)
+        call_count = 0
 
-        batch.append(event)
+        def fail_second(x: object) -> object:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                raise ValueError("null byte")
+            return x
 
-        assert batch.size == 1
-        assert len(batch.events) == 1
-        assert batch.min_created_at == 150
-        assert batch.max_created_at == 150
+        with patch("bigbrotr.utils.streaming.Event", side_effect=fail_second):
+            result = _to_domain_events(evts)
 
-    def test_append_multiple_events(self) -> None:
-        batch = EventBatch(since=100, until=200, limit=10)
+        assert len(result) == 1
 
-        for ts in [150, 120, 180]:
-            event = _make_mock_event(ts)
-            batch.append(event)
+    def test_type_error_skipped(self) -> None:
+        evts = [_make_mock_event(100)]
 
-        assert batch.size == 3
-        assert batch.min_created_at == 120
-        assert batch.max_created_at == 180
+        with patch("bigbrotr.utils.streaming.Event", side_effect=TypeError("bad")):
+            result = _to_domain_events(evts)
 
-    def test_append_rejects_out_of_bounds(self) -> None:
-        batch = EventBatch(since=100, until=200, limit=10)
+        assert result == []
 
-        # Event before since
-        event1 = _make_mock_event(50)
-        batch.append(event1)
+    def test_overflow_error_skipped(self) -> None:
+        evts = [_make_mock_event(100)]
 
-        # Event after until
-        event2 = _make_mock_event(250)
-        batch.append(event2)
+        with patch("bigbrotr.utils.streaming.Event", side_effect=OverflowError("overflow")):
+            result = _to_domain_events(evts)
 
-        assert batch.size == 0
+        assert result == []
 
-    def test_append_accepts_boundary_values(self) -> None:
-        batch = EventBatch(since=100, until=200, limit=10)
 
-        event1 = _make_mock_event(100)
-        batch.append(event1)
-
-        event2 = _make_mock_event(200)
-        batch.append(event2)
-
-        assert batch.size == 2
-
-    def test_append_raises_on_overflow(self) -> None:
-        batch = EventBatch(since=100, until=200, limit=2)
-
-        event1 = _make_mock_event(150)
-        batch.append(event1)
-
-        event2 = _make_mock_event(160)
-        batch.append(event2)
-
-        event3 = _make_mock_event(170)
-
-        with pytest.raises(OverflowError, match="Batch limit reached"):
-            batch.append(event3)
-
-    def test_append_only_updates_min_when_smaller(self) -> None:
-        batch = EventBatch(since=100, until=300, limit=10)
-
-        batch.append(_make_mock_event(200))
-        assert batch.min_created_at == 200
-        assert batch.max_created_at == 200
-
-        batch.append(_make_mock_event(250))
-        assert batch.min_created_at == 200  # Unchanged
-        assert batch.max_created_at == 250
-
-        batch.append(_make_mock_event(150))
-        assert batch.min_created_at == 150  # Updated
-        assert batch.max_created_at == 250  # Unchanged
-
-    def test_append_boundary_since_equals_until(self) -> None:
-        batch = EventBatch(since=500, until=500, limit=10)
-
-        evt = _make_mock_event(500)
-        batch.append(evt)
-        assert batch.size == 1
-
-        # Outside range
-        evt2 = _make_mock_event(499)
-        batch.append(evt2)
-        assert batch.size == 1
-
-        evt3 = _make_mock_event(501)
-        batch.append(evt3)
-        assert batch.size == 1
-
-    def test_is_full(self) -> None:
-        batch = EventBatch(since=100, until=200, limit=2)
-
-        assert batch.is_full() is False
-
-        event1 = _make_mock_event(150)
-        batch.append(event1)
-        assert batch.is_full() is False
-
-        event2 = _make_mock_event(160)
-        batch.append(event2)
-        assert batch.is_full() is True
-
-    def test_is_full_at_limit_one(self) -> None:
-        batch = EventBatch(since=100, until=200, limit=1)
-        assert batch.is_full() is False
-
-        batch.append(_make_mock_event(150))
-        assert batch.is_full() is True
-
-    def test_is_empty(self) -> None:
-        batch = EventBatch(since=100, until=200, limit=10)
-
-        assert batch.is_empty() is True
-
-        event = _make_mock_event(150)
-        batch.append(event)
-        assert batch.is_empty() is False
-
-    def test_len(self) -> None:
-        batch = EventBatch(since=100, until=200, limit=10)
-
-        assert len(batch) == 0
-
-        event1 = _make_mock_event(150)
-        batch.append(event1)
-
-        event2 = _make_mock_event(160)
-        batch.append(event2)
-
-        assert len(batch) == 2
-
-    def test_len_matches_size(self) -> None:
-        batch = EventBatch(since=100, until=200, limit=10)
-
-        assert len(batch) == batch.size == 0
-
-        batch.append(_make_mock_event(150))
-        assert len(batch) == batch.size == 1
-
-        batch.append(_make_mock_event(160))
-        assert len(batch) == batch.size == 2
-
-    def test_iter(self) -> None:
-        batch = EventBatch(since=100, until=200, limit=10)
-
-        event1 = _make_mock_event(150)
-        event2 = _make_mock_event(160)
-
-        batch.append(event1)
-        batch.append(event2)
-
-        events = list(batch)
-        assert len(events) == 2
-        assert events[0] is event1
-        assert events[1] is event2
-
-    def test_iteration_preserves_order(self) -> None:
-        batch = EventBatch(since=100, until=300, limit=10)
-
-        events = []
-        for ts in [200, 150, 250, 100]:
-            evt = _make_mock_event(ts)
-            batch.append(evt)
-            events.append(evt)
-
-        collected = list(batch)
-        assert len(collected) == 4
-        for i, evt in enumerate(collected):
-            assert evt is events[i]
-
-    def test_zero_limit(self) -> None:
-        batch = EventBatch(since=100, until=200, limit=0)
-
-        assert batch.is_full() is True
-        assert batch.is_empty() is True
-
-        event = _make_mock_event(150)
-
-        with pytest.raises(OverflowError):
-            batch.append(event)
-
-
-class TestCreateFilter:
-    def test_default_config(self) -> None:
-        config = FilterConfig()
-        f = create_filter(since=1000, until=2000, config=config)
-        assert f is not None
-
-    def test_with_kinds(self) -> None:
-        config = FilterConfig(kinds=[1, 3, 30023])
-        f = create_filter(since=1000, until=2000, config=config)
-        assert f is not None
-
-    def test_with_authors(self) -> None:
-        valid_author = "a" * 64
-        config = FilterConfig(authors=[valid_author])
-
-        mock_filter = MagicMock()
-        mock_filter.since.return_value = mock_filter
-        mock_filter.until.return_value = mock_filter
-        mock_filter.limit.return_value = mock_filter
-        mock_filter.authors.return_value = mock_filter
-
-        with patch("bigbrotr.services.synchronizer.utils.Filter", return_value=mock_filter):
-            f = create_filter(since=1000, until=2000, config=config)
-
-        mock_filter.authors.assert_called_once_with([valid_author])
-        assert f is not None
-
-    def test_with_ids(self) -> None:
-        valid_id = "b" * 64
-        config = FilterConfig(ids=[valid_id])
-
-        mock_filter = MagicMock()
-        mock_filter.since.return_value = mock_filter
-        mock_filter.until.return_value = mock_filter
-        mock_filter.limit.return_value = mock_filter
-        mock_filter.ids.return_value = mock_filter
-
-        with patch("bigbrotr.services.synchronizer.utils.Filter", return_value=mock_filter):
-            f = create_filter(since=1000, until=2000, config=config)
-
-        mock_filter.ids.assert_called_once_with([valid_id])
-        assert f is not None
-
-    def test_with_tag_filters(self) -> None:
-        config = FilterConfig(tags={"e": ["event_id_1"], "t": ["hashtag"]})
-        f = create_filter(since=1000, until=2000, config=config)
-        assert f is not None
-
-    def test_with_empty_tag_values(self) -> None:
-        config = FilterConfig(tags={"e": []})
-        f = create_filter(since=1000, until=2000, config=config)
-        assert f is not None
-
-    def test_with_invalid_tag_letter(self) -> None:
-        config = FilterConfig(tags={"1": ["value"]})
-        f = create_filter(since=1000, until=2000, config=config)
-        assert f is not None
-
-    def test_with_multi_letter_tag_key(self) -> None:
-        config = FilterConfig(tags={"ee": ["value"]})
-        f = create_filter(since=0, until=100, config=config)
-        assert f is not None
-
-    def test_with_all_options(self) -> None:
-        config = FilterConfig(
-            ids=["a" * 64],
-            kinds=[1, 4],
-            authors=["b" * 64],
-            tags={"e": ["c" * 64], "p": ["d" * 64]},
-            limit=1000,
-        )
-
-        mock_filter = MagicMock()
-        mock_filter.since.return_value = mock_filter
-        mock_filter.until.return_value = mock_filter
-        mock_filter.limit.return_value = mock_filter
-        mock_filter.kinds.return_value = mock_filter
-        mock_filter.authors.return_value = mock_filter
-        mock_filter.ids.return_value = mock_filter
-        mock_filter.custom_tag.return_value = mock_filter
-
-        with patch("bigbrotr.services.synchronizer.utils.Filter", return_value=mock_filter):
-            f = create_filter(since=500, until=9999, config=config)
-
-        mock_filter.kinds.assert_called_once()
-        mock_filter.authors.assert_called_once()
-        mock_filter.ids.assert_called_once()
-        # Two tag letters with one value each = 2 custom_tag calls
-        assert mock_filter.custom_tag.call_count == 2
-        assert f is not None
-
-    def test_with_custom_limit(self) -> None:
-        config = FilterConfig(limit=42)
-        f = create_filter(since=0, until=100, config=config)
-        assert f is not None
-
-
-class TestInsertBatch:
-    async def test_empty_batch_noop(self, mock_synchronizer_brotr: Brotr) -> None:
-        batch = EventBatch(since=100, until=200, limit=10)
+class TestInsertEvents:
+    async def test_empty_list_noop(self, mock_synchronizer_brotr: Brotr) -> None:
         relay = Relay("wss://test.relay.com")
 
-        inserted, invalid = await insert_batch(
-            batch, relay, mock_synchronizer_brotr, since=100, until=200
-        )
+        inserted = await insert_events([], relay, mock_synchronizer_brotr)
 
         assert inserted == 0
-        assert invalid == 0
-        mock_synchronizer_brotr.insert_event_relay.assert_not_called()
 
-    async def test_batch_with_valid_events(self, mock_synchronizer_brotr: Brotr) -> None:
+    async def test_with_valid_events(self, mock_synchronizer_brotr: Brotr) -> None:
         mock_synchronizer_brotr.insert_event_relay = AsyncMock(return_value=3)
 
-        batch = EventBatch(since=100, until=200, limit=10)
         relay = Relay("wss://test.relay.com")
+        events = [MagicMock(), MagicMock(), MagicMock()]
 
-        for ts in [120, 150, 180]:
-            evt = _make_mock_event(ts)
-            batch.append(evt)
-
-        with patch("bigbrotr.services.synchronizer.utils.Event") as MockEvent:
-            mock_event_instance = MagicMock()
-            MockEvent.return_value = mock_event_instance
-
-            with patch("bigbrotr.services.synchronizer.utils.EventRelay") as MockEventRelay:
-                mock_er = MagicMock()
-                MockEventRelay.return_value = mock_er
-
-                inserted, invalid = await insert_batch(
-                    batch, relay, mock_synchronizer_brotr, since=100, until=200
-                )
+        with patch("bigbrotr.services.synchronizer.utils.EventRelay") as MockEventRelay:
+            MockEventRelay.return_value = MagicMock()
+            inserted = await insert_events(events, relay, mock_synchronizer_brotr)
 
         assert inserted == 3
-        assert invalid == 0
         mock_synchronizer_brotr.insert_event_relay.assert_called_once()
 
-    async def test_batch_with_invalid_signature(self, mock_synchronizer_brotr: Brotr) -> None:
-        batch = EventBatch(since=100, until=200, limit=10)
-        relay = Relay("wss://test.relay.com")
-
-        evt = _make_mock_event(150)
-        evt.verify.return_value = False
-        batch.append(evt)
-
-        inserted, invalid = await insert_batch(
-            batch, relay, mock_synchronizer_brotr, since=100, until=200
-        )
-
-        assert inserted == 0
-        assert invalid == 1
-
-    async def test_batch_with_out_of_range_timestamp(self, mock_synchronizer_brotr: Brotr) -> None:
-        batch = EventBatch(since=100, until=200, limit=10)
-        relay = Relay("wss://test.relay.com")
-
-        # Event at timestamp 150 is in batch range [100, 200]
-        evt = _make_mock_event(150)
-        batch.append(evt)
-
-        # But insert_batch checks against a tighter window
-        _inserted, invalid = await insert_batch(
-            batch, relay, mock_synchronizer_brotr, since=160, until=200
-        )
-
-        assert invalid == 1
-
-    async def test_batch_with_event_parse_error(self, mock_synchronizer_brotr: Brotr) -> None:
-        batch = EventBatch(since=100, until=200, limit=10)
-        relay = Relay("wss://test.relay.com")
-
-        evt = _make_mock_event(150)
-        evt.verify.side_effect = ValueError("parse failed")
-        batch.append(evt)
-
-        inserted, invalid = await insert_batch(
-            batch, relay, mock_synchronizer_brotr, since=100, until=200
-        )
-
-        # Parse errors are silently logged, not counted as invalid
-        assert inserted == 0
-        assert invalid == 0
-
-    async def test_batch_with_type_error(self, mock_synchronizer_brotr: Brotr) -> None:
-        batch = EventBatch(since=100, until=200, limit=10)
-        relay = Relay("wss://test.relay.com")
-
-        evt = _make_mock_event(150)
-        evt.verify.side_effect = TypeError("type error")
-        batch.append(evt)
-
-        inserted, invalid = await insert_batch(
-            batch, relay, mock_synchronizer_brotr, since=100, until=200
-        )
-
-        assert inserted == 0
-        assert invalid == 0
-
-    async def test_batch_with_overflow_error(self, mock_synchronizer_brotr: Brotr) -> None:
-        batch = EventBatch(since=100, until=200, limit=10)
-        relay = Relay("wss://test.relay.com")
-
-        evt = _make_mock_event(150)
-        evt.verify.side_effect = OverflowError("overflow")
-        batch.append(evt)
-
-        inserted, invalid = await insert_batch(
-            batch, relay, mock_synchronizer_brotr, since=100, until=200
-        )
-
-        assert inserted == 0
-        assert invalid == 0
-
-    async def test_batch_chunking(self, mock_synchronizer_brotr: Brotr) -> None:
+    async def test_chunking(self, mock_synchronizer_brotr: Brotr) -> None:
         mock_synchronizer_brotr.config.batch.max_size = 2
         mock_synchronizer_brotr.insert_event_relay = AsyncMock(return_value=2)
 
-        batch = EventBatch(since=100, until=200, limit=10)
         relay = Relay("wss://test.relay.com")
+        events = [MagicMock(), MagicMock(), MagicMock()]
 
-        for ts in [120, 130, 140]:
-            evt = _make_mock_event(ts)
-            batch.append(evt)
-
-        with patch("bigbrotr.services.synchronizer.utils.Event") as MockEvent:
-            MockEvent.return_value = MagicMock()
-            with patch("bigbrotr.services.synchronizer.utils.EventRelay") as MockEventRelay:
-                MockEventRelay.return_value = MagicMock()
-
-                inserted, _invalid = await insert_batch(
-                    batch, relay, mock_synchronizer_brotr, since=100, until=200
-                )
+        with patch("bigbrotr.services.synchronizer.utils.EventRelay") as MockEventRelay:
+            MockEventRelay.return_value = MagicMock()
+            inserted = await insert_events(events, relay, mock_synchronizer_brotr)
 
         # Should be called twice: chunk of 2 + chunk of 1
         assert mock_synchronizer_brotr.insert_event_relay.call_count == 2
         assert inserted == 4  # 2 + 2 from mock return_value
 
-    async def test_batch_mixed_valid_and_invalid(self, mock_synchronizer_brotr: Brotr) -> None:
-        mock_synchronizer_brotr.insert_event_relay = AsyncMock(return_value=1)
-
-        batch = EventBatch(since=100, until=200, limit=10)
-        relay = Relay("wss://test.relay.com")
-
-        good_evt = _make_mock_event(150)
-        good_evt.verify.return_value = True
-        batch.append(good_evt)
-
-        bad_evt = _make_mock_event(160)
-        bad_evt.verify.return_value = False
-        batch.append(bad_evt)
-
-        with patch("bigbrotr.services.synchronizer.utils.Event") as MockEvent:
-            MockEvent.return_value = MagicMock()
-            with patch("bigbrotr.services.synchronizer.utils.EventRelay") as MockEventRelay:
-                MockEventRelay.return_value = MagicMock()
-
-                inserted, invalid = await insert_batch(
-                    batch, relay, mock_synchronizer_brotr, since=100, until=200
-                )
-
-        assert inserted == 1
-        assert invalid == 1
-
 
 class TestIterRelayEvents:
-    @staticmethod
-    def _make_fetch_result(events: list[MagicMock]) -> MagicMock:
-        result = MagicMock()
-        result.to_vec.return_value = events
-        return result
+    @pytest.fixture(autouse=True)
+    def _bypass_event_model(self) -> None:  # type: ignore[misc]
+        """Patch Event constructor to passthrough so mock events survive conversion."""
+        with patch("bigbrotr.utils.streaming.Event", side_effect=lambda x: x):
+            yield
 
     async def test_empty_relay_yields_nothing(self) -> None:
         client = AsyncMock()
-        client.fetch_events = AsyncMock(return_value=self._make_fetch_result([]))
-        config = FilterConfig(limit=500)
+        client.stream_events = AsyncMock(return_value=_make_event_stream([]))
+        filters = [_make_mock_filter()]
 
-        batches = [b async for b in iter_relay_events(client, 100, 1000, config, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0)]
 
-        assert batches == []
+        assert events == []
 
-    async def test_single_batch_under_limit(self) -> None:
-        events = [_make_mock_event(200), _make_mock_event(300), _make_mock_event(400)]
-        client = AsyncMock()
-        client.fetch_events = AsyncMock(return_value=self._make_fetch_result(events))
-        config = FilterConfig(limit=500)
-
-        batches = [b async for b in iter_relay_events(client, 100, 1000, config, 10.0)]
-
-        assert len(batches) == 1
-        assert batches[0].since == 100
-        assert batches[0].until == 1000
-        assert len(batches[0]) == 3
-
-    async def test_full_batch_triggers_split(self) -> None:
-        config = FilterConfig(limit=3)
-
-        # Call 1: window [100, 200], 3 events → full → split, mid=150
-        call1 = self._make_fetch_result(
-            [
-                _make_mock_event(120),
-                _make_mock_event(160),
-                _make_mock_event(180),
-            ]
-        )
-        # Call 2: window [100, 150], 2 events → under limit → yield
-        call2 = self._make_fetch_result(
-            [
-                _make_mock_event(120),
-                _make_mock_event(140),
-            ]
-        )
-        # Call 3: window [151, 200], 2 events → under limit → yield
-        call3 = self._make_fetch_result(
-            [
-                _make_mock_event(160),
-                _make_mock_event(180),
-            ]
-        )
+    async def test_single_window_under_limit(self) -> None:
+        evt200 = _make_mock_event(200)
+        evt300 = _make_mock_event(300)
+        evt400 = _make_mock_event(400)
+        # Main [100, 1000]: 3 events (under limit=500) → verify
+        call1 = _make_event_stream([evt200, evt300, evt400])
+        # Verify [100, 200]: event at min_ts=200
+        call2 = _make_event_stream([evt200])
+        # Probe [100, 199]: empty → complete
+        call3 = _make_event_stream([])
 
         client = AsyncMock()
-        client.fetch_events = AsyncMock(side_effect=[call1, call2, call3])
+        client.stream_events = AsyncMock(side_effect=[call1, call2, call3])
+        filters = [_make_mock_filter()]
 
-        batches = [b async for b in iter_relay_events(client, 100, 200, config, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0)]
 
-        assert len(batches) == 2
-        # First batch covers left half
-        assert batches[0].since == 100
-        assert batches[0].until == 150
-        assert len(batches[0]) == 2
-        # Second batch covers right half
-        assert batches[1].since == 151
-        assert batches[1].until == 200
-        assert len(batches[1]) == 2
+        assert len(events) == 3
+        timestamps = [e.created_at().as_secs() for e in events]
+        assert timestamps == sorted(timestamps)
 
-    async def test_single_second_window_yields_despite_full_batch(self) -> None:
-        events = [_make_mock_event(500), _make_mock_event(500), _make_mock_event(500)]
+    async def test_at_limit_smart_path_yields_combined(self) -> None:
+        # Main fetch: 3 events (== limit), min_ts=120
+        call1 = _make_event_stream(
+            [_make_mock_event(120), _make_mock_event(160), _make_mock_event(180)]
+        )
+        # Verify fetch [100, 120]: events all at 120
+        call2 = _make_event_stream([_make_mock_event(120)])
+        # Probe [100, 119] with limit=1: empty → no events before 120
+        call3 = _make_event_stream([])
+
         client = AsyncMock()
-        client.fetch_events = AsyncMock(return_value=self._make_fetch_result(events))
-        config = FilterConfig(limit=3)
+        client.stream_events = AsyncMock(side_effect=[call1, call2, call3])
+        filters = [_make_mock_filter()]
 
-        batches = [b async for b in iter_relay_events(client, 500, 500, config, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 200, 3, 10.0)]
 
-        assert len(batches) == 1
-        assert batches[0].since == 500
-        assert batches[0].until == 500
-        assert len(batches[0]) == 3
+        # Should yield all events (combined from main + verify)
+        assert len(events) >= 3
+        timestamps = [e.created_at().as_secs() for e in events]
+        assert timestamps == sorted(timestamps)
+
+    async def test_at_limit_inconsistent_verify_falls_back_to_binary_split(self) -> None:
+        evt120 = _make_mock_event(120)
+        evt180 = _make_mock_event(180)
+        # Main fetch [100, 200]: 2 events (== limit), min_ts=120
+        call1 = _make_event_stream([evt120, evt180])
+        # Verify fetch [100, 120]: returns event at 110 (verify_max != min_ts) → inconsistent
+        call2 = _make_event_stream([_make_mock_event(110)])
+        # Binary split mid=150 → left half [100, 150]: 1 event at 120
+        call3 = _make_event_stream([evt120])
+        # Left verify [100, 120]: event at 120
+        call4 = _make_event_stream([evt120])
+        # Left probe [100, 119]: empty → complete
+        call5 = _make_event_stream([])
+        # Right half [151, 200]: 1 event at 180
+        call6 = _make_event_stream([evt180])
+        # Right verify [151, 180]: event at 180
+        call7 = _make_event_stream([evt180])
+        # Right probe [151, 179]: empty → complete
+        call8 = _make_event_stream([])
+
+        client = AsyncMock()
+        client.stream_events = AsyncMock(
+            side_effect=[call1, call2, call3, call4, call5, call6, call7, call8]
+        )
+        filters = [_make_mock_filter()]
+
+        events = [e async for e in stream_events(client, filters, 100, 200, 2, 10.0)]
+
+        assert len(events) == 2
+        timestamps = [e.created_at().as_secs() for e in events]
+        assert timestamps == sorted(timestamps)
+
+    async def test_at_limit_empty_verify_falls_back_to_binary_split(self) -> None:
+        evt150 = _make_mock_event(150)
+        evt180 = _make_mock_event(180)
+        # Main fetch [100, 200]: 2 events (== limit)
+        call1 = _make_event_stream([evt150, evt180])
+        # Verify fetch: empty → inconsistent → fallback
+        call2 = _make_event_stream([])
+        # Binary split mid=150 → left [100, 150]: 1 event at 150
+        call3 = _make_event_stream([evt150])
+        # Left verify [100, 150]: event at 150
+        call4 = _make_event_stream([evt150])
+        # Left probe [100, 149]: empty → complete
+        call5 = _make_event_stream([])
+        # Right [151, 200]: 1 event at 180
+        call6 = _make_event_stream([evt180])
+        # Right verify [151, 180]: event at 180
+        call7 = _make_event_stream([evt180])
+        # Right probe [151, 179]: empty → complete
+        call8 = _make_event_stream([])
+
+        client = AsyncMock()
+        client.stream_events = AsyncMock(
+            side_effect=[call1, call2, call3, call4, call5, call6, call7, call8]
+        )
+        filters = [_make_mock_filter()]
+
+        events = [e async for e in stream_events(client, filters, 100, 200, 2, 10.0)]
+
+        assert len(events) == 2
+
+    async def test_single_second_window_yields_all(self) -> None:
+        evts = [_make_mock_event(500), _make_mock_event(500), _make_mock_event(500)]
+        client = AsyncMock()
+        client.stream_events = AsyncMock(return_value=_make_event_stream(evts))
+        filters = [_make_mock_filter()]
+
+        events = [e async for e in stream_events(client, filters, 500, 500, 3, 10.0)]
+
+        assert len(events) == 3
 
     async def test_exception_propagates(self) -> None:
         client = AsyncMock()
-        client.fetch_events = AsyncMock(side_effect=TimeoutError("fetch timeout"))
-        config = FilterConfig(limit=500)
+        client.stream_events = AsyncMock(side_effect=TimeoutError("fetch timeout"))
+        filters = [_make_mock_filter()]
 
         with pytest.raises(TimeoutError, match="fetch timeout"):
-            async for _ in iter_relay_events(client, 100, 1000, config, 10.0):
+            async for _ in stream_events(client, filters, 100, 1000, 500, 10.0):
                 pass
 
-    async def test_events_out_of_range_filtered(self) -> None:
-        # Events outside [100, 200] are silently dropped by EventBatch
-        events = [_make_mock_event(50), _make_mock_event(300)]
-        client = AsyncMock()
-        client.fetch_events = AsyncMock(return_value=self._make_fetch_result(events))
-        config = FilterConfig(limit=500)
-
-        batches = [b async for b in iter_relay_events(client, 100, 200, config, 10.0)]
-
-        # Batch is empty after filtering → treated as empty window
-        assert batches == []
-
-    async def test_nested_splits(self) -> None:
-        config = FilterConfig(limit=2)
-
-        # Window [0, 100]: 2 events → full → split, mid=50
-        call1 = self._make_fetch_result([_make_mock_event(30), _make_mock_event(80)])
-        # Window [0, 50]: 2 events → full → split, mid=25
-        call2 = self._make_fetch_result([_make_mock_event(10), _make_mock_event(40)])
-        # Window [0, 25]: 1 event → yield
-        call3 = self._make_fetch_result([_make_mock_event(10)])
-        # Window [26, 50]: 1 event → yield
-        call4 = self._make_fetch_result([_make_mock_event(40)])
-        # Window [51, 100]: 1 event → yield
-        call5 = self._make_fetch_result([_make_mock_event(80)])
+    async def test_ascending_order_within_window(self) -> None:
+        # Events in reverse order — should be sorted ascending on yield
+        evt200 = _make_mock_event(200)
+        evt300 = _make_mock_event(300)
+        evt400 = _make_mock_event(400)
+        # Main [100, 1000]: sorted by _fetch_validated to [200, 300, 400]
+        call1 = _make_event_stream([evt400, evt200, evt300])
+        # Verify [100, 200]: event at min_ts=200
+        call2 = _make_event_stream([evt200])
+        # Probe [100, 199]: empty → complete
+        call3 = _make_event_stream([])
 
         client = AsyncMock()
-        client.fetch_events = AsyncMock(side_effect=[call1, call2, call3, call4, call5])
+        client.stream_events = AsyncMock(side_effect=[call1, call2, call3])
+        filters = [_make_mock_filter()]
 
-        batches = [b async for b in iter_relay_events(client, 0, 100, config, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0)]
 
-        assert len(batches) == 3
-        # Ascending time order
-        assert batches[0].until < batches[1].until < batches[2].until
+        timestamps = [e.created_at().as_secs() for e in events]
+        assert timestamps == [200, 300, 400]
 
-    async def test_empty_window_between_batches(self) -> None:
-        # Split that leads to an empty left half
-        config_split = FilterConfig(limit=2)
-        # Window [100, 200]: 2 events → full → split, mid=150
-        call1 = self._make_fetch_result([_make_mock_event(160), _make_mock_event(180)])
-        # Window [100, 150]: 0 events → empty → advance to 151
-        call2 = self._make_fetch_result([])
-        # Window [151, 200]: 2 events → full → since==until? No. split, mid=175
-        call3 = self._make_fetch_result([_make_mock_event(160), _make_mock_event(180)])
-        # Window [151, 175]: 1 event → yield
-        call4 = self._make_fetch_result([_make_mock_event(160)])
-        # Window [176, 200]: 1 event → yield
-        call5 = self._make_fetch_result([_make_mock_event(180)])
+    async def test_multiple_filters_deduplicates(self) -> None:
+        # Same events returned by both filters — should be deduplicated
+        evt200 = _make_mock_event(200)
+        evt300 = _make_mock_event(300)
+
+        # Main fetch: filter1 → [200, 300], filter2 → [200, 300] (deduped)
+        s1 = _make_event_stream([evt200, evt300])
+        s2 = _make_event_stream([evt200, evt300])
+        # Verify [100, 200]: filter1 → [200], filter2 → [200] (deduped)
+        s3 = _make_event_stream([evt200])
+        s4 = _make_event_stream([evt200])
+        # Probe [100, 199]: filter1 → empty, filter2 → empty
+        s5 = _make_event_stream([])
+        s6 = _make_event_stream([])
 
         client = AsyncMock()
-        client.fetch_events = AsyncMock(side_effect=[call1, call2, call3, call4, call5])
+        client.stream_events = AsyncMock(side_effect=[s1, s2, s3, s4, s5, s6])
+        filters = [_make_mock_filter(), _make_mock_filter()]
 
-        batches = [b async for b in iter_relay_events(client, 100, 200, config_split, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0)]
 
-        assert len(batches) == 2
-        # Left half was empty, so batches start from the right
-        assert batches[0].since == 151
+        # Each event appears once despite two filters returning same events
+        assert len(events) == 2
 
     async def test_partial_completion_on_exception(self) -> None:
-        config = FilterConfig(limit=2)
-
-        # Window [100, 300]: 2 events (== limit) → split, mid=200
-        call1 = self._make_fetch_result([_make_mock_event(150), _make_mock_event(250)])
-        # Window [100, 200]: 1 event (< limit) → yield
-        call2 = self._make_fetch_result([_make_mock_event(150)])
-        # Third fetch (right half [201, 300]) raises
+        evt200 = _make_mock_event(200)
+        # [100, 1000] limit=2: 2 events → at limit → smart verify
+        call1 = _make_event_stream([evt200, _make_mock_event(800)])
+        # Verify empty → inconsistent → binary split mid=550
+        call2 = _make_event_stream([])
+        # Left half [100, 550]: 1 event at 200
+        call3 = _make_event_stream([evt200])
+        # Left verify [100, 200]: event at 200
+        call4 = _make_event_stream([evt200])
+        # Left probe [100, 199]: empty → complete → yield
+        call5 = _make_event_stream([])
+        # Right half [551, 1000]: raises
         client = AsyncMock()
-        client.fetch_events = AsyncMock(side_effect=[call1, call2, OSError("connection lost")])
+        client.stream_events = AsyncMock(
+            side_effect=[call1, call2, call3, call4, call5, OSError("connection lost")]
+        )
+        filters = [_make_mock_filter()]
 
-        batches: list[EventBatch] = []
+        events: list[MagicMock] = []
         with pytest.raises(OSError, match="connection lost"):
-            async for b in iter_relay_events(client, 100, 300, config, 10.0):
-                batches.append(b)
+            async for e in stream_events(client, filters, 100, 1000, 2, 10.0):
+                events.append(e)
 
-        # First batch was yielded before the error
-        assert len(batches) == 1
-        assert batches[0].until == 200
+        # First event yielded before the error on the right half
+        assert len(events) == 1
+
+    async def test_verify_min_differs_triggers_split(self) -> None:
+        evt130 = _make_mock_event(130)
+        evt180 = _make_mock_event(180)
+        # Main fetch [100, 200]: 2 events (== limit), min_ts=150
+        call1 = _make_event_stream([_make_mock_event(150), evt180])
+        # Verify [100, 150]: returns event at ts=130 (verify_min=130 != min_ts=150)
+        # → earlier events exist → split
+        call2 = _make_event_stream([evt130, _make_mock_event(150)])
+        # Binary split mid=150 → left [100, 150]: 1 event at 130
+        call3 = _make_event_stream([evt130])
+        # Left verify [100, 130]: event at 130
+        call4 = _make_event_stream([evt130])
+        # Left probe [100, 129]: empty → complete
+        call5 = _make_event_stream([])
+        # Right [151, 200]: 1 event at 180
+        call6 = _make_event_stream([evt180])
+        # Right verify [151, 180]: event at 180
+        call7 = _make_event_stream([evt180])
+        # Right probe [151, 179]: empty → complete
+        call8 = _make_event_stream([])
+
+        client = AsyncMock()
+        client.stream_events = AsyncMock(
+            side_effect=[call1, call2, call3, call4, call5, call6, call7, call8]
+        )
+        filters = [_make_mock_filter()]
+
+        events = [e async for e in stream_events(client, filters, 100, 200, 2, 10.0)]
+
+        assert len(events) == 2
+        timestamps = [e.created_at().as_secs() for e in events]
+        assert timestamps == sorted(timestamps)
+
+    async def test_probe_finds_events_triggers_split(self) -> None:
+        evt120 = _make_mock_event(120)
+        evt150 = _make_mock_event(150)
+        evt280 = _make_mock_event(280)
+        # Main fetch [100, 300]: 3 events (== limit), min_ts=150
+        call1 = _make_event_stream([evt150, _make_mock_event(200), evt280])
+        # Verify [100, 150]: all at 150
+        call2 = _make_event_stream([evt150])
+        # Probe [100, 149] limit=1: finds event → earlier data exists → split
+        call3 = _make_event_stream([evt120])
+        # Binary split mid=200 → left [100, 200]: 2 events at 120, 150
+        call4 = _make_event_stream([evt120, evt150])
+        # Left verify [100, 120]: event at 120
+        call5 = _make_event_stream([evt120])
+        # Left probe [100, 119]: empty → complete
+        call6 = _make_event_stream([])
+        # Right [201, 300]: 1 event at 280
+        call7 = _make_event_stream([evt280])
+        # Right verify [201, 280]: event at 280
+        call8 = _make_event_stream([evt280])
+        # Right probe [201, 279]: empty → complete
+        call9 = _make_event_stream([])
+
+        client = AsyncMock()
+        client.stream_events = AsyncMock(
+            side_effect=[call1, call2, call3, call4, call5, call6, call7, call8, call9]
+        )
+        filters = [_make_mock_filter()]
+
+        events = [e async for e in stream_events(client, filters, 100, 300, 3, 10.0)]
+
+        assert len(events) >= 2
+        timestamps = [e.created_at().as_secs() for e in events]
+        assert timestamps == sorted(timestamps)
 
 
 class TestTimeoutsConfigGetRelayTimeout:
@@ -1022,22 +726,22 @@ class TestSynchronizerInit:
     def test_init_with_custom_config(self, mock_synchronizer_brotr: Brotr) -> None:
         config = SynchronizerConfig(
             networks=NetworksConfig(tor=TorConfig(enabled=True)),
-            concurrency=ConcurrencyConfig(cursor_flush_interval=25),
+            flush_interval=25,
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
         assert sync.config.networks.tor.enabled is True
-        assert sync.config.concurrency.cursor_flush_interval == 25
+        assert sync.config.flush_interval == 25
 
     def test_from_dict(self, mock_synchronizer_brotr: Brotr) -> None:
         data = {
             "networks": {"tor": {"enabled": True}},
-            "concurrency": {"cursor_flush_interval": 25},
+            "flush_interval": 25,
         }
         sync = Synchronizer.from_dict(data, brotr=mock_synchronizer_brotr)
 
         assert sync.config.networks.tor.enabled is True
-        assert sync.config.concurrency.cursor_flush_interval == 25
+        assert sync.config.flush_interval == 25
 
 
 class TestSynchronizerFetchRelays:
@@ -1092,22 +796,38 @@ class TestSynchronizerFetchRelays:
 
 
 class TestSynchronizerFetchCursors:
-    async def test_returns_empty_when_relay_state_disabled(
-        self, mock_synchronizer_brotr: Brotr
-    ) -> None:
-        config = SynchronizerConfig(
-            time_range=TimeRangeConfig(use_relay_state=False),
-        )
-        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
-
-        result = await sync.fetch_cursors()
-        assert result == {}
-
     async def test_delegates_to_get_service_state(self, mock_synchronizer_brotr: Brotr) -> None:
-        config = SynchronizerConfig(
-            time_range=TimeRangeConfig(use_relay_state=True),
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+
+        mock_synchronizer_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
+            return_value=[
+                ServiceState(
+                    service_name=ServiceName.SYNCHRONIZER,
+                    state_type=ServiceStateType.CURSOR,
+                    state_key="wss://r1.com",
+                    state_value={"timestamp": 1000, "id": "aa" * 32},
+                ),
+                ServiceState(
+                    service_name=ServiceName.SYNCHRONIZER,
+                    state_type=ServiceStateType.CURSOR,
+                    state_key="wss://r2.com",
+                    state_value={"timestamp": 2000, "id": "bb" * 32},
+                ),
+            ]
         )
-        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+        result = await sync.fetch_cursors()
+
+        mock_synchronizer_brotr.get_service_state.assert_awaited_once_with(
+            ServiceName.SYNCHRONIZER, ServiceStateType.CURSOR
+        )
+        assert "wss://r1.com" in result
+        assert "wss://r2.com" in result
+        assert result["wss://r1.com"].timestamp == 1000
+        assert result["wss://r1.com"].id == bytes.fromhex("aa" * 32)
+        assert result["wss://r2.com"].timestamp == 2000
+
+    async def test_backwards_compat_cursor_without_id(self, mock_synchronizer_brotr: Brotr) -> None:
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
 
         mock_synchronizer_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
             return_value=[
@@ -1117,29 +837,15 @@ class TestSynchronizerFetchCursors:
                     state_key="wss://r1.com",
                     state_value={"timestamp": 1000},
                 ),
-                ServiceState(
-                    service_name=ServiceName.SYNCHRONIZER,
-                    state_type=ServiceStateType.CURSOR,
-                    state_key="wss://r2.com",
-                    state_value={"timestamp": 2000},
-                ),
             ]
         )
         result = await sync.fetch_cursors()
 
-        mock_synchronizer_brotr.get_service_state.assert_awaited_once_with(
-            ServiceName.SYNCHRONIZER, ServiceStateType.CURSOR
-        )
-        assert result == {
-            "wss://r1.com": 1000,
-            "wss://r2.com": 2000,
-        }
+        assert result["wss://r1.com"].timestamp == 1000
+        assert result["wss://r1.com"].id == b"\xff" * 32  # sentinel
 
     async def test_filters_cursors_with_missing_field(self, mock_synchronizer_brotr: Brotr) -> None:
-        config = SynchronizerConfig(
-            time_range=TimeRangeConfig(use_relay_state=True),
-        )
-        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
 
         mock_synchronizer_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
             return_value=[
@@ -1159,56 +865,54 @@ class TestSynchronizerFetchCursors:
         )
         result = await sync.fetch_cursors()
 
-        assert result == {
-            "wss://r1.com": 1000,
-        }
+        assert "wss://r1.com" in result
+        assert "wss://r2.com" not in result
 
 
 class TestSynchronizerGetStartTime:
-    def test_returns_default_when_relay_state_disabled(
-        self, mock_synchronizer_brotr: Brotr
-    ) -> None:
+    def test_returns_default_when_cursors_empty(self, mock_synchronizer_brotr: Brotr) -> None:
         config = SynchronizerConfig(
-            time_range=TimeRangeConfig(use_relay_state=False, default_start=42),
+            since=42,
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
         relay = Relay("wss://relay.example.com")
 
-        result = sync._get_start_time(
-            relay,
-            {"wss://relay.example.com": 1000},
-        )
+        result = sync._get_start_time(relay, {})
         assert result == 42
 
     def test_returns_cursor_plus_one_when_found(self, mock_synchronizer_brotr: Brotr) -> None:
         config = SynchronizerConfig(
-            time_range=TimeRangeConfig(use_relay_state=True, default_start=0),
+            since=0,
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
         relay = Relay("wss://relay.example.com")
 
-        result = sync._get_start_time(
-            relay,
-            {"wss://relay.example.com": 1000},
-        )
+        cursors = {
+            "wss://relay.example.com": SyncCursor(
+                key="wss://relay.example.com", timestamp=1000, id=b"\x00" * 32
+            ),
+        }
+        result = sync._get_start_time(relay, cursors)
         assert result == 1001
 
     def test_returns_default_when_cursor_not_found(self, mock_synchronizer_brotr: Brotr) -> None:
         config = SynchronizerConfig(
-            time_range=TimeRangeConfig(use_relay_state=True, default_start=500),
+            since=500,
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
         relay = Relay("wss://other.relay.com")
 
-        result = sync._get_start_time(
-            relay,
-            {"wss://relay.example.com": 1000},
-        )
+        cursors = {
+            "wss://relay.example.com": SyncCursor(
+                key="wss://relay.example.com", timestamp=1000, id=b"\x00" * 32
+            ),
+        }
+        result = sync._get_start_time(relay, cursors)
         assert result == 500
 
     def test_returns_default_with_empty_cursors(self, mock_synchronizer_brotr: Brotr) -> None:
         config = SynchronizerConfig(
-            time_range=TimeRangeConfig(use_relay_state=True, default_start=0),
+            since=0,
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
         relay = Relay("wss://relay.example.com")
@@ -1262,7 +966,8 @@ class TestSynchronizerRunSync:
         sync.inc_counter = MagicMock()  # type: ignore[method-assign]
 
         relay = Relay("wss://success.relay.com")
-        sync._fetch_and_insert = AsyncMock(return_value=(10, 2, 1000))  # type: ignore[method-assign]
+        cursor = SyncCursor(key="wss://success.relay.com", timestamp=1000, id=b"\xff" * 32)
+        sync._fetch_and_insert = AsyncMock(return_value=(10, cursor))  # type: ignore[method-assign]
         result = await sync._run_sync([relay], {})
 
         assert result == 10
@@ -1326,22 +1031,20 @@ class TestSynchronizerRunSync:
         sync.inc_counter.assert_any_call("total_sync_failures", 1)
 
     async def test_run_sync_cursor_update_flushed(self, mock_synchronizer_brotr: Brotr) -> None:
-        config = SynchronizerConfig(
-            concurrency=ConcurrencyConfig(cursor_flush_interval=50),
-        )
+        config = SynchronizerConfig(flush_interval=50)
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
         relay = Relay("wss://relay.example.com")
-        sync._fetch_and_insert = AsyncMock(return_value=(1, 0, 1000))  # type: ignore[method-assign]
+        sync._fetch_and_insert = AsyncMock(
+            return_value=(1, SyncCursor(key="r", timestamp=1000, id=b"\xff" * 32))
+        )  # type: ignore[method-assign]
         await sync._run_sync([relay], {})
 
         mock_synchronizer_brotr.upsert_service_state.assert_called()
 
     async def test_run_sync_cursor_periodic_flush(self, mock_synchronizer_brotr: Brotr) -> None:
         config = SynchronizerConfig(
-            concurrency=ConcurrencyConfig(
-                cursor_flush_interval=1,  # Flush after every relay
-            ),
+            flush_interval=1,  # Flush after every relay
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
@@ -1350,16 +1053,16 @@ class TestSynchronizerRunSync:
             Relay("wss://relay2.example.com"),
         ]
 
-        sync._fetch_and_insert = AsyncMock(return_value=(1, 0, 1000))  # type: ignore[method-assign]
+        sync._fetch_and_insert = AsyncMock(
+            return_value=(1, SyncCursor(key="r", timestamp=1000, id=b"\xff" * 32))
+        )  # type: ignore[method-assign]
         await sync._run_sync(relays, {})
 
         # Multiple calls: periodic flushes + final flush
         assert mock_synchronizer_brotr.upsert_service_state.call_count >= 2
 
     async def test_run_sync_final_cursor_flush_error(self, mock_synchronizer_brotr: Brotr) -> None:
-        config = SynchronizerConfig(
-            concurrency=ConcurrencyConfig(cursor_flush_interval=999),
-        )
+        config = SynchronizerConfig(flush_interval=999)
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
         relay = Relay("wss://relay.example.com")
@@ -1368,36 +1071,27 @@ class TestSynchronizerRunSync:
             side_effect=asyncpg.PostgresError("flush failed")
         )
 
-        sync._fetch_and_insert = AsyncMock(return_value=(1, 0, 1000))  # type: ignore[method-assign]
+        sync._fetch_and_insert = AsyncMock(
+            return_value=(1, SyncCursor(key="r", timestamp=1000, id=b"\xff" * 32))
+        )  # type: ignore[method-assign]
         # Should not raise
         result = await sync._run_sync([relay], {})
 
         assert result == 1
 
-    async def test_run_sync_skip_when_start_ge_end(self, mock_synchronizer_brotr: Brotr) -> None:
-        config = SynchronizerConfig(
-            time_range=TimeRangeConfig(
-                default_start=999_999_999_999,  # Far future
-                use_relay_state=False,
-            ),
-        )
-        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
-
-        relay = Relay("wss://relay.example.com")
-        sync._fetch_and_insert = AsyncMock(return_value=(5, 0, 1000))  # type: ignore[method-assign]
-        await sync._run_sync([relay], {})
-
-        sync._fetch_and_insert.assert_not_called()
-
     async def test_run_sync_with_cached_cursor(self, mock_synchronizer_brotr: Brotr) -> None:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
 
         relay = Relay("wss://relay.example.com")
-        cursors: dict[str, int] = {
-            "wss://relay.example.com": 100,
+        cursors: dict[str, SyncCursor] = {
+            "wss://relay.example.com": SyncCursor(
+                key="wss://relay.example.com", timestamp=100, id=b"\x00" * 32
+            ),
         }
 
-        sync._fetch_and_insert = AsyncMock(return_value=(1, 0, 1000))  # type: ignore[method-assign]
+        sync._fetch_and_insert = AsyncMock(
+            return_value=(1, SyncCursor(key="r", timestamp=1000, id=b"\xff" * 32))
+        )  # type: ignore[method-assign]
         result = await sync._run_sync([relay], cursors)
 
         assert result == 1
@@ -1409,7 +1103,7 @@ class TestSynchronizerRunSync:
 
         relay = Relay("wss://relay.example.com")
         # cursor_value is None → no cursor update
-        sync._fetch_and_insert = AsyncMock(return_value=(0, 0, None))  # type: ignore[method-assign]
+        sync._fetch_and_insert = AsyncMock(return_value=(0, None))  # type: ignore[method-assign]
         await sync._run_sync([relay], {})
 
         mock_synchronizer_brotr.upsert_service_state.assert_not_called()
@@ -1433,12 +1127,11 @@ class TestSynchronizerPhaseTimeout:
 
         relay = Relay("wss://relay.example.com")
         phase_start = time_mod.monotonic() - 61.0  # 61s ago -> exceeds 60s limit
-        batch = SyncBatchState(
-            cursor_updates=[], cursor_lock=asyncio.Lock(), cursor_flush_interval=50
-        )
 
-        sync._fetch_and_insert = AsyncMock(return_value=(5, 0, 1000))  # type: ignore[method-assign]
-        result = await sync._sync_single_relay(relay, {}, batch, phase_start)
+        sync._fetch_and_insert = AsyncMock(
+            return_value=(5, SyncCursor(key="r", timestamp=1000, id=b"\xff" * 32))
+        )  # type: ignore[method-assign]
+        result = await sync._sync_single_relay(relay, {}, [], asyncio.Lock(), phase_start)
 
         assert result is None
         sync._fetch_and_insert.assert_not_called()
@@ -1454,14 +1147,13 @@ class TestSynchronizerPhaseTimeout:
 
         relay = Relay("wss://relay.example.com")
         phase_start = time_mod.monotonic()  # Just started -> within limit
-        batch = SyncBatchState(
-            cursor_updates=[], cursor_lock=asyncio.Lock(), cursor_flush_interval=50
-        )
 
-        sync._fetch_and_insert = AsyncMock(return_value=(10, 0, 1000))  # type: ignore[method-assign]
-        result = await sync._sync_single_relay(relay, {}, batch, phase_start)
+        sync._fetch_and_insert = AsyncMock(
+            return_value=(10, SyncCursor(key="r", timestamp=1000, id=b"\xff" * 32))
+        )  # type: ignore[method-assign]
+        result = await sync._sync_single_relay(relay, {}, [], asyncio.Lock(), phase_start)
 
-        assert result == (10, 0)
+        assert result == 10
 
     async def test_max_duration_none_allows_unlimited(self, mock_synchronizer_brotr: Brotr) -> None:
         config = SynchronizerConfig(
@@ -1471,7 +1163,9 @@ class TestSynchronizerPhaseTimeout:
         sync.set_gauge = MagicMock()  # type: ignore[method-assign]
 
         relay = Relay("wss://relay.example.com")
-        sync._fetch_and_insert = AsyncMock(return_value=(10, 0, 1000))  # type: ignore[method-assign]
+        sync._fetch_and_insert = AsyncMock(
+            return_value=(10, SyncCursor(key="r", timestamp=1000, id=b"\xff" * 32))
+        )  # type: ignore[method-assign]
         result = await sync._run_sync([relay], {})
 
         assert result == 10
@@ -1505,7 +1199,9 @@ class TestSynchronizerPhaseTimeout:
                 return original_monotonic()
             return original_monotonic() + 61.0
 
-        sync._fetch_and_insert = AsyncMock(return_value=(5, 0, 1000))  # type: ignore[method-assign]
+        sync._fetch_and_insert = AsyncMock(
+            return_value=(5, SyncCursor(key="r", timestamp=1000, id=b"\xff" * 32))
+        )  # type: ignore[method-assign]
         with patch(
             "bigbrotr.services.synchronizer.service.time.monotonic", side_effect=fake_monotonic
         ):
@@ -1521,7 +1217,9 @@ class TestSynchronizerPhaseTimeout:
         sync.request_shutdown()
 
         relay = Relay("wss://relay.example.com")
-        sync._fetch_and_insert = AsyncMock(return_value=(5, 0, 1000))  # type: ignore[method-assign]
+        sync._fetch_and_insert = AsyncMock(
+            return_value=(5, SyncCursor(key="r", timestamp=1000, id=b"\xff" * 32))
+        )  # type: ignore[method-assign]
         result = await sync._run_sync([relay], {})
 
         assert result == 0
@@ -1540,7 +1238,9 @@ class TestSynchronizerMetrics:
         sync.set_gauge = MagicMock()  # type: ignore[method-assign]
 
         relay = Relay("wss://relay1.example.com")
-        sync._fetch_and_insert = AsyncMock(return_value=(5, 1, 1000))  # type: ignore[method-assign]
+        sync._fetch_and_insert = AsyncMock(
+            return_value=(5, SyncCursor(key="r", timestamp=1000, id=b"\xff" * 32))
+        )  # type: ignore[method-assign]
         await sync._run_sync([relay], {})
 
         sync.set_gauge.assert_any_call("events_synced", 5)
@@ -1551,11 +1251,12 @@ class TestSynchronizerMetrics:
         sync.inc_counter = MagicMock()  # type: ignore[method-assign]
 
         relay = Relay("wss://relay.example.com")
-        sync._fetch_and_insert = AsyncMock(return_value=(10, 2, 1000))  # type: ignore[method-assign]
+        sync._fetch_and_insert = AsyncMock(
+            return_value=(10, SyncCursor(key="r", timestamp=1000, id=b"\xff" * 32))
+        )  # type: ignore[method-assign]
         await sync._run_sync([relay], {})
 
         sync.inc_counter.assert_any_call("total_events_synced", 10)
-        sync.inc_counter.assert_any_call("total_events_invalid", 2)
 
     async def test_failed_relay_emits_sync_failures(self, mock_synchronizer_brotr: Brotr) -> None:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
@@ -1579,9 +1280,7 @@ class TestSynchronizerMetrics:
         )
         await sync._run_sync([relay], {})
 
-        # Event counters should be called with 0 (no successful events)
         sync.inc_counter.assert_any_call("total_events_synced", 0)
-        sync.inc_counter.assert_any_call("total_events_invalid", 0)
 
     async def test_synchronize_returns_events_synced(self, mock_synchronizer_brotr: Brotr) -> None:
         mock_synchronizer_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]

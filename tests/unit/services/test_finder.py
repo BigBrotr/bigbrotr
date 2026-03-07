@@ -15,7 +15,7 @@ import pytest
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.services.common.types import ApiCheckpoint, EventRelayCursor
+from bigbrotr.services.common.types import ApiCheckpoint, FinderCursor
 from bigbrotr.services.common.utils import parse_relay
 from bigbrotr.services.finder import (
     ApiConfig,
@@ -580,7 +580,7 @@ class TestDeleteStaleApiCheckpoints:
         assert result == 0
 
 
-class TestFetchEventRelayCursors:
+class TestFetchFinderCursors:
     async def test_returns_cursor_for_relay_with_state(self, query_brotr: MagicMock) -> None:
         rows = [
             _make_dict_row(
@@ -593,9 +593,9 @@ class TestFetchEventRelayCursors:
 
         assert len(result) == 1
         cursor = result[0]
-        assert cursor.relay_url == "wss://relay.com"
-        assert cursor.seen_at == 1700000000
-        assert cursor.event_id == bytes.fromhex("ab" * 32)
+        assert cursor.key == "wss://relay.com"
+        assert cursor.timestamp == 1700000000
+        assert cursor.id == bytes.fromhex("ab" * 32)
 
     async def test_returns_empty_cursor_for_relay_without_state(
         self, query_brotr: MagicMock
@@ -609,9 +609,9 @@ class TestFetchEventRelayCursors:
 
         assert len(result) == 1
         cursor = result[0]
-        assert cursor.relay_url == "wss://new.relay.com"
-        assert cursor.seen_at is None
-        assert cursor.event_id is None
+        assert cursor.key == "wss://new.relay.com"
+        assert cursor.timestamp is None
+        assert cursor.id is None
 
     async def test_invalid_cursor_data_falls_back_to_empty(self, query_brotr: MagicMock) -> None:
         rows = [
@@ -623,8 +623,8 @@ class TestFetchEventRelayCursors:
 
         assert len(result) == 1
         cursor = result[0]
-        assert cursor.seen_at is None
-        assert cursor.event_id is None
+        assert cursor.timestamp is None
+        assert cursor.id is None
 
     async def test_query_uses_left_join(self, query_brotr: MagicMock) -> None:
         await fetch_event_relay_cursors(query_brotr)
@@ -643,10 +643,10 @@ class TestFetchEventRelayCursors:
 class TestScanEventRelay:
     async def test_scan_with_cursor(self, query_brotr: MagicMock) -> None:
         event_id = b"\xab" * 32
-        cursor = EventRelayCursor(
-            relay_url="wss://source.relay.com",
-            seen_at=1700000000,
-            event_id=event_id,
+        cursor = FinderCursor(
+            key="wss://source.relay.com",
+            timestamp=1700000000,
+            id=event_id,
         )
         await scan_event_relay(query_brotr, cursor, limit=500)
 
@@ -664,7 +664,7 @@ class TestScanEventRelay:
         assert args[0][4] == 500
 
     async def test_scan_no_cursor(self, query_brotr: MagicMock) -> None:
-        cursor = EventRelayCursor(relay_url="wss://source.relay.com")
+        cursor = FinderCursor(key="wss://source.relay.com")
         await scan_event_relay(query_brotr, cursor, limit=100)
 
         args = query_brotr.fetch.call_args
@@ -672,7 +672,7 @@ class TestScanEventRelay:
         assert args[0][3] is None
 
     async def test_scan_empty(self, query_brotr: MagicMock) -> None:
-        cursor = EventRelayCursor(relay_url="wss://source.relay.com")
+        cursor = FinderCursor(key="wss://source.relay.com")
         result = await scan_event_relay(query_brotr, cursor, limit=100)
 
         assert result == []
@@ -744,12 +744,12 @@ class TestSaveApiCheckpoints:
             assert r.state_value == {"timestamp": by_key[r.state_key]}
 
 
-class TestSaveEventRelayCursor:
+class TestSaveFinderCursor:
     async def test_happy_path(self, query_brotr: MagicMock) -> None:
-        cursor = EventRelayCursor(
-            relay_url="wss://relay.example.com",
-            seen_at=1700000200,
-            event_id=b"\xab" * 32,
+        cursor = FinderCursor(
+            key="wss://relay.example.com",
+            timestamp=1700000200,
+            id=b"\xab" * 32,
         )
         query_brotr.upsert_service_state = AsyncMock(return_value=1)
 
@@ -766,7 +766,7 @@ class TestSaveEventRelayCursor:
         assert state.state_value["event_id"] == (b"\xab" * 32).hex()
 
     async def test_noop_when_blank(self, query_brotr: MagicMock) -> None:
-        cursor = EventRelayCursor(relay_url="wss://relay.example.com")
+        cursor = FinderCursor(key="wss://relay.example.com")
         query_brotr.upsert_service_state = AsyncMock(return_value=0)
 
         await save_event_relay_cursor(query_brotr, cursor)
@@ -1169,7 +1169,7 @@ class TestFinderFindFromEvents:
             ) as mock_insert,
         ):
             mock_get_relays.return_value = [
-                EventRelayCursor(relay_url="wss://source.relay.com"),
+                FinderCursor(key="wss://source.relay.com"),
             ]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 1
@@ -1208,7 +1208,7 @@ class TestFinderFindFromEvents:
             ) as mock_insert,
         ):
             mock_get_relays.return_value = [
-                EventRelayCursor(relay_url="wss://source.relay.com"),
+                FinderCursor(key="wss://source.relay.com"),
             ]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 2
@@ -1248,7 +1248,7 @@ class TestFinderFindFromEvents:
             ) as mock_insert,
         ):
             mock_get_relays.return_value = [
-                EventRelayCursor(relay_url="wss://source.relay.com"),
+                FinderCursor(key="wss://source.relay.com"),
             ]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 1
@@ -1287,7 +1287,7 @@ class TestFinderFindFromEvents:
             ) as mock_insert,
         ):
             mock_get_relays.return_value = [
-                EventRelayCursor(relay_url="wss://source.relay.com"),
+                FinderCursor(key="wss://source.relay.com"),
             ]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 0
@@ -1324,7 +1324,7 @@ class TestFinderFindFromEvents:
             ) as mock_insert,
         ):
             mock_get_relays.return_value = [
-                EventRelayCursor(relay_url="wss://source.relay.com"),
+                FinderCursor(key="wss://source.relay.com"),
             ]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 1
@@ -1361,7 +1361,7 @@ class TestFinderFindFromEvents:
             ) as mock_insert,
         ):
             mock_get_relays.return_value = [
-                EventRelayCursor(relay_url="wss://source.relay.com"),
+                FinderCursor(key="wss://source.relay.com"),
             ]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 1
@@ -1409,7 +1409,7 @@ class TestFinderFindFromEvents:
             ) as mock_insert,
         ):
             mock_get_relays.return_value = [
-                EventRelayCursor(relay_url="wss://source.relay.com"),
+                FinderCursor(key="wss://source.relay.com"),
             ]
             mock_get_events.side_effect = [[mock_event], []]
             mock_insert.return_value = 2
@@ -1435,11 +1435,11 @@ class TestFinderEventScanConcurrency:
 
         async def _events_side_effect(
             brotr: Any,
-            cursor: EventRelayCursor,
+            cursor: FinderCursor,
             limit: int,
         ) -> list[dict[str, Any]]:
-            count = call_counts.get(cursor.relay_url, 0)
-            call_counts[cursor.relay_url] = count + 1
+            count = call_counts.get(cursor.key, 0)
+            call_counts[cursor.key] = count + 1
             if count == 0:
                 return [mock_event]
             return []
@@ -1449,9 +1449,9 @@ class TestFinderEventScanConcurrency:
                 "bigbrotr.services.finder.service.fetch_event_relay_cursors",
                 new_callable=AsyncMock,
                 return_value=[
-                    EventRelayCursor(relay_url="wss://relay1.com"),
-                    EventRelayCursor(relay_url="wss://relay2.com"),
-                    EventRelayCursor(relay_url="wss://relay3.com"),
+                    FinderCursor(key="wss://relay1.com"),
+                    FinderCursor(key="wss://relay2.com"),
+                    FinderCursor(key="wss://relay3.com"),
                 ],
             ),
             patch(
@@ -1488,12 +1488,12 @@ class TestFinderEventScanConcurrency:
 
         async def _events_side_effect(
             brotr: Any,
-            cursor: EventRelayCursor,
+            cursor: FinderCursor,
             limit: int,
         ) -> list[dict[str, Any]]:
-            if cursor.relay_url == "wss://failing.relay.com" and cursor.seen_at is None:
+            if cursor.key == "wss://failing.relay.com" and cursor.timestamp is None:
                 raise asyncpg.PostgresError("simulated DB error")
-            if cursor.seen_at is not None:
+            if cursor.timestamp is not None:
                 return []
             return [mock_event]
 
@@ -1502,8 +1502,8 @@ class TestFinderEventScanConcurrency:
                 "bigbrotr.services.finder.service.fetch_event_relay_cursors",
                 new_callable=AsyncMock,
                 return_value=[
-                    EventRelayCursor(relay_url="wss://good.relay.com"),
-                    EventRelayCursor(relay_url="wss://failing.relay.com"),
+                    FinderCursor(key="wss://good.relay.com"),
+                    FinderCursor(key="wss://failing.relay.com"),
                 ],
             ),
             patch(
@@ -1538,7 +1538,7 @@ class TestFinderEventScanConcurrency:
 
         original_scan = Finder._scan_relay_events
 
-        async def _tracking_scan(self: Any, cursor: EventRelayCursor) -> tuple[int, int]:
+        async def _tracking_scan(self: Any, cursor: FinderCursor) -> tuple[int, int]:
             nonlocal max_concurrent, current_concurrent
             async with lock:
                 current_concurrent += 1
@@ -1549,7 +1549,7 @@ class TestFinderEventScanConcurrency:
                 async with lock:
                     current_concurrent -= 1
 
-        cursors = [EventRelayCursor(relay_url=f"wss://relay{i}.com") for i in range(20)]
+        cursors = [FinderCursor(key=f"wss://relay{i}.com") for i in range(20)]
 
         with (
             patch(
@@ -1632,7 +1632,7 @@ class TestFinderMetrics:
                 "bigbrotr.services.finder.service.fetch_event_relay_cursors",
                 new_callable=AsyncMock,
                 return_value=[
-                    EventRelayCursor(relay_url="wss://source.relay.com"),
+                    FinderCursor(key="wss://source.relay.com"),
                 ],
             ),
             patch(
@@ -1763,10 +1763,10 @@ class TestFinderMetrics:
     async def test_find_from_events_unexpected_error_counted(self, mock_brotr: Brotr) -> None:
         async def _failing_events(
             brotr: Any,
-            cursor: EventRelayCursor,
+            cursor: FinderCursor,
             limit: int,
         ) -> list[dict[str, Any]]:
-            if cursor.relay_url == "wss://bad.relay.com":
+            if cursor.key == "wss://bad.relay.com":
                 raise RuntimeError("unexpected error")
             return []
 
@@ -1775,8 +1775,8 @@ class TestFinderMetrics:
                 "bigbrotr.services.finder.service.fetch_event_relay_cursors",
                 new_callable=AsyncMock,
                 return_value=[
-                    EventRelayCursor(relay_url="wss://good.relay.com"),
-                    EventRelayCursor(relay_url="wss://bad.relay.com"),
+                    FinderCursor(key="wss://good.relay.com"),
+                    FinderCursor(key="wss://bad.relay.com"),
                 ],
             ),
             patch(

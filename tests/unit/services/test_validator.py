@@ -21,6 +21,7 @@ from bigbrotr.services.common.configs import (
     NetworksConfig,
     TorConfig,
 )
+from bigbrotr.services.common.queries import insert_relays_as_candidates
 from bigbrotr.services.common.types import CandidateCheckpoint
 from bigbrotr.services.validator import (
     CleanupConfig,
@@ -34,7 +35,6 @@ from bigbrotr.services.validator.queries import (
     delete_promoted_candidates,
     fail_candidates,
     fetch_candidates,
-    insert_relays_as_candidates,
     promote_candidates,
 )
 
