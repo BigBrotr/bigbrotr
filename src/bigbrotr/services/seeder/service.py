@@ -48,7 +48,7 @@ from typing import ClassVar
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.validator.queries import insert_relays_as_candidates
+from bigbrotr.services.common.queries import insert_relays_as_candidates
 
 from .configs import SeederConfig
 from .queries import insert_relays

@@ -63,8 +63,8 @@ import asyncpg
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin
+from bigbrotr.services.common.queries import insert_relays_as_candidates
 from bigbrotr.services.common.types import ApiCheckpoint, FinderCursor
-from bigbrotr.services.validator.queries import insert_relays_as_candidates
 from bigbrotr.utils.http import read_bounded_json
 
 from .configs import ApiSourceConfig, FinderConfig

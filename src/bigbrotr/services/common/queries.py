@@ -13,14 +13,18 @@ See Also:
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, TypeVar
+
+from bigbrotr.models.constants import ServiceName
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
 
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from bigbrotr.core.brotr import Brotr
-    from bigbrotr.models.service_state import ServiceState
+    from bigbrotr.models.relay import Relay
 
 _T = TypeVar("_T")
 
@@ -61,4 +65,72 @@ async def upsert_service_states(brotr: Brotr, records: list[ServiceState]) -> in
     Returns:
         Number of records upserted.
     """
+    return await batched_insert(brotr, records, brotr.upsert_service_state)
+
+
+async def _filter_new_relays(
+    brotr: Brotr,
+    relays: list[Relay],
+) -> list[Relay]:
+    """Keep only relays not already in the database or pending validation."""
+    urls = [r.url for r in relays]
+    if not urls:
+        return []
+
+    rows = await brotr.fetch(
+        """
+        SELECT t.url FROM unnest($1::text[]) AS t(url)
+        WHERE NOT EXISTS (SELECT 1 FROM relay r WHERE r.url = t.url)
+          AND NOT EXISTS (
+              SELECT 1 FROM service_state ss
+              WHERE ss.service_name = $2 AND ss.state_type = $3
+                AND ss.state_key = t.url
+          )
+        """,
+        urls,
+        ServiceName.VALIDATOR,
+        ServiceStateType.CHECKPOINT,
+    )
+    new_urls = {row["url"] for row in rows}
+    return [r for r in relays if r.url in new_urls]
+
+
+async def insert_relays_as_candidates(brotr: Brotr, relays: list[Relay]) -> int:
+    """Insert new validation candidates, skipping known relays and duplicates.
+
+    Filters out URLs that already exist in the ``relay`` table or as
+    pending candidates in ``service_state``, then persists only genuinely
+    new records. Existing candidates retain their current state (e.g.
+    ``failures`` counter is never reset).
+
+    Called by [Seeder][bigbrotr.services.seeder.Seeder] and
+    [Finder][bigbrotr.services.finder.Finder] to register newly
+    discovered relay URLs for validation.
+
+    Args:
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
+        relays: [Relay][bigbrotr.models.relay.Relay] objects to register
+            as candidates.
+
+    Returns:
+        Number of candidate records actually inserted.
+    """
+    new_relays = await _filter_new_relays(brotr, relays)
+    if not new_relays:
+        return 0
+
+    now = int(time.time())
+    records: list[ServiceState] = [
+        ServiceState(
+            service_name=ServiceName.VALIDATOR,
+            state_type=ServiceStateType.CHECKPOINT,
+            state_key=relay.url,
+            state_value={
+                "network": relay.network.value,
+                "failures": 0,
+                "timestamp": now,
+            },
+        )
+        for relay in new_relays
+    ]
     return await batched_insert(brotr, records, brotr.upsert_service_state)
