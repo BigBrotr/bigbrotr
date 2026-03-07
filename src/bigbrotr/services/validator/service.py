@@ -57,7 +57,6 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.relay import Relay
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin, NetworkSemaphoresMixin
-from bigbrotr.utils.protocol import is_nostr_relay
 
 from .configs import ValidatorConfig
 from .queries import (
@@ -68,6 +67,7 @@ from .queries import (
     fetch_candidates,
     promote_candidates,
 )
+from .utils import validate_candidate
 
 
 if TYPE_CHECKING:
@@ -143,23 +143,21 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
         attempted_before = int(time.time() - self._config.processing.interval)
 
         total = await count_candidates(self._brotr, networks, attempted_before)
-        self._logger.info("candidates_available", total=total)
+        validated = 0
+        not_validated = 0
 
         self.set_gauge("total", total)
-        self.set_gauge("validated", 0)
-        self.set_gauge("not_validated", 0)
-        self.set_gauge("chunk", 0)
+        self.set_gauge("validated", validated)
+        self.set_gauge("not_validated", not_validated)
+
+        self._logger.info("candidates_available", total=total)
 
         chunk_size = self._config.processing.chunk_size
         max_candidates = self._config.processing.max_candidates
-        processed = 0
-        cumulative_promoted = 0
-        cumulative_failed = 0
-        chunk_num = 0
 
         while self.is_running:
             if max_candidates is not None:
-                budget = max_candidates - processed
+                budget = max_candidates - validated - not_validated
                 if budget <= 0:
                     break
                 limit = min(chunk_size, budget)
@@ -178,31 +176,24 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
             ):
                 if is_valid:
                     chunk_valid.append(candidate)
+                    validated += 1
                 else:
                     chunk_invalid.append(candidate)
+                    not_validated += 1
+                self.set_gauge("validated", validated)
+                self.set_gauge("not_validated", not_validated)
 
-            failed_count = await fail_candidates(self._brotr, chunk_invalid)
-            promoted_count = await promote_candidates(self._brotr, chunk_valid)
-
-            processed += len(chunk_valid) + len(chunk_invalid)
-            cumulative_promoted += promoted_count
-            cumulative_failed += failed_count
-            chunk_num += 1
-
-            self.inc_counter("total_promoted", promoted_count)
-            self.set_gauge("validated", cumulative_promoted)
-            self.set_gauge("not_validated", cumulative_failed)
-            self.set_gauge("chunk", chunk_num)
+            await promote_candidates(self._brotr, chunk_valid)
+            await fail_candidates(self._brotr, chunk_invalid)
 
             self._logger.info(
                 "chunk_completed",
-                chunk=chunk_num,
-                promoted=promoted_count,
-                failed=failed_count,
-                remaining=total - processed,
+                validated=len(chunk_valid),
+                not_validated=len(chunk_invalid),
+                remaining=total - validated - not_validated,
             )
 
-        return processed
+        return validated + not_validated
 
     async def _validate_candidate_safe(
         self, candidate: CandidateCheckpoint
@@ -246,11 +237,8 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
             self._logger.warning("unknown_network", url=candidate.key, network=network.value)
             return False
 
-        async with semaphore:
-            network_config = self._config.networks.get(network)
-            proxy_url = self._config.networks.get_proxy_url(network)
-            try:
-                relay = Relay(candidate.key)
-                return await is_nostr_relay(relay, proxy_url, network_config.timeout)
-            except (TimeoutError, OSError):
-                return False
+        network_config = self._config.networks.get(network)
+        proxy_url = self._config.networks.get_proxy_url(network)
+        relay = Relay(candidate.key)
+
+        return await validate_candidate(relay, semaphore, proxy_url, network_config.timeout)
