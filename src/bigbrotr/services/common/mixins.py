@@ -17,10 +17,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from typing import TYPE_CHECKING, Any, Self, TypeVar
 
 from bigbrotr.models.constants import NetworkType
 
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -30,8 +33,10 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 
     import geoip2.database
+    from nostr_sdk import Client, Keys
 
     from bigbrotr.core.logger import Logger
+    from bigbrotr.models import Relay
 
     from .catalog import Catalog
     from .configs import NetworksConfig, TableConfig
@@ -248,6 +253,153 @@ class GeoReaderMixin:
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.geo_readers = GeoReaders()
+
+
+class Clients:
+    """Lazy pool of Nostr clients for event broadcasting.
+
+    Each relay is connected on first access via ``get()`` and cached
+    for subsequent calls. Failed connections are remembered so that
+    the same relay is never retried within a cycle.
+
+    Follows the same lifecycle pattern as
+    [GeoReaders][bigbrotr.services.common.mixins.GeoReaders]: create
+    empty, then ``configure()`` before first use.
+
+    See Also:
+        [ClientsMixin][bigbrotr.services.common.mixins.ClientsMixin]:
+            Mixin that exposes a ``clients`` attribute of this type.
+        [connect_relay][bigbrotr.utils.protocol.connect_relay]: Used
+            internally to establish each connection.
+    """
+
+    __slots__ = ("_allow_insecure", "_clients", "_failed", "_keys", "_networks", "_timeout")
+
+    def __init__(self) -> None:
+        self._keys: Keys | None = None
+        self._timeout: float = 30.0
+        self._allow_insecure: bool = False
+        self._networks: NetworksConfig | None = None
+        self._clients: dict[str, Client] = {}
+        self._failed: set[str] = set()
+
+    def configure(
+        self,
+        keys: Keys,
+        timeout: float,
+        networks: NetworksConfig,
+        *,
+        allow_insecure: bool = False,
+    ) -> None:
+        """Set connection parameters. Must be called before ``get()``.
+
+        Args:
+            keys: Signing keys for event publishing.
+            timeout: Per-relay connection timeout in seconds.
+            networks: Network configuration for proxy URL resolution.
+            allow_insecure: If ``True``, fall back to insecure transport
+                on SSL failure.
+        """
+        self._keys = keys
+        self._timeout = timeout
+        self._networks = networks
+        self._allow_insecure = allow_insecure
+
+    async def get(self, relay: Relay) -> Client | None:
+        """Return a connected client for a relay, connecting lazily.
+
+        Three states per relay URL:
+
+        - **Unknown** — connect now, cache on success, mark failed otherwise.
+        - **Connected** — return the cached client immediately.
+        - **Failed** — return ``None`` without retrying.
+
+        Resolves per-relay proxy URLs via ``NetworksConfig.get_proxy_url()``
+        to support overlay networks (Tor, I2P, Lokinet).
+
+        Args:
+            relay: Relay to get a client for.
+
+        Returns:
+            Connected client, or ``None`` if the connection failed.
+        """
+        if relay.url in self._clients:
+            return self._clients[relay.url]
+        if relay.url in self._failed:
+            return None
+
+        from bigbrotr.utils.protocol import connect_relay  # noqa: PLC0415
+
+        proxy_url = self._networks.get_proxy_url(relay.network) if self._networks else None
+        try:
+            client = await connect_relay(
+                relay,
+                keys=self._keys,
+                proxy_url=proxy_url,
+                timeout=self._timeout,
+                allow_insecure=self._allow_insecure,
+            )
+            self._clients[relay.url] = client
+            return client
+        except (OSError, TimeoutError) as e:
+            logger.warning("connect_client_failed relay=%s error=%s", relay.url, e)
+            self._failed.add(relay.url)
+            return None
+
+    async def get_many(self, relays: list[Relay]) -> list[Client]:
+        """Return connected clients for multiple relays.
+
+        Calls ``get()`` for each relay and filters out failures.
+
+        Args:
+            relays: Relays to get clients for.
+
+        Returns:
+            Connected clients (order preserved, failed relays skipped).
+        """
+        clients: list[Client] = []
+        for relay in relays:
+            client = await self.get(relay)
+            if client is not None:
+                clients.append(client)
+        return clients
+
+    async def disconnect(self) -> None:
+        """Disconnect all clients and reset state."""
+        if self._clients:
+            from bigbrotr.utils.protocol import disconnect_clients  # noqa: PLC0415
+
+            await disconnect_clients(list(self._clients.values()))
+            self._clients.clear()
+        self._failed.clear()
+
+
+class ClientsMixin:
+    """Mixin providing managed Nostr client pool for event broadcasting.
+
+    Exposes a ``clients`` attribute of type
+    [Clients][bigbrotr.services.common.mixins.Clients]. Auto-configures
+    from ``MonitorConfig`` if the ``config`` kwarg has the expected
+    attributes (``keys``, ``publishing``, ``networks``, ``processing``).
+
+    See Also:
+        [Monitor][bigbrotr.services.monitor.Monitor]: The service that
+            composes this mixin for Kind 0/10166/30166 event publishing.
+    """
+
+    clients: Clients
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.clients = Clients()
+        config = kwargs.get("config")
+        if config is not None and hasattr(config, "keys"):
+            self.clients.configure(
+                keys=config.keys.keys,
+                timeout=config.publishing.timeout,
+                networks=config.networks,
+                allow_insecure=config.processing.allow_insecure,
+            )
 
 
 class CatalogAccessMixin:

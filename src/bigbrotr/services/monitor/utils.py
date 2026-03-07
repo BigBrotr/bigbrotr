@@ -18,7 +18,6 @@ from nostr_sdk import EventBuilder, Filter, Kind, Tag
 from bigbrotr.models import Metadata, MetadataType, RelayMetadata
 from bigbrotr.models.constants import EventKind, NetworkType
 from bigbrotr.nips.base import BaseLogs, BaseNipMetadata
-from bigbrotr.nips.event_builders import build_relay_discovery
 from bigbrotr.nips.nip11 import Nip11, Nip11Options
 from bigbrotr.nips.nip66 import (
     Nip66DnsMetadata,
@@ -459,39 +458,6 @@ async def check_relay(monitor: Monitor, relay: Relay) -> CheckResult:
         except (TimeoutError, OSError) as e:
             monitor._logger.debug("check_error", url=relay.url, error=str(e))
             return empty
-
-
-def build_discovery_event(
-    relay: Relay,
-    result: CheckResult,
-    include: MetadataFlags,
-) -> EventBuilder:
-    """Build a Kind 30166 relay discovery event for a single relay.
-
-    Args:
-        relay: The relay that was health-checked.
-        result: Health check result containing metadata.
-        include: Flags controlling which metadata types to include.
-
-    Returns:
-        An [EventBuilder][nostr_sdk.EventBuilder] ready for signing and broadcast.
-    """
-    nip11_canonical_json = ""
-    if result.nip11 and include.nip11_info:
-        meta = Metadata(type=MetadataType.NIP11_INFO, data=result.nip11.to_dict())
-        nip11_canonical_json = meta.canonical_json
-
-    return build_relay_discovery(
-        relay.url,
-        relay.network.value,
-        nip11_canonical_json,
-        rtt_data=result.nip66_rtt.data if result.nip66_rtt and include.nip66_rtt else None,
-        ssl_data=result.nip66_ssl.data if result.nip66_ssl and include.nip66_ssl else None,
-        net_data=result.nip66_net.data if result.nip66_net and include.nip66_net else None,
-        geo_data=result.nip66_geo.data if result.nip66_geo and include.nip66_geo else None,
-        nip11_data=result.nip11.data if result.nip11 and include.nip11_info else None,
-        rtt_logs=result.nip66_rtt.logs if result.nip66_rtt else None,
-    )
 
 
 async def flush_results(

@@ -61,17 +61,23 @@ from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 from bigbrotr.core.base_service import BaseService
+from bigbrotr.models import Metadata, MetadataType
 from bigbrotr.models.constants import NetworkType, ServiceName
-from bigbrotr.nips.event_builders import build_monitor_announcement, build_profile_event
+from bigbrotr.nips.event_builders import (
+    build_monitor_announcement,
+    build_profile_event,
+    build_relay_discovery,
+)
 from bigbrotr.nips.nip11 import Nip11Selection
 from bigbrotr.nips.nip66 import Nip66Selection
 from bigbrotr.services.common.mixins import (
+    ClientsMixin,
     ConcurrentStreamMixin,
     GeoReaderMixin,
     NetworkSemaphoresMixin,
 )
 from bigbrotr.utils.http import download_bounded_file
-from bigbrotr.utils.protocol import broadcast_events, connect_clients, disconnect_clients
+from bigbrotr.utils.protocol import broadcast_events
 
 from .configs import MonitorConfig
 from .queries import (
@@ -83,7 +89,6 @@ from .queries import (
 )
 from .utils import (
     CheckResult,
-    build_discovery_event,
     check_relay,
     flush_results,
     get_publish_relays,
@@ -91,8 +96,6 @@ from .utils import (
 
 
 if TYPE_CHECKING:
-    from nostr_sdk import Client, Keys
-
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
 
@@ -103,6 +106,7 @@ class Monitor(
     ConcurrentStreamMixin,
     NetworkSemaphoresMixin,
     GeoReaderMixin,
+    ClientsMixin,
     BaseService[MonitorConfig],
 ):
     """Relay health monitoring service with NIP-66 compliance.
@@ -139,7 +143,7 @@ class Monitor(
         config = config or MonitorConfig()
         super().__init__(brotr=brotr, config=config, networks=config.networks)
         self._config: MonitorConfig
-        self._keys: Keys = self._config.keys.keys
+        self._keys = self._config.keys.keys
 
     async def run(self) -> None:
         """Execute one complete monitoring cycle.
@@ -147,6 +151,10 @@ class Monitor(
         Orchestrates setup, publishing, monitoring, and cleanup.
         Delegates the core work to ``update_geo_databases``,
         ``publish_profile``, ``publish_announcement``, and ``monitor``.
+
+        Publish relay connections are established lazily on first use
+        via ``clients.get()`` and torn down in the ``finally``
+        block.
         """
         await self.update_geo_databases()
 
@@ -161,6 +169,7 @@ class Monitor(
             await self.publish_announcement()
             await self.monitor()
         finally:
+            await self.clients.disconnect()
             self.geo_readers.close()
 
     async def cleanup(self) -> int:
@@ -210,38 +219,36 @@ class Monitor(
 
     async def publish_profile(self) -> None:
         """Publish Kind 0 profile metadata if the configured interval has elapsed."""
-        profile = self._config.profile
-        relays = get_publish_relays(profile.relays, self._config.publishing.relays)
-        if not profile.enabled or not relays:
+        cfg = self._config.profile
+        if not cfg.enabled:
             return
 
-        if not await is_publish_due(self._brotr, "profile", profile.interval):
+        relays = get_publish_relays(cfg.relays, self._config.publishing.relays)
+        if not relays:
             return
 
-        timeout = self._config.publishing.timeout
-        clients = await connect_clients(relays, self._keys, timeout, allow_insecure=True)
+        if not await is_publish_due(self._brotr, "profile", cfg.interval):
+            return
+
+        clients = await self.clients.get_many(relays)
         if not clients:
             self._logger.warning("publish_failed", event="profile", error="no relays reachable")
             return
 
-        try:
-            sent = await broadcast_events(
-                [
-                    build_profile_event(
-                        name=profile.name,
-                        about=profile.about,
-                        picture=profile.picture,
-                        nip05=profile.nip05,
-                        website=profile.website,
-                        banner=profile.banner,
-                        lud16=profile.lud16,
-                    ),
-                ],
-                clients,
-            )
-        finally:
-            await disconnect_clients(clients)
-
+        sent = await broadcast_events(
+            [
+                build_profile_event(
+                    name=cfg.name,
+                    about=cfg.about,
+                    picture=cfg.picture,
+                    nip05=cfg.nip05,
+                    website=cfg.website,
+                    banner=cfg.banner,
+                    lud16=cfg.lud16,
+                ),
+            ],
+            clients,
+        )
         if not sent:
             self._logger.warning("publish_failed", event="profile", error="no relays reachable")
             return
@@ -251,52 +258,50 @@ class Monitor(
 
     async def publish_announcement(self) -> None:
         """Publish Kind 10166 monitor announcement if the configured interval has elapsed."""
-        ann = self._config.announcement
-        relays = get_publish_relays(ann.relays, self._config.publishing.relays)
-        if not ann.enabled or not relays:
+        cfg = self._config.announcement
+        if not cfg.enabled:
             return
 
-        if not await is_publish_due(self._brotr, "announcement", ann.interval):
+        relays = get_publish_relays(cfg.relays, self._config.publishing.relays)
+        if not relays:
             return
 
-        include = ann.include
+        if not await is_publish_due(self._brotr, "announcement", cfg.interval):
+            return
+
+        include = cfg.include
         enabled_networks = [
             network for network in NetworkType if self._config.networks.is_enabled(network)
         ]
         first_network = enabled_networks[0] if enabled_networks else NetworkType.CLEARNET
         timeout_ms = int(self._config.networks.get(first_network).timeout * 1000)
-        timeout = self._config.publishing.timeout
 
-        clients = await connect_clients(relays, self._keys, timeout, allow_insecure=True)
+        clients = await self.clients.get_many(relays)
         if not clients:
             self._logger.warning(
                 "publish_failed", event="announcement", error="no relays reachable"
             )
             return
 
-        try:
-            sent = await broadcast_events(
-                [
-                    build_monitor_announcement(
-                        interval=int(self._config.interval),
-                        timeout_ms=timeout_ms,
-                        enabled_networks=enabled_networks,
-                        nip11_selection=Nip11Selection(info=include.nip11_info),
-                        nip66_selection=Nip66Selection(
-                            rtt=include.nip66_rtt,
-                            ssl=include.nip66_ssl,
-                            geo=include.nip66_geo,
-                            net=include.nip66_net,
-                            dns=include.nip66_dns,
-                            http=include.nip66_http,
-                        ),
+        sent = await broadcast_events(
+            [
+                build_monitor_announcement(
+                    interval=int(self._config.interval),
+                    timeout_ms=timeout_ms,
+                    enabled_networks=enabled_networks,
+                    nip11_selection=Nip11Selection(info=include.nip11_info),
+                    nip66_selection=Nip66Selection(
+                        rtt=include.nip66_rtt,
+                        ssl=include.nip66_ssl,
+                        geo=include.nip66_geo,
+                        net=include.nip66_net,
+                        dns=include.nip66_dns,
+                        http=include.nip66_http,
                     ),
-                ],
-                clients,
-            )
-        finally:
-            await disconnect_clients(clients)
-
+                ),
+            ],
+            clients,
+        )
         if not sent:
             self._logger.warning(
                 "publish_failed", event="announcement", error="no relays reachable"
@@ -305,6 +310,54 @@ class Monitor(
 
         self._logger.info("publish_completed", event="announcement", relays=sent)
         await save_publish_checkpoint(self._brotr, "announcement")
+
+    async def publish_discovery(self, relay: Relay, result: CheckResult) -> None:
+        """Publish a Kind 30166 relay discovery event for a single relay.
+
+        Resolves discovery publish relays from config, connects lazily
+        via ``clients.get_many()``, builds the event, and broadcasts.
+
+        Args:
+            relay: The relay that was health-checked.
+            result: Health check result containing metadata.
+        """
+        cfg = self._config.discovery
+        if not cfg.enabled:
+            return
+
+        relays = get_publish_relays(cfg.relays, self._config.publishing.relays)
+        if not relays:
+            return
+
+        clients = await self.clients.get_many(relays)
+        if not clients:
+            return
+
+        include = cfg.include
+        try:
+            nip11_canonical_json = ""
+            if result.nip11 and include.nip11_info:
+                meta = Metadata(type=MetadataType.NIP11_INFO, data=result.nip11.to_dict())
+                nip11_canonical_json = meta.canonical_json
+
+            builder = build_relay_discovery(
+                relay.url,
+                relay.network.value,
+                nip11_canonical_json,
+                rtt_data=result.nip66_rtt.data if result.nip66_rtt and include.nip66_rtt else None,
+                ssl_data=result.nip66_ssl.data if result.nip66_ssl and include.nip66_ssl else None,
+                net_data=result.nip66_net.data if result.nip66_net and include.nip66_net else None,
+                geo_data=result.nip66_geo.data if result.nip66_geo and include.nip66_geo else None,
+                nip11_data=result.nip11.data if result.nip11 and include.nip11_info else None,
+                rtt_logs=result.nip66_rtt.logs if result.nip66_rtt else None,
+            )
+        except (ValueError, KeyError, TypeError) as e:
+            self._logger.debug("build_30166_failed", url=relay.url, error=str(e))
+            return
+
+        sent = await broadcast_events([builder], clients)
+        if not sent:
+            self._logger.debug("discovery_broadcast_failed", url=relay.url)
 
     async def monitor(self) -> int:
         """Check, persist, and publish all pending relays.
@@ -337,87 +390,36 @@ class Monitor(
         chunk_size = self._config.processing.chunk_size
         max_relays = self._config.processing.max_relays
 
-        disc = self._config.discovery
-        disc_relays = get_publish_relays(disc.relays, self._config.publishing.relays)
-        clients = (
-            await connect_clients(
-                disc_relays, self._keys, self._config.publishing.timeout, allow_insecure=True
-            )
-            if disc.enabled and disc_relays
-            else []
-        )
-
-        try:
-            while self.is_running:
-                if max_relays is not None:
-                    budget = max_relays - succeeded - failed
-                    if budget <= 0:
-                        break
-                    limit = min(chunk_size, budget)
-                else:
-                    limit = chunk_size
-
-                relays = await fetch_relays_to_monitor(
-                    self._brotr, monitored_before, networks, limit
-                )
-                if not relays:
+        while self.is_running:
+            if max_relays is not None:
+                budget = max_relays - succeeded - failed
+                if budget <= 0:
                     break
+                limit = min(chunk_size, budget)
+            else:
+                limit = chunk_size
 
-                chunk_successful: list[tuple[Relay, CheckResult]] = []
-                chunk_failed: list[Relay] = []
+            relays = await fetch_relays_to_monitor(self._brotr, monitored_before, networks, limit)
+            if not relays:
+                break
 
-                async for relay, result in self._iter_concurrent(relays, self._monitoring_worker):
-                    if result is not None:
-                        chunk_successful.append((relay, result))
-                        succeeded += 1
-                        await self.publish_discovery(clients, relay, result)
-                    else:
-                        chunk_failed.append(relay)
-                        failed += 1
-                    self.set_gauge("succeeded", succeeded)
-                    self.set_gauge("failed", failed)
+            chunk_successful: list[tuple[Relay, CheckResult]] = []
+            chunk_failed: list[Relay] = []
 
-                await flush_results(
-                    self, chunk_successful, chunk_failed, total - succeeded - failed
-                )
-        finally:
-            if clients:
-                await disconnect_clients(clients)
+            async for relay, result in self._iter_concurrent(relays, self._monitoring_worker):
+                if result is not None:
+                    chunk_successful.append((relay, result))
+                    succeeded += 1
+                    await self.publish_discovery(relay, result)
+                else:
+                    chunk_failed.append(relay)
+                    failed += 1
+                self.set_gauge("succeeded", succeeded)
+                self.set_gauge("failed", failed)
+
+            await flush_results(self, chunk_successful, chunk_failed, total - succeeded - failed)
 
         return succeeded + failed
-
-    async def publish_discovery(
-        self,
-        clients: list[Client],
-        relay: Relay,
-        result: CheckResult,
-    ) -> None:
-        """Publish a Kind 30166 relay discovery event for a single relay.
-
-        Builds the event via
-        [build_discovery_event][bigbrotr.services.monitor.utils.build_discovery_event]
-        and broadcasts it to the provided clients.
-
-        Args:
-            clients: Pre-connected Nostr clients for broadcasting.
-            relay: The relay that was health-checked.
-            result: Health check result containing metadata.
-        """
-        if not clients:
-            return
-
-        include = self._config.discovery.include
-        try:
-            builder = build_discovery_event(relay, result, include)
-        except (ValueError, KeyError, TypeError) as e:
-            self._logger.debug("build_30166_failed", url=relay.url, error=str(e))
-            return
-
-        sent = await broadcast_events([builder], clients)
-        if sent:
-            self.inc_counter("total_events_published", 1)
-        else:
-            self._logger.debug("discovery_broadcast_failed", url=relay.url)
 
     async def _monitoring_worker(self, relay: Relay) -> tuple[Relay, CheckResult | None]:
         """Health-check a single relay for use with ``_iter_concurrent``.
