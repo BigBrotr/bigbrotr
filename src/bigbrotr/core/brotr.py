@@ -132,8 +132,10 @@ class BrotrConfig(BaseModel):
             consumes this configuration.
     """
 
-    batch: BatchConfig = Field(default_factory=BatchConfig)
-    timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
+    batch: BatchConfig = Field(default_factory=BatchConfig, description="Bulk insert size limits")
+    timeouts: TimeoutsConfig = Field(
+        default_factory=TimeoutsConfig, description="Per-category timeout settings"
+    )
 
 
 class Brotr:

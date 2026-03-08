@@ -79,4 +79,6 @@ class RefresherConfig(BaseServiceConfig):
         ge=60.0,
         description="Target seconds between refresh cycle starts (fixed-schedule)",
     )
-    refresh: RefreshConfig = Field(default_factory=RefreshConfig)
+    refresh: RefreshConfig = Field(
+        default_factory=RefreshConfig, description="Materialized view refresh settings"
+    )

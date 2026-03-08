@@ -130,9 +130,17 @@ class SynchronizerConfig(BaseServiceConfig):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    networks: NetworksConfig = Field(default_factory=NetworksConfig)
-    keys: KeysConfig = Field(default_factory=lambda: KeysConfig.model_validate({}))
-    filters: list[Filter] = Field(default_factory=lambda: [Filter()])
+    networks: NetworksConfig = Field(
+        default_factory=NetworksConfig, description="Per-network connection settings"
+    )
+    keys: KeysConfig = Field(
+        default_factory=lambda: KeysConfig.model_validate({}),
+        description="Nostr key configuration for NIP-42 authentication",
+    )
+    filters: list[Filter] = Field(
+        default_factory=lambda: [Filter()],
+        description="NIP-01 filter dicts for event subscription",
+    )
     since: int = Field(default=0, ge=0, description="Default start timestamp (0 = epoch)")
     until: int | None = Field(
         default=None,
@@ -148,7 +156,9 @@ class SynchronizerConfig(BaseServiceConfig):
         le=604_800,
         description="Seconds subtracted from until: end_time = (until or now()) - end_lag",
     )
-    timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
+    timeouts: TimeoutsConfig = Field(
+        default_factory=TimeoutsConfig, description="Per-network and phase timeout limits"
+    )
     flush_interval: int = Field(default=50, ge=1, description="Flush cursor updates every N relays")
 
     @field_validator("filters", mode="before")

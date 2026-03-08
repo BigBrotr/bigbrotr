@@ -33,9 +33,18 @@ class ProcessingConfig(BaseModel):
             Parent config that embeds this model.
     """
 
-    chunk_size: int = Field(default=100, ge=10, le=1000)
-    max_candidates: int | None = Field(default=None, ge=1)
-    interval: float = Field(default=3600.0, ge=0.0, le=604_800.0)
+    chunk_size: int = Field(
+        default=100, ge=10, le=1000, description="Candidates to fetch and validate per iteration"
+    )
+    max_candidates: int | None = Field(
+        default=None, ge=1, description="Maximum candidates per cycle (None = all)"
+    )
+    interval: float = Field(
+        default=3600.0,
+        ge=0.0,
+        le=604_800.0,
+        description="Minimum seconds before retrying a failed candidate",
+    )
 
 
 class CleanupConfig(BaseModel):
@@ -55,8 +64,10 @@ class CleanupConfig(BaseModel):
             Parent config that embeds this model.
     """
 
-    enabled: bool = Field(default=False)
-    max_failures: int = Field(default=720, ge=1)
+    enabled: bool = Field(default=False, description="Enable exhausted candidate cleanup")
+    max_failures: int = Field(
+        default=720, ge=1, description="Failure threshold for candidate removal"
+    )
 
 
 class ValidatorConfig(BaseServiceConfig):
@@ -72,6 +83,12 @@ class ValidatorConfig(BaseServiceConfig):
             Per-network timeout and proxy settings.
     """
 
-    networks: NetworksConfig = Field(default_factory=NetworksConfig)
-    processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
-    cleanup: CleanupConfig = Field(default_factory=CleanupConfig)
+    networks: NetworksConfig = Field(
+        default_factory=NetworksConfig, description="Per-network connection settings"
+    )
+    processing: ProcessingConfig = Field(
+        default_factory=ProcessingConfig, description="Candidate processing settings"
+    )
+    cleanup: CleanupConfig = Field(
+        default_factory=CleanupConfig, description="Exhausted candidate cleanup settings"
+    )
