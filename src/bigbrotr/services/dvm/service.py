@@ -80,7 +80,9 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
     async def __aenter__(self) -> Dvm:
         await super().__aenter__()
 
-        client = await create_client(keys=self._config.keys)
+        client = await create_client(
+            keys=self._config.keys, allow_insecure=self._config.allow_insecure
+        )
         self._client = client
 
         pubkey = self._config.keys.public_key().to_hex()

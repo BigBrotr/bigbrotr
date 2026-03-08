@@ -98,6 +98,10 @@ class DvmConfig(BaseServiceConfig, KeysConfig):
         le=300.0,
         description="Timeout for relay event fetching in seconds",
     )
+    allow_insecure: bool = Field(
+        default=False,
+        description="Fall back to insecure transport on SSL certificate failure",
+    )
 
     @model_validator(mode="after")
     def _validate_page_sizes(self) -> DvmConfig:
