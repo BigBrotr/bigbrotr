@@ -45,6 +45,10 @@ class ProcessingConfig(BaseModel):
         le=604_800.0,
         description="Minimum seconds before retrying a failed candidate",
     )
+    allow_insecure: bool = Field(
+        default=False,
+        description="Fall back to insecure transport on SSL certificate failure",
+    )
 
 
 class CleanupConfig(BaseModel):

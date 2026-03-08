@@ -219,7 +219,13 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
             proxy_url = self._config.networks.get_proxy_url(network)
             relay = Relay(candidate.key)
 
-            is_valid = await validate_candidate(relay, semaphore, proxy_url, network_config.timeout)
+            is_valid = await validate_candidate(
+                relay,
+                semaphore,
+                proxy_url,
+                network_config.timeout,
+                allow_insecure=self._config.processing.allow_insecure,
+            )
             return candidate, is_valid
         except Exception as e:  # Worker exception boundary — protects TaskGroup
             self._logger.error(

@@ -101,6 +101,7 @@ class TestProcessingConfig:
         assert cfg.chunk_size == 100
         assert cfg.max_candidates is None
         assert cfg.interval == 3600.0
+        assert cfg.allow_insecure is False
 
     def test_chunk_size_bounds(self) -> None:
         assert ProcessingConfig(chunk_size=10).chunk_size == 10
@@ -655,7 +656,7 @@ class TestValidate:
         promote_mock = AsyncMock(return_value=1)
         fail_mock = AsyncMock(return_value=1)
 
-        async def relay_check(relay, proxy, timeout):
+        async def relay_check(relay, proxy, timeout, **kwargs):
             return "good" in relay.url
 
         with (
@@ -911,6 +912,19 @@ class TestNetworkRouting:
         )
         assert proxy == "socks5://lokinet:1080"
         assert timeout == 30.0
+
+    async def test_allow_insecure_passed(self, validator_brotr: Brotr) -> None:
+        cfg = ValidatorConfig(processing=ProcessingConfig(allow_insecure=True))
+        v = Validator(validator_brotr, config=cfg)
+        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
+            await v._validation_worker(_candidate())
+        assert mock.call_args.kwargs["allow_insecure"] is True
+
+    async def test_allow_insecure_default_false(self, validator_brotr: Brotr) -> None:
+        v = Validator(validator_brotr)
+        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
+            await v._validation_worker(_candidate())
+        assert mock.call_args.kwargs["allow_insecure"] is False
 
 
 # ============================================================================

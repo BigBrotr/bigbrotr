@@ -18,6 +18,8 @@ async def validate_candidate(
     semaphore: asyncio.Semaphore,
     proxy_url: str | None,
     probe_timeout: float,
+    *,
+    allow_insecure: bool = False,
 ) -> bool:
     """Validate a relay candidate via WebSocket Nostr protocol probe.
 
@@ -29,12 +31,15 @@ async def validate_candidate(
         semaphore: Per-network concurrency limiter.
         proxy_url: Optional SOCKS5 proxy for overlay networks.
         probe_timeout: WebSocket probe timeout in seconds.
+        allow_insecure: Fall back to insecure transport on SSL failure.
 
     Returns:
         ``True`` if the relay speaks Nostr protocol, ``False`` otherwise.
     """
     async with semaphore:
         try:
-            return await is_nostr_relay(relay, proxy_url, probe_timeout)
+            return await is_nostr_relay(
+                relay, proxy_url, probe_timeout, allow_insecure=allow_insecure
+            )
         except (TimeoutError, OSError):
             return False
