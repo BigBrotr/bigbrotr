@@ -1,30 +1,25 @@
 """Monitor service utility functions.
 
-Pure helpers for health check result inspection, metadata collection,
-relay discovery event building, and relay list selection.
+Pure helpers for health check result inspection and retry logic.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, NamedTuple
+import asyncio
+import logging
+import random
+from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar
 
 from bigbrotr.models import Metadata, MetadataType, RelayMetadata
-from bigbrotr.models.constants import NetworkType
-from bigbrotr.nips.base import BaseLogs, BaseNipMetadata
-from bigbrotr.nips.event_builders import (
-    build_monitor_announcement,
-    build_profile_event,
-    build_relay_discovery,
-)
-from bigbrotr.nips.nip11 import Nip11Selection
-from bigbrotr.nips.nip66 import Nip66Selection
+from bigbrotr.nips.base import BaseLogs
 from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs
 
 
 if TYPE_CHECKING:
-    from nostr_sdk import EventBuilder
+    from collections.abc import Callable, Coroutine
 
     from bigbrotr.models import Relay
+    from bigbrotr.nips.base import BaseNipMetadata
     from bigbrotr.nips.nip11.info import Nip11InfoMetadata
     from bigbrotr.nips.nip66 import (
         Nip66DnsMetadata,
@@ -34,7 +29,12 @@ if TYPE_CHECKING:
         Nip66RttMetadata,
         Nip66SslMetadata,
     )
-    from bigbrotr.services.monitor.configs import MetadataFlags, MonitorConfig, ProfileConfig
+    from bigbrotr.services.monitor.configs import MetadataFlags, RetryConfig
+
+
+logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 
 class CheckResult(NamedTuple):
@@ -47,7 +47,7 @@ class CheckResult(NamedTuple):
 
     Attributes:
         generated_at: Unix timestamp when the health check was performed.
-        nip11: NIP-11 relay information document (name, description, pubkey, etc.).
+        nip11_info: NIP-11 relay information document (name, description, pubkey, etc.).
         nip66_rtt: Round-trip times for open/read/write operations in milliseconds.
         nip66_ssl: SSL certificate validation (valid, expiry timestamp, issuer).
         nip66_geo: Geolocation data (country, city, coordinates, timezone, geohash).
@@ -61,7 +61,7 @@ class CheckResult(NamedTuple):
     """
 
     generated_at: int = 0
-    nip11: Nip11InfoMetadata | None = None
+    nip11_info: Nip11InfoMetadata | None = None
     nip66_rtt: Nip66RttMetadata | None = None
     nip66_ssl: Nip66SslMetadata | None = None
     nip66_geo: Nip66GeoMetadata | None = None
@@ -74,7 +74,7 @@ class CheckResult(NamedTuple):
         """True if at least one NIP check produced data."""
         return any(
             (
-                self.nip11,
+                self.nip11_info,
                 self.nip66_rtt,
                 self.nip66_ssl,
                 self.nip66_geo,
@@ -85,7 +85,7 @@ class CheckResult(NamedTuple):
         )
 
 
-def get_success(result: Any) -> bool:
+def log_success(result: Any) -> bool:
     """Extract success status from a metadata result's logs object."""
     logs = result.logs
     if isinstance(logs, BaseLogs):
@@ -95,7 +95,7 @@ def get_success(result: Any) -> bool:
     return False
 
 
-def get_reason(result: Any) -> str | None:
+def log_reason(result: Any) -> str | None:
     """Extract failure reason from a metadata result's logs object."""
     logs = result.logs
     if isinstance(logs, BaseLogs):
@@ -105,7 +105,7 @@ def get_reason(result: Any) -> str | None:
     return None
 
 
-def safe_result(results: dict[str, Any], key: str) -> Any:
+def extract_result(results: dict[str, Any], key: str) -> Any:
     """Extract a successful result from asyncio.gather output.
 
     Returns None if the key is absent or the result is an exception.
@@ -120,36 +120,27 @@ def collect_metadata(
     successful: list[tuple[Relay, CheckResult]],
     store: MetadataFlags,
 ) -> list[RelayMetadata]:
-    """Collect storable metadata from successful health check results.
+    """Build storable metadata records from successful health check results.
 
-    Converts typed NIP metadata into
-    [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
-    records for database insertion.
+    Iterates over successful relay/result pairs and collects metadata for
+    each check type enabled in ``store``. Field names in ``CheckResult``,
+    ``MetadataFlags``, and ``MetadataType`` are aligned by convention
+    (e.g. ``nip11_info``, ``nip66_rtt``).
 
     Args:
-        successful: List of ([Relay][bigbrotr.models.relay.Relay],
-            [CheckResult][bigbrotr.services.monitor.CheckResult])
-            pairs from health checks.
-        store: Flags controlling which metadata types to persist.
+        successful: Relays with their health check results.
+        store: Flags controlling which metadata types to include.
 
     Returns:
         List of [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
-        records ready for database insertion.
+        ready for batch insertion.
     """
     metadata: list[RelayMetadata] = []
-    check_specs: list[tuple[str, str, MetadataType]] = [
-        ("nip11", "nip11_info", MetadataType.NIP11_INFO),
-        ("nip66_rtt", "nip66_rtt", MetadataType.NIP66_RTT),
-        ("nip66_ssl", "nip66_ssl", MetadataType.NIP66_SSL),
-        ("nip66_geo", "nip66_geo", MetadataType.NIP66_GEO),
-        ("nip66_net", "nip66_net", MetadataType.NIP66_NET),
-        ("nip66_dns", "nip66_dns", MetadataType.NIP66_DNS),
-        ("nip66_http", "nip66_http", MetadataType.NIP66_HTTP),
-    ]
     for relay, result in successful:
-        for result_field, store_field, meta_type in check_specs:
-            nip_meta: BaseNipMetadata | None = getattr(result, result_field)
-            if nip_meta and getattr(store, store_field):
+        for meta_type in MetadataType:
+            field = meta_type.value
+            nip_meta: BaseNipMetadata | None = getattr(result, field)
+            if nip_meta and getattr(store, field):
                 metadata.append(
                     RelayMetadata(
                         relay=relay,
@@ -160,72 +151,88 @@ def collect_metadata(
     return metadata
 
 
-def get_publish_relays(
-    section_relays: list[Relay] | None,
-    default_relays: list[Relay],
-) -> list[Relay]:
-    """Return section-specific relays, falling back to the default publishing list.
+async def retry_fetch(
+    relay: Relay,
+    coro_factory: Callable[[], Coroutine[Any, Any, _T]],
+    retry: RetryConfig,
+    operation: str,
+    wait: Callable[[float], Coroutine[Any, Any, bool]] | None = None,
+) -> _T | None:
+    """Execute a metadata fetch with exponential backoff retry.
+
+    Retries on network failures up to ``retry.max_attempts`` times.
+    Returns the result (possibly with ``success=False``) or ``None`` on
+    exception.
 
     Args:
-        section_relays: Section-specific relay list, or ``None`` if not configured.
-        default_relays: Fallback relay list from ``publishing.relays``.
+        relay: Target relay (used for logging context).
+        coro_factory: Factory producing a fresh coroutine per attempt.
+        retry: Backoff configuration (max attempts, delays, jitter).
+        operation: Check name for log messages (e.g. ``"nip11_info"``).
+        wait: Optional shutdown-aware sleep. Receives delay in seconds,
+            returns ``True`` if shutdown was requested. When ``None``,
+            falls back to ``asyncio.sleep``.
 
-    Returns:
-        ``section_relays`` if set (even if empty), otherwise ``default_relays``.
+    Note:
+        The ``coro_factory`` pattern (a callable returning a coroutine)
+        is required because Python coroutines are single-use: once
+        awaited, they cannot be re-awaited. The factory creates a fresh
+        coroutine for each retry attempt.
+
+    Warning:
+        Jitter is computed via ``random.uniform()`` (PRNG, ``# noqa: S311``).
+        This is intentional -- jitter only needs to decorrelate
+        concurrent retries, not provide cryptographic randomness.
     """
-    return section_relays if section_relays is not None else default_relays
+    max_retries = retry.max_attempts
+    result = None
 
+    for attempt in range(max_retries + 1):
+        try:
+            result = await coro_factory()
+            if log_success(result):
+                return result
+        except (TimeoutError, OSError) as e:
+            logger.debug(
+                "check_error",
+                extra={
+                    "operation": operation,
+                    "relay": relay.url,
+                    "attempt": attempt + 1,
+                    "error": str(e),
+                },
+            )
+            result = None
 
-def build_kind_0(profile: ProfileConfig) -> EventBuilder:
-    """Build Kind 0 profile metadata event per NIP-01."""
-    return build_profile_event(
-        name=profile.name,
-        about=profile.about,
-        picture=profile.picture,
-        nip05=profile.nip05,
-        website=profile.website,
-        banner=profile.banner,
-        lud16=profile.lud16,
+        # Network failure - retry if attempts remaining
+        if attempt < max_retries:
+            delay = min(retry.initial_delay * (2**attempt), retry.max_delay)
+            jitter = random.uniform(0, retry.jitter)  # noqa: S311
+            total_delay = delay + jitter
+            if wait is not None:
+                if await wait(total_delay):
+                    return None
+            else:
+                await asyncio.sleep(total_delay)
+            logger.debug(
+                "check_retry",
+                extra={
+                    "operation": operation,
+                    "relay": relay.url,
+                    "attempt": attempt + 1,
+                    "reason": log_reason(result) if result else None,
+                    "delay_s": round(total_delay, 2),
+                },
+            )
+
+    # All retries exhausted
+    logger.debug(
+        "check_exhausted",
+        extra={
+            "operation": operation,
+            "relay": relay.url,
+            "total_attempts": max_retries + 1,
+            "reason": log_reason(result) if result else None,
+        },
     )
-
-
-def build_kind_10166(config: MonitorConfig) -> EventBuilder:
-    """Build Kind 10166 monitor announcement event per NIP-66."""
-    include = config.discovery.include
-    enabled_networks = [network for network in NetworkType if config.networks.is_enabled(network)]
-    first_network = enabled_networks[0] if enabled_networks else NetworkType.CLEARNET
-    timeout_ms = int(config.networks.get(first_network).timeout * 1000)
-    return build_monitor_announcement(
-        interval=int(config.interval),
-        timeout_ms=timeout_ms,
-        enabled_networks=enabled_networks,
-        nip11_selection=Nip11Selection(info=include.nip11_info),
-        nip66_selection=Nip66Selection(
-            rtt=include.nip66_rtt,
-            ssl=include.nip66_ssl,
-            geo=include.nip66_geo,
-            net=include.nip66_net,
-            dns=include.nip66_dns,
-            http=include.nip66_http,
-        ),
-    )
-
-
-def build_kind_30166(relay: Relay, result: CheckResult, include: MetadataFlags) -> EventBuilder:
-    """Build a Kind 30166 relay discovery event per NIP-66."""
-    nip11_canonical_json = ""
-    if result.nip11 and include.nip11_info:
-        meta = Metadata(type=MetadataType.NIP11_INFO, data=result.nip11.to_dict())
-        nip11_canonical_json = meta.canonical_json
-
-    return build_relay_discovery(
-        relay.url,
-        relay.network.value,
-        nip11_canonical_json,
-        rtt_data=result.nip66_rtt.data if result.nip66_rtt and include.nip66_rtt else None,
-        ssl_data=result.nip66_ssl.data if result.nip66_ssl and include.nip66_ssl else None,
-        net_data=result.nip66_net.data if result.nip66_net and include.nip66_net else None,
-        geo_data=result.nip66_geo.data if result.nip66_geo and include.nip66_geo else None,
-        nip11_data=result.nip11.data if result.nip11 and include.nip11_info else None,
-        rtt_logs=result.nip66_rtt.logs if result.nip66_rtt else None,
-    )
+    return result

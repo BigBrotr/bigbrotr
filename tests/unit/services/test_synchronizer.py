@@ -236,6 +236,7 @@ class TestSynchronizerConfig:
         assert config.networks.clearnet.timeout == 10.0
         assert config.timeouts.relay_clearnet == 1800.0
         assert config.flush_interval == 50
+        assert config.allow_insecure is False
         assert config.interval == 300.0
 
     def test_get_end_time_default(self) -> None:
@@ -674,13 +675,6 @@ class TestDeleteStaleCursors:
         assert args[0][1] == ServiceName.SYNCHRONIZER
         assert args[0][2] == ServiceStateType.CURSOR
         assert result == 5
-
-    async def test_returns_zero_on_none(self, query_brotr: MagicMock) -> None:
-        query_brotr.fetchval = AsyncMock(return_value=None)
-
-        result = await delete_stale_cursors(query_brotr)
-
-        assert result == 0
 
 
 class TestInsertEventRelays:

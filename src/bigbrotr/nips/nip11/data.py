@@ -45,19 +45,45 @@ class Nip11InfoDataLimitation(BaseData):
             model that contains this as the ``limitation`` field.
     """
 
-    max_message_length: StrictInt | None = None
-    max_subscriptions: StrictInt | None = None
-    max_limit: StrictInt | None = None
-    max_subid_length: StrictInt | None = None
-    max_event_tags: StrictInt | None = None
-    max_content_length: StrictInt | None = None
-    min_pow_difficulty: StrictInt | None = None
-    auth_required: StrictBool | None = None
-    payment_required: StrictBool | None = None
-    restricted_writes: StrictBool | None = None
-    created_at_lower_limit: StrictInt | None = None
-    created_at_upper_limit: StrictInt | None = None
-    default_limit: StrictInt | None = None
+    max_message_length: StrictInt | None = Field(
+        default=None, description="Maximum WebSocket message length in bytes"
+    )
+    max_subscriptions: StrictInt | None = Field(
+        default=None, description="Maximum concurrent subscriptions"
+    )
+    max_limit: StrictInt | None = Field(
+        default=None, description="Maximum limit value in REQ filters"
+    )
+    max_subid_length: StrictInt | None = Field(
+        default=None, description="Maximum subscription ID length"
+    )
+    max_event_tags: StrictInt | None = Field(
+        default=None, description="Maximum number of tags per event"
+    )
+    max_content_length: StrictInt | None = Field(
+        default=None, description="Maximum event content length"
+    )
+    min_pow_difficulty: StrictInt | None = Field(
+        default=None, description="Minimum proof-of-work difficulty required"
+    )
+    auth_required: StrictBool | None = Field(
+        default=None, description="Whether NIP-42 authentication is required"
+    )
+    payment_required: StrictBool | None = Field(
+        default=None, description="Whether payment is required"
+    )
+    restricted_writes: StrictBool | None = Field(
+        default=None, description="Whether writes are restricted"
+    )
+    created_at_lower_limit: StrictInt | None = Field(
+        default=None, description="Oldest allowed created_at timestamp"
+    )
+    created_at_upper_limit: StrictInt | None = Field(
+        default=None, description="Newest allowed created_at timestamp"
+    )
+    default_limit: StrictInt | None = Field(
+        default=None, description="Default limit when not specified in REQ"
+    )
 
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         int_fields=frozenset(
@@ -101,9 +127,11 @@ class Nip11InfoDataRetentionEntry(BaseData):
             model that contains these as the ``retention`` list.
     """
 
-    kinds: list[StrictInt | KindRange] | None = None
-    time: StrictInt | None = None
-    count: StrictInt | None = None
+    kinds: list[StrictInt | KindRange] | None = Field(
+        default=None, description="Event kinds this policy applies to"
+    )
+    time: StrictInt | None = Field(default=None, description="Retention time in seconds")
+    count: StrictInt | None = Field(default=None, description="Maximum events to retain")
 
     @classmethod
     def parse(cls, data: Any) -> dict[str, Any]:
@@ -156,10 +184,12 @@ class Nip11InfoDataFeeEntry(BaseData):
             Parent model that groups fee entries by category.
     """
 
-    amount: StrictInt | None = None
-    unit: str | None = None
-    period: StrictInt | None = None
-    kinds: list[StrictInt] | None = None
+    amount: StrictInt | None = Field(default=None, description="Fee amount")
+    unit: str | None = Field(default=None, description="Fee currency unit")
+    period: StrictInt | None = Field(default=None, description="Fee period in seconds")
+    kinds: list[StrictInt] | None = Field(
+        default=None, description="Event kinds this fee applies to"
+    )
 
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         int_fields=frozenset({"amount", "period"}),
@@ -180,9 +210,15 @@ class Nip11InfoDataFees(BaseData):
             model that contains this as the ``fees`` field.
     """
 
-    admission: list[Nip11InfoDataFeeEntry] | None = None
-    subscription: list[Nip11InfoDataFeeEntry] | None = None
-    publication: list[Nip11InfoDataFeeEntry] | None = None
+    admission: list[Nip11InfoDataFeeEntry] | None = Field(
+        default=None, description="Admission fee entries"
+    )
+    subscription: list[Nip11InfoDataFeeEntry] | None = Field(
+        default=None, description="Subscription fee entries"
+    )
+    publication: list[Nip11InfoDataFeeEntry] | None = Field(
+        default=None, description="Publication fee entries"
+    )
 
     @classmethod
     def parse(cls, data: Any) -> dict[str, Any]:
@@ -230,29 +266,39 @@ class Nip11InfoData(BaseData):
 
     model_config = ConfigDict(frozen=True, populate_by_name=True)
 
-    name: str | None = None
-    description: str | None = None
-    banner: str | None = None
-    icon: str | None = None
-    pubkey: str | None = None
-    self_pubkey: str | None = Field(default=None, alias="self")
-    contact: str | None = None
-    software: str | None = None
-    version: str | None = None
+    name: str | None = Field(default=None, description="Relay display name")
+    description: str | None = Field(default=None, description="Relay description")
+    banner: str | None = Field(default=None, description="Banner image URL")
+    icon: str | None = Field(default=None, description="Icon image URL")
+    pubkey: str | None = Field(default=None, description="Relay operator public key (hex)")
+    self_pubkey: str | None = Field(
+        default=None, alias="self", description="Relay's own public key"
+    )
+    contact: str | None = Field(default=None, description="Relay operator contact")
+    software: str | None = Field(default=None, description="Relay software identifier")
+    version: str | None = Field(default=None, description="Relay software version")
 
-    privacy_policy: str | None = None
-    terms_of_service: str | None = None
-    posting_policy: str | None = None
-    payments_url: str | None = None
+    privacy_policy: str | None = Field(default=None, description="Privacy policy URL")
+    terms_of_service: str | None = Field(default=None, description="Terms of service URL")
+    posting_policy: str | None = Field(default=None, description="Posting policy URL")
+    payments_url: str | None = Field(default=None, description="Payments URL")
 
-    supported_nips: list[StrictInt] | None = None
-    limitation: Nip11InfoDataLimitation = Field(default_factory=Nip11InfoDataLimitation)
-    retention: list[Nip11InfoDataRetentionEntry] | None = None
-    fees: Nip11InfoDataFees = Field(default_factory=Nip11InfoDataFees)
+    supported_nips: list[StrictInt] | None = Field(
+        default=None, description="List of supported NIP numbers"
+    )
+    limitation: Nip11InfoDataLimitation = Field(
+        default_factory=Nip11InfoDataLimitation, description="Server-imposed limitations"
+    )
+    retention: list[Nip11InfoDataRetentionEntry] | None = Field(
+        default=None, description="Event retention policies"
+    )
+    fees: Nip11InfoDataFees = Field(default_factory=Nip11InfoDataFees, description="Fee schedule")
 
-    relay_countries: list[str] | None = None
-    language_tags: list[str] | None = None
-    tags: list[str] | None = None
+    relay_countries: list[str] | None = Field(
+        default=None, description="Countries where the relay operates"
+    )
+    language_tags: list[str] | None = Field(default=None, description="Supported language tags")
+    tags: list[str] | None = Field(default=None, description="Arbitrary relay tags")
 
     @property
     def self(self) -> str | None:

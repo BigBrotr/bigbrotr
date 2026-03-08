@@ -126,7 +126,8 @@ class ApiConfig(BaseModel):
         default_factory=lambda: [
             ApiSourceConfig(url="https://api.nostr.watch/v1/online"),
             ApiSourceConfig(url="https://api.nostr.watch/v1/offline"),
-        ]
+        ],
+        description="List of API endpoint configurations",
     )
     request_delay: float = Field(
         default=1.0, ge=0.0, le=10.0, description="Delay between API requests"
@@ -149,5 +150,7 @@ class FinderConfig(BaseServiceConfig):
             Base class providing ``interval``, ``max_consecutive_failures``, and ``metrics`` fields.
     """
 
-    api: ApiConfig = Field(default_factory=ApiConfig)
-    events: EventsConfig = Field(default_factory=EventsConfig)
+    api: ApiConfig = Field(default_factory=ApiConfig, description="API fetching settings")
+    events: EventsConfig = Field(
+        default_factory=EventsConfig, description="Event scanning settings"
+    )

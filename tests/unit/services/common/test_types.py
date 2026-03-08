@@ -116,20 +116,20 @@ class TestPublishCheckpoint:
 
     def test_creation(self) -> None:
         """Test PublishCheckpoint construction."""
-        cp = PublishCheckpoint(key="last_announcement", timestamp=1700000000)
+        cp = PublishCheckpoint(key="announcement", timestamp=1700000000)
 
-        assert cp.key == "last_announcement"
+        assert cp.key == "announcement"
         assert cp.timestamp == 1700000000
 
     def test_isinstance_checkpoint(self) -> None:
         """Test that PublishCheckpoint is a Checkpoint."""
-        cp = PublishCheckpoint(key="last_announcement", timestamp=1700000000)
+        cp = PublishCheckpoint(key="announcement", timestamp=1700000000)
 
         assert isinstance(cp, Checkpoint)
 
     def test_not_isinstance_other_subclasses(self) -> None:
         """Test that PublishCheckpoint is not an ApiCheckpoint or MonitorCheckpoint."""
-        cp = PublishCheckpoint(key="last_announcement", timestamp=1700000000)
+        cp = PublishCheckpoint(key="announcement", timestamp=1700000000)
 
         assert not isinstance(cp, ApiCheckpoint)
         assert not isinstance(cp, MonitorCheckpoint)

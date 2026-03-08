@@ -31,15 +31,53 @@ class ApiConfig(BaseServiceConfig):
         request_timeout: HTTP request timeout in seconds.
     """
 
-    title: str = Field(default="BigBrotr API", min_length=1)
-    host: str = Field(default="0.0.0.0", min_length=1, description="HTTP bind address")  # noqa: S104
-    port: int = Field(default=8080, ge=1, le=65535, description="HTTP port")
-    route_prefix: str = Field(default="/v1", min_length=1)
-    max_page_size: int = Field(default=1000, ge=1, le=10000)
-    default_page_size: int = Field(default=100, ge=1, le=10000)
-    tables: dict[str, TableConfig] = Field(default_factory=dict)
-    cors_origins: list[str] = Field(default_factory=list)
-    request_timeout: float = Field(default=30.0, ge=1.0, le=300.0)
+    title: str = Field(
+        default="BigBrotr API",
+        min_length=1,
+        description="FastAPI application title",
+    )
+    host: str = Field(
+        default="0.0.0.0",  # noqa: S104
+        min_length=1,
+        description="HTTP bind address",
+    )
+    port: int = Field(
+        default=8080,
+        ge=1,
+        le=65535,
+        description="HTTP port",
+    )
+    route_prefix: str = Field(
+        default="/v1",
+        min_length=1,
+        description="URL prefix for all API routes",
+    )
+    max_page_size: int = Field(
+        default=1000,
+        ge=1,
+        le=10000,
+        description="Hard ceiling on the limit query parameter",
+    )
+    default_page_size: int = Field(
+        default=100,
+        ge=1,
+        le=10000,
+        description="Default limit when not specified",
+    )
+    tables: dict[str, TableConfig] = Field(
+        default_factory=dict,
+        description="Per-table access policies",
+    )
+    cors_origins: list[str] = Field(
+        default_factory=list,
+        description="Allowed CORS origins (empty = disabled)",
+    )
+    request_timeout: float = Field(
+        default=30.0,
+        ge=1.0,
+        le=300.0,
+        description="Per-request timeout in seconds",
+    )
 
     @field_validator("route_prefix")
     @classmethod

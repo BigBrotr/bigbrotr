@@ -563,6 +563,7 @@ class TestUpsertServiceState:
 
     async def test_multiple_records(self, mock_brotr: Brotr, mock_pool: Pool) -> None:
         """Test upserting multiple records."""
+        mock_pool._mock_connection.fetchval = AsyncMock(return_value=3)
         records = [
             ServiceState(
                 service_name=ServiceName.FINDER,

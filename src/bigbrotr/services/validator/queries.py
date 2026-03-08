@@ -34,9 +34,8 @@ async def delete_promoted_candidates(brotr: Brotr) -> int:
     Returns:
         Number of deleted rows.
     """
-    count: int = (
-        await brotr.fetchval(
-            """
+    count: int = await brotr.fetchval(
+        """
         WITH deleted AS (
             DELETE FROM service_state
             WHERE service_name = $1
@@ -46,10 +45,8 @@ async def delete_promoted_candidates(brotr: Brotr) -> int:
         )
         SELECT count(*)::int FROM deleted
         """,
-            ServiceName.VALIDATOR,
-            ServiceStateType.CHECKPOINT,
-        )
-        or 0
+        ServiceName.VALIDATOR,
+        ServiceStateType.CHECKPOINT,
     )
     return count
 
@@ -87,6 +84,16 @@ async def delete_exhausted_candidates(brotr: Brotr, max_failures: int) -> int:
     return count
 
 
+_CANDIDATES_WHERE = """
+    FROM service_state
+    WHERE service_name = $1
+      AND state_type = $2
+      AND state_value->>'network' = ANY($3)
+      AND (COALESCE((state_value->>'failures')::int, 0) = 0
+           OR (state_value->>'timestamp')::BIGINT < $4)
+"""
+
+
 async def count_candidates(
     brotr: Brotr,
     networks: list[NetworkType],
@@ -104,22 +111,14 @@ async def count_candidates(
     Returns:
         Total count of matching candidates.
     """
-    row = await brotr.fetchrow(
-        """
-        SELECT COUNT(*)::int AS count
-        FROM service_state
-        WHERE service_name = $1
-          AND state_type = $2
-          AND state_value->>'network' = ANY($3)
-          AND (COALESCE((state_value->>'failures')::int, 0) = 0
-               OR (state_value->>'timestamp')::BIGINT < $4)
-        """,
+    count: int = await brotr.fetchval(
+        f"SELECT count(*)::int {_CANDIDATES_WHERE}",
         ServiceName.VALIDATOR,
         ServiceStateType.CHECKPOINT,
         networks,
         attempted_before,
     )
-    return row["count"] if row else 0
+    return count
 
 
 async def fetch_candidates(
@@ -149,14 +148,9 @@ async def fetch_candidates(
         instances.
     """
     rows = await brotr.fetch(
-        """
+        f"""
         SELECT state_key, state_value
-        FROM service_state
-        WHERE service_name = $1
-          AND state_type = $2
-          AND state_value->>'network' = ANY($3)
-          AND (COALESCE((state_value->>'failures')::int, 0) = 0
-               OR (state_value->>'timestamp')::BIGINT < $4)
+        {_CANDIDATES_WHERE}
         ORDER BY COALESCE((state_value->>'failures')::int, 0) ASC,
                  COALESCE((state_value->>'timestamp')::BIGINT, 0) ASC
         LIMIT $5

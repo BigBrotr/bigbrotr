@@ -130,6 +130,7 @@ class TestDvmConfig:
         assert config.announce is True
         assert config.tables == {}
         assert config.fetch_timeout == 30.0
+        assert config.allow_insecure is False
 
     def test_custom_branding(self) -> None:
         config = DvmConfig(

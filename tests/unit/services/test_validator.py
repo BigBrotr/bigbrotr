@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -40,6 +40,7 @@ from bigbrotr.services.validator.queries import (
 
 
 _SVC = "bigbrotr.services.validator.service"
+_UTILS = "bigbrotr.services.validator.utils"
 
 
 # ============================================================================
@@ -100,6 +101,7 @@ class TestProcessingConfig:
         assert cfg.chunk_size == 100
         assert cfg.max_candidates is None
         assert cfg.interval == 3600.0
+        assert cfg.allow_insecure is False
 
     def test_chunk_size_bounds(self) -> None:
         assert ProcessingConfig(chunk_size=10).chunk_size == 10
@@ -374,10 +376,6 @@ class TestDeletePromotedCandidates:
         assert args[0][2] == ServiceStateType.CHECKPOINT
         assert result == 2
 
-    async def test_returns_zero_on_none(self, query_brotr: MagicMock) -> None:
-        query_brotr.fetchval = AsyncMock(return_value=None)
-        assert await delete_promoted_candidates(query_brotr) == 0
-
 
 # ============================================================================
 # delete_exhausted_candidates
@@ -409,16 +407,16 @@ class TestDeleteExhaustedCandidates:
 
 class TestCountCandidates:
     async def test_counts_with_filters(self, query_brotr: MagicMock) -> None:
-        query_brotr.fetchrow = AsyncMock(return_value={"count": 15})
+        query_brotr.fetchval = AsyncMock(return_value=15)
         result = await count_candidates(
             query_brotr,
             networks=[NetworkType.CLEARNET, NetworkType.TOR],
             attempted_before=1700000000,
         )
 
-        args = query_brotr.fetchrow.call_args
+        args = query_brotr.fetchval.call_args
         sql = args[0][0]
-        assert "COUNT(*)" in sql
+        assert "count(*)::int" in sql
         assert "service_name = $1" in sql
         assert "state_type = $2" in sql
         assert args[0][1] == ServiceName.VALIDATOR
@@ -426,10 +424,6 @@ class TestCountCandidates:
         assert args[0][3] == [NetworkType.CLEARNET, NetworkType.TOR]
         assert args[0][4] == 1700000000
         assert result == 15
-
-    async def test_returns_zero_on_none_row(self, query_brotr: MagicMock) -> None:
-        query_brotr.fetchrow = AsyncMock(return_value=None)
-        assert await count_candidates(query_brotr, [NetworkType.CLEARNET], 1700000000) == 0
 
 
 # ============================================================================
@@ -637,7 +631,7 @@ class TestValidate:
             ),
             patch(f"{_SVC}.promote_candidates", new_callable=AsyncMock, return_value=3),
             patch(f"{_SVC}.fail_candidates", new_callable=AsyncMock, return_value=0),
-            patch(f"{_SVC}.is_nostr_relay", new_callable=AsyncMock, return_value=True),
+            patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True),
         ):
             assert await Validator(validator_brotr).validate() == 3
 
@@ -652,7 +646,7 @@ class TestValidate:
             ),
             patch(f"{_SVC}.promote_candidates", new_callable=AsyncMock, return_value=0),
             patch(f"{_SVC}.fail_candidates", new_callable=AsyncMock, return_value=4),
-            patch(f"{_SVC}.is_nostr_relay", new_callable=AsyncMock, return_value=False),
+            patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=False),
         ):
             assert await Validator(validator_brotr).validate() == 4
 
@@ -662,7 +656,7 @@ class TestValidate:
         promote_mock = AsyncMock(return_value=1)
         fail_mock = AsyncMock(return_value=1)
 
-        async def relay_check(relay, proxy, timeout):
+        async def relay_check(relay, proxy, timeout, **kwargs):
             return "good" in relay.url
 
         with (
@@ -674,7 +668,7 @@ class TestValidate:
             ),
             patch(f"{_SVC}.promote_candidates", promote_mock),
             patch(f"{_SVC}.fail_candidates", fail_mock),
-            patch(f"{_SVC}.is_nostr_relay", side_effect=relay_check),
+            patch(f"{_UTILS}.is_nostr_relay", side_effect=relay_check),
         ):
             assert await Validator(validator_brotr).validate() == 2
 
@@ -697,7 +691,7 @@ class TestValidate:
                 side_effect=[5, 3],
             ),
             patch(f"{_SVC}.fail_candidates", new_callable=AsyncMock, return_value=0),
-            patch(f"{_SVC}.is_nostr_relay", new_callable=AsyncMock, return_value=True),
+            patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True),
         ):
             assert await Validator(validator_brotr).validate() == 8
 
@@ -713,7 +707,7 @@ class TestValidate:
             ),
             patch(f"{_SVC}.promote_candidates", new_callable=AsyncMock, return_value=5),
             patch(f"{_SVC}.fail_candidates", new_callable=AsyncMock, return_value=0),
-            patch(f"{_SVC}.is_nostr_relay", new_callable=AsyncMock, return_value=True),
+            patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True),
         ):
             result = await Validator(validator_brotr, config=cfg).validate()
         assert result == 100
@@ -731,7 +725,7 @@ class TestValidate:
             patch(f"{_SVC}.promote_candidates", new_callable=AsyncMock, return_value=0),
             patch(f"{_SVC}.fail_candidates", fail_mock),
             patch(
-                f"{_SVC}.is_nostr_relay",
+                f"{_UTILS}.is_nostr_relay",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("boom"),
             ),
@@ -749,7 +743,7 @@ class TestValidate:
                 side_effect=[[_candidate()], []],
             ),
             patch(
-                f"{_SVC}.is_nostr_relay",
+                f"{_UTILS}.is_nostr_relay",
                 new_callable=AsyncMock,
                 side_effect=asyncio.CancelledError,
             ),
@@ -774,56 +768,76 @@ class TestValidate:
                 side_effect=OSError("db down"),
             ),
             patch(f"{_SVC}.fail_candidates", new_callable=AsyncMock, return_value=0),
-            patch(f"{_SVC}.is_nostr_relay", new_callable=AsyncMock, return_value=True),
+            patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True),
             pytest.raises(OSError, match="db down"),
         ):
             await Validator(validator_brotr).validate()
 
 
 # ============================================================================
-# Validator._validate_candidate
+# Validator._validation_worker
 # ============================================================================
 
 
-class TestValidateCandidate:
+class TestValidateCandidateSafe:
     async def test_valid_returns_true(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
-        with patch(f"{_SVC}.is_nostr_relay", new_callable=AsyncMock, return_value=True):
-            assert await v._validate_candidate(_candidate("wss://good.com")) is True
+        c = _candidate("wss://good.com")
+        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True):
+            result = await v._validation_worker(c)
+        assert result == (c, True)
 
     async def test_invalid_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
-        with patch(f"{_SVC}.is_nostr_relay", new_callable=AsyncMock, return_value=False):
-            assert await v._validate_candidate(_candidate("wss://bad.com")) is False
+        c = _candidate("wss://bad.com")
+        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=False):
+            result = await v._validation_worker(c)
+        assert result == (c, False)
 
     async def test_timeout_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
+        c = _candidate()
         with patch(
-            f"{_SVC}.is_nostr_relay",
+            f"{_UTILS}.is_nostr_relay",
             new_callable=AsyncMock,
             side_effect=TimeoutError,
         ):
-            assert await v._validate_candidate(_candidate()) is False
+            result = await v._validation_worker(c)
+        assert result == (c, False)
 
     async def test_os_error_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
+        c = _candidate()
         with patch(
-            f"{_SVC}.is_nostr_relay",
+            f"{_UTILS}.is_nostr_relay",
             new_callable=AsyncMock,
             side_effect=OSError("refused"),
         ):
-            assert await v._validate_candidate(_candidate()) is False
+            result = await v._validation_worker(c)
+        assert result == (c, False)
 
     async def test_unknown_network_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
         c = _candidate(network=NetworkType.UNKNOWN)
-        assert await v._validate_candidate(c) is False
+        result = await v._validation_worker(c)
+        assert result == (c, False)
 
     async def test_clearnet_no_proxy(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
-        with patch(f"{_SVC}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
-            await v._validate_candidate(_candidate())
+        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
+            await v._validation_worker(_candidate())
         assert mock.call_args[0][1] is None
+
+    async def test_unexpected_error_returns_false(self, validator_brotr: Brotr) -> None:
+        v = Validator(validator_brotr)
+        c = _candidate("wss://broken.com")
+        with patch(
+            f"{_UTILS}.is_nostr_relay",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("boom"),
+        ):
+            result = await v._validation_worker(c)
+        assert result == (c, False)
 
 
 # ============================================================================
@@ -839,8 +853,8 @@ class TestNetworkRouting:
         candidate: CandidateCheckpoint,
     ) -> tuple[str | None, float]:
         v = Validator(validator_brotr, config=cfg)
-        with patch(f"{_SVC}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
-            await v._validate_candidate(candidate)
+        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
+            await v._validation_worker(candidate)
         return mock.call_args[0][1], mock.call_args[0][2]
 
     async def test_clearnet(self, validator_brotr: Brotr) -> None:
@@ -898,6 +912,19 @@ class TestNetworkRouting:
         )
         assert proxy == "socks5://lokinet:1080"
         assert timeout == 30.0
+
+    async def test_allow_insecure_passed(self, validator_brotr: Brotr) -> None:
+        cfg = ValidatorConfig(processing=ProcessingConfig(allow_insecure=True))
+        v = Validator(validator_brotr, config=cfg)
+        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
+            await v._validation_worker(_candidate())
+        assert mock.call_args.kwargs["allow_insecure"] is True
+
+    async def test_allow_insecure_default_false(self, validator_brotr: Brotr) -> None:
+        v = Validator(validator_brotr)
+        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
+            await v._validation_worker(_candidate())
+        assert mock.call_args.kwargs["allow_insecure"] is False
 
 
 # ============================================================================
@@ -969,7 +996,6 @@ class TestValidatorMetrics:
         calls = {(c.args[0], c.args[1]) for c in mock_gauge.call_args_list}
         assert ("validated", 0) in calls
         assert ("not_validated", 0) in calls
-        assert ("chunk", 0) in calls
 
     async def test_validated_gauge_accumulates(self, validator_brotr: Brotr) -> None:
         chunk1 = [_candidate(f"wss://a{i}.com") for i in range(3)]
@@ -987,7 +1013,7 @@ class TestValidatorMetrics:
                 side_effect=[3, 2],
             ),
             patch(f"{_SVC}.fail_candidates", new_callable=AsyncMock, return_value=0),
-            patch(f"{_SVC}.is_nostr_relay", new_callable=AsyncMock, return_value=True),
+            patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True),
         ):
             v = Validator(validator_brotr)
             gauge_calls: list[tuple[str, int]] = []
@@ -1000,54 +1026,3 @@ class TestValidatorMetrics:
         validated = [val for name, val in gauge_calls if name == "validated"]
         assert validated == sorted(validated)
         assert validated[-1] == 5
-
-    async def test_chunk_gauge_increments(self, validator_brotr: Brotr) -> None:
-        chunk1 = [_candidate("wss://r1.com")]
-        chunk2 = [_candidate("wss://r2.com")]
-        with (
-            patch(f"{_SVC}.count_candidates", new_callable=AsyncMock, return_value=2),
-            patch(
-                f"{_SVC}.fetch_candidates",
-                new_callable=AsyncMock,
-                side_effect=[chunk1, chunk2, []],
-            ),
-            patch(f"{_SVC}.promote_candidates", new_callable=AsyncMock, return_value=1),
-            patch(f"{_SVC}.fail_candidates", new_callable=AsyncMock, return_value=0),
-            patch(f"{_SVC}.is_nostr_relay", new_callable=AsyncMock, return_value=True),
-        ):
-            v = Validator(validator_brotr)
-            gauge_calls: list[tuple[str, int]] = []
-            with patch.object(
-                v,
-                "set_gauge",
-                side_effect=lambda n, val: gauge_calls.append((n, val)),
-            ):
-                await v.validate()
-        chunk_values = [val for name, val in gauge_calls if name == "chunk"]
-        assert chunk_values[-1] == 2
-
-    async def test_total_promoted_counter(self, validator_brotr: Brotr) -> None:
-        chunk1 = [_candidate(f"wss://a{i}.com") for i in range(3)]
-        chunk2 = [_candidate(f"wss://b{i}.com") for i in range(2)]
-        with (
-            patch(f"{_SVC}.count_candidates", new_callable=AsyncMock, return_value=5),
-            patch(
-                f"{_SVC}.fetch_candidates",
-                new_callable=AsyncMock,
-                side_effect=[chunk1, chunk2, []],
-            ),
-            patch(
-                f"{_SVC}.promote_candidates",
-                new_callable=AsyncMock,
-                side_effect=[3, 2],
-            ),
-            patch(f"{_SVC}.fail_candidates", new_callable=AsyncMock, return_value=0),
-            patch(f"{_SVC}.is_nostr_relay", new_callable=AsyncMock, return_value=True),
-        ):
-            v = Validator(validator_brotr)
-            with patch.object(v, "inc_counter") as mock_counter:
-                await v.validate()
-        assert mock_counter.call_args_list == [
-            call("total_promoted", 3),
-            call("total_promoted", 2),
-        ]

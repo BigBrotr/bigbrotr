@@ -171,8 +171,11 @@ class BaseLogs(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    success: StrictBool
-    reason: str | None = None
+    success: StrictBool = Field(description="Whether the operation succeeded")
+    reason: str | None = Field(
+        default=None,
+        description="Failure reason (required when success is False)",
+    )
 
     @model_validator(mode="after")
     def validate_semantic(self) -> Self:
@@ -229,7 +232,10 @@ class BaseNipOptions(BaseModel):
             NIP-66 options (inherits only ``allow_insecure``).
     """
 
-    allow_insecure: bool = False
+    allow_insecure: bool = Field(
+        default=False,
+        description="Allow unverified SSL for clearnet relays",
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,7 +302,11 @@ class BaseNip(BaseModel, ABC):
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     relay: Relay
-    generated_at: StrictInt = Field(default_factory=lambda: int(time()), ge=0)
+    generated_at: StrictInt = Field(
+        default_factory=lambda: int(time()),
+        ge=0,
+        description="Unix timestamp when this result was generated",
+    )
 
     @abstractmethod
     def to_relay_metadata_tuple(self) -> tuple[Any, ...]:

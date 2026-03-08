@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
     from bigbrotr.models import Relay
 
-_logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def parse_seed_file(path: Path) -> list[Relay]:
@@ -45,8 +45,8 @@ def parse_seed_file(path: Path) -> list[Relay]:
                 if relay:
                     relays.append(relay)
                 else:
-                    _logger.warning("relay_parse_failed: %s", url)
+                    logger.warning("relay_parse_failed: %s", url)
     except (OSError, UnicodeDecodeError) as exc:
-        _logger.warning("seed_file_read_error: %s (%s)", path, exc)
+        logger.warning("seed_file_read_error: %s (%s)", path, exc)
 
     return relays

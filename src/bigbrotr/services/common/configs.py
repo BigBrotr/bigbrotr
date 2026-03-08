@@ -62,8 +62,8 @@ class TableConfig(BaseModel):
             Used by the DVM service for NIP-90 bid/payment-required.
     """
 
-    enabled: bool = False
-    price: int = Field(default=0, ge=0)
+    enabled: bool = Field(default=False, description="Whether this table is exposed to clients")
+    price: int = Field(default=0, ge=0, description="Price in millisats (0 = free)")
 
 
 class ClearnetConfig(BaseModel):
@@ -77,10 +77,14 @@ class ClearnetConfig(BaseModel):
             The enum member this config maps to.
     """
 
-    enabled: bool = True
-    proxy_url: str | None = None
-    max_tasks: int = Field(default=50, ge=1, le=200)
-    timeout: float = Field(default=10.0, ge=1.0, le=120.0)
+    enabled: bool = Field(default=True, description="Enable clearnet relay processing")
+    proxy_url: str | None = Field(
+        default=None, description="SOCKS5 proxy URL (None for direct connection)"
+    )
+    max_tasks: int = Field(default=50, ge=1, le=200, description="Maximum concurrent connections")
+    timeout: float = Field(
+        default=10.0, ge=1.0, le=120.0, description="Connection timeout in seconds"
+    )
 
 
 class TorConfig(BaseModel):
@@ -94,10 +98,14 @@ class TorConfig(BaseModel):
             The enum member this config maps to.
     """
 
-    enabled: bool = False
-    proxy_url: str | None = "socks5://tor:9050"
-    max_tasks: int = Field(default=10, ge=1, le=200)
-    timeout: float = Field(default=30.0, ge=1.0, le=120.0)
+    enabled: bool = Field(default=False, description="Enable Tor relay processing")
+    proxy_url: str | None = Field(
+        default="socks5://tor:9050", description="SOCKS5 proxy URL for Tor"
+    )
+    max_tasks: int = Field(default=10, ge=1, le=200, description="Maximum concurrent connections")
+    timeout: float = Field(
+        default=30.0, ge=1.0, le=120.0, description="Connection timeout in seconds"
+    )
 
 
 class I2pConfig(BaseModel):
@@ -111,10 +119,14 @@ class I2pConfig(BaseModel):
             The enum member this config maps to.
     """
 
-    enabled: bool = False
-    proxy_url: str | None = "socks5://i2p:4447"
-    max_tasks: int = Field(default=5, ge=1, le=200)
-    timeout: float = Field(default=45.0, ge=1.0, le=120.0)
+    enabled: bool = Field(default=False, description="Enable I2P relay processing")
+    proxy_url: str | None = Field(
+        default="socks5://i2p:4447", description="SOCKS5 proxy URL for I2P"
+    )
+    max_tasks: int = Field(default=5, ge=1, le=200, description="Maximum concurrent connections")
+    timeout: float = Field(
+        default=45.0, ge=1.0, le=120.0, description="Connection timeout in seconds"
+    )
 
 
 class LokiConfig(BaseModel):
@@ -131,10 +143,14 @@ class LokiConfig(BaseModel):
             The enum member this config maps to.
     """
 
-    enabled: bool = False
-    proxy_url: str | None = "socks5://lokinet:1080"
-    max_tasks: int = Field(default=5, ge=1, le=200)
-    timeout: float = Field(default=30.0, ge=1.0, le=120.0)
+    enabled: bool = Field(default=False, description="Enable Lokinet relay processing")
+    proxy_url: str | None = Field(
+        default="socks5://lokinet:1080", description="SOCKS5 proxy URL for Lokinet"
+    )
+    max_tasks: int = Field(default=5, ge=1, le=200, description="Maximum concurrent connections")
+    timeout: float = Field(
+        default=30.0, ge=1.0, le=120.0, description="Connection timeout in seconds"
+    )
 
 
 # Union type for any network-specific configuration
@@ -168,10 +184,12 @@ class NetworksConfig(BaseModel):
         ```
     """
 
-    clearnet: ClearnetConfig = Field(default_factory=ClearnetConfig)
-    tor: TorConfig = Field(default_factory=TorConfig)
-    i2p: I2pConfig = Field(default_factory=I2pConfig)
-    loki: LokiConfig = Field(default_factory=LokiConfig)
+    clearnet: ClearnetConfig = Field(
+        default_factory=ClearnetConfig, description="Clearnet relay settings"
+    )
+    tor: TorConfig = Field(default_factory=TorConfig, description="Tor relay settings")
+    i2p: I2pConfig = Field(default_factory=I2pConfig, description="I2P relay settings")
+    loki: LokiConfig = Field(default_factory=LokiConfig, description="Lokinet relay settings")
 
     def get(self, network: NetworkType) -> NetworkTypeConfig:
         """Get configuration for a specific network type.

@@ -42,4 +42,4 @@ class SeederConfig(BaseServiceConfig):
             Base class providing ``interval``, ``max_consecutive_failures``, and ``metrics`` fields.
     """
 
-    seed: SeedConfig = Field(default_factory=SeedConfig)
+    seed: SeedConfig = Field(default_factory=SeedConfig, description="Seed data source settings")

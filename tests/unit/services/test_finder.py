@@ -535,13 +535,13 @@ class TestExtractRelaysFromTagvalues:
 
 
 class TestDeleteStaleCursors:
-    async def test_calls_fetch_with_correct_params(self, query_brotr: MagicMock) -> None:
-        query_brotr.fetch = AsyncMock(return_value=[{1: 1}, {1: 1}, {1: 1}])
+    async def test_calls_fetchval_with_correct_params(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetchval = AsyncMock(return_value=3)
 
         result = await delete_stale_cursors(query_brotr)
 
-        query_brotr.fetch.assert_awaited_once()
-        args = query_brotr.fetch.call_args
+        query_brotr.fetchval.assert_awaited_once()
+        args = query_brotr.fetchval.call_args
         sql = args[0][0]
         assert "DELETE FROM service_state" in sql
         assert "NOT EXISTS" in sql
@@ -549,21 +549,14 @@ class TestDeleteStaleCursors:
         assert args[0][2] == ServiceStateType.CURSOR
         assert result == 3
 
-    async def test_returns_zero_on_empty(self, query_brotr: MagicMock) -> None:
-        query_brotr.fetch = AsyncMock(return_value=[])
-
-        result = await delete_stale_cursors(query_brotr)
-
-        assert result == 0
-
 
 class TestDeleteStaleApiCheckpoints:
     async def test_deletes_inactive_sources(self, query_brotr: MagicMock) -> None:
-        query_brotr.fetch = AsyncMock(return_value=[{1: 1}, {1: 1}])
+        query_brotr.fetchval = AsyncMock(return_value=2)
 
         result = await delete_stale_api_checkpoints(query_brotr, ["https://active.example.com"])
 
-        args = query_brotr.fetch.call_args
+        args = query_brotr.fetchval.call_args
         sql = args[0][0]
         assert "DELETE FROM service_state" in sql
         assert "NOT (state_key = ANY($3::text[]))" in sql
@@ -571,13 +564,6 @@ class TestDeleteStaleApiCheckpoints:
         assert args[0][2] == ServiceStateType.CHECKPOINT
         assert args[0][3] == ["https://active.example.com"]
         assert result == 2
-
-    async def test_returns_zero_on_empty(self, query_brotr: MagicMock) -> None:
-        query_brotr.fetch = AsyncMock(return_value=[])
-
-        result = await delete_stale_api_checkpoints(query_brotr, [])
-
-        assert result == 0
 
 
 class TestFetchFinderCursors:
@@ -1805,12 +1791,12 @@ class TestFinderCleanup:
     async def test_cleanup_removes_orphaned_cursors_and_stale_checkpoints(
         self, mock_brotr: Brotr
     ) -> None:
-        mock_brotr.fetch = AsyncMock(side_effect=[[{1: 1}] * 3, [{1: 1}] * 2])
+        mock_brotr.fetchval = AsyncMock(side_effect=[3, 2])
         finder = Finder(brotr=mock_brotr)
         result = await finder.cleanup()
-        assert mock_brotr.fetch.await_count == 2
-        cursor_sql = mock_brotr.fetch.call_args_list[0][0][0]
-        checkpoint_sql = mock_brotr.fetch.call_args_list[1][0][0]
+        assert mock_brotr.fetchval.await_count == 2
+        cursor_sql = mock_brotr.fetchval.call_args_list[0][0][0]
+        checkpoint_sql = mock_brotr.fetchval.call_args_list[1][0][0]
         assert "NOT EXISTS" in cursor_sql
         assert "NOT (state_key = ANY" in checkpoint_sql
         assert result == 5

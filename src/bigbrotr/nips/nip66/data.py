@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from pydantic import StrictBool, StrictFloat, StrictInt  # noqa: TC002
+from pydantic import Field, StrictBool, StrictFloat, StrictInt
 
 from bigbrotr.nips.base import BaseData
 from bigbrotr.nips.parsing import FieldSpec
@@ -49,9 +49,11 @@ class Nip66RttData(BaseData):
             Corresponding log model with per-phase success/reason.
     """
 
-    rtt_open: StrictInt | None = None
-    rtt_read: StrictInt | None = None
-    rtt_write: StrictInt | None = None
+    rtt_open: StrictInt | None = Field(
+        default=None, description="WebSocket connection open latency in ms"
+    )
+    rtt_read: StrictInt | None = Field(default=None, description="Event read latency in ms")
+    rtt_write: StrictInt | None = Field(default=None, description="Event write latency in ms")
 
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         int_fields=frozenset({"rtt_open", "rtt_read", "rtt_write"}),
@@ -77,19 +79,25 @@ class Nip66SslData(BaseData):
             Utility class that extracts fields from Python SSL cert dicts.
     """
 
-    ssl_valid: StrictBool | None = None
-    ssl_subject_cn: str | None = None
-    ssl_issuer: str | None = None
-    ssl_issuer_cn: str | None = None
-    ssl_expires: StrictInt | None = None
-    ssl_not_before: StrictInt | None = None
-    ssl_san: list[str] | None = None
-    ssl_serial: str | None = None
-    ssl_version: StrictInt | None = None
-    ssl_fingerprint: str | None = None
-    ssl_protocol: str | None = None
-    ssl_cipher: str | None = None
-    ssl_cipher_bits: StrictInt | None = None
+    ssl_valid: StrictBool | None = Field(
+        default=None, description="Whether the SSL certificate chain is valid"
+    )
+    ssl_subject_cn: str | None = Field(default=None, description="Certificate subject common name")
+    ssl_issuer: str | None = Field(default=None, description="Certificate issuer organization")
+    ssl_issuer_cn: str | None = Field(default=None, description="Certificate issuer common name")
+    ssl_expires: StrictInt | None = Field(
+        default=None, description="Certificate expiry Unix timestamp"
+    )
+    ssl_not_before: StrictInt | None = Field(
+        default=None, description="Certificate validity start Unix timestamp"
+    )
+    ssl_san: list[str] | None = Field(default=None, description="Subject Alternative Names")
+    ssl_serial: str | None = Field(default=None, description="Certificate serial number")
+    ssl_version: StrictInt | None = Field(default=None, description="X.509 certificate version")
+    ssl_fingerprint: str | None = Field(default=None, description="SHA-256 certificate fingerprint")
+    ssl_protocol: str | None = Field(default=None, description="Negotiated TLS protocol version")
+    ssl_cipher: str | None = Field(default=None, description="Negotiated cipher suite")
+    ssl_cipher_bits: StrictInt | None = Field(default=None, description="Cipher key size in bits")
 
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         bool_fields=frozenset({"ssl_valid"}),
@@ -136,20 +144,26 @@ class Nip66GeoData(BaseData):
             Related network/ASN data that also relies on IP resolution.
     """
 
-    geo_country: str | None = None
-    geo_country_name: str | None = None
-    geo_continent: str | None = None
-    geo_continent_name: str | None = None
-    geo_is_eu: StrictBool | None = None
-    geo_region: str | None = None
-    geo_city: str | None = None
-    geo_postal: str | None = None
-    geo_lat: StrictFloat | None = None
-    geo_lon: StrictFloat | None = None
-    geo_accuracy: StrictInt | None = None
-    geo_tz: str | None = None
-    geo_hash: str | None = None
-    geo_geoname_id: StrictInt | None = None
+    geo_country: str | None = Field(default=None, description="ISO 3166-1 alpha-2 country code")
+    geo_country_name: str | None = Field(default=None, description="Country name")
+    geo_continent: str | None = Field(default=None, description="Continent code")
+    geo_continent_name: str | None = Field(default=None, description="Continent name")
+    geo_is_eu: StrictBool | None = Field(
+        default=None, description="Whether the country is in the EU"
+    )
+    geo_region: str | None = Field(default=None, description="Administrative region name")
+    geo_city: str | None = Field(default=None, description="City name")
+    geo_postal: str | None = Field(default=None, description="Postal code")
+    geo_lat: StrictFloat | None = Field(default=None, description="Latitude in decimal degrees")
+    geo_lon: StrictFloat | None = Field(default=None, description="Longitude in decimal degrees")
+    geo_accuracy: StrictInt | None = Field(
+        default=None, description="Location accuracy radius in km"
+    )
+    geo_tz: str | None = Field(default=None, description="IANA timezone identifier")
+    geo_hash: str | None = Field(default=None, description="Geohash at configured precision")
+    geo_geoname_id: StrictInt | None = Field(
+        default=None, description="GeoNames location identifier"
+    )
 
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         bool_fields=frozenset({"geo_is_eu"}),
@@ -191,12 +205,12 @@ class Nip66NetData(BaseData):
             DNS resolution used upstream to obtain IP addresses.
     """
 
-    net_ip: str | None = None
-    net_ipv6: str | None = None
-    net_asn: StrictInt | None = None
-    net_asn_org: str | None = None
-    net_network: str | None = None
-    net_network_v6: str | None = None
+    net_ip: str | None = Field(default=None, description="Resolved IPv4 address")
+    net_ipv6: str | None = Field(default=None, description="Resolved IPv6 address")
+    net_asn: StrictInt | None = Field(default=None, description="Autonomous System Number")
+    net_asn_org: str | None = Field(default=None, description="ASN organization name")
+    net_network: str | None = Field(default=None, description="IPv4 CIDR network range")
+    net_network_v6: str | None = Field(default=None, description="IPv6 CIDR network range")
 
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         int_fields=frozenset({"net_asn"}),
@@ -231,12 +245,12 @@ class Nip66DnsData(BaseData):
             Simpler A/AAAA-only resolution used by geo and net tests.
     """
 
-    dns_ips: list[str] | None = None
-    dns_ips_v6: list[str] | None = None
-    dns_cname: str | None = None
-    dns_reverse: str | None = None
-    dns_ns: list[str] | None = None
-    dns_ttl: StrictInt | None = None
+    dns_ips: list[str] | None = Field(default=None, description="A record IPv4 addresses")
+    dns_ips_v6: list[str] | None = Field(default=None, description="AAAA record IPv6 addresses")
+    dns_cname: str | None = Field(default=None, description="CNAME record target")
+    dns_reverse: str | None = Field(default=None, description="PTR reverse DNS hostname")
+    dns_ns: list[str] | None = Field(default=None, description="NS record nameservers")
+    dns_ttl: StrictInt | None = Field(default=None, description="DNS record TTL in seconds")
 
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         int_fields=frozenset({"dns_ttl"}),
@@ -261,8 +275,10 @@ class Nip66HttpData(BaseData):
             Container that pairs this data with HTTP extraction logs.
     """
 
-    http_server: str | None = None
-    http_powered_by: str | None = None
+    http_server: str | None = Field(default=None, description="Server response header value")
+    http_powered_by: str | None = Field(
+        default=None, description="X-Powered-By response header value"
+    )
 
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         str_fields=frozenset({"http_server", "http_powered_by"}),
