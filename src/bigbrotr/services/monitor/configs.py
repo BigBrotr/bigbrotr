@@ -41,13 +41,13 @@ class MetadataFlags(BaseModel):
             ensuring stored flags are a subset of computed flags.
     """
 
-    nip11_info: bool = Field(default=True)
-    nip66_rtt: bool = Field(default=True)
-    nip66_ssl: bool = Field(default=True)
-    nip66_geo: bool = Field(default=True)
-    nip66_net: bool = Field(default=True)
-    nip66_dns: bool = Field(default=True)
-    nip66_http: bool = Field(default=True)
+    nip11_info: bool = Field(default=True, description="NIP-11 relay information document")
+    nip66_rtt: bool = Field(default=True, description="NIP-66 round-trip time measurement")
+    nip66_ssl: bool = Field(default=True, description="NIP-66 SSL/TLS certificate inspection")
+    nip66_geo: bool = Field(default=True, description="NIP-66 geolocation lookup")
+    nip66_net: bool = Field(default=True, description="NIP-66 network/ASN lookup")
+    nip66_dns: bool = Field(default=True, description="NIP-66 DNS resolution")
+    nip66_http: bool = Field(default=True, description="NIP-66 HTTP server headers")
 
     def get_missing_from(self, superset: MetadataFlags) -> list[str]:
         """Return field names that are enabled in self but disabled in superset."""
@@ -72,10 +72,18 @@ class RetryConfig(BaseModel):
             The method that consumes these settings.
     """
 
-    max_attempts: int = Field(default=0, ge=0, le=10)
-    initial_delay: float = Field(default=1.0, ge=0.1, le=10.0)
-    max_delay: float = Field(default=10.0, ge=1.0, le=60.0)
-    jitter: float = Field(default=0.5, ge=0.0, le=2.0)
+    max_attempts: int = Field(
+        default=0, ge=0, le=10, description="Maximum retry attempts (0 = no retries)"
+    )
+    initial_delay: float = Field(
+        default=1.0, ge=0.1, le=10.0, description="Initial delay between retries in seconds"
+    )
+    max_delay: float = Field(
+        default=10.0, ge=1.0, le=60.0, description="Maximum delay between retries in seconds"
+    )
+    jitter: float = Field(
+        default=0.5, ge=0.0, le=2.0, description="Random jitter factor for retry delay"
+    )
 
     @field_validator("max_delay")
     @classmethod
@@ -100,13 +108,27 @@ class RetriesConfig(BaseModel):
             Parent config that embeds this model.
     """
 
-    nip11_info: RetryConfig = Field(default_factory=RetryConfig)
-    nip66_rtt: RetryConfig = Field(default_factory=RetryConfig)
-    nip66_ssl: RetryConfig = Field(default_factory=RetryConfig)
-    nip66_geo: RetryConfig = Field(default_factory=RetryConfig)
-    nip66_net: RetryConfig = Field(default_factory=RetryConfig)
-    nip66_dns: RetryConfig = Field(default_factory=RetryConfig)
-    nip66_http: RetryConfig = Field(default_factory=RetryConfig)
+    nip11_info: RetryConfig = Field(
+        default_factory=RetryConfig, description="Retry settings for NIP-11 info fetch"
+    )
+    nip66_rtt: RetryConfig = Field(
+        default_factory=RetryConfig, description="Retry settings for RTT measurement"
+    )
+    nip66_ssl: RetryConfig = Field(
+        default_factory=RetryConfig, description="Retry settings for SSL inspection"
+    )
+    nip66_geo: RetryConfig = Field(
+        default_factory=RetryConfig, description="Retry settings for geolocation lookup"
+    )
+    nip66_net: RetryConfig = Field(
+        default_factory=RetryConfig, description="Retry settings for network/ASN lookup"
+    )
+    nip66_dns: RetryConfig = Field(
+        default_factory=RetryConfig, description="Retry settings for DNS resolution"
+    )
+    nip66_http: RetryConfig = Field(
+        default_factory=RetryConfig, description="Retry settings for HTTP header extraction"
+    )
 
 
 class ProcessingConfig(BaseModel):
@@ -119,13 +141,30 @@ class ProcessingConfig(BaseModel):
             ``compute`` and ``store`` flag sets.
     """
 
-    chunk_size: int = Field(default=100, ge=10, le=1000)
-    max_relays: int | None = Field(default=None, ge=1)
-    allow_insecure: bool = Field(default=False)
-    nip11_info_max_size: int = Field(default=1_048_576, ge=1024, le=10_485_760)
-    retries: RetriesConfig = Field(default_factory=RetriesConfig)
-    compute: MetadataFlags = Field(default_factory=MetadataFlags)
-    store: MetadataFlags = Field(default_factory=MetadataFlags)
+    chunk_size: int = Field(
+        default=100, ge=10, le=1000, description="Relays to process before flushing results"
+    )
+    max_relays: int | None = Field(
+        default=None, ge=1, description="Maximum relays per cycle (None = all)"
+    )
+    allow_insecure: bool = Field(
+        default=False, description="Allow unverified SSL for clearnet relays"
+    )
+    nip11_info_max_size: int = Field(
+        default=1_048_576,
+        ge=1024,
+        le=10_485_760,
+        description="Maximum NIP-11 response body size in bytes",
+    )
+    retries: RetriesConfig = Field(
+        default_factory=RetriesConfig, description="Per-metadata-type retry settings"
+    )
+    compute: MetadataFlags = Field(
+        default_factory=MetadataFlags, description="Which metadata types to compute"
+    )
+    store: MetadataFlags = Field(
+        default_factory=MetadataFlags, description="Which metadata types to persist"
+    )
 
 
 class GeoConfig(BaseModel):
@@ -146,15 +185,27 @@ class GeoConfig(BaseModel):
             NIP-66 check that reads the ASN database.
     """
 
-    city_database_path: str = Field(default="static/GeoLite2-City.mmdb", min_length=1)
-    asn_database_path: str = Field(default="static/GeoLite2-ASN.mmdb", min_length=1)
+    city_database_path: str = Field(
+        default="static/GeoLite2-City.mmdb",
+        min_length=1,
+        description="Path to GeoLite2 City database",
+    )
+    asn_database_path: str = Field(
+        default="static/GeoLite2-ASN.mmdb",
+        min_length=1,
+        description="Path to GeoLite2 ASN database",
+    )
     city_download_url: str = Field(
-        default="https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb"
+        default="https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb",
+        description="Download URL for GeoLite2 City database",
     )
     asn_download_url: str = Field(
-        default="https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-ASN.mmdb"
+        default="https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-ASN.mmdb",
+        description="Download URL for GeoLite2 ASN database",
     )
-    max_age_days: int | None = Field(default=30, ge=1)
+    max_age_days: int | None = Field(
+        default=30, ge=1, description="Re-download databases older than this (None = never)"
+    )
     max_download_size: int = Field(
         default=100_000_000,
         ge=1_000_000,
@@ -179,10 +230,7 @@ class PublishingConfig(BaseModel):
     relays: Annotated[
         list[Relay],
         BeforeValidator(lambda v: safe_parse(v, Relay)),
-    ] = Field(default_factory=list)
-    timeout: float = Field(
-        default=30.0, ge=0.1, le=300.0, description="Broadcast timeout in seconds"
-    )
+    ] = Field(default_factory=list, description="Default relay list for event publishing")
 
 
 class DiscoveryConfig(BaseModel):
@@ -193,13 +241,21 @@ class DiscoveryConfig(BaseModel):
             Builds the event from check results using ``include`` flags.
     """
 
-    enabled: bool = Field(default=True)
-    interval: float = Field(default=3600.0, ge=60.0, le=604800.0)
-    include: MetadataFlags = Field(default_factory=MetadataFlags)
+    enabled: bool = Field(default=True, description="Enable Kind 30166 relay discovery publishing")
+    interval: float = Field(
+        default=3600.0,
+        ge=60.0,
+        le=604800.0,
+        description="Minimum seconds between discovery publishes",
+    )
+    include: MetadataFlags = Field(
+        default_factory=MetadataFlags,
+        description="Which metadata types to include in discovery events",
+    )
     relays: Annotated[
         list[Relay] | None,
         BeforeValidator(lambda v: safe_parse(v, Relay) if v is not None else None),
-    ] = Field(default=None)
+    ] = Field(default=None, description="Override relay list (None = use publishing default)")
 
 
 class AnnouncementConfig(BaseModel):
@@ -210,13 +266,21 @@ class AnnouncementConfig(BaseModel):
             Builds the announcement event with frequency and timeout tags.
     """
 
-    enabled: bool = Field(default=True)
-    interval: float = Field(default=86_400.0, ge=60.0, le=604800.0)
-    include: MetadataFlags = Field(default_factory=MetadataFlags)
+    enabled: bool = Field(default=True, description="Enable Kind 10166 monitor announcement")
+    interval: float = Field(
+        default=86_400.0,
+        ge=60.0,
+        le=604800.0,
+        description="Minimum seconds between announcements",
+    )
+    include: MetadataFlags = Field(
+        default_factory=MetadataFlags,
+        description="Which metadata types to include in announcement",
+    )
     relays: Annotated[
         list[Relay] | None,
         BeforeValidator(lambda v: safe_parse(v, Relay) if v is not None else None),
-    ] = Field(default=None)
+    ] = Field(default=None, description="Override relay list (None = use publishing default)")
 
 
 class ProfileConfig(BaseModel):
@@ -227,19 +291,28 @@ class ProfileConfig(BaseModel):
             Builds the profile event from these fields.
     """
 
-    enabled: bool = Field(default=False)
-    interval: float = Field(default=86_400.0, ge=60.0, le=604800.0)
+    enabled: bool = Field(default=False, description="Enable Kind 0 profile publishing")
+    interval: float = Field(
+        default=86_400.0,
+        ge=60.0,
+        le=604800.0,
+        description="Minimum seconds between profile publishes",
+    )
     relays: Annotated[
         list[Relay] | None,
         BeforeValidator(lambda v: safe_parse(v, Relay) if v is not None else None),
-    ] = Field(default=None)
-    name: str | None = Field(default="BigBrotr Monitor")
-    about: str | None = Field(default="Nostr relay monitoring service")
-    picture: str | None = Field(default=None)
-    nip05: str | None = Field(default=None)
-    website: str | None = Field(default=None)
-    banner: str | None = Field(default=None)
-    lud16: str | None = Field(default=None)
+    ] = Field(default=None, description="Override relay list (None = use publishing default)")
+    name: str | None = Field(
+        default="BigBrotr Monitor", description="Display name for the monitor profile"
+    )
+    about: str | None = Field(
+        default="Nostr relay monitoring service", description="Description for the monitor profile"
+    )
+    picture: str | None = Field(default=None, description="Profile picture URL")
+    nip05: str | None = Field(default=None, description="NIP-05 identifier")
+    website: str | None = Field(default=None, description="Website URL")
+    banner: str | None = Field(default=None, description="Banner image URL")
+    lud16: str | None = Field(default=None, description="Lightning address (LNURL)")
 
 
 class MonitorConfig(BaseServiceConfig):
@@ -264,14 +337,29 @@ class MonitorConfig(BaseServiceConfig):
             management for event signing.
     """
 
-    networks: NetworksConfig = Field(default_factory=NetworksConfig)
-    keys: KeysConfig = Field(default_factory=lambda: KeysConfig.model_validate({}))
-    processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
-    geo: GeoConfig = Field(default_factory=GeoConfig)
-    publishing: PublishingConfig = Field(default_factory=PublishingConfig)
-    discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
-    announcement: AnnouncementConfig = Field(default_factory=AnnouncementConfig)
-    profile: ProfileConfig = Field(default_factory=ProfileConfig)
+    networks: NetworksConfig = Field(
+        default_factory=NetworksConfig, description="Per-network connection settings"
+    )
+    keys: KeysConfig = Field(
+        default_factory=lambda: KeysConfig.model_validate({}),
+        description="Nostr key configuration for event signing",
+    )
+    processing: ProcessingConfig = Field(
+        default_factory=ProcessingConfig, description="Processing and health check settings"
+    )
+    geo: GeoConfig = Field(default_factory=GeoConfig, description="GeoLite2 database settings")
+    publishing: PublishingConfig = Field(
+        default_factory=PublishingConfig, description="Default event publishing settings"
+    )
+    discovery: DiscoveryConfig = Field(
+        default_factory=DiscoveryConfig, description="Kind 30166 relay discovery settings"
+    )
+    announcement: AnnouncementConfig = Field(
+        default_factory=AnnouncementConfig, description="Kind 10166 monitor announcement settings"
+    )
+    profile: ProfileConfig = Field(
+        default_factory=ProfileConfig, description="Kind 0 profile metadata settings"
+    )
 
     @model_validator(mode="after")
     def validate_geo_databases(self) -> MonitorConfig:

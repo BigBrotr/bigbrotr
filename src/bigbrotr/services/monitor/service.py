@@ -71,6 +71,7 @@ from bigbrotr.nips.event_builders import (
 from bigbrotr.nips.nip11 import Nip11Selection
 from bigbrotr.nips.nip66 import Nip66Selection
 from bigbrotr.services.common.mixins import (
+    Clients,
     ClientsMixin,
     ConcurrentStreamMixin,
     GeoReaderMixin,
@@ -141,7 +142,16 @@ class Monitor(
 
     def __init__(self, brotr: Brotr, config: MonitorConfig | None = None) -> None:
         config = config or MonitorConfig()
-        super().__init__(brotr=brotr, config=config, networks=config.networks)
+        super().__init__(
+            brotr=brotr,
+            config=config,
+            networks=config.networks,
+            clients=Clients(
+                keys=config.keys.keys,
+                networks=config.networks,
+                allow_insecure=config.processing.allow_insecure,
+            ),
+        )
         self._config: MonitorConfig
         self._keys = self._config.keys.keys
 

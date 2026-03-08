@@ -368,55 +368,6 @@ async def broadcast_events(
     return success
 
 
-async def connect_clients(
-    relays: list[Relay],
-    keys: Keys | None = None,
-    timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
-    *,
-    allow_insecure: bool = False,
-) -> list[Client]:
-    """Connect to multiple relays, skipping failures.
-
-    Creates one client per relay via
-    [connect_relay][bigbrotr.utils.protocol.connect_relay]. Failed
-    connections are logged at WARNING level and skipped.
-
-    Args:
-        relays: Relays to connect to.
-        keys: Optional signing keys.
-        timeout: Per-relay connection timeout in seconds.
-        allow_insecure: If ``True``, fall back to insecure transport
-            on SSL failure.
-
-    Returns:
-        List of connected ``Client`` instances (may be shorter than
-        *relays* if some connections failed).
-    """
-    clients: list[Client] = []
-    for relay in relays:
-        try:
-            client = await connect_relay(
-                relay, keys=keys, timeout=timeout, allow_insecure=allow_insecure
-            )
-            clients.append(client)
-        except (OSError, TimeoutError) as e:
-            logger.warning("connect_client_failed relay=%s error=%s", relay.url, e)
-    return clients
-
-
-async def disconnect_clients(clients: list[Client]) -> None:
-    """Shut down a list of clients, suppressing errors.
-
-    Args:
-        clients: ``Client`` instances to disconnect.
-    """
-    for client in clients:
-        try:
-            await client.shutdown()
-        except (OSError, RuntimeError, TimeoutError) as e:
-            logger.debug("client_shutdown_error error=%s", e)
-
-
 async def is_nostr_relay(
     relay: Relay,
     proxy_url: str | None = None,

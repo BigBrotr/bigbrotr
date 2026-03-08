@@ -262,9 +262,12 @@ class Clients:
     for subsequent calls. Failed connections are remembered so that
     the same relay is never retried within a cycle.
 
-    Follows the same lifecycle pattern as
-    [GeoReaders][bigbrotr.services.common.mixins.GeoReaders]: create
-    empty, then ``configure()`` before first use.
+    Args:
+        keys: Signing keys for event publishing.
+        networks: Network configuration for proxy URL resolution and
+            per-network connection timeouts.
+        allow_insecure: If ``True``, fall back to insecure transport
+            on SSL failure.
 
     See Also:
         [ClientsMixin][bigbrotr.services.common.mixins.ClientsMixin]:
@@ -273,37 +276,20 @@ class Clients:
             internally to establish each connection.
     """
 
-    __slots__ = ("_allow_insecure", "_clients", "_failed", "_keys", "_networks", "_timeout")
+    __slots__ = ("_allow_insecure", "_clients", "_failed", "_keys", "_networks")
 
-    def __init__(self) -> None:
-        self._keys: Keys | None = None
-        self._timeout: float = 30.0
-        self._allow_insecure: bool = False
-        self._networks: NetworksConfig | None = None
-        self._clients: dict[str, Client] = {}
-        self._failed: set[str] = set()
-
-    def configure(
+    def __init__(
         self,
         keys: Keys,
-        timeout: float,
         networks: NetworksConfig,
         *,
         allow_insecure: bool = False,
     ) -> None:
-        """Set connection parameters. Must be called before ``get()``.
-
-        Args:
-            keys: Signing keys for event publishing.
-            timeout: Per-relay connection timeout in seconds.
-            networks: Network configuration for proxy URL resolution.
-            allow_insecure: If ``True``, fall back to insecure transport
-                on SSL failure.
-        """
         self._keys = keys
-        self._timeout = timeout
         self._networks = networks
         self._allow_insecure = allow_insecure
+        self._clients: dict[str, Client] = {}
+        self._failed: set[str] = set()
 
     async def get(self, relay: Relay) -> Client | None:
         """Return a connected client for a relay, connecting lazily.
@@ -313,9 +299,6 @@ class Clients:
         - **Unknown** — connect now, cache on success, mark failed otherwise.
         - **Connected** — return the cached client immediately.
         - **Failed** — return ``None`` without retrying.
-
-        Resolves per-relay proxy URLs via ``NetworksConfig.get_proxy_url()``
-        to support overlay networks (Tor, I2P, Lokinet).
 
         Args:
             relay: Relay to get a client for.
@@ -330,13 +313,14 @@ class Clients:
 
         from bigbrotr.utils.protocol import connect_relay  # noqa: PLC0415
 
-        proxy_url = self._networks.get_proxy_url(relay.network) if self._networks else None
+        proxy_url = self._networks.get_proxy_url(relay.network)
+        timeout = self._networks.get(relay.network).timeout
         try:
             client = await connect_relay(
                 relay,
                 keys=self._keys,
                 proxy_url=proxy_url,
-                timeout=self._timeout,
+                timeout=timeout,
                 allow_insecure=self._allow_insecure,
             )
             self._clients[relay.url] = client
@@ -366,11 +350,12 @@ class Clients:
 
     async def disconnect(self) -> None:
         """Disconnect all clients and reset state."""
-        if self._clients:
-            from bigbrotr.utils.protocol import disconnect_clients  # noqa: PLC0415
-
-            await disconnect_clients(list(self._clients.values()))
-            self._clients.clear()
+        for client in self._clients.values():
+            try:
+                await client.shutdown()
+            except (OSError, RuntimeError, TimeoutError) as e:
+                logger.debug("client_shutdown_error error=%s", e)
+        self._clients.clear()
         self._failed.clear()
 
 
@@ -378,9 +363,8 @@ class ClientsMixin:
     """Mixin providing managed Nostr client pool for event broadcasting.
 
     Exposes a ``clients`` attribute of type
-    [Clients][bigbrotr.services.common.mixins.Clients]. Auto-configures
-    from ``MonitorConfig`` if the ``config`` kwarg has the expected
-    attributes (``keys``, ``publishing``, ``networks``, ``processing``).
+    [Clients][bigbrotr.services.common.mixins.Clients]. Pops a
+    pre-constructed ``clients`` instance from kwargs.
 
     See Also:
         [Monitor][bigbrotr.services.monitor.Monitor]: The service that
@@ -390,16 +374,8 @@ class ClientsMixin:
     clients: Clients
 
     def __init__(self, **kwargs: Any) -> None:
+        self.clients = kwargs.pop("clients")
         super().__init__(**kwargs)
-        self.clients = Clients()
-        config = kwargs.get("config")
-        if config is not None and hasattr(config, "keys"):
-            self.clients.configure(
-                keys=config.keys.keys,
-                timeout=config.publishing.timeout,
-                networks=config.networks,
-                allow_insecure=config.processing.allow_insecure,
-            )
 
 
 class CatalogAccessMixin:

@@ -555,10 +555,6 @@ class TestPublishingConfig:
         config = PublishingConfig(relays=["wss://single.relay.com"])
         assert len(config.relays) == 1
 
-    def test_timeout_upper_bound_rejected(self) -> None:
-        with pytest.raises(ValueError):
-            PublishingConfig(timeout=301.0)
-
 
 class TestDiscoveryConfig:
     def test_default_values(self) -> None:
