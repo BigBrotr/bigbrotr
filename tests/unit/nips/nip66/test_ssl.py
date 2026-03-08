@@ -242,3 +242,151 @@ class TestNip66SslMetadataSslAsync:
         mock_ssl.assert_called_once()
         call_args = mock_ssl.call_args
         assert call_args[0][2] > 0
+
+
+class TestCertificateExtractorMissingFields:
+    """Test CertificateExtractor.extract_all_from_x509() with missing certificate fields."""
+
+    def _make_cert(
+        self,
+        *,
+        subject_cn: list[Any] | None = None,
+        issuer_org: list[Any] | None = None,
+        issuer_cn: list[Any] | None = None,
+        san_dns: list[str] | None = None,
+        san_raises: bool = False,
+    ) -> MagicMock:
+        from datetime import UTC, datetime
+
+        cert = MagicMock()
+        cert.subject.get_attributes_for_oid.return_value = subject_cn or []
+
+        def issuer_attrs(oid: Any) -> list[Any]:
+            from cryptography.x509.oid import NameOID
+
+            if oid == NameOID.ORGANIZATION_NAME:
+                return issuer_org or []
+            if oid == NameOID.COMMON_NAME:
+                return issuer_cn or []
+            return []
+
+        cert.issuer.get_attributes_for_oid.side_effect = issuer_attrs
+        cert.not_valid_after_utc = datetime(2025, 1, 1, tzinfo=UTC)
+        cert.not_valid_before_utc = datetime(2024, 1, 1, tzinfo=UTC)
+        cert.serial_number = 0x01
+        cert.version = MagicMock(value=3)
+
+        if san_raises:
+            from cryptography import x509 as x509_mod
+
+            cert.extensions.get_extension_for_class.side_effect = x509_mod.ExtensionNotFound(
+                "No SAN", x509_mod.SubjectAlternativeName
+            )
+        else:
+            san_ext = MagicMock()
+            san_ext.value.get_values_for_type.return_value = san_dns or []
+            cert.extensions.get_extension_for_class.return_value = san_ext
+
+        return cert
+
+    def test_no_subject_cn(self) -> None:
+        """Omits ssl_subject_cn when certificate has no common name in subject."""
+        cert = self._make_cert(subject_cn=[])
+        result = CertificateExtractor.extract_all_from_x509(cert)
+        assert "ssl_subject_cn" not in result
+
+    def test_no_issuer_org(self) -> None:
+        """Omits ssl_issuer when certificate issuer has no organization name."""
+        cert = self._make_cert(issuer_org=[])
+        result = CertificateExtractor.extract_all_from_x509(cert)
+        assert "ssl_issuer" not in result
+
+    def test_no_issuer_cn(self) -> None:
+        """Omits ssl_issuer_cn when certificate issuer has no common name."""
+        cert = self._make_cert(issuer_cn=[])
+        result = CertificateExtractor.extract_all_from_x509(cert)
+        assert "ssl_issuer_cn" not in result
+
+    def test_empty_san_dns_names(self) -> None:
+        """Omits ssl_san when SAN extension exists but has no DNS names."""
+        cert = self._make_cert(san_dns=[])
+        result = CertificateExtractor.extract_all_from_x509(cert)
+        assert "ssl_san" not in result
+
+    def test_san_extension_not_found(self) -> None:
+        """Omits ssl_san when SAN extension is absent from certificate."""
+        cert = self._make_cert(san_raises=True)
+        result = CertificateExtractor.extract_all_from_x509(cert)
+        assert "ssl_san" not in result
+
+
+class TestExtractCertificateDataNoCertBinary:
+    """Test _extract_certificate_data when getpeercert returns None."""
+
+    def test_no_cert_binary_skips_parsing(self) -> None:
+        """Skips fingerprint and x509 parsing when no binary cert returned."""
+        with (
+            patch("socket.create_connection") as mock_conn,
+            patch("ssl.create_default_context") as mock_ctx,
+        ):
+            mock_socket = MagicMock()
+            mock_conn.return_value.__enter__.return_value = mock_socket
+            mock_conn.return_value.__exit__ = MagicMock(return_value=False)
+
+            mock_ssl_socket = MagicMock()
+            mock_ssl_socket.getpeercert.return_value = None
+            mock_ssl_socket.version.return_value = "TLSv1.3"
+            mock_ssl_socket.cipher.return_value = ("AES256-SHA", "TLSv1.3", 256)
+
+            mock_wrapped = MagicMock()
+            mock_wrapped.__enter__.return_value = mock_ssl_socket
+            mock_wrapped.__exit__ = MagicMock(return_value=False)
+            mock_ctx.return_value.wrap_socket.return_value = mock_wrapped
+
+            result = Nip66SslMetadata._extract_certificate_data("example.com", 443, 10.0)
+
+        assert "ssl_fingerprint" not in result
+        assert "ssl_subject_cn" not in result
+        assert result.get("ssl_protocol") == "TLSv1.3"
+        assert result.get("ssl_cipher") == "AES256-SHA"
+
+
+class TestExtractTlsInfoMissingValues:
+    """Test _extract_tls_info when protocol or cipher is None."""
+
+    def test_protocol_none(self) -> None:
+        """Omits ssl_protocol when SSLSocket.version() returns None."""
+        ssock = MagicMock()
+        ssock.version.return_value = None
+        ssock.cipher.return_value = ("AES256-SHA", "TLSv1.2", 256)
+        result = Nip66SslMetadata._extract_tls_info(ssock)
+        assert "ssl_protocol" not in result
+        assert result["ssl_cipher"] == "AES256-SHA"
+
+    def test_cipher_none(self) -> None:
+        """Omits ssl_cipher fields when SSLSocket.cipher() returns None."""
+        ssock = MagicMock()
+        ssock.version.return_value = "TLSv1.3"
+        ssock.cipher.return_value = None
+        result = Nip66SslMetadata._extract_tls_info(ssock)
+        assert result["ssl_protocol"] == "TLSv1.3"
+        assert "ssl_cipher" not in result
+        assert "ssl_cipher_bits" not in result
+
+    def test_both_none(self) -> None:
+        """Returns empty dict when both protocol and cipher are None."""
+        ssock = MagicMock()
+        ssock.version.return_value = None
+        ssock.cipher.return_value = None
+        result = Nip66SslMetadata._extract_tls_info(ssock)
+        assert result == {}
+
+
+class TestValidateCertificateOSError:
+    """Test _validate_certificate when an OSError (not SSLError) occurs."""
+
+    def test_oserror_returns_false(self) -> None:
+        """Returns False when connection raises OSError during validation."""
+        with patch("socket.create_connection", side_effect=OSError("Connection refused")):
+            result = Nip66SslMetadata._validate_certificate("example.com", 443, 10.0)
+        assert result is False

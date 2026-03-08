@@ -430,6 +430,36 @@ class TestRunForever:
 
         assert service.run_count >= 1
 
+    async def test_calls_cleanup_before_run(self, mock_brotr: Brotr) -> None:
+        """Test run_forever() calls cleanup() before each run() cycle."""
+        config = ConcreteServiceConfig(interval=60.0)
+        service = ConcreteService(brotr=mock_brotr, config=config)
+        call_order: list[str] = []
+
+        original_cleanup = service.cleanup
+        original_run = service.run
+
+        async def tracked_cleanup() -> int:
+            call_order.append("cleanup")
+            return await original_cleanup()
+
+        async def tracked_run() -> None:
+            call_order.append("run")
+            await original_run()
+
+        async def mock_wait(timeout: float) -> bool:
+            return True
+
+        with (
+            patch.object(service, "cleanup", tracked_cleanup),
+            patch.object(service, "run", tracked_run),
+            patch.object(service, "wait", mock_wait),
+        ):
+            async with service:
+                await service.run_forever()
+
+        assert call_order == ["cleanup", "run"]
+
     async def test_multiple_cycles(self, mock_brotr: Brotr) -> None:
         """Test run_forever() executes multiple cycles."""
         config = ConcreteServiceConfig(interval=60.0)

@@ -51,9 +51,11 @@ from bigbrotr.services.monitor.queries import (
     upsert_publish_checkpoints,
 )
 from bigbrotr.services.monitor.utils import (
+    collect_metadata,
     extract_result,
     log_reason,
     log_success,
+    retry_fetch,
 )
 
 
@@ -2502,3 +2504,845 @@ class TestMonitorMetrics:
         assert ("total", 2) in calls
         assert ("succeeded", 1) in calls
         assert ("failed", 1) in calls
+
+
+# ============================================================================
+# Update Geo Databases
+# ============================================================================
+
+
+class TestUpdateGeoDatabases:
+    async def test_skips_when_no_geo_or_net_enabled(self, mock_brotr: Brotr) -> None:
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        with patch(
+            "bigbrotr.services.monitor.service.download_bounded_file",
+            new_callable=AsyncMock,
+        ) as mock_download:
+            await monitor.update_geo_databases()
+            mock_download.assert_not_awaited()
+
+    async def test_downloads_missing_city_db(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+        city_path = str(tmp_path / "missing_city.mmdb")
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=True, nip66_net=False),
+                store=MetadataFlags(nip66_geo=True, nip66_net=False),
+            ),
+            geo=GeoConfig(
+                city_database_path=city_path,
+                city_download_url="https://example.com/city.mmdb",
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        with patch(
+            "bigbrotr.services.monitor.service.download_bounded_file",
+            new_callable=AsyncMock,
+        ) as mock_download:
+            await monitor.update_geo_databases()
+            mock_download.assert_awaited_once()
+
+    async def test_downloads_missing_asn_db(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+        asn_path = str(tmp_path / "missing_asn.mmdb")
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=True),
+                store=MetadataFlags(nip66_geo=False, nip66_net=True),
+            ),
+            geo=GeoConfig(
+                asn_database_path=asn_path,
+                asn_download_url="https://example.com/asn.mmdb",
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        with patch(
+            "bigbrotr.services.monitor.service.download_bounded_file",
+            new_callable=AsyncMock,
+        ) as mock_download:
+            await monitor.update_geo_databases()
+            mock_download.assert_awaited_once()
+
+    async def test_skips_fresh_db(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+        city_file = tmp_path / "city.mmdb"
+        city_file.write_bytes(b"data")
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=True, nip66_net=False),
+                store=MetadataFlags(nip66_geo=True, nip66_net=False),
+            ),
+            geo=GeoConfig(
+                city_database_path=str(city_file),
+                city_download_url="https://example.com/city.mmdb",
+                max_age_days=30,
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        with patch(
+            "bigbrotr.services.monitor.service.download_bounded_file",
+            new_callable=AsyncMock,
+        ) as mock_download:
+            await monitor.update_geo_databases()
+            mock_download.assert_not_awaited()
+
+    async def test_skips_when_max_age_none(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+        city_file = tmp_path / "city.mmdb"
+        city_file.write_bytes(b"data")
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=True, nip66_net=False),
+                store=MetadataFlags(nip66_geo=True, nip66_net=False),
+            ),
+            geo=GeoConfig(
+                city_database_path=str(city_file),
+                city_download_url="https://example.com/city.mmdb",
+                max_age_days=None,
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        with patch(
+            "bigbrotr.services.monitor.service.download_bounded_file",
+            new_callable=AsyncMock,
+        ) as mock_download:
+            await monitor.update_geo_databases()
+            mock_download.assert_not_awaited()
+
+    async def test_redownloads_stale_db(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+        import os
+
+        city_file = tmp_path / "city.mmdb"
+        city_file.write_bytes(b"data")
+        stale_time = time.time() - (31 * 86400)
+        os.utime(city_file, (stale_time, stale_time))
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=True, nip66_net=False),
+                store=MetadataFlags(nip66_geo=True, nip66_net=False),
+            ),
+            geo=GeoConfig(
+                city_database_path=str(city_file),
+                city_download_url="https://example.com/city.mmdb",
+                max_age_days=30,
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        with patch(
+            "bigbrotr.services.monitor.service.download_bounded_file",
+            new_callable=AsyncMock,
+        ) as mock_download:
+            await monitor.update_geo_databases()
+            mock_download.assert_awaited_once()
+
+    async def test_download_failure_logged_and_suppressed(
+        self, mock_brotr: Brotr, tmp_path: Path
+    ) -> None:
+        city_path = str(tmp_path / "missing_city.mmdb")
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=True, nip66_net=False),
+                store=MetadataFlags(nip66_geo=True, nip66_net=False),
+            ),
+            geo=GeoConfig(
+                city_database_path=city_path,
+                city_download_url="https://example.com/city.mmdb",
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        with patch(
+            "bigbrotr.services.monitor.service.download_bounded_file",
+            new_callable=AsyncMock,
+            side_effect=OSError("download failed"),
+        ):
+            await monitor.update_geo_databases()
+
+
+# ============================================================================
+# Publish -- no clients reachable
+# ============================================================================
+
+
+class TestPublishAnnouncementNoClients:
+    async def test_announcement_no_clients_reachable(self, test_keys: Keys) -> None:
+        config = _make_config(
+            announcement=AnnouncementConfig(
+                enabled=True,
+                include=_NO_GEO_NET,
+                relays=["wss://ann.relay.com"],
+            ),
+        )
+        harness = _MonitorStub(config, test_keys)
+        harness.clients.get_many = AsyncMock(return_value=[])
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+            ) as mock_broadcast,
+            patch(
+                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
+        ):
+            await harness.publish_announcement()
+
+        mock_broadcast.assert_not_awaited()
+        mock_save.assert_not_awaited()
+        harness._logger.warning.assert_called_once_with(
+            "publish_failed", event="announcement", error="no relays reachable"
+        )
+
+
+class TestPublishProfileNoClients:
+    async def test_profile_no_clients_reachable(self, test_keys: Keys) -> None:
+        config = _make_config(
+            profile=ProfileConfig(
+                enabled=True,
+                relays=["wss://profile.relay.com"],
+            ),
+        )
+        harness = _MonitorStub(config, test_keys)
+        harness.clients.get_many = AsyncMock(return_value=[])
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+            ) as mock_broadcast,
+            patch(
+                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
+        ):
+            await harness.publish_profile()
+
+        mock_broadcast.assert_not_awaited()
+        mock_save.assert_not_awaited()
+        harness._logger.warning.assert_called_once_with(
+            "publish_failed", event="profile", error="no relays reachable"
+        )
+
+
+# ============================================================================
+# Check Relay
+# ============================================================================
+
+
+class TestCheckRelay:
+    @staticmethod
+    def _flags(**kw: bool) -> MetadataFlags:
+        base = {
+            "nip11_info": False,
+            "nip66_rtt": False,
+            "nip66_ssl": False,
+            "nip66_geo": False,
+            "nip66_net": False,
+            "nip66_dns": False,
+            "nip66_http": False,
+        }
+        base.update(kw)
+        return MetadataFlags(**base)
+
+    def _cfg(self, **compute_kw: bool) -> MonitorConfig:
+        flags = self._flags(**compute_kw)
+        return _make_config(
+            processing=ProcessingConfig(compute=flags, store=flags),
+            discovery=DiscoveryConfig(include=flags),
+            announcement=AnnouncementConfig(include=flags),
+        )
+
+    async def test_check_relay_unknown_network(self, mock_brotr: Brotr) -> None:
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        monitor.network_semaphores = MagicMock()
+        monitor.network_semaphores.get = MagicMock(return_value=None)
+
+        result = await monitor.check_relay(relay)
+
+        assert not result.has_data
+        assert result.generated_at == 0
+
+    async def test_check_relay_nip11_only(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip11_info=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        nip11_meta = _make_nip11_meta(name="Test")
+
+        with patch(
+            "bigbrotr.services.monitor.service.retry_fetch",
+            new_callable=AsyncMock,
+            return_value=nip11_meta,
+        ):
+            result = await monitor.check_relay(relay)
+
+        assert result.has_data
+        assert result.nip11_info is nip11_meta
+        assert result.nip66_rtt is None
+
+    async def test_check_relay_nip11_and_rtt(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip11_info=True, nip66_rtt=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        nip11_meta = _make_nip11_meta(name="Test")
+        rtt_meta = _make_rtt_meta(rtt_open=50)
+
+        with patch(
+            "bigbrotr.services.monitor.service.retry_fetch",
+            new_callable=AsyncMock,
+            side_effect=[nip11_meta, rtt_meta],
+        ):
+            result = await monitor.check_relay(relay)
+
+        assert result.has_data
+        assert result.nip11_info is nip11_meta
+        assert result.nip66_rtt is rtt_meta
+
+    async def test_check_relay_with_parallel_checks(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip66_http=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        from bigbrotr.nips.nip66 import Nip66HttpData, Nip66HttpLogs, Nip66HttpMetadata
+
+        http_meta = Nip66HttpMetadata(data=Nip66HttpData(), logs=Nip66HttpLogs(success=True))
+
+        async def fake_retry(*args: Any, **kwargs: Any) -> Nip66HttpMetadata:
+            return http_meta
+
+        with patch(
+            "bigbrotr.services.monitor.service.retry_fetch",
+            side_effect=fake_retry,
+        ):
+            result = await monitor.check_relay(relay)
+
+        assert result.nip66_http is http_meta
+
+    async def test_check_relay_all_fail_returns_empty(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip11_info=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        with patch(
+            "bigbrotr.services.monitor.service.retry_fetch",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            result = await monitor.check_relay(relay)
+
+        assert not result.has_data
+
+    async def test_check_relay_timeout_returns_empty(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip11_info=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        with patch(
+            "bigbrotr.services.monitor.service.retry_fetch",
+            new_callable=AsyncMock,
+            side_effect=TimeoutError("timed out"),
+        ):
+            result = await monitor.check_relay(relay)
+
+        assert not result.has_data
+        assert result.generated_at == 0
+
+    async def test_check_relay_os_error_returns_empty(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip11_info=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        with patch(
+            "bigbrotr.services.monitor.service.retry_fetch",
+            new_callable=AsyncMock,
+            side_effect=OSError("connection refused"),
+        ):
+            result = await monitor.check_relay(relay)
+
+        assert not result.has_data
+
+    async def test_check_relay_rtt_with_pow(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip11_info=True, nip66_rtt=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        nip11_meta = _make_nip11_meta(
+            name="Test",
+            limitation=Nip11InfoDataLimitation(min_pow_difficulty=16),
+        )
+        rtt_meta = _make_rtt_meta(rtt_open=50)
+
+        with patch(
+            "bigbrotr.services.monitor.service.retry_fetch",
+            new_callable=AsyncMock,
+            side_effect=[nip11_meta, rtt_meta],
+        ):
+            result = await monitor.check_relay(relay)
+
+        assert result.nip11_info is nip11_meta
+        assert result.nip66_rtt is rtt_meta
+
+    async def test_check_relay_cancelled_error_in_parallel_reraises(
+        self, mock_brotr: Brotr
+    ) -> None:
+        config = self._cfg(nip66_http=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        cancelled = asyncio.CancelledError()
+
+        async def fake_retry(*args: Any, **kwargs: Any) -> None:
+            raise cancelled
+
+        with (
+            patch("bigbrotr.services.monitor.service.retry_fetch", side_effect=fake_retry),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await monitor.check_relay(relay)
+
+
+# ============================================================================
+# Build Parallel Checks
+# ============================================================================
+
+
+class TestBuildParallelChecks:
+    @staticmethod
+    def _flags(**kw: bool) -> MetadataFlags:
+        base = {
+            "nip11_info": False,
+            "nip66_rtt": False,
+            "nip66_ssl": False,
+            "nip66_geo": False,
+            "nip66_net": False,
+            "nip66_dns": False,
+            "nip66_http": False,
+        }
+        base.update(kw)
+        return MetadataFlags(**base)
+
+    def _cfg(self, **compute_kw: bool) -> MonitorConfig:
+        flags = self._flags(**compute_kw)
+        return _make_config(
+            processing=ProcessingConfig(compute=flags, store=flags),
+            discovery=DiscoveryConfig(include=flags),
+            announcement=AnnouncementConfig(include=flags),
+        )
+
+    def test_no_checks_enabled(self, mock_brotr: Brotr) -> None:
+        config = self._cfg()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        tasks = monitor._build_parallel_checks(relay, config.processing.compute, 10.0, None)
+
+        assert tasks == {}
+
+    def test_http_check_for_any_network(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip66_http=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        onion = "a" * 56
+        relay = Relay(f"ws://{onion}.onion")
+
+        tasks = monitor._build_parallel_checks(
+            relay, config.processing.compute, 10.0, "socks5://localhost:9050"
+        )
+
+        assert "http" in tasks
+        assert "ssl" not in tasks
+        assert "dns" not in tasks
+
+    def test_clearnet_only_checks_for_clearnet(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip66_ssl=True, nip66_dns=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        tasks = monitor._build_parallel_checks(relay, config.processing.compute, 10.0, None)
+
+        assert "ssl" in tasks
+        assert "dns" in tasks
+
+    def test_clearnet_only_checks_skipped_for_tor(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip66_ssl=True, nip66_dns=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        onion = "a" * 56
+        relay = Relay(f"ws://{onion}.onion")
+
+        tasks = monitor._build_parallel_checks(
+            relay, config.processing.compute, 10.0, "socks5://localhost:9050"
+        )
+
+        assert "ssl" not in tasks
+        assert "dns" not in tasks
+
+    def test_geo_check_requires_reader(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip66_geo=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        tasks = monitor._build_parallel_checks(relay, config.processing.compute, 10.0, None)
+
+        assert "geo" not in tasks
+
+    def test_geo_check_included_with_reader(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip66_geo=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        monitor.geo_readers.city = MagicMock()
+        relay = Relay("wss://relay.example.com")
+
+        tasks = monitor._build_parallel_checks(relay, config.processing.compute, 10.0, None)
+
+        assert "geo" in tasks
+
+    def test_net_check_requires_reader(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip66_net=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        tasks = monitor._build_parallel_checks(relay, config.processing.compute, 10.0, None)
+
+        assert "net" not in tasks
+
+    def test_net_check_included_with_reader(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip66_net=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        monitor.geo_readers.asn = MagicMock()
+        relay = Relay("wss://relay.example.com")
+
+        tasks = monitor._build_parallel_checks(relay, config.processing.compute, 10.0, None)
+
+        assert "net" in tasks
+
+
+# ============================================================================
+# Monitor with max_relays budget
+# ============================================================================
+
+
+class TestMonitorMaxRelaysBudget:
+    async def test_monitor_stops_at_max_relays(self, mock_brotr: Brotr) -> None:
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=_NO_GEO_NET,
+                store=_NO_GEO_NET,
+                max_relays=2,
+                chunk_size=10,
+            ),
+            discovery=DiscoveryConfig(enabled=False, include=_NO_GEO_NET),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay1 = Relay("wss://r1.example.com")
+        relay2 = Relay("wss://r2.example.com")
+        relay3 = Relay("wss://r3.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
+
+        async def fake_worker(relay: Relay) -> tuple[Relay, CheckResult | None]:
+            return (relay, result)
+
+        monitor.clients = MagicMock()
+        monitor.clients.disconnect = AsyncMock()
+
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.count_relays_to_monitor",
+                new_callable=AsyncMock,
+                return_value=3,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
+                new_callable=AsyncMock,
+                side_effect=[[relay1, relay2, relay3], []],
+            ),
+            patch.object(monitor, "_monitoring_worker", side_effect=fake_worker),
+            patch(
+                "bigbrotr.services.monitor.service.insert_relay_metadata",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.upsert_monitor_checkpoints",
+                new_callable=AsyncMock,
+            ),
+        ):
+            total = await monitor.monitor()
+
+        assert total <= 3
+
+    async def test_monitor_budget_limits_fetch(self, mock_brotr: Brotr) -> None:
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=_NO_GEO_NET,
+                store=_NO_GEO_NET,
+                max_relays=1,
+                chunk_size=100,
+            ),
+            discovery=DiscoveryConfig(enabled=False, include=_NO_GEO_NET),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay1 = Relay("wss://r1.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
+
+        async def fake_worker(relay: Relay) -> tuple[Relay, CheckResult | None]:
+            return (relay, result)
+
+        monitor.clients = MagicMock()
+        monitor.clients.disconnect = AsyncMock()
+
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.count_relays_to_monitor",
+                new_callable=AsyncMock,
+                return_value=10,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
+                new_callable=AsyncMock,
+                side_effect=[[relay1], []],
+            ) as mock_fetch,
+            patch.object(monitor, "_monitoring_worker", side_effect=fake_worker),
+            patch(
+                "bigbrotr.services.monitor.service.insert_relay_metadata",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.upsert_monitor_checkpoints",
+                new_callable=AsyncMock,
+            ),
+        ):
+            total = await monitor.monitor()
+
+        assert total == 1
+        first_call_args = mock_fetch.call_args_list[0]
+        assert first_call_args[0][3] == 1
+
+
+# ============================================================================
+# Retry Fetch
+# ============================================================================
+
+
+class TestRetryFetch:
+    async def test_success_on_first_attempt(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        meta = _make_nip11_meta(name="Test")
+        retry = RetryConfig(max_attempts=2, initial_delay=0.1, max_delay=1.0, jitter=0.0)
+
+        result = await retry_fetch(relay, AsyncMock(return_value=meta), retry, "nip11_info")
+
+        assert result is meta
+
+    async def test_retry_on_failure_then_succeed(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        failed_meta = _make_nip11_meta(name="Test", success=False)
+        success_meta = _make_nip11_meta(name="Test", success=True)
+        retry = RetryConfig(max_attempts=2, initial_delay=0.1, max_delay=1.0, jitter=0.0)
+
+        call_count = 0
+
+        async def factory() -> Nip11InfoMetadata:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return failed_meta
+            return success_meta
+
+        result = await retry_fetch(relay, factory, retry, "nip11_info")
+
+        assert result is success_meta
+        assert call_count == 2
+
+    async def test_retry_on_timeout_then_succeed(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        success_meta = _make_nip11_meta(name="Test")
+        retry = RetryConfig(max_attempts=2, initial_delay=0.1, max_delay=1.0, jitter=0.0)
+
+        call_count = 0
+
+        async def factory() -> Nip11InfoMetadata:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise TimeoutError("timed out")
+            return success_meta
+
+        result = await retry_fetch(relay, factory, retry, "nip11_info")
+
+        assert result is success_meta
+        assert call_count == 2
+
+    async def test_retry_on_os_error_then_succeed(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        success_meta = _make_nip11_meta(name="Test")
+        retry = RetryConfig(max_attempts=1, initial_delay=0.1, max_delay=1.0, jitter=0.0)
+
+        call_count = 0
+
+        async def factory() -> Nip11InfoMetadata:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise OSError("connection refused")
+            return success_meta
+
+        result = await retry_fetch(relay, factory, retry, "nip11_info")
+
+        assert result is success_meta
+
+    async def test_all_retries_exhausted_returns_last_result(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        failed_meta = _make_nip11_meta(name="Test", success=False)
+        retry = RetryConfig(max_attempts=1, initial_delay=0.1, max_delay=1.0, jitter=0.0)
+
+        result = await retry_fetch(relay, AsyncMock(return_value=failed_meta), retry, "nip11_info")
+
+        assert result is failed_meta
+
+    async def test_all_retries_exhausted_with_exceptions(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        retry = RetryConfig(max_attempts=1, initial_delay=0.1, max_delay=1.0, jitter=0.0)
+
+        result = await retry_fetch(
+            relay,
+            AsyncMock(side_effect=TimeoutError("timed out")),
+            retry,
+            "nip11_info",
+        )
+
+        assert result is None
+
+    async def test_no_retries(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        failed_meta = _make_nip11_meta(name="Test", success=False)
+        retry = RetryConfig(max_attempts=0)
+
+        result = await retry_fetch(relay, AsyncMock(return_value=failed_meta), retry, "nip11_info")
+
+        assert result is failed_meta
+
+    async def test_wait_callback_called(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        failed_meta = _make_nip11_meta(name="Test", success=False)
+        success_meta = _make_nip11_meta(name="Test", success=True)
+        retry = RetryConfig(max_attempts=1, initial_delay=0.1, max_delay=1.0, jitter=0.0)
+
+        call_count = 0
+
+        async def factory() -> Nip11InfoMetadata:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return failed_meta
+            return success_meta
+
+        async def wait_fn(delay: float) -> bool:
+            return False
+
+        result = await retry_fetch(relay, factory, retry, "nip11_info", wait=wait_fn)
+
+        assert result is success_meta
+
+    async def test_wait_callback_signals_shutdown(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        failed_meta = _make_nip11_meta(name="Test", success=False)
+        retry = RetryConfig(max_attempts=2, initial_delay=0.1, max_delay=1.0, jitter=0.0)
+
+        async def wait_fn(delay: float) -> bool:
+            return True
+
+        result = await retry_fetch(
+            relay, AsyncMock(return_value=failed_meta), retry, "nip11_info", wait=wait_fn
+        )
+
+        assert result is None
+
+    async def test_delay_capped_by_max_delay(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        failed_meta = _make_nip11_meta(name="Test", success=False)
+        retry = RetryConfig(max_attempts=3, initial_delay=5.0, max_delay=5.0, jitter=0.0)
+
+        delays: list[float] = []
+
+        async def wait_fn(delay: float) -> bool:
+            delays.append(delay)
+            return False
+
+        await retry_fetch(
+            relay, AsyncMock(return_value=failed_meta), retry, "nip11_info", wait=wait_fn
+        )
+
+        for d in delays:
+            assert d <= 5.0 + retry.jitter
+
+
+# ============================================================================
+# Collect Metadata
+# ============================================================================
+
+
+class TestCollectMetadata:
+    def test_empty_input(self) -> None:
+        store = MetadataFlags()
+        result = collect_metadata([], store)
+
+        assert result == []
+
+    def test_collects_enabled_types(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        nip11_meta = _make_nip11_meta(name="Test")
+        check_result = _make_check_result(generated_at=1700000000, nip11_info=nip11_meta)
+        store = MetadataFlags(
+            nip11_info=True,
+            nip66_rtt=True,
+            nip66_ssl=True,
+            nip66_geo=True,
+            nip66_net=True,
+            nip66_dns=True,
+            nip66_http=True,
+        )
+
+        result = collect_metadata([(relay, check_result)], store)
+
+        assert len(result) == 1
+        assert result[0].relay is relay
+        assert result[0].generated_at == 1700000000
+
+    def test_skips_disabled_types(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        nip11_meta = _make_nip11_meta(name="Test")
+        check_result = _make_check_result(generated_at=1700000000, nip11_info=nip11_meta)
+        store = MetadataFlags(nip11_info=False)
+
+        result = collect_metadata([(relay, check_result)], store)
+
+        assert len(result) == 0
+
+    def test_skips_none_metadata(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        check_result = _make_check_result(generated_at=1700000000)
+        store = MetadataFlags()
+
+        result = collect_metadata([(relay, check_result)], store)
+
+        assert len(result) == 0
+
+    def test_multiple_relays_and_types(self) -> None:
+        relay1 = Relay("wss://r1.example.com")
+        relay2 = Relay("wss://r2.example.com")
+        nip11 = _make_nip11_meta(name="Test")
+        rtt = _make_rtt_meta(rtt_open=50)
+        result1 = _make_check_result(generated_at=100, nip11_info=nip11, nip66_rtt=rtt)
+        result2 = _make_check_result(generated_at=200, nip11_info=nip11)
+        store = MetadataFlags()
+
+        result = collect_metadata([(relay1, result1), (relay2, result2)], store)
+
+        assert len(result) == 3
