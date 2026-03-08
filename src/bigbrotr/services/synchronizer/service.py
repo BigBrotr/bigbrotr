@@ -38,8 +38,8 @@ See Also:
         health-checks the relays synced here.
     [Finder][bigbrotr.services.finder.Finder]: Downstream consumer that
         discovers relay URLs from the events collected here.
-    [create_client][bigbrotr.utils.protocol.create_client]: Factory for
-        the nostr-sdk client used for WebSocket connections.
+    [connect_relay][bigbrotr.utils.protocol.connect_relay]: High-level
+        relay connection helper with automatic SSL fallback.
 
 Examples:
     ```python
@@ -63,7 +63,7 @@ import time
 from typing import TYPE_CHECKING, ClassVar
 
 import asyncpg
-from nostr_sdk import NostrSdkError, RelayUrl
+from nostr_sdk import NostrSdkError
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
@@ -71,7 +71,7 @@ from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin, NetworkSemaphoresMixin
 from bigbrotr.services.common.queries import upsert_service_states
 from bigbrotr.services.common.types import SyncCursor
-from bigbrotr.utils.protocol import create_client
+from bigbrotr.utils.protocol import connect_relay
 from bigbrotr.utils.streaming import stream_events
 
 from .configs import SynchronizerConfig
@@ -346,8 +346,13 @@ class Synchronizer(
             Tuple of (events_synced, cursor).
         """
         proxy_url = self._config.networks.get_proxy_url(relay.network)
-        client = await create_client(self._keys, proxy_url)
-        await client.add_relay(RelayUrl.parse(relay.url))
+        client = await connect_relay(
+            relay,
+            keys=self._keys,
+            proxy_url=proxy_url,
+            timeout=request_timeout,
+            allow_insecure=self._config.allow_insecure,
+        )
 
         filters = self._config.filters
         events_synced = 0
@@ -355,8 +360,6 @@ class Synchronizer(
         buffer: list[Event] = []
 
         try:
-            await client.connect()
-
             async for event in stream_events(
                 client,
                 filters,

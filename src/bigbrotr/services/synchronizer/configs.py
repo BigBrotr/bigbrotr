@@ -160,6 +160,10 @@ class SynchronizerConfig(BaseServiceConfig):
         default_factory=TimeoutsConfig, description="Per-network and phase timeout limits"
     )
     flush_interval: int = Field(default=50, ge=1, description="Flush cursor updates every N relays")
+    allow_insecure: bool = Field(
+        default=False,
+        description="Fall back to insecure transport on SSL certificate failure",
+    )
 
     @field_validator("filters", mode="before")
     @classmethod

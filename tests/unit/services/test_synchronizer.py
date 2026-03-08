@@ -236,6 +236,7 @@ class TestSynchronizerConfig:
         assert config.networks.clearnet.timeout == 10.0
         assert config.timeouts.relay_clearnet == 1800.0
         assert config.flush_interval == 50
+        assert config.allow_insecure is False
         assert config.interval == 300.0
 
     def test_get_end_time_default(self) -> None:
