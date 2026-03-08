@@ -10,7 +10,7 @@ See Also:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Final
 
 from pydantic import (
     BaseModel,
@@ -23,9 +23,18 @@ from pydantic import (
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
+from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.configs import NetworksConfig
 from bigbrotr.utils.keys import KeysConfig
 from bigbrotr.utils.parsing import safe_parse
+
+
+_CLEARNET_ONLY_FLAGS: Final[tuple[str, ...]] = (
+    "nip66_ssl",
+    "nip66_geo",
+    "nip66_net",
+    "nip66_dns",
+)
 
 
 class MetadataFlags(BaseModel):
@@ -68,8 +77,8 @@ class RetryConfig(BaseModel):
         randomness.
 
     See Also:
-        ``Monitor._with_retry``:
-            The method that consumes these settings.
+        [retry_fetch][bigbrotr.services.monitor.utils.retry_fetch]:
+            The function that consumes these settings.
     """
 
     max_attempts: int = Field(
@@ -319,10 +328,12 @@ class MonitorConfig(BaseServiceConfig):
     """Monitor service configuration with validation for dependency constraints.
 
     Note:
-        Three ``model_validator`` methods enforce dependency constraints
+        Four ``model_validator`` methods enforce dependency constraints
         at config load time (fail-fast):
 
         - ``validate_geo_databases``: GeoLite2 files must be downloadable.
+        - ``validate_clearnet_only_checks``: Clearnet-only compute flags
+          require the clearnet network to be enabled.
         - ``validate_store_requires_compute``: Cannot store uncalculated
           metadata.
         - ``validate_publish_requires_compute``: Cannot publish uncalculated
@@ -384,6 +395,20 @@ class MonitorConfig(BaseServiceConfig):
                     "and no download URL configured in geo.asn_download_url"
                 )
 
+        return self
+
+    @model_validator(mode="after")
+    def validate_clearnet_only_checks(self) -> MonitorConfig:
+        """Ensure clearnet-only compute flags are disabled when clearnet is off."""
+        if self.networks.is_enabled(NetworkType.CLEARNET):
+            return self
+        enabled = [f for f in _CLEARNET_ONLY_FLAGS if getattr(self.processing.compute, f)]
+        if enabled:
+            raise ValueError(
+                f"Clearnet is disabled but these clearnet-only checks are enabled "
+                f"in processing.compute: {', '.join(enabled)}. "
+                f"Disable them or enable the clearnet network."
+            )
         return self
 
     @model_validator(mode="after")
