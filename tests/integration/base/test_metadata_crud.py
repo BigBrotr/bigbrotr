@@ -22,10 +22,10 @@ class TestMetadataInsert:
         inserted = await brotr.insert_metadata([metadata])
         assert inserted == 1
 
-        row = await brotr.fetchrow("SELECT id, metadata_type, data FROM metadata")
+        row = await brotr.fetchrow("SELECT id, type, data FROM metadata")
         assert row is not None
         assert row["id"] == metadata.content_hash
-        assert row["metadata_type"] == "nip11_info"
+        assert row["type"] == "nip11_info"
         assert row["data"]["name"] == "Test Relay"
         assert row["data"]["supported_nips"] == [1, 2, 11]
 
@@ -68,11 +68,11 @@ class TestMetadataInsert:
         assert inserted == 1
 
         row = await brotr.fetchrow(
-            "SELECT metadata_type FROM metadata WHERE metadata_type = $1",
+            "SELECT type FROM metadata WHERE type = $1",
             metadata_type.value,
         )
         assert row is not None
-        assert row["metadata_type"] == metadata_type.value
+        assert row["type"] == metadata_type.value
 
     async def test_nested_data_preserved(self, brotr: Brotr) -> None:
         metadata = Metadata(
@@ -106,9 +106,9 @@ class TestRelayMetadataInsertCascade:
         )
         assert relay_count == 1
 
-        meta_row = await brotr.fetchrow("SELECT id, metadata_type, data FROM metadata")
+        meta_row = await brotr.fetchrow("SELECT id, type, data FROM metadata")
         assert meta_row is not None
-        assert meta_row["metadata_type"] == "nip11_info"
+        assert meta_row["type"] == "nip11_info"
         assert meta_row["data"]["name"] == "Cascade Test"
 
         junction = await brotr.fetchrow(
@@ -270,8 +270,8 @@ class TestContentAddressedDedup:
         count = await brotr.fetchval("SELECT COUNT(*) FROM metadata")
         assert count == 2
 
-        rows = await brotr.fetch("SELECT metadata_type FROM metadata ORDER BY metadata_type")
-        types = {row["metadata_type"] for row in rows}
+        rows = await brotr.fetch("SELECT type FROM metadata ORDER BY type")
+        types = {row["type"] for row in rows}
         assert types == {"nip11_info", "nip66_rtt"}
 
     async def test_different_data_different_hash(self, brotr: Brotr) -> None:
