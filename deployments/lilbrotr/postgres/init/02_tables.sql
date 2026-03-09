@@ -114,7 +114,7 @@ COMMENT ON COLUMN metadata.data IS 'Complete JSON document (NIP-11 relay info or
 CREATE TABLE IF NOT EXISTS relay_metadata (
     relay_url TEXT NOT NULL,
     metadata_id BYTEA NOT NULL,
-    type TEXT NOT NULL,
+    metadata_type TEXT NOT NULL,
     generated_at BIGINT NOT NULL,
 
     PRIMARY KEY (relay_url, generated_at, metadata_type),
