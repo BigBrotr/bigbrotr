@@ -3,6 +3,9 @@
 The PostgresContainer is session-scoped to avoid the ~3s Docker startup per test.
 Each deployment subdirectory defines its own ``brotr`` fixture that calls
 ``make_brotr()`` with the appropriate deployment name.
+
+Schema is created once per deployment; subsequent tests truncate all tables
+for isolation (~200x faster than DROP/CREATE per test).
 """
 
 from __future__ import annotations
@@ -52,6 +55,10 @@ def pg_dsn(pg_container: PostgresContainer) -> dict[str, str | int]:
 # Deployment-aware Brotr factory
 # ---------------------------------------------------------------------------
 
+_TABLES = "relay, event, event_relay, metadata, relay_metadata, service_state"
+
+_current_deployment: str | None = None
+
 
 def _strip_sql_comments(sql: str) -> str:
     """Remove SQL block comments and line comments, return remaining content."""
@@ -64,9 +71,12 @@ async def make_brotr(
     pg_dsn: dict[str, str | int],
     deployment: str,
 ) -> AsyncIterator[Brotr]:
-    """Create a Brotr instance with fresh schema from the specified deployment.
+    """Create a Brotr instance with a clean database for the specified deployment.
 
-    Drops and recreates all objects for full isolation between tests.
+    On the first call for a deployment, drops and recreates the full schema from
+    SQL init files. Subsequent calls for the same deployment truncate all tables
+    instead, which is ~200x faster.
+
     The caller yields the result in an async fixture::
 
         @pytest.fixture
@@ -74,6 +84,8 @@ async def make_brotr(
             async for b in make_brotr(pg_dsn, "bigbrotr"):
                 yield b
     """
+    global _current_deployment  # noqa: PLW0603
+
     host = str(pg_dsn["host"])
     port = int(pg_dsn["port"])
     database = str(pg_dsn["database"])
@@ -85,16 +97,22 @@ async def make_brotr(
     )
 
     try:
-        await conn.execute("DROP SCHEMA public CASCADE")
-        await conn.execute("CREATE SCHEMA public")
+        if _current_deployment != deployment:
+            await conn.execute("DROP SCHEMA public CASCADE")
+            await conn.execute("CREATE SCHEMA public")
 
-        sql_dir = Path(__file__).parent.parent.parent / f"deployments/{deployment}/postgres/init"
-        for sql_file in sorted(sql_dir.glob("*.sql")):
-            sql = sql_file.read_text()
-            stripped = _strip_sql_comments(sql)
-            if not stripped:
-                continue
-            await conn.execute(sql)
+            sql_dir = (
+                Path(__file__).parent.parent.parent / f"deployments/{deployment}/postgres/init"
+            )
+            for sql_file in sorted(sql_dir.glob("*.sql")):
+                sql = sql_file.read_text()
+                stripped = _strip_sql_comments(sql)
+                if not stripped:
+                    continue
+                await conn.execute(sql)
+            _current_deployment = deployment
+        else:
+            await conn.execute(f"TRUNCATE {_TABLES} CASCADE")
     finally:
         await conn.close()
 
