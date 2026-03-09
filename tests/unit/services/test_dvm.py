@@ -250,6 +250,17 @@ class TestParseJobParams:
         params = parse_job_params(event)
         assert params == {}
 
+    def test_unrecognized_tags_ignored(self) -> None:
+        event = _make_mock_event(
+            tags=[
+                ["e", "abc123"],
+                ["p", "def456"],
+                ["param", "table", "relay"],
+            ]
+        )
+        params = parse_job_params(event)
+        assert params == {"table": "relay"}
+
     def test_filter_and_sort(self) -> None:
         event = _make_mock_event(
             tags=[

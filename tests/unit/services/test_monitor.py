@@ -1755,6 +1755,21 @@ class TestMonitorRun:
         mock_count.assert_awaited_once()
         mock_fetch.assert_awaited_once()
 
+    async def test_monitor_no_networks_returns_zero(self, mock_brotr: Brotr) -> None:
+        no_clearnet_checks = MetadataFlags(
+            nip66_ssl=False, nip66_dns=False, nip66_geo=False, nip66_net=False
+        )
+        config = _make_config(
+            networks=NetworksConfig(clearnet=ClearnetConfig(enabled=False)),
+            processing=ProcessingConfig(compute=no_clearnet_checks, store=no_clearnet_checks),
+            discovery=DiscoveryConfig(include=no_clearnet_checks),
+            announcement=AnnouncementConfig(include=no_clearnet_checks),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        result = await monitor.monitor()
+
+        assert result == 0
+
 
 # ============================================================================
 # Service: Monitor cleanup
