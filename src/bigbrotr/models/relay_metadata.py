@@ -93,7 +93,7 @@ class RelayMetadata:
 
     Note:
         The ``metadata_type`` exists on both the ``metadata`` table (composite
-        PK ``(id, metadata_type)``) and the ``relay_metadata`` junction table
+        PK ``(id, type)``) and the ``relay_metadata`` junction table
         (compound FK ``(metadata_id, metadata_type)``). This enforces referential
         integrity at the type level and enables efficient type-filtered queries
         (e.g., "latest NIP-11 info for all relays") without joining through
