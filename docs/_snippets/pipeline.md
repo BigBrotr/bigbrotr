@@ -19,14 +19,4 @@ flowchart TD
     RE --> DB
     AP --> DB
     DV --> DB
-
-    style SE fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style FI fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style VA fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style MO fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style SY fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style RE fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style AP fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style DV fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style DB fill:#311B92,color:#fff,stroke:#1A237E
 ```
