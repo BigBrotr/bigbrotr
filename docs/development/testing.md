@@ -141,6 +141,9 @@ The root conftest provides core fixtures used across the entire test suite:
 | `sample_metadata` | `RelayMetadata` | Sample relay metadata (NIP-11 info) |
 | `sample_events_batch` | `list[EventRelay]` | Batch of 10 sample events |
 | `sample_relays_batch` | `list[Relay]` | Batch of 10 clearnet relays |
+| `sample_tor_relay` | `Relay` | Sample Tor relay (`.onion`) |
+| `sample_i2p_relay` | `Relay` | Sample I2P relay (`.i2p`) |
+| `sample_loki_relay` | `Relay` | Sample Lokinet relay (`.loki`) |
 
 The `create_mock_record()` helper function creates mock asyncpg `Record` objects from dictionaries:
 

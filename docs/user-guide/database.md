@@ -28,47 +28,46 @@ Two schema variants exist:
 ```mermaid
 erDiagram
     relay {
-        TEXT url PK
-        TEXT network
-        BIGINT discovered_at
+        text url PK
+        text network
+        bigint discovered_at
     }
 
     event {
-        BYTEA id PK
-        BYTEA pubkey
-        BIGINT created_at
-        INTEGER kind
-        JSONB tags
-        TEXT_ARRAY tagvalues
-        TEXT content
-        BYTEA sig
+        bytea id PK
+        bytea pubkey
+        bigint created_at
+        integer kind
+        jsonb tags
+        text-arr tagvalues
+        text content
+        bytea sig
     }
 
     event_relay {
-        BYTEA event_id PK_FK
-        TEXT relay_url PK_FK
-        BIGINT seen_at
+        bytea event_id FK
+        text relay_url FK
+        bigint seen_at
     }
 
     metadata {
-        BYTEA id PK
-        TEXT type PK
-        JSONB data
+        bytea id PK
+        text type PK
+        jsonb data
     }
 
     relay_metadata {
-        TEXT relay_url PK_FK
-        BIGINT generated_at PK
-        TEXT metadata_type PK
-        BYTEA metadata_id FK
+        text relay_url FK
+        bigint generated_at PK
+        text metadata_type FK
+        bytea metadata_id FK
     }
 
     service_state {
-        TEXT service_name PK
-        TEXT state_type PK
-        TEXT state_key PK
-        JSONB state_value
-        BIGINT updated_at
+        text service_name PK
+        text state_type PK
+        text state_key PK
+        jsonb state_value
     }
 
     relay ||--o{ event_relay : "has events"
@@ -185,7 +184,6 @@ Generic key-value store for per-service persistent state between restarts.
 | `state_type` | TEXT | PK (partial) | State category: `checkpoint`, `cursor` |
 | `state_key` | TEXT | PK (partial) | Unique key within service+type |
 | `state_value` | JSONB | NOT NULL, DEFAULT `{}` | Service-specific JSONB state value |
-| `updated_at` | BIGINT | NOT NULL | Unix timestamp of last update |
 
 Primary key: `(service_name, state_type, state_key)`.
 
@@ -287,21 +285,21 @@ Bulk-inserts relay-metadata junction records. Both relay and metadata must alrea
 ```sql
 service_state_upsert(
     p_service_names TEXT[], p_state_types TEXT[], p_state_keys TEXT[],
-    p_state_values JSONB[], p_updated_ats BIGINT[]
-) -> VOID
+    p_state_values JSONB[]
+) -> INTEGER
 ```
 
-Bulk upsert service state records. Uses `DISTINCT ON` within the batch to deduplicate, then `ON CONFLICT DO UPDATE SET` for full replacement semantics.
+Bulk upsert service state records. Uses `DISTINCT ON` within the batch to deduplicate, then `ON CONFLICT DO UPDATE SET` for full replacement semantics. Returns the number of rows affected.
 
 ### service_state_get
 
 ```sql
 service_state_get(
     p_service_name TEXT, p_state_type TEXT, p_state_key TEXT DEFAULT NULL
-) -> TABLE(state_key TEXT, state_value JSONB, updated_at BIGINT)
+) -> TABLE(state_key TEXT, state_value JSONB)
 ```
 
-Retrieves service state records. If `p_state_key` is NULL, returns all records for the service+type ordered by `updated_at ASC`.
+Retrieves service state records. If `p_state_key` is NULL, returns all records for the service+type ordered by `state_key ASC`.
 
 ### service_state_delete
 
