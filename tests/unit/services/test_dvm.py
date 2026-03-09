@@ -19,6 +19,7 @@ from bigbrotr.services.common.catalog import (
 from bigbrotr.services.common.configs import TableConfig
 from bigbrotr.services.dvm.configs import DvmConfig
 from bigbrotr.services.dvm.service import Dvm
+from bigbrotr.services.dvm.utils import parse_job_params, parse_query_filters
 
 
 # Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
@@ -219,7 +220,7 @@ class TestParseJobParams:
                 ["param", "offset", "10"],
             ]
         )
-        params = Dvm._parse_job_params(event)
+        params = parse_job_params(event)
         assert params["table"] == "relay"
         assert params["limit"] == "50"
         assert params["offset"] == "10"
@@ -231,7 +232,7 @@ class TestParseJobParams:
                 ["bid", "5000"],
             ]
         )
-        params = Dvm._parse_job_params(event)
+        params = parse_job_params(event)
         assert params["bid"] == 5000
 
     def test_invalid_bid_ignored(self) -> None:
@@ -241,12 +242,12 @@ class TestParseJobParams:
                 ["bid", "not_a_number"],
             ]
         )
-        params = Dvm._parse_job_params(event)
+        params = parse_job_params(event)
         assert "bid" not in params
 
     def test_empty_tags(self) -> None:
         event = _make_mock_event(tags=[])
-        params = Dvm._parse_job_params(event)
+        params = parse_job_params(event)
         assert params == {}
 
     def test_filter_and_sort(self) -> None:
@@ -257,27 +258,27 @@ class TestParseJobParams:
                 ["param", "sort", "url:asc"],
             ]
         )
-        params = Dvm._parse_job_params(event)
+        params = parse_job_params(event)
         assert params["filter"] == "network=clearnet"
         assert params["sort"] == "url:asc"
 
 
 class TestParseQueryFilters:
     def test_empty_string(self) -> None:
-        assert Dvm._parse_query_filters("") is None
+        assert parse_query_filters("") is None
 
     def test_single_filter(self) -> None:
-        result = Dvm._parse_query_filters("network=clearnet")
+        result = parse_query_filters("network=clearnet")
         assert result == {"network": "clearnet"}
 
     def test_multiple_filters(self) -> None:
-        result = Dvm._parse_query_filters("network=clearnet,kind=>:100")
+        result = parse_query_filters("network=clearnet,kind=>:100")
         assert result is not None
         assert result["network"] == "clearnet"
         assert result["kind"] == ">:100"
 
     def test_no_equals(self) -> None:
-        result = Dvm._parse_query_filters("invalid")
+        result = parse_query_filters("invalid")
         assert result is None
 
 
@@ -738,18 +739,11 @@ class TestDvmPublishingGuards:
         result = await dvm_service._fetch_job_requests()
         assert result == []
 
-    async def test_publish_result_no_client(self, dvm_service: Dvm) -> None:
+    async def test_send_event_no_client(self, dvm_service: Dvm) -> None:
         dvm_service._client = None
-        result = QueryResult(rows=[], total=0, limit=10, offset=0)
-        await dvm_service._publish_result("eid", "pk", result, 0)
+        from bigbrotr.services.dvm.utils import build_error_event
 
-    async def test_publish_error_no_client(self, dvm_service: Dvm) -> None:
-        dvm_service._client = None
-        await dvm_service._publish_error("eid", "pk", "err")
-
-    async def test_publish_payment_required_no_client(self, dvm_service: Dvm) -> None:
-        dvm_service._client = None
-        await dvm_service._publish_payment_required("eid", "pk", 1000)
+        await dvm_service._send_event(build_error_event("eid", "pk", "err"))
 
     async def test_publish_announcement_no_client(self, dvm_service: Dvm) -> None:
         dvm_service._client = None

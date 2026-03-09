@@ -397,7 +397,7 @@ class Synchronizer(
         finally:
             try:
                 await client.shutdown()
-            except Exception as e:
+            except Exception as e:  # nostr-sdk FFI can raise arbitrary errors on shutdown
                 self._logger.debug("client_shutdown_error", relay=relay.url, error=str(e))
 
         return events_synced, cursor

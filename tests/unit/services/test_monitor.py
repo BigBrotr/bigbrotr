@@ -2961,6 +2961,8 @@ class TestBuildParallelChecks:
         assert "http" in tasks
         assert "ssl" not in tasks
         assert "dns" not in tasks
+        for coro in tasks.values():
+            coro.close()
 
     def test_clearnet_only_checks_for_clearnet(self, mock_brotr: Brotr) -> None:
         config = self._cfg(nip66_ssl=True, nip66_dns=True)
@@ -2971,6 +2973,8 @@ class TestBuildParallelChecks:
 
         assert "ssl" in tasks
         assert "dns" in tasks
+        for coro in tasks.values():
+            coro.close()
 
     def test_clearnet_only_checks_skipped_for_tor(self, mock_brotr: Brotr) -> None:
         config = self._cfg(nip66_ssl=True, nip66_dns=True)
@@ -3003,6 +3007,8 @@ class TestBuildParallelChecks:
         tasks = monitor._build_parallel_checks(relay, config.processing.compute, 10.0, None)
 
         assert "geo" in tasks
+        for coro in tasks.values():
+            coro.close()
 
     def test_net_check_requires_reader(self, mock_brotr: Brotr) -> None:
         config = self._cfg(nip66_net=True)
@@ -3022,6 +3028,8 @@ class TestBuildParallelChecks:
         tasks = monitor._build_parallel_checks(relay, config.processing.compute, 10.0, None)
 
         assert "net" in tasks
+        for coro in tasks.values():
+            coro.close()
 
 
 # ============================================================================

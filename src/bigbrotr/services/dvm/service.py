@@ -11,38 +11,59 @@ Each ``run()`` cycle polls for new job requests using ``fetch_events()``
 with a ``since`` timestamp filter, processes them, and publishes results
 or error feedback.
 
+Note:
+    Event IDs are deduplicated in-memory (capped at 10,000) to avoid
+    processing the same job twice within the ``since`` overlap window.
+    The ``since`` timestamp filter provides a secondary deduplication
+    boundary so that the in-memory set only needs to cover the current
+    cycle.
+
 See Also:
+    [DvmConfig][bigbrotr.services.dvm.DvmConfig]: Configuration model
+        for relays, pricing, and NIP-90 settings.
     [Catalog][bigbrotr.services.common.catalog.Catalog]: Schema
         introspection and query builder shared with the API service.
     [BaseService][bigbrotr.core.base_service.BaseService]: Abstract
         base class providing lifecycle and metrics.
+
+Examples:
+    ```python
+    from bigbrotr.core import Brotr
+    from bigbrotr.services import Dvm
+
+    brotr = Brotr.from_yaml("config/brotr.yaml")
+    dvm = Dvm.from_yaml("config/services/dvm.yaml", brotr=brotr)
+
+    async with brotr:
+        async with dvm:
+            await dvm.run_forever()
+    ```
 """
 
 from __future__ import annotations
 
 import contextlib
-import json
 import time
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from nostr_sdk import (
-    Client,
-    EventBuilder,
-    Filter,
-    Kind,
-    RelayUrl,
-    Tag,
-    Timestamp,
-)
+from nostr_sdk import Client, Filter, Kind, RelayUrl, Timestamp
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.catalog import CatalogError, QueryResult
+from bigbrotr.services.common.catalog import CatalogError
 from bigbrotr.services.common.mixins import CatalogAccessMixin
 from bigbrotr.utils.protocol import create_client
 
 from .configs import DvmConfig
+from .utils import (
+    build_announcement_event,
+    build_error_event,
+    build_payment_required_event,
+    build_result_event,
+    parse_job_params,
+    parse_query_filters,
+)
 
 
 if TYPE_CHECKING:
@@ -50,22 +71,28 @@ if TYPE_CHECKING:
 
     from bigbrotr.core.brotr import Brotr
 
-# Maximum number of processed event IDs to track before resetting
 _MAX_PROCESSED_IDS = 10_000
-
-# Minimum tag lengths for NIP-90 tag parsing
-_MIN_PARAM_TAG_LEN = 3
 _MIN_TAG_LEN = 2
 
 
 class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
     """NIP-90 Data Vending Machine for BigBrotr database queries.
 
+    Processes NIP-90 job requests (default Kind 5050) by executing
+    read-only database queries and publishing results (Kind 6050).
+    Supports per-table pricing with bid/payment-required negotiation.
+
     Lifecycle:
         1. ``__aenter__``: discover schema, create Nostr client, connect
            to relays, optionally publish NIP-89 announcement.
         2. ``run()``: fetch new job requests, process each, publish results.
         3. ``__aexit__``: disconnect client.
+
+    See Also:
+        [DvmConfig][bigbrotr.services.dvm.DvmConfig]: Configuration
+            model for this service.
+        [Api][bigbrotr.services.api.Api]: Sibling service that exposes
+            the same Catalog data via HTTP REST.
     """
 
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.DVM
@@ -73,6 +100,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
 
     def __init__(self, brotr: Brotr, config: DvmConfig | None = None) -> None:
         super().__init__(brotr=brotr, config=config)
+        self._config: DvmConfig
         self._client: Client | None = None
         self._last_fetch_ts: int = 0
         self._processed_ids: set[str] = set()
@@ -125,7 +153,13 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         return 0
 
     async def run(self) -> None:
-        """Fetch and process NIP-90 job requests for one cycle."""
+        """Fetch and process NIP-90 job requests for one cycle.
+
+        Captures the current timestamp before fetching so that events
+        arriving during processing are not lost (the dedup set handles
+        the overlap window).  After processing, updates metrics and
+        manages the dedup set size.
+        """
         if self._client is None:
             return
 
@@ -135,30 +169,42 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         events = await self._fetch_job_requests()
         if not events:
             self._last_fetch_ts = fetch_ts
-            self._report_metrics(_JobCounters())
+            self._report_metrics(0, 0, 0, 0)
             return
 
-        counters = _JobCounters()
+        received = 0
+        processed = 0
+        failed = 0
+        payment_required = 0
         pubkey_hex = self._config.keys.public_key().to_hex()
 
         for event in events:
-            await self._process_event(event, pubkey_hex, counters)
+            r, p, f, pr = await self._process_event(event, pubkey_hex)
+            received += r
+            processed += p
+            failed += f
+            payment_required += pr
 
         self._manage_dedup_set()
         self._last_fetch_ts = fetch_ts
-        self._report_metrics(counters)
+        self._report_metrics(received, processed, failed, payment_required)
+
+    # ── Event processing ──────────────────────────────────────────
 
     async def _process_event(
         self,
         event: Any,
         pubkey_hex: str,
-        counters: _JobCounters,
-    ) -> None:
-        """Process a single NIP-90 job request event."""
+    ) -> tuple[int, int, int, int]:
+        """Process a single NIP-90 job request event.
+
+        Returns:
+            Tuple of (received, processed, failed, payment_required) deltas.
+        """
         event_id = event.id().to_hex()
 
         if event_id in self._processed_ids:
-            return
+            return 0, 0, 0, 0
 
         # Check p-tag targets us (cache as_vec to avoid repeated FFI calls)
         p_tags: list[str] = []
@@ -167,13 +213,12 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             if len(values) >= _MIN_TAG_LEN and values[0] == "p":
                 p_tags.append(values[1])
         if p_tags and pubkey_hex not in p_tags:
-            return
+            return 0, 0, 0, 0
 
         self._processed_ids.add(event_id)
-        counters.received += 1
 
         customer_pubkey = event.author().to_hex()
-        params = self._parse_job_params(event)
+        params = parse_job_params(event)
         table = params.get("table", "")
 
         self._logger.info(
@@ -184,12 +229,12 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         )
 
         try:
-            await self._handle_job(event_id, customer_pubkey, params, table, counters)
+            return await self._handle_job(event_id, customer_pubkey, params, table)
         except (CatalogError, OSError, TimeoutError) as e:
             with contextlib.suppress(OSError, TimeoutError):
-                await self._publish_error(event_id, customer_pubkey, str(e))
-            counters.failed += 1
+                await self._send_event(build_error_event(event_id, customer_pubkey, str(e)))
             self._logger.error("job_failed", event_id=event_id, error=str(e))
+            return 1, 0, 1, 0
 
     async def _handle_job(
         self,
@@ -197,43 +242,41 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         customer_pubkey: str,
         params: dict[str, Any],
         table: str,
-        counters: _JobCounters,
-    ) -> None:
-        """Handle a validated job request: check access, pricing, execute query."""
+    ) -> tuple[int, int, int, int]:
+        """Handle a validated job request: check access, pricing, execute query.
+
+        Returns:
+            Tuple of (received, processed, failed, payment_required) deltas.
+        """
         if not table or not self._is_table_enabled(table):
-            await self._publish_error(
-                event_id,
-                customer_pubkey,
-                f"Invalid or disabled table: {table}",
+            await self._send_event(
+                build_error_event(event_id, customer_pubkey, f"Invalid or disabled table: {table}")
             )
-            counters.failed += 1
-            return
+            return 1, 0, 1, 0
 
         price = self._get_table_price(table)
         if price > 0:
             bid = params.get("bid", 0)
             if bid < price:
-                await self._publish_payment_required(event_id, customer_pubkey, price)
-                counters.payment_required += 1
+                await self._send_event(
+                    build_payment_required_event(event_id, customer_pubkey, price)
+                )
                 self._logger.info(
                     "job_payment_required",
                     event_id=event_id,
                     price=price,
                     bid=bid,
                 )
-                return
+                return 1, 0, 0, 1
 
         try:
             limit = int(params.get("limit", self._config.default_page_size))
             offset = int(params.get("offset", 0))
         except (ValueError, TypeError):
-            await self._publish_error(
-                event_id,
-                customer_pubkey,
-                "Invalid limit or offset value",
+            await self._send_event(
+                build_error_event(event_id, customer_pubkey, "Invalid limit or offset value")
             )
-            counters.failed += 1
-            return
+            return 1, 0, 1, 0
 
         start = time.monotonic()
         result = await self._catalog.query(
@@ -242,13 +285,14 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             limit=limit,
             offset=offset,
             max_page_size=self._config.max_page_size,
-            filters=self._parse_query_filters(params.get("filter", "")),
+            filters=parse_query_filters(params.get("filter", "")),
             sort=params.get("sort") or None,
         )
         duration_ms = (time.monotonic() - start) * 1000
 
-        await self._publish_result(event_id, customer_pubkey, result, price)
-        counters.processed += 1
+        await self._send_event(
+            build_result_event(self._config.kind, event_id, customer_pubkey, result, price)
+        )
         self._logger.info(
             "job_completed",
             event_id=event_id,
@@ -256,6 +300,9 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             rows=len(result.rows),
             duration_ms=round(duration_ms, 1),
         )
+        return 1, 1, 0, 0
+
+    # ── Metrics & dedup ───────────────────────────────────────────
 
     def _manage_dedup_set(self) -> None:
         """Clear the processed IDs set when it exceeds the maximum size.
@@ -267,28 +314,32 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         if len(self._processed_ids) >= _MAX_PROCESSED_IDS:
             self._processed_ids.clear()
 
-    def _report_metrics(self, counters: _JobCounters) -> None:
+    def _report_metrics(
+        self,
+        received: int,
+        processed: int,
+        failed: int,
+        payment_required: int,
+    ) -> None:
         """Update Prometheus metrics and log cycle stats."""
-        self.set_gauge("jobs_received", counters.received)
-        self.inc_counter("total_jobs_received", counters.received)
-        self.inc_counter("jobs_processed", counters.processed)
-        self.inc_counter("jobs_failed", counters.failed)
-        self.inc_counter("jobs_payment_required", counters.payment_required)
+        self.set_gauge("jobs_received", received)
+        self.inc_counter("total_jobs_received", received)
+        self.inc_counter("jobs_processed", processed)
+        self.inc_counter("jobs_failed", failed)
+        self.inc_counter("jobs_payment_required", payment_required)
         self.set_gauge(
             "tables_exposed",
             sum(1 for n in self._catalog.tables if self._is_table_enabled(n)),
         )
         self._logger.info(
             "cycle_stats",
-            jobs_received=counters.received,
-            processed=counters.processed,
-            failed=counters.failed,
-            payment_required=counters.payment_required,
+            jobs_received=received,
+            processed=processed,
+            failed=failed,
+            payment_required=payment_required,
         )
 
-    # -------------------------------------------------------------------
-    # Table policy helpers
-    # -------------------------------------------------------------------
+    # ── Table policy helpers ──────────────────────────────────────
 
     def _is_table_enabled(self, name: str) -> bool:
         if name not in self._catalog.tables:
@@ -301,40 +352,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             return 0
         return policy.price
 
-    # -------------------------------------------------------------------
-    # Event parsing
-    # -------------------------------------------------------------------
-
-    @staticmethod
-    def _parse_job_params(event: Any) -> dict[str, Any]:
-        """Extract NIP-90 parameters from event tags."""
-        params: dict[str, Any] = {}
-        for tag in event.tags().to_vec():
-            values = tag.as_vec()
-            if len(values) >= _MIN_PARAM_TAG_LEN and values[0] == "param":
-                params[values[1]] = values[2]
-            elif len(values) >= _MIN_TAG_LEN and values[0] == "bid":
-                with contextlib.suppress(ValueError):
-                    params["bid"] = int(values[1])
-        return params
-
-    @staticmethod
-    def _parse_query_filters(filter_str: str) -> dict[str, str] | None:
-        """Parse a filter string like ``"network=clearnet,kind=>:100"``."""
-        if not filter_str:
-            return None
-        filters: dict[str, str] = {}
-        for raw_part in filter_str.split(","):
-            part = raw_part.strip()
-            if "=" not in part:
-                continue
-            key, _, value = part.partition("=")
-            filters[key.strip()] = value.strip()
-        return filters or None
-
-    # -------------------------------------------------------------------
-    # Event fetching
-    # -------------------------------------------------------------------
+    # ── Event fetching ────────────────────────────────────────────
 
     async def _fetch_job_requests(self) -> list[Any]:
         """Fetch new NIP-90 job request events since last timestamp."""
@@ -348,129 +366,31 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         )
         return list(events_obj.to_vec())
 
-    # -------------------------------------------------------------------
-    # Event publishing
-    # -------------------------------------------------------------------
+    # ── Event publishing ──────────────────────────────────────────
 
-    async def _publish_result(
-        self,
-        request_event_id: str,
-        customer_pubkey: str,
-        result: QueryResult,
-        price: int,
-    ) -> None:
-        """Publish a kind 6050 result event."""
-        if self._client is None:
-            return
+    async def _send_event(self, builder: Any) -> None:
+        """Sign and send an event via the connected client.
 
-        result_kind = self._config.kind + 1000
-        content = json.dumps(
-            {
-                "data": result.rows,
-                "meta": {
-                    "total": result.total,
-                    "limit": result.limit,
-                    "offset": result.offset,
-                },
-            },
-            default=str,
-        )
-
-        tags = [
-            Tag.parse(["e", request_event_id]),
-            Tag.parse(["p", customer_pubkey]),
-            Tag.parse(
-                [
-                    "request",
-                    json.dumps(
-                        {
-                            "id": request_event_id,
-                            "kind": self._config.kind,
-                        }
-                    ),
-                ]
-            ),
-        ]
-        if price > 0:
-            tags.append(Tag.parse(["amount", str(price)]))
-
-        builder = EventBuilder(Kind(result_kind), content).tags(tags)
-        await self._client.send_event_builder(builder)
-
-    async def _publish_error(
-        self,
-        request_event_id: str,
-        customer_pubkey: str,
-        error_message: str,
-    ) -> None:
-        """Publish a kind 7000 error feedback event."""
-        if self._client is None:
-            return
-
-        tags = [
-            Tag.parse(["status", "error", error_message]),
-            Tag.parse(["e", request_event_id]),
-            Tag.parse(["p", customer_pubkey]),
-        ]
-        builder = EventBuilder(Kind(7000), "").tags(tags)
-        await self._client.send_event_builder(builder)
-
-    async def _publish_payment_required(
-        self,
-        request_event_id: str,
-        customer_pubkey: str,
-        price: int,
-    ) -> None:
-        """Publish a kind 7000 payment-required feedback event."""
-        if self._client is None:
-            return
-
-        tags = [
-            Tag.parse(["status", "payment-required", f"This query costs {price} millisats"]),
-            Tag.parse(["e", request_event_id]),
-            Tag.parse(["p", customer_pubkey]),
-            Tag.parse(["amount", str(price)]),
-        ]
-        builder = EventBuilder(Kind(7000), "").tags(tags)
-        await self._client.send_event_builder(builder)
+        No-op if the client is not connected.
+        """
+        if self._client is not None:
+            await self._client.send_event_builder(builder)
 
     async def _publish_announcement(self) -> None:
         """Publish a NIP-89 handler announcement (kind 31990)."""
-        if self._client is None:
-            return
-
-        tags = [
-            Tag.parse(["d", self._config.d_tag]),
-            Tag.parse(["k", str(self._config.kind)]),
-        ]
-
         tables_info = [
             name for name in sorted(self._catalog.tables) if self._is_table_enabled(name)
         ]
-        content = json.dumps(
-            {
-                "name": self._config.name,
-                "about": self._config.about,
-                "tables": tables_info,
-            }
+        builder = build_announcement_event(
+            d_tag=self._config.d_tag,
+            kind=self._config.kind,
+            name=self._config.name,
+            about=self._config.about,
+            tables=tables_info,
         )
-
-        builder = EventBuilder(Kind(31990), content).tags(tags)
-        await self._client.send_event_builder(builder)
+        await self._send_event(builder)
         self._logger.info(
             "announcement_published",
             kind=31990,
             relays=len(self._config.relays),
         )
-
-
-class _JobCounters:
-    """Mutable counters for tracking job processing within a single cycle."""
-
-    __slots__ = ("failed", "payment_required", "processed", "received")
-
-    def __init__(self) -> None:
-        self.received = 0
-        self.processed = 0
-        self.failed = 0
-        self.payment_required = 0

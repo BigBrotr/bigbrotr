@@ -112,6 +112,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         brotr: Brotr,
         config: FinderConfig | None = None,
     ) -> None:
+        config = config or FinderConfig()
         super().__init__(brotr=brotr, config=config)
         self._config: FinderConfig
 

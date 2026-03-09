@@ -9,11 +9,34 @@ The HTTP server runs as a background ``asyncio.Task`` alongside the
 standard ``run_forever()`` cycle.  Each ``run()`` cycle logs request
 statistics and updates Prometheus metrics.
 
+Note:
+    Rate limiting is not enforced at the application level — it is
+    expected to be handled by the reverse proxy (e.g., Cloudflare,
+    Nginx).  The API is strictly read-only: only GET methods are
+    registered, and all queries are executed through the
+    [Catalog][bigbrotr.services.common.catalog.Catalog] safe query
+    builder.
+
 See Also:
+    [ApiConfig][bigbrotr.services.api.ApiConfig]: Configuration model
+        for HTTP settings, pagination, and CORS.
     [Catalog][bigbrotr.services.common.catalog.Catalog]: Schema
         introspection and query builder shared with the DVM service.
     [BaseService][bigbrotr.core.base_service.BaseService]: Abstract
         base class providing lifecycle and metrics.
+
+Examples:
+    ```python
+    from bigbrotr.core import Brotr
+    from bigbrotr.services import Api
+
+    brotr = Brotr.from_yaml("config/brotr.yaml")
+    api = Api.from_yaml("config/services/api.yaml", brotr=brotr)
+
+    async with brotr:
+        async with api:
+            await api.run_forever()
+    ```
 """
 
 from __future__ import annotations
@@ -47,13 +70,20 @@ _HTTP_ERROR_THRESHOLD = 400
 class Api(CatalogAccessMixin, BaseService[ApiConfig]):
     """REST API service exposing the BigBrotr database read-only.
 
+    Auto-generates paginated GET endpoints for each enabled table,
+    view, and materialized view discovered by the
+    [Catalog][bigbrotr.services.common.catalog.Catalog].
+
     Lifecycle:
         1. ``__aenter__``: discover schema, build FastAPI app, start uvicorn.
         2. ``run()``: log statistics and update Prometheus gauges.
         3. ``__aexit__``: cancel the HTTP server task.
 
-    Note:
-        Rate limiting is handled at the reverse proxy layer (e.g., Cloudflare).
+    See Also:
+        [ApiConfig][bigbrotr.services.api.ApiConfig]: Configuration
+            model for this service.
+        [Dvm][bigbrotr.services.dvm.Dvm]: Sibling service that exposes
+            the same Catalog data via Nostr NIP-90.
     """
 
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.API
@@ -61,6 +91,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
 
     def __init__(self, brotr: Brotr, config: ApiConfig | None = None) -> None:
         super().__init__(brotr=brotr, config=config)
+        self._config: ApiConfig
         self._server_task: asyncio.Task[None] | None = None
         self._requests_total = 0
         self._requests_failed = 0
@@ -101,7 +132,12 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         return 0
 
     async def run(self) -> None:
-        """Log request stats and update Prometheus counters."""
+        """Log request stats and update Prometheus counters.
+
+        Detects a crashed HTTP server task and raises ``RuntimeError``
+        to trigger the ``run_forever()`` failure counter.  Per-cycle
+        request counters are snapshotted and reset atomically.
+        """
         if self._server_task is not None and self._server_task.done():
             exc = self._server_task.exception() if not self._server_task.cancelled() else None
             self._logger.error("http_server_crashed", error=str(exc) if exc else "cancelled")
@@ -124,10 +160,25 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         self.inc_counter("requests_failed", failed)
         self.set_gauge("tables_exposed", tables_exposed)
 
+    # ── App construction ──────────────────────────────────────────
+
     def _build_app(self) -> FastAPI:
-        """Construct the FastAPI application with auto-generated routes."""
+        """Construct the FastAPI application with auto-generated routes.
+
+        Delegates to sub-methods for each route group:
+        middleware, health, schema endpoints, and per-table CRUD routes.
+        """
         app = FastAPI(title=self._config.title)
 
+        self._add_middleware(app)
+        self._add_health_route(app)
+        self._add_schema_routes(app)
+        self._add_table_routes(app)
+
+        return app
+
+    def _add_middleware(self, app: FastAPI) -> None:
+        """Register CORS and request-logging middleware."""
         if self._config.cors_origins:
             app.add_middleware(
                 CORSMiddleware,
@@ -136,7 +187,6 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
                 allow_headers=["*"],
             )
 
-        # Request logging middleware
         @app.middleware("http")
         async def log_requests(request: Request, call_next: Any) -> Response:
             start = time.monotonic()
@@ -179,12 +229,15 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
                 )
             return response
 
-        # Health endpoint
+    def _add_health_route(self, app: FastAPI) -> None:
+        """Register the ``/health`` endpoint."""
+
         @app.get("/health")
         async def health() -> dict[str, str]:
             return {"status": "ok"}
 
-        # Schema endpoints
+    def _add_schema_routes(self, app: FastAPI) -> None:
+        """Register schema list and detail endpoints."""
         prefix = self._config.route_prefix
 
         @app.get(f"{prefix}/schema")
@@ -227,13 +280,12 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
                 }
             )
 
-        # Auto-generated table endpoints
+    def _add_table_routes(self, app: FastAPI) -> None:
+        """Register auto-generated list and detail routes for enabled tables."""
         for table_name in self._catalog.tables:
             if not self._is_table_enabled(table_name):
                 continue
             self._register_table_routes(app, table_name)
-
-        return app
 
     def _register_table_routes(self, app: FastAPI, table_name: str) -> None:
         """Register list and detail routes for a single table.
@@ -321,6 +373,8 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
                 if row is None:
                     return JSONResponse({"error": "not found"}, status_code=404)
                 return JSONResponse({"data": row})
+
+    # ── Server lifecycle ──────────────────────────────────────────
 
     async def _run_server(self, app: FastAPI) -> None:
         """Run uvicorn as an asyncio server."""
