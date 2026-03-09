@@ -316,3 +316,41 @@ class TestKeysConfigSerialization:
     def test_model_config_allows_arbitrary_types(self) -> None:
         """Test that model_config has arbitrary_types_allowed."""
         assert KeysConfig.model_config.get("arbitrary_types_allowed") is True
+
+
+# =============================================================================
+# KeysConfig __repr__ / __str__ Tests
+# =============================================================================
+
+
+class TestKeysConfigRepr:
+    """Tests for KeysConfig __repr__ and __str__ redaction."""
+
+    def test_repr_contains_pubkey(self) -> None:
+        with patch.dict(os.environ, {ENV_PRIVATE_KEY: VALID_HEX_KEY}):
+            config = KeysConfig()
+        pubkey = config.keys.public_key().to_hex()
+        r = repr(config)
+        assert pubkey in r
+        assert "KeysConfig" in r
+
+    def test_repr_does_not_contain_secret_key(self) -> None:
+        with patch.dict(os.environ, {ENV_PRIVATE_KEY: VALID_HEX_KEY}):
+            config = KeysConfig()
+        r = repr(config)
+        assert VALID_HEX_KEY not in r
+
+    def test_str_delegates_to_repr(self) -> None:
+        with patch.dict(os.environ, {ENV_PRIVATE_KEY: VALID_HEX_KEY}):
+            config = KeysConfig()
+        assert str(config) == repr(config)
+
+    def test_repr_contains_keys_env(self) -> None:
+        with patch.dict(os.environ, {ENV_PRIVATE_KEY: VALID_HEX_KEY}):
+            config = KeysConfig()
+        assert "NOSTR_PRIVATE_KEY" in repr(config)
+
+    def test_repr_with_custom_env(self) -> None:
+        with patch.dict(os.environ, {"CUSTOM_VAR": VALID_HEX_KEY}):
+            config = KeysConfig(keys_env="CUSTOM_VAR")
+        assert "CUSTOM_VAR" in repr(config)

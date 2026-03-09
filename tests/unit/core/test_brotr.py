@@ -15,7 +15,7 @@ Tests:
 """
 
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -386,6 +386,14 @@ class TestCallProcedure:
         result = await mock_brotr._call_procedure("test_proc", fetch_result=True)
         assert result == 1  # Mock returns 1 by default
 
+    async def test_fetch_result_none_defaults_to_zero(
+        self, mock_brotr: Brotr, mock_pool: Pool
+    ) -> None:
+        """Test that fetch_result=True returns 0 when procedure returns None."""
+        mock_pool._mock_connection.fetchval = AsyncMock(return_value=None)  # type: ignore[attr-defined]
+        result = await mock_brotr._call_procedure("test_proc", fetch_result=True)
+        assert result == 0
+
     async def test_fetch_result_false(self, mock_brotr: Brotr) -> None:
         """Test procedure call with fetch_result=False."""
         result = await mock_brotr._call_procedure("test_proc", fetch_result=False)
@@ -400,6 +408,13 @@ class TestCallProcedure:
         """Test procedure call with custom timeout."""
         result = await mock_brotr._call_procedure("test_proc", fetch_result=True, timeout=30.0)
         assert result == 1
+
+    async def test_no_args_generates_empty_params(self, mock_brotr: Brotr, mock_pool: Pool) -> None:
+        """Test procedure call with no arguments generates SELECT proc()."""
+        await mock_brotr._call_procedure("my_proc", fetch_result=False)
+        mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
+        query = mock_conn.execute.call_args[0][0]
+        assert query == "SELECT my_proc()"
 
 
 # ============================================================================
@@ -624,6 +639,20 @@ class TestGetServiceState:
         )
         assert isinstance(result, list)
 
+    async def test_returns_service_state_objects(self, mock_brotr: Brotr, mock_pool: Pool) -> None:
+        """Test that rows are reconstructed into ServiceState objects."""
+        mock_row = MagicMock()
+        mock_row.__getitem__ = lambda _, key: {
+            "state_key": "cursor_key",
+            "state_value": {"offset": 100},
+        }[key]
+        mock_pool._mock_connection.fetch = AsyncMock(return_value=[mock_row])  # type: ignore[attr-defined]
+
+        result = await mock_brotr.get_service_state(ServiceName.FINDER, ServiceStateType.CURSOR)
+        assert len(result) == 1
+        assert isinstance(result[0], ServiceState)
+        assert result[0].state_key == "cursor_key"
+
 
 class TestDeleteServiceState:
     """Tests for Brotr.delete_service_state() method."""
@@ -649,6 +678,15 @@ class TestDeleteServiceState:
             ["key1", "key2", "key3"],
         )
         assert result == 3
+
+    async def test_mismatched_array_lengths_raises(self, mock_brotr: Brotr) -> None:
+        """Test that mismatched parallel array lengths raise ValueError."""
+        with pytest.raises(ValueError, match="equal length"):
+            await mock_brotr.delete_service_state(
+                [ServiceName.FINDER, ServiceName.MONITOR],
+                [ServiceStateType.CURSOR],
+                ["key1", "key2"],
+            )
 
 
 # ============================================================================
@@ -763,6 +801,24 @@ class TestRefreshMatview:
         """Test that SQL injection attempts are prevented by procedure name regex."""
         with pytest.raises(ValueError, match="Invalid procedure name"):
             await mock_brotr.refresh_materialized_view("events_statistics; DROP TABLE events;")
+
+    async def test_uses_refresh_timeout(self, mock_brotr: Brotr, mock_pool: Pool) -> None:
+        """Test that refresh uses config.timeouts.refresh (None by default)."""
+        await mock_brotr.refresh_materialized_view("relay_stats")
+        mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
+        call_kwargs = mock_conn.execute.call_args
+        assert call_kwargs[1]["timeout"] is None  # refresh default is None
+
+
+class TestBrotrTransaction:
+    """Tests for Brotr.transaction() delegation."""
+
+    def test_transaction_returns_pool_transaction(self, mock_brotr: Brotr) -> None:
+        """Test that transaction() delegates to pool.transaction()."""
+        result = mock_brotr.transaction()
+        assert result is not None
+        assert hasattr(result, "__aenter__")
+        assert hasattr(result, "__aexit__")
 
 
 # ============================================================================

@@ -9,7 +9,10 @@ Tests:
 
 from __future__ import annotations
 
-from unittest.mock import patch
+import ssl
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.http import Nip66HttpMetadata
@@ -181,3 +184,124 @@ class TestNip66HttpMetadataHttp:
 
         assert isinstance(result, Nip66HttpMetadata)
         assert result.logs.success is True
+
+
+class TestNip66HttpMetadataInternalHttp:
+    """Test _http() internals via execute() without mocking _http itself."""
+
+    @staticmethod
+    def _make_session_mock(
+        response_headers: dict[str, str] | None = None,
+    ) -> tuple[MagicMock, object]:
+        """Build a mock ClientSession factory that fires trace hooks during ws_connect."""
+        headers = response_headers or {}
+        stored_trace_configs: list[Any] = []
+
+        mock_ws = AsyncMock()
+        mock_ws.close = AsyncMock()
+
+        mock_session = MagicMock()
+
+        class _WsContextManager:
+            async def __aenter__(self) -> AsyncMock:
+                mock_response = MagicMock()
+                mock_response.headers = headers
+                params = MagicMock()
+                params.response = mock_response
+                for tc in stored_trace_configs:
+                    for cb in tc.on_request_end:
+                        await cb(mock_session, SimpleNamespace(), params)
+                return mock_ws
+
+            async def __aexit__(self, *args: object) -> bool:
+                return False
+
+        mock_session.ws_connect = MagicMock(return_value=_WsContextManager())
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        def session_factory(*args: object, **kwargs: object) -> MagicMock:
+            trace_configs = kwargs.get("trace_configs", [])
+            stored_trace_configs.clear()
+            stored_trace_configs.extend(trace_configs)
+            return mock_session
+
+        return mock_session, session_factory
+
+    async def test_captures_server_header_from_handshake(self, relay: Relay) -> None:
+        """Server header captured via trace hook produces http_server in result."""
+        _, factory = self._make_session_mock({"Server": "nginx/1.24.0"})
+
+        with patch("bigbrotr.nips.nip66.http.aiohttp.ClientSession", side_effect=factory):
+            result = await Nip66HttpMetadata.execute(relay, 10.0)
+
+        assert result.data.http_server == "nginx/1.24.0"
+        assert result.logs.success is True
+
+    async def test_captures_powered_by_header(self, relay: Relay) -> None:
+        """X-Powered-By header captured via trace hook produces http_powered_by."""
+        _, factory = self._make_session_mock({"X-Powered-By": "Strfry"})
+
+        with patch("bigbrotr.nips.nip66.http.aiohttp.ClientSession", side_effect=factory):
+            result = await Nip66HttpMetadata.execute(relay, 10.0)
+
+        assert result.data.http_powered_by == "Strfry"
+        assert result.logs.success is True
+
+    async def test_no_headers_returns_empty_dict(self, relay: Relay) -> None:
+        """No Server or X-Powered-By headers yields failure with empty data."""
+        _, factory = self._make_session_mock({})
+
+        with patch("bigbrotr.nips.nip66.http.aiohttp.ClientSession", side_effect=factory):
+            result = await Nip66HttpMetadata.execute(relay, 10.0)
+
+        assert result.data.http_server is None
+        assert result.data.http_powered_by is None
+        assert result.logs.success is False
+        assert "no HTTP headers captured" in result.logs.reason
+
+    async def test_clearnet_uses_tcp_connector(self, relay: Relay) -> None:
+        """Clearnet relay creates TCPConnector, not ProxyConnector."""
+        _, factory = self._make_session_mock({"Server": "nginx"})
+
+        with (
+            patch("bigbrotr.nips.nip66.http.aiohttp.ClientSession", side_effect=factory),
+            patch("bigbrotr.nips.nip66.http.aiohttp.TCPConnector") as mock_tcp,
+        ):
+            await Nip66HttpMetadata.execute(relay, 10.0)
+
+        mock_tcp.assert_called_once()
+        ssl_ctx = mock_tcp.call_args[1]["ssl"]
+        assert ssl_ctx.check_hostname is True
+        assert ssl_ctx.verify_mode == ssl.CERT_REQUIRED
+
+    async def test_overlay_uses_insecure_ssl(self, tor_relay: Relay) -> None:
+        """Overlay relay sets CERT_NONE on ssl context."""
+        _, factory = self._make_session_mock({"Server": "nginx"})
+
+        with (
+            patch("bigbrotr.nips.nip66.http.aiohttp.ClientSession", side_effect=factory),
+            patch("bigbrotr.nips.nip66.http.ProxyConnector.from_url") as mock_proxy,
+        ):
+            mock_proxy.return_value = MagicMock()
+            await Nip66HttpMetadata.execute(tor_relay, 10.0, proxy_url="socks5://localhost:9050")
+
+        mock_proxy.assert_called_once()
+        ssl_ctx = mock_proxy.call_args[1]["ssl"]
+        assert ssl_ctx.check_hostname is False
+        assert ssl_ctx.verify_mode == ssl.CERT_NONE
+
+    async def test_proxy_uses_proxy_connector(self, relay: Relay) -> None:
+        """When proxy_url provided, ProxyConnector.from_url is used."""
+        _, factory = self._make_session_mock({"Server": "nginx"})
+
+        with (
+            patch("bigbrotr.nips.nip66.http.aiohttp.ClientSession", side_effect=factory),
+            patch("bigbrotr.nips.nip66.http.ProxyConnector.from_url") as mock_proxy,
+        ):
+            mock_proxy.return_value = MagicMock()
+            await Nip66HttpMetadata.execute(relay, 10.0, proxy_url="socks5://localhost:9050")
+
+        mock_proxy.assert_called_once_with(
+            "socks5://localhost:9050", ssl=mock_proxy.call_args[1]["ssl"]
+        )

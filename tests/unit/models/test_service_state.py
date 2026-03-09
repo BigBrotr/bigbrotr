@@ -1,5 +1,6 @@
 """Unit tests for the ServiceState model and ServiceStateType enum."""
 
+import json
 from dataclasses import FrozenInstanceError
 from enum import StrEnum
 
@@ -15,7 +16,7 @@ from bigbrotr.models.service_state import ServiceState, ServiceStateDbParams, Se
 
 
 class TestServiceStateType:
-    """Test ServiceStateType StrEnum."""
+    """ServiceStateType StrEnum."""
 
     def test_members(self):
         assert len(ServiceStateType) == 2
@@ -32,13 +33,17 @@ class TestServiceStateType:
         assert issubclass(ServiceStateType, StrEnum)
         assert isinstance(ServiceStateType.CHECKPOINT, StrEnum)
 
+    def test_construct_from_value(self):
+        assert ServiceStateType("checkpoint") is ServiceStateType.CHECKPOINT
+        assert ServiceStateType("cursor") is ServiceStateType.CURSOR
+
 
 # =============================================================================
-# ServiceState Construction Tests
+# Construction Tests
 # =============================================================================
 
 
-class TestServiceStateConstruction:
+class TestConstruction:
     """ServiceState construction and initialization."""
 
     def test_with_enum_values(self):
@@ -93,13 +98,22 @@ class TestServiceStateConstruction:
         with pytest.raises(FrozenInstanceError):
             state.state_key = "batch_2"  # type: ignore[misc]
 
+    def test_empty_state_value(self):
+        state = ServiceState(
+            service_name=ServiceName.FINDER,
+            state_type=ServiceStateType.CURSOR,
+            state_key="key",
+            state_value={},
+        )
+        assert state.state_value == {}
+
 
 # =============================================================================
 # to_db_params Tests
 # =============================================================================
 
 
-class TestServiceStateToDbParams:
+class TestToDbParams:
     """ServiceState.to_db_params() for database persistence."""
 
     def test_returns_service_state_db_params(self):
@@ -125,6 +139,18 @@ class TestServiceStateToDbParams:
         assert params.state_key == "wss://nos.lol"
         assert params.state_value == '{"source": "nip65"}'
 
+    def test_state_value_valid_json(self):
+        state = ServiceState(
+            service_name=ServiceName.MONITOR,
+            state_type=ServiceStateType.CHECKPOINT,
+            state_key="key",
+            state_value={"nested": {"deep": "value"}, "list": [1, 2, 3]},
+        )
+        params = state.to_db_params()
+        parsed = json.loads(params.state_value)
+        assert parsed["nested"]["deep"] == "value"
+        assert parsed["list"] == [1, 2, 3]
+
     def test_caching(self):
         state = ServiceState(
             service_name=ServiceName.VALIDATOR,
@@ -133,6 +159,62 @@ class TestServiceStateToDbParams:
             state_value={"index": 42},
         )
         assert state.to_db_params() is state.to_db_params()
+
+    def test_empty_state_value_serializes(self):
+        state = ServiceState(
+            service_name=ServiceName.FINDER,
+            state_type=ServiceStateType.CURSOR,
+            state_key="key",
+            state_value={},
+        )
+        assert state.to_db_params().state_value == "{}"
+
+
+# =============================================================================
+# Sanitization Tests
+# =============================================================================
+
+
+class TestSanitization:
+    """state_value sanitization via sanitize_data and deep_freeze."""
+
+    def test_none_values_filtered(self):
+        state = ServiceState(
+            service_name=ServiceName.MONITOR,
+            state_type=ServiceStateType.CURSOR,
+            state_key="key",
+            state_value={"keep": "value", "remove": None},
+        )
+        assert "remove" not in state.state_value
+        assert state.state_value["keep"] == "value"
+
+    def test_empty_containers_filtered(self):
+        state = ServiceState(
+            service_name=ServiceName.MONITOR,
+            state_type=ServiceStateType.CURSOR,
+            state_key="key",
+            state_value={"keep": "value", "empty_dict": {}, "empty_list": []},
+        )
+        assert "empty_dict" not in state.state_value
+        assert "empty_list" not in state.state_value
+
+    def test_null_bytes_in_value_rejected(self):
+        with pytest.raises(ValueError, match="null bytes"):
+            ServiceState(
+                service_name=ServiceName.MONITOR,
+                state_type=ServiceStateType.CURSOR,
+                state_key="key",
+                state_value={"text": "bad\x00value"},
+            )
+
+    def test_null_bytes_in_key_rejected(self):
+        with pytest.raises(ValueError, match="null bytes"):
+            ServiceState(
+                service_name=ServiceName.MONITOR,
+                state_type=ServiceStateType.CURSOR,
+                state_key="key",
+                state_value={"bad\x00key": "value"},
+            )
 
 
 # =============================================================================
@@ -144,7 +226,6 @@ class TestTypeValidation:
     """Runtime type validation in __post_init__."""
 
     def test_state_key_non_string_rejected(self):
-        """state_key must be a str."""
         with pytest.raises(TypeError, match="state_key must be a str"):
             ServiceState(
                 service_name=ServiceName.MONITOR,
@@ -153,8 +234,25 @@ class TestTypeValidation:
                 state_value={"key": "value"},
             )
 
+    def test_state_key_empty_rejected(self):
+        with pytest.raises(ValueError, match="state_key must not be empty"):
+            ServiceState(
+                service_name=ServiceName.MONITOR,
+                state_type=ServiceStateType.CURSOR,
+                state_key="",
+                state_value={},
+            )
+
+    def test_state_key_null_bytes_rejected(self):
+        with pytest.raises(ValueError, match="state_key contains null bytes"):
+            ServiceState(
+                service_name=ServiceName.MONITOR,
+                state_type=ServiceStateType.CURSOR,
+                state_key="key\x00here",
+                state_value={},
+            )
+
     def test_state_value_non_dict_rejected(self):
-        """state_value must be a dict."""
         with pytest.raises(TypeError, match="state_value must be a Mapping"):
             ServiceState(
                 service_name=ServiceName.MONITOR,
@@ -164,7 +262,6 @@ class TestTypeValidation:
             )
 
     def test_state_value_string_rejected(self):
-        """state_value must be a dict, not a string."""
         with pytest.raises(TypeError, match="state_value must be a Mapping"):
             ServiceState(
                 service_name=ServiceName.MONITOR,
@@ -183,7 +280,6 @@ class TestImmutability:
     """Deep immutability of state_value."""
 
     def test_state_value_immutable(self):
-        """state_value dict cannot be mutated after construction."""
         state = ServiceState(
             service_name=ServiceName.MONITOR,
             state_type=ServiceStateType.CURSOR,
@@ -194,7 +290,6 @@ class TestImmutability:
             state.state_value["key"] = "modified"  # type: ignore[index]
 
     def test_state_value_nested_immutable(self):
-        """Nested dicts in state_value cannot be mutated."""
         state = ServiceState(
             service_name=ServiceName.MONITOR,
             state_type=ServiceStateType.CURSOR,
@@ -205,7 +300,6 @@ class TestImmutability:
             state.state_value["nested"]["inner"] = "modified"  # type: ignore[index]
 
     def test_original_dict_not_affected(self):
-        """Mutating the original dict does not affect the frozen state_value."""
         original = {"key": "value"}
         state = ServiceState(
             service_name=ServiceName.MONITOR,
@@ -215,3 +309,82 @@ class TestImmutability:
         )
         original["key"] = "modified"
         assert state.state_value["key"] == "value"
+
+    def test_new_attribute_blocked(self):
+        state = ServiceState(
+            service_name=ServiceName.MONITOR,
+            state_type=ServiceStateType.CHECKPOINT,
+            state_key="test",
+            state_value={},
+        )
+        with pytest.raises((AttributeError, TypeError, FrozenInstanceError)):
+            state.new_attr = "value"  # type: ignore[attr-defined]
+
+
+# =============================================================================
+# Equality Tests
+# =============================================================================
+
+
+class TestEquality:
+    """Equality behavior."""
+
+    def test_equal(self):
+        s1 = ServiceState(
+            service_name=ServiceName.FINDER,
+            state_type=ServiceStateType.CURSOR,
+            state_key="key",
+            state_value={"a": 1},
+        )
+        s2 = ServiceState(
+            service_name=ServiceName.FINDER,
+            state_type=ServiceStateType.CURSOR,
+            state_key="key",
+            state_value={"a": 1},
+        )
+        assert s1 == s2
+
+    def test_different_service_name(self):
+        s1 = ServiceState(
+            service_name=ServiceName.FINDER,
+            state_type=ServiceStateType.CURSOR,
+            state_key="key",
+            state_value={},
+        )
+        s2 = ServiceState(
+            service_name=ServiceName.MONITOR,
+            state_type=ServiceStateType.CURSOR,
+            state_key="key",
+            state_value={},
+        )
+        assert s1 != s2
+
+    def test_different_state_type(self):
+        s1 = ServiceState(
+            service_name=ServiceName.FINDER,
+            state_type=ServiceStateType.CURSOR,
+            state_key="key",
+            state_value={},
+        )
+        s2 = ServiceState(
+            service_name=ServiceName.FINDER,
+            state_type=ServiceStateType.CHECKPOINT,
+            state_key="key",
+            state_value={},
+        )
+        assert s1 != s2
+
+    def test_different_state_key(self):
+        s1 = ServiceState(
+            service_name=ServiceName.FINDER,
+            state_type=ServiceStateType.CURSOR,
+            state_key="key1",
+            state_value={},
+        )
+        s2 = ServiceState(
+            service_name=ServiceName.FINDER,
+            state_type=ServiceStateType.CURSOR,
+            state_key="key2",
+            state_value={},
+        )
+        assert s1 != s2

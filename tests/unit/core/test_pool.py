@@ -31,7 +31,80 @@ from bigbrotr.core.pool import (
     ServerSettingsConfig,
     TimeoutsConfig,
     _init_connection,
+    _json_encode,
 )
+
+
+# ============================================================================
+# _json_encode Tests
+# ============================================================================
+
+
+class TestJsonEncode:
+    """Tests for _json_encode() function."""
+
+    def test_string_passthrough(self) -> None:
+        """Pre-serialized JSON strings are returned as-is (no double-encoding)."""
+        pre_serialized = '{"key": "value"}'
+        assert _json_encode(pre_serialized) == pre_serialized
+
+    def test_dict_serialized(self) -> None:
+        """Python dicts are JSON-serialized."""
+        result = _json_encode({"key": "value"})
+        assert result == '{"key": "value"}'
+
+    def test_list_serialized(self) -> None:
+        """Python lists are JSON-serialized."""
+        result = _json_encode([1, 2, 3])
+        assert result == "[1, 2, 3]"
+
+    def test_int_serialized(self) -> None:
+        """Python ints are JSON-serialized."""
+        assert _json_encode(42) == "42"
+
+    def test_none_serialized(self) -> None:
+        """None is JSON-serialized to 'null'."""
+        assert _json_encode(None) == "null"
+
+    def test_empty_string_passthrough(self) -> None:
+        """Empty string is returned as-is."""
+        assert _json_encode("") == ""
+
+
+# ============================================================================
+# _retry_delay Tests
+# ============================================================================
+
+
+class TestRetryDelay:
+    """Tests for Pool._retry_delay() method."""
+
+    def test_exponential_backoff(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Exponential backoff: delay = initial * 2^attempt, capped at max."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        config = PoolConfig(
+            retry=RetryConfig(initial_delay=1.0, max_delay=10.0, exponential_backoff=True)
+        )
+        pool = Pool(config=config)
+
+        assert pool._retry_delay(0) == 1.0  # 1 * 2^0
+        assert pool._retry_delay(1) == 2.0  # 1 * 2^1
+        assert pool._retry_delay(2) == 4.0  # 1 * 2^2
+        assert pool._retry_delay(3) == 8.0  # 1 * 2^3
+        assert pool._retry_delay(4) == 10.0  # 1 * 2^4 = 16 → capped at 10
+
+    def test_linear_backoff(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Linear backoff: delay = initial * (attempt + 1), capped at max."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        config = PoolConfig(
+            retry=RetryConfig(initial_delay=1.0, max_delay=5.0, exponential_backoff=False)
+        )
+        pool = Pool(config=config)
+
+        assert pool._retry_delay(0) == 1.0  # 1 * (0+1)
+        assert pool._retry_delay(1) == 2.0  # 1 * (1+1)
+        assert pool._retry_delay(2) == 3.0  # 1 * (2+1)
+        assert pool._retry_delay(4) == 5.0  # 1 * (4+1) → capped at 5
 
 
 # ============================================================================
