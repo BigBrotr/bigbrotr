@@ -21,7 +21,7 @@ Services communicate exclusively through the shared PostgreSQL database. There i
 The following diagram shows which database tables each service reads from and writes to:
 
 ```mermaid
-flowchart TD
+flowchart LR
     subgraph Services
         SE["Seeder"]
         FI["Finder"]
@@ -32,44 +32,29 @@ flowchart TD
     end
 
     subgraph Database
-        SS["service_state<br/><small>candidates, cursors</small>"]
-        RE["relay<br/><small>validated URLs</small>"]
-        MD["metadata<br/><small>NIP-11/NIP-66 docs</small>"]
-        RM["relay_metadata<br/><small>time-series snapshots</small>"]
-        EV["event<br/><small>Nostr events</small>"]
-        ER["event_relay<br/><small>event-relay junction</small>"]
-        MV["materialized views<br/><small>11 analytics views</small>"]
+        SS["service_state"]
+        RE["relay"]
+        MD["metadata"]
+        RM["relay_metadata"]
+        EV["event"]
+        ER["event_relay"]
+        MV["materialized views"]
     end
 
-    SE -->|"write candidates"| SS
-    SE -->|"write relays"| RE
+    SE -->|"candidates"| SS
+    SE -->|"relays"| RE
     FI -->|"read events"| ER
-    FI -->|"write candidates"| SS
-    VA -->|"read candidates"| SS
-    VA -->|"promote valid"| RE
-    VA -->|"update failures"| SS
-    MO -->|"read relays"| RE
-    MO -->|"write metadata"| MD
-    MO -->|"write snapshots"| RM
-    SY -->|"read relays"| RE
-    SY -->|"read/write cursors"| SS
-    SY -->|"write events"| EV
-    SY -->|"write junctions"| ER
+    FI -->|"candidates"| SS
+    VA -->|"read"| SS
+    VA -->|"promote"| RE
+    MO -->|"read"| RE
+    MO -->|"write"| MD
+    MO -->|"snapshots"| RM
+    SY -->|"read"| RE
+    SY -->|"cursors"| SS
+    SY -->|"write"| EV
+    SY -->|"junctions"| ER
     RE2 -->|"refresh"| MV
-
-    style SE fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style FI fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style VA fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style MO fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style SY fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style RE2 fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style SS fill:#311B92,color:#fff,stroke:#1A237E
-    style RE fill:#311B92,color:#fff,stroke:#1A237E
-    style MD fill:#311B92,color:#fff,stroke:#1A237E
-    style RM fill:#311B92,color:#fff,stroke:#1A237E
-    style EV fill:#311B92,color:#fff,stroke:#1A237E
-    style ER fill:#311B92,color:#fff,stroke:#1A237E
-    style MV fill:#311B92,color:#fff,stroke:#1A237E
 ```
 
 ---
@@ -117,51 +102,46 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["Finder.run()"] --> B["_find_from_events()"]
-    A --> C["_find_from_api()"]
+    A["Finder.run()"] --> B["find_from_events()"]
+    A --> C["find_from_api()"]
 
-    B --> D["Scan kind 3<br/><small>contact lists</small>"]
-    B --> E["Scan kind 10002<br/><small>NIP-65 relay lists</small>"]
-    B --> F["Scan r tags<br/><small>relay references</small>"]
+    B --> D["Scan relay event tagvalues<br/><small>kind-agnostic, cursor-paginated</small>"]
 
     C --> G["HTTP GET<br/><small>nostr.watch API</small>"]
     C --> H["HTTP GET<br/><small>custom sources</small>"]
 
     D --> I["Collect URLs"]
-    E --> I
-    F --> I
     G --> I
     H --> I
 
     I --> J["insert_relays_as_candidates()"]
 
-    style A fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style J fill:#311B92,color:#fff,stroke:#1A237E
 ```
 
 **Discovery sources:**
 
-1. **Event scanning** -- extracts relay URLs from:
-    - Kind 3 (contact list): content field contains JSON with relay URLs as keys
-    - Kind 10002 (NIP-65 relay list): `r` tags contain relay URLs
-    - Any event with `r` tags
+1. **Event scanning** -- extracts relay URLs from event `tagvalues` regardless of event kind. Any tagvalue that parses as a valid relay URL (`wss://` or `ws://`) becomes a candidate. Scanning is cursor-paginated per relay with `(seen_at, event_id)` tie-breaking.
 
 2. **API fetching** -- HTTP requests to external sources:
     - Default: nostr.watch online/offline relay list endpoints
     - Configurable timeout, SSL verification, delay between requests
+    - JMESPath expressions for extracting URLs from JSON responses
 
 ### Configuration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `interval` | float | `3600.0` | Seconds between discovery cycles |
-| `concurrency.max_parallel` | int | `5` | Concurrent API requests |
 | `events.enabled` | bool | `true` | Enable event-based relay discovery |
-| `events.batch_size` | int | `1000` | Events per scanning batch |
-| `events.kinds` | list[int] | `[2, 3, 10002]` | Nostr event kinds to scan |
+| `events.batch_size` | int | `100` | Events per scanning batch |
+| `events.parallel_relays` | int | `50` | Maximum concurrent relay event scans |
+| `events.max_relay_time` | float or null | `null` | Maximum seconds to scan a single relay (null = unlimited) |
+| `events.max_duration` | float | `86400.0` | Maximum seconds for the entire event scanning phase |
 | `api.enabled` | bool | `true` | Enable API-based discovery |
+| `api.cooldown` | float | `86400.0` | Minimum seconds before querying any source again |
 | `api.sources[].url` | string | -- | API endpoint URL |
 | `api.request_delay` | float | `1.0` | Delay between API calls |
+| `api.max_response_size` | int | `5242880` | Maximum API response body size in bytes (5 MB) |
 
 !!! tip "API Reference"
     See [`bigbrotr.services.finder`](../reference/services/finder/index.md) for the complete Finder API.
@@ -194,9 +174,6 @@ flowchart TD
     J --> D
     K --> D
 
-    style A fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style J fill:#1B5E20,color:#fff,stroke:#0D3B0F
-    style K fill:#B71C1C,color:#fff,stroke:#7F0000
 ```
 
 1. Delete stale candidates (URLs already in the relay table)
@@ -216,9 +193,11 @@ flowchart TD
 | `interval` | float | `28800.0` | Seconds between validation cycles |
 | `processing.chunk_size` | int | `100` | Candidates per fetch batch |
 | `processing.max_candidates` | int or null | `null` | Max candidates per cycle |
+| `processing.interval` | float | `3600.0` | Minimum seconds before retrying a failed candidate |
+| `processing.allow_insecure` | bool | `false` | Fall back to insecure transport on SSL failure |
 | `cleanup.enabled` | bool | `false` | Enable stale candidate cleanup |
-| `cleanup.max_failures` | int | `100` | Failure threshold for removal |
-| `networks` | NetworkConfig | -- | Per-network timeouts and concurrency |
+| `cleanup.max_failures` | int | `720` | Failure threshold for removal |
+| `networks` | NetworksConfig | -- | Per-network timeouts and concurrency |
 
 !!! tip "API Reference"
     See [`bigbrotr.services.validator`](../reference/services/validator/index.md) for the complete Validator API.
@@ -237,30 +216,30 @@ flowchart TD
 ### How It Works
 
 The Monitor is the most complex service (`services/monitor/service.py`), handling
-health checks, event publishing, and NIP-66 tag building in a single module.
+health checks and event publishing orchestration. NIP-66 tag building is delegated
+to `nips/event_builders.py`.
 
 **Orchestration flow:**
 
-1. `run()` -- setup (geo, publish profile/announcement), delegate to `monitor()`
-2. `monitor()` -- count relays, process chunks, emit metrics
-3. `check_chunks()` -- async generator yielding (successful, failed) per chunk
-4. `check_relay(relay)` -- run NIP-11 + all NIP-66 checks, return `CheckResult`
-5. `_persist_results(successful, failed)` -- insert metadata to DB
-6. `publish_relay_discoveries(successful)` -- build and broadcast kind 30166 events
-6. `_publish_announcement()` -- kind 10166 (monitor capabilities)
-7. `_publish_profile()` -- kind 0 (monitor profile metadata)
+1. `run()` -- update geo databases, open geo readers, publish profile/announcement, delegate to `monitor()`
+2. `monitor()` -- count relays, fetch in chunks, check concurrently via `_iter_concurrent()`, persist metadata, update checkpoints
+3. `check_relay(relay)` -- run NIP-11 + all NIP-66 checks, return `CheckResult`
+4. `publish_discovery(relay, result)` -- build and broadcast kind 30166 per successful check
+5. `publish_announcement()` -- kind 10166 (monitor capabilities)
+6. `publish_profile()` -- kind 0 (monitor profile metadata)
 
 **CheckResult** (what each relay check produces):
 
 ```python
 class CheckResult(NamedTuple):
-    nip11: RelayMetadata | None
-    nip66_rtt: RelayMetadata | None
-    nip66_ssl: RelayMetadata | None
-    nip66_geo: RelayMetadata | None
-    nip66_net: RelayMetadata | None
-    nip66_dns: RelayMetadata | None
-    nip66_http: RelayMetadata | None
+    generated_at: int
+    nip11_info: Nip11InfoMetadata | None
+    nip66_rtt: Nip66RttMetadata | None
+    nip66_ssl: Nip66SslMetadata | None
+    nip66_geo: Nip66GeoMetadata | None
+    nip66_net: Nip66NetMetadata | None
+    nip66_dns: Nip66DnsMetadata | None
+    nip66_http: Nip66HttpMetadata | None
 ```
 
 **Published Nostr events:**
@@ -271,15 +250,7 @@ class CheckResult(NamedTuple):
 | 10166 | Announcement | Monitor capabilities, check frequency, supported checks (NIP-66) |
 | 30166 | Discovery | Per-relay health data: RTT, SSL, DNS, Geo, Net, NIP-11 (addressable, `d` tag = relay URL) |
 
-**NIP-66 tags produced by `monitor/service.py`:**
-
-| Method | Tags Produced |
-|--------|--------------|
-| `_add_rtt_tags()` | `rtt-open`, `rtt-read`, `rtt-write` |
-| `_add_ssl_tags()` | `ssl`, `ssl-expires`, `ssl-issuer` |
-| `_add_net_tags()` | `net-ip`, `net-ipv6`, `net-asn`, `net-asn-org` |
-| `_add_geo_tags()` | `g` (geohash), `geo-country`, `geo-city`, `geo-lat`, `geo-lon`, `geo-tz` |
-| `_add_nip11_tags()` | `N` (NIPs), `t` (topics), `l` (languages), `R` (requirements), `T` (types) |
+**NIP-66 tag building** is delegated to `nips/event_builders.py`, not handled in `monitor/service.py`. The event builder functions (`build_relay_discovery`, `build_monitor_announcement`, `build_profile_event`) construct the appropriate NIP-66 tags from check result data.
 
 ### Configuration
 
@@ -317,57 +288,43 @@ class CheckResult(NamedTuple):
 flowchart TD
     A["Synchronizer.run()"] --> B["Fetch relays from DB"]
     B --> C["Load cursors from service_state"]
-    C --> D["_sync_all_relays(relays)<br/><small>TaskGroup + semaphore</small>"]
-    D --> E["Per relay:"]
-    E --> F["Connect via WebSocket"]
-    F --> G["Subscribe with filter<br/><small>kinds, since, until, limit</small>"]
-    G --> H["Collect events into EventBatch"]
-    H --> I{Batch full?}
-    I -->|Yes| J["insert_event_relay<br/>(cascade=True)"]
-    I -->|No| K{EOSE received?}
-    K -->|Yes| J
-    K -->|No| H
-    J --> L["Update cursor"]
-    L --> M{More events?}
-    M -->|Yes| G
-    M -->|No| N["Next relay"]
+    C --> D["Shuffle relays<br/><small>prevent thundering herd</small>"]
+    D --> E["_run_sync(relays, cursors)<br/><small>TaskGroup + semaphore</small>"]
+    E --> F["Per relay:"]
+    F --> G["Connect via WebSocket"]
+    G --> H["stream_events()<br/><small>windowing with binary-split fallback</small>"]
+    H --> I["Buffer events"]
+    I --> J{Buffer full?}
+    J -->|Yes| K["insert_events()<br/><small>cascade insert</small>"]
+    J -->|No| L{Stream done?}
+    L -->|Yes| K
+    L -->|No| I
+    K --> M["Update cursor"]
 
-    style A fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style J fill:#311B92,color:#fff,stroke:#1A237E
 ```
 
-1. `run()` -- fetch relays from DB, load cursors, distribute work
-2. `_sync_all_relays(relays)` -- `TaskGroup` with semaphore coordination
-3. For each relay: connect via WebSocket, subscribe with filter, collect events
-4. Per-relay cursor tracking via `ServiceState` with `ServiceStateType.CURSOR`
-5. Batch insert events + relay junctions via `insert_event_relay(cascade=True)`
-6. Flush cursor updates periodically
-
-**EventBatch** -- bounded event buffer:
-
-```python
-class EventBatch:
-    since: int           # filter start timestamp
-    until: int           # filter end timestamp
-    limit: int           # max events
-    events: list[Event]  # collected events
-
-    def append(event) -> None   # raises OverflowError if full
-    def is_full() -> bool
-    def is_empty() -> bool
-```
+1. `run()` delegates to `synchronize()` -- fetch relays, shuffle, load cursors, distribute work
+2. `_run_sync(relays, cursors)` -- `_iter_concurrent()` with per-network semaphores
+3. For each relay: `_sync_single_relay()` connects via WebSocket, streams events using `stream_events()` with data-driven windowing and binary-split fallback for completeness
+4. Events are buffered and batch-inserted via `insert_events()` (cascade insert to `event` + `event_relay`)
+5. Per-relay cursor tracking via `ServiceState` with `ServiceStateType.CURSOR`, batched flush every `flush_interval` relays
+6. Cursor set to `end_time` on completion, or last event's `created_at` on partial completion
 
 ### Configuration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `interval` | float | `900.0` | Seconds between sync cycles |
-| `filter.kinds` | list[int] or null | `null` | Event kinds to sync (null = all) |
-| `filter.limit` | int | `500` | Events per REQ request |
-| `time_range.use_relay_state` | bool | `true` | Use per-relay incremental cursors |
-| `time_range.lookback_seconds` | int | `86400` | Lookback window from cursor position |
-| `concurrency.max_parallel` | int | `10` | Concurrent relays |
-| `networks` | NetworkConfig | -- | Per-network timeouts and concurrency |
+| `filters` | list[Filter] | `[Filter()]` | NIP-01 filter dicts for event subscription (null = all) |
+| `limit` | int | `500` | Max events per relay request (REQ limit) |
+| `since` | int | `0` | Default start timestamp for relays without a cursor |
+| `until` | int or null | `null` | Upper bound timestamp (null = now) |
+| `end_lag` | int | `86400` | Seconds subtracted from until to compute sync end time |
+| `flush_interval` | int | `50` | Flush cursor updates every N relays |
+| `timeouts.relay_clearnet` | float | `1800.0` | Max time per clearnet relay sync |
+| `timeouts.relay_tor` | float | `3600.0` | Max time per Tor relay sync |
+| `timeouts.max_duration` | float or null | `null` | Maximum seconds for the entire sync phase |
+| `networks` | NetworksConfig | -- | Per-network timeouts and concurrency |
 
 !!! tip "API Reference"
     See [`bigbrotr.services.synchronizer`](../reference/services/synchronizer/index.md) for the complete Synchronizer API.
@@ -397,7 +354,7 @@ The Refresher calls views in dependency order: `relay_metadata_latest` first (be
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `interval` | float | `3600.0` | Seconds between refresh cycles |
-| `views` | list[string] | all 11 views | Materialized views to refresh |
+| `refresh.views` | list[string] | all 11 views | Materialized views to refresh |
 
 !!! tip "API Reference"
     See [`bigbrotr.services.refresher`](../reference/services/refresher/index.md) for the complete Refresher API.
@@ -485,7 +442,7 @@ The Dvm supports per-table pricing via `TableConfig.price`. When a job's bid is 
 All services share a common lifecycle managed by `BaseService`:
 
 ```mermaid
-statediagram-v2
+stateDiagram-v2
     [*] --> Created: __init__()
     Created --> Running: __aenter__()
     Running --> Cycling: run_forever()
@@ -534,10 +491,10 @@ For complete configuration details including all fields, defaults, constraints, 
 | Service | Key Config | Impact |
 |---------|-----------|--------|
 | Seeder | `seed.to_validate` | Skip validation for trusted seed lists |
-| Finder | `events.kinds`, `api.sources` | Control discovery breadth |
+| Finder | `events.parallel_relays`, `api.sources` | Control discovery breadth and concurrency |
 | Validator | `processing.chunk_size`, `cleanup.max_failures` | Throughput vs resource usage |
 | Monitor | `processing.compute.*`, `discovery.enabled` | Which checks to run and publish |
-| Synchronizer | `concurrency.max_parallel`, `filter.kinds` | Archival throughput and scope |
+| Synchronizer | `filters`, `limit`, `timeouts.max_duration` | Archival throughput and scope |
 | Refresher | `views`, `interval` | Which views to refresh and how often |
 | Api | `tables`, `max_page_size`, `cors_origins` | Which tables to expose and pagination limits |
 | Dvm | `relays`, `tables`, `kind` | Which relays to listen on and tables to serve |

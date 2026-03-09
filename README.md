@@ -11,18 +11,24 @@
 <h1 align="center">BigBrotr</h1>
 
 <p align="center">
-  <strong>Nostr Relay Discovery, Monitoring, and Event Archiving System</strong>
+  <strong>Modular Nostr Network Observatory</strong>
 </p>
 
 <p align="center">
-  Discovers relays across clearnet and overlay networks, monitors health with NIP-11/NIP-66 compliance checks, and archives events into PostgreSQL.
+  Discovers relays across clearnet, Tor, I2P, and Lokinet. Validates connectivity, runs NIP-11 and NIP-66 health checks, archives events, materializes analytics views, and exposes data through a REST API and a NIP-90 Data Vending Machine.
 </p>
 
 ---
 
 ## What It Does
 
-BigBrotr runs 8 **independent** async services that continuously map and monitor the Nostr relay ecosystem. Each service runs on its own schedule, reads and writes a shared PostgreSQL database, and has no direct dependency on any other service.
+BigBrotr answers three questions about the Nostr network:
+
+1. **What relays exist?** — Seeder bootstraps from a seed file, Finder discovers new relays from event tag values and external APIs.
+2. **How healthy are they?** — Validator confirms WebSocket connectivity, Monitor runs 7 health checks (RTT, SSL, DNS, Geo, Net, HTTP, NIP-11) and publishes NIP-66 events.
+3. **What events are they publishing?** — Synchronizer connects to relays, streams events, and archives them with cursor-based resumption.
+
+Eight **independent** async services share a PostgreSQL database. Each runs on its own schedule, can be started or stopped individually, and has no direct dependency on any other service.
 
 ```text
                     ┌──────────────────────────────────────────────────────┐
@@ -48,18 +54,18 @@ BigBrotr runs 8 **independent** async services that continuously map and monitor
 
 ### Services
 
-| Service | Schedule | What it does | Reads | Writes | External I/O |
-|---------|----------|-------------|-------|--------|-------------|
-| **Seeder** | One-shot | Loads relay URLs from a seed file | -- | relay or service_state (candidates) | Seed file |
-| **Finder** | Every 5 min | Discovers relay URLs from event tag values and external APIs | relay, event_relay, service_state | service_state (candidates + cursors) | HTTP (nostr.watch APIs) |
-| **Validator** | Every 5 min | Tests candidates via WebSocket handshake, promotes valid relays | service_state (candidates) | relay, service_state | WebSocket to relays |
-| **Monitor** | Every 5 min | Runs 7 health checks per relay, publishes NIP-66 events | relay, service_state | metadata, relay_metadata, service_state | HTTP, WebSocket, DNS, SSL, GeoIP |
-| **Synchronizer** | Every 5 min | Connects to relays, fetches and archives signed events | relay, service_state | event, event_relay, service_state | WebSocket to relays |
-| **Refresher** | Every 60 min | Refreshes 11 materialized views in dependency order | (implicit via views) | 11 materialized views | None |
-| **Api** | Continuous | Read-only REST API with auto-generated paginated endpoints | all tables, views | -- | HTTP (FastAPI) |
-| **Dvm** | Continuous | NIP-90 Data Vending Machine for database queries | all tables, views | -- | WebSocket (Nostr) |
+| Service | Default Interval | What it does | External I/O |
+|---------|-----------------|-------------|-------------|
+| **Seeder** | One-shot | Loads relay URLs from a seed file | Seed file |
+| **Finder** | 5 min | Discovers relay URLs from event tag values and external APIs | HTTP (nostr.watch) |
+| **Validator** | 1 hour | Tests candidates via WebSocket handshake, promotes valid relays | WebSocket |
+| **Monitor** | 1 hour | Runs NIP-11 + 6 NIP-66 health checks, publishes kind 10166/30166 events | HTTP, WS, DNS, SSL, GeoIP |
+| **Synchronizer** | 5 min | Connects to relays, streams and archives signed events with cursor-based resumption | WebSocket |
+| **Refresher** | 1 hour | Refreshes 11 materialized views in dependency order | None |
+| **Api** | Continuous | Read-only REST API with auto-generated paginated endpoints | HTTP (FastAPI) |
+| **Dvm** | Continuous | NIP-90 Data Vending Machine for database queries over Nostr | WebSocket (Nostr) |
 
-Services are **loosely coupled through the database**: Seeder and Finder populate candidates, Validator promotes them to relays, Monitor and Synchronizer operate on relays, Refresher materializes analytics. But each runs independently -- stopping one does not break the others.
+Services are **loosely coupled through the database**: Seeder and Finder populate candidates, Validator promotes them to relays, Monitor and Synchronizer operate on validated relays, Refresher materializes analytics. Stopping one does not break the others.
 
 ---
 
@@ -77,11 +83,11 @@ Imports flow strictly downward:
               models           src/bigbrotr/models/
 ```
 
-- **models** -- Pure frozen dataclasses (Relay, Event, Metadata, ServiceState). Zero I/O, stdlib logging only.
-- **core** -- Pool (asyncpg with retry), Brotr (DB facade), BaseService (lifecycle), Logger (structured kv/JSON), Metrics (Prometheus), YAML loader.
-- **nips** -- NIP-11 relay info fetch/parse, NIP-66 health checks (RTT, SSL, DNS, Geo, Net, HTTP). Never raises -- errors in `logs.success`.
-- **utils** -- DNS resolution, Nostr key management, WebSocket/HTTP transport, SSL fallback, SOCKS5 proxy support.
-- **services** -- 8 independent services + shared queries, configs, and mixins.
+- **models** — Pure frozen dataclasses (Relay, Event, Metadata, ServiceState). Zero I/O, stdlib logging only.
+- **core** — Pool (asyncpg with retry), Brotr (DB facade), BaseService (lifecycle), Logger (structured kv/JSON), Metrics (Prometheus), YAML loader.
+- **nips** — NIP-11 relay info fetch/parse, NIP-66 health checks (RTT, SSL, DNS, Geo, Net, HTTP). Never raises — errors captured in structured logs.
+- **utils** — DNS resolution, Nostr key management, WebSocket/HTTP transport, SSL fallback, SOCKS5 proxy support, event streaming with binary-split windowing.
+- **services** — 8 independent services + shared queries, configs, mixins (ConcurrentStream, NetworkSemaphores, GeoReader, Clients, CatalogAccess).
 
 ### Database Schema
 
@@ -134,7 +140,6 @@ Imports flow strictly downward:
                │ state_type   PK (TEXT)│
                │ state_key    PK (TEXT)│
                │ state_value  JSONB    │
-               │ updated_at   BIGINT   │
                └───────────────────────┘
 ```
 
@@ -228,7 +233,7 @@ cd deployments/bigbrotr && docker compose up -d
 
 ### LilBrotr (Lightweight)
 
-Stores all 8 event columns but keeps tags, content, and sig as NULL for approximately 60% disk savings.
+Same eight services and schema, but tags, content, and sig columns are nullable and never populated — approximately 60% disk savings while retaining all metadata and relay health data.
 
 ```bash
 cd deployments/lilbrotr && docker compose up -d
@@ -270,7 +275,7 @@ All functions use `SECURITY INVOKER`, bulk array parameters, and `ON CONFLICT DO
 
 ### Materialized Views (11)
 
-`relay_metadata_latest`, `event_stats`, `relay_stats`, `kind_counts`, `kind_counts_by_relay`, `pubkey_counts`, `pubkey_counts_by_relay`, `network_stats`, `relay_software_counts`, `supported_nip_counts`, `event_daily_counts` -- all support `REFRESH CONCURRENTLY` via unique indexes.
+`relay_metadata_latest`, `event_stats`, `relay_stats`, `kind_counts`, `kind_counts_by_relay`, `pubkey_counts`, `pubkey_counts_by_relay`, `network_stats`, `relay_software_counts`, `supported_nip_counts`, `event_daily_counts` — all support `REFRESH CONCURRENTLY` via unique indexes.
 
 ---
 
@@ -287,7 +292,7 @@ Every service exposes `/metrics` on its configured port with four metric types:
 | `service_counter` | Counter | Cumulative totals (cycles_success, cycles_failed, errors by type) |
 | `cycle_duration_seconds` | Histogram | Cycle latency with 10 buckets (1s to 1h) |
 
-### Alert Rules (6)
+### Alert Rules (7)
 
 | Alert | Condition | Severity |
 |-------|-----------|----------|
@@ -297,6 +302,7 @@ Every service exposes `/metrics` on its configured port with four metric types:
 | SlowCycles | p99 cycle duration > 300s for 5m | warning |
 | DatabaseConnectionsHigh | > 80 active connections for 5m | warning |
 | CacheHitRatioLow | buffer cache hit ratio < 95% for 10m | warning |
+| RefresherViewsFailing | view refresh failures for 10m | warning |
 
 ### Grafana Dashboard
 
@@ -405,10 +411,10 @@ pre-commit install
 make lint             # ruff check src/ tests/
 make format           # ruff format src/ tests/
 make typecheck        # mypy src/bigbrotr (strict mode)
-make test             # pytest unit tests (~2400 tests)
-make test-integration # pytest integration tests (requires Docker)
+make test             # pytest unit tests (~2,737 tests)
+make test-integration # pytest integration tests (~216 tests, requires Docker)
 make test-fast        # pytest -m "not slow"
-make coverage         # pytest --cov with HTML report
+make coverage         # pytest --cov with HTML report (80% branch minimum)
 make ci               # all checks: lint + format-check + typecheck + test + sql-check + audit
 make docs             # build MkDocs documentation site
 make docs-serve       # serve docs locally with live reload
@@ -421,8 +427,8 @@ make clean            # remove build artifacts and caches
 
 ### Test Suite
 
-- ~2,500 unit tests + ~94 integration tests (testcontainers PostgreSQL)
-- `asyncio_mode = "auto"` -- no `@pytest.mark.asyncio` needed
+- ~2,737 unit tests + ~216 integration tests (testcontainers PostgreSQL)
+- `asyncio_mode = "auto"` — no `@pytest.mark.asyncio` needed
 - Global timeout: 120s per test
 - Shared fixtures via `tests/fixtures/relays.py` (registered as pytest plugin)
 - Coverage threshold: 80% (branch coverage enabled)
@@ -431,8 +437,8 @@ make clean            # remove build artifacts and caches
 
 | Stage | Tool | Purpose |
 |-------|------|---------|
-| Pre-commit | ruff, mypy, yamllint, detect-secrets, markdownlint, hadolint, sqlfluff, codespell | Code quality gates |
-| Unit Test | pytest (Python 3.11--3.14 matrix) | Unit tests + coverage |
+| Pre-commit | ruff, mypy, yamllint, detect-secrets, markdownlint, hadolint, sqlfluff, codespell | Code quality gates (23 hooks) |
+| Unit Test | pytest (Python 3.11–3.14 matrix) | Unit tests + coverage |
 | Integration Test | pytest + testcontainers | PostgreSQL integration tests |
 | Build | Docker Buildx (matrix) | Multi-deployment image builds + Trivy scan |
 | Security | uv-secure, Trivy, CodeQL | Dependency vulns, container scanning, static analysis |
@@ -473,6 +479,7 @@ bigbrotr/
 │   ├── utils/                       # Network primitives
 │   │   ├── protocol.py              # Nostr client, relay connection, broadcasting
 │   │   ├── transport.py             # Insecure WebSocket transport, stderr filter
+│   │   ├── streaming.py             # Event streaming with binary-split windowing
 │   │   ├── dns.py                   # Async hostname resolution (A/AAAA)
 │   │   ├── keys.py                  # Nostr key loading from environment
 │   │   ├── http.py                  # Bounded HTTP response reading
@@ -497,8 +504,8 @@ bigbrotr/
 │   └── lilbrotr/                    # Lightweight deployment
 ├── tests/
 │   ├── fixtures/relays.py           # Shared relay fixtures
-│   ├── unit/                        # ~2,500 tests (mirrors src/ structure)
-│   └── integration/                 # ~94 tests (testcontainers PostgreSQL)
+│   ├── unit/                        # ~2,737 tests (mirrors src/ structure)
+│   └── integration/                 # ~216 tests (testcontainers PostgreSQL)
 ├── docs/                            # MkDocs Material documentation
 ├── Makefile                         # Development targets
 └── pyproject.toml                   # All config: deps, ruff, mypy, pytest, coverage
@@ -530,8 +537,8 @@ bigbrotr/
 
 ### Networks
 
-- `data-network` -- postgres, pgbouncer, tor, all services
-- `monitoring-network` -- prometheus, grafana, alertmanager, postgres-exporter, all services
+- `data-network` — postgres, pgbouncer, tor, all services
+- `monitoring-network` — prometheus, grafana, alertmanager, postgres-exporter, all services
 
 ### Security
 
@@ -570,7 +577,7 @@ Full documentation is available at **[bigbrotr.github.io/bigbrotr](https://bigbr
 | Section | Description |
 |---------|-------------|
 | [Getting Started](https://bigbrotr.github.io/bigbrotr/getting-started/) | Installation, quick start tutorial, first deployment |
-| [User Guide](https://bigbrotr.github.io/bigbrotr/user-guide/) | Architecture, configuration, database, monitoring |
+| [User Guide](https://bigbrotr.github.io/bigbrotr/user-guide/) | Architecture, services, configuration, database, monitoring |
 | [How-to Guides](https://bigbrotr.github.io/bigbrotr/how-to/) | Docker deploy, manual deploy, Tor setup, troubleshooting |
 | [Development](https://bigbrotr.github.io/bigbrotr/development/) | Setup, testing, contributing |
 | [API Reference](https://bigbrotr.github.io/bigbrotr/reference/) | Auto-generated Python API docs |
@@ -585,7 +592,7 @@ See the [Contributing Guide](https://bigbrotr.github.io/bigbrotr/development/con
 1. Fork and clone
 2. `uv sync --group dev` and `pre-commit install`
 3. Write tests for new functionality
-4. `make ci` -- all checks must pass
+4. `make ci` — all checks must pass
 5. Submit a pull request
 
 Conventional commits: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`
@@ -594,7 +601,7 @@ Conventional commits: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`
 
 ## License
 
-MIT -- see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
 
 ---
 

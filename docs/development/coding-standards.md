@@ -69,6 +69,7 @@ pre-commit run --all-files
 | check-yaml, check-json, check-toml | Config file validation |
 | check-added-large-files (1 MB) | Prevent large file commits |
 | check-merge-conflict, check-case-conflict | Merge and case conflict detection |
+| check-symlinks | Symlink validation |
 | detect-private-key, detect-secrets | Secret detection |
 | debug-statements, check-docstring-first | Python hygiene |
 | mixed-line-ending (LF) | Consistent line endings |
@@ -203,11 +204,6 @@ graph TD
     N --> M
     U --> M
 
-    style S fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style C fill:#512DA8,color:#fff,stroke:#311B92
-    style N fill:#512DA8,color:#fff,stroke:#311B92
-    style U fill:#512DA8,color:#fff,stroke:#311B92
-    style M fill:#311B92,color:#fff,stroke:#1A237E
 ```
 
 | Layer | Allowed Dependencies | Description |

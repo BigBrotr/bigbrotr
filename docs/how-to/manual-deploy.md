@@ -97,7 +97,7 @@ sudo systemctl start pgbouncer && sudo systemctl enable pgbouncer
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh  # install uv (one-time)
-uv sync --no-dev
+uv sync
 ```
 
 ### Set environment variables

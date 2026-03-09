@@ -36,8 +36,6 @@ flowchart LR
     D -->|"/metrics"| P
     P -->|"datasource"| G
 
-    style P fill:#E65100,color:#fff,stroke:#BF360C
-    style G fill:#1B5E20,color:#fff,stroke:#0D3B0F
 ```
 
 ---

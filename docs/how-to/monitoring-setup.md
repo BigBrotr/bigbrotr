@@ -40,31 +40,31 @@ Endpoints:
 
 ### Using an external Prometheus
 
-If you already run Prometheus, add scrape targets for each service:
+If you already run Prometheus, add scrape targets for each service. Inside the Docker network, all services listen on container port 8000. On the host, each service is mapped to a unique port (8001--8007):
 
 ```yaml
 scrape_configs:
-  - job_name: bigbrotr-finder
+  - job_name: finder
     static_configs:
-      - targets: ["finder:8000"]
-  - job_name: bigbrotr-validator
+      - targets: ["finder:8000"]       # or localhost:8001 from host
+  - job_name: validator
     static_configs:
-      - targets: ["validator:8000"]
-  - job_name: bigbrotr-monitor
+      - targets: ["validator:8000"]    # or localhost:8002 from host
+  - job_name: monitor
     static_configs:
-      - targets: ["monitor:8000"]
-  - job_name: bigbrotr-synchronizer
+      - targets: ["monitor:8000"]      # or localhost:8003 from host
+  - job_name: synchronizer
     static_configs:
-      - targets: ["synchronizer:8000"]
-  - job_name: bigbrotr-refresher
+      - targets: ["synchronizer:8000"] # or localhost:8004 from host
+  - job_name: refresher
     static_configs:
-      - targets: ["refresher:8000"]
-  - job_name: bigbrotr-api
+      - targets: ["refresher:8000"]    # or localhost:8005 from host
+  - job_name: api
     static_configs:
-      - targets: ["api:8000"]
-  - job_name: bigbrotr-dvm
+      - targets: ["api:8000"]          # or localhost:8006 from host
+  - job_name: dvm
     static_configs:
-      - targets: ["dvm:8000"]
+      - targets: ["dvm:8000"]          # or localhost:8007 from host
 ```
 
 ## 2. Enable Service Metrics
@@ -80,21 +80,21 @@ metrics:
   path: "/metrics"
 ```
 
-All services use port 8000 by default:
+All services listen on container port 8000 by default. Docker Compose maps each to a unique host port:
 
-| Service | Port |
-|---------|------|
-| Finder | 8000 |
-| Validator | 8000 |
-| Monitor | 8000 |
-| Synchronizer | 8000 |
-| Refresher | 8000 |
-| Api | 8000 |
-| Dvm | 8000 |
+| Service | Container Port | Host Port (default) | Override Variable |
+|---------|---------------|--------------------|--------------------|
+| Finder | 8000 | 8001 | `FINDER_METRICS_PORT` |
+| Validator | 8000 | 8002 | `VALIDATOR_METRICS_PORT` |
+| Monitor | 8000 | 8003 | `MONITOR_METRICS_PORT` |
+| Synchronizer | 8000 | 8004 | `SYNCHRONIZER_METRICS_PORT` |
+| Refresher | 8000 | 8005 | `REFRESHER_METRICS_PORT` |
+| Api | 8000 | 8006 | `API_METRICS_PORT` |
+| Dvm | 8000 | 8007 | `DVM_METRICS_PORT` |
 
 ## 3. Configure Prometheus Targets
 
-The included Prometheus configuration is at `monitoring/prometheus/prometheus.yml`. It scrapes all service endpoints every 30 seconds with 30-day data retention.
+The included Prometheus configuration is at `monitoring/prometheus/prometheus.yaml`. It scrapes all service endpoints every 30 seconds with 30-day data retention.
 
 To verify targets are being scraped:
 

@@ -44,7 +44,7 @@ ARG VERSION=dev
 # Labels
 LABEL maintainer="BigBrotr Contributors"
 LABEL org.opencontainers.image.title="${DEPLOYMENT}"
-LABEL org.opencontainers.image.description="BigBrotr - Nostr data archiving and monitoring system"
+LABEL org.opencontainers.image.description="Modular Nostr network observatory — relay discovery, health monitoring, event archiving, analytics, and data access"
 LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.source="https://github.com/BigBrotr/bigbrotr"
 LABEL org.opencontainers.image.licenses="MIT"

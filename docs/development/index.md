@@ -4,41 +4,43 @@ Resources for setting up, testing, and contributing to the BigBrotr project.
 
 ---
 
-## Sections
+<div class="grid cards" markdown>
 
-### [Setup](setup.md)
+-   :material-laptop:{ .lg .middle } **[Setup](setup.md)**
 
-Prerequisites, installation, IDE configuration, project structure, and Makefile targets.
-Everything you need to get a working development environment.
+    ---
 
-### [Testing](testing.md)
+    Prerequisites, installation, IDE configuration, project structure, and Makefile targets.
 
-Test configuration, running tests, shared fixtures, mock patterns, async patterns,
-service and model test patterns, and coverage requirements.
+-   :material-test-tube:{ .lg .middle } **[Testing](testing.md)**
 
-### [Coding Standards](coding-standards.md)
+    ---
 
-Ruff linting, mypy strict mode, pre-commit hooks, import conventions, model patterns,
-error handling, architecture rules, and documentation standards.
+    Test configuration, running tests, shared fixtures, mock patterns, async patterns, and coverage requirements.
 
-### [SQL Templates](sql-templates.md)
+-   :material-format-list-checks:{ .lg .middle } **[Coding Standards](coding-standards.md)**
 
-How the Jinja2 template system generates deployment-specific database initialization
-files. Adding, modifying, and verifying SQL templates.
+    ---
 
-### [Contributing](contributing.md)
+    Ruff linting, mypy strict mode, pre-commit hooks, import conventions, and documentation standards.
 
-Code of conduct, branch and commit conventions, and pull request process.
+-   :material-database-cog:{ .lg .middle } **[SQL Templates](sql-templates.md)**
 
----
+    ---
 
-## Quick Verification
+    Jinja2 template system for generating deployment-specific database initialization files.
 
-After completing the [setup](setup.md), verify everything works:
+-   :material-source-pull:{ .lg .middle } **[Contributing](contributing.md)**
 
-```bash
-make ci
-```
+    ---
 
-This runs linting, format checking, type checking, unit tests, SQL template verification,
-and dependency auditing in one step.
+    Code of conduct, branch and commit conventions, and pull request process.
+
+</div>
+
+!!! note "Quick verification"
+    After completing the [setup](setup.md), verify everything works:
+
+    ```bash
+    make ci
+    ```

@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name = "bigbrotr"
 version = "5.8.0"
-description = "Nostr network observatory: relay discovery, health monitoring, event archiving, and data access"
+description = "Modular Nostr network observatory — relay discovery, health monitoring, event archiving, analytics, and data access across clearnet, Tor, I2P, and Lokinet"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
