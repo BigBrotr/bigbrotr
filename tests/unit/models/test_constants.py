@@ -1,4 +1,4 @@
-"""Unit tests for models.constants module."""
+"""Unit tests for bigbrotr.models.constants module."""
 
 from enum import IntEnum, StrEnum
 
@@ -9,17 +9,18 @@ class TestNetworkType:
     """Tests for NetworkType StrEnum."""
 
     def test_is_str_enum(self) -> None:
-        """NetworkType values are strings."""
         assert isinstance(NetworkType.CLEARNET, str)
-        assert NetworkType.CLEARNET == "clearnet"
+        assert isinstance(NetworkType.CLEARNET, StrEnum)
 
     def test_all_values(self) -> None:
-        """All expected network types are defined."""
         expected = {"clearnet", "tor", "i2p", "loki", "local", "unknown"}
         assert {v.value for v in NetworkType} == expected
 
+    def test_member_count(self) -> None:
+        assert len(NetworkType) == 6
+
     def test_string_comparison(self) -> None:
-        """StrEnum values can be compared with plain strings."""
+        assert NetworkType.CLEARNET == "clearnet"
         assert NetworkType.TOR == "tor"
         assert NetworkType.I2P == "i2p"
         assert NetworkType.LOKI == "loki"
@@ -27,12 +28,15 @@ class TestNetworkType:
         assert NetworkType.UNKNOWN == "unknown"
 
     def test_construct_from_value(self) -> None:
-        """NetworkType can be constructed from a string value."""
         assert NetworkType("clearnet") is NetworkType.CLEARNET
         assert NetworkType("tor") is NetworkType.TOR
 
+    def test_dict_key(self) -> None:
+        d = {NetworkType.CLEARNET: 1, NetworkType.TOR: 2}
+        assert d[NetworkType.CLEARNET] == 1
+        assert d["clearnet"] == 1
+
     def test_reexported_from_models_init(self) -> None:
-        """NetworkType is re-exported from the models package."""
         from bigbrotr.models import NetworkType as ReexportedNetworkType
 
         assert ReexportedNetworkType is NetworkType
@@ -41,8 +45,14 @@ class TestNetworkType:
 class TestServiceName:
     """Tests for ServiceName StrEnum."""
 
+    def test_is_str_enum(self) -> None:
+        assert isinstance(ServiceName.SEEDER, str)
+        assert isinstance(ServiceName.SEEDER, StrEnum)
+
+    def test_member_count(self) -> None:
+        assert len(ServiceName) == 8
+
     def test_members(self) -> None:
-        """All expected service names are defined."""
         expected = {
             "SEEDER",
             "FINDER",
@@ -56,7 +66,6 @@ class TestServiceName:
         assert {m.name for m in ServiceName} == expected
 
     def test_values(self) -> None:
-        """String values match the lowercase service names."""
         assert ServiceName.SEEDER.value == "seeder"
         assert ServiceName.FINDER.value == "finder"
         assert ServiceName.VALIDATOR.value == "validator"
@@ -66,31 +75,26 @@ class TestServiceName:
         assert ServiceName.API.value == "api"
         assert ServiceName.DVM.value == "dvm"
 
-    def test_is_str_enum(self) -> None:
-        """ServiceName members are both str and StrEnum instances."""
-        assert isinstance(ServiceName.SEEDER, str)
-        assert isinstance(ServiceName.SEEDER, StrEnum)
-
     def test_string_comparison(self) -> None:
-        """StrEnum values can be compared with plain strings."""
         assert ServiceName.FINDER == "finder"
 
     def test_dict_key(self) -> None:
-        """ServiceName members work as dictionary keys."""
         d = {ServiceName.MONITOR: "running"}
         assert d[ServiceName.MONITOR] == "running"
         assert d["monitor"] == "running"
-
-    def test_member_count(self) -> None:
-        """ServiceName has exactly 8 members."""
-        assert len(ServiceName) == 8
 
 
 class TestEventKind:
     """Tests for EventKind IntEnum."""
 
+    def test_is_int_enum(self) -> None:
+        assert isinstance(EventKind.CONTACTS, int)
+        assert isinstance(EventKind.CONTACTS, IntEnum)
+
+    def test_member_count(self) -> None:
+        assert len(EventKind) == 7
+
     def test_members(self) -> None:
-        """All expected event kinds are defined with correct values."""
         assert EventKind.SET_METADATA == 0
         assert EventKind.RECOMMEND_RELAY == 2
         assert EventKind.CONTACTS == 3
@@ -99,15 +103,9 @@ class TestEventKind:
         assert EventKind.MONITOR_ANNOUNCEMENT == 10166
         assert EventKind.RELAY_DISCOVERY == 30166
 
-    def test_is_int_enum(self) -> None:
-        """EventKind members are both int and IntEnum instances."""
-        assert isinstance(EventKind.CONTACTS, int)
-        assert isinstance(EventKind.CONTACTS, IntEnum)
-
     def test_event_kind_max(self) -> None:
-        """EVENT_KIND_MAX is the maximum valid event kind value."""
         assert EVENT_KIND_MAX == 65535
 
-    def test_member_count(self) -> None:
-        """EventKind has exactly 7 members."""
-        assert len(EventKind) == 7
+    def test_all_kinds_within_max(self) -> None:
+        for kind in EventKind:
+            assert kind <= EVENT_KIND_MAX

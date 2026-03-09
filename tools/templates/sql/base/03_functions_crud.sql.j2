@@ -395,9 +395,11 @@ CREATE OR REPLACE FUNCTION service_state_upsert(
     p_state_keys TEXT [],
     p_state_values JSONB []
 )
-RETURNS VOID
+RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    v_row_count INTEGER;
 BEGIN
     INSERT INTO service_state (service_name, state_type, state_key, state_value)
     SELECT DISTINCT ON (service_name, state_type, state_key)
@@ -411,11 +413,14 @@ BEGIN
     ON CONFLICT (service_name, state_type, state_key)
     DO UPDATE SET
         state_value = EXCLUDED.state_value;
+
+    GET DIAGNOSTICS v_row_count = ROW_COUNT;
+    RETURN v_row_count;
 END;
 $$;
 
 COMMENT ON FUNCTION service_state_upsert(TEXT [], TEXT [], TEXT [], JSONB []) IS
-'Bulk upsert service state with deduplication and full replacement semantics';
+'Bulk upsert service state with deduplication and full replacement semantics, returns number of rows affected';
 
 
 /*

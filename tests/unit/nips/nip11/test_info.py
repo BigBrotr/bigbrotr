@@ -1,11 +1,15 @@
 """Unit tests for Nip11InfoMetadata container and execute() HTTP operations."""
 
+import asyncio
+import ssl
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
 from pydantic import ValidationError
 
+from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay
 from bigbrotr.nips.nip11 import (
     Nip11InfoData,
@@ -852,3 +856,225 @@ class TestNip11InfoMetadataDirectInfo:
                 max_size=1000,
                 ssl_context=True,
             )
+
+
+# =============================================================================
+# execute() Method - Session Reuse (line 161)
+# =============================================================================
+
+
+class TestNip11InfoMetadataSessionReuse:
+    """Test execute() with a pre-existing session passed in."""
+
+    async def test_execute_with_session_reuses_it(self, relay: Relay):
+        """When session is provided, _info uses it directly without creating a new one."""
+        response = AsyncMock()
+        response.status = 200
+        response.headers = {"Content-Type": "application/nostr+json"}
+        response.content.read = AsyncMock(side_effect=[b'{"name": "Reused"}', b""])
+        response.__aenter__ = AsyncMock(return_value=response)
+        response.__aexit__ = AsyncMock(return_value=None)
+
+        session = MagicMock()
+        session.get = MagicMock(return_value=response)
+
+        result = await Nip11InfoMetadata.execute(relay, session=session)
+
+        assert result.logs.success is True
+        assert result.data.name == "Reused"
+        session.get.assert_called_once()
+
+    async def test_execute_with_session_does_not_create_new_session(self, relay: Relay):
+        """When session is provided, no new ClientSession is created."""
+        response = AsyncMock()
+        response.status = 200
+        response.headers = {"Content-Type": "application/json"}
+        response.content.read = AsyncMock(side_effect=[b'{"name": "Test"}', b""])
+        response.__aenter__ = AsyncMock(return_value=response)
+        response.__aexit__ = AsyncMock(return_value=None)
+
+        session = MagicMock()
+        session.get = MagicMock(return_value=response)
+
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession") as mock_cls:
+            await Nip11InfoMetadata.execute(relay, session=session)
+            mock_cls.assert_not_called()
+
+
+# =============================================================================
+# _info() Method - Proxy Connector (line 172)
+# =============================================================================
+
+
+class TestNip11InfoMetadataProxyConnector:
+    """Test _info() creates ProxyConnector when proxy_url is provided."""
+
+    async def test_info_with_proxy_url_creates_proxy_connector(self, mock_session_factory):
+        """_info() with proxy_url creates a ProxyConnector from the URL."""
+        response = AsyncMock()
+        response.status = 200
+        response.headers = {"Content-Type": "application/json"}
+        response.content.read = AsyncMock(side_effect=[b'{"name": "Proxy"}', b""])
+        response.__aenter__ = AsyncMock(return_value=response)
+        response.__aexit__ = AsyncMock(return_value=None)
+
+        session = mock_session_factory(response)
+
+        with (
+            patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session),
+            patch(
+                "bigbrotr.nips.nip11.info.ProxyConnector.from_url", return_value=MagicMock()
+            ) as mock_from_url,
+        ):
+            result = await Nip11InfoMetadata._info(
+                http_url="http://example.onion",
+                headers={"Accept": "application/nostr+json"},
+                timeout=10.0,
+                max_size=65536,
+                ssl_context=False,
+                proxy_url="socks5://127.0.0.1:9050",
+            )
+
+        assert result == {"name": "Proxy"}
+        mock_from_url.assert_called_once_with("socks5://127.0.0.1:9050", ssl=False)
+
+    async def test_execute_tor_relay_with_proxy_uses_proxy_connector(
+        self, tor_relay: Relay, mock_session_factory
+    ):
+        """execute() for tor relay with proxy_url passes proxy to _info."""
+        response = AsyncMock()
+        response.status = 200
+        response.headers = {"Content-Type": "application/json"}
+        response.content.read = AsyncMock(side_effect=[b'{"name": "Tor"}', b""])
+        response.__aenter__ = AsyncMock(return_value=response)
+        response.__aexit__ = AsyncMock(return_value=None)
+
+        session = mock_session_factory(response)
+
+        with (
+            patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session),
+            patch(
+                "bigbrotr.nips.nip11.info.ProxyConnector.from_url", return_value=MagicMock()
+            ) as mock_from_url,
+        ):
+            result = await Nip11InfoMetadata.execute(tor_relay, proxy_url="socks5://127.0.0.1:9050")
+
+        assert result.logs.success is True
+        mock_from_url.assert_called_once()
+
+
+# =============================================================================
+# execute() Method - Plain HTTP / ws:// relay (line 258)
+# =============================================================================
+
+
+class TestNip11InfoMetadataPlainHttp:
+    """Test execute() with ws:// non-overlay relay takes the http:// (no SSL) path."""
+
+    async def test_execute_ws_relay_uses_http_no_ssl(self, mock_session_factory):
+        """Non-overlay relay with scheme=ws uses http:// with ssl_context=False."""
+        ws_relay = MagicMock(spec=Relay)
+        ws_relay.scheme = "ws"
+        ws_relay.host = "relay.example.com"
+        ws_relay.port = None
+        ws_relay.path = ""
+        ws_relay.url = "ws://relay.example.com"
+        ws_relay.network = NetworkType.CLEARNET
+
+        response = AsyncMock()
+        response.status = 200
+        response.headers = {"Content-Type": "application/json"}
+        response.content.read = AsyncMock(side_effect=[b'{"name": "Plain HTTP"}', b""])
+        response.__aenter__ = AsyncMock(return_value=response)
+        response.__aexit__ = AsyncMock(return_value=None)
+
+        session = mock_session_factory(response)
+
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
+            result = await Nip11InfoMetadata.execute(ws_relay)
+
+        assert result.logs.success is True
+        assert result.data.name == "Plain HTTP"
+
+        call_args = session.get.call_args
+        url = call_args[0][0]
+        assert url.startswith("http://")
+        assert call_args[1]["ssl"] is False
+
+
+# =============================================================================
+# execute() Method - SSL Fallback (lines 281-287)
+# =============================================================================
+
+
+class TestNip11InfoMetadataSslFallback:
+    """Test HTTPS SSL fallback when ClientConnectorCertificateError is raised."""
+
+    async def test_ssl_fallback_with_allow_insecure(self, relay: Relay):
+        """Certificate error with allow_insecure=True triggers CERT_NONE fallback."""
+        success_response = AsyncMock()
+        success_response.status = 200
+        success_response.headers = {"Content-Type": "application/json"}
+        success_response.content.read = AsyncMock(side_effect=[b'{"name": "Fallback"}', b""])
+        success_response.__aenter__ = AsyncMock(return_value=success_response)
+        success_response.__aexit__ = AsyncMock(return_value=None)
+
+        call_count = 0
+
+        async def mock_info(
+            http_url, headers, timeout, max_size, ssl_context, proxy_url=None, session=None
+        ):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # First call: verified SSL -> certificate error
+                assert ssl_context is True
+                raise aiohttp.ClientConnectorCertificateError(MagicMock(), MagicMock())
+            # Second call: insecure fallback
+            assert isinstance(ssl_context, ssl.SSLContext)
+            assert ssl_context.check_hostname is False
+            assert ssl_context.verify_mode == ssl.CERT_NONE
+            return {"name": "Fallback"}
+
+        with patch.object(Nip11InfoMetadata, "_info", side_effect=mock_info):
+            result = await Nip11InfoMetadata.execute(relay, allow_insecure=True)
+
+        assert result.logs.success is True
+        assert result.data.name == "Fallback"
+        assert call_count == 2
+
+    async def test_ssl_error_without_allow_insecure_fails(self, relay: Relay):
+        """Certificate error without allow_insecure=True is not caught (becomes failure)."""
+
+        async def mock_info(
+            http_url, headers, timeout, max_size, ssl_context, proxy_url=None, session=None
+        ):
+            raise aiohttp.ClientConnectorCertificateError(MagicMock(), MagicMock())
+
+        with patch.object(Nip11InfoMetadata, "_info", side_effect=mock_info):
+            result = await Nip11InfoMetadata.execute(relay, allow_insecure=False)
+
+        assert result.logs.success is False
+
+
+# =============================================================================
+# execute() Method - CancelledError Re-raise (line 300)
+# =============================================================================
+
+
+class TestNip11InfoMetadataCancelledError:
+    """Test CancelledError is re-raised, not swallowed."""
+
+    async def test_cancelled_error_propagates(self, relay: Relay):
+        """asyncio.CancelledError propagates out of execute()."""
+
+        async def mock_info(
+            http_url, headers, timeout, max_size, ssl_context, proxy_url=None, session=None
+        ):
+            raise asyncio.CancelledError
+
+        with (
+            patch.object(Nip11InfoMetadata, "_info", side_effect=mock_info),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await Nip11InfoMetadata.execute(relay)

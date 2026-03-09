@@ -57,7 +57,6 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.relay import Relay
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin, NetworkSemaphoresMixin
-from bigbrotr.utils.protocol import is_nostr_relay
 
 from .configs import ValidatorConfig
 from .queries import (
@@ -68,6 +67,7 @@ from .queries import (
     fetch_candidates,
     promote_candidates,
 )
+from .utils import validate_candidate
 
 
 if TYPE_CHECKING:
@@ -143,23 +143,21 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
         attempted_before = int(time.time() - self._config.processing.interval)
 
         total = await count_candidates(self._brotr, networks, attempted_before)
-        self._logger.info("candidates_available", total=total)
+        validated = 0
+        not_validated = 0
 
         self.set_gauge("total", total)
-        self.set_gauge("validated", 0)
-        self.set_gauge("not_validated", 0)
-        self.set_gauge("chunk", 0)
+        self.set_gauge("validated", validated)
+        self.set_gauge("not_validated", not_validated)
+
+        self._logger.info("candidates_available", total=total)
 
         chunk_size = self._config.processing.chunk_size
         max_candidates = self._config.processing.max_candidates
-        processed = 0
-        cumulative_promoted = 0
-        cumulative_failed = 0
-        chunk_num = 0
 
         while self.is_running:
             if max_candidates is not None:
-                budget = max_candidates - processed
+                budget = max_candidates - validated - not_validated
                 if budget <= 0:
                     break
                 limit = min(chunk_size, budget)
@@ -174,46 +172,60 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
             chunk_invalid: list[CandidateCheckpoint] = []
 
             async for candidate, is_valid in self._iter_concurrent(
-                candidates, self._validate_candidate_safe
+                candidates, self._validation_worker
             ):
                 if is_valid:
                     chunk_valid.append(candidate)
+                    validated += 1
                 else:
                     chunk_invalid.append(candidate)
+                    not_validated += 1
+                self.set_gauge("validated", validated)
+                self.set_gauge("not_validated", not_validated)
 
-            failed_count = await fail_candidates(self._brotr, chunk_invalid)
-            promoted_count = await promote_candidates(self._brotr, chunk_valid)
-
-            processed += len(chunk_valid) + len(chunk_invalid)
-            cumulative_promoted += promoted_count
-            cumulative_failed += failed_count
-            chunk_num += 1
-
-            self.inc_counter("total_promoted", promoted_count)
-            self.set_gauge("validated", cumulative_promoted)
-            self.set_gauge("not_validated", cumulative_failed)
-            self.set_gauge("chunk", chunk_num)
+            await promote_candidates(self._brotr, chunk_valid)
+            await fail_candidates(self._brotr, chunk_invalid)
 
             self._logger.info(
                 "chunk_completed",
-                chunk=chunk_num,
-                promoted=promoted_count,
-                failed=failed_count,
-                remaining=total - processed,
+                validated=len(chunk_valid),
+                not_validated=len(chunk_invalid),
+                remaining=total - validated - not_validated,
             )
 
-        return processed
+        return validated + not_validated
 
-    async def _validate_candidate_safe(
+    async def _validation_worker(
         self, candidate: CandidateCheckpoint
     ) -> tuple[CandidateCheckpoint, bool]:
-        """Wrap ``_validate_candidate`` for use with ``_iter_concurrent``.
+        """Validate a single candidate for use with ``_iter_concurrent``.
 
-        Returns ``(candidate, is_valid)`` — never ``None``, so every
+        Resolves per-network config (semaphore, proxy, timeout), then
+        delegates the WebSocket probe to
+        [validate_candidate][bigbrotr.services.validator.utils.validate_candidate].
+
+        Returns ``(candidate, is_valid)`` — never raises, so every
         candidate produces a result for the caller to classify.
         """
         try:
-            is_valid = await self._validate_candidate(candidate)
+            network = candidate.network
+            semaphore = self.network_semaphores.get(network)
+
+            if semaphore is None:
+                self._logger.warning("unknown_network", url=candidate.key, network=network.value)
+                return candidate, False
+
+            network_config = self._config.networks.get(network)
+            proxy_url = self._config.networks.get_proxy_url(network)
+            relay = Relay(candidate.key)
+
+            is_valid = await validate_candidate(
+                relay,
+                semaphore,
+                proxy_url,
+                network_config.timeout,
+                allow_insecure=self._config.processing.allow_insecure,
+            )
             return candidate, is_valid
         except Exception as e:  # Worker exception boundary — protects TaskGroup
             self._logger.error(
@@ -223,34 +235,3 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
                 error_type=type(e).__name__,
             )
             return candidate, False
-
-    async def _validate_candidate(self, candidate: CandidateCheckpoint) -> bool:
-        """Validate a single relay candidate by connecting and testing the Nostr protocol.
-
-        Uses the network-specific semaphore and proxy settings from
-        [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig].
-        Delegates the actual WebSocket probe to
-        [is_nostr_relay][bigbrotr.utils.protocol.is_nostr_relay].
-
-        Args:
-            candidate: [CandidateCheckpoint][bigbrotr.services.common.types.CandidateCheckpoint]
-                to validate.
-
-        Returns:
-            ``True`` if the relay speaks Nostr protocol, ``False`` otherwise.
-        """
-        network = candidate.network
-        semaphore = self.network_semaphores.get(network)
-
-        if semaphore is None:
-            self._logger.warning("unknown_network", url=candidate.key, network=network.value)
-            return False
-
-        async with semaphore:
-            network_config = self._config.networks.get(network)
-            proxy_url = self._config.networks.get_proxy_url(network)
-            try:
-                relay = Relay(candidate.key)
-                return await is_nostr_relay(relay, proxy_url, network_config.timeout)
-            except (TimeoutError, OSError):
-                return False

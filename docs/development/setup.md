@@ -133,7 +133,7 @@ All common development tasks are available as Makefile targets:
 | `make test-unit` | `pytest tests/ --ignore=tests/integration/` | Run unit tests |
 | `make test-integration` | `pytest tests/integration/` | Run integration tests (requires Docker) |
 | `make test-fast` | `pytest -m "not slow"` | Run unit tests excluding slow markers |
-| `make coverage` | `pytest --cov=src/bigbrotr --cov-report=html` | Run tests with HTML coverage report |
+| `make coverage` | `pytest tests/ --ignore=tests/integration/ --cov=src/bigbrotr --cov-report=term-missing --cov-report=html` | Run unit tests with coverage report |
 
 ### Documentation
 

@@ -1,7 +1,9 @@
-r"""BigBrotr -- Modular Nostr data archiving and monitoring system.
+r"""BigBrotr -- Modular Nostr network observatory.
 
-Eight independent async services discover, monitor, and archive data from
-the Nostr relay network, communicating exclusively through a shared
+Eight independent async services discover relays, validate connectivity,
+perform NIP-11/NIP-66 health checks, archive events, refresh analytics views,
+and expose data via REST API and NIP-90 Data Vending Machine — across clearnet,
+Tor, I2P, and Lokinet. All services communicate exclusively through a shared
 PostgreSQL database.
 
 Architecture follows a **diamond DAG** dependency structure where imports

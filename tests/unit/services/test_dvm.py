@@ -11,6 +11,7 @@ from bigbrotr.models import Relay
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.catalog import (
     Catalog,
+    CatalogError,
     ColumnSchema,
     QueryResult,
     TableSchema,
@@ -18,6 +19,7 @@ from bigbrotr.services.common.catalog import (
 from bigbrotr.services.common.configs import TableConfig
 from bigbrotr.services.dvm.configs import DvmConfig
 from bigbrotr.services.dvm.service import Dvm
+from bigbrotr.services.dvm.utils import parse_job_params, parse_query_filters
 
 
 # Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
@@ -130,6 +132,7 @@ class TestDvmConfig:
         assert config.announce is True
         assert config.tables == {}
         assert config.fetch_timeout == 30.0
+        assert config.allow_insecure is False
 
     def test_custom_branding(self) -> None:
         config = DvmConfig(
@@ -217,7 +220,7 @@ class TestParseJobParams:
                 ["param", "offset", "10"],
             ]
         )
-        params = Dvm._parse_job_params(event)
+        params = parse_job_params(event)
         assert params["table"] == "relay"
         assert params["limit"] == "50"
         assert params["offset"] == "10"
@@ -229,7 +232,7 @@ class TestParseJobParams:
                 ["bid", "5000"],
             ]
         )
-        params = Dvm._parse_job_params(event)
+        params = parse_job_params(event)
         assert params["bid"] == 5000
 
     def test_invalid_bid_ignored(self) -> None:
@@ -239,13 +242,24 @@ class TestParseJobParams:
                 ["bid", "not_a_number"],
             ]
         )
-        params = Dvm._parse_job_params(event)
+        params = parse_job_params(event)
         assert "bid" not in params
 
     def test_empty_tags(self) -> None:
         event = _make_mock_event(tags=[])
-        params = Dvm._parse_job_params(event)
+        params = parse_job_params(event)
         assert params == {}
+
+    def test_unrecognized_tags_ignored(self) -> None:
+        event = _make_mock_event(
+            tags=[
+                ["e", "abc123"],
+                ["p", "def456"],
+                ["param", "table", "relay"],
+            ]
+        )
+        params = parse_job_params(event)
+        assert params == {"table": "relay"}
 
     def test_filter_and_sort(self) -> None:
         event = _make_mock_event(
@@ -255,27 +269,27 @@ class TestParseJobParams:
                 ["param", "sort", "url:asc"],
             ]
         )
-        params = Dvm._parse_job_params(event)
+        params = parse_job_params(event)
         assert params["filter"] == "network=clearnet"
         assert params["sort"] == "url:asc"
 
 
 class TestParseQueryFilters:
     def test_empty_string(self) -> None:
-        assert Dvm._parse_query_filters("") is None
+        assert parse_query_filters("") is None
 
     def test_single_filter(self) -> None:
-        result = Dvm._parse_query_filters("network=clearnet")
+        result = parse_query_filters("network=clearnet")
         assert result == {"network": "clearnet"}
 
     def test_multiple_filters(self) -> None:
-        result = Dvm._parse_query_filters("network=clearnet,kind=>:100")
+        result = parse_query_filters("network=clearnet,kind=>:100")
         assert result is not None
         assert result["network"] == "clearnet"
         assert result["kind"] == ">:100"
 
     def test_no_equals(self) -> None:
-        result = Dvm._parse_query_filters("invalid")
+        result = parse_query_filters("invalid")
         assert result is None
 
 
@@ -563,3 +577,238 @@ class TestDvmMetrics:
             await dvm_service.run()
 
         mock_counter.assert_any_call("total_jobs_received", 1)
+
+
+# ============================================================================
+# Lifecycle
+# ============================================================================
+
+
+class TestDvmLifecycle:
+    async def test_aenter_creates_client_and_connects(self, dvm_service: Dvm) -> None:
+        mock_client = MagicMock()
+        mock_client.add_relay = AsyncMock()
+        mock_client.connect = AsyncMock()
+        mock_client.send_event_builder = AsyncMock()
+
+        with (
+            patch(
+                "bigbrotr.services.dvm.service.create_client",
+                new_callable=AsyncMock,
+                return_value=mock_client,
+            ),
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(type(dvm_service), "__aexit__", new_callable=AsyncMock),
+        ):
+            await dvm_service.__aenter__()
+
+            assert dvm_service._client is mock_client
+            assert dvm_service._last_fetch_ts > 0
+            mock_client.add_relay.assert_called_once()
+            mock_client.connect.assert_called_once()
+            mock_client.send_event_builder.assert_called_once()  # announcement
+
+    async def test_aenter_skips_announcement_when_disabled(self, mock_brotr: Brotr) -> None:
+        config = DvmConfig(
+            interval=60.0,
+            relays=["wss://relay.example.com"],
+            announce=False,
+            tables={"relay": TableConfig(enabled=True)},
+        )
+        service = Dvm(brotr=mock_brotr, config=config)
+        service._catalog = Catalog()
+        service._catalog._tables = {
+            "relay": TableSchema(
+                name="relay",
+                columns=(ColumnSchema(name="url", pg_type="text", nullable=False),),
+                primary_key=("url",),
+                is_view=False,
+            ),
+        }
+
+        mock_client = MagicMock()
+        mock_client.add_relay = AsyncMock()
+        mock_client.connect = AsyncMock()
+        mock_client.send_event_builder = AsyncMock()
+
+        with (
+            patch(
+                "bigbrotr.services.dvm.service.create_client",
+                new_callable=AsyncMock,
+                return_value=mock_client,
+            ),
+            patch.object(service, "set_gauge"),
+            patch.object(type(service), "__aexit__", new_callable=AsyncMock),
+        ):
+            await service.__aenter__()
+
+            mock_client.send_event_builder.assert_not_called()
+
+    async def test_aexit_shuts_down_client(self, dvm_service: Dvm) -> None:
+        mock_client = MagicMock()
+        mock_client.shutdown = AsyncMock()
+        dvm_service._client = mock_client
+
+        with patch.object(type(dvm_service).__mro__[2], "__aexit__", new_callable=AsyncMock):
+            await dvm_service.__aexit__(None, None, None)
+
+        mock_client.shutdown.assert_awaited_once()
+        assert dvm_service._client is None
+
+    async def test_aexit_handles_shutdown_error(self, dvm_service: Dvm) -> None:
+        mock_client = MagicMock()
+        mock_client.shutdown = AsyncMock(side_effect=RuntimeError("FFI error"))
+        dvm_service._client = mock_client
+
+        with patch.object(type(dvm_service).__mro__[2], "__aexit__", new_callable=AsyncMock):
+            await dvm_service.__aexit__(None, None, None)
+
+        assert dvm_service._client is None
+
+    async def test_aexit_noop_when_no_client(self, dvm_service: Dvm) -> None:
+        dvm_service._client = None
+
+        with patch.object(type(dvm_service).__mro__[2], "__aexit__", new_callable=AsyncMock):
+            await dvm_service.__aexit__(None, None, None)
+
+    async def test_cleanup_returns_zero(self, dvm_service: Dvm) -> None:
+        result = await dvm_service.cleanup()
+        assert result == 0
+
+
+# ============================================================================
+# P-tag targeting
+# ============================================================================
+
+
+class TestDvmPtagTargeting:
+    async def test_p_tag_for_other_pubkey_skips_event(self, dvm_service: Dvm) -> None:
+        mock_client = MagicMock()
+        mock_client.send_event_builder = AsyncMock()
+
+        event = _make_mock_event(
+            tags=[
+                ["p", "other_pubkey_hex"],
+                ["param", "table", "relay"],
+            ]
+        )
+        events_obj = MagicMock()
+        events_obj.to_vec.return_value = [event]
+        mock_client.fetch_events = AsyncMock(return_value=events_obj)
+        dvm_service._client = mock_client
+
+        with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
+            await dvm_service.run()
+
+        mock_client.send_event_builder.assert_not_called()
+
+    async def test_no_p_tag_processes_event(self, dvm_service: Dvm) -> None:
+        mock_client = MagicMock()
+        mock_client.send_event_builder = AsyncMock()
+
+        event = _make_mock_event(
+            tags=[
+                ["param", "table", "relay"],
+            ]
+        )
+        events_obj = MagicMock()
+        events_obj.to_vec.return_value = [event]
+        mock_client.fetch_events = AsyncMock(return_value=events_obj)
+        dvm_service._client = mock_client
+
+        mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
+        with (
+            patch.object(
+                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+            ),
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(dvm_service, "inc_counter"),
+        ):
+            await dvm_service.run()
+
+        mock_client.send_event_builder.assert_called_once()
+
+
+# ============================================================================
+# Table price for unknown table
+# ============================================================================
+
+
+class TestDvmGetTablePriceUnknown:
+    def test_unknown_table_price_returns_zero(self, dvm_service: Dvm) -> None:
+        assert dvm_service._get_table_price("nonexistent_table") == 0
+
+
+# ============================================================================
+# Publishing guards (client is None)
+# ============================================================================
+
+
+class TestDvmPublishingGuards:
+    async def test_fetch_job_requests_no_client(self, dvm_service: Dvm) -> None:
+        dvm_service._client = None
+        result = await dvm_service._fetch_job_requests()
+        assert result == []
+
+    async def test_send_event_no_client(self, dvm_service: Dvm) -> None:
+        dvm_service._client = None
+        from bigbrotr.services.dvm.utils import build_error_event
+
+        await dvm_service._send_event(build_error_event("eid", "pk", "err"))
+
+    async def test_publish_announcement_no_client(self, dvm_service: Dvm) -> None:
+        dvm_service._client = None
+        await dvm_service._publish_announcement()
+
+
+# ============================================================================
+# Announcement publishing
+# ============================================================================
+
+
+class TestDvmPublishAnnouncement:
+    async def test_publish_announcement_sends_kind_31990(self, dvm_service: Dvm) -> None:
+        mock_client = MagicMock()
+        mock_client.send_event_builder = AsyncMock()
+        dvm_service._client = mock_client
+
+        await dvm_service._publish_announcement()
+
+        mock_client.send_event_builder.assert_called_once()
+
+
+# ============================================================================
+# Job error handling
+# ============================================================================
+
+
+class TestDvmJobErrorHandling:
+    async def test_catalog_error_publishes_error_and_increments_failed(
+        self, dvm_service: Dvm
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.send_event_builder = AsyncMock()
+
+        event = _make_mock_event(
+            tags=[
+                ["param", "table", "relay"],
+            ]
+        )
+        events_obj = MagicMock()
+        events_obj.to_vec.return_value = [event]
+        mock_client.fetch_events = AsyncMock(return_value=events_obj)
+        dvm_service._client = mock_client
+
+        with (
+            patch.object(
+                dvm_service._catalog,
+                "query",
+                new_callable=AsyncMock,
+                side_effect=CatalogError("query failed"),
+            ),
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(dvm_service, "inc_counter") as mock_counter,
+        ):
+            await dvm_service.run()
+
+        mock_counter.assert_any_call("jobs_failed", 1)

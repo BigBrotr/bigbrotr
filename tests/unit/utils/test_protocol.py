@@ -10,10 +10,10 @@ Tests:
 """
 
 import ssl
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from nostr_sdk import Keys
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay
@@ -439,19 +439,13 @@ class TestIsNostrRelayDisconnect:
 # broadcast_events() Tests
 # =============================================================================
 
-# Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
-_VALID_HEX_KEY = (
-    "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"  # pragma: allowlist secret
-)
-
 
 class TestBroadcastEvents:
     """Tests for broadcast_events().
 
     Accesses ``broadcast_events`` through ``sys.modules`` at test runtime
     to survive module reloading by pytest-typeguard, which can capture
-    stale references to ``connect_relay`` when both functions are in the
-    same module.
+    stale references when functions are in the same module.
     """
 
     @staticmethod
@@ -461,127 +455,322 @@ class TestBroadcastEvents:
 
         return sys.modules["bigbrotr.utils.protocol"].broadcast_events
 
-    async def test_broadcasts_to_single_relay(self) -> None:
+    async def test_sends_to_single_client(self) -> None:
         mock_client = AsyncMock()
-        relay = Relay("wss://relay.example.com")
         mock_builder = MagicMock()
-        keys = Keys.parse(_VALID_HEX_KEY)
 
-        with patch(
-            "bigbrotr.utils.protocol.connect_relay",
-            new_callable=AsyncMock,
-            return_value=mock_client,
-        ):
-            await self._get_broadcast()([mock_builder], [relay], keys)
+        result = await self._get_broadcast()([mock_builder], [mock_client])
 
         mock_client.send_event_builder.assert_awaited_once_with(mock_builder)
-        mock_client.shutdown.assert_awaited_once()
+        assert result == 1
 
-    async def test_per_relay_client(self) -> None:
-        """Each relay gets its own client via connect_relay."""
+    async def test_sends_to_multiple_clients(self) -> None:
         clients = [AsyncMock(), AsyncMock()]
-        relays = [Relay("wss://relay1.example.com"), Relay("wss://relay2.example.com")]
         builders = [MagicMock(), MagicMock(), MagicMock()]
-        keys = Keys.parse(_VALID_HEX_KEY)
 
-        with patch(
-            "bigbrotr.utils.protocol.connect_relay",
-            new_callable=AsyncMock,
-            side_effect=clients,
-        ):
-            await self._get_broadcast()(builders, relays, keys)
+        result = await self._get_broadcast()(builders, clients)
 
         for client in clients:
             assert client.send_event_builder.await_count == 3
-            client.shutdown.assert_awaited_once()
+        assert result == 2
 
     async def test_empty_builders(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        keys = Keys.parse(_VALID_HEX_KEY)
+        result = await self._get_broadcast()([], [AsyncMock()])
+        assert result == 0
 
-        with patch("bigbrotr.utils.protocol.connect_relay") as mock_connect:
-            await self._get_broadcast()([], [relay], keys)
-            mock_connect.assert_not_called()
+    async def test_empty_clients(self) -> None:
+        result = await self._get_broadcast()([MagicMock()], [])
+        assert result == 0
 
-    async def test_empty_relays(self) -> None:
-        keys = Keys.parse(_VALID_HEX_KEY)
-
-        with patch("bigbrotr.utils.protocol.connect_relay") as mock_connect:
-            await self._get_broadcast()([MagicMock()], [], keys)
-            mock_connect.assert_not_called()
-
-    async def test_connect_failure_skips_relay(self) -> None:
-        """Connection failure on one relay does not block the others."""
+    async def test_send_error_skips_client(self) -> None:
+        bad_client = AsyncMock()
+        bad_client.send_event_builder.side_effect = OSError("send failed")
         good_client = AsyncMock()
-        relays = [Relay("wss://bad.example.com"), Relay("wss://good.example.com")]
-        keys = Keys.parse(_VALID_HEX_KEY)
 
-        with patch(
-            "bigbrotr.utils.protocol.connect_relay",
-            new_callable=AsyncMock,
-            side_effect=[OSError("connect failed"), good_client],
-        ):
-            await self._get_broadcast()([MagicMock()], relays, keys)
-
-        good_client.send_event_builder.assert_awaited_once()
-        good_client.shutdown.assert_awaited_once()
-
-    async def test_shutdown_called_on_send_error(self) -> None:
-        """Client shutdown is called even when send_event_builder raises."""
-        mock_client = AsyncMock()
-        mock_client.send_event_builder.side_effect = OSError("send failed")
-        relay = Relay("wss://relay.example.com")
-        keys = Keys.parse(_VALID_HEX_KEY)
-
-        with patch(
-            "bigbrotr.utils.protocol.connect_relay",
-            new_callable=AsyncMock,
-            return_value=mock_client,
-        ):
-            await self._get_broadcast()([MagicMock()], [relay], keys)
-
-        mock_client.shutdown.assert_awaited_once()
-
-    async def test_passes_timeout_and_allow_insecure(self) -> None:
-        """Keyword args are forwarded to connect_relay."""
-        mock_client = AsyncMock()
-        relay = Relay("wss://relay.example.com")
-        keys = Keys.parse(_VALID_HEX_KEY)
-
-        with patch(
-            "bigbrotr.utils.protocol.connect_relay",
-            new_callable=AsyncMock,
-            return_value=mock_client,
-        ) as mock_connect:
-            await self._get_broadcast()(
-                [MagicMock()],
-                [relay],
-                keys,
-                timeout=5.0,
-                allow_insecure=False,
-            )
-
-        mock_connect.assert_awaited_once_with(
-            relay,
-            keys=keys,
-            timeout=5.0,
-            allow_insecure=False,
-        )
-
-    async def test_returns_success_count(self) -> None:
-        """Returns number of relays that received all events."""
-        relays = [Relay("wss://r1.example.com"), Relay("wss://r2.example.com")]
-        keys = Keys.parse(_VALID_HEX_KEY)
-
-        with patch(
-            "bigbrotr.utils.protocol.connect_relay",
-            new_callable=AsyncMock,
-            side_effect=[OSError("fail"), AsyncMock()],
-        ):
-            result = await self._get_broadcast()([MagicMock()], relays, keys)
+        result = await self._get_broadcast()([MagicMock()], [bad_client, good_client])
 
         assert result == 1
+        good_client.send_event_builder.assert_awaited_once()
+
+    async def test_returns_zero_on_all_failures(self) -> None:
+        client = AsyncMock()
+        client.send_event_builder.side_effect = TimeoutError("timeout")
+
+        result = await self._get_broadcast()([MagicMock()], [client])
+        assert result == 0
 
     async def test_returns_zero_on_empty_input(self) -> None:
-        keys = Keys.parse(_VALID_HEX_KEY)
-        assert await self._get_broadcast()([], [], keys) == 0
+        assert await self._get_broadcast()([], []) == 0
+
+
+# =============================================================================
+# _StderrSuppressor Tests
+# =============================================================================
+
+
+class TestStderrSuppressor:
+    """Tests for _StderrSuppressor reference-counted stderr suppression."""
+
+    def test_single_context_restores_stderr(self) -> None:
+        from bigbrotr.utils.protocol import _StderrSuppressor
+
+        suppressor = _StderrSuppressor()
+        original = sys.stderr
+        with suppressor():
+            assert sys.stderr is not original
+        assert sys.stderr is original
+
+    def test_nested_contexts_restore_on_last_exit(self) -> None:
+        from bigbrotr.utils.protocol import _StderrSuppressor
+
+        suppressor = _StderrSuppressor()
+        original = sys.stderr
+        with suppressor():
+            with suppressor():
+                assert suppressor._refcount == 2
+            # Still suppressed (refcount=1)
+            assert sys.stderr is not original
+        assert sys.stderr is original
+        assert suppressor._refcount == 0
+
+    def test_refcount_starts_at_zero(self) -> None:
+        from bigbrotr.utils.protocol import _StderrSuppressor
+
+        suppressor = _StderrSuppressor()
+        assert suppressor._refcount == 0
+
+
+# =============================================================================
+# connect_relay() Tests - Additional Branches
+# =============================================================================
+
+
+class TestConnectRelayClearnetAdditional:
+    """Additional tests for connect_relay() clearnet branches."""
+
+    async def test_non_ssl_error_raises_os_error(self) -> None:
+        """Non-SSL connection failures raise OSError."""
+        relay = Relay("wss://relay.example.com")
+
+        mock_url = MagicMock()
+        mock_output = MagicMock()
+        mock_output.success = []
+        mock_output.failed = {mock_url: "Connection refused"}
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol.create_client",
+                new_callable=AsyncMock,
+            ) as mock_create,
+            patch("bigbrotr.utils.protocol.RelayUrl") as mock_relay_url,
+        ):
+            mock_client = AsyncMock()
+            mock_client.try_connect = AsyncMock(return_value=mock_output)
+            mock_client.disconnect = AsyncMock()
+            mock_create.return_value = mock_client
+            mock_relay_url.parse.return_value = mock_url
+
+            from bigbrotr.utils.protocol import connect_relay
+
+            with pytest.raises(OSError, match="Connection failed"):
+                await connect_relay(relay)
+
+    async def test_ssl_fallback_insecure_success(self) -> None:
+        """SSL error with allow_insecure=True falls back to insecure transport."""
+        relay = Relay("wss://relay.example.com")
+
+        mock_url = MagicMock()
+        ssl_output = MagicMock()
+        ssl_output.success = []
+        ssl_output.failed = {mock_url: "SSL certificate verify failed"}
+
+        insecure_output = MagicMock()
+        insecure_output.success = [mock_url]
+        insecure_output.failed = {}
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol.create_client",
+                new_callable=AsyncMock,
+            ) as mock_create,
+            patch("bigbrotr.utils.protocol.RelayUrl") as mock_relay_url,
+            patch("bigbrotr.utils.protocol.uniffi_set_event_loop"),
+        ):
+            ssl_client = AsyncMock()
+            ssl_client.try_connect = AsyncMock(return_value=ssl_output)
+            ssl_client.disconnect = AsyncMock()
+
+            insecure_client = AsyncMock()
+            insecure_client.try_connect = AsyncMock(return_value=insecure_output)
+
+            mock_create.side_effect = [ssl_client, insecure_client]
+            mock_relay_url.parse.return_value = mock_url
+
+            from bigbrotr.utils.protocol import connect_relay
+
+            result = await connect_relay(relay, allow_insecure=True)
+            assert result is insecure_client
+            assert mock_create.call_count == 2
+            # Second call should have allow_insecure=True
+            assert mock_create.call_args_list[1].kwargs.get("allow_insecure") is True
+
+    async def test_ssl_fallback_insecure_failure_raises(self) -> None:
+        """Insecure fallback failure raises OSError."""
+        relay = Relay("wss://relay.example.com")
+
+        mock_url = MagicMock()
+        ssl_output = MagicMock()
+        ssl_output.success = []
+        ssl_output.failed = {mock_url: "SSL certificate verify failed"}
+
+        insecure_output = MagicMock()
+        insecure_output.success = []
+        insecure_output.failed = {mock_url: "Connection refused"}
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol.create_client",
+                new_callable=AsyncMock,
+            ) as mock_create,
+            patch("bigbrotr.utils.protocol.RelayUrl") as mock_relay_url,
+            patch("bigbrotr.utils.protocol.uniffi_set_event_loop"),
+        ):
+            ssl_client = AsyncMock()
+            ssl_client.try_connect = AsyncMock(return_value=ssl_output)
+            ssl_client.disconnect = AsyncMock()
+
+            insecure_client = AsyncMock()
+            insecure_client.try_connect = AsyncMock(return_value=insecure_output)
+            insecure_client.disconnect = AsyncMock()
+
+            mock_create.side_effect = [ssl_client, insecure_client]
+            mock_relay_url.parse.return_value = mock_url
+
+            from bigbrotr.utils.protocol import connect_relay
+
+            with pytest.raises(OSError, match="Connection failed \\(insecure\\)"):
+                await connect_relay(relay, allow_insecure=True)
+
+
+class TestConnectRelayOverlaySuccess:
+    """Tests for connect_relay() overlay network success path."""
+
+    async def test_overlay_connects_with_proxy(self) -> None:
+        """Overlay relay connects via proxy and returns client."""
+        relay = Relay("wss://example.onion")
+
+        mock_relay_obj = MagicMock()
+        mock_relay_obj.is_connected.return_value = True
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol.create_client",
+                new_callable=AsyncMock,
+            ) as mock_create,
+            patch("bigbrotr.utils.protocol.RelayUrl") as mock_relay_url,
+        ):
+            mock_client = AsyncMock()
+            mock_client.relay = AsyncMock(return_value=mock_relay_obj)
+            mock_create.return_value = mock_client
+            mock_relay_url.parse.return_value = MagicMock()
+
+            from bigbrotr.utils.protocol import connect_relay
+
+            result = await connect_relay(relay, proxy_url="socks5://127.0.0.1:9050")
+            assert result is mock_client
+
+    async def test_overlay_timeout_raises(self) -> None:
+        """Overlay relay that fails to connect raises TimeoutError."""
+        relay = Relay("wss://example.onion")
+
+        mock_relay_obj = MagicMock()
+        mock_relay_obj.is_connected.return_value = False
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol.create_client",
+                new_callable=AsyncMock,
+            ) as mock_create,
+            patch("bigbrotr.utils.protocol.RelayUrl") as mock_relay_url,
+        ):
+            mock_client = AsyncMock()
+            mock_client.relay = AsyncMock(return_value=mock_relay_obj)
+            mock_create.return_value = mock_client
+            mock_relay_url.parse.return_value = MagicMock()
+
+            from bigbrotr.utils.protocol import connect_relay
+
+            with pytest.raises(TimeoutError, match="Connection timeout"):
+                await connect_relay(relay, proxy_url="socks5://127.0.0.1:9050")
+
+
+# =============================================================================
+# create_client() Tests - IPv6 Proxy
+# =============================================================================
+
+
+class TestCreateClientIpv6Proxy:
+    """Tests for create_client() with IPv6 proxy address."""
+
+    async def test_ipv6_proxy_address(self) -> None:
+        """IPv6 proxy address is recognized without DNS resolution."""
+        with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
+            client = await create_client(proxy_url="socks5://[::1]:9050")
+            assert client is not None
+            mock_to_thread.assert_not_awaited()
+
+
+# =============================================================================
+# is_nostr_relay() Tests - Additional Branches
+# =============================================================================
+
+
+class TestIsNostrRelayAdditional:
+    """Additional tests for is_nostr_relay()."""
+
+    async def test_disconnect_error_suppressed(self) -> None:
+        """Disconnect errors in finally block are suppressed."""
+        relay = Relay("wss://relay.example.com")
+
+        with patch("bigbrotr.utils.protocol.connect_relay") as mock_connect:
+            mock_client = AsyncMock()
+            mock_client.fetch_events = AsyncMock(return_value=[])
+            mock_client.disconnect = AsyncMock(side_effect=OSError("disconnect failed"))
+            mock_connect.return_value = mock_client
+
+            from bigbrotr.utils.protocol import is_nostr_relay
+
+            result = await is_nostr_relay(relay)
+            assert result is True
+
+    async def test_overall_timeout_parameter(self) -> None:
+        """Custom overall_timeout is used instead of timeout * 4."""
+        relay = Relay("wss://relay.example.com")
+
+        with patch("bigbrotr.utils.protocol.connect_relay") as mock_connect:
+            mock_client = AsyncMock()
+            mock_client.fetch_events = AsyncMock(return_value=[])
+            mock_client.disconnect = AsyncMock()
+            mock_connect.return_value = mock_client
+
+            from bigbrotr.utils.protocol import is_nostr_relay
+
+            result = await is_nostr_relay(relay, timeout=5.0, overall_timeout=60.0)
+            assert result is True
+
+    async def test_passes_allow_insecure(self) -> None:
+        """allow_insecure is forwarded to connect_relay."""
+        relay = Relay("wss://relay.example.com")
+
+        with patch("bigbrotr.utils.protocol.connect_relay") as mock_connect:
+            mock_client = AsyncMock()
+            mock_client.fetch_events = AsyncMock(return_value=[])
+            mock_client.disconnect = AsyncMock()
+            mock_connect.return_value = mock_client
+
+            from bigbrotr.utils.protocol import is_nostr_relay
+
+            await is_nostr_relay(relay, allow_insecure=True)
+
+            call_kwargs = mock_connect.call_args[1]
+            assert call_kwargs["allow_insecure"] is True

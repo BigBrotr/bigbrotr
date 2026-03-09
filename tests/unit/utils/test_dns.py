@@ -11,6 +11,7 @@ Tests:
   - Resolution failures
 """
 
+import asyncio
 import socket
 from unittest.mock import patch
 
@@ -363,3 +364,45 @@ class TestResolveHostAsync:
 
         assert result1.ipv4 == "1.1.1.1"
         assert result2.ipv4 == "8.8.8.8"
+
+
+# =============================================================================
+# resolve_host() Tests - Timeout Handling
+# =============================================================================
+
+
+class TestResolveHostTimeout:
+    """Tests for resolve_host() timeout behavior."""
+
+    async def test_ipv4_timeout_returns_none(self) -> None:
+        """TimeoutError from asyncio.wait_for is suppressed for IPv4."""
+        with (
+            patch("socket.gethostbyname", side_effect=TimeoutError()),
+            patch("socket.getaddrinfo", return_value=[]),
+        ):
+            result = await resolve_host("slow.example.com")
+
+        assert result.ipv4 is None
+
+    async def test_ipv6_timeout_returns_none(self) -> None:
+        """TimeoutError from asyncio.wait_for is suppressed for IPv6."""
+        with (
+            patch("socket.gethostbyname", return_value="1.2.3.4"),
+            patch("socket.getaddrinfo", side_effect=TimeoutError()),
+        ):
+            result = await resolve_host("slow.example.com")
+
+        assert result.ipv4 == "1.2.3.4"
+        assert result.ipv6 is None
+
+    async def test_custom_timeout_passed(self) -> None:
+        """Custom timeout value is forwarded to asyncio.wait_for."""
+        with (
+            patch("socket.gethostbyname", return_value="1.2.3.4"),
+            patch("socket.getaddrinfo", return_value=[]),
+            patch("asyncio.wait_for", wraps=asyncio.wait_for) as mock_wait,
+        ):
+            await resolve_host("example.com", timeout=2.5)
+
+        for call in mock_wait.call_args_list:
+            assert call.kwargs["timeout"] == 2.5

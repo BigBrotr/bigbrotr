@@ -13,18 +13,21 @@ class TestLazyImports:
 
     def test_lazy_import_does_not_eagerly_load(self) -> None:
         """Verify that importing bigbrotr does not eagerly load subpackages."""
-        # Remove cached bigbrotr modules
-        for mod in list(sys.modules):
-            if mod.startswith("bigbrotr"):
-                del sys.modules[mod]
+        # Snapshot and restore sys.modules to avoid polluting other tests.
+        saved = dict(sys.modules)
+        try:
+            for mod in list(sys.modules):
+                if mod.startswith("bigbrotr"):
+                    del sys.modules[mod]
 
-        importlib.import_module("bigbrotr")
+            importlib.import_module("bigbrotr")
 
-        # Subpackages should not be loaded until accessed
-        assert "bigbrotr.core" not in sys.modules
-        assert "bigbrotr.models" not in sys.modules
-        assert "bigbrotr.services" not in sys.modules
-        assert "bigbrotr.nips" not in sys.modules
+            assert "bigbrotr.core" not in sys.modules
+            assert "bigbrotr.models" not in sys.modules
+            assert "bigbrotr.services" not in sys.modules
+            assert "bigbrotr.nips" not in sys.modules
+        finally:
+            sys.modules.update(saved)
 
     def test_lazy_import_resolves_on_access(self) -> None:
         """Verify that lazy attributes resolve correctly."""

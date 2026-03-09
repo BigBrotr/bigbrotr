@@ -14,7 +14,7 @@ Discovers Nostr relay URLs from two sources:
 
 Discovered URLs are inserted as validation candidates for the
 [Validator][bigbrotr.services.validator.Validator] service via
-[insert_relays_as_candidates][bigbrotr.services.validator.queries.insert_relays_as_candidates].
+[insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates].
 
 Note:
     Event scanning uses per-relay cursor-based pagination so that
@@ -63,8 +63,8 @@ import asyncpg
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin
-from bigbrotr.services.common.types import ApiCheckpoint, EventRelayCursor
-from bigbrotr.services.validator.queries import insert_relays_as_candidates
+from bigbrotr.services.common.queries import insert_relays_as_candidates
+from bigbrotr.services.common.types import ApiCheckpoint, FinderCursor
 from bigbrotr.utils.http import read_bounded_json
 
 from .configs import ApiSourceConfig, FinderConfig
@@ -93,7 +93,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
     Discovers Nostr relay URLs from external APIs and stored database events,
     then inserts them as validation candidates for the
     [Validator][bigbrotr.services.validator.Validator] service via
-    [insert_relays_as_candidates][bigbrotr.services.validator.queries.insert_relays_as_candidates].
+    [insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates].
 
     See Also:
         [FinderConfig][bigbrotr.services.finder.FinderConfig]: Configuration
@@ -112,6 +112,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         brotr: Brotr,
         config: FinderConfig | None = None,
     ) -> None:
+        config = config or FinderConfig()
         super().__init__(brotr=brotr, config=config)
         self._config: FinderConfig
 
@@ -292,7 +293,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         phase_start = time.monotonic()
         max_duration = self._config.events.max_duration
 
-        async def _bounded_scan(cursor: EventRelayCursor) -> tuple[int, int] | None:
+        async def _bounded_scan(cursor: FinderCursor) -> tuple[int, int] | None:
             async with semaphore:
                 if not self.is_running or time.monotonic() - phase_start > max_duration:
                     return None
@@ -303,7 +304,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
                         "event_scan_worker_failed",
                         error=str(e),
                         error_type=type(e).__name__,
-                        relay=cursor.relay_url,
+                        relay=cursor.key,
                     )
                     return 0, 0
 
@@ -325,11 +326,11 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         )
         return total_found
 
-    async def _scan_relay_events(self, cursor: EventRelayCursor) -> tuple[int, int]:
+    async def _scan_relay_events(self, cursor: FinderCursor) -> tuple[int, int]:
         """Scan events from a single relay using composite cursor pagination.
 
         Args:
-            cursor: [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor]
+            cursor: [FinderCursor][bigbrotr.services.common.types.FinderCursor]
                 with relay URL and pagination position.
 
         Returns:
@@ -337,7 +338,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         """
         events_scanned = 0
         candidates_found = 0
-        relay_url = cursor.relay_url
+        relay_url = cursor.key
         scan_start = time.monotonic()
         max_relay_time = self._config.events.max_relay_time
 
@@ -361,10 +362,10 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
 
             relays = extract_relays_from_tagvalues(rows)
             last_row = rows[-1]
-            cursor = EventRelayCursor(
-                relay_url=relay_url,
-                seen_at=last_row["seen_at"],
-                event_id=last_row["event_id"],
+            cursor = FinderCursor(
+                key=relay_url,
+                timestamp=last_row["seen_at"],
+                id=last_row["event_id"],
             )
 
             if relays:

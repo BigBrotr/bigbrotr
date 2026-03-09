@@ -71,7 +71,8 @@ from nostr_sdk import (
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.utils.transport import DEFAULT_TIMEOUT, InsecureWebSocketTransport
+
+from .transport import DEFAULT_TIMEOUT, InsecureWebSocketTransport
 
 
 if TYPE_CHECKING:
@@ -337,48 +338,32 @@ async def connect_relay(
 
 async def broadcast_events(
     builders: list[EventBuilder],
-    relays: list[Relay],
-    keys: Keys,
-    *,
-    timeout: float = 30.0,  # noqa: ASYNC109
-    allow_insecure: bool = True,
+    clients: list[Client],
 ) -> int:
-    """Sign and broadcast Nostr events to relays.
+    """Broadcast Nostr events to pre-connected clients.
 
-    Creates a separate client per relay so that SSL fallback can be
-    applied independently.  Relays that fail to connect or send are
-    logged at WARNING level and skipped.
+    Each client must already be connected and configured with a signer.
+    The caller is responsible for creating, connecting, and shutting down
+    the clients.
+
+    Args:
+        builders: Event builders to sign and send.
+        clients: Pre-connected ``Client`` instances.
 
     Returns:
-        Number of relays that successfully received all events.
+        Number of clients that successfully received all events.
     """
-    if not builders or not relays:
+    if not builders or not clients:
         return 0
 
     success = 0
-    for relay in relays:
-        try:
-            client = await connect_relay(
-                relay,
-                keys=keys,
-                timeout=timeout,
-                allow_insecure=allow_insecure,
-            )
-        except (OSError, TimeoutError) as e:
-            logger.warning("broadcast_connect_failed relay=%s error=%s", relay.url, e)
-            continue
-
+    for client in clients:
         try:
             for builder in builders:
                 await client.send_event_builder(builder)
             success += 1
         except (OSError, TimeoutError) as e:
-            logger.warning("broadcast_send_failed relay=%s error=%s", relay.url, e)
-        finally:
-            try:
-                await client.shutdown()
-            except Exception as e:
-                logger.debug("client_shutdown_error relay=%s error=%s", relay.url, e)
+            logger.warning("broadcast_send_failed error=%s", e)
 
     return success
 
@@ -454,5 +439,5 @@ async def is_nostr_relay(
             if client is not None:
                 try:
                     await asyncio.wait_for(client.disconnect(), timeout=timeout)
-                except Exception as e:
+                except (OSError, RuntimeError, TimeoutError) as e:
                     logger.debug("client_disconnect_error error=%s", e)

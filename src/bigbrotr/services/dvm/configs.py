@@ -38,9 +38,21 @@ class DvmConfig(BaseServiceConfig, KeysConfig):
         fetch_timeout: Timeout in seconds for relay event fetching.
     """
 
-    name: str = Field(default="BigBrotr DVM", min_length=1)
-    about: str = Field(default="Read-only access to BigBrotr relay monitoring data", min_length=1)
-    d_tag: str = Field(default="bigbrotr-dvm", min_length=1)
+    name: str = Field(
+        default="BigBrotr DVM",
+        min_length=1,
+        description="NIP-89 handler display name",
+    )
+    about: str = Field(
+        default="Read-only access to BigBrotr relay monitoring data",
+        min_length=1,
+        description="NIP-89 handler description",
+    )
+    d_tag: str = Field(
+        default="bigbrotr-dvm",
+        min_length=1,
+        description="NIP-89 unique handler identifier",
+    )
     relays: Annotated[
         list[Relay],
         BeforeValidator(lambda v: [Relay(url) if isinstance(url, str) else url for url in v]),
@@ -51,14 +63,45 @@ class DvmConfig(BaseServiceConfig, KeysConfig):
             Relay("wss://relay.nostr.band"),
         ],
         min_length=1,
+        description="Relay URLs to listen on and publish to",
     )
-    kind: int = Field(default=5050, ge=5000, le=5999)
+    kind: int = Field(
+        default=5050,
+        ge=5000,
+        le=5999,
+        description="NIP-90 request event kind (result = kind + 1000)",
+    )
 
-    default_page_size: int = Field(default=100, ge=1, le=10000)
-    max_page_size: int = Field(default=1000, ge=1, le=10000)
-    tables: dict[str, TableConfig] = Field(default_factory=dict)
-    announce: bool = Field(default=True)
-    fetch_timeout: float = Field(default=30.0, ge=1.0, le=300.0)
+    default_page_size: int = Field(
+        default=100,
+        ge=1,
+        le=10000,
+        description="Default query limit when not specified",
+    )
+    max_page_size: int = Field(
+        default=1000,
+        ge=1,
+        le=10000,
+        description="Hard ceiling on query limit",
+    )
+    tables: dict[str, TableConfig] = Field(
+        default_factory=dict,
+        description="Per-table access and pricing policies",
+    )
+    announce: bool = Field(
+        default=True,
+        description="Publish NIP-89 handler announcement at startup",
+    )
+    fetch_timeout: float = Field(
+        default=30.0,
+        ge=1.0,
+        le=300.0,
+        description="Timeout for relay event fetching in seconds",
+    )
+    allow_insecure: bool = Field(
+        default=False,
+        description="Fall back to insecure transport on SSL certificate failure",
+    )
 
     @model_validator(mode="after")
     def _validate_page_sizes(self) -> DvmConfig:

@@ -361,8 +361,6 @@ flowchart LR
     NET --> RM
     HTTP --> RM
 
-    style R fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style RM fill:#311B92,color:#fff,stroke:#1A237E
 ```
 
 ---
@@ -397,9 +395,6 @@ flowchart TD
     G --> K["Connect via SOCKS5<br/>(no SSL fallback)"]
     K --> E
 
-    style A fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style E fill:#1B5E20,color:#fff,stroke:#0D3B0F
-    style I fill:#B71C1C,color:#fff,stroke:#7F0000
 ```
 
 `InsecureWebSocketAdapter` and `InsecureWebSocketTransport` handle relays with invalid certificates.
@@ -440,31 +435,63 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 
 | Module | Purpose |
 |--------|---------|
-| `queries.py` | 15 domain SQL query functions |
-| `mixins.py` | `ConcurrentStreamMixin`, `NetworkSemaphoresMixin`, `GeoReaderMixin`, `CatalogAccessMixin` — cooperative-inheritance mixins |
+| `queries.py` | Batch insert utilities and cross-service state operations |
+| `mixins.py` | `ConcurrentStreamMixin`, `NetworkSemaphoresMixin`, `GeoReaderMixin`, `ClientsMixin`, `CatalogAccessMixin` — cooperative-inheritance mixins |
 | `catalog.py` | Schema-driven `Catalog` for table discovery (Api, Dvm) and `CatalogError` |
 | `configs.py` | Per-network and per-table Pydantic config models |
 
-**Domain Query Functions** (15 total in `queries.py`):
+**Common Query Utilities** (`common/queries.py`):
 
 | Function | Purpose |
 |----------|---------|
-| `get_all_relay_urls(brotr)` | All relay URLs |
-| `fetch_relays(brotr)` | All relays with network + discovered_at |
-| `filter_new_relay_urls(brotr, urls)` | URLs not yet in relay table |
-| `insert_relays(brotr, relays)` | Insert relays directly into relay table |
-| `fetch_relays_to_monitor(brotr, ...)` | Fetch relays due for monitoring |
-| `scan_event_relay(brotr, cursor, limit)` | Scan event-relay rows for a specific relay |
-| `scan_event(brotr, cursor, limit)` | Scan event rows ordered by creation time |
-| `insert_relays_as_candidates(brotr, relays)` | Insert new validation candidates (filters duplicates) |
-| `count_candidates(brotr, networks)` | Count pending candidates |
-| `fetch_candidates(brotr, ...)` | Fetch candidate batch for validation |
-| `delete_exhausted_candidates(brotr, ...)` | Remove candidates exceeding max_failures |
-| `promote_candidates(brotr, relays)` | Move validated candidates to relay table |
-| `insert_event_relays(brotr, records)` | Batch-insert event-relay junction records |
-| `insert_relay_metadata(brotr, records)` | Batch-insert relay-metadata junction records |
-| `upsert_service_states(brotr, records)` | Batch-upsert service state records |
-| `cleanup_service_state(brotr, ...)` | Delete stale state (EXISTS for candidates, NOT EXISTS for cursors/monitoring) |
+| `batched_insert(brotr, records, method)` | Split records into chunks of `batch.max_size`, call method per chunk |
+| `upsert_service_states(brotr, records)` | Batch-upsert `ServiceState` via `batched_insert` |
+| `insert_relays_as_candidates(brotr, relays)` | Filter new URLs (via `_filter_new_relays`), create CHECKPOINT records |
+
+Each service also has its own `queries.py` module with domain-specific queries:
+
+**Finder** (`finder/queries.py` — 7 functions):
+
+| Function | Purpose |
+|----------|---------|
+| `fetch_event_relay_cursors(brotr)` | LEFT JOIN relay with service_state for cursor positions |
+| `scan_event_relay(brotr, cursor, limit)` | Cursor-paginated event scan with `(seen_at, event_id)` tie-breaking |
+| `load_api_checkpoints(brotr, urls)` | Load per-source timestamps from CHECKPOINT records |
+| `save_api_checkpoints(brotr, checkpoints)` | Persist per-source timestamps as CHECKPOINT records |
+| `save_event_relay_cursor(brotr, cursor)` | Persist scan position (no-op if cursor empty) |
+| `delete_stale_cursors(brotr)` | Remove CURSOR records for deleted relays |
+| `delete_stale_api_checkpoints(brotr, active_urls)` | Remove CHECKPOINT records for removed API sources |
+
+**Validator** (`validator/queries.py` — 6 functions):
+
+| Function | Purpose |
+|----------|---------|
+| `delete_promoted_candidates(brotr)` | Remove candidates already promoted to relay table |
+| `delete_exhausted_candidates(brotr, max_failures)` | Remove candidates exceeding failure threshold |
+| `count_candidates(brotr, networks, attempted_before)` | Count pending validation candidates |
+| `fetch_candidates(brotr, networks, attempted_before, limit)` | Fetch candidates by priority: fewest failures, oldest |
+| `promote_candidates(brotr, candidates)` | Insert to relay table + delete CHECKPOINT |
+| `fail_candidates(brotr, candidates)` | Increment failure counter on invalid candidates |
+
+**Monitor** (`monitor/queries.py` — 7 functions):
+
+| Function | Purpose |
+|----------|---------|
+| `delete_stale_checkpoints(brotr, keep_keys)` | Remove CHECKPOINTs for deleted relays |
+| `count_relays_to_monitor(brotr, monitored_before, networks)` | Count relays due for monitoring |
+| `fetch_relays_to_monitor(brotr, monitored_before, networks, limit)` | Least-recently-monitored relays |
+| `insert_relay_metadata(brotr, records)` | Batch-insert RelayMetadata (cascade) |
+| `upsert_monitor_checkpoints(brotr, relays, now)` | Upsert CHECKPOINT with timestamp for checked relays |
+| `is_publish_due(brotr, state_key, interval)` | Check if publish interval has elapsed |
+| `upsert_publish_checkpoints(brotr, state_keys)` | Save current time as publish checkpoints |
+
+**Synchronizer** (`synchronizer/queries.py` — 3 functions):
+
+| Function | Purpose |
+|----------|---------|
+| `fetch_relays(brotr)` | All relays ordered by `discovered_at` |
+| `delete_stale_cursors(brotr)` | Remove CURSOR state for deleted relays |
+| `insert_event_relays(brotr, records)` | Batch-insert EventRelay (cascade) |
 
 **Network Configuration** (`configs.py`):
 
@@ -511,8 +538,6 @@ flowchart TD
     D --> F["2. INSERT INTO metadata<br/>ON CONFLICT DO NOTHING<br/><small>(dedup by hash)</small>"]
     D --> G["3. INSERT INTO relay_metadata<br/><small>(time-series link)</small>"]
 
-    style A fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style D fill:#512DA8,color:#fff,stroke:#311B92
 ```
 
 ---
@@ -571,11 +596,6 @@ flowchart LR
     PBW --> PG
     PBR --> PG
 
-    style APW fill:#512DA8,color:#fff,stroke:#311B92
-    style APR fill:#512DA8,color:#fff,stroke:#311B92
-    style PBW fill:#1565C0,color:#fff,stroke:#0D47A1
-    style PBR fill:#1565C0,color:#fff,stroke:#0D47A1
-    style PG fill:#1B5E20,color:#fff,stroke:#0D3B0F
 ```
 
 Each service has its own asyncpg pool with per-service sizing (via pool overrides in service config). PGBouncer provides two database pools: **bigbrotr** (pool_size=10) for writer services (including Refresher, which uses its own DB role with materialized view ownership), and **bigbrotr_readonly** (pool_size=8) for read-only consumers (Api, Dvm, postgres-exporter).
@@ -622,6 +642,7 @@ Services use mixins from `services/common/mixins.py` to compose shared behavior:
 - `ConcurrentStreamMixin` -- concurrent item processing with streaming results (Finder, Validator, Monitor, Synchronizer)
 - `NetworkSemaphoresMixin` -- per-network concurrency (Validator, Monitor, Synchronizer)
 - `GeoReaderMixin` -- GeoIP database lifecycle (Monitor)
+- `ClientsMixin` -- managed pool of Nostr clients for event broadcasting (Monitor)
 - `CatalogAccessMixin` -- schema-driven table catalog (Api, Dvm)
 
 ### Content-Addressed Deduplication
@@ -668,9 +689,6 @@ flowchart TD
     C --> J["api.yaml"]
     C --> K["dvm.yaml"]
 
-    style A fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style B fill:#512DA8,color:#fff,stroke:#311B92
-    style C fill:#512DA8,color:#fff,stroke:#311B92
 ```
 
 !!! note

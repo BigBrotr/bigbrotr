@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -14,11 +15,16 @@ from bigbrotr.models import Relay, RelayMetadata
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.nips.base import BaseLogs
-from bigbrotr.nips.nip11 import Nip11
+from bigbrotr.nips.event_builders import (
+    build_monitor_announcement,
+    build_profile_event,
+    build_relay_discovery,
+)
+from bigbrotr.nips.nip11 import Nip11, Nip11Selection
 from bigbrotr.nips.nip11.data import Nip11InfoData, Nip11InfoDataLimitation
 from bigbrotr.nips.nip11.info import Nip11InfoMetadata
 from bigbrotr.nips.nip11.logs import Nip11InfoLogs
-from bigbrotr.nips.nip66 import Nip66, Nip66RttMetadata, Nip66SslMetadata
+from bigbrotr.nips.nip66 import Nip66, Nip66RttMetadata, Nip66Selection, Nip66SslMetadata
 from bigbrotr.nips.nip66.data import Nip66RttData, Nip66SslData
 from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs, Nip66SslLogs
 from bigbrotr.services.common.configs import ClearnetConfig, NetworksConfig, TorConfig
@@ -36,20 +42,20 @@ from bigbrotr.services.monitor import (
 )
 from bigbrotr.services.monitor.configs import RetriesConfig, RetryConfig
 from bigbrotr.services.monitor.queries import (
+    count_relays_to_monitor,
     delete_stale_checkpoints,
     fetch_relays_to_monitor,
     insert_relay_metadata,
-    save_monitoring_markers,
+    is_publish_due,
+    upsert_monitor_checkpoints,
+    upsert_publish_checkpoints,
 )
 from bigbrotr.services.monitor.utils import (
-    build_kind_0,
-    build_kind_10166,
-    build_kind_30166,
     collect_metadata,
-    get_publish_relays,
-    get_reason,
-    get_success,
-    safe_result,
+    extract_result,
+    log_reason,
+    log_success,
+    retry_fetch,
 )
 
 
@@ -61,10 +67,6 @@ if TYPE_CHECKING:
 VALID_HEX_KEY = (
     "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"  # pragma: allowlist secret
 )
-
-# Fixed timestamp for deterministic time-based tests
-FIXED_TIME = 1_700_000_000.0
-
 
 # ============================================================================
 # Fixtures & Helpers
@@ -83,6 +85,7 @@ def _make_config(**overrides: Any) -> MonitorConfig:
     defaults: dict[str, Any] = {
         "processing": ProcessingConfig(compute=_NO_GEO_NET, store=_NO_GEO_NET),
         "discovery": DiscoveryConfig(include=_NO_GEO_NET),
+        "announcement": AnnouncementConfig(include=_NO_GEO_NET),
     }
     defaults.update(overrides)
     return MonitorConfig(**defaults)
@@ -103,12 +106,14 @@ class _MonitorStub:
         self._brotr = brotr or AsyncMock()
         self.inc_counter = MagicMock()
         self.set_gauge = MagicMock()
+        self.clients = MagicMock()
+        self.clients.get = AsyncMock(return_value=AsyncMock())
+        self.clients.get_many = AsyncMock(return_value=[AsyncMock()])
+        self.clients.disconnect = AsyncMock()
 
     # Publishing methods bound from Monitor
-    _publish_if_due = Monitor._publish_if_due
     publish_announcement = Monitor.publish_announcement
     publish_profile = Monitor.publish_profile
-    publish_relay_discoveries = Monitor.publish_relay_discoveries
 
 
 @pytest.fixture
@@ -128,6 +133,7 @@ def all_flags_config() -> MonitorConfig:
         announcement=AnnouncementConfig(
             enabled=True,
             interval=86400,
+            include=_NO_GEO_NET,
             relays=["wss://ann.relay.com"],
         ),
         profile=ProfileConfig(
@@ -313,13 +319,13 @@ def _make_ssl_meta(
 def _make_check_result(
     *,
     generated_at: int = 1700000000,
-    nip11: Nip11InfoMetadata | None = None,
+    nip11_info: Nip11InfoMetadata | None = None,
     nip66_rtt: Nip66RttMetadata | None = None,
     nip66_ssl: Nip66SslMetadata | None = None,
 ) -> CheckResult:
     return CheckResult(
         generated_at=generated_at,
-        nip11=nip11,
+        nip11_info=nip11_info,
         nip66_rtt=nip66_rtt,
         nip66_ssl=nip66_ssl,
     )
@@ -548,10 +554,6 @@ class TestPublishingConfig:
         config = PublishingConfig(relays=["wss://single.relay.com"])
         assert len(config.relays) == 1
 
-    def test_timeout_upper_bound_rejected(self) -> None:
-        with pytest.raises(ValueError):
-            PublishingConfig(timeout=301.0)
-
 
 class TestDiscoveryConfig:
     def test_default_values(self) -> None:
@@ -647,6 +649,9 @@ class TestMonitorConfig:
             discovery=DiscoveryConfig(
                 include=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
+            announcement=AnnouncementConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
         )
 
         assert config.networks.clearnet.enabled is True
@@ -677,6 +682,9 @@ class TestMonitorConfig:
             discovery=DiscoveryConfig(
                 include=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
+            announcement=AnnouncementConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
             networks=NetworksConfig(
                 clearnet=ClearnetConfig(timeout=5.0),
                 tor=TorConfig(enabled=True, timeout=30.0),
@@ -695,6 +703,9 @@ class TestMonitorConfig:
                 store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
             discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            announcement=AnnouncementConfig(
                 include=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
         )
@@ -731,9 +742,181 @@ class TestMonitorConfigValidateGeoDatabases:
             discovery=DiscoveryConfig(
                 include=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
+            announcement=AnnouncementConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
             geo=GeoConfig(city_download_url="", asn_download_url=""),
         )
         assert config.processing.compute.nip66_geo is False
+
+
+class TestMonitorConfigValidateClearnetOnlyChecks:
+    """Clearnet-only compute flags must be disabled when clearnet is off."""
+
+    def _overlay_only_networks(self) -> NetworksConfig:
+        return NetworksConfig(
+            clearnet=ClearnetConfig(enabled=False),
+            tor=TorConfig(enabled=True),
+        )
+
+    def test_valid_clearnet_enabled(self) -> None:
+        config = MonitorConfig(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+            announcement=AnnouncementConfig(
+                include=MetadataFlags(nip66_geo=False, nip66_net=False),
+            ),
+        )
+        assert config.networks.is_enabled(NetworkType.CLEARNET)
+        assert config.processing.compute.nip66_ssl is True
+
+    def test_valid_clearnet_disabled_flags_off(self) -> None:
+        config = MonitorConfig(
+            networks=self._overlay_only_networks(),
+            processing=ProcessingConfig(
+                compute=MetadataFlags(
+                    nip66_ssl=False,
+                    nip66_geo=False,
+                    nip66_net=False,
+                    nip66_dns=False,
+                ),
+                store=MetadataFlags(
+                    nip66_ssl=False,
+                    nip66_geo=False,
+                    nip66_net=False,
+                    nip66_dns=False,
+                ),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(
+                    nip66_ssl=False,
+                    nip66_geo=False,
+                    nip66_net=False,
+                    nip66_dns=False,
+                ),
+            ),
+            announcement=AnnouncementConfig(
+                include=MetadataFlags(
+                    nip66_ssl=False,
+                    nip66_geo=False,
+                    nip66_net=False,
+                    nip66_dns=False,
+                ),
+            ),
+        )
+        assert not config.networks.is_enabled(NetworkType.CLEARNET)
+        assert config.processing.compute.nip66_ssl is False
+
+    def test_clearnet_disabled_ssl_enabled_raises(self) -> None:
+        with pytest.raises(ValueError, match="clearnet-only checks are enabled"):
+            MonitorConfig(
+                networks=self._overlay_only_networks(),
+                processing=ProcessingConfig(
+                    compute=MetadataFlags(
+                        nip66_ssl=True,
+                        nip66_geo=False,
+                        nip66_net=False,
+                        nip66_dns=False,
+                    ),
+                    store=MetadataFlags(
+                        nip66_ssl=False,
+                        nip66_geo=False,
+                        nip66_net=False,
+                        nip66_dns=False,
+                    ),
+                ),
+                discovery=DiscoveryConfig(
+                    include=MetadataFlags(
+                        nip66_ssl=False,
+                        nip66_geo=False,
+                        nip66_net=False,
+                        nip66_dns=False,
+                    ),
+                ),
+                announcement=AnnouncementConfig(
+                    include=MetadataFlags(
+                        nip66_ssl=False,
+                        nip66_geo=False,
+                        nip66_net=False,
+                        nip66_dns=False,
+                    ),
+                ),
+            )
+
+    def test_clearnet_disabled_multiple_flags_raises(self) -> None:
+        with pytest.raises(ValueError, match=r"nip66_ssl.*nip66_dns|nip66_dns.*nip66_ssl"):
+            MonitorConfig(
+                networks=self._overlay_only_networks(),
+                processing=ProcessingConfig(
+                    compute=MetadataFlags(
+                        nip66_ssl=True,
+                        nip66_geo=False,
+                        nip66_net=False,
+                        nip66_dns=True,
+                    ),
+                    store=MetadataFlags(
+                        nip66_ssl=False,
+                        nip66_geo=False,
+                        nip66_net=False,
+                        nip66_dns=False,
+                    ),
+                ),
+                discovery=DiscoveryConfig(
+                    include=MetadataFlags(
+                        nip66_ssl=False,
+                        nip66_geo=False,
+                        nip66_net=False,
+                        nip66_dns=False,
+                    ),
+                ),
+                announcement=AnnouncementConfig(
+                    include=MetadataFlags(
+                        nip66_ssl=False,
+                        nip66_geo=False,
+                        nip66_net=False,
+                        nip66_dns=False,
+                    ),
+                ),
+            )
+
+    @pytest.mark.parametrize("flag", ["nip66_ssl", "nip66_geo", "nip66_net", "nip66_dns"])
+    def test_clearnet_disabled_each_flag_raises(self, flag: str) -> None:
+        flags = {"nip66_ssl": False, "nip66_geo": False, "nip66_net": False, "nip66_dns": False}
+        flags[flag] = True
+        with pytest.raises(ValueError, match=flag):
+            MonitorConfig(
+                networks=self._overlay_only_networks(),
+                processing=ProcessingConfig(
+                    compute=MetadataFlags(**flags),
+                    store=MetadataFlags(
+                        nip66_ssl=False,
+                        nip66_geo=False,
+                        nip66_net=False,
+                        nip66_dns=False,
+                    ),
+                ),
+                discovery=DiscoveryConfig(
+                    include=MetadataFlags(
+                        nip66_ssl=False,
+                        nip66_geo=False,
+                        nip66_net=False,
+                        nip66_dns=False,
+                    ),
+                ),
+                announcement=AnnouncementConfig(
+                    include=MetadataFlags(
+                        nip66_ssl=False,
+                        nip66_geo=False,
+                        nip66_net=False,
+                        nip66_dns=False,
+                    ),
+                ),
+            )
 
 
 class TestMonitorConfigValidateStoreRequiresCompute:
@@ -798,8 +981,44 @@ class TestMonitorConfigValidatePublishRequiresCompute:
                 enabled=False,
                 include=MetadataFlags(nip66_ssl=True),
             ),
+            announcement=AnnouncementConfig(
+                enabled=False,
+                include=MetadataFlags(nip66_ssl=True),
+            ),
         )
         assert config.discovery.enabled is False
+
+    def test_announcement_without_compute_raises(self) -> None:
+        with pytest.raises(ValueError, match="Cannot announce metadata that is not computed"):
+            MonitorConfig(
+                processing=ProcessingConfig(
+                    compute=MetadataFlags(nip66_dns=False),
+                    store=MetadataFlags(nip66_dns=False),
+                ),
+                discovery=DiscoveryConfig(
+                    include=MetadataFlags(nip66_dns=False),
+                ),
+                announcement=AnnouncementConfig(
+                    enabled=True,
+                    include=MetadataFlags(nip66_dns=True),
+                ),
+            )
+
+    def test_announcement_check_skipped_when_disabled(self) -> None:
+        config = MonitorConfig(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_dns=False),
+                store=MetadataFlags(nip66_dns=False),
+            ),
+            discovery=DiscoveryConfig(
+                include=MetadataFlags(nip66_dns=False),
+            ),
+            announcement=AnnouncementConfig(
+                enabled=False,
+                include=MetadataFlags(nip66_dns=True),
+            ),
+        )
+        assert config.announcement.enabled is False
 
 
 # ============================================================================
@@ -807,20 +1026,20 @@ class TestMonitorConfigValidatePublishRequiresCompute:
 # ============================================================================
 
 
-class TestGetSuccess:
+class TestLogSuccess:
     def test_base_logs_success_true(self) -> None:
         logs = BaseLogs(success=True, reason=None)
         result = MagicMock()
         result.logs = logs
 
-        assert get_success(result) is True
+        assert log_success(result) is True
 
     def test_base_logs_success_false(self) -> None:
         logs = BaseLogs(success=False, reason="connection refused")
         result = MagicMock()
         result.logs = logs
 
-        assert get_success(result) is False
+        assert log_success(result) is False
 
     def test_rtt_multi_phase_logs_success(self) -> None:
         logs = Nip66RttMultiPhaseLogs(
@@ -834,7 +1053,7 @@ class TestGetSuccess:
         result = MagicMock()
         result.logs = logs
 
-        assert get_success(result) is True
+        assert log_success(result) is True
 
     def test_rtt_multi_phase_logs_failure(self) -> None:
         logs = Nip66RttMultiPhaseLogs(
@@ -848,29 +1067,29 @@ class TestGetSuccess:
         result = MagicMock()
         result.logs = logs
 
-        assert get_success(result) is False
+        assert log_success(result) is False
 
     def test_unknown_logs_type(self) -> None:
         result = MagicMock()
         result.logs = "not a logs object"
 
-        assert get_success(result) is False
+        assert log_success(result) is False
 
 
-class TestGetReason:
+class TestLogReason:
     def test_base_logs_with_reason(self) -> None:
         logs = BaseLogs(success=False, reason="connection refused")
         result = MagicMock()
         result.logs = logs
 
-        assert get_reason(result) == "connection refused"
+        assert log_reason(result) == "connection refused"
 
     def test_base_logs_no_reason(self) -> None:
         logs = BaseLogs(success=True, reason=None)
         result = MagicMock()
         result.logs = logs
 
-        assert get_reason(result) is None
+        assert log_reason(result) is None
 
     def test_rtt_multi_phase_logs_with_reason(self) -> None:
         logs = Nip66RttMultiPhaseLogs(
@@ -884,7 +1103,7 @@ class TestGetReason:
         result = MagicMock()
         result.logs = logs
 
-        assert get_reason(result) == "timeout"
+        assert log_reason(result) == "timeout"
 
     def test_rtt_multi_phase_logs_no_reason(self) -> None:
         logs = Nip66RttMultiPhaseLogs(
@@ -898,145 +1117,45 @@ class TestGetReason:
         result = MagicMock()
         result.logs = logs
 
-        assert get_reason(result) is None
+        assert log_reason(result) is None
 
     def test_unknown_logs_type(self) -> None:
         result = MagicMock()
         result.logs = "not a logs object"
 
-        assert get_reason(result) is None
+        assert log_reason(result) is None
 
 
-class TestSafeResult:
+class TestExtractResult:
     def test_valid_result(self) -> None:
         results = {"nip11": MagicMock(), "nip66_rtt": MagicMock()}
 
-        value = safe_result(results, "nip11")
+        value = extract_result(results, "nip11")
         assert value is not None
 
     def test_exception_result(self) -> None:
         results = {"nip11": ValueError("some error")}
 
-        value = safe_result(results, "nip11")
+        value = extract_result(results, "nip11")
         assert value is None
 
     def test_missing_key(self) -> None:
         results = {"nip11": MagicMock()}
 
-        value = safe_result(results, "nip66_rtt")
+        value = extract_result(results, "nip66_rtt")
         assert value is None
 
     def test_none_value(self) -> None:
         results = {"nip11": None}
 
-        value = safe_result(results, "nip11")
+        value = extract_result(results, "nip11")
         assert value is None
 
     def test_base_exception_result(self) -> None:
         results = {"nip11": KeyboardInterrupt()}
 
-        value = safe_result(results, "nip11")
+        value = extract_result(results, "nip11")
         assert value is None
-
-
-class TestCollectMetadata:
-    def _make_check_result(self, **nip_fields: MagicMock | None) -> MagicMock:
-        result = MagicMock()
-        result.generated_at = 1700000000
-
-        for field in (
-            "nip11",
-            "nip66_rtt",
-            "nip66_ssl",
-            "nip66_geo",
-            "nip66_net",
-            "nip66_dns",
-            "nip66_http",
-        ):
-            setattr(result, field, nip_fields.get(field))
-
-        return result
-
-    def test_empty_successful_list(self) -> None:
-        metadata = collect_metadata([], MetadataFlags())
-        assert metadata == []
-
-    def test_collects_enabled_metadata_types(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        nip11_meta = MagicMock()
-        nip11_meta.to_dict.return_value = {"name": "test relay"}
-
-        result = self._make_check_result(nip11=nip11_meta)
-
-        # Only nip11_info enabled for store
-        store = MetadataFlags(
-            nip11_info=True,
-            nip66_rtt=False,
-            nip66_ssl=False,
-            nip66_geo=False,
-            nip66_net=False,
-            nip66_dns=False,
-            nip66_http=False,
-        )
-
-        metadata = collect_metadata([(relay, result)], store)
-
-        assert len(metadata) == 1
-        assert isinstance(metadata[0], RelayMetadata)
-
-    def test_skips_disabled_store_flags(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        nip11_meta = MagicMock()
-        nip11_meta.to_dict.return_value = {"name": "test relay"}
-
-        result = self._make_check_result(nip11=nip11_meta)
-
-        store = MetadataFlags(
-            nip11_info=False,
-            nip66_rtt=False,
-            nip66_ssl=False,
-            nip66_geo=False,
-            nip66_net=False,
-            nip66_dns=False,
-            nip66_http=False,
-        )
-
-        metadata = collect_metadata([(relay, result)], store)
-        assert metadata == []
-
-    def test_skips_none_results(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        result = self._make_check_result()  # All fields None
-
-        metadata = collect_metadata([(relay, result)], MetadataFlags())
-        assert metadata == []
-
-    def test_multiple_relays_and_types(self) -> None:
-        relay1 = Relay("wss://relay1.example.com")
-        relay2 = Relay("wss://relay2.example.com")
-
-        nip11_meta = MagicMock()
-        nip11_meta.to_dict.return_value = {"name": "relay1"}
-        rtt_meta = MagicMock()
-        rtt_meta.to_dict.return_value = {"open_rtt": 50}
-
-        result1 = self._make_check_result(nip11=nip11_meta, nip66_rtt=rtt_meta)
-        result2 = self._make_check_result(nip11=nip11_meta)
-
-        store = MetadataFlags(
-            nip11_info=True,
-            nip66_rtt=True,
-            nip66_ssl=False,
-            nip66_geo=False,
-            nip66_net=False,
-            nip66_dns=False,
-            nip66_http=False,
-        )
-
-        metadata = collect_metadata([(relay1, result1), (relay2, result2)], store)
-
-        # relay1: nip11 + rtt = 2, relay2: nip11 = 1 -> total 3
-        assert len(metadata) == 3
 
 
 # ============================================================================
@@ -1048,24 +1167,41 @@ class TestDeleteStaleCheckpoints:
     async def test_calls_fetchval_with_correct_params(self, query_brotr: MagicMock) -> None:
         query_brotr.fetchval = AsyncMock(return_value=4)
 
-        result = await delete_stale_checkpoints(query_brotr)
+        result = await delete_stale_checkpoints(query_brotr, ["announcement", "profile"])
 
         query_brotr.fetchval.assert_awaited_once()
         args = query_brotr.fetchval.call_args
         sql = args[0][0]
         assert "DELETE FROM service_state" in sql
-        assert "LIKE 'ws%'" in sql
+        assert "!= ALL" in sql
         assert "NOT EXISTS" in sql
         assert args[0][1] == ServiceName.MONITOR
         assert args[0][2] == ServiceStateType.CHECKPOINT
+        assert args[0][3] == ["announcement", "profile"]
         assert result == 4
 
-    async def test_returns_zero_on_none(self, query_brotr: MagicMock) -> None:
-        query_brotr.fetchval = AsyncMock(return_value=None)
 
-        result = await delete_stale_checkpoints(query_brotr)
+class TestCountRelaysToMonitor:
+    async def test_calls_fetchval_with_correct_params(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetchval = AsyncMock(return_value=42)
 
-        assert result == 0
+        result = await count_relays_to_monitor(
+            query_brotr,
+            monitored_before=1700000000,
+            networks=[NetworkType.CLEARNET],
+        )
+
+        query_brotr.fetchval.assert_awaited_once()
+        args = query_brotr.fetchval.call_args
+        sql = args[0][0]
+        assert "count(*)::int" in sql
+        assert "FROM relay r" in sql
+        assert "LEFT JOIN service_state ss" in sql
+        assert args[0][1] == [NetworkType.CLEARNET]
+        assert args[0][2] == 1700000000
+        assert args[0][3] == ServiceName.MONITOR
+        assert args[0][4] == ServiceStateType.CHECKPOINT
+        assert result == 42
 
 
 class TestFetchRelaysToMonitor:
@@ -1074,6 +1210,7 @@ class TestFetchRelaysToMonitor:
             query_brotr,
             monitored_before=1700000000,
             networks=[NetworkType.CLEARNET],
+            limit=100,
         )
 
         query_brotr.fetch.assert_awaited_once()
@@ -1083,10 +1220,12 @@ class TestFetchRelaysToMonitor:
         assert "LEFT JOIN service_state ss" in sql
         assert "service_name = $3" in sql
         assert "state_type = $4" in sql
+        assert "LIMIT $5" in sql
         assert args[0][1] == [NetworkType.CLEARNET]
         assert args[0][2] == 1700000000
         assert args[0][3] == ServiceName.MONITOR
         assert args[0][4] == ServiceStateType.CHECKPOINT
+        assert args[0][5] == 100
 
     async def test_returns_relay_objects(self, query_brotr: MagicMock) -> None:
         row = _make_dict_row(
@@ -1094,7 +1233,7 @@ class TestFetchRelaysToMonitor:
         )
         query_brotr.fetch = AsyncMock(return_value=[row])
 
-        result = await fetch_relays_to_monitor(query_brotr, 1700000000, [NetworkType.CLEARNET])
+        result = await fetch_relays_to_monitor(query_brotr, 1700000000, [NetworkType.CLEARNET], 100)
 
         assert len(result) == 1
         assert result[0].url == "wss://relay.example.com"
@@ -1110,13 +1249,13 @@ class TestFetchRelaysToMonitor:
         ]
         query_brotr.fetch = AsyncMock(return_value=rows)
 
-        result = await fetch_relays_to_monitor(query_brotr, 1700000000, [NetworkType.CLEARNET])
+        result = await fetch_relays_to_monitor(query_brotr, 1700000000, [NetworkType.CLEARNET], 100)
 
         assert len(result) == 1
         assert result[0].url == "wss://valid.relay.com"
 
     async def test_empty_result(self, query_brotr: MagicMock) -> None:
-        result = await fetch_relays_to_monitor(query_brotr, 1700000000, [NetworkType.CLEARNET])
+        result = await fetch_relays_to_monitor(query_brotr, 1700000000, [NetworkType.CLEARNET], 100)
 
         assert result == []
 
@@ -1151,7 +1290,7 @@ class TestSaveMonitoringMarkers:
         query_brotr.upsert_service_state = AsyncMock(return_value=2)
 
         relays = [Relay("wss://r1.example.com"), Relay("wss://r2.example.com")]
-        await save_monitoring_markers(query_brotr, relays, 1700000000)
+        await upsert_monitor_checkpoints(query_brotr, relays, 1700000000)
 
         query_brotr.upsert_service_state.assert_awaited_once()
         states = query_brotr.upsert_service_state.call_args[0][0]
@@ -1162,7 +1301,7 @@ class TestSaveMonitoringMarkers:
 
         relay = Relay("wss://relay.example.com")
         now = 1700000000
-        await save_monitoring_markers(query_brotr, [relay], now)
+        await upsert_monitor_checkpoints(query_brotr, [relay], now)
 
         states = query_brotr.upsert_service_state.call_args[0][0]
         state = states[0]
@@ -1175,9 +1314,99 @@ class TestSaveMonitoringMarkers:
     async def test_empty_relay_list_no_db_call(self, query_brotr: MagicMock) -> None:
         query_brotr.upsert_service_state = AsyncMock(return_value=0)
 
-        await save_monitoring_markers(query_brotr, [], 1700000000)
+        await upsert_monitor_checkpoints(query_brotr, [], 1700000000)
 
         query_brotr.upsert_service_state.assert_not_awaited()
+
+
+class TestIsPublishDue:
+    async def test_no_prior_state_returns_true(self, query_brotr: MagicMock) -> None:
+        query_brotr.get_service_state = AsyncMock(return_value=[])
+        assert await is_publish_due(query_brotr, "announcement", 86400) is True
+
+    async def test_interval_not_elapsed_returns_false(self, query_brotr: MagicMock) -> None:
+        now = int(time.time())
+        query_brotr.get_service_state = AsyncMock(
+            return_value=[
+                ServiceState(
+                    service_name=ServiceName.MONITOR,
+                    state_type=ServiceStateType.CHECKPOINT,
+                    state_key="announcement",
+                    state_value={"timestamp": now},
+                )
+            ]
+        )
+        assert await is_publish_due(query_brotr, "announcement", 86400) is False
+
+    async def test_interval_elapsed_returns_true(self, query_brotr: MagicMock) -> None:
+        old = int(time.time()) - 100_000
+        query_brotr.get_service_state = AsyncMock(
+            return_value=[
+                ServiceState(
+                    service_name=ServiceName.MONITOR,
+                    state_type=ServiceStateType.CHECKPOINT,
+                    state_key="profile",
+                    state_value={"timestamp": old},
+                )
+            ]
+        )
+        assert await is_publish_due(query_brotr, "profile", 86400) is True
+
+    async def test_missing_timestamp_key_returns_true(self, query_brotr: MagicMock) -> None:
+        query_brotr.get_service_state = AsyncMock(
+            return_value=[
+                ServiceState(
+                    service_name=ServiceName.MONITOR,
+                    state_type=ServiceStateType.CHECKPOINT,
+                    state_key="announcement",
+                    state_value={},
+                )
+            ]
+        )
+        assert await is_publish_due(query_brotr, "announcement", 86400) is True
+
+    async def test_invalid_key_raises(self, query_brotr: MagicMock) -> None:
+        with pytest.raises(ValueError, match="invalid publish keys"):
+            await is_publish_due(query_brotr, "bogus", 86400)
+
+
+class TestUpsertPublishCheckpoints:
+    async def test_upserts_single_checkpoint(self, query_brotr: MagicMock) -> None:
+        query_brotr.upsert_service_state = AsyncMock(return_value=1)
+
+        await upsert_publish_checkpoints(query_brotr, ["announcement"])
+
+        query_brotr.upsert_service_state.assert_awaited_once()
+        states = query_brotr.upsert_service_state.call_args[0][0]
+        assert len(states) == 1
+        state = states[0]
+        assert isinstance(state, ServiceState)
+        assert state.service_name == ServiceName.MONITOR
+        assert state.state_type == ServiceStateType.CHECKPOINT
+        assert state.state_key == "announcement"
+        assert "timestamp" in state.state_value
+
+    async def test_upserts_multiple_checkpoints(self, query_brotr: MagicMock) -> None:
+        query_brotr.upsert_service_state = AsyncMock(return_value=2)
+
+        await upsert_publish_checkpoints(query_brotr, ["announcement", "profile"])
+
+        query_brotr.upsert_service_state.assert_awaited_once()
+        states = query_brotr.upsert_service_state.call_args[0][0]
+        assert len(states) == 2
+        keys = {s.state_key for s in states}
+        assert keys == {"announcement", "profile"}
+
+    async def test_empty_list_skips(self, query_brotr: MagicMock) -> None:
+        query_brotr.upsert_service_state = AsyncMock()
+
+        await upsert_publish_checkpoints(query_brotr, [])
+
+        query_brotr.upsert_service_state.assert_not_awaited()
+
+    async def test_invalid_key_raises(self, query_brotr: MagicMock) -> None:
+        with pytest.raises(ValueError, match="invalid publish keys"):
+            await upsert_publish_checkpoints(query_brotr, ["bogus"])
 
 
 # ============================================================================
@@ -1493,23 +1722,122 @@ class TestMonitorInit:
 
 class TestMonitorRun:
     @patch(
+        "bigbrotr.services.monitor.service.is_publish_due",
+        new_callable=AsyncMock,
+        return_value=False,
+    )
+    @patch(
         "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
         new_callable=AsyncMock,
         return_value=[],
     )
+    @patch(
+        "bigbrotr.services.monitor.service.count_relays_to_monitor",
+        new_callable=AsyncMock,
+        return_value=0,
+    )
     async def test_run_no_relays(
         self,
+        mock_count: AsyncMock,
         mock_fetch: AsyncMock,
+        mock_checkpoint: AsyncMock,
         mock_brotr: Brotr,
         tmp_path: Path,
     ) -> None:
-        mock_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
-
         config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
+        monitor.clients = MagicMock()
+        monitor.clients.get = AsyncMock(return_value=None)
+        monitor.clients.get_many = AsyncMock(return_value=[])
+        monitor.clients.disconnect = AsyncMock()
         await monitor.run()
 
+        mock_count.assert_awaited_once()
         mock_fetch.assert_awaited_once()
+
+    async def test_monitor_no_networks_returns_zero(self, mock_brotr: Brotr) -> None:
+        no_clearnet_checks = MetadataFlags(
+            nip66_ssl=False, nip66_dns=False, nip66_geo=False, nip66_net=False
+        )
+        config = _make_config(
+            networks=NetworksConfig(clearnet=ClearnetConfig(enabled=False)),
+            processing=ProcessingConfig(compute=no_clearnet_checks, store=no_clearnet_checks),
+            discovery=DiscoveryConfig(include=no_clearnet_checks),
+            announcement=AnnouncementConfig(include=no_clearnet_checks),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        result = await monitor.monitor()
+
+        assert result == 0
+
+
+# ============================================================================
+# Service: Monitor cleanup
+# ============================================================================
+
+
+class TestMonitorCleanup:
+    @patch(
+        "bigbrotr.services.monitor.service.delete_stale_checkpoints",
+        new_callable=AsyncMock,
+        return_value=3,
+    )
+    async def test_cleanup_both_enabled(self, mock_delete: AsyncMock, mock_brotr: Brotr) -> None:
+        config = _make_config(profile=ProfileConfig(enabled=True))
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        result = await monitor.cleanup()
+
+        mock_delete.assert_awaited_once_with(mock_brotr, ["announcement", "profile"])
+        assert result == 3
+
+    @patch(
+        "bigbrotr.services.monitor.service.delete_stale_checkpoints",
+        new_callable=AsyncMock,
+        return_value=2,
+    )
+    async def test_cleanup_announcement_disabled(
+        self, mock_delete: AsyncMock, mock_brotr: Brotr
+    ) -> None:
+        config = _make_config(
+            announcement=AnnouncementConfig(enabled=False, include=_NO_GEO_NET),
+            profile=ProfileConfig(enabled=True),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        result = await monitor.cleanup()
+
+        mock_delete.assert_awaited_once_with(mock_brotr, ["profile"])
+        assert result == 2
+
+    @patch(
+        "bigbrotr.services.monitor.service.delete_stale_checkpoints",
+        new_callable=AsyncMock,
+        return_value=1,
+    )
+    async def test_cleanup_profile_disabled(
+        self, mock_delete: AsyncMock, mock_brotr: Brotr
+    ) -> None:
+        config = _make_config(profile=ProfileConfig(enabled=False))
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        result = await monitor.cleanup()
+
+        mock_delete.assert_awaited_once_with(mock_brotr, ["announcement"])
+        assert result == 1
+
+    @patch(
+        "bigbrotr.services.monitor.service.delete_stale_checkpoints",
+        new_callable=AsyncMock,
+        return_value=5,
+    )
+    async def test_cleanup_both_disabled(self, mock_delete: AsyncMock, mock_brotr: Brotr) -> None:
+        config = _make_config(
+            announcement=AnnouncementConfig(enabled=False, include=_NO_GEO_NET),
+            profile=ProfileConfig(enabled=False),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        result = await monitor.cleanup()
+
+        mock_delete.assert_awaited_once_with(mock_brotr, [])
+        assert result == 5
 
 
 # ============================================================================
@@ -1517,68 +1845,25 @@ class TestMonitorRun:
 # ============================================================================
 
 
-class TestMonitorPersistResults:
-    async def test_persist_results_empty(self, mock_brotr: Brotr, tmp_path: Path) -> None:
-        mock_brotr.insert_relay_metadata = AsyncMock(return_value=0)  # type: ignore[method-assign]
-        mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
-
-        config = _make_config()
-        monitor = Monitor(brotr=mock_brotr, config=config)
-        await monitor._persist_results([], [])
-
-        mock_brotr.insert_relay_metadata.assert_not_called()  # type: ignore[attr-defined]
-
-    async def test_persist_results_with_successful(self, mock_brotr: Brotr, tmp_path: Path) -> None:
-        mock_brotr.insert_relay_metadata = AsyncMock(return_value=2)  # type: ignore[method-assign]
-        mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
-
-        config = _make_config()
-        monitor = Monitor(brotr=mock_brotr, config=config)
-
-        relay1 = Relay("wss://relay1.example.com")
-        relay2 = Relay("wss://relay2.example.com")
-
-        result1 = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
-        result2 = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=200))
-
-        successful = [(relay1, result1), (relay2, result2)]
-        await monitor._persist_results(successful, [])
-
-        mock_brotr.insert_relay_metadata.assert_called_once()  # type: ignore[attr-defined]
-        mock_brotr.upsert_service_state.assert_called_once()  # type: ignore[attr-defined]
-
-    async def test_persist_results_with_failed(self, mock_brotr: Brotr, tmp_path: Path) -> None:
-        mock_brotr.insert_relay_metadata = AsyncMock(return_value=0)  # type: ignore[method-assign]
-        mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
-
-        config = _make_config()
-        monitor = Monitor(brotr=mock_brotr, config=config)
-
-        relay1 = Relay("wss://failed1.example.com")
-        relay2 = Relay("wss://failed2.example.com")
-
-        await monitor._persist_results([], [relay1, relay2])
-
-        # insert_relay_metadata should not be called for failed relays
-        mock_brotr.insert_relay_metadata.assert_not_called()  # type: ignore[attr-defined]
-        # But checkpoint should be updated to prevent immediate retry
-        mock_brotr.upsert_service_state.assert_called_once()  # type: ignore[attr-defined]
-
-
 # ============================================================================
-# Service: Check chunks
+# Service: Monitoring worker
 # ============================================================================
 
 
-class TestMonitorCheckRelaySafe:
+class TestMonitoringWorker:
     async def test_successful_result(self, mock_brotr: Brotr) -> None:
         config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
         relay = Relay("wss://relay.example.com")
         result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
 
-        with patch.object(monitor, "check_relay", new_callable=AsyncMock, return_value=result):
-            r, res = await monitor._check_relay_safe(relay)
+        with patch.object(
+            Monitor,
+            "check_relay",
+            new_callable=AsyncMock,
+            return_value=result,
+        ):
+            r, res = await monitor._monitoring_worker(relay)
 
         assert r is relay
         assert res is result
@@ -1590,9 +1875,12 @@ class TestMonitorCheckRelaySafe:
         empty_result = _make_check_result()
 
         with patch.object(
-            monitor, "check_relay", new_callable=AsyncMock, return_value=empty_result
+            Monitor,
+            "check_relay",
+            new_callable=AsyncMock,
+            return_value=empty_result,
         ):
-            r, res = await monitor._check_relay_safe(relay)
+            r, res = await monitor._monitoring_worker(relay)
 
         assert r is relay
         assert res is None
@@ -1603,12 +1891,12 @@ class TestMonitorCheckRelaySafe:
         relay = Relay("wss://relay.example.com")
 
         with patch.object(
-            monitor,
+            Monitor,
             "check_relay",
             new_callable=AsyncMock,
             side_effect=RuntimeError("connection lost"),
         ):
-            r, res = await monitor._check_relay_safe(relay)
+            r, res = await monitor._monitoring_worker(relay)
 
         assert r is relay
         assert res is None
@@ -1620,14 +1908,14 @@ class TestMonitorCheckRelaySafe:
 
         with (
             patch.object(
-                monitor,
+                Monitor,
                 "check_relay",
                 new_callable=AsyncMock,
                 side_effect=asyncio.CancelledError,
             ),
             pytest.raises(asyncio.CancelledError),
         ):
-            await monitor._check_relay_safe(relay)
+            await monitor._monitoring_worker(relay)
 
     async def test_keyboard_interrupt_propagates(self, mock_brotr: Brotr) -> None:
         config = _make_config()
@@ -1636,14 +1924,14 @@ class TestMonitorCheckRelaySafe:
 
         with (
             patch.object(
-                monitor,
+                Monitor,
                 "check_relay",
                 new_callable=AsyncMock,
                 side_effect=KeyboardInterrupt,
             ),
             pytest.raises(KeyboardInterrupt),
         ):
-            await monitor._check_relay_safe(relay)
+            await monitor._monitoring_worker(relay)
 
     async def test_system_exit_propagates(self, mock_brotr: Brotr) -> None:
         config = _make_config()
@@ -1652,14 +1940,14 @@ class TestMonitorCheckRelaySafe:
 
         with (
             patch.object(
-                monitor,
+                Monitor,
                 "check_relay",
                 new_callable=AsyncMock,
                 side_effect=SystemExit(1),
             ),
             pytest.raises(SystemExit),
         ):
-            await monitor._check_relay_safe(relay)
+            await monitor._monitoring_worker(relay)
 
 
 # ============================================================================
@@ -1692,78 +1980,6 @@ class TestMonitorNetworkConfiguration:
 # ============================================================================
 
 
-class TestGetPublishRelays:
-    def test_get_publish_relays_returns_discovery_primary(self, stub: _MonitorStub) -> None:
-        relays = get_publish_relays(stub._config.discovery.relays, stub._config.publishing.relays)
-        assert len(relays) == 1
-        assert relays[0].url == "wss://disc.relay.com"
-
-    def test_get_publish_relays_discovery_falls_back_to_publishing(self, test_keys: Keys) -> None:
-        config = _make_config(
-            publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
-        )
-        relays = get_publish_relays(config.discovery.relays, config.publishing.relays)
-        assert len(relays) == 1
-        assert relays[0].url == "wss://fallback.relay.com"
-
-    def test_get_publish_relays_discovery_empty_list_no_fallback(self, test_keys: Keys) -> None:
-        config = _make_config(
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-                relays=[],
-            ),
-            publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
-        )
-        relays = get_publish_relays(config.discovery.relays, config.publishing.relays)
-        assert relays == []
-
-    def test_get_publish_relays_returns_announcement_primary(self, stub: _MonitorStub) -> None:
-        relays = get_publish_relays(
-            stub._config.announcement.relays, stub._config.publishing.relays
-        )
-        assert len(relays) == 1
-        assert relays[0].url == "wss://ann.relay.com"
-
-    def test_get_publish_relays_announcement_falls_back_to_publishing(
-        self, test_keys: Keys
-    ) -> None:
-        config = _make_config(
-            publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
-        )
-        relays = get_publish_relays(config.announcement.relays, config.publishing.relays)
-        assert len(relays) == 1
-        assert relays[0].url == "wss://fallback.relay.com"
-
-    def test_get_publish_relays_announcement_empty_list_no_fallback(self, test_keys: Keys) -> None:
-        config = _make_config(
-            announcement=AnnouncementConfig(relays=[]),
-            publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
-        )
-        relays = get_publish_relays(config.announcement.relays, config.publishing.relays)
-        assert relays == []
-
-    def test_get_publish_relays_returns_profile_primary(self, stub: _MonitorStub) -> None:
-        relays = get_publish_relays(stub._config.profile.relays, stub._config.publishing.relays)
-        assert len(relays) == 1
-        assert relays[0].url == "wss://profile.relay.com"
-
-    def test_get_publish_relays_profile_falls_back_to_publishing(self, test_keys: Keys) -> None:
-        config = _make_config(
-            publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
-        )
-        relays = get_publish_relays(config.profile.relays, config.publishing.relays)
-        assert len(relays) == 1
-        assert relays[0].url == "wss://fallback.relay.com"
-
-    def test_get_publish_relays_profile_empty_list_no_fallback(self, test_keys: Keys) -> None:
-        config = _make_config(
-            profile=ProfileConfig(relays=[]),
-            publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
-        )
-        relays = get_publish_relays(config.profile.relays, config.publishing.relays)
-        assert relays == []
-
-
 # ============================================================================
 # Service: Publish announcement
 # ============================================================================
@@ -1771,92 +1987,100 @@ class TestGetPublishRelays:
 
 class TestPublishAnnouncement:
     async def test_publish_announcement_when_disabled(self, test_keys: Keys) -> None:
-        config = _make_config(announcement=AnnouncementConfig(enabled=False))
+        config = _make_config(announcement=AnnouncementConfig(enabled=False, include=_NO_GEO_NET))
         harness = _MonitorStub(config, test_keys)
-        await harness.publish_announcement()
-        harness._brotr.get_service_state.assert_not_awaited()
+        with patch(
+            "bigbrotr.services.monitor.service.is_publish_due", new_callable=AsyncMock
+        ) as mock_get:
+            await harness.publish_announcement()
+            mock_get.assert_not_awaited()
 
     async def test_publish_announcement_when_no_relays(self, test_keys: Keys) -> None:
         config = _make_config(
-            announcement=AnnouncementConfig(enabled=True, relays=[]),
+            announcement=AnnouncementConfig(enabled=True, include=_NO_GEO_NET, relays=[]),
             publishing=PublishingConfig(relays=[]),
         )
         harness = _MonitorStub(config, test_keys)
-        await harness.publish_announcement()
-        harness._brotr.get_service_state.assert_not_awaited()
+        with patch(
+            "bigbrotr.services.monitor.service.is_publish_due", new_callable=AsyncMock
+        ) as mock_get:
+            await harness.publish_announcement()
+            mock_get.assert_not_awaited()
 
     async def test_publish_announcement_interval_not_elapsed(self, stub: _MonitorStub) -> None:
-        stub._brotr.get_service_state = AsyncMock(
-            return_value=[
-                ServiceState(
-                    service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key="last_announcement",
-                    state_value={"timestamp": FIXED_TIME},
-                )
-            ]
-        )
-        with (
-            patch("bigbrotr.services.monitor.service.time") as mock_time,
-            patch(
-                "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
-            ) as mock_broadcast,
+        with patch(
+            "bigbrotr.services.monitor.service.is_publish_due",
+            new_callable=AsyncMock,
+            return_value=False,
         ):
-            mock_time.time.return_value = FIXED_TIME
             await stub.publish_announcement()
-            mock_broadcast.assert_not_awaited()
+            stub.clients.get_many.assert_not_awaited()
 
     async def test_publish_announcement_no_prior_state(self, stub: _MonitorStub) -> None:
-        stub._brotr.get_service_state = AsyncMock(return_value=[])
-
-        with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
-            new_callable=AsyncMock,
-            return_value=1,
-        ) as mock_broadcast:
-            await stub.publish_announcement()
-
-        mock_broadcast.assert_awaited_once()
-        stub._brotr.upsert_service_state.assert_awaited_once()
-        stub._logger.info.assert_called_with("publish_completed", event="announcement", relays=1)
-
-    async def test_publish_announcement_interval_elapsed(self, stub: _MonitorStub) -> None:
-        old_timestamp = FIXED_TIME - 100_000  # well past the 86400 interval
-        stub._brotr.get_service_state = AsyncMock(
-            return_value=[
-                ServiceState(
-                    service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key="last_announcement",
-                    state_value={"timestamp": old_timestamp},
-                )
-            ]
-        )
-
         with (
-            patch("bigbrotr.services.monitor.service.time") as mock_time,
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
             patch(
                 "bigbrotr.services.monitor.service.broadcast_events",
                 new_callable=AsyncMock,
                 return_value=1,
             ) as mock_broadcast,
+            patch(
+                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
         ):
-            mock_time.time.return_value = FIXED_TIME
             await stub.publish_announcement()
 
         mock_broadcast.assert_awaited_once()
-        stub._brotr.upsert_service_state.assert_awaited_once()
+        mock_save.assert_awaited_once()
+        stub._logger.info.assert_called_with("publish_completed", event="announcement", relays=1)
 
-    async def test_publish_announcement_broadcast_failure(self, stub: _MonitorStub) -> None:
-        stub._brotr.get_service_state = AsyncMock(return_value=[])
-
-        with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
-            new_callable=AsyncMock,
-            return_value=0,
+    async def test_publish_announcement_interval_elapsed(self, stub: _MonitorStub) -> None:
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+                return_value=1,
+            ) as mock_broadcast,
+            patch(
+                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
         ):
             await stub.publish_announcement()
 
+        mock_broadcast.assert_awaited_once()
+        mock_save.assert_awaited_once()
+
+    async def test_publish_announcement_broadcast_failure(self, stub: _MonitorStub) -> None:
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
+        ):
+            await stub.publish_announcement()
+
+        mock_save.assert_not_awaited()
         stub._logger.warning.assert_called_once()
         stub._logger.warning.assert_called_once_with(
             "publish_failed", event="announcement", error="no relays reachable"
@@ -1872,8 +2096,11 @@ class TestPublishProfile:
     async def test_publish_profile_when_disabled(self, test_keys: Keys) -> None:
         config = _make_config(profile=ProfileConfig(enabled=False))
         harness = _MonitorStub(config, test_keys)
-        await harness.publish_profile()
-        harness._brotr.get_service_state.assert_not_awaited()
+        with patch(
+            "bigbrotr.services.monitor.service.is_publish_due", new_callable=AsyncMock
+        ) as mock_get:
+            await harness.publish_profile()
+            mock_get.assert_not_awaited()
 
     async def test_publish_profile_when_no_relays(self, test_keys: Keys) -> None:
         config = _make_config(
@@ -1881,54 +2108,64 @@ class TestPublishProfile:
             publishing=PublishingConfig(relays=[]),
         )
         harness = _MonitorStub(config, test_keys)
-        await harness.publish_profile()
-        harness._brotr.get_service_state.assert_not_awaited()
+        with patch(
+            "bigbrotr.services.monitor.service.is_publish_due", new_callable=AsyncMock
+        ) as mock_get:
+            await harness.publish_profile()
+            mock_get.assert_not_awaited()
 
     async def test_publish_profile_interval_not_elapsed(self, stub: _MonitorStub) -> None:
-        stub._brotr.get_service_state = AsyncMock(
-            return_value=[
-                ServiceState(
-                    service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key="last_profile",
-                    state_value={"timestamp": FIXED_TIME},
-                )
-            ]
-        )
-        with (
-            patch("bigbrotr.services.monitor.service.time") as mock_time,
-            patch(
-                "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
-            ) as mock_broadcast,
+        with patch(
+            "bigbrotr.services.monitor.service.is_publish_due",
+            new_callable=AsyncMock,
+            return_value=False,
         ):
-            mock_time.time.return_value = FIXED_TIME
             await stub.publish_profile()
-            mock_broadcast.assert_not_awaited()
+            stub.clients.get_many.assert_not_awaited()
 
     async def test_publish_profile_successful(self, stub: _MonitorStub) -> None:
-        stub._brotr.get_service_state = AsyncMock(return_value=[])
-
-        with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
-            new_callable=AsyncMock,
-            return_value=1,
-        ) as mock_broadcast:
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+                return_value=1,
+            ) as mock_broadcast,
+            patch(
+                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
+        ):
             await stub.publish_profile()
 
         mock_broadcast.assert_awaited_once()
-        stub._brotr.upsert_service_state.assert_awaited_once()
+        mock_save.assert_awaited_once()
         stub._logger.info.assert_called_with("publish_completed", event="profile", relays=1)
 
     async def test_publish_profile_broadcast_failure(self, stub: _MonitorStub) -> None:
-        stub._brotr.get_service_state = AsyncMock(return_value=[])
-
-        with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
-            new_callable=AsyncMock,
-            return_value=0,
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
         ):
             await stub.publish_profile()
 
+        mock_save.assert_not_awaited()
         stub._logger.warning.assert_called_once()
         stub._logger.warning.assert_called_once_with(
             "publish_failed", event="profile", error="no relays reachable"
@@ -1940,107 +2177,121 @@ class TestPublishProfile:
 # ============================================================================
 
 
-class TestPublishRelayDiscoveries:
-    async def test_publish_discoveries_when_disabled(self, test_keys: Keys) -> None:
-        config = _make_config(
-            discovery=DiscoveryConfig(
-                enabled=False,
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-            ),
-        )
-        harness = _MonitorStub(config, test_keys)
-
+class TestPublishDiscovery:
+    async def test_publish_discovery_disabled(self, mock_brotr: Brotr) -> None:
+        config = _make_config(discovery=DiscoveryConfig(enabled=False, include=_NO_GEO_NET))
+        monitor = Monitor(brotr=mock_brotr, config=config)
         relay = Relay("wss://relay.example.com")
-        result = _make_check_result()
+        result = _make_check_result(nip11_info=_make_nip11_meta(name="Test"))
 
         with patch(
-            "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
+            "bigbrotr.services.monitor.service.broadcast_events",
+            new_callable=AsyncMock,
         ) as mock_broadcast:
-            await harness.publish_relay_discoveries([(relay, result)])
+            await monitor.publish_discovery(relay, result)
             mock_broadcast.assert_not_awaited()
 
-    async def test_publish_discoveries_when_no_relays(self, test_keys: Keys) -> None:
-        config = _make_config(
-            discovery=DiscoveryConfig(
-                enabled=True,
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-                relays=[],
-            ),
-            publishing=PublishingConfig(relays=[]),
-        )
-        harness = _MonitorStub(config, test_keys)
-
+    async def test_publish_discovery_no_relays(self, mock_brotr: Brotr) -> None:
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
         relay = Relay("wss://relay.example.com")
-        result = _make_check_result()
+        result = _make_check_result(nip11_info=_make_nip11_meta(name="Test"))
 
         with patch(
-            "bigbrotr.services.monitor.service.broadcast_events", new_callable=AsyncMock
+            "bigbrotr.services.monitor.service.broadcast_events",
+            new_callable=AsyncMock,
         ) as mock_broadcast:
-            await harness.publish_relay_discoveries([(relay, result)])
+            await monitor.publish_discovery(relay, result)
             mock_broadcast.assert_not_awaited()
 
-    async def test_publish_discoveries_successful(self, stub: _MonitorStub) -> None:
+    async def test_publish_discovery_no_reachable_clients(self, mock_brotr: Brotr) -> None:
+        config = _make_config(
+            discovery=DiscoveryConfig(
+                include=_NO_GEO_NET,
+                relays=["wss://publish.example.com"],
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        monitor.clients = MagicMock()
+        monitor.clients.get_many = AsyncMock(return_value=[])
         relay = Relay("wss://relay.example.com")
-        result = _make_check_result(nip11=_make_nip11_meta(name="Test Relay"))
+        result = _make_check_result(nip11_info=_make_nip11_meta(name="Test"))
+
+        with patch(
+            "bigbrotr.services.monitor.service.broadcast_events",
+            new_callable=AsyncMock,
+        ) as mock_broadcast:
+            await monitor.publish_discovery(relay, result)
+            mock_broadcast.assert_not_awaited()
+
+    async def test_publish_discovery_successful(self, mock_brotr: Brotr) -> None:
+        config = _make_config(
+            discovery=DiscoveryConfig(
+                include=_NO_GEO_NET,
+                relays=["wss://publish.example.com"],
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        monitor.clients = MagicMock()
+        monitor.clients.get_many = AsyncMock(return_value=[AsyncMock()])
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result(nip11_info=_make_nip11_meta(name="Test Relay"))
 
         with patch(
             "bigbrotr.services.monitor.service.broadcast_events",
             new_callable=AsyncMock,
             return_value=1,
         ) as mock_broadcast:
-            await stub.publish_relay_discoveries([(relay, result)])
+            await monitor.publish_discovery(relay, result)
 
         mock_broadcast.assert_awaited_once()
-        stub._logger.debug.assert_any_call("discoveries_published", count=1)
 
-    async def test_publish_discoveries_build_failure_for_individual(
-        self, stub: _MonitorStub
-    ) -> None:
-        relay1 = Relay("wss://relay1.example.com")
-        relay2 = Relay("wss://relay2.example.com")
-        result1 = _make_check_result()
-        result2 = _make_check_result(nip11=_make_nip11_meta(name="Test"))
-
-        call_count = 0
-
-        def _patched_build(relay: Relay, result: CheckResult, include: Any) -> Any:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise ValueError("build failed for relay1")
-            return build_kind_30166(relay, result, include)
+    async def test_publish_discovery_build_failure(self, mock_brotr: Brotr) -> None:
+        config = _make_config(
+            discovery=DiscoveryConfig(
+                include=_NO_GEO_NET,
+                relays=["wss://publish.example.com"],
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        monitor.clients = MagicMock()
+        monitor.clients.get_many = AsyncMock(return_value=[AsyncMock()])
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result()
 
         with (
             patch(
-                "bigbrotr.services.monitor.service.build_kind_30166",
-                side_effect=_patched_build,
+                "bigbrotr.services.monitor.service.build_relay_discovery",
+                side_effect=ValueError("build failed"),
             ),
             patch(
                 "bigbrotr.services.monitor.service.broadcast_events",
                 new_callable=AsyncMock,
-                return_value=1,
             ) as mock_broadcast,
         ):
-            await stub.publish_relay_discoveries([(relay1, result1), (relay2, result2)])
+            await monitor.publish_discovery(relay, result)
 
-        mock_broadcast.assert_awaited_once()
-        stub._logger.debug.assert_any_call(
-            "build_30166_failed", url=relay1.url, error="build failed for relay1"
+        mock_broadcast.assert_not_awaited()
+
+    async def test_publish_discovery_broadcast_failure(self, mock_brotr: Brotr) -> None:
+        config = _make_config(
+            discovery=DiscoveryConfig(
+                include=_NO_GEO_NET,
+                relays=["wss://publish.example.com"],
+            ),
         )
-
-    async def test_publish_discoveries_broadcast_failure(self, stub: _MonitorStub) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        monitor.clients = MagicMock()
+        monitor.clients.get_many = AsyncMock(return_value=[AsyncMock()])
         relay = Relay("wss://relay.example.com")
-        result = _make_check_result()
+        result = _make_check_result(nip11_info=_make_nip11_meta(name="Test"))
 
         with patch(
             "bigbrotr.services.monitor.service.broadcast_events",
             new_callable=AsyncMock,
             return_value=0,
         ):
-            await stub.publish_relay_discoveries([(relay, result)])
-
-        stub._logger.warning.assert_called_once()
-        assert "discoveries_broadcast_failed" in stub._logger.warning.call_args[0]
+            await monitor.publish_discovery(relay, result)
 
 
 # ============================================================================
@@ -2048,18 +2299,25 @@ class TestPublishRelayDiscoveries:
 # ============================================================================
 
 
-class TestBuildKind0:
-    def test_build_kind_0_all_fields(self, stub: _MonitorStub) -> None:
-        builder = build_kind_0(stub._config.profile)
+class TestBuildProfileEvent:
+    def test_all_fields(self) -> None:
+        builder = build_profile_event(
+            name="BigBrotr Monitor",
+            about="A relay monitor",
+            picture="https://example.com/pic.png",
+            nip05="monitor@example.com",
+            website="https://example.com",
+            banner="https://example.com/banner.png",
+            lud16="monitor@ln.example.com",
+        )
         assert builder is not None
 
-    def test_build_kind_0_minimal_fields(self) -> None:
-        profile = ProfileConfig(enabled=True, name="MinimalMonitor")
-        builder = build_kind_0(profile)
+    def test_minimal_fields(self) -> None:
+        builder = build_profile_event(name="MinimalMonitor")
         assert builder is not None
 
-    def test_build_kind_0_no_fields(self) -> None:
-        builder = build_kind_0(ProfileConfig(enabled=True))
+    def test_no_fields(self) -> None:
+        builder = build_profile_event()
         assert builder is not None
 
 
@@ -2068,85 +2326,47 @@ class TestBuildKind0:
 # ============================================================================
 
 
-class TestBuildKind10166:
-    def test_build_kind_10166_all_flags_enabled(self, stub: _MonitorStub) -> None:
-        builder = build_kind_10166(stub._config)
+class TestBuildMonitorAnnouncement:
+    def test_all_flags_enabled(self) -> None:
+        flags = MetadataFlags()
+        builder = build_monitor_announcement(
+            interval=3600,
+            timeout_ms=5000,
+            enabled_networks=[NetworkType.CLEARNET],
+            nip11_selection=Nip11Selection(info=flags.nip11_info),
+            nip66_selection=Nip66Selection(
+                rtt=flags.nip66_rtt,
+                ssl=flags.nip66_ssl,
+                geo=flags.nip66_geo,
+                net=flags.nip66_net,
+                dns=flags.nip66_dns,
+                http=flags.nip66_http,
+            ),
+        )
         assert builder is not None
 
-    def test_build_kind_10166_subset_flags(self) -> None:
-        config = MonitorConfig(
-            interval=1800.0,
-            processing=ProcessingConfig(
-                compute=MetadataFlags(
-                    nip66_geo=False,
-                    nip66_net=False,
-                    nip66_ssl=False,
-                    nip66_dns=False,
-                    nip66_http=False,
-                ),
-                store=MetadataFlags(
-                    nip66_geo=False,
-                    nip66_net=False,
-                    nip66_ssl=False,
-                    nip66_dns=False,
-                    nip66_http=False,
-                ),
+    def test_subset_flags(self) -> None:
+        builder = build_monitor_announcement(
+            interval=1800,
+            timeout_ms=5000,
+            enabled_networks=[NetworkType.CLEARNET],
+            nip11_selection=Nip11Selection(info=True),
+            nip66_selection=Nip66Selection(
+                rtt=True, ssl=False, geo=False, net=False, dns=False, http=False
             ),
-            discovery=DiscoveryConfig(
-                include=MetadataFlags(
-                    nip11_info=True,
-                    nip66_rtt=True,
-                    nip66_ssl=False,
-                    nip66_geo=False,
-                    nip66_net=False,
-                    nip66_dns=False,
-                    nip66_http=False,
-                ),
-                relays=["wss://disc.relay.com"],
-            ),
-            networks=NetworksConfig(clearnet=ClearnetConfig(timeout=5.0)),
         )
-        builder = build_kind_10166(config)
         assert builder is not None
 
-    def test_build_kind_10166_no_flags(self) -> None:
-        config = MonitorConfig(
-            interval=600.0,
-            processing=ProcessingConfig(
-                compute=MetadataFlags(
-                    nip11_info=False,
-                    nip66_rtt=False,
-                    nip66_ssl=False,
-                    nip66_geo=False,
-                    nip66_net=False,
-                    nip66_dns=False,
-                    nip66_http=False,
-                ),
-                store=MetadataFlags(
-                    nip11_info=False,
-                    nip66_rtt=False,
-                    nip66_ssl=False,
-                    nip66_geo=False,
-                    nip66_net=False,
-                    nip66_dns=False,
-                    nip66_http=False,
-                ),
+    def test_no_flags(self) -> None:
+        builder = build_monitor_announcement(
+            interval=600,
+            timeout_ms=10000,
+            enabled_networks=[NetworkType.CLEARNET],
+            nip11_selection=Nip11Selection(info=False),
+            nip66_selection=Nip66Selection(
+                rtt=False, ssl=False, geo=False, net=False, dns=False, http=False
             ),
-            discovery=DiscoveryConfig(
-                enabled=False,
-                include=MetadataFlags(
-                    nip11_info=False,
-                    nip66_rtt=False,
-                    nip66_ssl=False,
-                    nip66_geo=False,
-                    nip66_net=False,
-                    nip66_dns=False,
-                    nip66_http=False,
-                ),
-            ),
-            networks=NetworksConfig(clearnet=ClearnetConfig(timeout=10.0)),
         )
-        builder = build_kind_10166(config)
         assert builder is not None
 
 
@@ -2155,11 +2375,11 @@ class TestBuildKind10166:
 # ============================================================================
 
 
-class TestBuildKind30166:
-    def test_build_kind_30166_full_event(self, stub: _MonitorStub) -> None:
+class TestBuildRelayDiscovery:
+    def test_full_event(self) -> None:
         relay = Relay("wss://relay.example.com")
         result = _make_check_result(
-            nip11=_make_nip11_meta(
+            nip11_info=_make_nip11_meta(
                 name="Test Relay",
                 supported_nips=[1, 11, 50],
                 tags=["social"],
@@ -2168,32 +2388,26 @@ class TestBuildKind30166:
             nip66_rtt=_make_rtt_meta(rtt_open=45, rtt_read=120, rtt_write=85),
             nip66_ssl=_make_ssl_meta(ssl_valid=True, ssl_expires=1735689600),
         )
-        builder = build_kind_30166(relay, result, stub._config.discovery.include)
+        builder = build_relay_discovery(
+            relay.url,
+            relay.network.value,
+            "",
+            rtt_data=result.nip66_rtt.data if result.nip66_rtt else None,
+            ssl_data=result.nip66_ssl.data if result.nip66_ssl else None,
+            nip11_data=result.nip11_info.data if result.nip11_info else None,
+            rtt_logs=result.nip66_rtt.logs if result.nip66_rtt else None,
+        )
         assert builder is not None
 
-    def test_build_kind_30166_minimal(self, stub: _MonitorStub) -> None:
+    def test_minimal(self) -> None:
         relay = Relay("wss://relay.example.com")
-        result = _make_check_result()
-        builder = build_kind_30166(relay, result, stub._config.discovery.include)
+        builder = build_relay_discovery(relay.url, relay.network.value, "")
         assert builder is not None
 
-    def test_build_kind_30166_content_from_nip11(self, stub: _MonitorStub) -> None:
-        relay = Relay("wss://relay.example.com")
-        result = _make_check_result(nip11=_make_nip11_meta(name="Test Relay"))
-        builder = build_kind_30166(relay, result, stub._config.discovery.include)
-        assert builder is not None
-
-    def test_build_kind_30166_empty_content_when_no_nip11(self, stub: _MonitorStub) -> None:
-        relay = Relay("wss://relay.example.com")
-        result = _make_check_result()
-        builder = build_kind_30166(relay, result, stub._config.discovery.include)
-        assert builder is not None
-
-    def test_build_kind_30166_tor_relay_network_tag(self, stub: _MonitorStub) -> None:
+    def test_tor_relay_network(self) -> None:
         onion = "a" * 56
         relay = Relay(f"ws://{onion}.onion")
-        result = _make_check_result()
-        builder = build_kind_30166(relay, result, stub._config.discovery.include)
+        builder = build_relay_discovery(relay.url, relay.network.value, "")
         assert builder is not None
 
 
@@ -2203,9 +2417,9 @@ class TestBuildKind30166:
 
 
 class TestEndToEndTagGeneration:
-    def test_full_relay_with_all_metadata(self, stub: _MonitorStub) -> None:
+    def test_full_relay_with_all_metadata(self) -> None:
         result = _make_check_result(
-            nip11=_make_nip11_meta(
+            nip11_info=_make_nip11_meta(
                 name="Production Relay",
                 supported_nips=[1, 11, 42, 50],
                 tags=["social"],
@@ -2231,7 +2445,15 @@ class TestEndToEndTagGeneration:
         )
 
         relay = Relay("wss://relay.example.com")
-        builder = build_kind_30166(relay, result, stub._config.discovery.include)
+        builder = build_relay_discovery(
+            relay.url,
+            relay.network.value,
+            "",
+            rtt_data=result.nip66_rtt.data if result.nip66_rtt else None,
+            ssl_data=result.nip66_ssl.data if result.nip66_ssl else None,
+            nip11_data=result.nip11_info.data if result.nip11_info else None,
+            rtt_logs=result.nip66_rtt.logs if result.nip66_rtt else None,
+        )
         assert builder is not None
 
 
@@ -2241,7 +2463,7 @@ class TestEndToEndTagGeneration:
 
 
 class TestMonitorMetrics:
-    async def test_monitor_emits_check_counters(self, mock_brotr: Brotr) -> None:
+    async def test_monitor_emits_gauges(self, mock_brotr: Brotr) -> None:
         config = _make_config(
             discovery=DiscoveryConfig(
                 enabled=False,
@@ -2254,65 +2476,896 @@ class TestMonitorMetrics:
         relay2 = Relay("wss://fail.example.com")
         result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
 
-        async def fake_check_relay_safe(relay: Relay) -> tuple[Relay, CheckResult | None]:
+        async def fake_monitoring_worker(relay: Relay) -> tuple[Relay, CheckResult | None]:
             if relay.url == relay1.url:
                 return (relay, result)
             return (relay, None)
 
+        monitor.clients = MagicMock()
+        monitor.clients.get = AsyncMock(return_value=None)
+        monitor.clients.get_many = AsyncMock(return_value=[])
+        monitor.clients.disconnect = AsyncMock()
+
+        gauge_calls: list[tuple[str, int]] = []
         with (
-            patch.object(monitor, "inc_counter") as mock_counter,
+            patch(
+                "bigbrotr.services.monitor.service.count_relays_to_monitor",
+                new_callable=AsyncMock,
+                return_value=2,
+            ),
             patch(
                 "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
                 new_callable=AsyncMock,
-                return_value=[relay1, relay2],
+                side_effect=[[relay1, relay2], []],
             ),
-            patch.object(monitor, "_check_relay_safe", side_effect=fake_check_relay_safe),
-            patch.object(monitor, "publish_relay_discoveries", new_callable=AsyncMock),
-            patch.object(monitor, "_persist_results", new_callable=AsyncMock),
+            patch.object(monitor, "_monitoring_worker", side_effect=fake_monitoring_worker),
+            patch(
+                "bigbrotr.services.monitor.service.insert_relay_metadata",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.upsert_monitor_checkpoints",
+                new_callable=AsyncMock,
+            ),
+            patch.object(
+                monitor,
+                "set_gauge",
+                side_effect=lambda n, val: gauge_calls.append((n, val)),
+            ),
         ):
             await monitor.monitor()
 
-        mock_counter.assert_any_call("total_checks_succeeded", 1)
-        mock_counter.assert_any_call("total_checks_failed", 1)
+        calls = {(n, v) for n, v in gauge_calls}
+        assert ("total", 2) in calls
+        assert ("succeeded", 1) in calls
+        assert ("failed", 1) in calls
 
-    async def test_persist_results_emits_metadata_counter(self, mock_brotr: Brotr) -> None:
-        mock_brotr.insert_relay_metadata = AsyncMock(return_value=3)  # type: ignore[method-assign]
-        mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
 
-        config = _make_config()
-        monitor = Monitor(brotr=mock_brotr, config=config)
+# ============================================================================
+# Update Geo Databases
+# ============================================================================
 
-        relay = Relay("wss://relay.example.com")
-        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
-        successful = [(relay, result)]
 
-        with patch.object(monitor, "inc_counter") as mock_counter:
-            await monitor._persist_results(successful, [])
-
-        mock_counter.assert_any_call("total_metadata_stored", 3)
-
-    async def test_publish_discoveries_emits_counter(self, mock_brotr: Brotr) -> None:
+class TestUpdateGeoDatabases:
+    async def test_skips_when_no_geo_or_net_enabled(self, mock_brotr: Brotr) -> None:
         config = _make_config(
-            discovery=DiscoveryConfig(
-                enabled=True,
-                include=MetadataFlags(nip66_geo=False, nip66_net=False),
-                relays=["wss://disc.relay.com"],
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=False),
+                store=MetadataFlags(nip66_geo=False, nip66_net=False),
             ),
-            publishing=PublishingConfig(relays=["wss://fallback.relay.com"]),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
+        with patch(
+            "bigbrotr.services.monitor.service.download_bounded_file",
+            new_callable=AsyncMock,
+        ) as mock_download:
+            await monitor.update_geo_databases()
+            mock_download.assert_not_awaited()
 
-        relay = Relay("wss://relay.example.com")
-        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
+    async def test_downloads_missing_city_db(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+        city_path = str(tmp_path / "missing_city.mmdb")
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=True, nip66_net=False),
+                store=MetadataFlags(nip66_geo=True, nip66_net=False),
+            ),
+            geo=GeoConfig(
+                city_database_path=city_path,
+                city_download_url="https://example.com/city.mmdb",
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        with patch(
+            "bigbrotr.services.monitor.service.download_bounded_file",
+            new_callable=AsyncMock,
+        ) as mock_download:
+            await monitor.update_geo_databases()
+            mock_download.assert_awaited_once()
 
+    async def test_downloads_missing_asn_db(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+        asn_path = str(tmp_path / "missing_asn.mmdb")
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=False, nip66_net=True),
+                store=MetadataFlags(nip66_geo=False, nip66_net=True),
+            ),
+            geo=GeoConfig(
+                asn_database_path=asn_path,
+                asn_download_url="https://example.com/asn.mmdb",
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        with patch(
+            "bigbrotr.services.monitor.service.download_bounded_file",
+            new_callable=AsyncMock,
+        ) as mock_download:
+            await monitor.update_geo_databases()
+            mock_download.assert_awaited_once()
+
+    async def test_skips_fresh_db(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+        city_file = tmp_path / "city.mmdb"
+        city_file.write_bytes(b"data")
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=True, nip66_net=False),
+                store=MetadataFlags(nip66_geo=True, nip66_net=False),
+            ),
+            geo=GeoConfig(
+                city_database_path=str(city_file),
+                city_download_url="https://example.com/city.mmdb",
+                max_age_days=30,
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        with patch(
+            "bigbrotr.services.monitor.service.download_bounded_file",
+            new_callable=AsyncMock,
+        ) as mock_download:
+            await monitor.update_geo_databases()
+            mock_download.assert_not_awaited()
+
+    async def test_skips_when_max_age_none(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+        city_file = tmp_path / "city.mmdb"
+        city_file.write_bytes(b"data")
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=True, nip66_net=False),
+                store=MetadataFlags(nip66_geo=True, nip66_net=False),
+            ),
+            geo=GeoConfig(
+                city_database_path=str(city_file),
+                city_download_url="https://example.com/city.mmdb",
+                max_age_days=None,
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        with patch(
+            "bigbrotr.services.monitor.service.download_bounded_file",
+            new_callable=AsyncMock,
+        ) as mock_download:
+            await monitor.update_geo_databases()
+            mock_download.assert_not_awaited()
+
+    async def test_redownloads_stale_db(self, mock_brotr: Brotr, tmp_path: Path) -> None:
+        import os
+
+        city_file = tmp_path / "city.mmdb"
+        city_file.write_bytes(b"data")
+        stale_time = time.time() - (31 * 86400)
+        os.utime(city_file, (stale_time, stale_time))
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=True, nip66_net=False),
+                store=MetadataFlags(nip66_geo=True, nip66_net=False),
+            ),
+            geo=GeoConfig(
+                city_database_path=str(city_file),
+                city_download_url="https://example.com/city.mmdb",
+                max_age_days=30,
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        with patch(
+            "bigbrotr.services.monitor.service.download_bounded_file",
+            new_callable=AsyncMock,
+        ) as mock_download:
+            await monitor.update_geo_databases()
+            mock_download.assert_awaited_once()
+
+    async def test_download_failure_logged_and_suppressed(
+        self, mock_brotr: Brotr, tmp_path: Path
+    ) -> None:
+        city_path = str(tmp_path / "missing_city.mmdb")
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=True, nip66_net=False),
+                store=MetadataFlags(nip66_geo=True, nip66_net=False),
+            ),
+            geo=GeoConfig(
+                city_database_path=city_path,
+                city_download_url="https://example.com/city.mmdb",
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        with patch(
+            "bigbrotr.services.monitor.service.download_bounded_file",
+            new_callable=AsyncMock,
+            side_effect=OSError("download failed"),
+        ):
+            await monitor.update_geo_databases()
+
+
+# ============================================================================
+# Publish -- no clients reachable
+# ============================================================================
+
+
+class TestPublishAnnouncementNoClients:
+    async def test_announcement_no_clients_reachable(self, test_keys: Keys) -> None:
+        config = _make_config(
+            announcement=AnnouncementConfig(
+                enabled=True,
+                include=_NO_GEO_NET,
+                relays=["wss://ann.relay.com"],
+            ),
+        )
+        harness = _MonitorStub(config, test_keys)
+        harness.clients.get_many = AsyncMock(return_value=[])
         with (
-            patch.object(monitor, "inc_counter") as mock_counter,
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.is_publish_due",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+            ) as mock_broadcast,
+            patch(
+                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
         ):
-            await monitor.publish_relay_discoveries([(relay, result)])
+            await harness.publish_announcement()
 
-        mock_counter.assert_any_call("total_events_published", 1)
+        mock_broadcast.assert_not_awaited()
+        mock_save.assert_not_awaited()
+        harness._logger.warning.assert_called_once_with(
+            "publish_failed", event="announcement", error="no relays reachable"
+        )
+
+
+class TestPublishProfileNoClients:
+    async def test_profile_no_clients_reachable(self, test_keys: Keys) -> None:
+        config = _make_config(
+            profile=ProfileConfig(
+                enabled=True,
+                relays=["wss://profile.relay.com"],
+            ),
+        )
+        harness = _MonitorStub(config, test_keys)
+        harness.clients.get_many = AsyncMock(return_value=[])
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+            ) as mock_broadcast,
+            patch(
+                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
+        ):
+            await harness.publish_profile()
+
+        mock_broadcast.assert_not_awaited()
+        mock_save.assert_not_awaited()
+        harness._logger.warning.assert_called_once_with(
+            "publish_failed", event="profile", error="no relays reachable"
+        )
+
+
+# ============================================================================
+# Check Relay
+# ============================================================================
+
+
+class TestCheckRelay:
+    @staticmethod
+    def _flags(**kw: bool) -> MetadataFlags:
+        base = {
+            "nip11_info": False,
+            "nip66_rtt": False,
+            "nip66_ssl": False,
+            "nip66_geo": False,
+            "nip66_net": False,
+            "nip66_dns": False,
+            "nip66_http": False,
+        }
+        base.update(kw)
+        return MetadataFlags(**base)
+
+    def _cfg(self, **compute_kw: bool) -> MonitorConfig:
+        flags = self._flags(**compute_kw)
+        return _make_config(
+            processing=ProcessingConfig(compute=flags, store=flags),
+            discovery=DiscoveryConfig(include=flags),
+            announcement=AnnouncementConfig(include=flags),
+        )
+
+    async def test_check_relay_unknown_network(self, mock_brotr: Brotr) -> None:
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        monitor.network_semaphores = MagicMock()
+        monitor.network_semaphores.get = MagicMock(return_value=None)
+
+        result = await monitor.check_relay(relay)
+
+        assert not result.has_data
+        assert result.generated_at == 0
+
+    async def test_check_relay_nip11_only(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip11_info=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        nip11_meta = _make_nip11_meta(name="Test")
+
+        with patch(
+            "bigbrotr.services.monitor.service.retry_fetch",
+            new_callable=AsyncMock,
+            return_value=nip11_meta,
+        ):
+            result = await monitor.check_relay(relay)
+
+        assert result.has_data
+        assert result.nip11_info is nip11_meta
+        assert result.nip66_rtt is None
+
+    async def test_check_relay_nip11_and_rtt(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip11_info=True, nip66_rtt=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        nip11_meta = _make_nip11_meta(name="Test")
+        rtt_meta = _make_rtt_meta(rtt_open=50)
+
+        with patch(
+            "bigbrotr.services.monitor.service.retry_fetch",
+            new_callable=AsyncMock,
+            side_effect=[nip11_meta, rtt_meta],
+        ):
+            result = await monitor.check_relay(relay)
+
+        assert result.has_data
+        assert result.nip11_info is nip11_meta
+        assert result.nip66_rtt is rtt_meta
+
+    async def test_check_relay_with_parallel_checks(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip66_http=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        from bigbrotr.nips.nip66 import Nip66HttpData, Nip66HttpLogs, Nip66HttpMetadata
+
+        http_meta = Nip66HttpMetadata(data=Nip66HttpData(), logs=Nip66HttpLogs(success=True))
+
+        async def fake_retry(*args: Any, **kwargs: Any) -> Nip66HttpMetadata:
+            return http_meta
+
+        with patch(
+            "bigbrotr.services.monitor.service.retry_fetch",
+            side_effect=fake_retry,
+        ):
+            result = await monitor.check_relay(relay)
+
+        assert result.nip66_http is http_meta
+
+    async def test_check_relay_all_fail_returns_empty(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip11_info=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        with patch(
+            "bigbrotr.services.monitor.service.retry_fetch",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            result = await monitor.check_relay(relay)
+
+        assert not result.has_data
+
+    async def test_check_relay_timeout_returns_empty(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip11_info=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        with patch(
+            "bigbrotr.services.monitor.service.retry_fetch",
+            new_callable=AsyncMock,
+            side_effect=TimeoutError("timed out"),
+        ):
+            result = await monitor.check_relay(relay)
+
+        assert not result.has_data
+        assert result.generated_at == 0
+
+    async def test_check_relay_os_error_returns_empty(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip11_info=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        with patch(
+            "bigbrotr.services.monitor.service.retry_fetch",
+            new_callable=AsyncMock,
+            side_effect=OSError("connection refused"),
+        ):
+            result = await monitor.check_relay(relay)
+
+        assert not result.has_data
+
+    async def test_check_relay_rtt_with_pow(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip11_info=True, nip66_rtt=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        nip11_meta = _make_nip11_meta(
+            name="Test",
+            limitation=Nip11InfoDataLimitation(min_pow_difficulty=16),
+        )
+        rtt_meta = _make_rtt_meta(rtt_open=50)
+
+        with patch(
+            "bigbrotr.services.monitor.service.retry_fetch",
+            new_callable=AsyncMock,
+            side_effect=[nip11_meta, rtt_meta],
+        ):
+            result = await monitor.check_relay(relay)
+
+        assert result.nip11_info is nip11_meta
+        assert result.nip66_rtt is rtt_meta
+
+    async def test_check_relay_cancelled_error_in_parallel_reraises(
+        self, mock_brotr: Brotr
+    ) -> None:
+        config = self._cfg(nip66_http=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        cancelled = asyncio.CancelledError()
+
+        async def fake_retry(*args: Any, **kwargs: Any) -> None:
+            raise cancelled
+
+        with (
+            patch("bigbrotr.services.monitor.service.retry_fetch", side_effect=fake_retry),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await monitor.check_relay(relay)
+
+
+# ============================================================================
+# Build Parallel Checks
+# ============================================================================
+
+
+class TestBuildParallelChecks:
+    @staticmethod
+    def _flags(**kw: bool) -> MetadataFlags:
+        base = {
+            "nip11_info": False,
+            "nip66_rtt": False,
+            "nip66_ssl": False,
+            "nip66_geo": False,
+            "nip66_net": False,
+            "nip66_dns": False,
+            "nip66_http": False,
+        }
+        base.update(kw)
+        return MetadataFlags(**base)
+
+    def _cfg(self, **compute_kw: bool) -> MonitorConfig:
+        flags = self._flags(**compute_kw)
+        return _make_config(
+            processing=ProcessingConfig(compute=flags, store=flags),
+            discovery=DiscoveryConfig(include=flags),
+            announcement=AnnouncementConfig(include=flags),
+        )
+
+    def test_no_checks_enabled(self, mock_brotr: Brotr) -> None:
+        config = self._cfg()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        tasks = monitor._build_parallel_checks(relay, config.processing.compute, 10.0, None)
+
+        assert tasks == {}
+
+    def test_http_check_for_any_network(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip66_http=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        onion = "a" * 56
+        relay = Relay(f"ws://{onion}.onion")
+
+        tasks = monitor._build_parallel_checks(
+            relay, config.processing.compute, 10.0, "socks5://localhost:9050"
+        )
+
+        assert "http" in tasks
+        assert "ssl" not in tasks
+        assert "dns" not in tasks
+        for coro in tasks.values():
+            coro.close()
+
+    def test_clearnet_only_checks_for_clearnet(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip66_ssl=True, nip66_dns=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        tasks = monitor._build_parallel_checks(relay, config.processing.compute, 10.0, None)
+
+        assert "ssl" in tasks
+        assert "dns" in tasks
+        for coro in tasks.values():
+            coro.close()
+
+    def test_clearnet_only_checks_skipped_for_tor(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip66_ssl=True, nip66_dns=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        onion = "a" * 56
+        relay = Relay(f"ws://{onion}.onion")
+
+        tasks = monitor._build_parallel_checks(
+            relay, config.processing.compute, 10.0, "socks5://localhost:9050"
+        )
+
+        assert "ssl" not in tasks
+        assert "dns" not in tasks
+
+    def test_geo_check_requires_reader(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip66_geo=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        tasks = monitor._build_parallel_checks(relay, config.processing.compute, 10.0, None)
+
+        assert "geo" not in tasks
+
+    def test_geo_check_included_with_reader(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip66_geo=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        monitor.geo_readers.city = MagicMock()
+        relay = Relay("wss://relay.example.com")
+
+        tasks = monitor._build_parallel_checks(relay, config.processing.compute, 10.0, None)
+
+        assert "geo" in tasks
+        for coro in tasks.values():
+            coro.close()
+
+    def test_net_check_requires_reader(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip66_net=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+
+        tasks = monitor._build_parallel_checks(relay, config.processing.compute, 10.0, None)
+
+        assert "net" not in tasks
+
+    def test_net_check_included_with_reader(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip66_net=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        monitor.geo_readers.asn = MagicMock()
+        relay = Relay("wss://relay.example.com")
+
+        tasks = monitor._build_parallel_checks(relay, config.processing.compute, 10.0, None)
+
+        assert "net" in tasks
+        for coro in tasks.values():
+            coro.close()
+
+
+# ============================================================================
+# Monitor with max_relays budget
+# ============================================================================
+
+
+class TestMonitorMaxRelaysBudget:
+    async def test_monitor_stops_at_max_relays(self, mock_brotr: Brotr) -> None:
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=_NO_GEO_NET,
+                store=_NO_GEO_NET,
+                max_relays=2,
+                chunk_size=10,
+            ),
+            discovery=DiscoveryConfig(enabled=False, include=_NO_GEO_NET),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay1 = Relay("wss://r1.example.com")
+        relay2 = Relay("wss://r2.example.com")
+        relay3 = Relay("wss://r3.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
+
+        async def fake_worker(relay: Relay) -> tuple[Relay, CheckResult | None]:
+            return (relay, result)
+
+        monitor.clients = MagicMock()
+        monitor.clients.disconnect = AsyncMock()
+
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.count_relays_to_monitor",
+                new_callable=AsyncMock,
+                return_value=3,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
+                new_callable=AsyncMock,
+                side_effect=[[relay1, relay2, relay3], []],
+            ),
+            patch.object(monitor, "_monitoring_worker", side_effect=fake_worker),
+            patch(
+                "bigbrotr.services.monitor.service.insert_relay_metadata",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.upsert_monitor_checkpoints",
+                new_callable=AsyncMock,
+            ),
+        ):
+            total = await monitor.monitor()
+
+        assert total <= 3
+
+    async def test_monitor_budget_limits_fetch(self, mock_brotr: Brotr) -> None:
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=_NO_GEO_NET,
+                store=_NO_GEO_NET,
+                max_relays=1,
+                chunk_size=100,
+            ),
+            discovery=DiscoveryConfig(enabled=False, include=_NO_GEO_NET),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay1 = Relay("wss://r1.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
+
+        async def fake_worker(relay: Relay) -> tuple[Relay, CheckResult | None]:
+            return (relay, result)
+
+        monitor.clients = MagicMock()
+        monitor.clients.disconnect = AsyncMock()
+
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.count_relays_to_monitor",
+                new_callable=AsyncMock,
+                return_value=10,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
+                new_callable=AsyncMock,
+                side_effect=[[relay1], []],
+            ) as mock_fetch,
+            patch.object(monitor, "_monitoring_worker", side_effect=fake_worker),
+            patch(
+                "bigbrotr.services.monitor.service.insert_relay_metadata",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.upsert_monitor_checkpoints",
+                new_callable=AsyncMock,
+            ),
+        ):
+            total = await monitor.monitor()
+
+        assert total == 1
+        first_call_args = mock_fetch.call_args_list[0]
+        assert first_call_args[0][3] == 1
+
+
+# ============================================================================
+# Retry Fetch
+# ============================================================================
+
+
+class TestRetryFetch:
+    async def test_success_on_first_attempt(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        meta = _make_nip11_meta(name="Test")
+        retry = RetryConfig(max_attempts=2, initial_delay=0.1, max_delay=1.0, jitter=0.0)
+
+        result = await retry_fetch(relay, AsyncMock(return_value=meta), retry, "nip11_info")
+
+        assert result is meta
+
+    async def test_retry_on_failure_then_succeed(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        failed_meta = _make_nip11_meta(name="Test", success=False)
+        success_meta = _make_nip11_meta(name="Test", success=True)
+        retry = RetryConfig(max_attempts=2, initial_delay=0.1, max_delay=1.0, jitter=0.0)
+
+        call_count = 0
+
+        async def factory() -> Nip11InfoMetadata:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return failed_meta
+            return success_meta
+
+        result = await retry_fetch(relay, factory, retry, "nip11_info")
+
+        assert result is success_meta
+        assert call_count == 2
+
+    async def test_retry_on_timeout_then_succeed(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        success_meta = _make_nip11_meta(name="Test")
+        retry = RetryConfig(max_attempts=2, initial_delay=0.1, max_delay=1.0, jitter=0.0)
+
+        call_count = 0
+
+        async def factory() -> Nip11InfoMetadata:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise TimeoutError("timed out")
+            return success_meta
+
+        result = await retry_fetch(relay, factory, retry, "nip11_info")
+
+        assert result is success_meta
+        assert call_count == 2
+
+    async def test_retry_on_os_error_then_succeed(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        success_meta = _make_nip11_meta(name="Test")
+        retry = RetryConfig(max_attempts=1, initial_delay=0.1, max_delay=1.0, jitter=0.0)
+
+        call_count = 0
+
+        async def factory() -> Nip11InfoMetadata:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise OSError("connection refused")
+            return success_meta
+
+        result = await retry_fetch(relay, factory, retry, "nip11_info")
+
+        assert result is success_meta
+
+    async def test_all_retries_exhausted_returns_last_result(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        failed_meta = _make_nip11_meta(name="Test", success=False)
+        retry = RetryConfig(max_attempts=1, initial_delay=0.1, max_delay=1.0, jitter=0.0)
+
+        result = await retry_fetch(relay, AsyncMock(return_value=failed_meta), retry, "nip11_info")
+
+        assert result is failed_meta
+
+    async def test_all_retries_exhausted_with_exceptions(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        retry = RetryConfig(max_attempts=1, initial_delay=0.1, max_delay=1.0, jitter=0.0)
+
+        result = await retry_fetch(
+            relay,
+            AsyncMock(side_effect=TimeoutError("timed out")),
+            retry,
+            "nip11_info",
+        )
+
+        assert result is None
+
+    async def test_no_retries(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        failed_meta = _make_nip11_meta(name="Test", success=False)
+        retry = RetryConfig(max_attempts=0)
+
+        result = await retry_fetch(relay, AsyncMock(return_value=failed_meta), retry, "nip11_info")
+
+        assert result is failed_meta
+
+    async def test_wait_callback_called(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        failed_meta = _make_nip11_meta(name="Test", success=False)
+        success_meta = _make_nip11_meta(name="Test", success=True)
+        retry = RetryConfig(max_attempts=1, initial_delay=0.1, max_delay=1.0, jitter=0.0)
+
+        call_count = 0
+
+        async def factory() -> Nip11InfoMetadata:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return failed_meta
+            return success_meta
+
+        async def wait_fn(delay: float) -> bool:
+            return False
+
+        result = await retry_fetch(relay, factory, retry, "nip11_info", wait=wait_fn)
+
+        assert result is success_meta
+
+    async def test_wait_callback_signals_shutdown(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        failed_meta = _make_nip11_meta(name="Test", success=False)
+        retry = RetryConfig(max_attempts=2, initial_delay=0.1, max_delay=1.0, jitter=0.0)
+
+        async def wait_fn(delay: float) -> bool:
+            return True
+
+        result = await retry_fetch(
+            relay, AsyncMock(return_value=failed_meta), retry, "nip11_info", wait=wait_fn
+        )
+
+        assert result is None
+
+    async def test_delay_capped_by_max_delay(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        failed_meta = _make_nip11_meta(name="Test", success=False)
+        retry = RetryConfig(max_attempts=3, initial_delay=5.0, max_delay=5.0, jitter=0.0)
+
+        delays: list[float] = []
+
+        async def wait_fn(delay: float) -> bool:
+            delays.append(delay)
+            return False
+
+        await retry_fetch(
+            relay, AsyncMock(return_value=failed_meta), retry, "nip11_info", wait=wait_fn
+        )
+
+        for d in delays:
+            assert d <= 5.0 + retry.jitter
+
+
+# ============================================================================
+# Collect Metadata
+# ============================================================================
+
+
+class TestCollectMetadata:
+    def test_empty_input(self) -> None:
+        store = MetadataFlags()
+        result = collect_metadata([], store)
+
+        assert result == []
+
+    def test_collects_enabled_types(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        nip11_meta = _make_nip11_meta(name="Test")
+        check_result = _make_check_result(generated_at=1700000000, nip11_info=nip11_meta)
+        store = MetadataFlags(
+            nip11_info=True,
+            nip66_rtt=True,
+            nip66_ssl=True,
+            nip66_geo=True,
+            nip66_net=True,
+            nip66_dns=True,
+            nip66_http=True,
+        )
+
+        result = collect_metadata([(relay, check_result)], store)
+
+        assert len(result) == 1
+        assert result[0].relay is relay
+        assert result[0].generated_at == 1700000000
+
+    def test_skips_disabled_types(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        nip11_meta = _make_nip11_meta(name="Test")
+        check_result = _make_check_result(generated_at=1700000000, nip11_info=nip11_meta)
+        store = MetadataFlags(nip11_info=False)
+
+        result = collect_metadata([(relay, check_result)], store)
+
+        assert len(result) == 0
+
+    def test_skips_none_metadata(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        check_result = _make_check_result(generated_at=1700000000)
+        store = MetadataFlags()
+
+        result = collect_metadata([(relay, check_result)], store)
+
+        assert len(result) == 0
+
+    def test_multiple_relays_and_types(self) -> None:
+        relay1 = Relay("wss://r1.example.com")
+        relay2 = Relay("wss://r2.example.com")
+        nip11 = _make_nip11_meta(name="Test")
+        rtt = _make_rtt_meta(rtt_open=50)
+        result1 = _make_check_result(generated_at=100, nip11_info=nip11, nip66_rtt=rtt)
+        result2 = _make_check_result(generated_at=200, nip11_info=nip11)
+        store = MetadataFlags()
+
+        result = collect_metadata([(relay1, result1), (relay2, result2)], store)
+
+        assert len(result) == 3

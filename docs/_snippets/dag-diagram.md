@@ -14,10 +14,4 @@ graph TD
     C --> M
     N --> M
     U --> M
-
-    style S fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style C fill:#512DA8,color:#fff,stroke:#311B92
-    style N fill:#512DA8,color:#fff,stroke:#311B92
-    style U fill:#512DA8,color:#fff,stroke:#311B92
-    style M fill:#311B92,color:#fff,stroke:#1A237E
 ```

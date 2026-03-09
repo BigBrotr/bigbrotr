@@ -7,11 +7,13 @@ from types import MappingProxyType
 import pytest
 
 from bigbrotr.models._validation import (
+    _is_empty,
     deep_freeze,
     sanitize_data,
     validate_instance,
     validate_mapping,
     validate_str_no_null,
+    validate_str_not_empty,
     validate_timestamp,
 )
 
@@ -92,6 +94,30 @@ class TestValidateStrNoNull:
             validate_str_no_null(b"hello", "field")
 
 
+class TestValidateStrNotEmpty:
+    def test_normal_string_passes(self) -> None:
+        validate_str_not_empty("hello", "field")
+
+    def test_empty_string_rejected(self) -> None:
+        with pytest.raises(ValueError, match="field must not be empty"):
+            validate_str_not_empty("", "field")
+
+    def test_null_byte_rejected(self) -> None:
+        with pytest.raises(ValueError, match="field contains null bytes"):
+            validate_str_not_empty("hello\x00world", "field")
+
+    def test_non_string_rejected(self) -> None:
+        with pytest.raises(TypeError, match="field must be a str, got int"):
+            validate_str_not_empty(42, "field")
+
+    def test_none_rejected(self) -> None:
+        with pytest.raises(TypeError, match="field must be a str, got NoneType"):
+            validate_str_not_empty(None, "field")
+
+    def test_whitespace_only_passes(self) -> None:
+        validate_str_not_empty("  ", "field")
+
+
 class TestValidateMapping:
     def test_dict_accepted(self) -> None:
         validate_mapping({"a": 1}, "field")
@@ -115,6 +141,35 @@ class TestValidateMapping:
             validate_mapping(None, "field")
 
 
+class TestIsEmpty:
+    def test_none_is_empty(self) -> None:
+        assert _is_empty(None) is True
+
+    def test_empty_dict_is_empty(self) -> None:
+        assert _is_empty({}) is True
+
+    def test_empty_list_is_empty(self) -> None:
+        assert _is_empty([]) is True
+
+    def test_non_empty_dict_not_empty(self) -> None:
+        assert _is_empty({"a": 1}) is False
+
+    def test_non_empty_list_not_empty(self) -> None:
+        assert _is_empty([1]) is False
+
+    def test_zero_not_empty(self) -> None:
+        assert _is_empty(0) is False
+
+    def test_false_not_empty(self) -> None:
+        assert _is_empty(False) is False
+
+    def test_empty_string_not_empty(self) -> None:
+        assert _is_empty("") is False
+
+    def test_string_not_empty(self) -> None:
+        assert _is_empty("hello") is False
+
+
 class TestSanitizeData:
     """sanitize_data: recursive normalization with null byte and type safety."""
 
@@ -129,11 +184,17 @@ class TestSanitizeData:
     def test_preserves_bool(self) -> None:
         assert sanitize_data(True, "d") is True
 
+    def test_preserves_false(self) -> None:
+        assert sanitize_data(False, "d") is False
+
     def test_preserves_finite_float(self) -> None:
         assert sanitize_data(3.14, "d") == 3.14
 
     def test_infinite_float_becomes_none(self) -> None:
         assert sanitize_data(float("inf"), "d") is None
+
+    def test_negative_infinite_float_becomes_none(self) -> None:
+        assert sanitize_data(float("-inf"), "d") is None
 
     def test_nan_becomes_none(self) -> None:
         assert sanitize_data(float("nan"), "d") is None
@@ -208,6 +269,16 @@ class TestSanitizeData:
     def test_empty_list_returns_empty(self) -> None:
         assert sanitize_data([], "d") == []
 
+    # --- Tuple rejection ---
+
+    def test_tuple_raises_type_error(self) -> None:
+        with pytest.raises(TypeError, match="contains a tuple"):
+            sanitize_data((1, 2, 3), "data")
+
+    def test_tuple_in_dict_raises_type_error(self) -> None:
+        with pytest.raises(TypeError, match="contains a tuple"):
+            sanitize_data({"key": (1, 2)}, "data")
+
     # --- Nested structures ---
 
     def test_deeply_nested(self) -> None:
@@ -225,14 +296,17 @@ class TestSanitizeData:
     # --- Max depth ---
 
     def test_exceeds_max_depth_truncates(self) -> None:
-        # depth 0: outer dict, depth 1: inner dict, depth 2 > max_depth → values become None
-        # empty containers are pruned, so nested dicts collapse to {}
         result = sanitize_data({"a": {"nested": "deep"}}, "d", max_depth=1)
         assert result == {}
 
     def test_within_max_depth_preserved(self) -> None:
         result = sanitize_data({"a": {"nested": "deep"}}, "d", max_depth=2)
         assert result == {"a": {"nested": "deep"}}
+
+    def test_max_depth_zero_truncates_values(self) -> None:
+        # depth 0: outer dict processed; depth 1 > max_depth → values become None → pruned
+        result = sanitize_data({"a": 1}, "d", max_depth=0)
+        assert result == {}
 
     # --- MappingProxyType (roundtrip) ---
 

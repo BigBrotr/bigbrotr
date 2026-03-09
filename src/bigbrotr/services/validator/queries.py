@@ -20,74 +20,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-async def _filter_new_relays(
-    brotr: Brotr,
-    relays: list[Relay],
-) -> list[Relay]:
-    """Keep only relays not already in the database or pending validation."""
-    urls = [r.url for r in relays]
-    if not urls:
-        return []
-
-    rows = await brotr.fetch(
-        """
-        SELECT t.url FROM unnest($1::text[]) AS t(url)
-        WHERE NOT EXISTS (SELECT 1 FROM relay r WHERE r.url = t.url)
-          AND NOT EXISTS (
-              SELECT 1 FROM service_state ss
-              WHERE ss.service_name = $2 AND ss.state_type = $3
-                AND ss.state_key = t.url
-          )
-        """,
-        urls,
-        ServiceName.VALIDATOR,
-        ServiceStateType.CHECKPOINT,
-    )
-    new_urls = {row["url"] for row in rows}
-    return [r for r in relays if r.url in new_urls]
-
-
-async def insert_relays_as_candidates(brotr: Brotr, relays: list[Relay]) -> int:
-    """Insert new validation candidates, skipping known relays and duplicates.
-
-    Filters out URLs that already exist in the ``relay`` table or as
-    pending candidates in ``service_state``, then persists only genuinely
-    new records. Existing candidates retain their current state (e.g.
-    ``failures`` counter is never reset).
-
-    Called by [Seeder][bigbrotr.services.seeder.Seeder] and
-    [Finder][bigbrotr.services.finder.Finder] to register newly
-    discovered relay URLs for validation.
-
-    Args:
-        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
-        relays: [Relay][bigbrotr.models.relay.Relay] objects to register
-            as candidates.
-
-    Returns:
-        Number of candidate records actually inserted.
-    """
-    new_relays = await _filter_new_relays(brotr, relays)
-    if not new_relays:
-        return 0
-
-    now = int(time.time())
-    records: list[ServiceState] = [
-        ServiceState(
-            service_name=ServiceName.VALIDATOR,
-            state_type=ServiceStateType.CHECKPOINT,
-            state_key=relay.url,
-            state_value={
-                "network": relay.network.value,
-                "failures": 0,
-                "timestamp": now,
-            },
-        )
-        for relay in new_relays
-    ]
-    return await batched_insert(brotr, records, brotr.upsert_service_state)
-
-
 async def delete_promoted_candidates(brotr: Brotr) -> int:
     """Remove candidates that have already been promoted to the relay table.
 
@@ -102,9 +34,8 @@ async def delete_promoted_candidates(brotr: Brotr) -> int:
     Returns:
         Number of deleted rows.
     """
-    count: int = (
-        await brotr.fetchval(
-            """
+    count: int = await brotr.fetchval(
+        """
         WITH deleted AS (
             DELETE FROM service_state
             WHERE service_name = $1
@@ -114,10 +45,8 @@ async def delete_promoted_candidates(brotr: Brotr) -> int:
         )
         SELECT count(*)::int FROM deleted
         """,
-            ServiceName.VALIDATOR,
-            ServiceStateType.CHECKPOINT,
-        )
-        or 0
+        ServiceName.VALIDATOR,
+        ServiceStateType.CHECKPOINT,
     )
     return count
 
@@ -155,6 +84,16 @@ async def delete_exhausted_candidates(brotr: Brotr, max_failures: int) -> int:
     return count
 
 
+_CANDIDATES_WHERE = """
+    FROM service_state
+    WHERE service_name = $1
+      AND state_type = $2
+      AND state_value->>'network' = ANY($3)
+      AND (COALESCE((state_value->>'failures')::int, 0) = 0
+           OR (state_value->>'timestamp')::BIGINT < $4)
+"""
+
+
 async def count_candidates(
     brotr: Brotr,
     networks: list[NetworkType],
@@ -172,22 +111,14 @@ async def count_candidates(
     Returns:
         Total count of matching candidates.
     """
-    row = await brotr.fetchrow(
-        """
-        SELECT COUNT(*)::int AS count
-        FROM service_state
-        WHERE service_name = $1
-          AND state_type = $2
-          AND state_value->>'network' = ANY($3)
-          AND (COALESCE((state_value->>'failures')::int, 0) = 0
-               OR (state_value->>'timestamp')::BIGINT < $4)
-        """,
+    count: int = await brotr.fetchval(
+        f"SELECT count(*)::int {_CANDIDATES_WHERE}",
         ServiceName.VALIDATOR,
         ServiceStateType.CHECKPOINT,
         networks,
         attempted_before,
     )
-    return row["count"] if row else 0
+    return count
 
 
 async def fetch_candidates(
@@ -217,14 +148,9 @@ async def fetch_candidates(
         instances.
     """
     rows = await brotr.fetch(
-        """
+        f"""
         SELECT state_key, state_value
-        FROM service_state
-        WHERE service_name = $1
-          AND state_type = $2
-          AND state_value->>'network' = ANY($3)
-          AND (COALESCE((state_value->>'failures')::int, 0) = 0
-               OR (state_value->>'timestamp')::BIGINT < $4)
+        {_CANDIDATES_WHERE}
         ORDER BY COALESCE((state_value->>'failures')::int, 0) ASC,
                  COALESCE((state_value->>'timestamp')::BIGINT, 0) ASC
         LIMIT $5

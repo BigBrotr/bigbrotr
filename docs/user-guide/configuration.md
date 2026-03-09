@@ -23,8 +23,6 @@ flowchart TD
     D --> E["Environment variable resolution<br/><small>DB_ADMIN_PASSWORD, NOSTR_PRIVATE_KEY</small>"]
     E --> F["Service starts<br/><small>validated configuration</small>"]
 
-    style A fill:#7B1FA2,color:#fff,stroke:#4A148C
-    style F fill:#1B5E20,color:#fff,stroke:#0D3B0F
 ```
 
 ### File Structure

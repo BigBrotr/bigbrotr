@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.services.common.types import ApiCheckpoint, EventRelayCursor
+from bigbrotr.services.common.types import ApiCheckpoint, FinderCursor
 
 
 if TYPE_CHECKING:
@@ -17,17 +17,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-async def fetch_event_relay_cursors(brotr: Brotr) -> list[EventRelayCursor]:
+async def fetch_event_relay_cursors(brotr: Brotr) -> list[FinderCursor]:
     """Fetch all relays with their event-scanning cursor position.
 
     Performs a single ``LEFT JOIN`` between the ``relay`` table and
     ``service_state`` (filtered on ``finder`` / ``cursor``), returning an
-    [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor] for
+    [FinderCursor][bigbrotr.services.common.types.FinderCursor] for
     every relay.  Relays without a stored cursor get
-    ``seen_at=None, event_id=None`` (scan from beginning).
+    ``timestamp=None, id=None`` (scan from beginning).
 
-    Cursor rows with corrupt data (non-integer ``seen_at``, non-hex
-    ``event_id``) are silently treated as missing and the relay will be
+    Cursor rows with corrupt data (non-integer timestamp, non-hex
+    id) are silently treated as missing and the relay will be
     rescanned from the beginning.
 
     Args:
@@ -35,7 +35,7 @@ async def fetch_event_relay_cursors(brotr: Brotr) -> list[EventRelayCursor]:
 
     Returns:
         List of
-        [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor],
+        [FinderCursor][bigbrotr.services.common.types.FinderCursor],
         one per relay in the database.
     """
     rows = await brotr.fetch(
@@ -53,7 +53,7 @@ async def fetch_event_relay_cursors(brotr: Brotr) -> list[EventRelayCursor]:
         ServiceName.FINDER,
         ServiceStateType.CURSOR,
     )
-    cursors: list[EventRelayCursor] = []
+    cursors: list[FinderCursor] = []
     for row in rows:
         url = row["url"]
         seen_at_raw = row["seen_at"]
@@ -61,34 +61,34 @@ async def fetch_event_relay_cursors(brotr: Brotr) -> list[EventRelayCursor]:
         if seen_at_raw is not None and event_id_hex is not None:
             try:
                 cursors.append(
-                    EventRelayCursor(
-                        relay_url=url,
-                        seen_at=int(seen_at_raw),
-                        event_id=bytes.fromhex(str(event_id_hex)),
+                    FinderCursor(
+                        key=url,
+                        timestamp=int(seen_at_raw),
+                        id=bytes.fromhex(str(event_id_hex)),
                     )
                 )
             except (ValueError, TypeError):
                 logger.warning("invalid_cursor_skipped: %s", url)
-                cursors.append(EventRelayCursor(relay_url=url))
+                cursors.append(FinderCursor(key=url))
         else:
-            cursors.append(EventRelayCursor(relay_url=url))
+            cursors.append(FinderCursor(key=url))
     return cursors
 
 
 async def scan_event_relay(
     brotr: Brotr,
-    cursor: EventRelayCursor,
+    cursor: FinderCursor,
     limit: int,
 ) -> list[dict[str, Any]]:
     """Scan event-relay rows for a specific relay, cursor-paginated.
 
-    Uses a composite cursor ``(seen_at, event_id)`` for deterministic
+    Uses a composite cursor ``(timestamp, id)`` for deterministic
     pagination that handles ties in ``seen_at``. When the cursor has
-    ``seen_at=None`` (new cursor), scanning starts from the beginning.
+    ``timestamp=None`` (new cursor), scanning starts from the beginning.
 
     Args:
         brotr: The [Brotr][bigbrotr.core.brotr.Brotr] database facade.
-        cursor: [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor]
+        cursor: [FinderCursor][bigbrotr.services.common.types.FinderCursor]
             with relay URL and pagination position.
         limit: Maximum rows per batch.
 
@@ -107,9 +107,9 @@ async def scan_event_relay(
         ORDER BY er.seen_at ASC, e.id ASC
         LIMIT $4
         """,
-        cursor.relay_url,
-        cursor.seen_at,
-        cursor.event_id,
+        cursor.key,
+        cursor.timestamp,
+        cursor.id,
         limit,
     )
     return [dict(row) for row in rows]
@@ -177,29 +177,29 @@ async def save_api_checkpoints(brotr: Brotr, checkpoints: list[ApiCheckpoint]) -
     )
 
 
-async def save_event_relay_cursor(brotr: Brotr, cursor: EventRelayCursor) -> None:
+async def save_event_relay_cursor(brotr: Brotr, cursor: FinderCursor) -> None:
     """Persist the scan cursor position for a relay.
 
-    No-op if the cursor has no position (``seen_at`` or ``event_id`` is
+    No-op if the cursor has no position (``timestamp`` or ``id`` is
     ``None``), which indicates the relay would restart from the beginning —
     storing that is pointless.
 
     Args:
         brotr: The [Brotr][bigbrotr.core.brotr.Brotr] database facade.
-        cursor: [EventRelayCursor][bigbrotr.services.common.types.EventRelayCursor]
+        cursor: [FinderCursor][bigbrotr.services.common.types.FinderCursor]
             with relay URL and pagination position.
     """
-    if cursor.seen_at is None or cursor.event_id is None:
+    if cursor.timestamp is None or cursor.id is None:
         return
     await brotr.upsert_service_state(
         [
             ServiceState(
                 service_name=ServiceName.FINDER,
                 state_type=ServiceStateType.CURSOR,
-                state_key=cursor.relay_url,
+                state_key=cursor.key,
                 state_value={
-                    "seen_at": cursor.seen_at,
-                    "event_id": cursor.event_id.hex(),
+                    "seen_at": cursor.timestamp,
+                    "event_id": cursor.id.hex(),
                 },
             )
         ]
@@ -215,20 +215,21 @@ async def delete_stale_cursors(brotr: Brotr) -> int:
     Returns:
         Number of stale cursor records deleted.
     """
-    rows = await brotr.fetch(
+    count: int = await brotr.fetchval(
         """
-        DELETE FROM service_state ss
-        WHERE ss.service_name = $1
-          AND ss.state_type = $2
-          AND NOT EXISTS (
-              SELECT 1 FROM relay r WHERE r.url = ss.state_key
-          )
-        RETURNING 1
+        WITH deleted AS (
+            DELETE FROM service_state
+            WHERE service_name = $1
+              AND state_type = $2
+              AND NOT EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)
+            RETURNING 1
+        )
+        SELECT count(*)::int FROM deleted
         """,
         ServiceName.FINDER,
         ServiceStateType.CURSOR,
     )
-    return len(rows)
+    return count
 
 
 async def delete_stale_api_checkpoints(brotr: Brotr, active_urls: list[str]) -> int:
@@ -241,16 +242,19 @@ async def delete_stale_api_checkpoints(brotr: Brotr, active_urls: list[str]) -> 
     Returns:
         Number of stale checkpoint records deleted.
     """
-    rows = await brotr.fetch(
+    count: int = await brotr.fetchval(
         """
-        DELETE FROM service_state
-        WHERE service_name = $1
-          AND state_type = $2
-          AND NOT (state_key = ANY($3::text[]))
-        RETURNING 1
+        WITH deleted AS (
+            DELETE FROM service_state
+            WHERE service_name = $1
+              AND state_type = $2
+              AND NOT (state_key = ANY($3::text[]))
+            RETURNING 1
+        )
+        SELECT count(*)::int FROM deleted
         """,
         ServiceName.FINDER,
         ServiceStateType.CHECKPOINT,
         active_urls,
     )
-    return len(rows)
+    return count

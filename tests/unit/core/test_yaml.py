@@ -1,5 +1,5 @@
 """
-Unit tests for utils.yaml module.
+Unit tests for core.yaml module.
 
 Tests:
 - load_yaml() - YAML configuration file loading
@@ -228,6 +228,38 @@ class TestLoadYamlEmptyFiles:
 # =============================================================================
 # File Not Found Tests
 # =============================================================================
+
+
+class TestLoadYamlNonMapping:
+    """Tests for load_yaml() with non-mapping YAML content."""
+
+    def test_list_raises_type_error(self, tmp_path: Path) -> None:
+        yaml_file = tmp_path / "list.yaml"
+        yaml_file.write_text("- item1\n- item2\n")
+
+        with pytest.raises(TypeError, match="Expected YAML mapping"):
+            load_yaml(str(yaml_file))
+
+    def test_scalar_raises_type_error(self, tmp_path: Path) -> None:
+        yaml_file = tmp_path / "scalar.yaml"
+        yaml_file.write_text("just a string\n")
+
+        with pytest.raises(TypeError, match="Expected YAML mapping"):
+            load_yaml(str(yaml_file))
+
+    def test_integer_raises_type_error(self, tmp_path: Path) -> None:
+        yaml_file = tmp_path / "int.yaml"
+        yaml_file.write_text("42\n")
+
+        with pytest.raises(TypeError, match="Expected YAML mapping"):
+            load_yaml(str(yaml_file))
+
+    def test_error_includes_type_name(self, tmp_path: Path) -> None:
+        yaml_file = tmp_path / "list.yaml"
+        yaml_file.write_text("- a\n- b\n")
+
+        with pytest.raises(TypeError, match="list"):
+            load_yaml(str(yaml_file))
 
 
 class TestLoadYamlFileNotFound:

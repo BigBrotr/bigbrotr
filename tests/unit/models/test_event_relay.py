@@ -34,13 +34,11 @@ def mock_event():
 
 @pytest.fixture
 def relay():
-    """Create a test Relay."""
     return Relay("wss://relay.example.com", discovered_at=1234567890)
 
 
 @pytest.fixture
 def event_relay(mock_event, relay):
-    """Create an EventRelay with explicit seen_at."""
     return EventRelay(mock_event, relay, seen_at=1234567891)
 
 
@@ -53,25 +51,21 @@ class TestConstruction:
     """EventRelay construction."""
 
     def test_with_event_and_relay(self, mock_event, relay):
-        """Constructs with Event and Relay references."""
         er = EventRelay(mock_event, relay)
         assert er.event is mock_event
         assert er.relay is relay
 
     def test_seen_at_defaults_to_now(self, mock_event, relay):
-        """seen_at defaults to current time if not provided."""
         before = int(time())
         er = EventRelay(mock_event, relay)
         after = int(time())
         assert before <= er.seen_at <= after
 
     def test_seen_at_explicit(self, mock_event, relay):
-        """Explicit seen_at is preserved."""
         er = EventRelay(mock_event, relay, seen_at=9999999999)
         assert er.seen_at == 9999999999
 
     def test_seen_at_zero(self, mock_event, relay):
-        """seen_at can be zero (epoch)."""
         er = EventRelay(mock_event, relay, seen_at=0)
         assert er.seen_at == 0
 
@@ -85,27 +79,21 @@ class TestImmutability:
     """Frozen dataclass behavior."""
 
     def test_event_mutation_blocked(self, mock_event, relay):
-        """Cannot modify event attribute."""
         er = EventRelay(mock_event, relay, seen_at=1234567890)
-        new_event = MagicMock(spec=Event)
         with pytest.raises(FrozenInstanceError):
-            er.event = new_event
+            er.event = MagicMock(spec=Event)
 
     def test_relay_mutation_blocked(self, mock_event, relay):
-        """Cannot modify relay attribute."""
         er = EventRelay(mock_event, relay, seen_at=1234567890)
-        new_relay = Relay("wss://other.relay", discovered_at=9999999999)
         with pytest.raises(FrozenInstanceError):
-            er.relay = new_relay
+            er.relay = Relay("wss://other.relay", discovered_at=9999999999)
 
     def test_seen_at_mutation_blocked(self, mock_event, relay):
-        """Cannot modify seen_at attribute."""
         er = EventRelay(mock_event, relay, seen_at=1234567890)
         with pytest.raises(FrozenInstanceError):
             er.seen_at = 9999999999
 
     def test_new_attribute_blocked(self, mock_event, relay):
-        """Cannot add new attributes."""
         er = EventRelay(mock_event, relay)
         with pytest.raises((AttributeError, TypeError, FrozenInstanceError)):
             er.new_attr = "value"
@@ -120,7 +108,6 @@ class TestToDbParams:
     """EventRelay.to_db_params() method."""
 
     def test_returns_event_relay_db_params(self, mock_event, relay):
-        """Returns EventRelayDbParams NamedTuple with 11 elements."""
         er = EventRelay(mock_event, relay, seen_at=1234567890)
         result = er.to_db_params()
         assert isinstance(result, EventRelayDbParams)
@@ -128,7 +115,6 @@ class TestToDbParams:
         assert len(result) == 11
 
     def test_event_params_first_seven(self, mock_event, relay):
-        """First 7 elements are event parameters."""
         er = EventRelay(mock_event, relay, seen_at=1234567890)
         result = er.to_db_params()
         assert result.event_id == b"\xaa" * 32
@@ -140,7 +126,6 @@ class TestToDbParams:
         assert result.sig == b"\xcc" * 64
 
     def test_relay_params_next_three(self, mock_event, relay):
-        """Elements 8-10 are relay parameters."""
         er = EventRelay(mock_event, relay, seen_at=9999999999)
         result = er.to_db_params()
         assert result.relay_url == "wss://relay.example.com"
@@ -148,25 +133,25 @@ class TestToDbParams:
         assert result.relay_discovered_at == 1234567890
 
     def test_seen_at_param_last(self, mock_event, relay):
-        """Last element (11th) is seen_at."""
         er = EventRelay(mock_event, relay, seen_at=9999999999)
         result = er.to_db_params()
         assert result.seen_at == 9999999999
 
     def test_calls_event_to_db_params(self, mock_event, relay):
-        """Delegates to event.to_db_params() during __post_init__ caching."""
         er = EventRelay(mock_event, relay, seen_at=1234567890)
-        er.to_db_params()  # Returns cached result, no new call
-        # 1x: _compute_db_params() in __post_init__; to_db_params() returns cached
+        er.to_db_params()
         assert mock_event.to_db_params.call_count == 1
 
     def test_with_different_relay_networks(self, mock_event):
-        """Works with different relay network types."""
         tor_relay = Relay("wss://abc123.onion", discovered_at=1234567890)
         er = EventRelay(mock_event, tor_relay, seen_at=1234567890)
         result = er.to_db_params()
         assert result.relay_url == "ws://abc123.onion"
         assert result.relay_network == "tor"
+
+    def test_caching(self, mock_event, relay):
+        er = EventRelay(mock_event, relay, seen_at=1234567890)
+        assert er.to_db_params() is er.to_db_params()
 
 
 # =============================================================================
@@ -178,19 +163,16 @@ class TestEquality:
     """Equality behavior."""
 
     def test_equal(self, mock_event, relay):
-        """EventRelays with same attributes are equal."""
         er1 = EventRelay(mock_event, relay, seen_at=1234567890)
         er2 = EventRelay(mock_event, relay, seen_at=1234567890)
         assert er1 == er2
 
     def test_different_seen_at(self, mock_event, relay):
-        """EventRelays with different seen_at are not equal."""
         er1 = EventRelay(mock_event, relay, seen_at=1234567890)
         er2 = EventRelay(mock_event, relay, seen_at=9999999999)
         assert er1 != er2
 
     def test_different_relay(self, mock_event):
-        """EventRelays with different relays are not equal."""
         relay1 = Relay("wss://relay1.example.com", discovered_at=1234567890)
         relay2 = Relay("wss://relay2.example.com", discovered_at=1234567890)
         er1 = EventRelay(mock_event, relay1, seen_at=1234567890)
@@ -198,7 +180,6 @@ class TestEquality:
         assert er1 != er2
 
     def test_different_event(self, relay):
-        """EventRelays with different events are not equal."""
         mock_event1 = MagicMock(spec=Event)
         mock_event1.to_db_params.return_value = EventDbParams(
             id=b"\xaa" * 32,
@@ -233,14 +214,12 @@ class TestEdgeCases:
     """Edge cases and boundary conditions."""
 
     def test_with_port_and_path_relay(self, mock_event):
-        """Works with relay that has port and path."""
         relay = Relay("wss://relay.example.com:8080/nostr", discovered_at=1234567890)
         er = EventRelay(mock_event, relay, seen_at=1234567890)
         result = er.to_db_params()
         assert result.relay_url == "wss://relay.example.com:8080/nostr"
 
     def test_with_ipv6_relay(self, mock_event):
-        """Works with IPv6 relay."""
         relay = Relay("wss://[2001:4860:4860::8888]", discovered_at=1234567890)
         er = EventRelay(mock_event, relay, seen_at=1234567890)
         result = er.to_db_params()
@@ -248,7 +227,6 @@ class TestEdgeCases:
         assert result.relay_network == "clearnet"
 
     def test_with_i2p_relay(self, mock_event):
-        """Works with I2P relay."""
         relay = Relay("wss://relay.i2p", discovered_at=1234567890)
         er = EventRelay(mock_event, relay, seen_at=1234567890)
         result = er.to_db_params()
@@ -256,7 +234,6 @@ class TestEdgeCases:
         assert result.relay_network == "i2p"
 
     def test_with_loki_relay(self, mock_event):
-        """Works with Lokinet relay."""
         relay = Relay("wss://relay.loki", discovered_at=1234567890)
         er = EventRelay(mock_event, relay, seen_at=1234567890)
         result = er.to_db_params()
@@ -273,30 +250,25 @@ class TestTypeValidation:
     """Runtime type validation in __post_init__."""
 
     def test_event_non_event_rejected(self):
-        """event must be an Event instance."""
         relay = Relay("wss://relay.example.com", discovered_at=1234567890)
         with pytest.raises(TypeError, match="event must be an Event"):
             EventRelay(event="not an event", relay=relay, seen_at=123)  # type: ignore[arg-type]
 
     def test_relay_non_relay_rejected(self, mock_event):
-        """relay must be a Relay instance."""
         with pytest.raises(TypeError, match="relay must be a Relay"):
             EventRelay(event=mock_event, relay="not a relay", seen_at=123)  # type: ignore[arg-type]
 
     def test_seen_at_non_int_rejected(self, mock_event):
-        """seen_at must be an int."""
         relay = Relay("wss://relay.example.com", discovered_at=1234567890)
         with pytest.raises(TypeError, match="seen_at must be an int"):
             EventRelay(event=mock_event, relay=relay, seen_at="abc")  # type: ignore[arg-type]
 
     def test_seen_at_bool_rejected(self, mock_event):
-        """bool is not accepted as int for seen_at."""
         relay = Relay("wss://relay.example.com", discovered_at=1234567890)
         with pytest.raises(TypeError, match="seen_at must be an int"):
             EventRelay(event=mock_event, relay=relay, seen_at=True)  # type: ignore[arg-type]
 
     def test_seen_at_negative_rejected(self, mock_event):
-        """seen_at must be non-negative."""
         relay = Relay("wss://relay.example.com", discovered_at=1234567890)
         with pytest.raises(ValueError, match="seen_at must be non-negative"):
             EventRelay(event=mock_event, relay=relay, seen_at=-1)

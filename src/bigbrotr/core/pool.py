@@ -273,11 +273,22 @@ class PoolConfig(BaseModel):
             configuration.
     """
 
-    database: DatabaseConfig = Field(default_factory=lambda: DatabaseConfig.model_validate({}))
-    limits: LimitsConfig = Field(default_factory=LimitsConfig)
-    timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
-    retry: RetryConfig = Field(default_factory=RetryConfig)
-    server_settings: ServerSettingsConfig = Field(default_factory=ServerSettingsConfig)
+    database: DatabaseConfig = Field(
+        default_factory=lambda: DatabaseConfig.model_validate({}),
+        description="PostgreSQL connection credentials",
+    )
+    limits: LimitsConfig = Field(
+        default_factory=LimitsConfig, description="Connection pool size and resource limits"
+    )
+    timeouts: TimeoutsConfig = Field(
+        default_factory=TimeoutsConfig, description="Pool operation timeouts"
+    )
+    retry: RetryConfig = Field(
+        default_factory=RetryConfig, description="Retry strategy for failed connections"
+    )
+    server_settings: ServerSettingsConfig = Field(
+        default_factory=ServerSettingsConfig, description="PostgreSQL session-level settings"
+    )
 
 
 class Pool:

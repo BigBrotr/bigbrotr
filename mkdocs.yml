@@ -10,7 +10,7 @@
 
 site_name: BigBrotr
 site_url: https://bigbrotr.github.io/bigbrotr/
-site_description: A modular Nostr data archiving and monitoring system
+site_description: Modular Nostr network observatory — relay discovery, health monitoring, event archiving, analytics, and data access
 repo_url: https://github.com/BigBrotr/bigbrotr
 repo_name: BigBrotr/bigbrotr
 copyright: Copyright &copy; BigBrotr Contributors
@@ -18,24 +18,31 @@ copyright: Copyright &copy; BigBrotr Contributors
 theme:
   name: material
   custom_dir: docs/overrides
+  logo: assets/images/logo.webp
+  favicon: assets/images/favicon.png
+  font:
+    text: Inter
+    code: JetBrains Mono
   palette:
     - scheme: default
       primary: deep purple
-      accent: amber
+      accent: deep purple
       toggle:
-        icon: material/brightness-7
+        icon: material/weather-night
         name: Switch to dark mode
     - scheme: slate
       primary: deep purple
-      accent: amber
+      accent: deep purple
       toggle:
-        icon: material/brightness-4
+        icon: material/weather-sunny
         name: Switch to light mode
   features:
     - content.code.copy
     - content.code.annotate
     - content.tabs.link
     - content.tooltips
+    - navigation.instant
+    - navigation.instant.progress
     - navigation.sections
     - navigation.expand
     - navigation.indexes
@@ -49,6 +56,7 @@ theme:
     - toc.follow
   icon:
     repo: fontawesome/brands/github
+    annotation: material/chevron-right-circle
 
 nav:
   - Home: index.md
@@ -92,7 +100,7 @@ plugins:
   # - social:
   #     enabled: !ENV [CI, false]
   #     cards_layout_options:
-  #       background_color: "#4A148C"
+  #       background_color: "#1a1a2e"
   #       color: "#FFFFFF"
   - gen-files:
       scripts:

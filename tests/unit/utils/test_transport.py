@@ -2,6 +2,7 @@
 Unit tests for utils.transport module.
 
 Tests:
+- DEFAULT_TIMEOUT constant
 - _NostrSdkStderrFilter - Stderr suppression for UniFFI tracebacks
 - InsecureWebSocketAdapter - WebSocket adapter for insecure connections
 - InsecureWebSocketTransport - Custom transport with SSL disabled
@@ -12,10 +13,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from bigbrotr.utils.transport import (
+    DEFAULT_TIMEOUT,
     InsecureWebSocketAdapter,
     InsecureWebSocketTransport,
     _NostrSdkStderrFilter,
 )
+
+
+# =============================================================================
+# DEFAULT_TIMEOUT Tests
+# =============================================================================
+
+
+class TestDefaultTimeout:
+    def test_value_is_10(self) -> None:
+        assert DEFAULT_TIMEOUT == 10.0
+
+    def test_is_float(self) -> None:
+        assert isinstance(DEFAULT_TIMEOUT, float)
 
 
 # =============================================================================
@@ -234,6 +249,58 @@ class TestInsecureWebSocketAdapterReceive:
 
         assert result is None
 
+    async def test_recv_ping_message(self) -> None:
+        """Test receiving ping message from WebSocket."""
+        import aiohttp
+
+        mock_ws = AsyncMock()
+        mock_session = AsyncMock()
+
+        mock_msg = MagicMock()
+        mock_msg.type = aiohttp.WSMsgType.PING
+        mock_msg.data = b"ping"
+        mock_ws.receive = AsyncMock(return_value=mock_msg)
+
+        adapter = InsecureWebSocketAdapter(mock_ws, mock_session)
+        result = await adapter.recv()
+
+        assert result is not None
+        assert result.is_ping()
+
+    async def test_recv_pong_message(self) -> None:
+        """Test receiving pong message from WebSocket."""
+        import aiohttp
+
+        mock_ws = AsyncMock()
+        mock_session = AsyncMock()
+
+        mock_msg = MagicMock()
+        mock_msg.type = aiohttp.WSMsgType.PONG
+        mock_msg.data = b"pong"
+        mock_ws.receive = AsyncMock(return_value=mock_msg)
+
+        adapter = InsecureWebSocketAdapter(mock_ws, mock_session)
+        result = await adapter.recv()
+
+        assert result is not None
+        assert result.is_pong()
+
+    async def test_recv_error_returns_none(self) -> None:
+        """Test error message type returns None."""
+        import aiohttp
+
+        mock_ws = AsyncMock()
+        mock_session = AsyncMock()
+
+        mock_msg = MagicMock()
+        mock_msg.type = aiohttp.WSMsgType.ERROR
+        mock_ws.receive = AsyncMock(return_value=mock_msg)
+
+        adapter = InsecureWebSocketAdapter(mock_ws, mock_session)
+        result = await adapter.recv()
+
+        assert result is None
+
     async def test_recv_timeout_returns_none(self) -> None:
         """Test timeout returns None."""
 
@@ -364,3 +431,58 @@ class TestInsecureWebSocketTransportConnect:
                 await transport.connect("wss://test.com", mock_mode, timedelta(seconds=10))
 
             assert "timeout" in str(exc_info.value).lower()
+
+    async def test_connect_ssl_error_raises_os_error(self) -> None:
+        """Test SSL error raises OSError and closes session."""
+        import ssl
+        from datetime import timedelta
+
+        transport = InsecureWebSocketTransport()
+
+        with patch("aiohttp.ClientSession") as mock_session_class:
+            mock_session = AsyncMock()
+            mock_session.ws_connect = AsyncMock(side_effect=ssl.SSLError("SSL handshake failed"))
+            mock_session.close = AsyncMock()
+            mock_session_class.return_value = mock_session
+
+            mock_mode = MagicMock()
+
+            with pytest.raises(OSError, match="Connection failed"):
+                await transport.connect("wss://test.com", mock_mode, timedelta(seconds=10))
+
+            mock_session.close.assert_called_once()
+
+    async def test_connect_cancelled_error_reraises(self) -> None:
+        """CancelledError is re-raised after closing session."""
+        import asyncio
+        from datetime import timedelta
+
+        transport = InsecureWebSocketTransport()
+
+        with patch("aiohttp.ClientSession") as mock_session_class:
+            mock_session = AsyncMock()
+            mock_session.ws_connect = AsyncMock(side_effect=asyncio.CancelledError())
+            mock_session.close = AsyncMock()
+            mock_session_class.return_value = mock_session
+
+            mock_mode = MagicMock()
+
+            with pytest.raises(asyncio.CancelledError):
+                await transport.connect("wss://test.com", mock_mode, timedelta(seconds=10))
+
+            mock_session.close.assert_called_once()
+
+    async def test_connect_passes_custom_timeouts_to_adapter(self) -> None:
+        """Custom recv_timeout and close_timeout are forwarded to the adapter."""
+        from datetime import timedelta
+
+        transport = InsecureWebSocketTransport(recv_timeout=30.0, close_timeout=10.0)
+
+        with patch("aiohttp.ClientSession") as mock_session_class:
+            mock_session = AsyncMock()
+            mock_ws = AsyncMock()
+            mock_session.ws_connect = AsyncMock(return_value=mock_ws)
+            mock_session_class.return_value = mock_session
+
+            result = await transport.connect("wss://test.com", MagicMock(), timedelta(seconds=10))
+            assert result is not None
