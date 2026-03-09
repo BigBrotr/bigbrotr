@@ -750,21 +750,21 @@ class TestEventDailyCounts:
     async def test_daily_unique_pubkeys_and_kinds(self, brotr: Brotr):
         ers = [
             _event_relay(
-                "g0" * 32,
+                "a0" * 32,
                 "wss://duk.example.com",
                 pubkey="aa" * 32,
                 kind=1,
                 created_at=1700000000,
             ),
             _event_relay(
-                "g1" * 32,
+                "a1" * 32,
                 "wss://duk.example.com",
                 pubkey="bb" * 32,
                 kind=1,
                 created_at=1700000060,
             ),
             _event_relay(
-                "g2" * 32,
+                "a2" * 32,
                 "wss://duk.example.com",
                 pubkey="aa" * 32,
                 kind=7,

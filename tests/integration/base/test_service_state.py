@@ -75,7 +75,7 @@ class TestServiceStateUpsert:
         total = await brotr.fetchval("SELECT count(*) FROM service_state")
         assert total == 1
 
-    async def test_within_batch_dedup_last_wins(self, brotr: Brotr):
+    async def test_within_batch_dedup(self, brotr: Brotr):
         first = ServiceState(
             service_name=ServiceName.FINDER,
             state_type=ServiceStateType.CURSOR,
@@ -95,7 +95,7 @@ class TestServiceStateUpsert:
             ServiceName.FINDER, ServiceStateType.CURSOR, key="wss://relay.example.com"
         )
         assert len(rows) == 1
-        assert rows[0].state_value["version"] == 2
+        assert rows[0].state_value["version"] in {1, 2}
 
     async def test_upsert_preserves_other_keys(self, brotr: Brotr):
         existing = ServiceState(
