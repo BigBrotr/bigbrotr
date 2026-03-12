@@ -138,7 +138,7 @@ class TestProcessingConfig:
 class TestCleanupConfig:
     def test_defaults(self) -> None:
         cfg = CleanupConfig()
-        assert cfg.enabled is False
+        assert cfg.enabled is True
         assert cfg.max_failures == 720
 
     def test_custom_values(self) -> None:
@@ -784,15 +784,15 @@ class TestValidateCandidateSafe:
         v = Validator(validator_brotr)
         c = _candidate("wss://good.com")
         with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True):
-            result = await v._validation_worker(c)
-        assert result == (c, True)
+            results = [r async for r in v._validation_worker(c)]
+        assert results == [(c, True)]
 
     async def test_invalid_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
         c = _candidate("wss://bad.com")
         with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=False):
-            result = await v._validation_worker(c)
-        assert result == (c, False)
+            results = [r async for r in v._validation_worker(c)]
+        assert results == [(c, False)]
 
     async def test_timeout_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
@@ -802,8 +802,8 @@ class TestValidateCandidateSafe:
             new_callable=AsyncMock,
             side_effect=TimeoutError,
         ):
-            result = await v._validation_worker(c)
-        assert result == (c, False)
+            results = [r async for r in v._validation_worker(c)]
+        assert results == [(c, False)]
 
     async def test_os_error_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
@@ -813,19 +813,19 @@ class TestValidateCandidateSafe:
             new_callable=AsyncMock,
             side_effect=OSError("refused"),
         ):
-            result = await v._validation_worker(c)
-        assert result == (c, False)
+            results = [r async for r in v._validation_worker(c)]
+        assert results == [(c, False)]
 
     async def test_unknown_network_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
         c = _candidate(network=NetworkType.UNKNOWN)
-        result = await v._validation_worker(c)
-        assert result == (c, False)
+        results = [r async for r in v._validation_worker(c)]
+        assert results == [(c, False)]
 
     async def test_clearnet_no_proxy(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
         with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
-            await v._validation_worker(_candidate())
+            _ = [r async for r in v._validation_worker(_candidate())]
         assert mock.call_args[0][1] is None
 
     async def test_unexpected_error_returns_false(self, validator_brotr: Brotr) -> None:
@@ -836,8 +836,8 @@ class TestValidateCandidateSafe:
             new_callable=AsyncMock,
             side_effect=RuntimeError("boom"),
         ):
-            result = await v._validation_worker(c)
-        assert result == (c, False)
+            results = [r async for r in v._validation_worker(c)]
+        assert results == [(c, False)]
 
 
 # ============================================================================
@@ -854,7 +854,7 @@ class TestNetworkRouting:
     ) -> tuple[str | None, float]:
         v = Validator(validator_brotr, config=cfg)
         with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
-            await v._validation_worker(candidate)
+            _ = [r async for r in v._validation_worker(candidate)]
         return mock.call_args[0][1], mock.call_args[0][2]
 
     async def test_clearnet(self, validator_brotr: Brotr) -> None:
@@ -917,13 +917,13 @@ class TestNetworkRouting:
         cfg = ValidatorConfig(processing=ProcessingConfig(allow_insecure=True))
         v = Validator(validator_brotr, config=cfg)
         with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
-            await v._validation_worker(_candidate())
+            _ = [r async for r in v._validation_worker(_candidate())]
         assert mock.call_args.kwargs["allow_insecure"] is True
 
     async def test_allow_insecure_default_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
         with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
-            await v._validation_worker(_candidate())
+            _ = [r async for r in v._validation_worker(_candidate())]
         assert mock.call_args.kwargs["allow_insecure"] is False
 
 
@@ -936,8 +936,8 @@ class TestCleanup:
     async def test_removes_promoted(self, validator_brotr: Brotr) -> None:
         validator_brotr.fetchval = AsyncMock(return_value=3)
         result = await Validator(validator_brotr).cleanup()
-        assert "AND EXISTS" in validator_brotr.fetchval.call_args[0][0]
-        assert result == 3
+        assert "AND EXISTS" in validator_brotr.fetchval.call_args_list[0][0][0]
+        assert result == 6  # 3 promoted + 3 exhausted (both fetchval calls return 3)
 
     async def test_delete_exhausted_when_enabled(self, validator_brotr: Brotr) -> None:
         validator_brotr.fetchval = AsyncMock(return_value=0)
@@ -953,8 +953,9 @@ class TestCleanup:
 
     async def test_skips_exhausted_when_disabled(self, validator_brotr: Brotr) -> None:
         validator_brotr.fetchval = AsyncMock(return_value=0)
+        cfg = ValidatorConfig(cleanup={"enabled": False})
         with patch(f"{_SVC}.delete_exhausted_candidates", new_callable=AsyncMock) as mock:
-            await Validator(validator_brotr).cleanup()
+            await Validator(validator_brotr, config=cfg).cleanup()
         mock.assert_not_awaited()
 
     async def test_returns_sum(self, validator_brotr: Brotr) -> None:

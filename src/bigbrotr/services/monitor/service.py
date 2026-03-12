@@ -110,6 +110,8 @@ from .utils import (
 
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
     from bigbrotr.nips.nip11.info import Nip11InfoMetadata
@@ -650,19 +652,23 @@ class Monitor(
 
         return succeeded + failed
 
-    async def _monitoring_worker(self, relay: Relay) -> tuple[Relay, CheckResult | None]:
+    async def _monitoring_worker(
+        self, relay: Relay
+    ) -> AsyncGenerator[tuple[Relay, CheckResult | None], None]:
         """Health-check a single relay for use with ``_iter_concurrent``.
 
         Runs all configured checks, publishes a Kind 30166 discovery event
-        for successful results, and returns ``(relay, result)`` or
-        ``(relay, None)`` on failure.
+        for successful results, and yields ``(relay, result)`` or
+        ``(relay, None)`` on failure. Yields exactly once — never raises,
+        so every relay produces a result for the caller to classify.
         """
         try:
             result = await self.check_relay(relay)
             if not result.has_data:
-                return relay, None
+                yield relay, None
+                return
             await self.publish_discovery(relay, result)
-            return relay, result
+            yield relay, result
         except Exception as e:  # Worker exception boundary — protects TaskGroup
             self._logger.error(
                 "check_relay_failed",
@@ -670,4 +676,4 @@ class Monitor(
                 error_type=type(e).__name__,
                 relay=relay.url,
             )
-            return relay, None
+            yield relay, None

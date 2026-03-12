@@ -5,8 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
+
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 import aiohttp
 import asyncpg
@@ -30,7 +34,7 @@ from bigbrotr.services.finder.queries import (
     fetch_event_relay_cursors,
     load_api_checkpoints,
     save_api_checkpoints,
-    save_event_relay_cursor,
+    save_event_relay_cursors,
     scan_event_relay,
 )
 from bigbrotr.services.finder.utils import (
@@ -581,7 +585,7 @@ class TestFetchFinderCursors:
         cursor = result[0]
         assert cursor.key == "wss://relay.com"
         assert cursor.timestamp == 1700000000
-        assert cursor.id == bytes.fromhex("ab" * 32)
+        assert cursor.id == "ab" * 32
 
     async def test_returns_empty_cursor_for_relay_without_state(
         self, query_brotr: MagicMock
@@ -596,8 +600,8 @@ class TestFetchFinderCursors:
         assert len(result) == 1
         cursor = result[0]
         assert cursor.key == "wss://new.relay.com"
-        assert cursor.timestamp is None
-        assert cursor.id is None
+        assert cursor.timestamp == 0
+        assert cursor.id == "0" * 64
 
     async def test_invalid_cursor_data_falls_back_to_empty(self, query_brotr: MagicMock) -> None:
         rows = [
@@ -609,8 +613,8 @@ class TestFetchFinderCursors:
 
         assert len(result) == 1
         cursor = result[0]
-        assert cursor.timestamp is None
-        assert cursor.id is None
+        assert cursor.timestamp == 0
+        assert cursor.id == "0" * 64
 
     async def test_query_uses_left_join(self, query_brotr: MagicMock) -> None:
         await fetch_event_relay_cursors(query_brotr)
@@ -628,7 +632,7 @@ class TestFetchFinderCursors:
 
 class TestScanEventRelay:
     async def test_scan_with_cursor(self, query_brotr: MagicMock) -> None:
-        event_id = b"\xab" * 32
+        event_id = "ab" * 32
         cursor = FinderCursor(
             key="wss://source.relay.com",
             timestamp=1700000000,
@@ -642,20 +646,20 @@ class TestScanEventRelay:
         assert "FROM event e" in sql
         assert "event_relay er" in sql
         assert "relay_url = $1" in sql
-        assert "IS NULL OR (er.seen_at, e.id) >" in sql
+        assert "= 0 OR (er.seen_at, e.id) >" in sql
         assert "LIMIT $4" in sql
         assert args[0][1] == "wss://source.relay.com"
         assert args[0][2] == 1700000000
         assert args[0][3] == event_id
         assert args[0][4] == 500
 
-    async def test_scan_no_cursor(self, query_brotr: MagicMock) -> None:
+    async def test_scan_default_cursor(self, query_brotr: MagicMock) -> None:
         cursor = FinderCursor(key="wss://source.relay.com")
         await scan_event_relay(query_brotr, cursor, limit=100)
 
         args = query_brotr.fetch.call_args
-        assert args[0][2] is None
-        assert args[0][3] is None
+        assert args[0][2] == 0
+        assert args[0][3] == "0" * 64
 
     async def test_scan_empty(self, query_brotr: MagicMock) -> None:
         cursor = FinderCursor(key="wss://source.relay.com")
@@ -730,32 +734,40 @@ class TestSaveApiCheckpoints:
             assert r.state_value == {"timestamp": by_key[r.state_key]}
 
 
-class TestSaveFinderCursor:
-    async def test_happy_path(self, query_brotr: MagicMock) -> None:
-        cursor = FinderCursor(
-            key="wss://relay.example.com",
-            timestamp=1700000200,
-            id=b"\xab" * 32,
-        )
-        query_brotr.upsert_service_state = AsyncMock(return_value=1)
-
-        await save_event_relay_cursor(query_brotr, cursor)
+class TestSaveFinderCursors:
+    async def test_upserts_multiple_cursors(self, query_brotr: MagicMock) -> None:
+        cursors = [
+            FinderCursor(key="wss://relay1.example.com", timestamp=100, id="ab" * 32),
+            FinderCursor(key="wss://relay2.example.com", timestamp=200, id="cd" * 32),
+        ]
+        await save_event_relay_cursors(query_brotr, cursors)
 
         query_brotr.upsert_service_state.assert_awaited_once()
-        records: list[ServiceState] = query_brotr.upsert_service_state.call_args[0][0]
-        assert len(records) == 1
-        state = records[0]
-        assert state.service_name == ServiceName.FINDER
-        assert state.state_type == ServiceStateType.CURSOR
-        assert state.state_key == "wss://relay.example.com"
-        assert state.state_value["seen_at"] == 1700000200
-        assert state.state_value["event_id"] == (b"\xab" * 32).hex()
+        states = query_brotr.upsert_service_state.call_args[0][0]
+        assert len(states) == 2
+        assert states[0].state_key == "wss://relay1.example.com"
+        assert states[0].state_value["seen_at"] == 100
+        assert states[1].state_key == "wss://relay2.example.com"
+        assert states[1].state_value["seen_at"] == 200
 
-    async def test_noop_when_blank(self, query_brotr: MagicMock) -> None:
-        cursor = FinderCursor(key="wss://relay.example.com")
-        query_brotr.upsert_service_state = AsyncMock(return_value=0)
+    async def test_blank_cursors_skipped(self, query_brotr: MagicMock) -> None:
+        cursors = [
+            FinderCursor(key="wss://relay1.example.com"),
+            FinderCursor(key="wss://relay2.example.com", timestamp=200, id="cd" * 32),
+        ]
+        await save_event_relay_cursors(query_brotr, cursors)
 
-        await save_event_relay_cursor(query_brotr, cursor)
+        states = query_brotr.upsert_service_state.call_args[0][0]
+        assert len(states) == 1
+        assert states[0].state_key == "wss://relay2.example.com"
+
+    async def test_all_blank_is_noop(self, query_brotr: MagicMock) -> None:
+        await save_event_relay_cursors(query_brotr, [FinderCursor(key="wss://relay.example.com")])
+
+        query_brotr.upsert_service_state.assert_not_awaited()
+
+    async def test_empty_list_is_noop(self, query_brotr: MagicMock) -> None:
+        await save_event_relay_cursors(query_brotr, [])
 
         query_brotr.upsert_service_state.assert_not_awaited()
 
@@ -1448,7 +1460,7 @@ class TestFinderEventScanConcurrency:
             patch(
                 "bigbrotr.services.finder.service.insert_relays_as_candidates",
                 new_callable=AsyncMock,
-                return_value=1,
+                side_effect=lambda _b, relays: len(relays),
             ),
         ):
             mock_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
@@ -1477,9 +1489,9 @@ class TestFinderEventScanConcurrency:
             cursor: FinderCursor,
             limit: int,
         ) -> list[dict[str, Any]]:
-            if cursor.key == "wss://failing.relay.com" and cursor.timestamp is None:
+            if cursor.key == "wss://failing.relay.com" and cursor.timestamp == 0:
                 raise asyncpg.PostgresError("simulated DB error")
-            if cursor.timestamp is not None:
+            if cursor.timestamp > 0:
                 return []
             return [mock_event]
 
@@ -1511,26 +1523,29 @@ class TestFinderEventScanConcurrency:
 
             result = await finder.find_from_events()
 
-            # _scan_relay_events catches DB errors internally: the failing relay
-            # returns (0, 0) and the good relay returns (1, 1). Both tasks
-            # complete without exception, so both count as processed.
+            # _stream_relay_batches catches DB errors internally and yields
+            # nothing for the failing relay. Only the good relay yields a batch,
+            # so only it is counted in relays_scanned.
             assert result == 1
-            finder.set_gauge.assert_any_call("relays_scanned", 2)
+            finder.set_gauge.assert_any_call("relays_scanned", 1)
 
     async def test_semaphore_limits_concurrency(self, mock_brotr: Brotr) -> None:
         max_concurrent = 0
         current_concurrent = 0
         lock = asyncio.Lock()
 
-        original_scan = Finder._scan_relay_events
+        original_stream = Finder._stream_relay_batches
 
-        async def _tracking_scan(self: Any, cursor: FinderCursor) -> tuple[int, int]:
+        async def _tracking_stream(
+            self: Any, cursor: FinderCursor
+        ) -> AsyncGenerator[tuple[Any, FinderCursor], None]:
             nonlocal max_concurrent, current_concurrent
             async with lock:
                 current_concurrent += 1
                 max_concurrent = max(max_concurrent, current_concurrent)
             try:
-                return await original_scan(self, cursor)
+                async for item in original_stream(self, cursor):
+                    yield item
             finally:
                 async with lock:
                     current_concurrent -= 1
@@ -1548,7 +1563,7 @@ class TestFinderEventScanConcurrency:
                 new_callable=AsyncMock,
                 return_value=[],
             ),
-            patch.object(Finder, "_scan_relay_events", _tracking_scan),
+            patch.object(Finder, "_stream_relay_batches", _tracking_stream),
         ):
             config = FinderConfig(
                 events=EventsConfig(parallel_relays=3),
@@ -1643,7 +1658,6 @@ class TestFinderMetrics:
             finder.set_gauge.assert_any_call("event_candidates", 2)
             finder.set_gauge.assert_any_call("relays_scanned", 1)
             finder.inc_counter.assert_any_call("total_event_candidates", 2)
-            finder.inc_counter.assert_any_call("total_events_processed", 1)
 
     async def test_find_from_events_disabled_no_metrics(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(events=EventsConfig(enabled=False))
@@ -1775,11 +1789,14 @@ class TestFinderMetrics:
             finder.set_gauge = MagicMock()  # type: ignore[method-assign]
             finder.inc_counter = MagicMock()  # type: ignore[method-assign]
 
-            await finder.find_from_events()
+            result = await finder.find_from_events()
 
-            # RuntimeError caught by _bounded_scan, pushes (0, 0) to queue.
-            # Both relays are counted as scanned.
-            finder.set_gauge.assert_any_call("relays_scanned", 2)
+            # RuntimeError is caught by _bounded_scan so the worker exits
+            # cleanly without propagating. The good relay also yields no
+            # batches (scan returns []), so no tuple reaches the parent loop
+            # and relays_scanned stays at its initial value of 0.
+            assert result == 0
+            finder.set_gauge.assert_any_call("relays_scanned", 0)
 
 
 # ============================================================================

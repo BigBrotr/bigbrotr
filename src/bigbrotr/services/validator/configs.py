@@ -68,7 +68,7 @@ class CleanupConfig(BaseModel):
             Parent config that embeds this model.
     """
 
-    enabled: bool = Field(default=False, description="Enable exhausted candidate cleanup")
+    enabled: bool = Field(default=True, description="Enable exhausted candidate cleanup")
     max_failures: int = Field(
         default=720, ge=1, description="Failure threshold for candidate removal"
     )

@@ -55,8 +55,8 @@ class TestConcurrentStreamMixinResults:
     async def test_single_item(self) -> None:
         svc = _TestConcurrentService()
 
-        async def worker(item: int) -> int:
-            return item * 2
+        async def worker(item: int):
+            yield item * 2
 
         results = [r async for r in svc._iter_concurrent([5], worker)]
         assert results == [10]
@@ -64,26 +64,28 @@ class TestConcurrentStreamMixinResults:
     async def test_multiple_items_all_returned(self) -> None:
         svc = _TestConcurrentService()
 
-        async def worker(item: int) -> int:
-            return item * 10
+        async def worker(item: int):
+            yield item * 10
 
         results = [r async for r in svc._iter_concurrent([1, 2, 3], worker)]
         assert sorted(results) == [10, 20, 30]
 
-    async def test_none_results_are_skipped(self) -> None:
+    async def test_workers_that_skip_produce_no_output(self) -> None:
         svc = _TestConcurrentService()
 
-        async def worker(item: int) -> int | None:
-            return item * 2 if item % 2 == 0 else None
+        async def worker(item: int):
+            if item % 2 == 0:
+                yield item * 2
 
         results = [r async for r in svc._iter_concurrent([1, 2, 3, 4], worker)]
         assert sorted(results) == [4, 8]
 
-    async def test_mixed_none_and_values(self) -> None:
+    async def test_workers_that_conditionally_yield(self) -> None:
         svc = _TestConcurrentService()
 
-        async def worker(item: str) -> str | None:
-            return item.upper() if item != "skip" else None
+        async def worker(item: str):
+            if item != "skip":
+                yield item.upper()
 
         results = [r async for r in svc._iter_concurrent(["a", "skip", "b"], worker)]
         assert sorted(results) == ["A", "B"]
@@ -92,9 +94,9 @@ class TestConcurrentStreamMixinResults:
         svc = _TestConcurrentService()
         arrival_order: list[int] = []
 
-        async def worker(item: int) -> int:
+        async def worker(item: int):
             await asyncio.sleep(0.01 * (3 - item))
-            return item
+            yield item
 
         async for result in svc._iter_concurrent([1, 2, 3], worker):
             arrival_order.append(result)
@@ -107,8 +109,9 @@ class TestConcurrentStreamMixinErrorHandling:
     async def test_worker_exception_logged_via_exception_group(self) -> None:
         svc = _TestConcurrentService()
 
-        async def worker(item: int) -> int:
+        async def worker(item: int):
             raise RuntimeError(f"fail-{item}")
+            yield  # pragma: no cover  — required to make this an async generator
 
         results = [r async for r in svc._iter_concurrent([1], worker)]
         assert results == []
@@ -121,8 +124,9 @@ class TestConcurrentStreamMixinErrorHandling:
     async def test_multiple_worker_exceptions_all_logged(self) -> None:
         svc = _TestConcurrentService()
 
-        async def worker(item: int) -> int:
+        async def worker(item: int):
             raise ValueError(f"bad-{item}")
+            yield  # pragma: no cover  — required to make this an async generator
 
         results = [r async for r in svc._iter_concurrent([1, 2], worker)]
         assert results == []
@@ -131,13 +135,13 @@ class TestConcurrentStreamMixinErrorHandling:
     async def test_worker_catching_own_exception_returns_error_result(self) -> None:
         svc = _TestConcurrentService()
 
-        async def worker(item: int) -> tuple[int, bool]:
+        async def worker(item: int):
             try:
                 if item == 2:
                     raise OSError("network down")
-                return (item, True)
+                yield (item, True)
             except OSError:
-                return (item, False)
+                yield (item, False)
 
         results = [r async for r in svc._iter_concurrent([1, 2, 3], worker)]
         assert sorted(results) == [(1, True), (2, False), (3, True)]
@@ -147,8 +151,9 @@ class TestConcurrentStreamMixinCancellation:
     async def test_worker_cancelled_error_does_not_propagate(self) -> None:
         svc = _TestConcurrentService()
 
-        async def worker(item: int) -> int:
+        async def worker(item: int):
             raise asyncio.CancelledError
+            yield  # pragma: no cover  — required to make this an async generator
 
         results = [r async for r in svc._iter_concurrent([1], worker)]
         assert results == []
@@ -157,9 +162,9 @@ class TestConcurrentStreamMixinCancellation:
         svc = _TestConcurrentService()
         collected: list[int] = []
 
-        async def worker(item: int) -> int:
+        async def worker(item: int):
             await asyncio.sleep(0.01)
-            return item
+            yield item
 
         async for result in svc._iter_concurrent([1, 2, 3, 4, 5], worker):
             collected.append(result)
@@ -421,11 +426,12 @@ class TestConcurrentStreamMixinRunnerCancellation:
         svc = _TestConcurrentService()
         gate = asyncio.Event()
 
-        async def slow_worker(item: int) -> int:
+        async def slow_worker(item: int):
             if item == 1:
-                return item
-            await gate.wait()
-            return item
+                yield item
+            else:
+                await gate.wait()
+                yield item
 
         async for _result in svc._iter_concurrent([1, 2, 3], slow_worker):
             break

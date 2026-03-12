@@ -74,14 +74,14 @@ from .queries import (
     fetch_event_relay_cursors,
     load_api_checkpoints,
     save_api_checkpoints,
-    save_event_relay_cursor,
+    save_event_relay_cursors,
     scan_event_relay,
 )
 from .utils import extract_relays_from_response, extract_relays_from_tagvalues
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator, AsyncIterator
 
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
@@ -260,9 +260,10 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         """Discover relay URLs from stored events using cursor pagination.
 
         Fetches current cursor positions, scans all relays concurrently
-        (bounded by ``events.parallel_relays``) via
-        ``_iter_concurrent()``,
-        and updates Prometheus gauges per relay as results stream in.
+        (bounded by ``events.parallel_relays``) via ``_iter_concurrent()``.
+        Workers yield individual relay URLs. The parent accumulates them in a
+        global buffer flushed at ``brotr.config.batch.max_size`` and saves
+        cursors in batch after each flush.
 
         Returns:
             Number of relay URLs discovered and inserted as candidates.
@@ -285,59 +286,111 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         self.set_gauge("relays_scanned", 0)
         self.set_gauge("event_candidates", 0)
 
+        self._event_semaphore = asyncio.Semaphore(self._config.events.parallel_relays)
+        self._phase_start = time.monotonic()
+
         total_found = 0
-        total_events = 0
-        relays_scanned = 0
+        relays_seen: set[str] = set()
+        buffer: list[Relay] = []
+        pending_cursors: dict[str, FinderCursor] = {}
+        batch_size = self._brotr.config.batch.max_size
 
-        semaphore = asyncio.Semaphore(self._config.events.parallel_relays)
-        phase_start = time.monotonic()
-        max_duration = self._config.events.max_duration
+        async for relay, cursor in self._iter_concurrent(cursors, self._event_scan_worker):
+            relays_seen.add(cursor.key)
+            buffer.append(relay)
+            pending_cursors[cursor.key] = cursor
+            if len(buffer) >= batch_size:
+                total_found += await self._flush_event_buffer(buffer, pending_cursors)
+                self.set_gauge("relays_scanned", len(relays_seen))
+                self.set_gauge("event_candidates", total_found)
 
-        async def _bounded_scan(cursor: FinderCursor) -> tuple[int, int] | None:
-            async with semaphore:
-                if not self.is_running or time.monotonic() - phase_start > max_duration:
-                    return None
-                try:
-                    return await self._scan_relay_events(cursor)
-                except Exception as e:  # Worker exception boundary — protects TaskGroup
-                    self._logger.error(
-                        "event_scan_worker_failed",
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        relay=cursor.key,
-                    )
-                    return 0, 0
-
-        async for events, found in self._iter_concurrent(cursors, _bounded_scan):
-            total_found += found
-            total_events += events
-            relays_scanned += 1
-
-            self.set_gauge("relays_scanned", relays_scanned)
-            self.set_gauge("event_candidates", total_found)
-            self.inc_counter("total_event_candidates", found)
-            self.inc_counter("total_events_processed", events)
+        total_found += await self._flush_event_buffer(buffer, pending_cursors)
+        self.set_gauge("relays_scanned", len(relays_seen))
+        self.set_gauge("event_candidates", total_found)
 
         self._logger.info(
             "events_completed",
             found=total_found,
-            events_scanned=total_events,
-            relays_scanned=relays_scanned,
+            relays_scanned=len(relays_seen),
         )
         return total_found
 
-    async def _scan_relay_events(self, cursor: FinderCursor) -> tuple[int, int]:
-        """Scan events from a single relay using composite cursor pagination.
+    async def _event_scan_worker(
+        self, cursor: FinderCursor
+    ) -> AsyncGenerator[tuple[Relay, FinderCursor], None]:
+        """Stream relay URLs from a single relay's events for ``_iter_concurrent``.
+
+        Acquires the per-phase semaphore, checks phase duration, and delegates
+        to ``_stream_relay_batches``. On unexpected exception, logs and returns
+        (yields nothing — the relay is silently skipped).
+        """
+        async with self._event_semaphore:
+            if not self.is_running or (
+                time.monotonic() - self._phase_start > self._config.events.max_duration
+            ):
+                return
+            try:
+                async for item in self._stream_relay_batches(cursor):
+                    yield item
+            except Exception as e:  # Worker exception boundary — protects TaskGroup
+                self._logger.error(
+                    "event_scan_worker_failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    relay=cursor.key,
+                )
+
+    async def _flush_event_buffer(
+        self,
+        buffer: list[Relay],
+        pending_cursors: dict[str, FinderCursor],
+    ) -> int:
+        """Flush the relay buffer and persist pending cursors.
+
+        Args:
+            buffer: Accumulated relay candidates (cleared after flush).
+            pending_cursors: Per-relay cursor positions (cleared after flush).
+
+        Returns:
+            Number of candidates inserted.
+        """
+        inserted = 0
+        if buffer:
+            try:
+                inserted = await insert_relays_as_candidates(self._brotr, list(buffer))
+                self.inc_counter("total_event_candidates", inserted)
+            except (asyncpg.PostgresError, OSError) as e:
+                self._logger.error(
+                    "insert_candidates_failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    count=len(buffer),
+                )
+            buffer.clear()
+        if pending_cursors:
+            try:
+                await save_event_relay_cursors(self._brotr, list(pending_cursors.values()))
+            except (asyncpg.PostgresError, OSError) as e:
+                self._logger.error(
+                    "cursor_update_failed",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+            pending_cursors.clear()
+        return inserted
+
+    async def _stream_relay_batches(
+        self, cursor: FinderCursor
+    ) -> AsyncGenerator[tuple[Relay, FinderCursor], None]:
+        """Stream relay URLs from a single relay using composite cursor pagination.
+
+        Yields ``(relay, updated_cursor)`` for each discovered relay URL.
+        The caller is responsible for buffering and persisting candidates and cursors.
 
         Args:
             cursor: [FinderCursor][bigbrotr.services.common.types.FinderCursor]
                 with relay URL and pagination position.
-
-        Returns:
-            Tuple of (events_scanned, candidates_found).
         """
-        events_scanned = 0
-        candidates_found = 0
         relay_url = cursor.key
         scan_start = time.monotonic()
         max_relay_time = self._config.events.max_relay_time
@@ -365,34 +418,11 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
             cursor = FinderCursor(
                 key=relay_url,
                 timestamp=last_row["seen_at"],
-                id=last_row["event_id"],
+                id=last_row["event_id"].hex(),
             )
 
-            if relays:
-                try:
-                    candidates_found += await insert_relays_as_candidates(self._brotr, relays)
-                except (asyncpg.PostgresError, OSError) as e:
-                    self._logger.error(
-                        "insert_candidates_failed",
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        count=len(relays),
-                    )
-                    break
-
-            try:
-                await save_event_relay_cursor(self._brotr, cursor)
-            except (asyncpg.PostgresError, OSError) as e:
-                self._logger.error(
-                    "cursor_update_failed",
-                    relay=relay_url,
-                    error=str(e),
-                    error_type=type(e).__name__,
-                )
-                break
-            events_scanned += len(rows)
+            for relay in relays:
+                yield relay, cursor
 
             if len(rows) < self._config.events.batch_size:
                 break
-
-        return events_scanned, candidates_found

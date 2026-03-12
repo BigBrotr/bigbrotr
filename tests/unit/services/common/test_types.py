@@ -209,32 +209,35 @@ class TestCandidateCheckpoint:
 class TestCursor:
     """Tests for Cursor base class."""
 
-    def test_creation_no_position(self) -> None:
-        """Test Cursor with key only (no position)."""
+    def test_creation_defaults(self) -> None:
+        """Test Cursor with key only uses concrete defaults."""
         cursor = Cursor(key="wss://relay.example.com")
 
         assert cursor.key == "wss://relay.example.com"
-        assert cursor.timestamp is None
-        assert cursor.id is None
+        assert cursor.timestamp == 0
+        assert cursor.id == "0" * 64
 
     def test_creation_full(self) -> None:
         """Test Cursor with all fields."""
-        event_id = b"\x00" * 32
-        cursor = Cursor(key="wss://relay.example.com", timestamp=1700000000, id=event_id)
+        cursor = Cursor(key="wss://relay.example.com", timestamp=1700000000, id="aa" * 32)
 
         assert cursor.key == "wss://relay.example.com"
         assert cursor.timestamp == 1700000000
-        assert cursor.id == event_id
+        assert cursor.id == "aa" * 32
 
-    def test_timestamp_without_id_raises(self) -> None:
-        """Test that timestamp without id raises ValueError."""
-        with pytest.raises(ValueError, match="must both be None or both be set"):
-            Cursor(key="wss://relay.example.com", timestamp=1700000000)
+    def test_partial_override_timestamp(self) -> None:
+        """Test Cursor with only timestamp overridden."""
+        cursor = Cursor(key="wss://relay.example.com", timestamp=1700000000)
 
-    def test_id_without_timestamp_raises(self) -> None:
-        """Test that id without timestamp raises ValueError."""
-        with pytest.raises(ValueError, match="must both be None or both be set"):
-            Cursor(key="wss://relay.example.com", id=b"\x00" * 32)
+        assert cursor.timestamp == 1700000000
+        assert cursor.id == "0" * 64
+
+    def test_partial_override_id(self) -> None:
+        """Test Cursor with only id overridden."""
+        cursor = Cursor(key="wss://relay.example.com", id="ff" * 32)
+
+        assert cursor.timestamp == 0
+        assert cursor.id == "ff" * 32
 
     def test_frozen(self) -> None:
         """Test that Cursor instances are immutable."""
@@ -264,35 +267,24 @@ class TestSyncCursor:
 
         assert not isinstance(cursor, FinderCursor)
 
-    def test_no_cursor(self) -> None:
-        """Test cursor with no position (scan from beginning)."""
+    def test_defaults(self) -> None:
+        """Test cursor with defaults (scan from beginning)."""
         cursor = SyncCursor(key="wss://relay.example.com")
 
         assert cursor.key == "wss://relay.example.com"
-        assert cursor.timestamp is None
-        assert cursor.id is None
+        assert cursor.timestamp == 0
+        assert cursor.id == "0" * 64
 
     def test_full_cursor(self) -> None:
         """Test cursor with both timestamp and id."""
-        event_id = b"\x00" * 32
         cursor = SyncCursor(
             key="wss://relay.example.com",
             timestamp=1700000000,
-            id=event_id,
+            id="aa" * 32,
         )
 
         assert cursor.timestamp == 1700000000
-        assert cursor.id == event_id
-
-    def test_timestamp_without_id_raises(self) -> None:
-        """Test that timestamp without id raises ValueError."""
-        with pytest.raises(ValueError, match="must both be None or both be set"):
-            SyncCursor(key="wss://relay.example.com", timestamp=1700000000)
-
-    def test_id_without_timestamp_raises(self) -> None:
-        """Test that id without timestamp raises ValueError."""
-        with pytest.raises(ValueError, match="must both be None or both be set"):
-            SyncCursor(key="wss://relay.example.com", id=b"\x00" * 32)
+        assert cursor.id == "aa" * 32
 
     def test_frozen(self) -> None:
         """Test that SyncCursor instances are immutable."""
@@ -322,31 +314,20 @@ class TestFinderCursor:
 
         assert not isinstance(cursor, SyncCursor)
 
-    def test_no_cursor(self) -> None:
-        """Test cursor with no position (scan from beginning)."""
+    def test_defaults(self) -> None:
+        """Test cursor with defaults (scan from beginning)."""
         cursor = FinderCursor(key="wss://relay.example.com")
 
         assert cursor.key == "wss://relay.example.com"
-        assert cursor.timestamp is None
-        assert cursor.id is None
+        assert cursor.timestamp == 0
+        assert cursor.id == "0" * 64
 
     def test_full_cursor(self) -> None:
         """Test cursor with both timestamp and id."""
-        event_id = b"\x00" * 32
-        cursor = FinderCursor(key="wss://relay.example.com", timestamp=1700000000, id=event_id)
+        cursor = FinderCursor(key="wss://relay.example.com", timestamp=1700000000, id="aa" * 32)
 
         assert cursor.timestamp == 1700000000
-        assert cursor.id == event_id
-
-    def test_timestamp_without_id_raises(self) -> None:
-        """Test that timestamp without id raises ValueError."""
-        with pytest.raises(ValueError, match="must both be None or both be set"):
-            FinderCursor(key="wss://relay.example.com", timestamp=1700000000)
-
-    def test_id_without_timestamp_raises(self) -> None:
-        """Test that id without timestamp raises ValueError."""
-        with pytest.raises(ValueError, match="must both be None or both be set"):
-            FinderCursor(key="wss://relay.example.com", id=b"\x00" * 32)
+        assert cursor.id == "aa" * 32
 
     def test_frozen(self) -> None:
         """Test that FinderCursor instances are immutable."""

@@ -122,13 +122,8 @@ class Cursor:
     """
 
     key: str
-    timestamp: int | None = None
-    id: bytes | None = None
-
-    def __post_init__(self) -> None:
-        if (self.timestamp is None) != (self.id is None):
-            msg = "timestamp and id must both be None or both be set"
-            raise ValueError(msg)
+    timestamp: int = 0
+    id: str = "0" * 64
 
 
 @dataclass(frozen=True, slots=True)

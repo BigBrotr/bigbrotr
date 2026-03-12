@@ -541,7 +541,10 @@ class TestPublishingConfig:
     def test_default_values(self) -> None:
         config = PublishingConfig()
 
-        assert config.relays == []
+        assert len(config.relays) == 3
+        assert config.relays[0].url == "wss://relay.damus.io"
+        assert config.relays[1].url == "wss://nos.lol"
+        assert config.relays[2].url == "wss://relay.nostr.band"
 
     def test_custom_values(self) -> None:
         config = PublishingConfig(relays=["wss://relay1.com", "wss://relay2.com"])
@@ -1848,7 +1851,8 @@ class TestMonitoringWorker:
             new_callable=AsyncMock,
             return_value=result,
         ):
-            r, res = await monitor._monitoring_worker(relay)
+            results = [item async for item in monitor._monitoring_worker(relay)]
+            r, res = results[0]
 
         assert r is relay
         assert res is result
@@ -1865,7 +1869,8 @@ class TestMonitoringWorker:
             new_callable=AsyncMock,
             return_value=empty_result,
         ):
-            r, res = await monitor._monitoring_worker(relay)
+            results = [item async for item in monitor._monitoring_worker(relay)]
+            r, res = results[0]
 
         assert r is relay
         assert res is None
@@ -1881,7 +1886,8 @@ class TestMonitoringWorker:
             new_callable=AsyncMock,
             side_effect=RuntimeError("connection lost"),
         ):
-            r, res = await monitor._monitoring_worker(relay)
+            results = [item async for item in monitor._monitoring_worker(relay)]
+            r, res = results[0]
 
         assert r is relay
         assert res is None
@@ -1900,7 +1906,8 @@ class TestMonitoringWorker:
             ),
             pytest.raises(asyncio.CancelledError),
         ):
-            await monitor._monitoring_worker(relay)
+            async for _ in monitor._monitoring_worker(relay):
+                pass
 
     async def test_keyboard_interrupt_propagates(self, mock_brotr: Brotr) -> None:
         config = _make_config()
@@ -1916,7 +1923,8 @@ class TestMonitoringWorker:
             ),
             pytest.raises(KeyboardInterrupt),
         ):
-            await monitor._monitoring_worker(relay)
+            async for _ in monitor._monitoring_worker(relay):
+                pass
 
     async def test_system_exit_propagates(self, mock_brotr: Brotr) -> None:
         config = _make_config()
@@ -1932,7 +1940,8 @@ class TestMonitoringWorker:
             ),
             pytest.raises(SystemExit),
         ):
-            await monitor._monitoring_worker(relay)
+            async for _ in monitor._monitoring_worker(relay):
+                pass
 
 
 # ============================================================================
@@ -2177,7 +2186,7 @@ class TestPublishDiscovery:
             mock_broadcast.assert_not_awaited()
 
     async def test_publish_discovery_no_relays(self, mock_brotr: Brotr) -> None:
-        config = _make_config()
+        config = _make_config(publishing=PublishingConfig(relays=[]))
         monitor = Monitor(brotr=mock_brotr, config=config)
         relay = Relay("wss://relay.example.com")
         result = _make_check_result(nip11_info=_make_nip11_meta(name="Test"))
@@ -2461,10 +2470,11 @@ class TestMonitorMetrics:
         relay2 = Relay("wss://fail.example.com")
         result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
 
-        async def fake_monitoring_worker(relay: Relay) -> tuple[Relay, CheckResult | None]:
+        async def fake_monitoring_worker(relay: Relay):
             if relay.url == relay1.url:
-                return (relay, result)
-            return (relay, None)
+                yield (relay, result)
+            else:
+                yield (relay, None)
 
         monitor.clients = MagicMock()
         monitor.clients.get = AsyncMock(return_value=None)
@@ -3054,8 +3064,8 @@ class TestMonitorMaxRelaysBudget:
         relay3 = Relay("wss://r3.example.com")
         result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
 
-        async def fake_worker(relay: Relay) -> tuple[Relay, CheckResult | None]:
-            return (relay, result)
+        async def fake_worker(relay: Relay):
+            yield (relay, result)
 
         monitor.clients = MagicMock()
         monitor.clients.disconnect = AsyncMock()
@@ -3099,8 +3109,8 @@ class TestMonitorMaxRelaysBudget:
         relay1 = Relay("wss://r1.example.com")
         result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
 
-        async def fake_worker(relay: Relay) -> tuple[Relay, CheckResult | None]:
-            return (relay, result)
+        async def fake_worker(relay: Relay):
+            yield (relay, result)
 
         monitor.clients = MagicMock()
         monitor.clients.disconnect = AsyncMock()

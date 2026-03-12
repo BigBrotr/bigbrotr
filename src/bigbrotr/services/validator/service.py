@@ -71,6 +71,8 @@ from .utils import validate_candidate
 
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.services.common.types import CandidateCheckpoint
 
@@ -197,15 +199,15 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
 
     async def _validation_worker(
         self, candidate: CandidateCheckpoint
-    ) -> tuple[CandidateCheckpoint, bool]:
+    ) -> AsyncGenerator[tuple[CandidateCheckpoint, bool], None]:
         """Validate a single candidate for use with ``_iter_concurrent``.
 
         Resolves per-network config (semaphore, proxy, timeout), then
         delegates the WebSocket probe to
         [validate_candidate][bigbrotr.services.validator.utils.validate_candidate].
 
-        Returns ``(candidate, is_valid)`` — never raises, so every
-        candidate produces a result for the caller to classify.
+        Yields ``(candidate, is_valid)`` exactly once — never raises, so
+        every candidate produces a result for the caller to classify.
         """
         try:
             network = candidate.network
@@ -213,7 +215,8 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
 
             if semaphore is None:
                 self._logger.warning("unknown_network", url=candidate.key, network=network.value)
-                return candidate, False
+                yield candidate, False
+                return
 
             network_config = self._config.networks.get(network)
             proxy_url = self._config.networks.get_proxy_url(network)
@@ -226,7 +229,7 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
                 network_config.timeout,
                 allow_insecure=self._config.processing.allow_insecure,
             )
-            return candidate, is_valid
+            yield candidate, is_valid
         except Exception as e:  # Worker exception boundary — protects TaskGroup
             self._logger.error(
                 "validate_unexpected_error",
@@ -234,4 +237,4 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
                 error=str(e),
                 error_type=type(e).__name__,
             )
-            return candidate, False
+            yield candidate, False

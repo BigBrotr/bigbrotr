@@ -4,43 +4,71 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from bigbrotr.models.constants import ServiceName
-from bigbrotr.models.service_state import ServiceStateType
-from bigbrotr.services.common.utils import parse_relay_row
+from bigbrotr.models.constants import NetworkType, ServiceName
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
+from bigbrotr.services.common.types import SyncCursor
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models.event_relay import EventRelay
-    from bigbrotr.models.relay import Relay
 
 
-async def fetch_relays(brotr: Brotr) -> list[Relay]:
-    """Fetch all relays from the database as domain objects.
+async def fetch_cursors_to_sync(
+    brotr: Brotr, end: int, networks: Sequence[NetworkType]
+) -> list[SyncCursor]:
+    """Fetch sync cursors for relays on the given networks, ordered by timestamp ascending.
 
-    Rows that fail ``Relay`` construction (invalid URL) are silently
-    skipped.
+    Performs a LEFT JOIN between the relay table and the synchronizer's
+    cursor state in ``service_state``. Only relays whose network is in
+    ``networks`` are included. Relays without a cursor get a default
+    cursor (``timestamp=0``). Relays already synced past ``end`` are excluded.
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
+        end: Upper bound timestamp — relays synced past this are excluded.
+        networks: Network types to include (e.g. enabled networks from config).
 
     Returns:
-        List of [Relay][bigbrotr.models.relay.Relay] instances ordered
-        by ``discovered_at`` ascending.
+        List of [SyncCursor][bigbrotr.services.common.types.SyncCursor]
+        ordered by timestamp ascending (oldest first).
     """
     rows = await brotr.fetch(
         """
-        SELECT url, network, discovered_at
-        FROM relay
-        ORDER BY discovered_at ASC
+        WITH cursors AS (
+            SELECT state_key,
+                   state_value,
+                   (state_value->>'timestamp')::bigint AS ts,
+                   state_value->>'id' AS cursor_id
+            FROM service_state
+            WHERE service_name = $1
+              AND state_type = $2
+        )
+        SELECT r.url, c.state_value
+        FROM relay r
+        LEFT JOIN cursors c ON c.state_key = r.url
+        WHERE r.network = ANY($4)
+          AND (c.ts IS NULL OR c.ts <= $3)
+        ORDER BY COALESCE(c.ts, 0) ASC,
+                 COALESCE(c.cursor_id, repeat('0', 64)) ASC
         """,
+        ServiceName.SYNCHRONIZER,
+        ServiceStateType.CURSOR,
+        end,
+        [n.value for n in networks],
     )
-    relays: list[Relay] = []
+    results: list[SyncCursor] = []
     for row in rows:
-        relay = parse_relay_row(row)
-        if relay is not None:
-            relays.append(relay)
-    return relays
+        sv = row["state_value"]
+        if sv:
+            results.append(
+                SyncCursor(key=row["url"], timestamp=int(sv["timestamp"]), id=str(sv["id"]))
+            )
+        else:
+            results.append(SyncCursor(key=row["url"]))
+    return results
 
 
 async def delete_stale_cursors(brotr: Brotr) -> int:
@@ -96,3 +124,33 @@ async def insert_event_relays(brotr: Brotr, records: list[EventRelay]) -> int:
     for i in range(0, len(records), batch_size):
         total += await brotr.insert_event_relay(records[i : i + batch_size])
     return total
+
+
+async def upsert_sync_cursors(brotr: Brotr, cursors: Iterable[SyncCursor]) -> None:
+    """Persist multiple sync cursor positions in batched upserts.
+
+    Splits cursors into chunks of ``brotr.config.batch.max_size`` to
+    respect database parameter limits.
+
+    Args:
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
+        cursors: Iterable of [SyncCursor][bigbrotr.services.common.types.SyncCursor]
+            instances to persist.
+    """
+    states = [
+        ServiceState(
+            service_name=ServiceName.SYNCHRONIZER,
+            state_type=ServiceStateType.CURSOR,
+            state_key=cursor.key,
+            state_value={
+                "timestamp": cursor.timestamp,
+                "id": cursor.id,
+            },
+        )
+        for cursor in cursors
+    ]
+    if not states:
+        return
+    batch_size = brotr.config.batch.max_size
+    for i in range(0, len(states), batch_size):
+        await brotr.upsert_service_state(states[i : i + batch_size])
