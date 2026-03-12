@@ -299,6 +299,9 @@ class Nip11InfoData(BaseData):
     )
     language_tags: list[str] | None = Field(default=None, description="Supported language tags")
     tags: list[str] | None = Field(default=None, description="Arbitrary relay tags")
+    attributes: list[str] | None = Field(
+        default=None, description="Self-describing relay attributes in PascalCase (NIP-11)"
+    )
 
     @property
     def self(self) -> str | None:
@@ -328,6 +331,7 @@ class Nip11InfoData(BaseData):
                 "relay_countries",
                 "language_tags",
                 "tags",
+                "attributes",
             }
         ),
     )
