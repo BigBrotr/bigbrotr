@@ -2776,13 +2776,12 @@ class TestCheckRelay:
         config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
         relay = Relay("wss://relay.example.com")
-        monitor.network_semaphores = MagicMock()
-        monitor.network_semaphores.get = MagicMock(return_value=None)
+        monitor.network_semaphores = {}
 
-        result = await monitor.check_relay(relay)
+        results = [r async for r in monitor._monitoring_worker(relay)]
 
-        assert not result.has_data
-        assert result.generated_at == 0
+        assert len(results) == 1
+        assert results[0] == (relay, None)
 
     async def test_check_relay_nip11_only(self, mock_brotr: Brotr) -> None:
         config = self._cfg(nip11_info=True)

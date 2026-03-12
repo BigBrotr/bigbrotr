@@ -216,13 +216,21 @@ class Synchronizer(
     async def _sync_worker(self, cursor: SyncCursor) -> AsyncGenerator[tuple[Event, Relay], None]:
         """Stream events from a single relay for use with ``_iter_concurrent``.
 
-        Constructs a ``Relay`` from the cursor key (URL), then delegates to
-        ``_sync_relay_events``.
+        Acquires the per-network semaphore, constructs a ``Relay`` from the
+        cursor key (URL), then delegates to ``_sync_relay_events``.
         """
         relay = Relay(cursor.key)
         try:
-            async for event in self._sync_relay_events(relay, cursor):
-                yield event, relay
+            semaphore = self.network_semaphores.get(relay.network)
+            if semaphore is None:
+                self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
+                return
+
+            async with semaphore:
+                if not self.is_running:
+                    return
+                async for event in self._sync_relay_events(relay, cursor):
+                    yield event, relay
         except Exception as e:  # Worker exception boundary — protects TaskGroup
             self._logger.error(
                 "sync_worker_failed",
@@ -238,68 +246,59 @@ class Synchronizer(
         relay: Relay,
         cursor: SyncCursor,
     ) -> AsyncGenerator[Event, None]:
-        """Stream individual events from a single relay with semaphore-bounded concurrency.
+        """Stream individual events from a single relay.
 
-        Yields events as they arrive. The caller is responsible for building
-        cursors from the yielded events.
+        Pure I/O function — the caller is responsible for semaphore
+        acquisition and building cursors from yielded events.
 
         Args:
             relay: Target relay.
             cursor: Pre-fetched sync cursor for this relay.
         """
-        semaphore = self.network_semaphores.get(relay.network)
-        if semaphore is None:
-            self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
+        network_config = self._config.networks.get(relay.network)
+        request_timeout = network_config.timeout
+        relay_timeout = self._config.timeouts.get_relay_timeout(relay.network)
+        deadline = time.monotonic() + relay_timeout
+
+        start = cursor.timestamp + 1 if cursor.timestamp > 0 else self._config.since
+        end_time = self._config.get_end_time()
+        if start >= end_time:
             return
 
-        async with semaphore:
-            if not self.is_running:
-                return
+        proxy_url = self._config.networks.get_proxy_url(relay.network)
 
-            network_config = self._config.networks.get(relay.network)
-            request_timeout = network_config.timeout
-            relay_timeout = self._config.timeouts.get_relay_timeout(relay.network)
-            deadline = time.monotonic() + relay_timeout
+        try:
+            client = await connect_relay(
+                relay,
+                keys=self._keys,
+                proxy_url=proxy_url,
+                timeout=request_timeout,
+                allow_insecure=self._config.allow_insecure,
+            )
+        except (OSError, TimeoutError) as e:
+            self._logger.warning("connect_failed", relay=relay.url, error=str(e))
+            return
 
-            start = cursor.timestamp + 1 if cursor.timestamp > 0 else self._config.since
-            end_time = self._config.get_end_time()
-            if start >= end_time:
-                return
+        try:
+            async for event in stream_events(
+                client,
+                self._config.filters,
+                start,
+                end_time,
+                self._config.limit,
+                request_timeout,
+            ):
+                yield event
+                if time.monotonic() > deadline:
+                    self._logger.debug("relay_timeout", relay=relay.url)
+                    return
 
-            proxy_url = self._config.networks.get_proxy_url(relay.network)
+            await client.disconnect()
 
+        except (TimeoutError, OSError, NostrSdkError) as e:
+            self._logger.warning("sync_relay_error", relay=relay.url, error=str(e))
+        finally:
             try:
-                client = await connect_relay(
-                    relay,
-                    keys=self._keys,
-                    proxy_url=proxy_url,
-                    timeout=request_timeout,
-                    allow_insecure=self._config.allow_insecure,
-                )
-            except (OSError, TimeoutError) as e:
-                self._logger.warning("connect_failed", relay=relay.url, error=str(e))
-                return
-
-            try:
-                async for event in stream_events(
-                    client,
-                    self._config.filters,
-                    start,
-                    end_time,
-                    self._config.limit,
-                    request_timeout,
-                ):
-                    yield event
-                    if time.monotonic() > deadline:
-                        self._logger.debug("relay_timeout", relay=relay.url)
-                        return
-
-                await client.disconnect()
-
-            except (TimeoutError, OSError, NostrSdkError) as e:
-                self._logger.warning("sync_relay_error", relay=relay.url, error=str(e))
-            finally:
-                try:
-                    await client.shutdown()
-                except Exception as e:  # nostr-sdk FFI can raise arbitrary errors on shutdown
-                    self._logger.debug("client_shutdown_error", relay=relay.url, error=str(e))
+                await client.shutdown()
+            except Exception as e:  # nostr-sdk FFI can raise arbitrary errors on shutdown
+                self._logger.debug("client_shutdown_error", relay=relay.url, error=str(e))

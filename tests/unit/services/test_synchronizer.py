@@ -955,14 +955,10 @@ class TestSynchronize:
 class TestSyncRelayEvents:
     async def test_unknown_network_yields_nothing(self, mock_synchronizer_brotr: Brotr) -> None:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
-
-        relay = MagicMock(spec=Relay)
-        relay.url = "wss://unknown.relay.com"
-        relay.network = MagicMock()
-        relay.network.value = "unknown_net"
+        sync.network_semaphores = {}
 
         cursor = SyncCursor(key="wss://unknown.relay.com")
-        items = [item async for item in sync._sync_relay_events(relay, cursor)]
+        items = [item async for item in sync._sync_worker(cursor)]
 
         assert items == []
 
@@ -988,14 +984,13 @@ class TestSyncRelayEvents:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
         sync.request_shutdown()
 
-        relay = Relay("wss://relay.example.com")
         cursor = SyncCursor(key="wss://relay.example.com")
 
         with patch(
             "bigbrotr.services.synchronizer.service.connect_relay",
             new_callable=AsyncMock,
         ) as mock_connect:
-            items = [item async for item in sync._sync_relay_events(relay, cursor)]
+            items = [item async for item in sync._sync_worker(cursor)]
 
         assert items == []
         mock_connect.assert_not_awaited()

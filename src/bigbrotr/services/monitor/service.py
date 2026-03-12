@@ -395,7 +395,7 @@ class Monitor(
         """Perform all configured health checks on a single relay.
 
         Runs NIP-11, RTT, SSL, DNS, geo, net, and HTTP checks as configured.
-        Uses the network-specific semaphore to limit concurrency.
+        The caller is responsible for acquiring the per-network semaphore.
 
         Note:
             NIP-11 is fetched first because the RTT write-test may need
@@ -409,111 +409,105 @@ class Monitor(
         """
         empty = CheckResult()
 
-        semaphore = self.network_semaphores.get(relay.network)
-        if semaphore is None:
-            self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
-            return empty
+        network_config = self._config.networks.get(relay.network)
+        proxy_url = self._config.networks.get_proxy_url(relay.network)
+        timeout = network_config.timeout
+        compute = self._config.processing.compute
 
-        async with semaphore:
-            network_config = self._config.networks.get(relay.network)
-            proxy_url = self._config.networks.get_proxy_url(relay.network)
-            timeout = network_config.timeout
-            compute = self._config.processing.compute
+        nip11_info: Nip11InfoMetadata | None = None
+        generated_at = int(time.time())
 
-            nip11_info: Nip11InfoMetadata | None = None
-            generated_at = int(time.time())
+        try:
+            if compute.nip11_info:
 
-            try:
-                if compute.nip11_info:
-
-                    async def _fetch_nip11() -> Nip11InfoMetadata | None:
-                        return (
-                            await Nip11.create(
-                                relay,
-                                timeout=timeout,
-                                proxy_url=proxy_url,
-                                options=Nip11Options(
-                                    allow_insecure=self._config.processing.allow_insecure,
-                                    max_size=self._config.processing.nip11_info_max_size,
-                                ),
-                            )
-                        ).info
-
-                    nip11_info = await retry_fetch(
-                        relay,
-                        _fetch_nip11,
-                        self._config.processing.retries.nip11_info,
-                        "nip11_info",
-                        wait=self.wait,
-                    )
-
-                rtt_meta: Nip66RttMetadata | None = None
-
-                # RTT test: open/read/write round-trip times
-                if compute.nip66_rtt:
-                    event_builder = EventBuilder(Kind(EventKind.NIP66_TEST), "nip66-test").tags(
-                        [Tag.identifier(relay.url)]
-                    )
-                    # Apply proof-of-work if NIP-11 specifies minimum difficulty
-                    if nip11_info and nip11_info.logs.success:
-                        pow_difficulty = nip11_info.data.limitation.min_pow_difficulty
-                        if pow_difficulty and pow_difficulty > 0:
-                            event_builder = event_builder.pow(pow_difficulty)
-                    read_filter = Filter().limit(1)
-                    rtt_deps = Nip66RttDependencies(
-                        keys=self._keys,
-                        event_builder=event_builder,
-                        read_filter=read_filter,
-                    )
-                    rtt_meta = await retry_fetch(
-                        relay,
-                        lambda: Nip66RttMetadata.execute(
+                async def _fetch_nip11() -> Nip11InfoMetadata | None:
+                    return (
+                        await Nip11.create(
                             relay,
-                            rtt_deps,
-                            timeout,
-                            proxy_url,
-                            allow_insecure=self._config.processing.allow_insecure,
-                        ),
-                        self._config.processing.retries.nip66_rtt,
-                        "nip66_rtt",
-                        wait=self.wait,
-                    )
+                            timeout=timeout,
+                            proxy_url=proxy_url,
+                            options=Nip11Options(
+                                allow_insecure=self._config.processing.allow_insecure,
+                                max_size=self._config.processing.nip11_info_max_size,
+                            ),
+                        )
+                    ).info
 
-                # Run independent checks (SSL, DNS, Geo, Net, HTTP) in parallel
-                parallel_tasks = self._build_parallel_checks(relay, compute, timeout, proxy_url)
-
-                gathered: dict[str, Any] = {}
-                if parallel_tasks:
-                    parallel_results = await asyncio.gather(
-                        *parallel_tasks.values(), return_exceptions=True
-                    )
-                    # Re-raise CancelledError from parallel checks
-                    for r in parallel_results:
-                        if isinstance(r, asyncio.CancelledError):
-                            raise r
-                    gathered = dict(zip(parallel_tasks.keys(), parallel_results, strict=True))
-
-                result = CheckResult(
-                    generated_at=generated_at,
-                    nip11_info=nip11_info,
-                    nip66_rtt=rtt_meta,
-                    nip66_ssl=extract_result(gathered, "ssl"),
-                    nip66_geo=extract_result(gathered, "geo"),
-                    nip66_net=extract_result(gathered, "net"),
-                    nip66_dns=extract_result(gathered, "dns"),
-                    nip66_http=extract_result(gathered, "http"),
+                nip11_info = await retry_fetch(
+                    relay,
+                    _fetch_nip11,
+                    self._config.processing.retries.nip11_info,
+                    "nip11_info",
+                    wait=self.wait,
                 )
 
-                if result.has_data:
-                    self._logger.debug("check_succeeded", url=relay.url)
-                else:
-                    self._logger.debug("check_failed", url=relay.url)
+            rtt_meta: Nip66RttMetadata | None = None
 
-                return result
+            # RTT test: open/read/write round-trip times
+            if compute.nip66_rtt:
+                event_builder = EventBuilder(Kind(EventKind.NIP66_TEST), "nip66-test").tags(
+                    [Tag.identifier(relay.url)]
+                )
+                # Apply proof-of-work if NIP-11 specifies minimum difficulty
+                if nip11_info and nip11_info.logs.success:
+                    pow_difficulty = nip11_info.data.limitation.min_pow_difficulty
+                    if pow_difficulty and pow_difficulty > 0:
+                        event_builder = event_builder.pow(pow_difficulty)
+                read_filter = Filter().limit(1)
+                rtt_deps = Nip66RttDependencies(
+                    keys=self._keys,
+                    event_builder=event_builder,
+                    read_filter=read_filter,
+                )
+                rtt_meta = await retry_fetch(
+                    relay,
+                    lambda: Nip66RttMetadata.execute(
+                        relay,
+                        rtt_deps,
+                        timeout,
+                        proxy_url,
+                        allow_insecure=self._config.processing.allow_insecure,
+                    ),
+                    self._config.processing.retries.nip66_rtt,
+                    "nip66_rtt",
+                    wait=self.wait,
+                )
 
-            except (TimeoutError, OSError) as e:
-                self._logger.debug("check_error", url=relay.url, error=str(e))
-                return empty
+            # Run independent checks (SSL, DNS, Geo, Net, HTTP) in parallel
+            parallel_tasks = self._build_parallel_checks(relay, compute, timeout, proxy_url)
+
+            gathered: dict[str, Any] = {}
+            if parallel_tasks:
+                parallel_results = await asyncio.gather(
+                    *parallel_tasks.values(), return_exceptions=True
+                )
+                # Re-raise CancelledError from parallel checks
+                for r in parallel_results:
+                    if isinstance(r, asyncio.CancelledError):
+                        raise r
+                gathered = dict(zip(parallel_tasks.keys(), parallel_results, strict=True))
+
+            result = CheckResult(
+                generated_at=generated_at,
+                nip11_info=nip11_info,
+                nip66_rtt=rtt_meta,
+                nip66_ssl=extract_result(gathered, "ssl"),
+                nip66_geo=extract_result(gathered, "geo"),
+                nip66_net=extract_result(gathered, "net"),
+                nip66_dns=extract_result(gathered, "dns"),
+                nip66_http=extract_result(gathered, "http"),
+            )
+
+            if result.has_data:
+                self._logger.debug("check_succeeded", url=relay.url)
+            else:
+                self._logger.debug("check_failed", url=relay.url)
+
+            return result
+
+        except (TimeoutError, OSError) as e:
+            self._logger.debug("check_error", url=relay.url, error=str(e))
+            return empty
 
     def _build_parallel_checks(
         self,
@@ -657,18 +651,26 @@ class Monitor(
     ) -> AsyncGenerator[tuple[Relay, CheckResult | None], None]:
         """Health-check a single relay for use with ``_iter_concurrent``.
 
-        Runs all configured checks, publishes a Kind 30166 discovery event
-        for successful results, and yields ``(relay, result)`` or
-        ``(relay, None)`` on failure. Yields exactly once — never raises,
-        so every relay produces a result for the caller to classify.
+        Acquires the per-network semaphore, runs all configured checks,
+        publishes a Kind 30166 discovery event for successful results,
+        and yields ``(relay, result)`` or ``(relay, None)`` on failure.
+        Yields exactly once — never raises, so every relay produces a
+        result for the caller to classify.
         """
         try:
-            result = await self.check_relay(relay)
-            if not result.has_data:
+            semaphore = self.network_semaphores.get(relay.network)
+            if semaphore is None:
+                self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
                 yield relay, None
                 return
-            await self.publish_discovery(relay, result)
-            yield relay, result
+
+            async with semaphore:
+                result = await self.check_relay(relay)
+                if not result.has_data:
+                    yield relay, None
+                    return
+                await self.publish_discovery(relay, result)
+                yield relay, result
         except Exception as e:  # Worker exception boundary — protects TaskGroup
             self._logger.error(
                 "check_relay_failed",

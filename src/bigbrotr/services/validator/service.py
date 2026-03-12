@@ -202,8 +202,8 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
     ) -> AsyncGenerator[tuple[CandidateCheckpoint, bool], None]:
         """Validate a single candidate for use with ``_iter_concurrent``.
 
-        Resolves per-network config (semaphore, proxy, timeout), then
-        delegates the WebSocket probe to
+        Acquires the per-network semaphore, then delegates the WebSocket
+        probe to
         [validate_candidate][bigbrotr.services.validator.utils.validate_candidate].
 
         Yields ``(candidate, is_valid)`` exactly once — never raises, so
@@ -218,18 +218,18 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
                 yield candidate, False
                 return
 
-            network_config = self._config.networks.get(network)
-            proxy_url = self._config.networks.get_proxy_url(network)
-            relay = Relay(candidate.key)
+            async with semaphore:
+                network_config = self._config.networks.get(network)
+                proxy_url = self._config.networks.get_proxy_url(network)
+                relay = Relay(candidate.key)
 
-            is_valid = await validate_candidate(
-                relay,
-                semaphore,
-                proxy_url,
-                network_config.timeout,
-                allow_insecure=self._config.processing.allow_insecure,
-            )
-            yield candidate, is_valid
+                is_valid = await validate_candidate(
+                    relay,
+                    proxy_url,
+                    network_config.timeout,
+                    allow_insecure=self._config.processing.allow_insecure,
+                )
+                yield candidate, is_valid
         except Exception as e:  # Worker exception boundary — protects TaskGroup
             self._logger.error(
                 "validate_unexpected_error",
