@@ -11,7 +11,10 @@ from typing import TYPE_CHECKING
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.nips.event_builders import (
     AccessFlags,
+    add_attributes_tags,
+    add_dns_tags,
     add_geo_tags,
+    add_http_tags,
     add_language_tags,
     add_net_tags,
     add_nip11_tags,
@@ -26,7 +29,14 @@ from bigbrotr.nips.event_builders import (
 from bigbrotr.nips.nip11 import Nip11Selection
 from bigbrotr.nips.nip11.data import Nip11InfoData, Nip11InfoDataLimitation
 from bigbrotr.nips.nip66 import Nip66Selection
-from bigbrotr.nips.nip66.data import Nip66GeoData, Nip66NetData, Nip66RttData, Nip66SslData
+from bigbrotr.nips.nip66.data import (
+    Nip66DnsData,
+    Nip66GeoData,
+    Nip66HttpData,
+    Nip66NetData,
+    Nip66RttData,
+    Nip66SslData,
+)
 from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs
 
 
@@ -228,6 +238,15 @@ class TestAddSslTags:
         assert "ssl-expires" not in tag_map
         assert "ssl-issuer" not in tag_map
 
+    def test_ssl_valid_none(self) -> None:
+        """Test SSL tags when ssl_valid is None but ssl_expires is set."""
+        tags: list[Tag] = []
+        add_ssl_tags(tags, Nip66SslData(ssl_expires=1735689600))
+
+        tag_map = _extract_tag_map(tags)
+        assert "ssl" not in tag_map
+        assert tag_map["ssl-expires"] == "1735689600"
+
     def test_none_data(self) -> None:
         """Test SSL tags when data is None."""
         tags: list[Tag] = []
@@ -272,6 +291,33 @@ class TestAddNetTags:
         assert tag_map["net-asn"] == "15169"
         assert "net-ipv6" not in tag_map
         assert "net-asn-org" not in tag_map
+
+    def test_no_ip_with_ipv6(self) -> None:
+        """Test net tags when net_ip is absent but net_ipv6 is present."""
+        tags: list[Tag] = []
+        add_net_tags(tags, Nip66NetData(net_ipv6="2001:db8::1"))
+
+        tag_map = _extract_tag_map(tags)
+        assert "net-ip" not in tag_map
+        assert tag_map["net-ipv6"] == "2001:db8::1"
+
+    def test_no_asn_with_asn_org(self) -> None:
+        """Test net tags when net_asn is None but net_asn_org is present."""
+        tags: list[Tag] = []
+        add_net_tags(tags, Nip66NetData(net_asn_org="Cloudflare"))
+
+        tag_map = _extract_tag_map(tags)
+        assert "net-asn" not in tag_map
+        assert tag_map["net-asn-org"] == "Cloudflare"
+
+    def test_l_labels_emitted(self) -> None:
+        """Test that l labels are emitted for ASN and ASN org."""
+        tags: list[Tag] = []
+        add_net_tags(tags, Nip66NetData(net_asn=13335, net_asn_org="Cloudflare"))
+
+        vecs = _extract_tag_vecs(tags)
+        assert ["l", "13335", "IANA-asn"] in vecs
+        assert ["l", "Cloudflare", "IANA-asnOrg"] in vecs
 
     def test_none_data(self) -> None:
         """Test net tags when data is None."""
@@ -324,10 +370,176 @@ class TestAddGeoTags:
         assert "geo-lon" not in tag_map
         assert "geo-tz" not in tag_map
 
+    def test_no_hash_with_country(self) -> None:
+        """Test geo tags when geo_hash is absent but geo_country is present."""
+        tags: list[Tag] = []
+        add_geo_tags(tags, Nip66GeoData(geo_country="IT"))
+
+        tag_map = _extract_tag_map(tags)
+        assert "g" not in tag_map
+        assert tag_map["geo-country"] == "IT"
+
+    def test_no_hash_no_country_with_city(self) -> None:
+        """Test geo tags when only geo_city is present (covers geo_hash and geo_country False branches)."""
+        tags: list[Tag] = []
+        add_geo_tags(tags, Nip66GeoData(geo_city="Milan"))
+
+        tag_map = _extract_tag_map(tags)
+        assert "g" not in tag_map
+        assert "geo-country" not in tag_map
+        assert tag_map["geo-city"] == "Milan"
+
+    def test_l_labels_emitted(self) -> None:
+        """Test that l labels are emitted for country, city, and timezone."""
+        tags: list[Tag] = []
+        add_geo_tags(
+            tags, Nip66GeoData(geo_country="DE", geo_city="Berlin", geo_tz="Europe/Berlin")
+        )
+
+        vecs = _extract_tag_vecs(tags)
+        assert ["l", "DE", "ISO-3166-1"] in vecs
+        assert ["l", "Berlin", "nip66.label.city"] in vecs
+        assert ["l", "Europe/Berlin", "IANA-tz"] in vecs
+
     def test_none_data(self) -> None:
         """Test geo tags when data is None."""
         tags: list[Tag] = []
         add_geo_tags(tags, None)
+        assert tags == []
+
+
+# ============================================================================
+# add_dns_tags
+# ============================================================================
+
+
+class TestAddDnsTags:
+    """Tests for add_dns_tags()."""
+
+    def test_all_fields(self) -> None:
+        """Test DNS tags with all fields present."""
+        tags: list[Tag] = []
+        add_dns_tags(
+            tags,
+            Nip66DnsData(
+                dns_ips=["1.2.3.4", "5.6.7.8"],
+                dns_ips_v6=["2001:db8::1"],
+                dns_cname="relay.cdn.example.com",
+                dns_ttl=3600,
+            ),
+        )
+
+        tag_map = _extract_tag_map(tags)
+        assert tag_map["dns-ip"] == "1.2.3.4"
+        assert tag_map["dns-ip6"] == "2001:db8::1"
+        assert tag_map["dns-cname"] == "relay.cdn.example.com"
+        assert tag_map["dns-ttl"] == "3600"
+
+    def test_partial_fields(self) -> None:
+        """Test DNS tags with only A record and TTL."""
+        tags: list[Tag] = []
+        add_dns_tags(tags, Nip66DnsData(dns_ips=["9.9.9.9"], dns_ttl=300))
+
+        tag_map = _extract_tag_map(tags)
+        assert tag_map["dns-ip"] == "9.9.9.9"
+        assert tag_map["dns-ttl"] == "300"
+        assert "dns-ip6" not in tag_map
+        assert "dns-cname" not in tag_map
+
+    def test_first_ip_only(self) -> None:
+        """Test that only the first IP from each list is emitted."""
+        tags: list[Tag] = []
+        add_dns_tags(tags, Nip66DnsData(dns_ips=["1.1.1.1", "2.2.2.2"]))
+
+        tag_map = _extract_tag_map(tags)
+        assert tag_map["dns-ip"] == "1.1.1.1"
+
+    def test_no_ipv4_with_ipv6(self) -> None:
+        """Test DNS tags when dns_ips is absent but dns_ips_v6 is present."""
+        tags: list[Tag] = []
+        add_dns_tags(tags, Nip66DnsData(dns_ips_v6=["2001:db8::1"]))
+
+        tag_map = _extract_tag_map(tags)
+        assert "dns-ip" not in tag_map
+        assert tag_map["dns-ip6"] == "2001:db8::1"
+
+    def test_none_data(self) -> None:
+        """Test DNS tags when data is None."""
+        tags: list[Tag] = []
+        add_dns_tags(tags, None)
+        assert tags == []
+
+
+# ============================================================================
+# add_http_tags
+# ============================================================================
+
+
+class TestAddHttpTags:
+    """Tests for add_http_tags()."""
+
+    def test_all_fields(self) -> None:
+        """Test HTTP tags with all fields present."""
+        tags: list[Tag] = []
+        add_http_tags(tags, Nip66HttpData(http_server="nginx/1.24", http_powered_by="strfry"))
+
+        tag_map = _extract_tag_map(tags)
+        assert tag_map["http-server"] == "nginx/1.24"
+        assert tag_map["http-powered-by"] == "strfry"
+
+    def test_server_only(self) -> None:
+        """Test HTTP tags with only server header present."""
+        tags: list[Tag] = []
+        add_http_tags(tags, Nip66HttpData(http_server="caddy"))
+
+        tag_map = _extract_tag_map(tags)
+        assert tag_map["http-server"] == "caddy"
+        assert "http-powered-by" not in tag_map
+
+    def test_powered_by_only(self) -> None:
+        """Test HTTP tags when http_server is absent but http_powered_by is present."""
+        tags: list[Tag] = []
+        add_http_tags(tags, Nip66HttpData(http_powered_by="strfry"))
+
+        tag_map = _extract_tag_map(tags)
+        assert "http-server" not in tag_map
+        assert tag_map["http-powered-by"] == "strfry"
+
+    def test_none_data(self) -> None:
+        """Test HTTP tags when data is None."""
+        tags: list[Tag] = []
+        add_http_tags(tags, None)
+        assert tags == []
+
+
+# ============================================================================
+# add_attributes_tags
+# ============================================================================
+
+
+class TestAddAttributesTags:
+    """Tests for add_attributes_tags()."""
+
+    def test_with_attributes(self) -> None:
+        """Test W tags are emitted for each attribute."""
+        tags: list[Tag] = []
+        add_attributes_tags(tags, Nip11InfoData(attributes=["Public", "Search", "Paid"]))
+
+        pairs = _extract_tag_pairs(tags)
+        assert ("W", "Public") in pairs
+        assert ("W", "Search") in pairs
+        assert ("W", "Paid") in pairs
+
+    def test_empty_attributes(self) -> None:
+        """Test no tags emitted when attributes list is empty."""
+        tags: list[Tag] = []
+        add_attributes_tags(tags, Nip11InfoData(attributes=[]))
+        assert tags == []
+
+    def test_none_attributes(self) -> None:
+        """Test no tags emitted when attributes is None."""
+        tags: list[Tag] = []
+        add_attributes_tags(tags, Nip11InfoData())
         assert tags == []
 
 
