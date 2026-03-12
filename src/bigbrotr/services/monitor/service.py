@@ -372,6 +372,10 @@ class Monitor(
                 ssl_data=result.nip66_ssl.data if result.nip66_ssl and include.nip66_ssl else None,
                 net_data=result.nip66_net.data if result.nip66_net and include.nip66_net else None,
                 geo_data=result.nip66_geo.data if result.nip66_geo and include.nip66_geo else None,
+                dns_data=result.nip66_dns.data if result.nip66_dns and include.nip66_dns else None,
+                http_data=(
+                    result.nip66_http.data if result.nip66_http and include.nip66_http else None
+                ),
                 nip11_data=(
                     result.nip11_info.data if result.nip11_info and include.nip11_info else None
                 ),
