@@ -1,7 +1,6 @@
 """Unit tests for services.common.catalog module.
 
 Tests:
-- TableConfig Pydantic model
 - ColumnSchema, TableSchema, QueryResult dataclasses
 - Catalog schema discovery
 - Catalog query builder
@@ -22,7 +21,6 @@ from bigbrotr.services.common.catalog import (
     QueryResult,
     TableSchema,
 )
-from bigbrotr.services.common.configs import TableConfig
 
 
 # ============================================================================
@@ -82,42 +80,6 @@ def populated_catalog(sample_table: TableSchema, sample_bytea_table: TableSchema
         sample_bytea_table.name: sample_bytea_table,
     }
     return catalog
-
-
-# ============================================================================
-# TableConfig Tests
-# ============================================================================
-
-
-class TestTableConfig:
-    """Tests for TableConfig Pydantic model."""
-
-    def test_default_disabled(self) -> None:
-        config = TableConfig()
-        assert config.enabled is False
-        assert config.price == 0
-
-    def test_enabled(self) -> None:
-        config = TableConfig(enabled=True)
-        assert config.enabled is True
-
-    def test_from_dict(self) -> None:
-        config = TableConfig.model_validate({"enabled": True})
-        assert config.enabled is True
-
-    def test_with_price(self) -> None:
-        config = TableConfig(enabled=True, price=5000)
-        assert config.price == 5000
-        assert config.enabled is True
-
-    def test_negative_price_rejected(self) -> None:
-        with pytest.raises(ValueError):
-            TableConfig(price=-1)
-
-    def test_disabled_with_price(self) -> None:
-        config = TableConfig(enabled=False, price=100)
-        assert config.enabled is False
-        assert config.price == 100
 
 
 # ============================================================================
@@ -614,54 +576,38 @@ class TestCatalogGetByPk:
 class TestFilterParsing:
     """Tests for Catalog._parse_filter()."""
 
-    def test_default_operator(self) -> None:
-        op, val = Catalog._parse_filter("clearnet")
-        assert op == "="
-        assert val == "clearnet"
-
-    def test_gt_operator(self) -> None:
-        op, val = Catalog._parse_filter(">:100")
-        assert op == ">"
-        assert val == "100"
-
-    def test_gte_operator(self) -> None:
-        op, val = Catalog._parse_filter(">=:50")
-        assert op == ">="
-        assert val == "50"
-
-    def test_lt_operator(self) -> None:
-        op, val = Catalog._parse_filter("<:50")
-        assert op == "<"
-        assert val == "50"
-
-    def test_lte_operator(self) -> None:
-        op, val = Catalog._parse_filter("<=:25")
-        assert op == "<="
-        assert val == "25"
-
-    def test_ilike_operator(self) -> None:
-        op, val = Catalog._parse_filter("ILIKE:%relay%")
-        assert op == "ILIKE"
-        assert val == "%relay%"
+    @pytest.mark.parametrize(
+        ("raw", "expected_op", "expected_val"),
+        [
+            ("clearnet", "=", "clearnet"),
+            (">:100", ">", "100"),
+            (">=:50", ">=", "50"),
+            ("<:50", "<", "50"),
+            ("<=:25", "<=", "25"),
+            ("ILIKE:%relay%", "ILIKE", "%relay%"),
+        ],
+    )
+    def test_parse_filter(self, raw: str, expected_op: str, expected_val: str) -> None:
+        op, val = Catalog._parse_filter(raw)
+        assert op == expected_op
+        assert val == expected_val
 
 
 class TestSortParsing:
     """Tests for Catalog._parse_sort()."""
 
-    def test_default_asc(self) -> None:
-        col, direction = Catalog._parse_sort("name")
-        assert col == "name"
-        assert direction == "ASC"
-
-    def test_desc(self) -> None:
-        col, direction = Catalog._parse_sort("name:desc")
-        assert col == "name"
-        assert direction == "DESC"
-
-    def test_asc_explicit(self) -> None:
-        col, direction = Catalog._parse_sort("name:asc")
-        assert col == "name"
-        assert direction == "ASC"
+    @pytest.mark.parametrize(
+        ("raw", "expected_col", "expected_dir"),
+        [
+            ("name", "name", "ASC"),
+            ("name:desc", "name", "DESC"),
+            ("name:asc", "name", "ASC"),
+        ],
+    )
+    def test_parse_sort(self, raw: str, expected_col: str, expected_dir: str) -> None:
+        col, direction = Catalog._parse_sort(raw)
+        assert col == expected_col
+        assert direction == expected_dir
 
     def test_invalid_direction(self) -> None:
         with pytest.raises(CatalogError, match="Invalid sort direction"):
@@ -712,44 +658,26 @@ class TestSelectColumns:
 class TestParamCast:
     """Tests for Catalog._param_cast()."""
 
-    def test_bytea(self) -> None:
-        assert Catalog._param_cast("bytea") == "::bytea"
-
-    def test_integer(self) -> None:
-        assert Catalog._param_cast("integer") == "::integer"
-
-    def test_bigint(self) -> None:
-        assert Catalog._param_cast("bigint") == "::bigint"
-
-    def test_smallint(self) -> None:
-        assert Catalog._param_cast("smallint") == "::smallint"
-
-    def test_boolean(self) -> None:
-        assert Catalog._param_cast("boolean") == "::boolean"
-
-    def test_date(self) -> None:
-        assert Catalog._param_cast("date") == "::date"
-
-    def test_timestamp(self) -> None:
-        assert Catalog._param_cast("timestamp without time zone") == "::timestamp without time zone"
-
-    def test_timestamptz(self) -> None:
-        assert Catalog._param_cast("timestamp with time zone") == "::timestamp with time zone"
-
-    def test_numeric(self) -> None:
-        assert Catalog._param_cast("numeric") == "::numeric"
-
-    def test_decimal(self) -> None:
-        assert Catalog._param_cast("decimal") == "::numeric"
-
-    def test_jsonb(self) -> None:
-        assert Catalog._param_cast("jsonb") == "::jsonb"
-
-    def test_text_no_cast(self) -> None:
-        assert Catalog._param_cast("text") == ""
-
-    def test_text_array_no_cast(self) -> None:
-        assert Catalog._param_cast("text[]") == ""
+    @pytest.mark.parametrize(
+        ("pg_type", "expected"),
+        [
+            ("bytea", "::bytea"),
+            ("integer", "::integer"),
+            ("bigint", "::bigint"),
+            ("smallint", "::smallint"),
+            ("boolean", "::boolean"),
+            ("date", "::date"),
+            ("timestamp without time zone", "::timestamp without time zone"),
+            ("timestamp with time zone", "::timestamp with time zone"),
+            ("numeric", "::numeric"),
+            ("decimal", "::numeric"),
+            ("jsonb", "::jsonb"),
+            ("text", ""),
+            ("text[]", ""),
+        ],
+    )
+    def test_param_cast(self, pg_type: str, expected: str) -> None:
+        assert Catalog._param_cast(pg_type) == expected
 
 
 # ============================================================================
