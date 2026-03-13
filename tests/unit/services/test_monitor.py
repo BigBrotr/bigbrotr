@@ -21,7 +21,13 @@ from bigbrotr.nips.nip11.logs import Nip11InfoLogs
 from bigbrotr.nips.nip66 import Nip66RttMetadata
 from bigbrotr.nips.nip66.data import Nip66RttData
 from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs
-from bigbrotr.services.common.configs import ClearnetConfig, NetworksConfig, TorConfig
+from bigbrotr.services.common.configs import (
+    ClearnetConfig,
+    I2pConfig,
+    LokiConfig,
+    NetworksConfig,
+    TorConfig,
+)
 from bigbrotr.services.monitor import (
     AnnouncementConfig,
     CheckResult,
@@ -1358,6 +1364,27 @@ class TestMonitorRun:
         mock_count.assert_awaited_once()
         mock_fetch.assert_awaited_once()
 
+    async def test_monitor_no_networks_enabled_returns_zero(self, mock_brotr: Brotr) -> None:
+        no_clearnet = MetadataFlags(
+            nip66_ssl=False, nip66_geo=False, nip66_net=False, nip66_dns=False
+        )
+        config = _make_config(
+            networks=NetworksConfig(
+                clearnet=ClearnetConfig(enabled=False),
+                tor=TorConfig(enabled=False),
+                i2p=I2pConfig(enabled=False),
+                loki=LokiConfig(enabled=False),
+            ),
+            processing=ProcessingConfig(compute=no_clearnet, store=no_clearnet),
+            discovery=DiscoveryConfig(include=no_clearnet),
+            announcement=AnnouncementConfig(include=no_clearnet),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+
+        result = await monitor.monitor()
+
+        assert result == 0
+
 
 # ============================================================================
 # Service: Monitor cleanup
@@ -1589,6 +1616,26 @@ class TestPublishAnnouncement:
         mock_broadcast.assert_awaited_once()
         mock_save.assert_awaited_once()
 
+    async def test_publish_announcement_no_reachable_clients(self, stub: _MonitorStub) -> None:
+        stub.clients.get_many = AsyncMock(return_value=[])
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+            ) as mock_broadcast,
+        ):
+            await stub.publish_announcement()
+
+        mock_broadcast.assert_not_awaited()
+        stub._logger.warning.assert_called_once_with(
+            "publish_failed", event="announcement", error="no relays reachable"
+        )
+
     async def test_publish_announcement_broadcast_failure(self, stub: _MonitorStub) -> None:
         with (
             patch(
@@ -1673,6 +1720,26 @@ class TestPublishProfile:
         mock_broadcast.assert_awaited_once()
         mock_save.assert_awaited_once()
         stub._logger.info.assert_called_with("publish_completed", event="profile", relays=1)
+
+    async def test_publish_profile_no_reachable_clients(self, stub: _MonitorStub) -> None:
+        stub.clients.get_many = AsyncMock(return_value=[])
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+            ) as mock_broadcast,
+        ):
+            await stub.publish_profile()
+
+        mock_broadcast.assert_not_awaited()
+        stub._logger.warning.assert_called_once_with(
+            "publish_failed", event="profile", error="no relays reachable"
+        )
 
     async def test_publish_profile_broadcast_failure(self, stub: _MonitorStub) -> None:
         with (

@@ -17,6 +17,7 @@ import asyncpg
 import pytest
 
 from bigbrotr.core.brotr import Brotr
+from bigbrotr.models import Relay
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.common.types import ApiCheckpoint, FinderCursor
@@ -998,6 +999,98 @@ class TestFinderFindFromApi:
             assert result == 1
             mock_save.assert_awaited_once()
 
+    async def test_shutdown_during_iteration_stops(self, mock_brotr: Brotr) -> None:
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                sources=[
+                    ApiSourceConfig(url="https://api1.example.com"),
+                    ApiSourceConfig(url="https://api2.example.com"),
+                ],
+                request_delay=0,
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.com")
+
+        async def _fetch_and_shutdown(session: Any, source: Any) -> list[Relay]:
+            finder.request_shutdown()
+            return [relay]
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.load_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "bigbrotr.services.finder.service.save_api_checkpoints",
+                new_callable=AsyncMock,
+            ),
+            patch("aiohttp.ClientSession") as mock_session_cls,
+            patch(
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+            patch.object(finder, "_fetch_single_api", side_effect=_fetch_and_shutdown),
+        ):
+            mock_session = MagicMock()
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_session_cls.return_value = mock_session
+
+            result = await finder.find_from_api()
+
+            assert result == 1
+
+    async def test_request_delay_shutdown_stops_iteration(self, mock_brotr: Brotr) -> None:
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                sources=[
+                    ApiSourceConfig(url="https://api1.example.com"),
+                    ApiSourceConfig(url="https://api2.example.com"),
+                ],
+                request_delay=1.0,
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.com")
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.load_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "bigbrotr.services.finder.service.save_api_checkpoints",
+                new_callable=AsyncMock,
+            ),
+            patch("aiohttp.ClientSession") as mock_session_cls,
+            patch(
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+            patch.object(finder, "_fetch_single_api", new_callable=AsyncMock, return_value=[relay]),
+        ):
+            mock_session = MagicMock()
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_session_cls.return_value = mock_session
+
+            async def _wait_returns_true(delay: float) -> bool:
+                return True
+
+            finder.wait = _wait_returns_true  # type: ignore[method-assign]
+
+            result = await finder.find_from_api()
+
+            assert result == 1
+            assert finder._fetch_single_api.call_count == 1
+
     async def test_deduplicates_across_sources(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(
             api=ApiConfig(
@@ -1274,6 +1367,73 @@ class TestFinderFindFromEvents:
             result = await finder.find_from_events()
 
             assert result == 0
+
+    async def test_buffer_flushed_mid_loop_when_exceeds_batch_size(self, mock_brotr: Brotr) -> None:
+        events = [
+            {
+                "tagvalues": [f"r:wss://relay{i}.example.com"],
+                "seen_at": 1700000000 + i,
+                "event_id": bytes([i]) + b"\x00" * 31,
+            }
+            for i in range(5)
+        ]
+
+        call_count = 0
+
+        async def _events_side_effect(
+            brotr: Any,
+            cursor: FinderCursor,
+            limit: int,
+        ) -> list[dict[str, Any]]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return events
+            return []
+
+        mock_brotr.config.batch.max_size = 3
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.fetch_event_relay_cursors",
+                new_callable=AsyncMock,
+                return_value=[FinderCursor(key="wss://source.relay.com")],
+            ),
+            patch(
+                "bigbrotr.services.finder.service.scan_event_relay",
+                new_callable=AsyncMock,
+                side_effect=_events_side_effect,
+            ),
+            patch(
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
+                side_effect=lambda _b, relays: len(relays),
+            ) as mock_insert,
+        ):
+            mock_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
+
+            finder = Finder(brotr=mock_brotr)
+            finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+            finder.inc_counter = MagicMock()  # type: ignore[method-assign]
+
+            result = await finder.find_from_events()
+
+            assert result == 5
+            assert mock_insert.call_count >= 2
+
+    async def test_phase_duration_exceeded_stops_workers(self, mock_brotr: Brotr) -> None:
+        config = FinderConfig(events=EventsConfig(max_duration=60))
+        finder = Finder(brotr=mock_brotr, config=config)
+        finder._phase_start = 0.0
+        finder._event_semaphore = asyncio.Semaphore(50)
+
+        with patch("time.monotonic", return_value=61.0):
+            items = [
+                item
+                async for item in finder._event_scan_worker(FinderCursor(key="wss://relay1.com"))
+            ]
+
+        assert items == []
 
     async def test_emits_gauges_and_counters(self, mock_brotr: Brotr) -> None:
         mock_event = {
