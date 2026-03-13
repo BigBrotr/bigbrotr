@@ -63,7 +63,6 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from nostr_sdk import EventBuilder, Filter, Kind, Tag
 
 from bigbrotr.core.base_service import BaseService
-from bigbrotr.models import Metadata, MetadataType
 from bigbrotr.models.constants import EventKind, NetworkType, ServiceName
 from bigbrotr.nips.event_builders import (
     build_monitor_announcement,
@@ -72,6 +71,7 @@ from bigbrotr.nips.event_builders import (
 )
 from bigbrotr.nips.nip11 import Nip11, Nip11Options, Nip11Selection
 from bigbrotr.nips.nip66 import (
+    Nip66,
     Nip66DnsMetadata,
     Nip66GeoMetadata,
     Nip66HttpMetadata,
@@ -361,28 +361,20 @@ class Monitor(
 
         include = cfg.include
         try:
-            nip11_canonical_json = ""
-            if result.nip11_info and include.nip11_info:
-                meta = Metadata(type=MetadataType.NIP11_INFO, data=result.nip11_info.to_dict())
-                nip11_canonical_json = meta.canonical_json
-
-            builder = build_relay_discovery(
-                relay.url,
-                relay.network.value,
-                nip11_canonical_json,
-                rtt_data=result.nip66_rtt.data if result.nip66_rtt and include.nip66_rtt else None,
-                ssl_data=result.nip66_ssl.data if result.nip66_ssl and include.nip66_ssl else None,
-                net_data=result.nip66_net.data if result.nip66_net and include.nip66_net else None,
-                geo_data=result.nip66_geo.data if result.nip66_geo and include.nip66_geo else None,
-                dns_data=result.nip66_dns.data if result.nip66_dns and include.nip66_dns else None,
-                http_data=(
-                    result.nip66_http.data if result.nip66_http and include.nip66_http else None
-                ),
-                nip11_data=(
-                    result.nip11_info.data if result.nip11_info and include.nip11_info else None
-                ),
-                rtt_logs=result.nip66_rtt.logs if result.nip66_rtt else None,
+            nip11 = Nip11(
+                relay=relay,
+                info=result.nip11_info if include.nip11_info else None,
             )
+            nip66 = Nip66(
+                relay=relay,
+                rtt=result.nip66_rtt if include.nip66_rtt else None,
+                ssl=result.nip66_ssl if include.nip66_ssl else None,
+                geo=result.nip66_geo if include.nip66_geo else None,
+                net=result.nip66_net if include.nip66_net else None,
+                dns=result.nip66_dns if include.nip66_dns else None,
+                http=result.nip66_http if include.nip66_http else None,
+            )
+            builder = build_relay_discovery(relay, nip11, nip66)
         except (ValueError, KeyError, TypeError) as e:
             self._logger.debug("build_30166_failed", url=relay.url, error=str(e))
             return
