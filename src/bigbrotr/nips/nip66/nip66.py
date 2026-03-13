@@ -30,9 +30,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from nostr_sdk import EventBuilder, Filter, Keys, Kind
+
+from bigbrotr.models.constants import EventKind
 from bigbrotr.models.metadata import Metadata, MetadataType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.models.relay_metadata import RelayMetadata
@@ -55,7 +58,6 @@ from .ssl import Nip66SslMetadata
 
 if TYPE_CHECKING:
     import geoip2.database
-    from nostr_sdk import EventBuilder, Filter, Keys
 
 
 logger = logging.getLogger("bigbrotr.nips.nip66")
@@ -97,20 +99,30 @@ class Nip66Options(BaseNipOptions):
     """
 
 
+def _default_keys() -> Keys:
+    return Keys.generate()
+
+
+def _default_event_builder() -> EventBuilder:
+    return EventBuilder(Kind(EventKind.NIP66_TEST), "")
+
+
+def _default_read_filter() -> Filter:
+    return Filter().limit(1)
+
+
 @dataclass(frozen=True, slots=True)
 class Nip66Dependencies(BaseNipDependencies):
     """Optional dependencies for NIP-66 monitoring tests.
 
-    All fields default to ``None``. RTT tests require ``keys``,
-    ``event_builder``, and ``read_filter``. Geo/net tests require
-    the corresponding GeoIP database readers.
+    RTT tests require ``keys``, ``event_builder``, and ``read_filter``.
+    All three are auto-populated with sensible defaults when not provided:
+    ``keys`` generates a throwaway keypair, ``event_builder`` creates a
+    bare Kind 22456 event, and ``read_filter`` fetches a single event.
+    Pass explicit values to override (e.g., for proof-of-work or custom filters).
 
-    Note:
-        Tests whose dependencies are ``None`` are silently skipped in
-        [Nip66.create][bigbrotr.nips.nip66.nip66.Nip66.create], even if
-        enabled in [Nip66Selection][bigbrotr.nips.nip66.nip66.Nip66Selection].
-        This allows a single code path to handle deployments with and
-        without GeoIP databases or signing keys.
+    Geo/net tests require the corresponding GeoIP database readers and are
+    silently skipped when those readers are ``None``.
 
     See Also:
         [bigbrotr.nips.nip66.rtt.Nip66RttDependencies][bigbrotr.nips.nip66.rtt.Nip66RttDependencies]:
@@ -119,9 +131,9 @@ class Nip66Dependencies(BaseNipDependencies):
             Function used to load the signing keys.
     """
 
-    keys: Keys | None = None
-    event_builder: EventBuilder | None = None
-    read_filter: Filter | None = None
+    keys: Keys = field(default_factory=_default_keys)
+    event_builder: EventBuilder = field(default_factory=_default_event_builder)
+    read_filter: Filter = field(default_factory=_default_read_filter)
     city_reader: geoip2.database.Reader | None = None
     asn_reader: geoip2.database.Reader | None = None
 
@@ -277,8 +289,7 @@ class Nip66(BaseNip):
         tasks: list[Any] = []
         task_names: list[str] = []
 
-        # RTT requires all three parameters (keys, event_builder, read_filter)
-        if selection.rtt and deps.keys and deps.event_builder and deps.read_filter:
+        if selection.rtt:
             rtt_deps = Nip66RttDependencies(
                 keys=deps.keys,
                 event_builder=deps.event_builder,

@@ -352,25 +352,27 @@ class TestNip66Create:
         assert result.dns is None
         assert result.http is None
 
-    async def test_rtt_skipped_without_keys(self, relay: Relay) -> None:
-        """run_rtt=True without keys/event_builder/read_filter skips RTT."""
-        dns_metadata = Nip66DnsMetadata(
-            data=Nip66DnsData(dns_ips=["8.8.8.8"]),
-            logs=Nip66DnsLogs(success=True, reason=None),
+    async def test_rtt_runs_with_default_deps(self, relay: Relay) -> None:
+        """RTT runs without explicit deps using auto-generated defaults."""
+        rtt_metadata = Nip66RttMetadata(
+            data=Nip66RttData(rtt_open=100),
+            logs=Nip66RttMultiPhaseLogs(open_success=True),
         )
         selection = Nip66Selection(rtt=True, geo=False, net=False)
 
         with (
             patch.object(
-                Nip66DnsMetadata, "execute", new_callable=AsyncMock, return_value=dns_metadata
-            ),
+                Nip66RttMetadata, "execute", new_callable=AsyncMock, return_value=rtt_metadata
+            ) as mock_rtt,
+            patch.object(Nip66DnsMetadata, "execute", new_callable=AsyncMock, return_value=None),
             patch.object(Nip66SslMetadata, "execute", new_callable=AsyncMock, return_value=None),
             patch.object(Nip66HttpMetadata, "execute", new_callable=AsyncMock, return_value=None),
         ):
             result = await Nip66.create(relay, selection=selection)
 
         assert isinstance(result, Nip66)
-        assert result.rtt is None  # Skipped due to missing params
+        assert result.rtt is not None
+        mock_rtt.assert_called_once()
 
     async def test_can_skip_all_except_dns(self, relay: Relay) -> None:
         """Can skip all tests except DNS."""
