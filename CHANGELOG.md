@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.9.0] - 2026-03-09
+
+Comprehensive service review, test rewrite, and documentation overhaul. Services restructured for consistency, test suite rewritten for comprehensive coverage, and all documentation audited against current codebase.
+
+### Added
+
+- **`allow_insecure` config**: Validator, Synchronizer, and Dvm services now support `allow_insecure` option for connecting to relays with invalid TLS certificates (#353, #357)
+- **CORS and request timeout**: Api service gains configurable CORS middleware and per-request timeout (#357)
+- **DVM utilities module**: Extracted DVM utility functions into dedicated `dvm/utils.py` for clearer separation of concerns (#357)
+
+### Fixed
+
+- **`service_state_upsert` return value**: Stored procedure now returns affected row count instead of VOID, enabling callers to verify upsert success (#353)
+- **Integration test failures**: Corrected fixture setup and teardown for reliable test execution (#356)
+
+### Changed
+
+- **Service-wide refactoring**: DVM service restructured with extracted utilities; Monitor configs, queries, and utils cleaned up; Validator metrics simplified to three gauges; delete-count queries standardized to CTE + fetchval pattern (#353, #357)
+- **Client lifecycle**: `PublishClients` renamed to `Clients` with simplified publish methods; client lifecycle moved to protocol module; dead protocol helpers removed (#353)
+- **Monitor alignment**: `monitor()` method aligned to `validate()` pagination pattern; helpers extracted and inlined for clarity (#353)
+- **Synchronizer simplification**: Config simplified, streaming module renamed, sync algorithm extracted to utils (#352)
+- **Candidate queries**: Insertion queries moved to common module for reuse across services (#352)
+- **Pydantic config models**: Added Field descriptions across all config models (#353)
+- **Integration fixtures**: Optimized with TRUNCATE instead of DROP/CREATE for faster test cycles (#356)
+
+### Removed
+
+- **Redundant code**: `or 0` guard on `delete_promoted_candidates` (already returns int), dead protocol helpers in Clients class (#353)
+
+### Tests
+
+- **Complete test rewrite**: Unit tests (~2,739) and integration tests (~216) rewritten for comprehensive coverage with consistent patterns (#355, #356)
+- **Integration consolidation**: BigBrotr-specific integration tests merged into base test suite (#356)
+
+### Docs
+
+- **PROJECT_SPECIFICATION.md**: Complete rewrite (984→1464 lines) based on deep codebase audit covering all 16 sections (#358)
+- **README.md**: Full refresh with accurate architecture diagram, service table, and project data (#358)
+- **Documentation site**: Fixed broken Material Design icons, Mermaid diagram syntax, CSS styling; corrected inaccuracies across user guide, how-to, and development docs (#358)
+- **Unified descriptions**: Project description aligned across `pyproject.toml`, `__init__.py`, `mkdocs.yml`, `Dockerfile`, and landing page (#358)
+- **Stale cross-references**: Fixed broken docstring references after query module relocation (#352)
+
 ## [5.8.0] - 2026-03-06
 
 Service quality and correctness release: concurrent processing extracted into shared mixin, error handling normalized across all services, and two production bugs fixed.
@@ -922,7 +964,10 @@ Initial prototype release.
 
 ---
 
-[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v5.6.0...HEAD
+[Unreleased]: https://github.com/bigbrotr/bigbrotr/compare/v5.9.0...HEAD
+[5.9.0]: https://github.com/bigbrotr/bigbrotr/compare/v5.8.0...v5.9.0
+[5.8.0]: https://github.com/bigbrotr/bigbrotr/compare/v5.7.0...v5.8.0
+[5.7.0]: https://github.com/bigbrotr/bigbrotr/compare/v5.6.0...v5.7.0
 [5.6.0]: https://github.com/bigbrotr/bigbrotr/compare/v5.5.0...v5.6.0
 [5.5.0]: https://github.com/bigbrotr/bigbrotr/compare/v5.4.0...v5.5.0
 [5.4.0]: https://github.com/bigbrotr/bigbrotr/compare/v5.3.1...v5.4.0
