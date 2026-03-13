@@ -2234,6 +2234,47 @@ class TestCheckRelay:
         assert not result.has_data
         assert result.generated_at == 0
 
+    async def test_check_relay_rtt_skips_pow_when_nip11_absent(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip11_info=True, nip66_rtt=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        rtt_meta = _make_rtt_meta(rtt_open=50)
+
+        with patch(
+            "bigbrotr.services.monitor.service.retry_fetch",
+            new_callable=AsyncMock,
+            side_effect=[None, rtt_meta],
+        ):
+            result = await monitor.check_relay(relay)
+
+        assert result.nip11_info is None
+        assert result.nip66_rtt is rtt_meta
+
+    async def test_check_relay_nip11_closure_calls_create(self, mock_brotr: Brotr) -> None:
+        config = self._cfg(nip11_info=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        nip11_meta = _make_nip11_meta(name="Test")
+
+        mock_nip11 = MagicMock()
+        mock_nip11.info = nip11_meta
+
+        async def call_through(relay, coro_factory, *args, **kwargs):
+            return await coro_factory()
+
+        with (
+            patch("bigbrotr.services.monitor.service.retry_fetch", side_effect=call_through),
+            patch(
+                "bigbrotr.services.monitor.service.Nip11.create",
+                new_callable=AsyncMock,
+                return_value=mock_nip11,
+            ) as mock_create,
+        ):
+            result = await monitor.check_relay(relay)
+
+        mock_create.assert_awaited_once()
+        assert result.nip11_info is nip11_meta
+
     async def test_check_relay_rtt_with_pow(self, mock_brotr: Brotr) -> None:
         config = self._cfg(nip11_info=True, nip66_rtt=True)
         monitor = Monitor(brotr=mock_brotr, config=config)
