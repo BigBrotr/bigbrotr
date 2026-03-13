@@ -187,6 +187,9 @@ async def stream_events(  # noqa: PLR0913
     Yields:
         Domain ``Event`` objects in ascending ``(created_at, id)`` order.
     """
+    if start_time > end_time:
+        return
+
     ctx = _FetchContext(
         client=client,
         filters=filters,

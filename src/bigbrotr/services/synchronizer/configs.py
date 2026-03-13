@@ -46,15 +46,14 @@ def _parse_filter(raw: Any, index: int) -> Filter:
 
 
 class TimeoutsConfig(BaseModel):
-    """Sync timeout limits: per-relay bounds and optional phase-level cap.
+    """Sync timeout limits: per-relay bounds and phase-level cap.
 
     The ``relay_*`` fields control the maximum wall-clock time for syncing
-    a single relay (enforced via ``asyncio.wait_for``).  The per-request
-    WebSocket timeout comes from
+    a single relay.  The per-request WebSocket timeout comes from
     [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig].
 
     ``max_duration`` caps the entire sync phase: once exceeded, remaining
-    relays are skipped.  ``None`` (the default) means unlimited.
+    relays are skipped.
 
     See Also:
         [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
@@ -73,18 +72,16 @@ class TimeoutsConfig(BaseModel):
     relay_loki: float = Field(
         default=3600.0, ge=60.0, le=14_400.0, description="Max time per Loki relay sync"
     )
-    max_duration: float | None = Field(
-        default=None,
+    max_duration: float = Field(
+        default=14_400.0,
         ge=60.0,
         le=86_400.0,
-        description="Maximum seconds for the entire sync phase (None = unlimited)",
+        description="Maximum seconds for the entire sync phase",
     )
 
     @model_validator(mode="after")
     def _validate_max_duration_covers_relay_timeouts(self) -> TimeoutsConfig:
         """Ensure max_duration is at least as long as the shortest relay timeout."""
-        if self.max_duration is None:
-            return self
         min_relay = min(self.relay_clearnet, self.relay_tor, self.relay_i2p, self.relay_loki)
         if self.max_duration < min_relay:
             raise ValueError(
@@ -104,39 +101,26 @@ class TimeoutsConfig(BaseModel):
         return self.relay_clearnet
 
 
-class SynchronizerConfig(BaseServiceConfig):
-    """Synchronizer service configuration.
+class ProcessingConfig(BaseModel):
+    """Sync processing parameters following NIP-01 REQ semantics.
 
-    Sync parameters follow NIP-01 REQ semantics:
-
-    - ``filters`` — NIP-01 filter dicts, converted to ``nostr_sdk.Filter``
-      at load time for fail-fast validation.
-    - ``since`` — default start timestamp for relays without a cursor.
-    - ``until`` — upper bound; ``None`` (default) means ``now()``.
-    - ``limit`` — max events per relay request (REQ limit).
-    - ``end_lag`` — seconds subtracted from ``until`` to compute the
-      actual sync end time: ``(until or now()) - end_lag``.
+    Attributes:
+        filters: NIP-01 filter dicts, converted to ``nostr_sdk.Filter``
+            at load time for fail-fast validation.
+        since: Default start timestamp for relays without a cursor.
+        until: Upper bound; ``None`` (default) means ``now()``.
+        limit: Max events per relay request (REQ limit).
+        end_lag: Seconds subtracted from ``until`` to compute the
+            actual sync end time: ``(until or now()) - end_lag``.
+        allow_insecure: Fall back to insecure transport on SSL failure.
 
     See Also:
-        [Synchronizer][bigbrotr.services.synchronizer.Synchronizer]: The
-            service class that consumes this configuration.
-        [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
-            Base class providing ``interval``, ``max_consecutive_failures``, and ``metrics`` fields.
-        [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig]:
-            Per-network timeout and proxy settings.
-        [KeysConfig][bigbrotr.utils.keys.KeysConfig]: Nostr key management
-            for NIP-42 authentication during event fetching.
+        [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
+            Parent config that embeds this model.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    networks: NetworksConfig = Field(
-        default_factory=NetworksConfig, description="Per-network connection settings"
-    )
-    keys: KeysConfig = Field(
-        default_factory=lambda: KeysConfig.model_validate({}),
-        description="Nostr key configuration for NIP-42 authentication",
-    )
     filters: list[Filter] = Field(
         default_factory=lambda: [Filter()],
         description="NIP-01 filter dicts for event subscription",
@@ -156,8 +140,11 @@ class SynchronizerConfig(BaseServiceConfig):
         le=604_800,
         description="Seconds subtracted from until: end_time = (until or now()) - end_lag",
     )
-    timeouts: TimeoutsConfig = Field(
-        default_factory=TimeoutsConfig, description="Per-network and phase timeout limits"
+    batch_size: int = Field(
+        default=1000,
+        ge=1,
+        le=100_000,
+        description="Events to buffer before flushing to the database",
     )
     allow_insecure: bool = Field(
         default=False,
@@ -178,9 +165,38 @@ class SynchronizerConfig(BaseServiceConfig):
         return base - self.end_lag
 
     @model_validator(mode="after")
-    def _validate_end_time_after_since(self) -> SynchronizerConfig:
+    def _validate_end_time_after_since(self) -> ProcessingConfig:
         """Ensure ``get_end_time() >= since``."""
         end = self.get_end_time()
         if end < self.since:
             raise ValueError(f"get_end_time() = {end} must be >= since ({self.since})")
         return self
+
+
+class SynchronizerConfig(BaseServiceConfig):
+    """Synchronizer service configuration.
+
+    See Also:
+        [Synchronizer][bigbrotr.services.synchronizer.Synchronizer]: The
+            service class that consumes this configuration.
+        [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
+            Base class providing ``interval``, ``max_consecutive_failures``, and ``metrics`` fields.
+        [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig]:
+            Per-network timeout and proxy settings.
+        [KeysConfig][bigbrotr.utils.keys.KeysConfig]: Nostr key management
+            for NIP-42 authentication during event fetching.
+    """
+
+    networks: NetworksConfig = Field(
+        default_factory=NetworksConfig, description="Per-network connection settings"
+    )
+    keys: KeysConfig = Field(
+        default_factory=lambda: KeysConfig.model_validate({}),
+        description="Nostr key configuration for NIP-42 authentication",
+    )
+    processing: ProcessingConfig = Field(
+        default_factory=ProcessingConfig, description="Sync processing parameters"
+    )
+    timeouts: TimeoutsConfig = Field(
+        default_factory=TimeoutsConfig, description="Per-network and phase timeout limits"
+    )

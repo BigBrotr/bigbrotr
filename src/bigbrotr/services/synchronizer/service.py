@@ -11,14 +11,14 @@ The synchronization workflow proceeds as follows:
 2. Connect to each relay and stream events since the last sync timestamp.
 3. Insert pre-validated events (filtering, signature verification, and
    deduplication are handled at the fetch layer by ``_fetch_validated``)
-   using a global buffer flushed at ``brotr.config.batch.max_size``.
+   using a global buffer flushed at ``processing.batch_size``.
 4. Update per-relay cursors in batch after each buffer flush, derived from
    the last event seen per relay in that batch.
 
 Note:
     Workers yield ``(Event, Relay)`` pairs. The parent accumulates them into
     a global buffer and flushes to the database when the buffer reaches
-    ``brotr.config.batch.max_size``. At each flush, per-relay cursors are
+    ``processing.batch_size``. At each flush, per-relay cursors are
     computed from the last event per relay in the buffer and persisted
     alongside the events. This bounds memory regardless of concurrent relay
     count and minimises DB round-trips.
@@ -107,7 +107,7 @@ class Synchronizer(
     (LEFT JOIN), ordered by sync progress ascending so the most stale
     relays are processed first. Workers stream ``(Event, Relay)`` pairs
     and the parent batch-inserts events using a global buffer flushed at
-    ``brotr.config.batch.max_size``. Per-relay cursors are derived from
+    ``processing.batch_size``. Per-relay cursors are derived from
     the last event seen per relay in each batch and persisted at flush
     time for crash resilience.
 
@@ -147,7 +147,7 @@ class Synchronizer(
         Fetches sync cursors for enabled networks in a single query, ordered
         by sync progress ascending (most behind first). Workers yield
         ``(Event, Relay)`` pairs. The parent accumulates them into a global
-        buffer and flushes to the database at ``brotr.config.batch.max_size``.
+        buffer and flushes to the database at ``processing.batch_size``.
         Per-relay cursors are derived from the last event seen and persisted
         at each flush.
 
@@ -159,7 +159,7 @@ class Synchronizer(
             self._logger.warning("no_networks_enabled")
             return 0
 
-        end_time = self._config.get_end_time()
+        end_time = self._config.processing.get_end_time()
         cursors = await fetch_cursors_to_sync(self._brotr, end_time, networks)
 
         events_synced = 0
@@ -167,14 +167,13 @@ class Synchronizer(
         relays_seen: set[str] = set()
         buffer: list[EventRelay] = []
         pending_cursors: dict[str, SyncCursor] = {}
-        batch_size = self._brotr.config.batch.max_size
+        batch_size = self._config.processing.batch_size
 
         self.set_gauge("total_relays", len(cursors))
         self.set_gauge("events_seen", events_seen)
         self.set_gauge("relays_seen", len(relays_seen))
 
-        max_duration = self._config.timeouts.max_duration
-        deadline = time.monotonic() + max_duration if max_duration is not None else None
+        deadline = time.monotonic() + self._config.timeouts.max_duration
 
         self._logger.info("sync_started", relay_count=len(cursors))
 
@@ -195,7 +194,7 @@ class Synchronizer(
                 buffer = []
                 await upsert_sync_cursors(self._brotr, pending_cursors.values())
                 pending_cursors = {}
-                if deadline is not None and time.monotonic() > deadline:
+                if time.monotonic() > deadline:
                     self._logger.info("sync_timeout", events_synced=events_synced)
                     break
 
@@ -216,8 +215,8 @@ class Synchronizer(
     async def _sync_worker(self, cursor: SyncCursor) -> AsyncGenerator[tuple[Event, Relay], None]:
         """Stream events from a single relay for use with ``_iter_concurrent``.
 
-        Acquires the per-network semaphore, constructs a ``Relay`` from the
-        cursor key (URL), then delegates to ``_sync_relay_events``.
+        Acquires the per-network semaphore, connects to the relay, and streams
+        events. Each yielded pair is ``(Event, Relay)``.
         """
         relay = Relay(cursor.key)
         try:
@@ -229,8 +228,46 @@ class Synchronizer(
             async with semaphore:
                 if not self.is_running:
                     return
-                async for event in self._sync_relay_events(relay, cursor):
-                    yield event, relay
+
+                network_config = self._config.networks.get(relay.network)
+                request_timeout = network_config.timeout
+                deadline = time.monotonic() + self._config.timeouts.get_relay_timeout(relay.network)
+
+                try:
+                    client = await connect_relay(
+                        relay,
+                        keys=self._keys,
+                        proxy_url=self._config.networks.get_proxy_url(relay.network),
+                        timeout=request_timeout,
+                        allow_insecure=self._config.processing.allow_insecure,
+                    )
+                except (OSError, TimeoutError) as e:
+                    self._logger.warning("connect_failed", relay=relay.url, error=str(e))
+                    return
+
+                try:
+                    async for event in stream_events(
+                        client,
+                        self._config.processing.filters,
+                        cursor.timestamp,
+                        self._config.processing.get_end_time(),
+                        self._config.processing.limit,
+                        request_timeout,
+                    ):
+                        yield event, relay
+                        if time.monotonic() > deadline:
+                            self._logger.debug("relay_timeout", relay=relay.url)
+                            return
+
+                    await client.disconnect()
+
+                except (TimeoutError, OSError, NostrSdkError) as e:
+                    self._logger.warning("sync_relay_error", relay=relay.url, error=str(e))
+                finally:
+                    try:
+                        await client.shutdown()
+                    except Exception as e:  # nostr-sdk FFI can raise arbitrary errors on shutdown
+                        self._logger.debug("client_shutdown_error", relay=relay.url, error=str(e))
         except Exception as e:  # Worker exception boundary — protects TaskGroup
             self._logger.error(
                 "sync_worker_failed",
@@ -238,67 +275,3 @@ class Synchronizer(
                 error_type=type(e).__name__,
                 relay=relay.url,
             )
-
-    # ── Sync per relay ────────────────────────────────────────────
-
-    async def _sync_relay_events(
-        self,
-        relay: Relay,
-        cursor: SyncCursor,
-    ) -> AsyncGenerator[Event, None]:
-        """Stream individual events from a single relay.
-
-        Pure I/O function — the caller is responsible for semaphore
-        acquisition and building cursors from yielded events.
-
-        Args:
-            relay: Target relay.
-            cursor: Pre-fetched sync cursor for this relay.
-        """
-        network_config = self._config.networks.get(relay.network)
-        request_timeout = network_config.timeout
-        relay_timeout = self._config.timeouts.get_relay_timeout(relay.network)
-        deadline = time.monotonic() + relay_timeout
-
-        start = cursor.timestamp + 1 if cursor.timestamp > 0 else self._config.since
-        end_time = self._config.get_end_time()
-        if start >= end_time:
-            return
-
-        proxy_url = self._config.networks.get_proxy_url(relay.network)
-
-        try:
-            client = await connect_relay(
-                relay,
-                keys=self._keys,
-                proxy_url=proxy_url,
-                timeout=request_timeout,
-                allow_insecure=self._config.allow_insecure,
-            )
-        except (OSError, TimeoutError) as e:
-            self._logger.warning("connect_failed", relay=relay.url, error=str(e))
-            return
-
-        try:
-            async for event in stream_events(
-                client,
-                self._config.filters,
-                start,
-                end_time,
-                self._config.limit,
-                request_timeout,
-            ):
-                yield event
-                if time.monotonic() > deadline:
-                    self._logger.debug("relay_timeout", relay=relay.url)
-                    return
-
-            await client.disconnect()
-
-        except (TimeoutError, OSError, NostrSdkError) as e:
-            self._logger.warning("sync_relay_error", relay=relay.url, error=str(e))
-        finally:
-            try:
-                await client.shutdown()
-            except Exception as e:  # nostr-sdk FFI can raise arbitrary errors on shutdown
-                self._logger.debug("client_shutdown_error", relay=relay.url, error=str(e))

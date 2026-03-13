@@ -392,11 +392,10 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
                 with relay URL and pagination position.
         """
         relay_url = cursor.key
-        scan_start = time.monotonic()
-        max_relay_time = self._config.events.max_relay_time
+        deadline = time.monotonic() + self._config.events.max_relay_time
 
         while self.is_running:
-            if max_relay_time and time.monotonic() - scan_start > max_relay_time:
+            if time.monotonic() > deadline:
                 break
 
             try:
