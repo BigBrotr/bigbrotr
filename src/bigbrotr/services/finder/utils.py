@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from bigbrotr.models import Relay
 
 
-def extract_relays_from_response(data: Any, expression: str = "[*]") -> list[Relay]:
+def extract_relays_from_response(data: Any, expression: str) -> list[Relay]:
     """Extract and validate relay URLs from a JSON API response.
 
     Applies *expression* to the parsed JSON *data*, filters to string
@@ -27,7 +27,7 @@ def extract_relays_from_response(data: Any, expression: str = "[*]") -> list[Rel
     Args:
         data: Parsed JSON response (any type).
         expression: JMESPath expression that should evaluate to a list of
-            strings.  Defaults to ``[*]`` (identity on a flat list).
+            strings.
 
     Returns:
         Deduplicated list of [Relay][bigbrotr.models.relay.Relay] objects.

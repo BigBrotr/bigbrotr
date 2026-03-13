@@ -261,20 +261,20 @@ class TestFinderConfig:
 
 
 class TestExtractRelaysFromResponse:
-    def test_flat_string_list_default(self) -> None:
+    def test_flat_string_list(self) -> None:
         data = ["wss://r1.com", "wss://r2.com"]
-        relays = extract_relays_from_response(data)
+        relays = extract_relays_from_response(data, "[*]")
         assert len(relays) == 2
         urls = {r.url for r in relays}
         assert "wss://r1.com" in urls
         assert "wss://r2.com" in urls
 
     def test_empty_list(self) -> None:
-        assert extract_relays_from_response([]) == []
+        assert extract_relays_from_response([], "[*]") == []
 
     def test_non_string_items_filtered(self) -> None:
         data = ["wss://r.com", 42, None, True]
-        relays = extract_relays_from_response(data)
+        relays = extract_relays_from_response(data, "[*]")
         assert len(relays) == 1
         assert relays[0].url == "wss://r.com"
 
@@ -320,7 +320,7 @@ class TestExtractRelaysFromResponse:
         ids=["none", "scalar", "string"],
     )
     def test_non_list_data_returns_empty(self, data: Any) -> None:
-        assert extract_relays_from_response(data) == []
+        assert extract_relays_from_response(data, "[*]") == []
 
     def test_expression_returns_non_list(self) -> None:
         data = {"count": 5}
@@ -331,13 +331,13 @@ class TestExtractRelaysFromResponse:
 
     def test_invalid_urls_filtered(self) -> None:
         data = ["wss://valid.com", "http://wrong-scheme.com", "not-a-url"]
-        relays = extract_relays_from_response(data)
+        relays = extract_relays_from_response(data, "[*]")
         assert len(relays) == 1
         assert relays[0].url == "wss://valid.com"
 
     def test_deduplication(self) -> None:
         data = ["wss://relay.com", "wss://relay.com", "wss://relay.com"]
-        relays = extract_relays_from_response(data)
+        relays = extract_relays_from_response(data, "[*]")
         assert len(relays) == 1
 
 
