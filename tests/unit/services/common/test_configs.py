@@ -1,7 +1,8 @@
 """
-Unit tests for services.common.configs module (network configuration).
+Unit tests for services.common.configs module.
 
 Tests:
+- TableConfig - Per-table access and pricing policy
 - ClearnetConfig - Configuration for clearnet (standard internet) relays
 - TorConfig - Configuration for Tor (.onion) relays
 - I2pConfig - Configuration for I2P (.i2p) relays
@@ -19,8 +20,45 @@ from bigbrotr.services.common.configs import (
     LokiConfig,
     NetworksConfig,
     NetworkTypeConfig,
+    TableConfig,
     TorConfig,
 )
+
+
+# =============================================================================
+# TableConfig Tests
+# =============================================================================
+
+
+class TestTableConfig:
+    """Tests for TableConfig Pydantic model."""
+
+    def test_default_disabled(self) -> None:
+        config = TableConfig()
+        assert config.enabled is False
+        assert config.price == 0
+
+    def test_enabled(self) -> None:
+        config = TableConfig(enabled=True)
+        assert config.enabled is True
+
+    def test_from_dict(self) -> None:
+        config = TableConfig.model_validate({"enabled": True})
+        assert config.enabled is True
+
+    def test_with_price(self) -> None:
+        config = TableConfig(enabled=True, price=5000)
+        assert config.price == 5000
+        assert config.enabled is True
+
+    def test_negative_price_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            TableConfig(price=-1)
+
+    def test_disabled_with_price(self) -> None:
+        config = TableConfig(enabled=False, price=100)
+        assert config.enabled is False
+        assert config.price == 100
 
 
 # =============================================================================
@@ -577,25 +615,13 @@ class TestNetworksConfigGetEnabledNetworks:
 class TestNetworkTypeConfigAlias:
     """Tests for NetworkTypeConfig type alias."""
 
-    def test_clearnet_is_network_type_config(self) -> None:
-        """Test ClearnetConfig is a NetworkTypeConfig."""
-        config: NetworkTypeConfig = ClearnetConfig()
-        assert isinstance(config, ClearnetConfig)
-
-    def test_tor_is_network_type_config(self) -> None:
-        """Test TorConfig is a NetworkTypeConfig."""
-        config: NetworkTypeConfig = TorConfig()
-        assert isinstance(config, TorConfig)
-
-    def test_i2p_is_network_type_config(self) -> None:
-        """Test I2pConfig is a NetworkTypeConfig."""
-        config: NetworkTypeConfig = I2pConfig()
-        assert isinstance(config, I2pConfig)
-
-    def test_loki_is_network_type_config(self) -> None:
-        """Test LokiConfig is a NetworkTypeConfig."""
-        config: NetworkTypeConfig = LokiConfig()
-        assert isinstance(config, LokiConfig)
+    @pytest.mark.parametrize(
+        "config_class",
+        [ClearnetConfig, TorConfig, I2pConfig, LokiConfig],
+    )
+    def test_is_network_type_config(self, config_class: type) -> None:
+        config: NetworkTypeConfig = config_class()
+        assert isinstance(config, config_class)
 
 
 # =============================================================================

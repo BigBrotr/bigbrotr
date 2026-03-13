@@ -30,7 +30,7 @@ R = TypeVar("R")
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+    from collections.abc import AsyncIterator, Callable, Sequence
 
     import geoip2.database
     from nostr_sdk import Client, Keys
@@ -126,46 +126,47 @@ class ConcurrentStreamMixin:
     async def _iter_concurrent(
         self,
         items: Sequence[T],
-        worker: Callable[[T], Awaitable[R | None]],
+        worker: Callable[[T], AsyncIterator[R]],
     ) -> AsyncIterator[R]:
-        """Launch concurrent tasks and yield non-None results as they complete.
+        """Launch concurrent tasks and yield results as they are produced.
 
         Each item is processed by ``worker`` in a separate
-        ``asyncio.TaskGroup`` task. Results stream through an
-        ``asyncio.Queue`` so the caller can update metrics progressively.
+        ``asyncio.TaskGroup`` task. ``worker`` must be an async generator:
+        it can yield zero or more results per item. Results stream through
+        an ``asyncio.Queue`` so the caller can update metrics progressively
+        as each yield arrives, without waiting for all workers to finish.
 
-        Workers MUST catch their own ``Exception``\\s and return
-        appropriate error results (or ``None`` to skip).
-        ``CancelledError`` propagates naturally through the
-        ``TaskGroup``.
+        Workers that yield nothing are silently skipped. Unhandled
+        exceptions inside a worker are caught by ``_run_worker`` and
+        logged, so a single failing worker never aborts the whole group.
+        ``CancelledError`` propagates naturally through the ``TaskGroup``.
 
         Args:
             items: Items to process concurrently.
-            worker: Async callable receiving a single item. Returns a
-                result or ``None`` to skip.
+            worker: Async generator callable receiving a single item.
+                Yields results; yields nothing to skip.
 
         Yields:
-            Non-None results in completion order.
+            Results in arrival order (completion order within each worker).
         """
         queue: asyncio.Queue[R | None] = asyncio.Queue()
 
         async def _run_worker(item: T) -> None:
-            result = await worker(item)
-            if result is not None:
-                await queue.put(result)
+            try:
+                async for result in worker(item):
+                    await queue.put(result)
+            except Exception as e:
+                self._logger.error(
+                    "concurrent_worker_error",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
 
         async def _run_all() -> None:
             try:
                 async with asyncio.TaskGroup() as tg:
                     for item in items:
                         tg.create_task(_run_worker(item))
-            except ExceptionGroup as eg:
-                for exc in eg.exceptions:
-                    self._logger.error(
-                        "concurrent_worker_error",
-                        error=str(exc),
-                        error_type=type(exc).__name__,
-                    )
             finally:
                 await queue.put(None)
 
@@ -180,7 +181,7 @@ class ConcurrentStreamMixin:
             if not runner.done():
                 runner.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
-                    await runner  # ensure cancellation completes
+                    await runner
 
 
 class GeoReaders:

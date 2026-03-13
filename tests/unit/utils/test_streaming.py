@@ -315,6 +315,20 @@ class TestTryVerifyCompleteness:
 class TestStreamEvents:
     """Tests for stream_events() async generator."""
 
+    async def test_start_after_end_yields_nothing(self) -> None:
+        events = [
+            evt
+            async for evt in stream_events(
+                client=MagicMock(),
+                filters=[MagicMock()],
+                start_time=200,
+                end_time=100,
+                limit=10,
+                request_timeout=5.0,
+            )
+        ]
+        assert events == []
+
     async def test_yields_nothing_for_empty_window(self) -> None:
         with patch("bigbrotr.utils.streaming._fetch_validated", new_callable=AsyncMock) as mock:
             mock.return_value = []
@@ -423,3 +437,320 @@ class TestStreamEvents:
 
         # Binary split should have been triggered
         assert call_count > 1
+
+
+# ============================================================================
+# stream_events Integration Tests (client-level mocks, full pipeline)
+# ============================================================================
+
+_integration_counter = 0
+
+
+def _make_integration_event(created_at: int) -> MagicMock:
+    """Create a mock event with auto-generated unique ID for integration tests."""
+    global _integration_counter  # noqa: PLW0603
+    _integration_counter += 1
+    return _make_raw_event(event_id=f"{_integration_counter:064x}", created_at=created_at)
+
+
+def _make_filter_mock() -> MagicMock:
+    """Create a mock Filter that chains since/until/limit and matches all events."""
+    f = MagicMock()
+    f.since.return_value = f
+    f.until.return_value = f
+    f.limit.return_value = f
+    f.match_event.return_value = True
+    f.as_json.return_value = "{}"
+    return f
+
+
+def _make_stream(events: list[MagicMock]) -> AsyncMock:
+    """Create a mock event stream that yields events then None."""
+    iterator = iter([*events, None])
+    stream = AsyncMock()
+    stream.next = AsyncMock(side_effect=lambda: next(iterator))
+    return stream
+
+
+class TestStreamEventsIntegration:
+    """Integration tests for stream_events exercising the full pipeline.
+
+    These tests mock only the client (not internal functions), verifying
+    windowing, verification, binary split, deduplication, and ordering
+    end-to-end.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _bypass_event_model(self) -> None:  # type: ignore[misc]
+        with patch("bigbrotr.utils.streaming.Event", side_effect=lambda x: x):
+            yield
+
+    async def test_empty_relay_yields_nothing(self) -> None:
+        client = AsyncMock()
+        client.stream_events = AsyncMock(return_value=_make_stream([]))
+        filters = [_make_filter_mock()]
+
+        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0)]
+
+        assert events == []
+
+    async def test_single_window_verified(self) -> None:
+        evt200 = _make_integration_event(200)
+        evt300 = _make_integration_event(300)
+        evt400 = _make_integration_event(400)
+        # Main [100, 1000]: 3 events → verify
+        call1 = _make_stream([evt200, evt300, evt400])
+        # Verify [100, 200]: event at min_ts=200
+        call2 = _make_stream([evt200])
+        # Probe [100, 199]: empty → complete
+        call3 = _make_stream([])
+
+        client = AsyncMock()
+        client.stream_events = AsyncMock(side_effect=[call1, call2, call3])
+        filters = [_make_filter_mock()]
+
+        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0)]
+
+        assert len(events) == 3
+        timestamps = [e.created_at().as_secs() for e in events]
+        assert timestamps == sorted(timestamps)
+
+    async def test_at_limit_smart_path_yields_combined(self) -> None:
+        # Main fetch: 3 events (== limit), min_ts=120
+        call1 = _make_stream(
+            [
+                _make_integration_event(120),
+                _make_integration_event(160),
+                _make_integration_event(180),
+            ]
+        )
+        # Verify fetch [100, 120]: events all at 120
+        call2 = _make_stream([_make_integration_event(120)])
+        # Probe [100, 119] with limit=1: empty
+        call3 = _make_stream([])
+
+        client = AsyncMock()
+        client.stream_events = AsyncMock(side_effect=[call1, call2, call3])
+        filters = [_make_filter_mock()]
+
+        events = [e async for e in stream_events(client, filters, 100, 200, 3, 10.0)]
+
+        assert len(events) >= 3
+        timestamps = [e.created_at().as_secs() for e in events]
+        assert timestamps == sorted(timestamps)
+
+    async def test_inconsistent_verify_triggers_binary_split(self) -> None:
+        evt120 = _make_integration_event(120)
+        evt180 = _make_integration_event(180)
+        # Main fetch [100, 200]: 2 events (== limit), min_ts=120
+        call1 = _make_stream([evt120, evt180])
+        # Verify fetch [100, 120]: returns event at 110 → inconsistent
+        call2 = _make_stream([_make_integration_event(110)])
+        # Binary split mid=150 → left half [100, 150]: 1 event at 120
+        call3 = _make_stream([evt120])
+        # Left verify [100, 120]: event at 120
+        call4 = _make_stream([evt120])
+        # Left probe [100, 119]: empty → complete
+        call5 = _make_stream([])
+        # Right half [151, 200]: 1 event at 180
+        call6 = _make_stream([evt180])
+        # Right verify [151, 180]: event at 180
+        call7 = _make_stream([evt180])
+        # Right probe [151, 179]: empty → complete
+        call8 = _make_stream([])
+
+        client = AsyncMock()
+        client.stream_events = AsyncMock(
+            side_effect=[call1, call2, call3, call4, call5, call6, call7, call8]
+        )
+        filters = [_make_filter_mock()]
+
+        events = [e async for e in stream_events(client, filters, 100, 200, 2, 10.0)]
+
+        assert len(events) == 2
+        timestamps = [e.created_at().as_secs() for e in events]
+        assert timestamps == sorted(timestamps)
+
+    async def test_empty_verify_triggers_binary_split(self) -> None:
+        evt150 = _make_integration_event(150)
+        evt180 = _make_integration_event(180)
+        # Main fetch [100, 200]: 2 events (== limit)
+        call1 = _make_stream([evt150, evt180])
+        # Verify fetch: empty → inconsistent → fallback
+        call2 = _make_stream([])
+        # Binary split mid=150 → left [100, 150]: 1 event at 150
+        call3 = _make_stream([evt150])
+        # Left verify [100, 150]: event at 150
+        call4 = _make_stream([evt150])
+        # Left probe [100, 149]: empty → complete
+        call5 = _make_stream([])
+        # Right [151, 200]: 1 event at 180
+        call6 = _make_stream([evt180])
+        # Right verify [151, 180]: event at 180
+        call7 = _make_stream([evt180])
+        # Right probe [151, 179]: empty → complete
+        call8 = _make_stream([])
+
+        client = AsyncMock()
+        client.stream_events = AsyncMock(
+            side_effect=[call1, call2, call3, call4, call5, call6, call7, call8]
+        )
+        filters = [_make_filter_mock()]
+
+        events = [e async for e in stream_events(client, filters, 100, 200, 2, 10.0)]
+
+        assert len(events) == 2
+
+    async def test_single_second_window_yields_all(self) -> None:
+        evts = [_make_integration_event(500) for _ in range(3)]
+        client = AsyncMock()
+        client.stream_events = AsyncMock(return_value=_make_stream(evts))
+        filters = [_make_filter_mock()]
+
+        events = [e async for e in stream_events(client, filters, 500, 500, 3, 10.0)]
+
+        assert len(events) == 3
+
+    async def test_ascending_order_within_window(self) -> None:
+        evt200 = _make_integration_event(200)
+        evt300 = _make_integration_event(300)
+        evt400 = _make_integration_event(400)
+        # Events in reverse order — should be sorted ascending
+        call1 = _make_stream([evt400, evt200, evt300])
+        # Verify [100, 200]: event at min_ts=200
+        call2 = _make_stream([evt200])
+        # Probe [100, 199]: empty → complete
+        call3 = _make_stream([])
+
+        client = AsyncMock()
+        client.stream_events = AsyncMock(side_effect=[call1, call2, call3])
+        filters = [_make_filter_mock()]
+
+        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0)]
+
+        timestamps = [e.created_at().as_secs() for e in events]
+        assert timestamps == [200, 300, 400]
+
+    async def test_multiple_filters_deduplicates(self) -> None:
+        evt200 = _make_integration_event(200)
+        evt300 = _make_integration_event(300)
+
+        # Main fetch: filter1 → [200, 300], filter2 → [200, 300] (deduped)
+        s1 = _make_stream([evt200, evt300])
+        s2 = _make_stream([evt200, evt300])
+        # Verify [100, 200]: filter1 → [200], filter2 → [200] (deduped)
+        s3 = _make_stream([evt200])
+        s4 = _make_stream([evt200])
+        # Probe [100, 199]: filter1 → empty, filter2 → empty
+        s5 = _make_stream([])
+        s6 = _make_stream([])
+
+        client = AsyncMock()
+        client.stream_events = AsyncMock(side_effect=[s1, s2, s3, s4, s5, s6])
+        filters = [_make_filter_mock(), _make_filter_mock()]
+
+        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0)]
+
+        assert len(events) == 2
+
+    async def test_exception_propagates(self) -> None:
+        client = AsyncMock()
+        client.stream_events = AsyncMock(side_effect=TimeoutError("fetch timeout"))
+        filters = [_make_filter_mock()]
+
+        with pytest.raises(TimeoutError, match="fetch timeout"):
+            async for _ in stream_events(client, filters, 100, 1000, 500, 10.0):
+                pass
+
+    async def test_partial_completion_on_exception(self) -> None:
+        evt200 = _make_integration_event(200)
+        # [100, 1000] limit=2: 2 events → at limit → verify
+        call1 = _make_stream([evt200, _make_integration_event(800)])
+        # Verify empty → inconsistent → binary split mid=550
+        call2 = _make_stream([])
+        # Left half [100, 550]: 1 event at 200
+        call3 = _make_stream([evt200])
+        # Left verify [100, 200]: event at 200
+        call4 = _make_stream([evt200])
+        # Left probe [100, 199]: empty → complete → yield
+        call5 = _make_stream([])
+        # Right half [551, 1000]: raises
+        client = AsyncMock()
+        client.stream_events = AsyncMock(
+            side_effect=[call1, call2, call3, call4, call5, OSError("connection lost")]
+        )
+        filters = [_make_filter_mock()]
+
+        events: list[MagicMock] = []
+        with pytest.raises(OSError, match="connection lost"):
+            async for e in stream_events(client, filters, 100, 1000, 2, 10.0):
+                events.append(e)
+
+        assert len(events) == 1
+
+    async def test_verify_min_differs_triggers_split(self) -> None:
+        evt130 = _make_integration_event(130)
+        evt180 = _make_integration_event(180)
+        # Main fetch [100, 200]: 2 events (== limit), min_ts=150
+        call1 = _make_stream([_make_integration_event(150), evt180])
+        # Verify [100, 150]: returns event at 130 (verify_min != min_ts) → split
+        call2 = _make_stream([evt130, _make_integration_event(150)])
+        # Binary split mid=150 → left [100, 150]: 1 event at 130
+        call3 = _make_stream([evt130])
+        # Left verify [100, 130]: event at 130
+        call4 = _make_stream([evt130])
+        # Left probe [100, 129]: empty → complete
+        call5 = _make_stream([])
+        # Right [151, 200]: 1 event at 180
+        call6 = _make_stream([evt180])
+        # Right verify [151, 180]: event at 180
+        call7 = _make_stream([evt180])
+        # Right probe [151, 179]: empty → complete
+        call8 = _make_stream([])
+
+        client = AsyncMock()
+        client.stream_events = AsyncMock(
+            side_effect=[call1, call2, call3, call4, call5, call6, call7, call8]
+        )
+        filters = [_make_filter_mock()]
+
+        events = [e async for e in stream_events(client, filters, 100, 200, 2, 10.0)]
+
+        assert len(events) == 2
+        timestamps = [e.created_at().as_secs() for e in events]
+        assert timestamps == sorted(timestamps)
+
+    async def test_probe_finds_events_triggers_split(self) -> None:
+        evt120 = _make_integration_event(120)
+        evt150 = _make_integration_event(150)
+        evt280 = _make_integration_event(280)
+        # Main fetch [100, 300]: 3 events (== limit), min_ts=150
+        call1 = _make_stream([evt150, _make_integration_event(200), evt280])
+        # Verify [100, 150]: all at 150
+        call2 = _make_stream([evt150])
+        # Probe [100, 149] limit=1: finds event → earlier data exists → split
+        call3 = _make_stream([evt120])
+        # Binary split mid=200 → left [100, 200]: 2 events at 120, 150
+        call4 = _make_stream([evt120, evt150])
+        # Left verify [100, 120]: event at 120
+        call5 = _make_stream([evt120])
+        # Left probe [100, 119]: empty → complete
+        call6 = _make_stream([])
+        # Right [201, 300]: 1 event at 280
+        call7 = _make_stream([evt280])
+        # Right verify [201, 280]: event at 280
+        call8 = _make_stream([evt280])
+        # Right probe [201, 279]: empty → complete
+        call9 = _make_stream([])
+
+        client = AsyncMock()
+        client.stream_events = AsyncMock(
+            side_effect=[call1, call2, call3, call4, call5, call6, call7, call8, call9]
+        )
+        filters = [_make_filter_mock()]
+
+        events = [e async for e in stream_events(client, filters, 100, 300, 3, 10.0)]
+
+        assert len(events) >= 2
+        timestamps = [e.created_at().as_secs() for e in events]
+        assert timestamps == sorted(timestamps)

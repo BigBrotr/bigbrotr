@@ -11,23 +11,23 @@ import pytest
 from nostr_sdk import Keys
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import Relay, RelayMetadata
+from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.nips.base import BaseLogs
-from bigbrotr.nips.event_builders import (
-    build_monitor_announcement,
-    build_profile_event,
-    build_relay_discovery,
-)
-from bigbrotr.nips.nip11 import Nip11, Nip11Selection
 from bigbrotr.nips.nip11.data import Nip11InfoData, Nip11InfoDataLimitation
 from bigbrotr.nips.nip11.info import Nip11InfoMetadata
 from bigbrotr.nips.nip11.logs import Nip11InfoLogs
-from bigbrotr.nips.nip66 import Nip66, Nip66RttMetadata, Nip66Selection, Nip66SslMetadata
-from bigbrotr.nips.nip66.data import Nip66RttData, Nip66SslData
-from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs, Nip66SslLogs
-from bigbrotr.services.common.configs import ClearnetConfig, NetworksConfig, TorConfig
+from bigbrotr.nips.nip66 import Nip66RttMetadata
+from bigbrotr.nips.nip66.data import Nip66RttData
+from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs
+from bigbrotr.services.common.configs import (
+    ClearnetConfig,
+    I2pConfig,
+    LokiConfig,
+    NetworksConfig,
+    TorConfig,
+)
 from bigbrotr.services.monitor import (
     AnnouncementConfig,
     CheckResult,
@@ -158,100 +158,6 @@ def stub(all_flags_config: MonitorConfig, test_keys: Keys) -> _MonitorStub:
     return _MonitorStub(all_flags_config, test_keys)
 
 
-def _create_nip11(relay: Relay, data: dict | None = None, generated_at: int = 1700000001) -> Nip11:
-    if data is None:
-        data = {}
-    info_data = Nip11InfoData.model_validate(Nip11InfoData.parse(data))
-    info_logs = Nip11InfoLogs(success=True)
-    info_metadata = Nip11InfoMetadata(data=info_data, logs=info_logs)
-    return Nip11(relay=relay, info=info_metadata, generated_at=generated_at)
-
-
-def _create_nip66(
-    relay: Relay,
-    rtt_data: dict | None = None,
-    ssl_data: dict | None = None,
-    geo_data: dict | None = None,
-    net_data: dict | None = None,
-    dns_data: dict | None = None,
-    http_data: dict | None = None,
-    generated_at: int = 1700000001,
-) -> Nip66:
-    from bigbrotr.nips.nip66 import (
-        Nip66DnsData,
-        Nip66DnsLogs,
-        Nip66DnsMetadata,
-        Nip66GeoData,
-        Nip66GeoLogs,
-        Nip66GeoMetadata,
-        Nip66HttpData,
-        Nip66HttpLogs,
-        Nip66HttpMetadata,
-        Nip66NetData,
-        Nip66NetLogs,
-        Nip66NetMetadata,
-        Nip66RttData,
-        Nip66RttMetadata,
-        Nip66RttMultiPhaseLogs,
-        Nip66SslData,
-        Nip66SslLogs,
-        Nip66SslMetadata,
-    )
-
-    rtt_metadata = None
-    if rtt_data is not None:
-        rtt_metadata = Nip66RttMetadata(
-            data=Nip66RttData.model_validate(Nip66RttData.parse(rtt_data)),
-            logs=Nip66RttMultiPhaseLogs(open_success=True),
-        )
-
-    ssl_metadata = None
-    if ssl_data is not None:
-        ssl_metadata = Nip66SslMetadata(
-            data=Nip66SslData.model_validate(Nip66SslData.parse(ssl_data)),
-            logs=Nip66SslLogs(success=True),
-        )
-
-    geo_metadata = None
-    if geo_data is not None:
-        geo_metadata = Nip66GeoMetadata(
-            data=Nip66GeoData.model_validate(Nip66GeoData.parse(geo_data)),
-            logs=Nip66GeoLogs(success=True),
-        )
-
-    net_metadata = None
-    if net_data is not None:
-        net_metadata = Nip66NetMetadata(
-            data=Nip66NetData.model_validate(Nip66NetData.parse(net_data)),
-            logs=Nip66NetLogs(success=True),
-        )
-
-    dns_metadata = None
-    if dns_data is not None:
-        dns_metadata = Nip66DnsMetadata(
-            data=Nip66DnsData.model_validate(Nip66DnsData.parse(dns_data)),
-            logs=Nip66DnsLogs(success=True),
-        )
-
-    http_metadata = None
-    if http_data is not None:
-        http_metadata = Nip66HttpMetadata(
-            data=Nip66HttpData.model_validate(Nip66HttpData.parse(http_data)),
-            logs=Nip66HttpLogs(success=True),
-        )
-
-    return Nip66(
-        relay=relay,
-        rtt=rtt_metadata,
-        ssl=ssl_metadata,
-        geo=geo_metadata,
-        net=net_metadata,
-        dns=dns_metadata,
-        http=http_metadata,
-        generated_at=generated_at,
-    )
-
-
 def _make_nip11_meta(
     *,
     name: str | None = None,
@@ -298,36 +204,16 @@ def _make_rtt_meta(
     )
 
 
-def _make_ssl_meta(
-    *,
-    ssl_valid: bool | None = None,
-    ssl_expires: int | None = None,
-    ssl_issuer: str | None = None,
-    success: bool = True,
-) -> Nip66SslMetadata:
-    return Nip66SslMetadata(
-        data=Nip66SslData(ssl_valid=ssl_valid, ssl_expires=ssl_expires, ssl_issuer=ssl_issuer),
-        logs=Nip66SslLogs(success=success)
-        if success
-        else Nip66SslLogs(
-            success=False,
-            reason="test failure",
-        ),
-    )
-
-
 def _make_check_result(
     *,
     generated_at: int = 1700000000,
     nip11_info: Nip11InfoMetadata | None = None,
     nip66_rtt: Nip66RttMetadata | None = None,
-    nip66_ssl: Nip66SslMetadata | None = None,
 ) -> CheckResult:
     return CheckResult(
         generated_at=generated_at,
         nip11_info=nip11_info,
         nip66_rtt=nip66_rtt,
-        nip66_ssl=nip66_ssl,
     )
 
 
@@ -541,7 +427,10 @@ class TestPublishingConfig:
     def test_default_values(self) -> None:
         config = PublishingConfig()
 
-        assert config.relays == []
+        assert len(config.relays) == 3
+        assert config.relays[0].url == "wss://relay.damus.io"
+        assert config.relays[1].url == "wss://nos.lol"
+        assert config.relays[2].url == "wss://relay.nostr.band"
 
     def test_custom_values(self) -> None:
         config = PublishingConfig(relays=["wss://relay1.com", "wss://relay2.com"])
@@ -1410,286 +1299,6 @@ class TestUpsertPublishCheckpoints:
 
 
 # ============================================================================
-# Service -- Nip11 dataclass
-# ============================================================================
-
-
-class TestNip11:
-    def test_default_values(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        nip11 = _create_nip11(relay, {})
-
-        assert nip11.info.data.name is None
-        assert nip11.info.data.supported_nips is None
-
-    def test_properties(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        nip11 = _create_nip11(relay, {"name": "Test Relay", "supported_nips": [1, 11, 66]})
-
-        assert nip11.info.data.name == "Test Relay"
-        assert nip11.info.data.supported_nips == [1, 11, 66]
-
-    def test_to_relay_metadata(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        nip11 = _create_nip11(relay, {"name": "Test"})
-
-        metadata_tuple = nip11.to_relay_metadata_tuple()
-
-        assert metadata_tuple.nip11_info is not None
-        assert metadata_tuple.nip11_info.metadata.type == "nip11_info"
-        assert metadata_tuple.nip11_info.relay == relay
-        assert metadata_tuple.nip11_info.metadata.data["data"]["name"] == "Test"
-
-    def test_additional_properties(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        nip11 = _create_nip11(
-            relay,
-            {
-                "name": "Test Relay",
-                "description": "A test relay",
-                "pubkey": "abc123",
-                "contact": "test@example.com",
-            },
-        )
-
-        assert nip11.info.data.name == "Test Relay"
-
-
-# ============================================================================
-# Service -- Nip66 dataclass
-# ============================================================================
-
-
-class TestNip66:
-    def test_default_values(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        nip66 = _create_nip66(relay)
-
-        assert nip66.rtt is None
-        assert nip66.ssl is None
-        assert nip66.geo is None
-
-    def test_metadata_access(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        nip66 = _create_nip66(relay, rtt_data={"rtt_open": 100, "rtt_read": 50})
-
-        assert nip66.rtt is not None
-        assert nip66.rtt.data.rtt_open == 100
-        assert nip66.rtt.data.rtt_read == 50
-        assert nip66.rtt.data.rtt_write is None
-
-    def test_to_relay_metadata_rtt_only(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        nip66 = _create_nip66(relay, rtt_data={"rtt_open": 100})
-
-        metadata_tuple = nip66.to_relay_metadata_tuple()
-
-        assert metadata_tuple.rtt is not None
-        assert metadata_tuple.rtt.metadata.type == "nip66_rtt"
-        assert metadata_tuple.rtt.relay == relay
-        assert metadata_tuple.rtt.metadata.data["data"]["rtt_open"] == 100
-        assert metadata_tuple.ssl is None
-        assert metadata_tuple.geo is None
-        assert metadata_tuple.net is None
-        assert metadata_tuple.dns is None
-        assert metadata_tuple.http is None
-
-    def test_to_relay_metadata_with_geo(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        nip66 = _create_nip66(
-            relay,
-            rtt_data={"rtt_open": 100},
-            geo_data={"geo_hash": "abc123", "geo_country": "US"},
-        )
-
-        metadata_tuple = nip66.to_relay_metadata_tuple()
-
-        assert metadata_tuple.rtt is not None
-        assert metadata_tuple.rtt.metadata.type == "nip66_rtt"
-        assert metadata_tuple.rtt.metadata.data["data"]["rtt_open"] == 100
-        assert metadata_tuple.ssl is None
-        assert metadata_tuple.geo is not None
-        assert metadata_tuple.geo.metadata.type == "nip66_geo"
-        assert metadata_tuple.geo.metadata.data["data"]["geo_hash"] == "abc123"
-        assert metadata_tuple.geo.metadata.data["data"]["geo_country"] == "US"
-        assert metadata_tuple.net is None
-        assert metadata_tuple.dns is None
-        assert metadata_tuple.http is None
-
-    def test_to_relay_metadata_with_ssl(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        nip66 = _create_nip66(
-            relay,
-            rtt_data={"rtt_open": 100},
-            ssl_data={"ssl_valid": True, "ssl_issuer": "Let's Encrypt"},
-        )
-
-        metadata_tuple = nip66.to_relay_metadata_tuple()
-
-        assert metadata_tuple.rtt is not None
-        assert metadata_tuple.rtt.metadata.type == "nip66_rtt"
-        assert metadata_tuple.ssl is not None
-        assert metadata_tuple.ssl.metadata.type == "nip66_ssl"
-        assert metadata_tuple.ssl.metadata.data["data"]["ssl_valid"] is True
-        assert metadata_tuple.ssl.metadata.data["data"]["ssl_issuer"] == "Let's Encrypt"
-        assert metadata_tuple.geo is None
-        assert metadata_tuple.net is None
-        assert metadata_tuple.dns is None
-        assert metadata_tuple.http is None
-
-    def test_to_relay_metadata_with_net(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        nip66 = _create_nip66(
-            relay,
-            rtt_data={"rtt_open": 100},
-            net_data={"net_ip": "8.8.8.8", "net_asn": 15169},
-        )
-
-        metadata_tuple = nip66.to_relay_metadata_tuple()
-
-        assert metadata_tuple.rtt is not None
-        assert metadata_tuple.net is not None
-        assert metadata_tuple.net.metadata.type == "nip66_net"
-        assert metadata_tuple.net.metadata.data["data"]["net_ip"] == "8.8.8.8"
-        assert metadata_tuple.net.metadata.data["data"]["net_asn"] == 15169
-
-    def test_to_relay_metadata_with_dns(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        nip66 = _create_nip66(
-            relay,
-            rtt_data={"rtt_open": 100},
-            dns_data={"dns_resolved": True},
-        )
-
-        metadata_tuple = nip66.to_relay_metadata_tuple()
-
-        assert metadata_tuple.rtt is not None
-        assert metadata_tuple.dns is not None
-        assert metadata_tuple.dns.metadata.type == "nip66_dns"
-
-    def test_to_relay_metadata_with_http(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        nip66 = _create_nip66(
-            relay,
-            rtt_data={"rtt_open": 100},
-            http_data={"http_server": "nginx"},
-        )
-
-        metadata_tuple = nip66.to_relay_metadata_tuple()
-
-        assert metadata_tuple.rtt is not None
-        assert metadata_tuple.http is not None
-        assert metadata_tuple.http.metadata.type == "nip66_http"
-
-    def test_to_relay_metadata_with_all(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        nip66 = _create_nip66(
-            relay,
-            rtt_data={"rtt_open": 100},
-            ssl_data={"ssl_valid": True, "ssl_issuer": "Let's Encrypt"},
-            geo_data={"geo_hash": "abc123", "geo_country": "US"},
-            net_data={"net_ip": "8.8.8.8"},
-            dns_data={"dns_resolved": True},
-            http_data={"http_server": "nginx"},
-        )
-
-        metadata_tuple = nip66.to_relay_metadata_tuple()
-
-        assert metadata_tuple.rtt is not None
-        assert metadata_tuple.rtt.metadata.type == "nip66_rtt"
-        assert metadata_tuple.ssl is not None
-        assert metadata_tuple.ssl.metadata.type == "nip66_ssl"
-        assert metadata_tuple.ssl.metadata.data["data"]["ssl_valid"] is True
-        assert metadata_tuple.ssl.metadata.data["data"]["ssl_issuer"] == "Let's Encrypt"
-        assert metadata_tuple.geo is not None
-        assert metadata_tuple.geo.metadata.type == "nip66_geo"
-        assert metadata_tuple.geo.metadata.data["data"]["geo_hash"] == "abc123"
-        assert metadata_tuple.geo.metadata.data["data"]["geo_country"] == "US"
-        assert metadata_tuple.net is not None
-        assert metadata_tuple.dns is not None
-        assert metadata_tuple.http is not None
-
-    def test_ssl_metadata_access(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        nip66 = _create_nip66(
-            relay,
-            rtt_data={"rtt_open": 100},
-            ssl_data={"ssl_valid": True, "ssl_issuer": "Let's Encrypt", "ssl_expires": 1700000000},
-        )
-
-        assert nip66.ssl is not None
-        assert nip66.ssl.data.ssl_valid is True
-        assert nip66.ssl.data.ssl_issuer == "Let's Encrypt"
-        assert nip66.ssl.data.ssl_expires == 1700000000
-
-    def test_ssl_metadata_none(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        nip66 = _create_nip66(relay, rtt_data={"rtt_open": 100})
-
-        assert nip66.ssl is None
-
-    def test_rtt_logs_access(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        nip66 = _create_nip66(
-            relay,
-            rtt_data={"rtt_open": 100},
-        )
-
-        assert nip66.rtt is not None
-        assert nip66.rtt.logs.open_success is True
-
-
-# ============================================================================
-# Service: RelayMetadata type
-# ============================================================================
-
-
-class TestRelayMetadataType:
-    def test_creation(self) -> None:
-        from bigbrotr.models import MetadataType
-        from bigbrotr.models.metadata import Metadata
-
-        relay = Relay("wss://relay.example.com")
-        metadata_obj = Metadata(type=MetadataType.NIP11_INFO, data={"name": "Test"})
-
-        rm = RelayMetadata(
-            relay=relay,
-            metadata=metadata_obj,
-            generated_at=1700000001,
-        )
-
-        assert "relay.example.com" in rm.relay.url
-        assert rm.relay.network == NetworkType.CLEARNET
-        assert rm.metadata.type == MetadataType.NIP11_INFO
-        assert rm.metadata.data == {"name": "Test"}
-        assert rm.generated_at == 1700000001
-
-    def test_to_db_params(self) -> None:
-        from bigbrotr.models import MetadataType
-        from bigbrotr.models.metadata import Metadata
-
-        relay = Relay("wss://relay.example.com")
-        metadata_obj = Metadata(type=MetadataType.NIP66_RTT, data={"rtt_open": 100})
-
-        rm = RelayMetadata(
-            relay=relay,
-            metadata=metadata_obj,
-            generated_at=1700000001,
-        )
-
-        params = rm.to_db_params()
-
-        assert len(params) == 7
-        assert params[0] == "wss://relay.example.com"
-        assert params[1] == "clearnet"
-        assert isinstance(params[3], bytes)
-        assert len(params[3]) == 32
-        assert params[4] == "nip66_rtt"
-        assert params[5] == metadata_obj.to_db_params().data
-        assert params[6] == 1700000001
-
-
-# ============================================================================
 # Service: Monitor init
 # ============================================================================
 
@@ -1754,6 +1363,27 @@ class TestMonitorRun:
 
         mock_count.assert_awaited_once()
         mock_fetch.assert_awaited_once()
+
+    async def test_monitor_no_networks_enabled_returns_zero(self, mock_brotr: Brotr) -> None:
+        no_clearnet = MetadataFlags(
+            nip66_ssl=False, nip66_geo=False, nip66_net=False, nip66_dns=False
+        )
+        config = _make_config(
+            networks=NetworksConfig(
+                clearnet=ClearnetConfig(enabled=False),
+                tor=TorConfig(enabled=False),
+                i2p=I2pConfig(enabled=False),
+                loki=LokiConfig(enabled=False),
+            ),
+            processing=ProcessingConfig(compute=no_clearnet, store=no_clearnet),
+            discovery=DiscoveryConfig(include=no_clearnet),
+            announcement=AnnouncementConfig(include=no_clearnet),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+
+        result = await monitor.monitor()
+
+        assert result == 0
 
 
 # ============================================================================
@@ -1826,11 +1456,6 @@ class TestMonitorCleanup:
 
 
 # ============================================================================
-# Service: Monitor persist results
-# ============================================================================
-
-
-# ============================================================================
 # Service: Monitoring worker
 # ============================================================================
 
@@ -1848,7 +1473,8 @@ class TestMonitoringWorker:
             new_callable=AsyncMock,
             return_value=result,
         ):
-            r, res = await monitor._monitoring_worker(relay)
+            results = [item async for item in monitor._monitoring_worker(relay)]
+            r, res = results[0]
 
         assert r is relay
         assert res is result
@@ -1865,7 +1491,8 @@ class TestMonitoringWorker:
             new_callable=AsyncMock,
             return_value=empty_result,
         ):
-            r, res = await monitor._monitoring_worker(relay)
+            results = [item async for item in monitor._monitoring_worker(relay)]
+            r, res = results[0]
 
         assert r is relay
         assert res is None
@@ -1881,12 +1508,16 @@ class TestMonitoringWorker:
             new_callable=AsyncMock,
             side_effect=RuntimeError("connection lost"),
         ):
-            r, res = await monitor._monitoring_worker(relay)
+            results = [item async for item in monitor._monitoring_worker(relay)]
+            r, res = results[0]
 
         assert r is relay
         assert res is None
 
-    async def test_cancelled_error_propagates(self, mock_brotr: Brotr) -> None:
+    @pytest.mark.parametrize("exc_type", [asyncio.CancelledError, KeyboardInterrupt, SystemExit])
+    async def test_fatal_exception_propagates(
+        self, exc_type: type[BaseException], mock_brotr: Brotr
+    ) -> None:
         config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
         relay = Relay("wss://relay.example.com")
@@ -1896,73 +1527,12 @@ class TestMonitoringWorker:
                 Monitor,
                 "check_relay",
                 new_callable=AsyncMock,
-                side_effect=asyncio.CancelledError,
+                side_effect=exc_type,
             ),
-            pytest.raises(asyncio.CancelledError),
+            pytest.raises(exc_type),
         ):
-            await monitor._monitoring_worker(relay)
-
-    async def test_keyboard_interrupt_propagates(self, mock_brotr: Brotr) -> None:
-        config = _make_config()
-        monitor = Monitor(brotr=mock_brotr, config=config)
-        relay = Relay("wss://relay.example.com")
-
-        with (
-            patch.object(
-                Monitor,
-                "check_relay",
-                new_callable=AsyncMock,
-                side_effect=KeyboardInterrupt,
-            ),
-            pytest.raises(KeyboardInterrupt),
-        ):
-            await monitor._monitoring_worker(relay)
-
-    async def test_system_exit_propagates(self, mock_brotr: Brotr) -> None:
-        config = _make_config()
-        monitor = Monitor(brotr=mock_brotr, config=config)
-        relay = Relay("wss://relay.example.com")
-
-        with (
-            patch.object(
-                Monitor,
-                "check_relay",
-                new_callable=AsyncMock,
-                side_effect=SystemExit(1),
-            ),
-            pytest.raises(SystemExit),
-        ):
-            await monitor._monitoring_worker(relay)
-
-
-# ============================================================================
-# Service: Network configuration
-# ============================================================================
-
-
-class TestMonitorNetworkConfiguration:
-    def test_enabled_networks_default(self, mock_brotr: Brotr) -> None:
-        config = _make_config()
-        monitor = Monitor(brotr=mock_brotr, config=config)
-        enabled = monitor._config.networks.get_enabled_networks()
-        assert "clearnet" in enabled
-
-    def test_enabled_networks_with_tor(self, mock_brotr: Brotr) -> None:
-        config = _make_config(
-            networks=NetworksConfig(
-                clearnet=ClearnetConfig(enabled=True),
-                tor=TorConfig(enabled=True),
-            ),
-        )
-        monitor = Monitor(brotr=mock_brotr, config=config)
-        enabled = monitor._config.networks.get_enabled_networks()
-        assert "clearnet" in enabled
-        assert "tor" in enabled
-
-
-# ============================================================================
-# Service: Publish relays
-# ============================================================================
+            async for _ in monitor._monitoring_worker(relay):
+                pass
 
 
 # ============================================================================
@@ -2045,6 +1615,26 @@ class TestPublishAnnouncement:
 
         mock_broadcast.assert_awaited_once()
         mock_save.assert_awaited_once()
+
+    async def test_publish_announcement_no_reachable_clients(self, stub: _MonitorStub) -> None:
+        stub.clients.get_many = AsyncMock(return_value=[])
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+            ) as mock_broadcast,
+        ):
+            await stub.publish_announcement()
+
+        mock_broadcast.assert_not_awaited()
+        stub._logger.warning.assert_called_once_with(
+            "publish_failed", event="announcement", error="no relays reachable"
+        )
 
     async def test_publish_announcement_broadcast_failure(self, stub: _MonitorStub) -> None:
         with (
@@ -2131,6 +1721,26 @@ class TestPublishProfile:
         mock_save.assert_awaited_once()
         stub._logger.info.assert_called_with("publish_completed", event="profile", relays=1)
 
+    async def test_publish_profile_no_reachable_clients(self, stub: _MonitorStub) -> None:
+        stub.clients.get_many = AsyncMock(return_value=[])
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+            ) as mock_broadcast,
+        ):
+            await stub.publish_profile()
+
+        mock_broadcast.assert_not_awaited()
+        stub._logger.warning.assert_called_once_with(
+            "publish_failed", event="profile", error="no relays reachable"
+        )
+
     async def test_publish_profile_broadcast_failure(self, stub: _MonitorStub) -> None:
         with (
             patch(
@@ -2177,7 +1787,7 @@ class TestPublishDiscovery:
             mock_broadcast.assert_not_awaited()
 
     async def test_publish_discovery_no_relays(self, mock_brotr: Brotr) -> None:
-        config = _make_config()
+        config = _make_config(publishing=PublishingConfig(relays=[]))
         monitor = Monitor(brotr=mock_brotr, config=config)
         relay = Relay("wss://relay.example.com")
         result = _make_check_result(nip11_info=_make_nip11_meta(name="Test"))
@@ -2280,169 +1890,6 @@ class TestPublishDiscovery:
 
 
 # ============================================================================
-# Service: Build kind 0
-# ============================================================================
-
-
-class TestBuildProfileEvent:
-    def test_all_fields(self) -> None:
-        builder = build_profile_event(
-            name="BigBrotr Monitor",
-            about="A relay monitor",
-            picture="https://example.com/pic.png",
-            nip05="monitor@example.com",
-            website="https://example.com",
-            banner="https://example.com/banner.png",
-            lud16="monitor@ln.example.com",
-        )
-        assert builder is not None
-
-    def test_minimal_fields(self) -> None:
-        builder = build_profile_event(name="MinimalMonitor")
-        assert builder is not None
-
-    def test_no_fields(self) -> None:
-        builder = build_profile_event()
-        assert builder is not None
-
-
-# ============================================================================
-# Service: Build kind 10166
-# ============================================================================
-
-
-class TestBuildMonitorAnnouncement:
-    def test_all_flags_enabled(self) -> None:
-        flags = MetadataFlags()
-        builder = build_monitor_announcement(
-            interval=3600,
-            timeout_ms=5000,
-            enabled_networks=[NetworkType.CLEARNET],
-            nip11_selection=Nip11Selection(info=flags.nip11_info),
-            nip66_selection=Nip66Selection(
-                rtt=flags.nip66_rtt,
-                ssl=flags.nip66_ssl,
-                geo=flags.nip66_geo,
-                net=flags.nip66_net,
-                dns=flags.nip66_dns,
-                http=flags.nip66_http,
-            ),
-        )
-        assert builder is not None
-
-    def test_subset_flags(self) -> None:
-        builder = build_monitor_announcement(
-            interval=1800,
-            timeout_ms=5000,
-            enabled_networks=[NetworkType.CLEARNET],
-            nip11_selection=Nip11Selection(info=True),
-            nip66_selection=Nip66Selection(
-                rtt=True, ssl=False, geo=False, net=False, dns=False, http=False
-            ),
-        )
-        assert builder is not None
-
-    def test_no_flags(self) -> None:
-        builder = build_monitor_announcement(
-            interval=600,
-            timeout_ms=10000,
-            enabled_networks=[NetworkType.CLEARNET],
-            nip11_selection=Nip11Selection(info=False),
-            nip66_selection=Nip66Selection(
-                rtt=False, ssl=False, geo=False, net=False, dns=False, http=False
-            ),
-        )
-        assert builder is not None
-
-
-# ============================================================================
-# Service: Build kind 30166
-# ============================================================================
-
-
-class TestBuildRelayDiscovery:
-    def test_full_event(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        result = _make_check_result(
-            nip11_info=_make_nip11_meta(
-                name="Test Relay",
-                supported_nips=[1, 11, 50],
-                tags=["social"],
-                language_tags=["en"],
-            ),
-            nip66_rtt=_make_rtt_meta(rtt_open=45, rtt_read=120, rtt_write=85),
-            nip66_ssl=_make_ssl_meta(ssl_valid=True, ssl_expires=1735689600),
-        )
-        builder = build_relay_discovery(
-            relay.url,
-            relay.network.value,
-            "",
-            rtt_data=result.nip66_rtt.data if result.nip66_rtt else None,
-            ssl_data=result.nip66_ssl.data if result.nip66_ssl else None,
-            nip11_data=result.nip11_info.data if result.nip11_info else None,
-            rtt_logs=result.nip66_rtt.logs if result.nip66_rtt else None,
-        )
-        assert builder is not None
-
-    def test_minimal(self) -> None:
-        relay = Relay("wss://relay.example.com")
-        builder = build_relay_discovery(relay.url, relay.network.value, "")
-        assert builder is not None
-
-    def test_tor_relay_network(self) -> None:
-        onion = "a" * 56
-        relay = Relay(f"ws://{onion}.onion")
-        builder = build_relay_discovery(relay.url, relay.network.value, "")
-        assert builder is not None
-
-
-# ============================================================================
-# Service: End-to-end tag generation
-# ============================================================================
-
-
-class TestEndToEndTagGeneration:
-    def test_full_relay_with_all_metadata(self) -> None:
-        result = _make_check_result(
-            nip11_info=_make_nip11_meta(
-                name="Production Relay",
-                supported_nips=[1, 11, 42, 50],
-                tags=["social"],
-                language_tags=["en", "de"],
-                limitation=Nip11InfoDataLimitation(
-                    auth_required=False,
-                    payment_required=False,
-                    restricted_writes=False,
-                    min_pow_difficulty=0,
-                ),
-            ),
-            nip66_rtt=_make_rtt_meta(
-                rtt_open=30,
-                rtt_read=100,
-                rtt_write=80,
-                write_success=True,
-            ),
-            nip66_ssl=_make_ssl_meta(
-                ssl_valid=True,
-                ssl_expires=1735689600,
-                ssl_issuer="Let's Encrypt",
-            ),
-        )
-
-        relay = Relay("wss://relay.example.com")
-        builder = build_relay_discovery(
-            relay.url,
-            relay.network.value,
-            "",
-            rtt_data=result.nip66_rtt.data if result.nip66_rtt else None,
-            ssl_data=result.nip66_ssl.data if result.nip66_ssl else None,
-            nip11_data=result.nip11_info.data if result.nip11_info else None,
-            rtt_logs=result.nip66_rtt.logs if result.nip66_rtt else None,
-        )
-        assert builder is not None
-
-
-# ============================================================================
 # Service -- Prometheus metrics
 # ============================================================================
 
@@ -2461,10 +1908,11 @@ class TestMonitorMetrics:
         relay2 = Relay("wss://fail.example.com")
         result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
 
-        async def fake_monitoring_worker(relay: Relay) -> tuple[Relay, CheckResult | None]:
+        async def fake_monitoring_worker(relay: Relay):
             if relay.url == relay1.url:
-                return (relay, result)
-            return (relay, None)
+                yield (relay, result)
+            else:
+                yield (relay, None)
 
         monitor.clients = MagicMock()
         monitor.clients.get = AsyncMock(return_value=None)
@@ -2661,80 +2109,6 @@ class TestUpdateGeoDatabases:
 
 
 # ============================================================================
-# Publish -- no clients reachable
-# ============================================================================
-
-
-class TestPublishAnnouncementNoClients:
-    async def test_announcement_no_clients_reachable(self, test_keys: Keys) -> None:
-        config = _make_config(
-            announcement=AnnouncementConfig(
-                enabled=True,
-                include=_NO_GEO_NET,
-                relays=["wss://ann.relay.com"],
-            ),
-        )
-        harness = _MonitorStub(config, test_keys)
-        harness.clients.get_many = AsyncMock(return_value=[])
-        with (
-            patch(
-                "bigbrotr.services.monitor.service.is_publish_due",
-                new_callable=AsyncMock,
-                return_value=True,
-            ),
-            patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
-                new_callable=AsyncMock,
-            ) as mock_broadcast,
-            patch(
-                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
-                new_callable=AsyncMock,
-            ) as mock_save,
-        ):
-            await harness.publish_announcement()
-
-        mock_broadcast.assert_not_awaited()
-        mock_save.assert_not_awaited()
-        harness._logger.warning.assert_called_once_with(
-            "publish_failed", event="announcement", error="no relays reachable"
-        )
-
-
-class TestPublishProfileNoClients:
-    async def test_profile_no_clients_reachable(self, test_keys: Keys) -> None:
-        config = _make_config(
-            profile=ProfileConfig(
-                enabled=True,
-                relays=["wss://profile.relay.com"],
-            ),
-        )
-        harness = _MonitorStub(config, test_keys)
-        harness.clients.get_many = AsyncMock(return_value=[])
-        with (
-            patch(
-                "bigbrotr.services.monitor.service.is_publish_due",
-                new_callable=AsyncMock,
-                return_value=True,
-            ),
-            patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
-                new_callable=AsyncMock,
-            ) as mock_broadcast,
-            patch(
-                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
-                new_callable=AsyncMock,
-            ) as mock_save,
-        ):
-            await harness.publish_profile()
-
-        mock_broadcast.assert_not_awaited()
-        mock_save.assert_not_awaited()
-        harness._logger.warning.assert_called_once_with(
-            "publish_failed", event="profile", error="no relays reachable"
-        )
-
-
-# ============================================================================
 # Check Relay
 # ============================================================================
 
@@ -2766,13 +2140,12 @@ class TestCheckRelay:
         config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
         relay = Relay("wss://relay.example.com")
-        monitor.network_semaphores = MagicMock()
-        monitor.network_semaphores.get = MagicMock(return_value=None)
+        monitor.network_semaphores = {}
 
-        result = await monitor.check_relay(relay)
+        results = [r async for r in monitor._monitoring_worker(relay)]
 
-        assert not result.has_data
-        assert result.generated_at == 0
+        assert len(results) == 1
+        assert results[0] == (relay, None)
 
     async def test_check_relay_nip11_only(self, mock_brotr: Brotr) -> None:
         config = self._cfg(nip11_info=True)
@@ -2843,7 +2216,10 @@ class TestCheckRelay:
 
         assert not result.has_data
 
-    async def test_check_relay_timeout_returns_empty(self, mock_brotr: Brotr) -> None:
+    @pytest.mark.parametrize("exc_type", [TimeoutError, OSError])
+    async def test_check_relay_network_error_returns_empty(
+        self, exc_type: type[Exception], mock_brotr: Brotr
+    ) -> None:
         config = self._cfg(nip11_info=True)
         monitor = Monitor(brotr=mock_brotr, config=config)
         relay = Relay("wss://relay.example.com")
@@ -2851,26 +2227,12 @@ class TestCheckRelay:
         with patch(
             "bigbrotr.services.monitor.service.retry_fetch",
             new_callable=AsyncMock,
-            side_effect=TimeoutError("timed out"),
+            side_effect=exc_type("error"),
         ):
             result = await monitor.check_relay(relay)
 
         assert not result.has_data
         assert result.generated_at == 0
-
-    async def test_check_relay_os_error_returns_empty(self, mock_brotr: Brotr) -> None:
-        config = self._cfg(nip11_info=True)
-        monitor = Monitor(brotr=mock_brotr, config=config)
-        relay = Relay("wss://relay.example.com")
-
-        with patch(
-            "bigbrotr.services.monitor.service.retry_fetch",
-            new_callable=AsyncMock,
-            side_effect=OSError("connection refused"),
-        ):
-            result = await monitor.check_relay(relay)
-
-        assert not result.has_data
 
     async def test_check_relay_rtt_with_pow(self, mock_brotr: Brotr) -> None:
         config = self._cfg(nip11_info=True, nip66_rtt=True)
@@ -3054,8 +2416,8 @@ class TestMonitorMaxRelaysBudget:
         relay3 = Relay("wss://r3.example.com")
         result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
 
-        async def fake_worker(relay: Relay) -> tuple[Relay, CheckResult | None]:
-            return (relay, result)
+        async def fake_worker(relay: Relay):
+            yield (relay, result)
 
         monitor.clients = MagicMock()
         monitor.clients.disconnect = AsyncMock()
@@ -3099,8 +2461,8 @@ class TestMonitorMaxRelaysBudget:
         relay1 = Relay("wss://r1.example.com")
         result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
 
-        async def fake_worker(relay: Relay) -> tuple[Relay, CheckResult | None]:
-            return (relay, result)
+        async def fake_worker(relay: Relay):
+            yield (relay, result)
 
         monitor.clients = MagicMock()
         monitor.clients.disconnect = AsyncMock()

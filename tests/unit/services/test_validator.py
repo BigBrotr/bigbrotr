@@ -1,6 +1,6 @@
 """Unit tests for the Validator service package.
 
-Covers configuration models, database queries, and service logic.
+Covers configuration models, database queries, utility functions, and service logic.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import pytest
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models.constants import NetworkType, ServiceName
+from bigbrotr.models.relay import Relay
 from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.common.configs import (
     ClearnetConfig,
@@ -21,7 +22,6 @@ from bigbrotr.services.common.configs import (
     NetworksConfig,
     TorConfig,
 )
-from bigbrotr.services.common.queries import insert_relays_as_candidates
 from bigbrotr.services.common.types import CandidateCheckpoint
 from bigbrotr.services.validator import (
     CleanupConfig,
@@ -37,6 +37,7 @@ from bigbrotr.services.validator.queries import (
     fetch_candidates,
     promote_candidates,
 )
+from bigbrotr.services.validator.utils import validate_candidate
 
 
 _SVC = "bigbrotr.services.validator.service"
@@ -50,7 +51,6 @@ _UTILS = "bigbrotr.services.validator.utils"
 
 @pytest.fixture
 def validator_brotr(mock_brotr: Brotr) -> Brotr:
-    """Brotr mock with additional methods used by Validator."""
     mock_brotr.insert_relay = AsyncMock()
     mock_brotr.delete_service_state = AsyncMock()
     mock_brotr.upsert_service_state = AsyncMock()
@@ -59,7 +59,6 @@ def validator_brotr(mock_brotr: Brotr) -> Brotr:
 
 @pytest.fixture
 def query_brotr() -> MagicMock:
-    """Lightweight MagicMock Brotr for query-level tests."""
     brotr = MagicMock()
     brotr.fetch = AsyncMock(return_value=[])
     brotr.fetchrow = AsyncMock(return_value={"count": 0})
@@ -77,13 +76,6 @@ def _candidate(
     failures: int = 0,
 ) -> CandidateCheckpoint:
     return CandidateCheckpoint(key=url, timestamp=0, network=network, failures=failures)
-
-
-def _mock_relay(url: str = "wss://relay.example.com", network: str = "clearnet") -> MagicMock:
-    relay = MagicMock()
-    relay.url = url
-    relay.network = MagicMock(value=network)
-    return relay
 
 
 def _row(data: dict[str, Any]) -> dict[str, Any]:
@@ -107,11 +99,10 @@ class TestProcessingConfig:
         assert ProcessingConfig(chunk_size=10).chunk_size == 10
         assert ProcessingConfig(chunk_size=1000).chunk_size == 1000
 
-    def test_chunk_size_out_of_range(self) -> None:
+    @pytest.mark.parametrize("value", [9, 1001])
+    def test_chunk_size_out_of_range(self, value: int) -> None:
         with pytest.raises(ValueError):
-            ProcessingConfig(chunk_size=9)
-        with pytest.raises(ValueError):
-            ProcessingConfig(chunk_size=1001)
+            ProcessingConfig(chunk_size=value)
 
     def test_max_candidates_valid(self) -> None:
         assert ProcessingConfig(max_candidates=None).max_candidates is None
@@ -138,7 +129,7 @@ class TestProcessingConfig:
 class TestCleanupConfig:
     def test_defaults(self) -> None:
         cfg = CleanupConfig()
-        assert cfg.enabled is False
+        assert cfg.enabled is True
         assert cfg.max_failures == 720
 
     def test_custom_values(self) -> None:
@@ -197,164 +188,6 @@ class TestValidatorConfig:
     def test_processing_validation_propagated(self) -> None:
         with pytest.raises(ValueError):
             ValidatorConfig(processing={"chunk_size": 5})
-
-
-# ============================================================================
-# NetworksConfig
-# ============================================================================
-
-
-class TestNetworksConfig:
-    def test_defaults(self) -> None:
-        cfg = NetworksConfig()
-        assert cfg.clearnet.enabled is True
-        assert cfg.tor.enabled is False
-        assert cfg.i2p.enabled is False
-        assert cfg.loki.enabled is False
-
-    def test_get_enabled_networks_default(self) -> None:
-        assert NetworksConfig().get_enabled_networks() == [NetworkType.CLEARNET]
-
-    def test_get_enabled_networks_with_tor(self) -> None:
-        cfg = NetworksConfig(tor=TorConfig(enabled=True))
-        enabled = cfg.get_enabled_networks()
-        assert NetworkType.CLEARNET in enabled
-        assert NetworkType.TOR in enabled
-
-    def test_get_enabled_networks_all_disabled(self) -> None:
-        cfg = NetworksConfig(clearnet=ClearnetConfig(enabled=False))
-        assert cfg.get_enabled_networks() == []
-
-    def test_get_enabled_networks_all_enabled(self) -> None:
-        cfg = NetworksConfig(
-            clearnet=ClearnetConfig(enabled=True),
-            tor=TorConfig(enabled=True),
-            i2p=I2pConfig(enabled=True),
-            loki=LokiConfig(enabled=True),
-        )
-        assert len(cfg.get_enabled_networks()) == 4
-
-    def test_get_returns_correct_config(self) -> None:
-        cfg = NetworksConfig(clearnet=ClearnetConfig(timeout=15.0))
-        assert cfg.get(NetworkType.CLEARNET).timeout == 15.0
-
-    def test_get_proxy_url_clearnet_always_none(self) -> None:
-        assert NetworksConfig().get_proxy_url(NetworkType.CLEARNET) is None
-
-    def test_get_proxy_url_tor(self) -> None:
-        cfg = NetworksConfig(tor=TorConfig(enabled=True, proxy_url="socks5://tor:9050"))
-        assert cfg.get_proxy_url(NetworkType.TOR) == "socks5://tor:9050"
-        assert NetworksConfig().get_proxy_url(NetworkType.TOR) is None
-
-    def test_is_enabled(self) -> None:
-        assert NetworksConfig().is_enabled(NetworkType.CLEARNET) is True
-        assert NetworksConfig().is_enabled(NetworkType.TOR) is False
-
-
-# ============================================================================
-# Per-Network Configs
-# ============================================================================
-
-
-class TestClearnetConfig:
-    def test_defaults(self) -> None:
-        cfg = ClearnetConfig()
-        assert cfg.enabled is True
-        assert cfg.proxy_url is None
-        assert cfg.max_tasks == 50
-        assert cfg.timeout == 10.0
-
-    def test_max_tasks_bounds(self) -> None:
-        assert ClearnetConfig(max_tasks=1).max_tasks == 1
-        with pytest.raises(ValueError):
-            ClearnetConfig(max_tasks=201)
-
-    def test_timeout_bounds(self) -> None:
-        assert ClearnetConfig(timeout=1.0).timeout == 1.0
-        with pytest.raises(ValueError):
-            ClearnetConfig(timeout=121.0)
-
-
-class TestTorConfig:
-    def test_defaults(self) -> None:
-        cfg = TorConfig()
-        assert cfg.enabled is False
-        assert cfg.proxy_url == "socks5://tor:9050"
-        assert cfg.max_tasks == 10
-        assert cfg.timeout == 30.0
-
-    def test_custom_proxy(self) -> None:
-        assert TorConfig(proxy_url="socks5://localhost:9150").proxy_url == "socks5://localhost:9150"
-
-    def test_proxy_can_be_none(self) -> None:
-        assert TorConfig(proxy_url=None).proxy_url is None
-
-
-class TestI2pConfig:
-    def test_defaults(self) -> None:
-        cfg = I2pConfig()
-        assert cfg.enabled is False
-        assert cfg.proxy_url == "socks5://i2p:4447"
-        assert cfg.max_tasks == 5
-        assert cfg.timeout == 45.0
-
-
-class TestLokiConfig:
-    def test_defaults(self) -> None:
-        cfg = LokiConfig()
-        assert cfg.enabled is False
-        assert cfg.proxy_url == "socks5://lokinet:1080"
-        assert cfg.max_tasks == 5
-        assert cfg.timeout == 30.0
-
-
-# ============================================================================
-# insert_relays_as_candidates
-# ============================================================================
-
-
-class TestInsertCandidates:
-    async def test_filters_then_upserts(self, query_brotr: MagicMock) -> None:
-        relay = _mock_relay()
-        query_brotr.fetch = AsyncMock(return_value=[_row({"url": "wss://relay.example.com"})])
-        query_brotr.upsert_service_state = AsyncMock(return_value=1)
-
-        result = await insert_relays_as_candidates(query_brotr, [relay])
-
-        query_brotr.fetch.assert_awaited_once()
-        assert "unnest($1::text[])" in query_brotr.fetch.call_args[0][0]
-        records = query_brotr.upsert_service_state.call_args[0][0]
-        assert len(records) == 1
-        record = records[0]
-        assert record.service_name == ServiceName.VALIDATOR
-        assert record.state_type == ServiceStateType.CHECKPOINT
-        assert record.state_key == "wss://relay.example.com"
-        assert record.state_value["failures"] == 0
-        assert record.state_value["network"] == "clearnet"
-        assert "timestamp" in record.state_value
-        assert result == 1
-
-    async def test_all_filtered_out(self, query_brotr: MagicMock) -> None:
-        query_brotr.fetch = AsyncMock(return_value=[])
-        result = await insert_relays_as_candidates(query_brotr, [_mock_relay()])
-        query_brotr.upsert_service_state.assert_not_awaited()
-        assert result == 0
-
-    async def test_empty_input(self, query_brotr: MagicMock) -> None:
-        result = await insert_relays_as_candidates(query_brotr, [])
-        query_brotr.fetch.assert_not_awaited()
-        assert result == 0
-
-    async def test_batching(self, query_brotr: MagicMock) -> None:
-        query_brotr.config.batch.max_size = 2
-        relays = [_mock_relay(f"wss://r{i}.example.com") for i in range(3)]
-        query_brotr.fetch = AsyncMock(return_value=[_row({"url": r.url}) for r in relays])
-        query_brotr.upsert_service_state = AsyncMock(side_effect=[2, 1])
-
-        result = await insert_relays_as_candidates(query_brotr, relays)
-
-        assert query_brotr.upsert_service_state.await_count == 2
-        assert result == 3
 
 
 # ============================================================================
@@ -532,6 +365,16 @@ class TestPromoteCandidates:
         assert urls == ["wss://r0.com", "wss://r1.com"]
         assert result == 2
 
+    async def test_delete_batching(self, query_brotr: MagicMock) -> None:
+        query_brotr.config.batch.max_size = 2
+        candidates = [_candidate(f"wss://r{i}.com") for i in range(3)]
+        query_brotr.insert_relay = AsyncMock(return_value=3)
+        query_brotr.delete_service_state = AsyncMock()
+
+        await promote_candidates(query_brotr, candidates)
+
+        assert query_brotr.delete_service_state.await_count == 2
+
 
 # ============================================================================
 # fail_candidates
@@ -552,6 +395,66 @@ class TestFailCandidates:
     async def test_empty_list(self, query_brotr: MagicMock) -> None:
         assert await fail_candidates(query_brotr, []) == 0
         query_brotr.upsert_service_state.assert_not_awaited()
+
+    async def test_sets_timestamp(self, query_brotr: MagicMock) -> None:
+        query_brotr.upsert_service_state = AsyncMock(return_value=1)
+        await fail_candidates(query_brotr, [_candidate()])
+        records = query_brotr.upsert_service_state.call_args[0][0]
+        assert isinstance(records[0].state_value["timestamp"], int)
+        assert records[0].state_value["timestamp"] > 0
+
+    async def test_preserves_network(self, query_brotr: MagicMock) -> None:
+        query_brotr.upsert_service_state = AsyncMock(return_value=1)
+        await fail_candidates(query_brotr, [_candidate(network=NetworkType.TOR)])
+        records = query_brotr.upsert_service_state.call_args[0][0]
+        assert records[0].state_value["network"] == "tor"
+
+
+# ============================================================================
+# validate_candidate
+# ============================================================================
+
+
+class TestValidateCandidate:
+    async def test_valid_relay(self) -> None:
+        relay = Relay("wss://good.com")
+        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True):
+            assert await validate_candidate(relay, None, 10.0) is True
+
+    async def test_invalid_relay(self) -> None:
+        relay = Relay("wss://bad.com")
+        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=False):
+            assert await validate_candidate(relay, None, 10.0) is False
+
+    @pytest.mark.parametrize("exc", [TimeoutError, OSError("refused")])
+    async def test_caught_exceptions_return_false(self, exc: Exception) -> None:
+        relay = Relay("wss://err.com")
+        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, side_effect=exc):
+            assert await validate_candidate(relay, None, 10.0) is False
+
+    async def test_uncaught_exception_propagates(self) -> None:
+        relay = Relay("wss://err.com")
+        with (
+            patch(
+                f"{_UTILS}.is_nostr_relay",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("boom"),
+            ),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            await validate_candidate(relay, None, 10.0)
+
+    async def test_passes_proxy_and_timeout(self) -> None:
+        relay = Relay("wss://r.com")
+        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
+            await validate_candidate(relay, "socks5://tor:9050", 30.0)
+        mock.assert_awaited_once_with(relay, "socks5://tor:9050", 30.0, allow_insecure=False)
+
+    async def test_allow_insecure_forwarded(self) -> None:
+        relay = Relay("wss://r.com")
+        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
+            await validate_candidate(relay, None, 10.0, allow_insecure=True)
+        assert mock.call_args.kwargs["allow_insecure"] is True
 
 
 # ============================================================================
@@ -631,7 +534,7 @@ class TestValidate:
             ),
             patch(f"{_SVC}.promote_candidates", new_callable=AsyncMock, return_value=3),
             patch(f"{_SVC}.fail_candidates", new_callable=AsyncMock, return_value=0),
-            patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True),
+            patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=True),
         ):
             assert await Validator(validator_brotr).validate() == 3
 
@@ -646,7 +549,7 @@ class TestValidate:
             ),
             patch(f"{_SVC}.promote_candidates", new_callable=AsyncMock, return_value=0),
             patch(f"{_SVC}.fail_candidates", new_callable=AsyncMock, return_value=4),
-            patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=False),
+            patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=False),
         ):
             assert await Validator(validator_brotr).validate() == 4
 
@@ -668,7 +571,7 @@ class TestValidate:
             ),
             patch(f"{_SVC}.promote_candidates", promote_mock),
             patch(f"{_SVC}.fail_candidates", fail_mock),
-            patch(f"{_UTILS}.is_nostr_relay", side_effect=relay_check),
+            patch(f"{_SVC}.validate_candidate", side_effect=relay_check),
         ):
             assert await Validator(validator_brotr).validate() == 2
 
@@ -691,7 +594,7 @@ class TestValidate:
                 side_effect=[5, 3],
             ),
             patch(f"{_SVC}.fail_candidates", new_callable=AsyncMock, return_value=0),
-            patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True),
+            patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=True),
         ):
             assert await Validator(validator_brotr).validate() == 8
 
@@ -707,7 +610,7 @@ class TestValidate:
             ),
             patch(f"{_SVC}.promote_candidates", new_callable=AsyncMock, return_value=5),
             patch(f"{_SVC}.fail_candidates", new_callable=AsyncMock, return_value=0),
-            patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True),
+            patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=True),
         ):
             result = await Validator(validator_brotr, config=cfg).validate()
         assert result == 100
@@ -725,7 +628,7 @@ class TestValidate:
             patch(f"{_SVC}.promote_candidates", new_callable=AsyncMock, return_value=0),
             patch(f"{_SVC}.fail_candidates", fail_mock),
             patch(
-                f"{_UTILS}.is_nostr_relay",
+                f"{_SVC}.validate_candidate",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("boom"),
             ),
@@ -743,7 +646,7 @@ class TestValidate:
                 side_effect=[[_candidate()], []],
             ),
             patch(
-                f"{_UTILS}.is_nostr_relay",
+                f"{_SVC}.validate_candidate",
                 new_callable=AsyncMock,
                 side_effect=asyncio.CancelledError,
             ),
@@ -768,7 +671,7 @@ class TestValidate:
                 side_effect=OSError("db down"),
             ),
             patch(f"{_SVC}.fail_candidates", new_callable=AsyncMock, return_value=0),
-            patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True),
+            patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=True),
             pytest.raises(OSError, match="db down"),
         ):
             await Validator(validator_brotr).validate()
@@ -779,65 +682,43 @@ class TestValidate:
 # ============================================================================
 
 
-class TestValidateCandidateSafe:
+class TestValidationWorker:
     async def test_valid_returns_true(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
         c = _candidate("wss://good.com")
-        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True):
-            result = await v._validation_worker(c)
-        assert result == (c, True)
+        with patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=True):
+            results = [r async for r in v._validation_worker(c)]
+        assert results == [(c, True)]
 
     async def test_invalid_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
         c = _candidate("wss://bad.com")
-        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=False):
-            result = await v._validation_worker(c)
-        assert result == (c, False)
-
-    async def test_timeout_returns_false(self, validator_brotr: Brotr) -> None:
-        v = Validator(validator_brotr)
-        c = _candidate()
-        with patch(
-            f"{_UTILS}.is_nostr_relay",
-            new_callable=AsyncMock,
-            side_effect=TimeoutError,
-        ):
-            result = await v._validation_worker(c)
-        assert result == (c, False)
-
-    async def test_os_error_returns_false(self, validator_brotr: Brotr) -> None:
-        v = Validator(validator_brotr)
-        c = _candidate()
-        with patch(
-            f"{_UTILS}.is_nostr_relay",
-            new_callable=AsyncMock,
-            side_effect=OSError("refused"),
-        ):
-            result = await v._validation_worker(c)
-        assert result == (c, False)
+        with patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=False):
+            results = [r async for r in v._validation_worker(c)]
+        assert results == [(c, False)]
 
     async def test_unknown_network_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
         c = _candidate(network=NetworkType.UNKNOWN)
-        result = await v._validation_worker(c)
-        assert result == (c, False)
-
-    async def test_clearnet_no_proxy(self, validator_brotr: Brotr) -> None:
-        v = Validator(validator_brotr)
-        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
-            await v._validation_worker(_candidate())
-        assert mock.call_args[0][1] is None
+        results = [r async for r in v._validation_worker(c)]
+        assert results == [(c, False)]
 
     async def test_unexpected_error_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
         c = _candidate("wss://broken.com")
         with patch(
-            f"{_UTILS}.is_nostr_relay",
+            f"{_SVC}.validate_candidate",
             new_callable=AsyncMock,
             side_effect=RuntimeError("boom"),
         ):
-            result = await v._validation_worker(c)
-        assert result == (c, False)
+            results = [r async for r in v._validation_worker(c)]
+        assert results == [(c, False)]
+
+    async def test_clearnet_no_proxy(self, validator_brotr: Brotr) -> None:
+        v = Validator(validator_brotr)
+        with patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=True) as mock:
+            _ = [r async for r in v._validation_worker(_candidate())]
+        assert mock.call_args[0][1] is None
 
 
 # ============================================================================
@@ -853,8 +734,8 @@ class TestNetworkRouting:
         candidate: CandidateCheckpoint,
     ) -> tuple[str | None, float]:
         v = Validator(validator_brotr, config=cfg)
-        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
-            await v._validation_worker(candidate)
+        with patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=True) as mock:
+            _ = [r async for r in v._validation_worker(candidate)]
         return mock.call_args[0][1], mock.call_args[0][2]
 
     async def test_clearnet(self, validator_brotr: Brotr) -> None:
@@ -916,14 +797,14 @@ class TestNetworkRouting:
     async def test_allow_insecure_passed(self, validator_brotr: Brotr) -> None:
         cfg = ValidatorConfig(processing=ProcessingConfig(allow_insecure=True))
         v = Validator(validator_brotr, config=cfg)
-        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
-            await v._validation_worker(_candidate())
+        with patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=True) as mock:
+            _ = [r async for r in v._validation_worker(_candidate())]
         assert mock.call_args.kwargs["allow_insecure"] is True
 
     async def test_allow_insecure_default_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
-        with patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True) as mock:
-            await v._validation_worker(_candidate())
+        with patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=True) as mock:
+            _ = [r async for r in v._validation_worker(_candidate())]
         assert mock.call_args.kwargs["allow_insecure"] is False
 
 
@@ -936,8 +817,8 @@ class TestCleanup:
     async def test_removes_promoted(self, validator_brotr: Brotr) -> None:
         validator_brotr.fetchval = AsyncMock(return_value=3)
         result = await Validator(validator_brotr).cleanup()
-        assert "AND EXISTS" in validator_brotr.fetchval.call_args[0][0]
-        assert result == 3
+        assert "AND EXISTS" in validator_brotr.fetchval.call_args_list[0][0][0]
+        assert result == 6  # 3 promoted + 3 exhausted (both fetchval calls return 3)
 
     async def test_delete_exhausted_when_enabled(self, validator_brotr: Brotr) -> None:
         validator_brotr.fetchval = AsyncMock(return_value=0)
@@ -953,8 +834,9 @@ class TestCleanup:
 
     async def test_skips_exhausted_when_disabled(self, validator_brotr: Brotr) -> None:
         validator_brotr.fetchval = AsyncMock(return_value=0)
+        cfg = ValidatorConfig(cleanup={"enabled": False})
         with patch(f"{_SVC}.delete_exhausted_candidates", new_callable=AsyncMock) as mock:
-            await Validator(validator_brotr).cleanup()
+            await Validator(validator_brotr, config=cfg).cleanup()
         mock.assert_not_awaited()
 
     async def test_returns_sum(self, validator_brotr: Brotr) -> None:
@@ -1013,7 +895,7 @@ class TestValidatorMetrics:
                 side_effect=[3, 2],
             ),
             patch(f"{_SVC}.fail_candidates", new_callable=AsyncMock, return_value=0),
-            patch(f"{_UTILS}.is_nostr_relay", new_callable=AsyncMock, return_value=True),
+            patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=True),
         ):
             v = Validator(validator_brotr)
             gauge_calls: list[tuple[str, int]] = []
