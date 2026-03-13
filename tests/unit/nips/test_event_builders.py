@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from bigbrotr.models.constants import NetworkType
+from bigbrotr.models.relay import Relay
 from bigbrotr.nips.event_builders import (
     AccessFlags,
     add_attributes_tags,
@@ -26,9 +27,11 @@ from bigbrotr.nips.event_builders import (
     build_profile_event,
     build_relay_discovery,
 )
-from bigbrotr.nips.nip11 import Nip11Selection
+from bigbrotr.nips.nip11 import Nip11, Nip11Selection
 from bigbrotr.nips.nip11.data import Nip11InfoData, Nip11InfoDataLimitation
-from bigbrotr.nips.nip66 import Nip66Selection
+from bigbrotr.nips.nip11.info import Nip11InfoMetadata
+from bigbrotr.nips.nip11.logs import Nip11InfoLogs
+from bigbrotr.nips.nip66 import Nip66, Nip66Selection
 from bigbrotr.nips.nip66.data import (
     Nip66DnsData,
     Nip66GeoData,
@@ -37,7 +40,9 @@ from bigbrotr.nips.nip66.data import (
     Nip66RttData,
     Nip66SslData,
 )
-from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs
+from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs, Nip66SslLogs
+from bigbrotr.nips.nip66.rtt import Nip66RttMetadata
+from bigbrotr.nips.nip66.ssl import Nip66SslMetadata
 
 
 if TYPE_CHECKING:
@@ -1000,34 +1005,52 @@ class TestBuildRelayDiscovery:
 
     def test_full_event(self) -> None:
         """Test full Kind 30166 event construction with all metadata."""
-        builder = build_relay_discovery(
-            "wss://relay.example.com",
-            "clearnet",
-            '{"name":"Test Relay"}',
-            rtt_data=Nip66RttData(rtt_open=45, rtt_read=120, rtt_write=85),
-            ssl_data=Nip66SslData(ssl_valid=True, ssl_expires=1735689600),
-            nip11_data=Nip11InfoData(supported_nips=[1, 11, 50], tags=["social"]),
+        relay = Relay("wss://relay.example.com")
+        nip11 = Nip11(
+            relay=relay,
+            info=Nip11InfoMetadata(
+                data=Nip11InfoData(supported_nips=[1, 11, 50], tags=["social"]),
+                logs=Nip11InfoLogs(success=True),
+            ),
         )
+        nip66 = Nip66(
+            relay=relay,
+            rtt=Nip66RttMetadata(
+                data=Nip66RttData(rtt_open=45, rtt_read=120, rtt_write=85),
+                logs=Nip66RttMultiPhaseLogs(open_success=True, write_success=True),
+            ),
+            ssl=Nip66SslMetadata(
+                data=Nip66SslData(ssl_valid=True, ssl_expires=1735689600),
+                logs=Nip66SslLogs(success=True),
+            ),
+        )
+        builder = build_relay_discovery(relay, nip11, nip66)
         assert builder is not None
 
     def test_minimal(self) -> None:
         """Test Kind 30166 event with no metadata."""
-        builder = build_relay_discovery("wss://relay.example.com", "clearnet")
+        relay = Relay("wss://relay.example.com")
+        builder = build_relay_discovery(relay)
         assert builder is not None
 
     def test_tor_relay(self) -> None:
         """Test Kind 30166 uses the correct network value for Tor relays."""
         onion = "a" * 56
-        builder = build_relay_discovery(f"ws://{onion}.onion", "tor")
+        relay = Relay(f"ws://{onion}.onion")
+        builder = build_relay_discovery(relay)
         assert builder is not None
 
     def test_nip11_content(self) -> None:
         """Test that Kind 30166 content uses nip11_canonical_json."""
-        builder = build_relay_discovery(
-            "wss://relay.example.com",
-            "clearnet",
-            '{"name":"Test Relay"}',
+        relay = Relay("wss://relay.example.com")
+        nip11 = Nip11(
+            relay=relay,
+            info=Nip11InfoMetadata(
+                data=Nip11InfoData(name="Test Relay"),
+                logs=Nip11InfoLogs(success=True),
+            ),
         )
+        builder = build_relay_discovery(relay, nip11)
         assert builder is not None
 
 
@@ -1065,30 +1088,41 @@ class TestEndToEndTagGeneration:
 
     def test_full_relay_with_all_metadata(self) -> None:
         """Test a relay with RTT, SSL, NIP-11 produces expected tag set."""
-        builder = build_relay_discovery(
-            "wss://relay.example.com",
-            "clearnet",
-            '{"name":"Production Relay"}',
-            rtt_data=Nip66RttData(rtt_open=30, rtt_read=100, rtt_write=80),
-            ssl_data=Nip66SslData(
-                ssl_valid=True,
-                ssl_expires=1735689600,
-                ssl_issuer="Let's Encrypt",
-            ),
-            nip11_data=Nip11InfoData(
-                name="Production Relay",
-                supported_nips=[1, 11, 42, 50],
-                tags=["social"],
-                language_tags=["en", "de"],
-                limitation=Nip11InfoDataLimitation(
-                    auth_required=False,
-                    payment_required=False,
-                    restricted_writes=False,
-                    min_pow_difficulty=0,
+        relay = Relay("wss://relay.example.com")
+        nip11 = Nip11(
+            relay=relay,
+            info=Nip11InfoMetadata(
+                data=Nip11InfoData(
+                    name="Production Relay",
+                    supported_nips=[1, 11, 42, 50],
+                    tags=["social"],
+                    language_tags=["en", "de"],
+                    limitation=Nip11InfoDataLimitation(
+                        auth_required=False,
+                        payment_required=False,
+                        restricted_writes=False,
+                        min_pow_difficulty=0,
+                    ),
                 ),
+                logs=Nip11InfoLogs(success=True),
             ),
-            rtt_logs=Nip66RttMultiPhaseLogs(open_success=True, write_success=True),
         )
+        nip66 = Nip66(
+            relay=relay,
+            rtt=Nip66RttMetadata(
+                data=Nip66RttData(rtt_open=30, rtt_read=100, rtt_write=80),
+                logs=Nip66RttMultiPhaseLogs(open_success=True, write_success=True),
+            ),
+            ssl=Nip66SslMetadata(
+                data=Nip66SslData(
+                    ssl_valid=True,
+                    ssl_expires=1735689600,
+                    ssl_issuer="Let's Encrypt",
+                ),
+                logs=Nip66SslLogs(success=True),
+            ),
+        )
+        builder = build_relay_discovery(relay, nip11, nip66)
         assert builder is not None
 
     def test_auth_required_relay_types(self) -> None:

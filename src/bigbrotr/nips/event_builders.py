@@ -22,11 +22,13 @@ from nostr_sdk import EventBuilder, Kind, Tag
 from nostr_sdk import Metadata as NostrMetadata
 
 from bigbrotr.models.constants import EventKind, NetworkType
+from bigbrotr.models.metadata import Metadata, MetadataType
 
 
 if TYPE_CHECKING:
+    from bigbrotr.models.relay import Relay
     from bigbrotr.nips.nip11.data import Nip11InfoData
-    from bigbrotr.nips.nip11.nip11 import Nip11Selection
+    from bigbrotr.nips.nip11.nip11 import Nip11, Nip11Selection
     from bigbrotr.nips.nip66.data import (
         Nip66DnsData,
         Nip66GeoData,
@@ -36,7 +38,7 @@ if TYPE_CHECKING:
         Nip66SslData,
     )
     from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs
-    from bigbrotr.nips.nip66.nip66 import Nip66Selection
+    from bigbrotr.nips.nip66.nip66 import Nip66, Nip66Selection
 
 
 _ISO_639_1_LENGTH = 2
@@ -350,32 +352,42 @@ def add_nip11_tags(
     add_attributes_tags(tags, nip11_data)
 
 
-def build_relay_discovery(  # noqa: PLR0913
-    relay_url: str,
-    network_value: str,
-    nip11_canonical_json: str = "",
-    *,
-    rtt_data: Nip66RttData | None = None,
-    ssl_data: Nip66SslData | None = None,
-    net_data: Nip66NetData | None = None,
-    geo_data: Nip66GeoData | None = None,
-    dns_data: Nip66DnsData | None = None,
-    http_data: Nip66HttpData | None = None,
-    nip11_data: Nip11InfoData | None = None,
-    rtt_logs: Nip66RttMultiPhaseLogs | None = None,
+def build_relay_discovery(
+    relay: Relay,
+    nip11: Nip11 | None = None,
+    nip66: Nip66 | None = None,
 ) -> EventBuilder:
-    """Build a Kind 30166 relay discovery event per NIP-66."""
+    """Build a Kind 30166 relay discovery event per NIP-66.
+
+    Args:
+        relay: The relay being monitored.
+        nip11: NIP-11 relay information (``None`` if not fetched).
+        nip66: NIP-66 health check results (``None`` if not run).
+
+    Returns:
+        A signed-ready ``EventBuilder`` for Kind 30166.
+    """
+    nip11_canonical_json = ""
+    nip11_data = None
+    if nip11 and nip11.info:
+        meta = Metadata(type=MetadataType.NIP11_INFO, data=nip11.info.to_dict())
+        nip11_canonical_json = meta.canonical_json
+        nip11_data = nip11.info.data
+
+    rtt_data = nip66.rtt.data if nip66 and nip66.rtt else None
+    rtt_logs = nip66.rtt.logs if nip66 and nip66.rtt else None
+
     tags: list[Tag] = [
-        Tag.identifier(relay_url),
-        Tag.parse(["n", network_value]),
+        Tag.identifier(relay.url),
+        Tag.parse(["n", relay.network.value]),
     ]
 
     add_rtt_tags(tags, rtt_data)
-    add_ssl_tags(tags, ssl_data)
-    add_net_tags(tags, net_data)
-    add_geo_tags(tags, geo_data)
-    add_dns_tags(tags, dns_data)
-    add_http_tags(tags, http_data)
+    add_ssl_tags(tags, nip66.ssl.data if nip66 and nip66.ssl else None)
+    add_net_tags(tags, nip66.net.data if nip66 and nip66.net else None)
+    add_geo_tags(tags, nip66.geo.data if nip66 and nip66.geo else None)
+    add_dns_tags(tags, nip66.dns.data if nip66 and nip66.dns else None)
+    add_http_tags(tags, nip66.http.data if nip66 and nip66.http else None)
     add_nip11_tags(tags, nip11_data, rtt_logs)
 
     return EventBuilder(Kind(EventKind.RELAY_DISCOVERY), nip11_canonical_json).tags(tags)
