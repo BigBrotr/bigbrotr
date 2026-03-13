@@ -4,9 +4,9 @@ Tests:
 - Checkpoint: creation, frozen immutability, subclass inheritance
 - ApiCheckpoint, MonitorCheckpoint, PublishCheckpoint: creation, isinstance
 - CandidateCheckpoint: creation, failures default, frozen immutability, isinstance
-- Cursor: base class, both-None-or-both-set validation, subclass inheritance
-- SyncCursor: valid combinations, partial cursor rejection, frozen, isinstance
-- FinderCursor: valid combinations, partial cursor rejection, frozen, isinstance
+- Cursor: base class, defaults, subclass inheritance
+- SyncCursor: creation, frozen, isinstance
+- FinderCursor: creation, frozen, isinstance
 """
 
 from __future__ import annotations
@@ -56,83 +56,32 @@ class TestCheckpoint:
 # ============================================================================
 
 
-class TestApiCheckpoint:
-    """Tests for ApiCheckpoint subclass."""
+class TestCheckpointSubclasses:
+    """Tests for ApiCheckpoint, MonitorCheckpoint, PublishCheckpoint subclasses."""
 
-    def test_creation(self) -> None:
-        """Test ApiCheckpoint construction."""
-        cp = ApiCheckpoint(key="https://api.nostr.watch/v1/online", timestamp=1700000000)
-
-        assert cp.key == "https://api.nostr.watch/v1/online"
+    @pytest.mark.parametrize(
+        ("cls", "key"),
+        [
+            (ApiCheckpoint, "https://api.nostr.watch/v1/online"),
+            (MonitorCheckpoint, "wss://relay.example.com"),
+            (PublishCheckpoint, "announcement"),
+        ],
+    )
+    def test_creation(self, cls: type, key: str) -> None:
+        cp = cls(key=key, timestamp=1700000000)
+        assert cp.key == key
         assert cp.timestamp == 1700000000
 
-    def test_isinstance_checkpoint(self) -> None:
-        """Test that ApiCheckpoint is a Checkpoint."""
-        cp = ApiCheckpoint(key="https://api.example.com", timestamp=1700000000)
-
+    @pytest.mark.parametrize("cls", [ApiCheckpoint, MonitorCheckpoint, PublishCheckpoint])
+    def test_isinstance_checkpoint(self, cls: type) -> None:
+        cp = cls(key="test", timestamp=1700000000)
         assert isinstance(cp, Checkpoint)
 
-    def test_not_isinstance_other_subclasses(self) -> None:
-        """Test that ApiCheckpoint is not a MonitorCheckpoint or PublishCheckpoint."""
-        cp = ApiCheckpoint(key="https://api.example.com", timestamp=1700000000)
-
-        assert not isinstance(cp, MonitorCheckpoint)
-        assert not isinstance(cp, PublishCheckpoint)
-
-    def test_frozen(self) -> None:
-        """Test that ApiCheckpoint instances are immutable."""
-        cp = ApiCheckpoint(key="https://api.example.com", timestamp=1700000000)
-
+    @pytest.mark.parametrize("cls", [ApiCheckpoint, MonitorCheckpoint, PublishCheckpoint])
+    def test_frozen(self, cls: type) -> None:
+        cp = cls(key="test", timestamp=1700000000)
         with pytest.raises(FrozenInstanceError):
             cp.timestamp = 0  # type: ignore[misc]
-
-
-class TestMonitorCheckpoint:
-    """Tests for MonitorCheckpoint subclass."""
-
-    def test_creation(self) -> None:
-        """Test MonitorCheckpoint construction."""
-        cp = MonitorCheckpoint(key="wss://relay.example.com", timestamp=1700000000)
-
-        assert cp.key == "wss://relay.example.com"
-        assert cp.timestamp == 1700000000
-
-    def test_isinstance_checkpoint(self) -> None:
-        """Test that MonitorCheckpoint is a Checkpoint."""
-        cp = MonitorCheckpoint(key="wss://relay.example.com", timestamp=1700000000)
-
-        assert isinstance(cp, Checkpoint)
-
-    def test_not_isinstance_other_subclasses(self) -> None:
-        """Test that MonitorCheckpoint is not an ApiCheckpoint or PublishCheckpoint."""
-        cp = MonitorCheckpoint(key="wss://relay.example.com", timestamp=1700000000)
-
-        assert not isinstance(cp, ApiCheckpoint)
-        assert not isinstance(cp, PublishCheckpoint)
-
-
-class TestPublishCheckpoint:
-    """Tests for PublishCheckpoint subclass."""
-
-    def test_creation(self) -> None:
-        """Test PublishCheckpoint construction."""
-        cp = PublishCheckpoint(key="announcement", timestamp=1700000000)
-
-        assert cp.key == "announcement"
-        assert cp.timestamp == 1700000000
-
-    def test_isinstance_checkpoint(self) -> None:
-        """Test that PublishCheckpoint is a Checkpoint."""
-        cp = PublishCheckpoint(key="announcement", timestamp=1700000000)
-
-        assert isinstance(cp, Checkpoint)
-
-    def test_not_isinstance_other_subclasses(self) -> None:
-        """Test that PublishCheckpoint is not an ApiCheckpoint or MonitorCheckpoint."""
-        cp = PublishCheckpoint(key="announcement", timestamp=1700000000)
-
-        assert not isinstance(cp, ApiCheckpoint)
-        assert not isinstance(cp, MonitorCheckpoint)
 
 
 # ============================================================================
@@ -209,32 +158,35 @@ class TestCandidateCheckpoint:
 class TestCursor:
     """Tests for Cursor base class."""
 
-    def test_creation_no_position(self) -> None:
-        """Test Cursor with key only (no position)."""
+    def test_creation_defaults(self) -> None:
+        """Test Cursor with key only uses concrete defaults."""
         cursor = Cursor(key="wss://relay.example.com")
 
         assert cursor.key == "wss://relay.example.com"
-        assert cursor.timestamp is None
-        assert cursor.id is None
+        assert cursor.timestamp == 0
+        assert cursor.id == "0" * 64
 
     def test_creation_full(self) -> None:
         """Test Cursor with all fields."""
-        event_id = b"\x00" * 32
-        cursor = Cursor(key="wss://relay.example.com", timestamp=1700000000, id=event_id)
+        cursor = Cursor(key="wss://relay.example.com", timestamp=1700000000, id="aa" * 32)
 
         assert cursor.key == "wss://relay.example.com"
         assert cursor.timestamp == 1700000000
-        assert cursor.id == event_id
+        assert cursor.id == "aa" * 32
 
-    def test_timestamp_without_id_raises(self) -> None:
-        """Test that timestamp without id raises ValueError."""
-        with pytest.raises(ValueError, match="must both be None or both be set"):
-            Cursor(key="wss://relay.example.com", timestamp=1700000000)
+    def test_partial_override_timestamp(self) -> None:
+        """Test Cursor with only timestamp overridden."""
+        cursor = Cursor(key="wss://relay.example.com", timestamp=1700000000)
 
-    def test_id_without_timestamp_raises(self) -> None:
-        """Test that id without timestamp raises ValueError."""
-        with pytest.raises(ValueError, match="must both be None or both be set"):
-            Cursor(key="wss://relay.example.com", id=b"\x00" * 32)
+        assert cursor.timestamp == 1700000000
+        assert cursor.id == "0" * 64
+
+    def test_partial_override_id(self) -> None:
+        """Test Cursor with only id overridden."""
+        cursor = Cursor(key="wss://relay.example.com", id="ff" * 32)
+
+        assert cursor.timestamp == 0
+        assert cursor.id == "ff" * 32
 
     def test_frozen(self) -> None:
         """Test that Cursor instances are immutable."""
@@ -245,112 +197,39 @@ class TestCursor:
 
 
 # ============================================================================
-# SyncCursor Tests
+# Cursor Subclass Tests
 # ============================================================================
 
 
-class TestSyncCursor:
-    """Tests for SyncCursor dataclass."""
+class TestCursorSubclasses:
+    """Tests for SyncCursor and FinderCursor dataclasses."""
 
-    def test_isinstance_cursor(self) -> None:
-        """Test that SyncCursor is a Cursor."""
-        cursor = SyncCursor(key="wss://relay.example.com")
-
+    @pytest.mark.parametrize("cls", [SyncCursor, FinderCursor])
+    def test_isinstance_cursor(self, cls: type) -> None:
+        cursor = cls(key="wss://relay.example.com")
         assert isinstance(cursor, Cursor)
 
-    def test_not_isinstance_finder_cursor(self) -> None:
-        """Test that SyncCursor is not a FinderCursor."""
-        cursor = SyncCursor(key="wss://relay.example.com")
-
-        assert not isinstance(cursor, FinderCursor)
-
-    def test_no_cursor(self) -> None:
-        """Test cursor with no position (scan from beginning)."""
-        cursor = SyncCursor(key="wss://relay.example.com")
-
+    @pytest.mark.parametrize("cls", [SyncCursor, FinderCursor])
+    def test_defaults(self, cls: type) -> None:
+        cursor = cls(key="wss://relay.example.com")
         assert cursor.key == "wss://relay.example.com"
-        assert cursor.timestamp is None
-        assert cursor.id is None
+        assert cursor.timestamp == 0
+        assert cursor.id == "0" * 64
 
-    def test_full_cursor(self) -> None:
-        """Test cursor with both timestamp and id."""
-        event_id = b"\x00" * 32
-        cursor = SyncCursor(
-            key="wss://relay.example.com",
-            timestamp=1700000000,
-            id=event_id,
-        )
-
+    @pytest.mark.parametrize("cls", [SyncCursor, FinderCursor])
+    def test_full_cursor(self, cls: type) -> None:
+        cursor = cls(key="wss://relay.example.com", timestamp=1700000000, id="aa" * 32)
         assert cursor.timestamp == 1700000000
-        assert cursor.id == event_id
+        assert cursor.id == "aa" * 32
 
-    def test_timestamp_without_id_raises(self) -> None:
-        """Test that timestamp without id raises ValueError."""
-        with pytest.raises(ValueError, match="must both be None or both be set"):
-            SyncCursor(key="wss://relay.example.com", timestamp=1700000000)
-
-    def test_id_without_timestamp_raises(self) -> None:
-        """Test that id without timestamp raises ValueError."""
-        with pytest.raises(ValueError, match="must both be None or both be set"):
-            SyncCursor(key="wss://relay.example.com", id=b"\x00" * 32)
-
-    def test_frozen(self) -> None:
-        """Test that SyncCursor instances are immutable."""
-        cursor = SyncCursor(key="wss://relay.example.com")
-
+    @pytest.mark.parametrize("cls", [SyncCursor, FinderCursor])
+    def test_frozen(self, cls: type) -> None:
+        cursor = cls(key="wss://relay.example.com")
         with pytest.raises(FrozenInstanceError):
             cursor.timestamp = 123  # type: ignore[misc]
 
+    def test_sync_cursor_not_finder_cursor(self) -> None:
+        assert not isinstance(SyncCursor(key="x"), FinderCursor)
 
-# ============================================================================
-# FinderCursor Tests
-# ============================================================================
-
-
-class TestFinderCursor:
-    """Tests for FinderCursor dataclass."""
-
-    def test_isinstance_cursor(self) -> None:
-        """Test that FinderCursor is a Cursor."""
-        cursor = FinderCursor(key="wss://relay.example.com")
-
-        assert isinstance(cursor, Cursor)
-
-    def test_not_isinstance_sync_cursor(self) -> None:
-        """Test that FinderCursor is not a SyncCursor."""
-        cursor = FinderCursor(key="wss://relay.example.com")
-
-        assert not isinstance(cursor, SyncCursor)
-
-    def test_no_cursor(self) -> None:
-        """Test cursor with no position (scan from beginning)."""
-        cursor = FinderCursor(key="wss://relay.example.com")
-
-        assert cursor.key == "wss://relay.example.com"
-        assert cursor.timestamp is None
-        assert cursor.id is None
-
-    def test_full_cursor(self) -> None:
-        """Test cursor with both timestamp and id."""
-        event_id = b"\x00" * 32
-        cursor = FinderCursor(key="wss://relay.example.com", timestamp=1700000000, id=event_id)
-
-        assert cursor.timestamp == 1700000000
-        assert cursor.id == event_id
-
-    def test_timestamp_without_id_raises(self) -> None:
-        """Test that timestamp without id raises ValueError."""
-        with pytest.raises(ValueError, match="must both be None or both be set"):
-            FinderCursor(key="wss://relay.example.com", timestamp=1700000000)
-
-    def test_id_without_timestamp_raises(self) -> None:
-        """Test that id without timestamp raises ValueError."""
-        with pytest.raises(ValueError, match="must both be None or both be set"):
-            FinderCursor(key="wss://relay.example.com", id=b"\x00" * 32)
-
-    def test_frozen(self) -> None:
-        """Test that FinderCursor instances are immutable."""
-        cursor = FinderCursor(key="wss://relay.example.com")
-
-        with pytest.raises(FrozenInstanceError):
-            cursor.timestamp = 123  # type: ignore[misc]
+    def test_finder_cursor_not_sync_cursor(self) -> None:
+        assert not isinstance(FinderCursor(key="x"), SyncCursor)

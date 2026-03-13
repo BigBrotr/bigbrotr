@@ -62,13 +62,34 @@ class TestRefreshConfig:
         with pytest.raises(ValueError, match="views list must not be empty"):
             RefreshConfig(views=[])
 
-    def test_valid_view_names_accepted(self) -> None:
-        config = RefreshConfig(views=["relay_stats", "event_daily_counts"])
-        assert config.views == ["relay_stats", "event_daily_counts"]
+    @pytest.mark.parametrize(
+        "view_name",
+        [
+            "relay_stats",
+            "event_daily_counts",
+            "a",
+            "_private_view",
+            "view123",
+        ],
+    )
+    def test_valid_view_names_accepted(self, view_name: str) -> None:
+        config = RefreshConfig(views=[view_name])
+        assert config.views == [view_name]
 
-    def test_invalid_view_names_rejected(self) -> None:
+    @pytest.mark.parametrize(
+        "view_name",
+        [
+            "relay-stats",
+            "UPPERCASE",
+            "DROP TABLE",
+            "123starts_with_digit",
+            "has.dot",
+            "semi;colon",
+        ],
+    )
+    def test_invalid_view_names_rejected(self, view_name: str) -> None:
         with pytest.raises(ValueError, match="invalid view names"):
-            RefreshConfig(views=["relay-stats", "INVALID", "DROP TABLE"])
+            RefreshConfig(views=[view_name])
 
     def test_default_views_is_independent_copy(self) -> None:
         config1 = RefreshConfig()
@@ -98,19 +119,6 @@ class TestRefresherConfig:
 
         assert config.refresh.views == ["event_stats"]
 
-    def test_interval_from_base_config(self) -> None:
-        config = RefresherConfig(interval=3600.0)
-        assert config.interval == 3600.0
-
-    def test_max_consecutive_failures_from_base_config(self) -> None:
-        config = RefresherConfig(max_consecutive_failures=10)
-        assert config.max_consecutive_failures == 10
-
-    def test_metrics_config_from_base(self) -> None:
-        config = RefresherConfig()
-        assert hasattr(config, "metrics")
-        assert config.metrics.enabled is False
-
     def test_from_dict_nested(self) -> None:
         data = {
             "refresh": {"views": ["event_stats", "relay_stats"]},
@@ -122,7 +130,7 @@ class TestRefresherConfig:
 
 
 # ============================================================================
-# Service — RefresherInit
+# Service — Init
 # ============================================================================
 
 
@@ -133,6 +141,7 @@ class TestRefresherInit:
         assert refresher._brotr is mock_refresher_brotr
         assert refresher.SERVICE_NAME == "refresher"
         assert refresher.config.refresh.views == DEFAULT_VIEWS
+        assert refresher._logger is not None
 
     def test_init_with_custom_config(self, mock_refresher_brotr: Brotr) -> None:
         config = RefresherConfig(
@@ -150,26 +159,31 @@ class TestRefresherInit:
 
         assert refresher.config.refresh.views == ["relay_metadata_latest", "event_stats"]
 
-    def test_service_name_class_attribute(self, mock_refresher_brotr: Brotr) -> None:
-        assert Refresher.SERVICE_NAME == "refresher"
-        refresher = Refresher(brotr=mock_refresher_brotr)
-        assert refresher.SERVICE_NAME == "refresher"
-
-    def test_config_class_attribute(self, mock_refresher_brotr: Brotr) -> None:
-        assert RefresherConfig == Refresher.CONFIG_CLASS
-
-    def test_logger_initialized(self, mock_refresher_brotr: Brotr) -> None:
-        refresher = Refresher(brotr=mock_refresher_brotr)
-        assert refresher._logger is not None
+    def test_config_class_attribute(self) -> None:
+        assert Refresher.CONFIG_CLASS is RefresherConfig
 
 
 # ============================================================================
-# Service — RefresherRun
+# Service — cleanup
+# ============================================================================
+
+
+class TestRefresherCleanup:
+    async def test_cleanup_returns_zero(self, mock_refresher_brotr: Brotr) -> None:
+        refresher = Refresher(brotr=mock_refresher_brotr)
+
+        result = await refresher.cleanup()
+
+        assert result == 0
+
+
+# ============================================================================
+# Service — run
 # ============================================================================
 
 
 class TestRefresherRun:
-    async def test_run_refreshes_all_views(self, mock_refresher_brotr: Brotr) -> None:
+    async def test_run_refreshes_all_views_in_order(self, mock_refresher_brotr: Brotr) -> None:
         config = RefresherConfig(
             refresh=RefreshConfig(views=["relay_metadata_latest", "event_stats", "relay_stats"]),
         )
@@ -205,13 +219,19 @@ class TestRefresherRun:
             assert len(view_refreshed_calls) == 1
             assert view_refreshed_calls[0][1]["view"] == "event_stats"
 
-    async def test_run_continues_on_failure(self, mock_refresher_brotr: Brotr) -> None:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            asyncpg.PostgresError("db_error"),
+            OSError("connection_reset"),
+        ],
+        ids=["postgres_error", "os_error"],
+    )
+    async def test_run_continues_on_failure(
+        self, mock_refresher_brotr: Brotr, error: Exception
+    ) -> None:
         mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=[
-                None,
-                asyncpg.PostgresError("view_error"),
-                None,
-            ]
+            side_effect=[None, error, None]
         )
 
         config = RefresherConfig(
@@ -241,6 +261,26 @@ class TestRefresherRun:
             assert mock_error.call_args[1]["view"] == "event_stats"
             assert "refresh_timeout" in mock_error.call_args[1]["error"]
 
+    async def test_run_refresh_completed_counts(self, mock_refresher_brotr: Brotr) -> None:
+        mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
+            side_effect=[None, asyncpg.PostgresError("error"), None]
+        )
+
+        config = RefresherConfig(
+            refresh=RefreshConfig(views=["relay_metadata_latest", "event_stats", "relay_stats"]),
+        )
+        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
+
+        with patch.object(refresher._logger, "info") as mock_log:
+            await refresher.run()
+
+            cycle_completed_calls = [
+                call for call in mock_log.call_args_list if call[0][0] == "refresh_completed"
+            ]
+            assert len(cycle_completed_calls) == 1
+            assert cycle_completed_calls[0][1]["refreshed"] == 2
+            assert cycle_completed_calls[0][1]["failed"] == 1
+
     async def test_run_all_fail(self, mock_refresher_brotr: Brotr) -> None:
         mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
             side_effect=asyncpg.PostgresError("db_error")
@@ -261,37 +301,6 @@ class TestRefresherRun:
             assert cycle_completed_calls[0][1]["refreshed"] == 0
             assert cycle_completed_calls[0][1]["failed"] == 2
 
-    async def test_run_logs_refresh_completed(self, mock_refresher_brotr: Brotr) -> None:
-        config = RefresherConfig(
-            refresh=RefreshConfig(views=["event_stats"]),
-        )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
-
-        with patch.object(refresher._logger, "info") as mock_log:
-            await refresher.run()
-
-            log_messages = [call[0][0] for call in mock_log.call_args_list]
-            assert "refresh_completed" in log_messages
-
-    async def test_run_refresh_completed_counts(self, mock_refresher_brotr: Brotr) -> None:
-        mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=[None, asyncpg.PostgresError("error"), None]
-        )
-
-        config = RefresherConfig(
-            refresh=RefreshConfig(views=["relay_metadata_latest", "event_stats", "relay_stats"]),
-        )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
-
-        with patch.object(refresher._logger, "info") as mock_log:
-            await refresher.run()
-
-            cycle_completed_calls = [
-                call for call in mock_log.call_args_list if call[0][0] == "refresh_completed"
-            ]
-            assert cycle_completed_calls[0][1]["refreshed"] == 2
-            assert cycle_completed_calls[0][1]["failed"] == 1
-
 
 # ============================================================================
 # Metrics
@@ -299,23 +308,10 @@ class TestRefresherRun:
 
 
 class TestRefresherMetrics:
-    async def test_set_gauge_refreshed(self, mock_refresher_brotr: Brotr) -> None:
-        config = RefresherConfig(
-            refresh=RefreshConfig(views=["event_stats", "relay_stats"]),
-        )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
-
-        with patch.object(refresher, "set_gauge") as mock_gauge:
-            await refresher.run()
-
-            gauge_calls = {call[0][0]: call[0][1] for call in mock_gauge.call_args_list}
-            assert gauge_calls["views_refreshed"] == 2
-
-    async def test_set_gauge_failed(self, mock_refresher_brotr: Brotr) -> None:
+    async def test_gauges_reset_at_start(self, mock_refresher_brotr: Brotr) -> None:
         mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
             side_effect=asyncpg.PostgresError("error")
         )
-
         config = RefresherConfig(
             refresh=RefreshConfig(views=["event_stats"]),
         )
@@ -324,49 +320,65 @@ class TestRefresherMetrics:
         with patch.object(refresher, "set_gauge") as mock_gauge:
             await refresher.run()
 
-            gauge_calls = {call[0][0]: call[0][1] for call in mock_gauge.call_args_list}
-            assert gauge_calls["views_failed"] == 1
-            assert gauge_calls["views_refreshed"] == 0
+            first_two = mock_gauge.call_args_list[:2]
+            assert first_two[0] == (("views_refreshed", 0),)
+            assert first_two[1] == (("views_failed", 0),)
 
-    async def test_set_gauge_mixed(self, mock_refresher_brotr: Brotr) -> None:
+    @pytest.mark.parametrize(
+        ("side_effects", "expected_refreshed", "expected_failed"),
+        [
+            ([None, None], 2, 0),
+            ([asyncpg.PostgresError("e")], 0, 1),
+            ([None, asyncpg.PostgresError("e"), None], 2, 1),
+        ],
+        ids=["all_success", "all_fail", "mixed"],
+    )
+    async def test_set_gauge_counts(
+        self,
+        mock_refresher_brotr: Brotr,
+        side_effects: list[Exception | None],
+        expected_refreshed: int,
+        expected_failed: int,
+    ) -> None:
         mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=[None, asyncpg.PostgresError("error"), None]
+            side_effect=side_effects
         )
-
-        config = RefresherConfig(
-            refresh=RefreshConfig(views=["relay_metadata_latest", "event_stats", "relay_stats"]),
-        )
+        views = [f"view_{i}" for i in range(len(side_effects))]
+        config = RefresherConfig(refresh=RefreshConfig(views=views))
         refresher = Refresher(brotr=mock_refresher_brotr, config=config)
 
         with patch.object(refresher, "set_gauge") as mock_gauge:
             await refresher.run()
 
-            gauge_calls = {call[0][0]: call[0][1] for call in mock_gauge.call_args_list}
-            assert gauge_calls["views_refreshed"] == 2
-            assert gauge_calls["views_failed"] == 1
+            final_gauges = {call[0][0]: call[0][1] for call in mock_gauge.call_args_list[2:]}
+            assert final_gauges["views_refreshed"] == expected_refreshed
+            assert final_gauges["views_failed"] == expected_failed
 
-    async def test_inc_counter_refreshed(self, mock_refresher_brotr: Brotr) -> None:
-        config = RefresherConfig(
-            refresh=RefreshConfig(views=["event_stats", "relay_stats"]),
-        )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
-
-        with patch.object(refresher, "inc_counter") as mock_counter:
-            await refresher.run()
-
-        mock_counter.assert_any_call("total_views_refreshed", 2)
-
-    async def test_inc_counter_failed(self, mock_refresher_brotr: Brotr) -> None:
+    @pytest.mark.parametrize(
+        ("side_effects", "expected_refreshed", "expected_failed"),
+        [
+            ([None, None], 2, 0),
+            ([asyncpg.PostgresError("e")], 0, 1),
+            ([None, asyncpg.PostgresError("e"), None], 2, 1),
+        ],
+        ids=["all_success", "all_fail", "mixed"],
+    )
+    async def test_inc_counter_counts(
+        self,
+        mock_refresher_brotr: Brotr,
+        side_effects: list[Exception | None],
+        expected_refreshed: int,
+        expected_failed: int,
+    ) -> None:
         mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=asyncpg.PostgresError("error")
+            side_effect=side_effects
         )
-
-        config = RefresherConfig(
-            refresh=RefreshConfig(views=["event_stats"]),
-        )
+        views = [f"view_{i}" for i in range(len(side_effects))]
+        config = RefresherConfig(refresh=RefreshConfig(views=views))
         refresher = Refresher(brotr=mock_refresher_brotr, config=config)
 
         with patch.object(refresher, "inc_counter") as mock_counter:
             await refresher.run()
 
-        mock_counter.assert_any_call("total_views_failed", 1)
+        mock_counter.assert_any_call("total_views_refreshed", expected_refreshed)
+        mock_counter.assert_any_call("total_views_failed", expected_failed)

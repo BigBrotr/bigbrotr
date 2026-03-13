@@ -811,12 +811,12 @@ class TestDependenciesInheritance:
         deps = Nip66Dependencies()
         assert isinstance(deps, BaseNipDependencies)
 
-    def test_nip66_dependencies_defaults_to_none(self):
-        """Nip66Dependencies fields default to None."""
+    def test_nip66_dependencies_defaults(self):
+        """Nip66Dependencies auto-populates RTT deps, GeoIP defaults to None."""
         deps = Nip66Dependencies()
-        assert deps.keys is None
-        assert deps.event_builder is None
-        assert deps.read_filter is None
+        assert deps.keys is not None
+        assert deps.event_builder is not None
+        assert deps.read_filter is not None
         assert deps.city_reader is None
         assert deps.asn_reader is None
 

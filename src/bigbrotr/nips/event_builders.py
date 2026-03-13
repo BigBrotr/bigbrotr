@@ -22,14 +22,23 @@ from nostr_sdk import EventBuilder, Kind, Tag
 from nostr_sdk import Metadata as NostrMetadata
 
 from bigbrotr.models.constants import EventKind, NetworkType
+from bigbrotr.models.metadata import Metadata, MetadataType
 
 
 if TYPE_CHECKING:
+    from bigbrotr.models.relay import Relay
     from bigbrotr.nips.nip11.data import Nip11InfoData
-    from bigbrotr.nips.nip11.nip11 import Nip11Selection
-    from bigbrotr.nips.nip66.data import Nip66GeoData, Nip66NetData, Nip66RttData, Nip66SslData
+    from bigbrotr.nips.nip11.nip11 import Nip11, Nip11Selection
+    from bigbrotr.nips.nip66.data import (
+        Nip66DnsData,
+        Nip66GeoData,
+        Nip66HttpData,
+        Nip66NetData,
+        Nip66RttData,
+        Nip66SslData,
+    )
     from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs
-    from bigbrotr.nips.nip66.nip66 import Nip66Selection
+    from bigbrotr.nips.nip66.nip66 import Nip66, Nip66Selection
 
 
 _ISO_639_1_LENGTH = 2
@@ -98,6 +107,10 @@ def build_monitor_announcement(
         tags.append(Tag.parse(["timeout", "nip11", ms]))
     if nip66_selection.ssl:
         tags.append(Tag.parse(["timeout", "ssl", ms]))
+    if nip66_selection.dns:
+        tags.append(Tag.parse(["timeout", "dns", ms]))
+    if nip66_selection.http:
+        tags.append(Tag.parse(["timeout", "http", ms]))
 
     # Capability tags — all NIP-66 check types (includes geo/net which have no timeout)
     if nip66_selection.rtt:
@@ -110,6 +123,10 @@ def build_monitor_announcement(
         tags.append(Tag.parse(["c", "geo"]))
     if nip66_selection.net:
         tags.append(Tag.parse(["c", "net"]))
+    if nip66_selection.dns:
+        tags.append(Tag.parse(["c", "dns"]))
+    if nip66_selection.http:
+        tags.append(Tag.parse(["c", "http"]))
 
     return EventBuilder(Kind(EventKind.MONITOR_ANNOUNCEMENT), "").tags(tags)
 
@@ -139,7 +156,11 @@ def add_ssl_tags(tags: list[Tag], ssl_data: Nip66SslData | None) -> None:
 
 
 def add_net_tags(tags: list[Tag], net_data: Nip66NetData | None) -> None:
-    """Add network tags: ``net-ip``, ``net-ipv6``, ``net-asn``, ``net-asn-org``."""
+    """Add network tags: ``net-ip``, ``net-ipv6``, ``net-asn``, ``net-asn-org``.
+
+    Also emits NIP-32 ``l`` labels for ASN and ASN org, making them
+    relay-filterable via ``#l`` subscription filters.
+    """
     if net_data is None:
         return
     if net_data.net_ip:
@@ -148,26 +169,71 @@ def add_net_tags(tags: list[Tag], net_data: Nip66NetData | None) -> None:
         tags.append(Tag.parse(["net-ipv6", net_data.net_ipv6]))
     if net_data.net_asn is not None:
         tags.append(Tag.parse(["net-asn", str(net_data.net_asn)]))
+        tags.append(Tag.parse(["l", str(net_data.net_asn), "IANA-asn"]))
     if net_data.net_asn_org:
         tags.append(Tag.parse(["net-asn-org", net_data.net_asn_org]))
+        tags.append(Tag.parse(["l", net_data.net_asn_org, "IANA-asnOrg"]))
 
 
 def add_geo_tags(tags: list[Tag], geo_data: Nip66GeoData | None) -> None:
-    """Add geolocation tags (``g``, ``geo-country``, ``geo-city``, etc.)."""
+    """Add geolocation tags (``g``, ``geo-country``, ``geo-city``, etc.).
+
+    Indexed (filterable) values are emitted as both informational multi-letter
+    tags and NIP-32 ``l`` labels so clients can filter on them:
+
+    - country → ``["l", "<ISO-3166-1>", "ISO-3166-1"]``
+    - city    → ``["l", "<city>", "nip66.label.city"]``  (no recognized standard)
+    - timezone → ``["l", "<tz>", "IANA-tz"]``
+    """
     if geo_data is None:
         return
     if geo_data.geo_hash:
         tags.append(Tag.parse(["g", geo_data.geo_hash]))
     if geo_data.geo_country:
         tags.append(Tag.parse(["geo-country", geo_data.geo_country]))
+        tags.append(Tag.parse(["l", geo_data.geo_country, "ISO-3166-1"]))
     if geo_data.geo_city:
         tags.append(Tag.parse(["geo-city", geo_data.geo_city]))
+        tags.append(Tag.parse(["l", geo_data.geo_city, "nip66.label.city"]))
     if geo_data.geo_lat is not None:
         tags.append(Tag.parse(["geo-lat", str(geo_data.geo_lat)]))
     if geo_data.geo_lon is not None:
         tags.append(Tag.parse(["geo-lon", str(geo_data.geo_lon)]))
     if geo_data.geo_tz:
         tags.append(Tag.parse(["geo-tz", geo_data.geo_tz]))
+        tags.append(Tag.parse(["l", geo_data.geo_tz, "IANA-tz"]))
+
+
+def add_dns_tags(tags: list[Tag], dns_data: Nip66DnsData | None) -> None:
+    """Add DNS resolution tags: ``dns-ip``, ``dns-ip6``, ``dns-cname``, ``dns-ttl``."""
+    if dns_data is None:
+        return
+    if dns_data.dns_ips:
+        tags.append(Tag.parse(["dns-ip", dns_data.dns_ips[0]]))
+    if dns_data.dns_ips_v6:
+        tags.append(Tag.parse(["dns-ip6", dns_data.dns_ips_v6[0]]))
+    if dns_data.dns_cname:
+        tags.append(Tag.parse(["dns-cname", dns_data.dns_cname]))
+    if dns_data.dns_ttl is not None:
+        tags.append(Tag.parse(["dns-ttl", str(dns_data.dns_ttl)]))
+
+
+def add_http_tags(tags: list[Tag], http_data: Nip66HttpData | None) -> None:
+    """Add HTTP server header tags: ``http-server``, ``http-powered-by``."""
+    if http_data is None:
+        return
+    if http_data.http_server:
+        tags.append(Tag.parse(["http-server", http_data.http_server]))
+    if http_data.http_powered_by:
+        tags.append(Tag.parse(["http-powered-by", http_data.http_powered_by]))
+
+
+def add_attributes_tags(tags: list[Tag], nip11_data: Nip11InfoData) -> None:
+    """Add relay attribute tags (``W``) from NIP-11 ``attributes`` field."""
+    attributes = nip11_data.attributes
+    if not attributes:
+        return
+    tags.extend(Tag.parse(["W", attr]) for attr in attributes if attr and isinstance(attr, str))
 
 
 def add_language_tags(tags: list[Tag], nip11_data: Nip11InfoData) -> None:
@@ -271,7 +337,7 @@ def add_nip11_tags(
     nip11_data: Nip11InfoData | None,
     rtt_logs: Nip66RttMultiPhaseLogs | None = None,
 ) -> None:
-    """Add NIP-11-derived tags: ``N``, ``t``, ``l``, ``R``, ``T``."""
+    """Add NIP-11-derived tags: ``N``, ``t``, ``l``, ``R``, ``T``, ``W``."""
     if nip11_data is None:
         return
 
@@ -283,30 +349,45 @@ def add_nip11_tags(
 
     add_language_tags(tags, nip11_data)
     add_requirement_and_type_tags(tags, nip11_data, rtt_logs)
+    add_attributes_tags(tags, nip11_data)
 
 
-def build_relay_discovery(  # noqa: PLR0913
-    relay_url: str,
-    network_value: str,
-    nip11_canonical_json: str = "",
-    *,
-    rtt_data: Nip66RttData | None = None,
-    ssl_data: Nip66SslData | None = None,
-    net_data: Nip66NetData | None = None,
-    geo_data: Nip66GeoData | None = None,
-    nip11_data: Nip11InfoData | None = None,
-    rtt_logs: Nip66RttMultiPhaseLogs | None = None,
+def build_relay_discovery(
+    relay: Relay,
+    nip11: Nip11 | None = None,
+    nip66: Nip66 | None = None,
 ) -> EventBuilder:
-    """Build a Kind 30166 relay discovery event per NIP-66."""
+    """Build a Kind 30166 relay discovery event per NIP-66.
+
+    Args:
+        relay: The relay being monitored.
+        nip11: NIP-11 relay information (``None`` if not fetched).
+        nip66: NIP-66 health check results (``None`` if not run).
+
+    Returns:
+        A signed-ready ``EventBuilder`` for Kind 30166.
+    """
+    nip11_canonical_json = ""
+    nip11_data = None
+    if nip11 and nip11.info:
+        meta = Metadata(type=MetadataType.NIP11_INFO, data=nip11.info.to_dict())
+        nip11_canonical_json = meta.canonical_json
+        nip11_data = nip11.info.data
+
+    rtt_data = nip66.rtt.data if nip66 and nip66.rtt else None
+    rtt_logs = nip66.rtt.logs if nip66 and nip66.rtt else None
+
     tags: list[Tag] = [
-        Tag.identifier(relay_url),
-        Tag.parse(["n", network_value]),
+        Tag.identifier(relay.url),
+        Tag.parse(["n", relay.network.value]),
     ]
 
     add_rtt_tags(tags, rtt_data)
-    add_ssl_tags(tags, ssl_data)
-    add_net_tags(tags, net_data)
-    add_geo_tags(tags, geo_data)
+    add_ssl_tags(tags, nip66.ssl.data if nip66 and nip66.ssl else None)
+    add_net_tags(tags, nip66.net.data if nip66 and nip66.net else None)
+    add_geo_tags(tags, nip66.geo.data if nip66 and nip66.geo else None)
+    add_dns_tags(tags, nip66.dns.data if nip66 and nip66.dns else None)
+    add_http_tags(tags, nip66.http.data if nip66 and nip66.http else None)
     add_nip11_tags(tags, nip11_data, rtt_logs)
 
     return EventBuilder(Kind(EventKind.RELAY_DISCOVERY), nip11_canonical_json).tags(tags)
@@ -314,7 +395,10 @@ def build_relay_discovery(  # noqa: PLR0913
 
 __all__ = [
     "AccessFlags",
+    "add_attributes_tags",
+    "add_dns_tags",
     "add_geo_tags",
+    "add_http_tags",
     "add_language_tags",
     "add_net_tags",
     "add_nip11_tags",

@@ -26,7 +26,6 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 def seeder_brotr(mock_brotr: Brotr) -> Brotr:
-    """Brotr mock configured for seeder tests."""
     mock_brotr._pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
     mock_brotr._pool._mock_connection.execute = AsyncMock()  # type: ignore[attr-defined]
 
@@ -118,8 +117,16 @@ class TestParseSeedFile:
         f.write_text("ws://example.onion\nws://example.i2p\n")
         assert len(parse_seed_file(f)) == 2
 
-    def test_file_not_found(self, tmp_path: Path) -> None:
-        assert parse_seed_file(tmp_path / "missing.txt") == []
+    @pytest.mark.parametrize(
+        "setup",
+        [
+            pytest.param("missing", id="file_not_found"),
+            pytest.param("directory", id="directory_path"),
+        ],
+    )
+    def test_returns_empty_on_path_errors(self, tmp_path: Path, setup: str) -> None:
+        path = tmp_path / "missing.txt" if setup == "missing" else tmp_path
+        assert parse_seed_file(path) == []
 
     def test_permission_error(self, tmp_path: Path) -> None:
         f = tmp_path / "seed.txt"
@@ -132,9 +139,6 @@ class TestParseSeedFile:
         f = tmp_path / "seed.txt"
         f.write_bytes(b"\xff\xfe" + b"\x00" * 50)
         assert parse_seed_file(f) == []
-
-    def test_directory_returns_empty(self, tmp_path: Path) -> None:
-        assert parse_seed_file(tmp_path) == []
 
 
 # ============================================================================
@@ -220,75 +224,63 @@ class TestSeed:
         f = tmp_path / "seed.txt"
         f.write_text("wss://r1.example.com\nwss://r2.example.com\n")
 
-        seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
-            return_value=[{"url": "wss://r1.example.com"}, {"url": "wss://r2.example.com"}]
-        )
-        seeder_brotr.upsert_service_state = AsyncMock(return_value=2)  # type: ignore[method-assign]
-
         config = SeederConfig(seed=SeedConfig(file_path=str(f), to_validate=True))
         seeder = Seeder(brotr=seeder_brotr, config=config)
 
-        assert await seeder.seed() == 2
-        seeder_brotr.upsert_service_state.assert_called()
+        with patch(
+            "bigbrotr.services.seeder.service.insert_relays_as_candidates",
+            new_callable=AsyncMock,
+            return_value=2,
+        ) as mock_insert:
+            assert await seeder.seed() == 2
+            mock_insert.assert_awaited_once()
+            relays = mock_insert.call_args[0][1]
+            assert len(relays) == 2
 
     async def test_as_relays(self, seeder_brotr: Brotr, tmp_path: Path) -> None:
         f = tmp_path / "seed.txt"
         f.write_text("wss://r1.example.com\nwss://r2.example.com\n")
 
-        seeder_brotr.insert_relay = AsyncMock(return_value=2)  # type: ignore[method-assign]
-
         config = SeederConfig(seed=SeedConfig(file_path=str(f), to_validate=False))
         seeder = Seeder(brotr=seeder_brotr, config=config)
 
-        assert await seeder.seed() == 2
-        seeder_brotr.insert_relay.assert_called()
+        with patch(
+            "bigbrotr.services.seeder.service.insert_relays",
+            new_callable=AsyncMock,
+            return_value=2,
+        ) as mock_insert:
+            assert await seeder.seed() == 2
+            mock_insert.assert_awaited_once()
+            relays = mock_insert.call_args[0][1]
+            assert len(relays) == 2
 
-    async def test_skips_comments_and_invalid(self, seeder_brotr: Brotr, tmp_path: Path) -> None:
+    async def test_only_valid_urls_passed_to_insert(
+        self, seeder_brotr: Brotr, tmp_path: Path
+    ) -> None:
         f = tmp_path / "seed.txt"
         f.write_text("# Comment\n\ninvalid\nwss://relay.example.com\n")
 
-        seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
-            return_value=[{"url": "wss://relay.example.com"}]
-        )
-        seeder_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
-
         config = SeederConfig(seed=SeedConfig(file_path=str(f)))
         seeder = Seeder(brotr=seeder_brotr, config=config)
 
-        assert await seeder.seed() == 1
-
-    async def test_all_exist_returns_zero(self, seeder_brotr: Brotr, tmp_path: Path) -> None:
-        f = tmp_path / "seed.txt"
-        f.write_text("wss://relay.example.com\n")
-
-        seeder_brotr._pool._mock_connection.fetch = AsyncMock(return_value=[])  # type: ignore[attr-defined]
-
-        config = SeederConfig(seed=SeedConfig(file_path=str(f)))
-        seeder = Seeder(brotr=seeder_brotr, config=config)
-
-        assert await seeder.seed() == 0
+        with patch(
+            "bigbrotr.services.seeder.service.insert_relays_as_candidates",
+            new_callable=AsyncMock,
+            return_value=1,
+        ) as mock_insert:
+            assert await seeder.seed() == 1
+            relays = mock_insert.call_args[0][1]
+            assert len(relays) == 1
+            assert relays[0].url == "wss://relay.example.com"
 
 
 class TestSeederRun:
-    async def test_run_delegates_to_seed(self, seeder_brotr: Brotr, tmp_path: Path) -> None:
-        f = tmp_path / "seed.txt"
-        f.write_text("wss://relay.example.com\n")
+    async def test_run_delegates_to_seed(self, seeder_brotr: Brotr) -> None:
+        seeder = Seeder(brotr=seeder_brotr)
 
-        seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
-            return_value=[{"url": "wss://relay.example.com"}]
-        )
-        seeder_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
-
-        config = SeederConfig(seed=SeedConfig(file_path=str(f)))
-        seeder = Seeder(brotr=seeder_brotr, config=config)
-
-        await seeder.run()
-        seeder_brotr.upsert_service_state.assert_called()
-
-    async def test_run_file_missing(self, seeder_brotr: Brotr) -> None:
-        config = SeederConfig(seed=SeedConfig(file_path="nonexistent.txt"))
-        seeder = Seeder(brotr=seeder_brotr, config=config)
-        await seeder.run()
+        with patch.object(seeder, "seed", new_callable=AsyncMock, return_value=5) as mock_seed:
+            await seeder.run()
+            mock_seed.assert_awaited_once()
 
 
 class TestSeederCleanup:
@@ -303,51 +295,30 @@ class TestSeederCleanup:
 
 
 class TestSeederErrors:
-    async def test_exception_propagates(self, seeder_brotr: Brotr, tmp_path: Path) -> None:
-        f = tmp_path / "seed.txt"
-        f.write_text("wss://relay.example.com\n")
-
-        seeder_brotr._pool._mock_connection.fetch = AsyncMock(  # type: ignore[attr-defined]
-            side_effect=Exception("boom")
-        )
-
-        config = SeederConfig(seed=SeedConfig(file_path=str(f)))
-        seeder = Seeder(brotr=seeder_brotr, config=config)
-
-        with pytest.raises(Exception, match="boom"):
-            await seeder.seed()
-
-    async def test_postgres_error_in_candidates_propagates(
-        self, seeder_brotr: Brotr, tmp_path: Path
+    @pytest.mark.parametrize(
+        ("to_validate", "patch_target"),
+        [
+            (True, "bigbrotr.services.seeder.service.insert_relays_as_candidates"),
+            (False, "bigbrotr.services.seeder.service.insert_relays"),
+        ],
+        ids=["candidates_path", "relays_path"],
+    )
+    async def test_postgres_error_propagates(
+        self,
+        seeder_brotr: Brotr,
+        tmp_path: Path,
+        to_validate: bool,
+        patch_target: str,
     ) -> None:
         f = tmp_path / "seed.txt"
         f.write_text("wss://relay.example.com\n")
 
-        config = SeederConfig(seed=SeedConfig(file_path=str(f), to_validate=True))
+        config = SeederConfig(seed=SeedConfig(file_path=str(f), to_validate=to_validate))
         seeder = Seeder(brotr=seeder_brotr, config=config)
 
         with (
             patch(
-                "bigbrotr.services.seeder.service.insert_relays_as_candidates",
-                new_callable=AsyncMock,
-                side_effect=asyncpg.PostgresError("connection lost"),
-            ),
-            pytest.raises(asyncpg.PostgresError),
-        ):
-            await seeder.seed()
-
-    async def test_postgres_error_in_relays_propagates(
-        self, seeder_brotr: Brotr, tmp_path: Path
-    ) -> None:
-        f = tmp_path / "seed.txt"
-        f.write_text("wss://relay.example.com\n")
-
-        config = SeederConfig(seed=SeedConfig(file_path=str(f), to_validate=False))
-        seeder = Seeder(brotr=seeder_brotr, config=config)
-
-        with (
-            patch(
-                "bigbrotr.services.seeder.service.insert_relays",
+                patch_target,
                 new_callable=AsyncMock,
                 side_effect=asyncpg.PostgresError("connection lost"),
             ),

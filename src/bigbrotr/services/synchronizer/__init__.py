@@ -6,6 +6,7 @@ Re-exports all public symbols for backwards-compatible imports::
 """
 
 from .configs import (
+    ProcessingConfig,
     SynchronizerConfig,
     TimeoutsConfig,
 )
@@ -13,6 +14,7 @@ from .service import Synchronizer
 
 
 __all__ = [
+    "ProcessingConfig",
     "Synchronizer",
     "SynchronizerConfig",
     "TimeoutsConfig",

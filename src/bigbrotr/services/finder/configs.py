@@ -34,16 +34,16 @@ class EventsConfig(BaseModel):
     parallel_relays: int = Field(
         default=50, ge=1, le=200, description="Maximum concurrent relay event scans"
     )
-    max_relay_time: float | None = Field(
-        default=None,
-        ge=1.0,
+    max_relay_time: float = Field(
+        default=300.0,
+        ge=10.0,
         le=86_400.0,
-        description="Maximum seconds to scan a single relay (None = unlimited)",
+        description="Maximum seconds to scan a single relay",
     )
     max_duration: float = Field(
-        default=86400.0,
-        ge=1.0,
-        le=604_800.0,
+        default=3600.0,
+        ge=60.0,
+        le=86_400.0,
         description="Maximum seconds for the entire event scanning phase",
     )
 

@@ -26,7 +26,7 @@ SELECT DISTINCT ON (rm.relay_url, rm.metadata_type)
     rm.metadata_id,
     m.data
 FROM relay_metadata AS rm
-INNER JOIN metadata AS m ON rm.metadata_id = m.id AND rm.metadata_type = m.metadata_type
+INNER JOIN metadata AS m ON rm.metadata_id = m.id AND rm.metadata_type = m.type
 ORDER BY rm.relay_url ASC, rm.metadata_type ASC, rm.generated_at DESC;
 
 COMMENT ON MATERIALIZED VIEW relay_metadata_latest IS
@@ -174,7 +174,7 @@ LEFT JOIN LATERAL (
         ORDER BY rm.generated_at DESC
         LIMIT 10
     ) AS recent
-    INNER JOIN metadata AS m ON recent.metadata_id = m.id AND recent.metadata_type = m.metadata_type
+    INNER JOIN metadata AS m ON recent.metadata_id = m.id AND recent.metadata_type = m.type
 ) AS rp ON TRUE
 
 -- LATERAL join: latest NIP-11 relay info
@@ -184,7 +184,7 @@ LEFT JOIN LATERAL (
         m.data -> 'data' ->> 'software' AS software,
         m.data -> 'data' ->> 'version' AS version
     FROM relay_metadata AS rm
-    INNER JOIN metadata AS m ON rm.metadata_id = m.id AND rm.metadata_type = m.metadata_type
+    INNER JOIN metadata AS m ON rm.metadata_id = m.id AND rm.metadata_type = m.type
     WHERE rm.relay_url = r.url AND rm.metadata_type = 'nip11_info'
     ORDER BY rm.generated_at DESC
     LIMIT 1

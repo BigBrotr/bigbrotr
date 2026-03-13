@@ -251,7 +251,7 @@ Junction model linking Relay to Metadata (time-series snapshot).
 | `metadata` | `Metadata` | The metadata record |
 | `generated_at` | `int` | Unix timestamp of collection |
 
-Flattens into `RelayMetadataDbParams` (7 fields) for `relay_metadata_insert_cascade`. The `metadata_type` appears on both tables (compound FK), enabling type-filtered queries without joining metadata.
+Flattens into `RelayMetadataDbParams` (7 fields) for `relay_metadata_insert_cascade`. The metadata type is stored as `type` on the `metadata` table and as `metadata_type` on the `relay_metadata` table (compound FK), enabling type-filtered queries without joining metadata.
 
 ### ServiceState
 
@@ -891,10 +891,10 @@ relay                    (url TEXT PK, network TEXT, discovered_at BIGINT)
     ├── relay_metadata   (relay_url TEXT FK, metadata_id BYTEA FK, metadata_type TEXT FK,
     │       │             generated_at BIGINT)
     │       │             PK(relay_url, generated_at, metadata_type)
-    │       │             compound FK (metadata_id, metadata_type) → metadata(id, metadata_type)
+    │       │             compound FK (metadata_id, metadata_type) → metadata(id, type)
     │       │
-    │       └── metadata (id BYTEA, metadata_type TEXT, data JSONB)
-    │                     PK(id, metadata_type)
+    │       └── metadata (id BYTEA, type TEXT, data JSONB)
+    │                     PK(id, type)
     │
     └── service_state    (service_name TEXT, state_type TEXT, state_key TEXT, state_value JSONB)
                           PK(service_name, state_type, state_key)

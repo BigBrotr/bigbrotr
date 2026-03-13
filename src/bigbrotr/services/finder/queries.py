@@ -11,6 +11,8 @@ from bigbrotr.services.common.types import ApiCheckpoint, FinderCursor
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from bigbrotr.core.brotr import Brotr
 
 
@@ -60,11 +62,13 @@ async def fetch_event_relay_cursors(brotr: Brotr) -> list[FinderCursor]:
         event_id_hex = row["event_id"]
         if seen_at_raw is not None and event_id_hex is not None:
             try:
+                event_id = str(event_id_hex)
+                bytes.fromhex(event_id)  # validate hex format
                 cursors.append(
                     FinderCursor(
                         key=url,
                         timestamp=int(seen_at_raw),
-                        id=bytes.fromhex(str(event_id_hex)),
+                        id=event_id,
                     )
                 )
             except (ValueError, TypeError):
@@ -84,7 +88,7 @@ async def scan_event_relay(
 
     Uses a composite cursor ``(timestamp, id)`` for deterministic
     pagination that handles ties in ``seen_at``. When the cursor has
-    ``timestamp=None`` (new cursor), scanning starts from the beginning.
+    ``timestamp=0`` (default), scanning starts from the beginning.
 
     Args:
         brotr: The [Brotr][bigbrotr.core.brotr.Brotr] database facade.
@@ -103,7 +107,7 @@ async def scan_event_relay(
         FROM event e
         INNER JOIN event_relay er ON e.id = er.event_id
         WHERE er.relay_url = $1
-          AND ($2::bigint IS NULL OR (er.seen_at, e.id) > ($2::bigint, $3::bytea))
+          AND ($2::bigint = 0 OR (er.seen_at, e.id) > ($2::bigint, decode($3, 'hex')))
         ORDER BY er.seen_at ASC, e.id ASC
         LIMIT $4
         """,
@@ -177,33 +181,31 @@ async def save_api_checkpoints(brotr: Brotr, checkpoints: list[ApiCheckpoint]) -
     )
 
 
-async def save_event_relay_cursor(brotr: Brotr, cursor: FinderCursor) -> None:
-    """Persist the scan cursor position for a relay.
+async def save_event_relay_cursors(brotr: Brotr, cursors: Iterable[FinderCursor]) -> None:
+    """Persist multiple scan cursor positions in a single batch upsert.
 
-    No-op if the cursor has no position (``timestamp`` or ``id`` is
-    ``None``), which indicates the relay would restart from the beginning —
-    storing that is pointless.
+    Cursors at default position (timestamp=0) are silently skipped.
 
     Args:
         brotr: The [Brotr][bigbrotr.core.brotr.Brotr] database facade.
-        cursor: [FinderCursor][bigbrotr.services.common.types.FinderCursor]
-            with relay URL and pagination position.
+        cursors: Iterable of [FinderCursor][bigbrotr.services.common.types.FinderCursor]
+            instances to persist.
     """
-    if cursor.timestamp is None or cursor.id is None:
-        return
-    await brotr.upsert_service_state(
-        [
-            ServiceState(
-                service_name=ServiceName.FINDER,
-                state_type=ServiceStateType.CURSOR,
-                state_key=cursor.key,
-                state_value={
-                    "seen_at": cursor.timestamp,
-                    "event_id": cursor.id.hex(),
-                },
-            )
-        ]
-    )
+    states = [
+        ServiceState(
+            service_name=ServiceName.FINDER,
+            state_type=ServiceStateType.CURSOR,
+            state_key=cursor.key,
+            state_value={
+                "seen_at": cursor.timestamp,
+                "event_id": cursor.id,
+            },
+        )
+        for cursor in cursors
+        if cursor.timestamp > 0
+    ]
+    if states:
+        await brotr.upsert_service_state(states)
 
 
 async def delete_stale_cursors(brotr: Brotr) -> int:

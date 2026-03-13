@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.10.0] - 2026-03-13
+
+API ergonomics and service architecture refinements: simplified public API for library consumers, unified async generator workers, and NIP protocol enhancements.
+
+### Added
+
+- **NIP-11 `attributes` field**: relay self-describing PascalCase attributes, emitted as `W` tags in Kind 30166 discovery events (#361)
+- **NIP-66 discovery tags**: `add_dns_tags`, `add_http_tags`, `add_attributes_tags`, `add_requirement_and_type_tags` for richer Kind 30166 events (#361)
+- **NIP-32 label tags**: geo (`ISO-3166-1`, `nip66.label.city`, `IANA-tz`) and net (`IANA-asn`, `IANA-asnOrg`) labels in discovery events (#361)
+
+### Changed
+
+- **`build_relay_discovery` simplified**: from 11 primitive parameters to 3 domain objects (`Relay`, `Nip11`, `Nip66`) (#363)
+- **`Nip66Dependencies` defaults**: `keys`, `event_builder`, and `read_filter` auto-populated — RTT tests work out-of-the-box (#363)
+- **Async generator workers**: Finder, Validator, Monitor, Synchronizer unified with `AsyncGenerator` workers and streaming flush (#362)
+- **Semaphore at worker level**: finer-grained concurrency control (#362)
+- **Synchronizer configs**: inlined sync worker, simplified configuration (#362)
+- **`extract_relays_from_response`**: removed default parameter, expression always explicit (#364)
+- **`metadata.type` column**: renamed from `metadata_type` (#360)
+
+### Fixed
+
+- **`relay_metadata.metadata_type` column**: restored correct column name in SQL template (#360)
+
 ## [5.9.0] - 2026-03-09
 
 Comprehensive service review, test rewrite, and documentation overhaul. Services restructured for consistency, test suite rewritten for comprehensive coverage, and all documentation audited against current codebase.
