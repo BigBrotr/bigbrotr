@@ -75,7 +75,7 @@ class RefresherConfig(BaseServiceConfig):
     """
 
     interval: float = Field(
-        default=3600.0,
+        default=86400.0,
         ge=60.0,
         description="Target seconds between refresh cycle starts (fixed-schedule)",
     )

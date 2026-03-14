@@ -19,7 +19,7 @@
 -- the latest snapshot. Uses DISTINCT ON with descending generated_at to
 -- efficiently select the most recent record per group.
 --
--- Refresh: Daily via relay_metadata_latest_refresh()
+-- Refresh: relay_metadata_latest_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS relay_metadata_latest AS
 SELECT DISTINCT ON (rm.relay_url, rm.metadata_type)
@@ -54,7 +54,7 @@ COMMENT ON MATERIALIZED VIEW relay_metadata_latest IS
 -- Note: Time-window counts (event_count_last_*) are snapshot values computed
 -- at refresh time via NOW(). They become static until the next refresh.
 --
--- Refresh: Hourly via event_stats_refresh()
+-- Refresh: event_stats_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS event_stats AS
 SELECT
@@ -128,7 +128,7 @@ COMMENT ON MATERIALIZED VIEW event_stats IS
 -- records per relay. The NIP-11 LATERAL subquery fetches the single most
 -- recent NIP-11 info snapshot.
 --
--- Refresh: Daily via relay_stats_refresh()
+-- Refresh: relay_stats_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS relay_stats AS
 WITH event_agg AS (
@@ -207,7 +207,7 @@ COMMENT ON MATERIALIZED VIEW relay_stats IS
 -- Aggregated event counts per NIP-01 kind across all relays with a category
 -- label classifying each kind into regular/replaceable/ephemeral/addressable.
 --
--- Refresh: Daily via kind_counts_refresh()
+-- Refresh: kind_counts_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS kind_counts AS
 SELECT
@@ -240,7 +240,7 @@ COMMENT ON MATERIALIZED VIEW kind_counts IS
 -- Per-relay breakdown of event kinds. Helps identify which relays specialize
 -- in certain event types or have unusual kind distributions.
 --
--- Refresh: Daily via kind_counts_by_relay_refresh()
+-- Refresh: kind_counts_by_relay_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS kind_counts_by_relay AS
 SELECT
@@ -263,7 +263,7 @@ COMMENT ON MATERIALIZED VIEW kind_counts_by_relay IS
 -- Aggregated activity metrics per public key across all relays. The pubkey
 -- is hex-encoded for easier display and joining with application data.
 --
--- Refresh: Daily via pubkey_counts_refresh()
+-- Refresh: pubkey_counts_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS pubkey_counts AS
 SELECT
@@ -286,7 +286,7 @@ COMMENT ON MATERIALIZED VIEW pubkey_counts IS
 -- Per-relay breakdown of author activity. Only includes pubkeys with 2+
 -- events per relay to avoid cartesian explosion at scale.
 --
--- Refresh: Daily via pubkey_counts_by_relay_refresh()
+-- Refresh: pubkey_counts_by_relay_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS pubkey_counts_by_relay AS
 SELECT
@@ -312,7 +312,7 @@ COMMENT ON MATERIALIZED VIEW pubkey_counts_by_relay IS
 -- One row per network type (clearnet, tor, i2p, loki) with relay count and
 -- aggregated event metrics. Useful for comparing network adoption.
 --
--- Refresh: Daily via network_stats_refresh()
+-- Refresh: network_stats_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS network_stats AS
 SELECT
@@ -338,7 +338,7 @@ COMMENT ON MATERIALIZED VIEW network_stats IS
 -- Only includes relays that report a software field in their NIP-11 response.
 --
 -- Depends on: relay_metadata_latest (refresh relay_metadata_latest first)
--- Refresh: Daily via relay_software_counts_refresh()
+-- Refresh: relay_software_counts_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS relay_software_counts AS
 SELECT
@@ -362,7 +362,7 @@ COMMENT ON MATERIALIZED VIEW relay_software_counts IS
 -- supported_nips array in NIP-11 info metadata.
 --
 -- Depends on: relay_metadata_latest (refresh relay_metadata_latest first)
--- Refresh: Daily via supported_nip_counts_refresh()
+-- Refresh: supported_nip_counts_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS supported_nip_counts AS
 SELECT
@@ -387,7 +387,7 @@ COMMENT ON MATERIALIZED VIEW supported_nip_counts IS
 -- One row per UTC day with event counts, unique authors, and unique kinds.
 -- Useful for trend analysis, growth tracking, and time-series visualization.
 --
--- Refresh: Daily via event_daily_counts_refresh()
+-- Refresh: event_daily_counts_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS event_daily_counts AS
 SELECT
