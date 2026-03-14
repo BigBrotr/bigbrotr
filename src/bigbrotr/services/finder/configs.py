@@ -30,8 +30,9 @@ class EventsConfig(BaseModel):
     """
 
     enabled: bool = Field(default=True, description="Enable event scanning")
+    scan_size: int = Field(default=500, ge=10, le=10_000, description="Rows per paginated DB query")
     batch_size: int = Field(
-        default=500, ge=10, le=10_000, description="Events to process per batch"
+        default=500, ge=10, le=10_000, description="Discovered relays to buffer before flushing"
     )
     parallel_relays: int = Field(
         default=50, ge=1, le=200, description="Maximum concurrent relay event scans"

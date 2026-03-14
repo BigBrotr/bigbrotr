@@ -174,7 +174,7 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
             chunk_invalid: list[CandidateCheckpoint] = []
 
             async for candidate, is_valid in self._iter_concurrent(
-                candidates, self._validation_worker
+                candidates, self._validate_worker
             ):
                 if is_valid:
                     chunk_valid.append(candidate)
@@ -197,7 +197,7 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
 
         return validated + not_validated
 
-    async def _validation_worker(
+    async def _validate_worker(
         self, candidate: CandidateCheckpoint
     ) -> AsyncGenerator[tuple[CandidateCheckpoint, bool], None]:
         """Validate a single candidate for use with ``_iter_concurrent``.
