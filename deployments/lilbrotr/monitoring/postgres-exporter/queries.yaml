@@ -5,8 +5,8 @@
 # Scraped every 30s by Prometheus via postgres_exporter.
 #
 # Design decisions:
-#   - relay/metadata/service_state: COUNT(*) is fine (small tables, <10k rows)
-#   - event/event_relay/relay_metadata: pg_class.reltuples (O(1) approximation, ~95% accurate after ANALYZE)
+#   - Row counts use pg_class.reltuples (O(1), ~95% accurate after ANALYZE)
+#   - relay/relay_by_network use COUNT on relay table (small, <10k rows)
 #   - No materialized view dependency: all queries hit base tables or pg_catalog
 # ============================================================================
 
@@ -14,30 +14,14 @@ lilbrotr_overview:
   query: |
     SELECT
       (SELECT COUNT(*)::float FROM relay) AS relay_count,
-      (SELECT reltuples FROM pg_class WHERE relname = 'event') AS event_count_approx,
-      (SELECT COUNT(*)::float FROM metadata) AS metadata_count,
-      (SELECT COUNT(*)::float FROM service_state) AS service_state_count,
-      (SELECT reltuples FROM pg_class WHERE relname = 'relay_metadata') AS relay_metadata_count_approx,
-      (SELECT reltuples FROM pg_class WHERE relname = 'event_relay') AS event_relay_count_approx
+      GREATEST((SELECT reltuples FROM pg_class WHERE relname = 'event'), 0)::float AS event_count_approx
   metrics:
     - relay_count:
         usage: "GAUGE"
         description: "Total relays in database"
     - event_count_approx:
         usage: "GAUGE"
-        description: "Approximate total events (from pg_class.reltuples)"
-    - metadata_count:
-        usage: "GAUGE"
-        description: "Total unique metadata records"
-    - service_state_count:
-        usage: "GAUGE"
-        description: "Active service state entries"
-    - relay_metadata_count_approx:
-        usage: "GAUGE"
-        description: "Approximate relay-metadata associations (from pg_class.reltuples)"
-    - event_relay_count_approx:
-        usage: "GAUGE"
-        description: "Approximate event-relay associations (from pg_class.reltuples)"
+        description: "Approximate event count (from pg_class.reltuples)"
 
 lilbrotr_relay_by_network:
   query: "SELECT network, COUNT(*)::float AS count FROM relay GROUP BY network"
@@ -51,10 +35,12 @@ lilbrotr_relay_by_network:
 
 lilbrotr_table_sizes:
   query: |
-    SELECT relname AS table_name,
-           pg_total_relation_size(relid)::float AS total_bytes
-    FROM pg_catalog.pg_statio_user_tables
-    ORDER BY pg_total_relation_size(relid) DESC
+    SELECT c.relname AS table_name,
+           pg_total_relation_size(c.oid)::float AS total_bytes
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relkind = 'r'
+    ORDER BY pg_total_relation_size(c.oid) DESC
   metrics:
     - table_name:
         usage: "LABEL"
@@ -63,13 +49,70 @@ lilbrotr_table_sizes:
         usage: "GAUGE"
         description: "Total size of table including indexes (bytes)"
 
-lilbrotr_candidates:
+lilbrotr_matview_sizes:
   query: |
-    SELECT COUNT(*)::float AS queue_depth
-    FROM service_state
-    WHERE service_name = 'validator'
-      AND state_type = 'candidate'
+    SELECT c.relname AS view_name,
+           pg_total_relation_size(c.oid)::float AS total_bytes
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relkind = 'm'
+    ORDER BY pg_total_relation_size(c.oid) DESC
   metrics:
-    - queue_depth:
+    - view_name:
+        usage: "LABEL"
+        description: "Materialized view name"
+    - total_bytes:
         usage: "GAUGE"
-        description: "Total candidates in validation queue"
+        description: "Total size of materialized view including indexes (bytes)"
+
+lilbrotr_row_estimates:
+  query: |
+    SELECT relname AS table_name,
+           GREATEST(reltuples, 0)::float AS approx_rows
+    FROM pg_class
+    WHERE relname IN ('relay', 'event', 'event_relay', 'metadata', 'relay_metadata', 'service_state')
+      AND relkind = 'r'
+  metrics:
+    - table_name:
+        usage: "LABEL"
+        description: "Table name"
+    - approx_rows:
+        usage: "GAUGE"
+        description: "Estimated row count from pg_class.reltuples"
+
+lilbrotr_matview_row_estimates:
+  query: |
+    SELECT relname AS view_name,
+           GREATEST(reltuples, 0)::float AS approx_rows
+    FROM pg_class
+    WHERE relname IN (
+      'relay_metadata_latest', 'event_stats', 'relay_stats',
+      'kind_counts', 'kind_counts_by_relay', 'pubkey_counts',
+      'pubkey_counts_by_relay', 'network_stats', 'relay_software_counts',
+      'supported_nip_counts', 'event_daily_counts'
+    ) AND relkind = 'm'
+  metrics:
+    - view_name:
+        usage: "LABEL"
+        description: "Materialized view name"
+    - approx_rows:
+        usage: "GAUGE"
+        description: "Estimated row count for materialized view"
+
+lilbrotr_index_usage:
+  query: |
+    SELECT relname AS table_name,
+           CASE WHEN (seq_scan + idx_scan) > 0
+                THEN idx_scan::float / (seq_scan + idx_scan)
+                ELSE 1.0
+           END AS ratio
+    FROM pg_stat_user_tables
+    WHERE schemaname = 'public'
+    ORDER BY (seq_scan + idx_scan) DESC
+  metrics:
+    - table_name:
+        usage: "LABEL"
+        description: "Table name"
+    - ratio:
+        usage: "GAUGE"
+        description: "Index usage ratio (1.0 = all index scans)"

@@ -124,7 +124,6 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         if self._config.announce:
             await self._publish_announcement()
 
-        self.set_gauge("jobs_received", 0)
         self.set_gauge(
             "tables_exposed",
             sum(1 for n in self._catalog.tables if self._is_table_enabled(n)),
@@ -322,11 +321,8 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         payment_required: int,
     ) -> None:
         """Update Prometheus metrics and log cycle stats."""
-        self.set_gauge("jobs_received", received)
-        self.inc_counter("total_jobs_received", received)
-        self.inc_counter("jobs_processed", processed)
-        self.inc_counter("jobs_failed", failed)
-        self.inc_counter("jobs_payment_required", payment_required)
+        self.inc_counter("requests_total", received)
+        self.inc_counter("requests_failed", failed)
         self.set_gauge(
             "tables_exposed",
             sum(1 for n in self._catalog.tables if self._is_table_enabled(n)),
