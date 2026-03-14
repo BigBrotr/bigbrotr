@@ -133,6 +133,7 @@ flowchart TD
 |-------|------|---------|-------------|
 | `events.enabled` | bool | `true` | Enable event-based relay discovery |
 | `events.batch_size` | int | `500` | Events per scanning batch |
+| `events.scan_size` | int | `500` | Rows per paginated DB query (range 10-10000) |
 | `events.parallel_relays` | int | `50` | Maximum concurrent relay event scans |
 | `events.max_relay_time` | float | `900.0` | Maximum seconds to scan a single relay |
 | `events.max_duration` | float | `7200.0` | Maximum seconds for the entire event scanning phase |
@@ -241,6 +242,13 @@ class CheckResult(NamedTuple):
     nip66_http: Nip66HttpMetadata | None
 ```
 
+**Checkpoint tracking:**
+
+The Monitor uses two types of `CHECKPOINT` records in `service_state`:
+
+- **Per-relay monitoring checkpoints** (key = relay URL) -- track when each relay was last checked, used for cleanup of stale entries when relays are removed.
+- **Publishing checkpoints** (key = `"announcement"` or `"profile"`) -- track when the last kind 10166 announcement or kind 0 profile event was published, enforcing the configured minimum interval between publishes.
+
 **Published Nostr events:**
 
 | Kind | Type | Content |
@@ -286,7 +294,7 @@ class CheckResult(NamedTuple):
 flowchart TD
     A["Synchronizer.run()"] --> B["Fetch relays from DB"]
     B --> C["Load cursors from service_state"]
-    C --> D["Shuffle relays<br/><small>prevent thundering herd</small>"]
+    C --> D["Order relays<br/><small>most behind first</small>"]
     D --> E["synchronize()<br/><small>_iter_concurrent + semaphore</small>"]
     E --> F["Per relay:"]
     F --> G["Connect via WebSocket"]
@@ -301,7 +309,7 @@ flowchart TD
 
 ```
 
-1. `run()` delegates to `synchronize()` -- fetch cursors, shuffle, distribute work
+1. `run()` delegates to `synchronize()` -- fetch cursors ordered by sync progress ascending (most behind first), distribute work
 2. `synchronize()` -- `_iter_concurrent()` with `_sync_worker` async generators and per-network semaphores
 3. For each relay: `_sync_relay_events()` connects via WebSocket, streams events using `stream_events()` with data-driven windowing and binary-split fallback for completeness
 4. Events are buffered and batch-inserted via `insert_event_relays()` (cascade insert to `event` + `event_relay`)
