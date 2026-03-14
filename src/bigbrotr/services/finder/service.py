@@ -22,7 +22,7 @@ Note:
     [Synchronizer][bigbrotr.services.synchronizer.Synchronizer] are
     eventually processed. Cursors are stored as
     [ServiceState][bigbrotr.models.service_state.ServiceState] records
-    with ``state_type='cursor'`` and a composite ``(seen_at, event_id)``
+    with ``state_type='cursor'`` and a composite ``(timestamp, id)``
     cursor in ``state_value`` for deterministic resumption.
 
 See Also:
@@ -58,30 +58,27 @@ import time
 from typing import TYPE_CHECKING, ClassVar
 
 import aiohttp
-import asyncpg
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin
 from bigbrotr.services.common.queries import insert_relays_as_candidates
 from bigbrotr.services.common.types import ApiCheckpoint, FinderCursor
-from bigbrotr.utils.http import read_bounded_json
 
 from .configs import ApiSourceConfig, FinderConfig
 from .queries import (
     delete_stale_api_checkpoints,
     delete_stale_cursors,
-    fetch_event_relay_cursors,
-    load_api_checkpoints,
-    save_api_checkpoints,
-    save_event_relay_cursors,
-    scan_event_relay,
+    fetch_api_checkpoints,
+    fetch_cursors_to_find,
+    upsert_api_checkpoints,
+    upsert_finder_cursors,
 )
-from .utils import extract_relays_from_response, extract_relays_from_tagvalues
+from .utils import extract_relays_from_tagvalues, fetch_api, stream_event_relays
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, AsyncIterator
+    from collections.abc import AsyncGenerator
 
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
@@ -147,10 +144,9 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
     async def find_from_api(self) -> int:
         """Discover relay URLs from configured external API endpoints.
 
-        Loads per-source timestamps from individual checkpoint records
-        (one per API source URL), skips sources whose ``interval`` has
-        not elapsed, fetches the rest sequentially, deduplicates across
-        sources, and inserts discovered URLs as validation candidates.
+        Delegates fetching to ``_find_from_api_worker``, which iterates
+        all enabled sources sequentially. The parent deduplicates, saves
+        updated checkpoints, and inserts discovered URLs as candidates.
 
         Returns:
             Number of relay URLs inserted as candidates.
@@ -158,99 +154,87 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         if not self._config.api.enabled:
             return 0
 
-        source_urls = [s.url for s in self._config.api.sources]
-        loaded = await load_api_checkpoints(self._brotr, source_urls)
-        api_state = {cp.key: cp for cp in loaded}
-        now = int(time.time())
+        enabled = [s for s in self._config.api.sources if s.enabled]
 
         seen: set[str] = set()
-        all_relays: list[Relay] = []
-        updated: list[ApiCheckpoint] = []
+        buffer: list[Relay] = []
+        pending_checkpoints: list[ApiCheckpoint] = []
+        sources_fetched = 0
 
-        async with aiohttp.ClientSession() as session:
-            async for source, relays in self._iter_api_relays(session, api_state, now):
-                for relay in relays:
-                    if relay.url not in seen:
-                        seen.add(relay.url)
-                        all_relays.append(relay)
-                updated.append(ApiCheckpoint(key=source.url, timestamp=int(time.time())))
+        self.set_gauge("total_sources", len(enabled))
+        self.set_gauge("sources_fetched", sources_fetched)
+        self.set_gauge("relays_seen", len(seen))
 
-        if updated:
-            await save_api_checkpoints(self._brotr, updated)
+        self._logger.info("api_started", source_count=len(enabled))
 
-        found = await insert_relays_as_candidates(self._brotr, all_relays)
+        async for relays, checkpoint in self._find_from_api_worker(enabled):
+            for relay in relays:
+                if relay.url not in seen:
+                    seen.add(relay.url)
+                    buffer.append(relay)
+            pending_checkpoints.append(checkpoint)
+            sources_fetched += 1
+            self.set_gauge("sources_fetched", sources_fetched)
+            self.set_gauge("relays_seen", len(seen))
 
-        self.set_gauge("api_candidates", found)
-        self.inc_counter("total_api_candidates", found)
-        self._logger.info("apis_completed", found=found, collected=len(all_relays))
+        if pending_checkpoints:
+            await upsert_api_checkpoints(self._brotr, pending_checkpoints)
+
+        found = await insert_relays_as_candidates(self._brotr, buffer)
+
+        self._logger.info("api_completed", found=found, collected=len(buffer))
         return found
 
-    async def _iter_api_relays(
+    async def _find_from_api_worker(
         self,
-        session: aiohttp.ClientSession,
-        api_state: dict[str, ApiCheckpoint],
-        now: int,
-    ) -> AsyncIterator[tuple[ApiSourceConfig, list[Relay]]]:
-        """Yield (source, relays) for each enabled API source that is due for refresh."""
-        enabled = [s for s in self._config.api.sources if s.enabled]
-        for i, source in enumerate(enabled):
-            if not self.is_running:
-                return
+        sources: list[ApiSourceConfig],
+    ) -> AsyncGenerator[tuple[list[Relay], ApiCheckpoint], None]:
+        """Iterate all enabled API sources sequentially.
 
-            checkpoint = api_state.get(source.url)
-            last_checked = checkpoint.timestamp if checkpoint else 0
-            cooldown = self._config.api.cooldown
-            if now - last_checked < cooldown:
-                self._logger.debug(
-                    "api_skipped",
-                    url=source.url,
-                    seconds_left=cooldown - (now - last_checked),
-                )
-                continue
-
-            try:
-                relays = await self._fetch_single_api(session, source)
-                self._logger.debug("api_fetched", url=source.url, count=len(relays))
-                yield source, relays
-            except (TimeoutError, OSError, aiohttp.ClientError, ValueError) as e:
-                self._logger.warning(
-                    "api_fetch_failed",
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    url=source.url,
-                )
-
-            if (
-                self._config.api.request_delay > 0
-                and i < len(enabled) - 1
-                and await self.wait(self._config.api.request_delay)
-            ):
-                return
-
-    async def _fetch_single_api(
-        self, session: aiohttp.ClientSession, source: ApiSourceConfig
-    ) -> list[Relay]:
-        """Fetch and validate relay URLs from a single API endpoint.
-
-        The response format is configurable per source via the ``expression``
-        field on [ApiSourceConfig][bigbrotr.services.finder.ApiSourceConfig].
-
-        Args:
-            session: Shared aiohttp ClientSession for connection pooling.
-            source: API source configuration (URL, timeout, extraction params).
-
-        Returns:
-            Deduplicated list of Relay objects.
+        Loads per-source checkpoints, checks cooldown, fetches relay URLs,
+        and yields ``(relays, checkpoint)`` with updated timestamp on success.
+        Skipped (cooldown) and failed (network error) sources yield nothing.
+        Respects ``request_delay`` between sources and ``is_running`` for
+        graceful shutdown.
         """
-        timeout = aiohttp.ClientTimeout(
-            total=source.timeout,
-            connect=min(source.connect_timeout, source.timeout),
-            sock_read=source.timeout,
-        )
-        async with session.get(source.url, timeout=timeout, ssl=not source.allow_insecure) as resp:
-            resp.raise_for_status()
-            data = await read_bounded_json(resp, self._config.api.max_response_size)
-            return extract_relays_from_response(data, source.expression)
+        source_urls = [s.url for s in sources]
+        checkpoints = await fetch_api_checkpoints(self._brotr, source_urls)
+        checkpoint_map = {cp.key: cp for cp in checkpoints}
+        now = int(time.time())
+
+        async with aiohttp.ClientSession() as session:
+            for i, source in enumerate(sources):
+                if not self.is_running:
+                    return
+
+                cooldown = self._config.api.cooldown
+                last_checked = checkpoint_map[source.url].timestamp
+                if now - last_checked < cooldown:
+                    self._logger.debug(
+                        "api_skipped",
+                        url=source.url,
+                        seconds_left=cooldown - (now - last_checked),
+                    )
+                    continue
+
+                try:
+                    relays = await fetch_api(session, source, self._config.api.max_response_size)
+                    self._logger.debug("api_fetched", url=source.url, count=len(relays))
+                    yield relays, ApiCheckpoint(key=source.url, timestamp=int(time.time()))
+                except (TimeoutError, OSError, aiohttp.ClientError, ValueError) as e:
+                    self._logger.warning(
+                        "api_fetch_failed",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        url=source.url,
+                    )
+
+                if (
+                    self._config.api.request_delay > 0
+                    and i < len(sources) - 1
+                    and await self.wait(self._config.api.request_delay)
+                ):
+                    return
 
     # ── Event discovery ────────────────────────────────────────────
 
@@ -259,9 +243,10 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
 
         Fetches current cursor positions, scans all relays concurrently
         (bounded by ``events.parallel_relays``) via ``_iter_concurrent()``.
-        Workers yield individual relay URLs. The parent accumulates them in a
-        global buffer flushed at ``brotr.config.batch.max_size`` and saves
-        cursors in batch after each flush.
+        Workers stream event-relay rows. The parent extracts relay URLs,
+        accumulates them in a global buffer flushed at
+        ``brotr.config.batch.max_size``, and saves cursors in batch after
+        each flush.
 
         Returns:
             Number of relay URLs discovered and inserted as candidates.
@@ -269,58 +254,63 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         if not self._config.events.enabled:
             return 0
 
-        try:
-            cursors = await fetch_event_relay_cursors(self._brotr)
-        except (asyncpg.PostgresError, OSError) as e:
-            self._logger.warning("fetch_cursors_failed", error=str(e), error_type=type(e).__name__)
-            return 0
+        cursors = await fetch_cursors_to_find(self._brotr)
         if not cursors:
             self._logger.debug("no_relays_to_scan")
             return 0
-
-        self._logger.debug("events_scan_started", relay_count=len(cursors))
-
-        self.set_gauge("relays_total", len(cursors))
-        self.set_gauge("relays_scanned", 0)
-        self.set_gauge("event_candidates", 0)
 
         self._event_semaphore = asyncio.Semaphore(self._config.events.parallel_relays)
         self._phase_start = time.monotonic()
 
         total_found = 0
+        rows_seen = 0
         relays_seen: set[str] = set()
         buffer: list[Relay] = []
         pending_cursors: dict[str, FinderCursor] = {}
-        batch_size = self._brotr.config.batch.max_size
+        batch_size = self._config.events.batch_size
 
-        async for relay, cursor in self._iter_concurrent(cursors, self._event_scan_worker):
-            relays_seen.add(cursor.key)
-            buffer.append(relay)
+        self.set_gauge("total_relays", len(cursors))
+        self.set_gauge("rows_seen", rows_seen)
+        self.set_gauge("relays_seen", len(relays_seen))
+
+        self._logger.info("scan_started", relay_count=len(cursors))
+
+        async for relays, cursor in self._iter_concurrent(cursors, self._find_from_events_worker):
+            buffer.extend(relays)
             pending_cursors[cursor.key] = cursor
+            rows_seen += 1
+            self.set_gauge("rows_seen", rows_seen)
+            if cursor.key not in relays_seen:
+                relays_seen.add(cursor.key)
+                self.set_gauge("relays_seen", len(relays_seen))
             if len(buffer) >= batch_size:
-                total_found += await self._flush_event_buffer(buffer, pending_cursors)
-                self.set_gauge("relays_scanned", len(relays_seen))
-                self.set_gauge("event_candidates", total_found)
+                total_found += await insert_relays_as_candidates(self._brotr, buffer)
+                buffer = []
+                await upsert_finder_cursors(self._brotr, pending_cursors.values())
+                pending_cursors = {}
 
-        total_found += await self._flush_event_buffer(buffer, pending_cursors)
-        self.set_gauge("relays_scanned", len(relays_seen))
-        self.set_gauge("event_candidates", total_found)
+        if buffer:
+            total_found += await insert_relays_as_candidates(self._brotr, buffer)
+        if pending_cursors:
+            await upsert_finder_cursors(self._brotr, pending_cursors.values())
 
         self._logger.info(
-            "events_completed",
+            "scan_completed",
             found=total_found,
             relays_scanned=len(relays_seen),
         )
         return total_found
 
-    async def _event_scan_worker(
+    async def _find_from_events_worker(
         self, cursor: FinderCursor
-    ) -> AsyncGenerator[tuple[Relay, FinderCursor], None]:
-        """Stream relay URLs from a single relay's events for ``_iter_concurrent``.
+    ) -> AsyncGenerator[tuple[list[Relay], FinderCursor], None]:
+        """Stream discovered relays from a single source relay for ``_iter_concurrent``.
 
-        Acquires the per-phase semaphore, checks phase duration, and delegates
-        to ``_stream_relay_batches``. On unexpected exception, logs and returns
-        (yields nothing — the relay is silently skipped).
+        Acquires the per-phase semaphore, streams rows via
+        [stream_event_relays][bigbrotr.services.finder.utils.stream_event_relays],
+        extracts relay URLs from tagvalues, and yields ``(relays, cursor)``
+        pairs. On unexpected exception, logs and returns (the relay is silently
+        skipped).
         """
         async with self._event_semaphore:
             if not self.is_running or (
@@ -328,8 +318,19 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
             ):
                 return
             try:
-                async for item in self._stream_relay_batches(cursor):
-                    yield item
+                deadline = time.monotonic() + self._config.events.max_relay_time
+                async for row in stream_event_relays(
+                    self._brotr, cursor, self._config.events.scan_size
+                ):
+                    relays = extract_relays_from_tagvalues([row])
+                    updated = FinderCursor(
+                        key=cursor.key,
+                        timestamp=row["seen_at"],
+                        id=row["event_id"].hex(),
+                    )
+                    yield relays, updated
+                    if time.monotonic() > deadline:
+                        return
             except Exception as e:  # Worker exception boundary — protects TaskGroup
                 self._logger.error(
                     "event_scan_worker_failed",
@@ -337,89 +338,3 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
                     error_type=type(e).__name__,
                     relay=cursor.key,
                 )
-
-    async def _flush_event_buffer(
-        self,
-        buffer: list[Relay],
-        pending_cursors: dict[str, FinderCursor],
-    ) -> int:
-        """Flush the relay buffer and persist pending cursors.
-
-        Args:
-            buffer: Accumulated relay candidates (cleared after flush).
-            pending_cursors: Per-relay cursor positions (cleared after flush).
-
-        Returns:
-            Number of candidates inserted.
-        """
-        inserted = 0
-        if buffer:
-            try:
-                inserted = await insert_relays_as_candidates(self._brotr, list(buffer))
-                self.inc_counter("total_event_candidates", inserted)
-            except (asyncpg.PostgresError, OSError) as e:
-                self._logger.error(
-                    "insert_candidates_failed",
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    count=len(buffer),
-                )
-            buffer.clear()
-        if pending_cursors:
-            try:
-                await save_event_relay_cursors(self._brotr, list(pending_cursors.values()))
-            except (asyncpg.PostgresError, OSError) as e:
-                self._logger.error(
-                    "cursor_update_failed",
-                    error=str(e),
-                    error_type=type(e).__name__,
-                )
-            pending_cursors.clear()
-        return inserted
-
-    async def _stream_relay_batches(
-        self, cursor: FinderCursor
-    ) -> AsyncGenerator[tuple[Relay, FinderCursor], None]:
-        """Stream relay URLs from a single relay using composite cursor pagination.
-
-        Yields ``(relay, updated_cursor)`` for each discovered relay URL.
-        The caller is responsible for buffering and persisting candidates and cursors.
-
-        Args:
-            cursor: [FinderCursor][bigbrotr.services.common.types.FinderCursor]
-                with relay URL and pagination position.
-        """
-        relay_url = cursor.key
-        deadline = time.monotonic() + self._config.events.max_relay_time
-
-        while self.is_running:
-            if time.monotonic() > deadline:
-                break
-
-            try:
-                rows = await scan_event_relay(self._brotr, cursor, self._config.events.batch_size)
-            except (asyncpg.PostgresError, OSError) as e:
-                self._logger.warning(
-                    "relay_event_query_failed",
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    relay=relay_url,
-                )
-                break
-
-            if not rows:
-                break
-
-            relays = extract_relays_from_tagvalues(rows)
-            last_row = rows[-1]
-            cursor = FinderCursor(
-                key=relay_url,
-                timestamp=last_row["seen_at"],
-                id=last_row["event_id"].hex(),
-            )
-
-            for relay in relays:
-                yield relay, cursor
-
-            if len(rows) < self._config.events.batch_size:
-                break

@@ -454,10 +454,10 @@ Each service also has its own `queries.py` module with domain-specific queries:
 
 | Function | Purpose |
 |----------|---------|
-| `fetch_event_relay_cursors(brotr)` | LEFT JOIN relay with service_state for cursor positions |
+| `fetch_cursors_to_find(brotr)` | LEFT JOIN relay with service_state for cursor positions, ordered by (timestamp, id) |
 | `scan_event_relay(brotr, cursor, limit)` | Cursor-paginated event scan with `(seen_at, event_id)` tie-breaking |
-| `load_api_checkpoints(brotr, urls)` | Load per-source timestamps from CHECKPOINT records |
-| `save_api_checkpoints(brotr, checkpoints)` | Persist per-source timestamps as CHECKPOINT records |
+| `fetch_api_checkpoints(brotr, urls)` | Fetch per-source timestamps from CHECKPOINT records |
+| `upsert_api_checkpoints(brotr, checkpoints)` | Persist per-source timestamps as CHECKPOINT records |
 | `save_event_relay_cursor(brotr, cursor)` | Persist scan position (no-op if cursor empty) |
 | `delete_stale_cursors(brotr)` | Remove CURSOR records for deleted relays |
 | `delete_stale_api_checkpoints(brotr, active_urls)` | Remove CHECKPOINT records for removed API sources |

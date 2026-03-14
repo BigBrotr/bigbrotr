@@ -235,14 +235,13 @@ async def upsert_publish_checkpoints(brotr: Brotr, state_keys: list[str]) -> Non
         return
     _validate_publish_keys(state_keys)
     now = int(time.time())
-    await brotr.upsert_service_state(
-        [
-            ServiceState(
-                service_name=ServiceName.MONITOR,
-                state_type=ServiceStateType.CHECKPOINT,
-                state_key=key,
-                state_value={"timestamp": now},
-            )
-            for key in state_keys
-        ]
-    )
+    records = [
+        ServiceState(
+            service_name=ServiceName.MONITOR,
+            state_type=ServiceStateType.CHECKPOINT,
+            state_key=key,
+            state_value={"timestamp": now},
+        )
+        for key in state_keys
+    ]
+    await upsert_service_states(brotr, records)

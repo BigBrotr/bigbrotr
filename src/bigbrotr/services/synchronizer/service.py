@@ -177,7 +177,7 @@ class Synchronizer(
 
         self._logger.info("sync_started", relay_count=len(cursors))
 
-        async for event, relay in self._iter_concurrent(cursors, self._sync_worker):
+        async for event, relay in self._iter_concurrent(cursors, self._synchronize_worker):
             buffer.append(EventRelay(event, relay))
             pending_cursors[relay.url] = SyncCursor(
                 key=relay.url,
@@ -212,7 +212,9 @@ class Synchronizer(
 
     # ── Workers ────────────────────────────────────────────────────
 
-    async def _sync_worker(self, cursor: SyncCursor) -> AsyncGenerator[tuple[Event, Relay], None]:
+    async def _synchronize_worker(
+        self, cursor: SyncCursor
+    ) -> AsyncGenerator[tuple[Event, Relay], None]:
         """Stream events from a single relay for use with ``_iter_concurrent``.
 
         Acquires the per-network semaphore, connects to the relay, and streams

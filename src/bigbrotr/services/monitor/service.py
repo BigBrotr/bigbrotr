@@ -614,7 +614,7 @@ class Monitor(
             chunk_successful: list[tuple[Relay, CheckResult]] = []
             chunk_failed: list[Relay] = []
 
-            async for relay, result in self._iter_concurrent(relays, self._monitoring_worker):
+            async for relay, result in self._iter_concurrent(relays, self._monitor_worker):
                 if result is not None:
                     chunk_successful.append((relay, result))
                     succeeded += 1
@@ -638,7 +638,7 @@ class Monitor(
 
         return succeeded + failed
 
-    async def _monitoring_worker(
+    async def _monitor_worker(
         self, relay: Relay
     ) -> AsyncGenerator[tuple[Relay, CheckResult | None], None]:
         """Health-check a single relay for use with ``_iter_concurrent``.

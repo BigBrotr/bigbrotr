@@ -1287,7 +1287,7 @@ class TestUpsertPublishCheckpoints:
         assert keys == {"announcement", "profile"}
 
     async def test_empty_list_skips(self, query_brotr: MagicMock) -> None:
-        query_brotr.upsert_service_state = AsyncMock()
+        query_brotr.upsert_service_state = AsyncMock(return_value=0)
 
         await upsert_publish_checkpoints(query_brotr, [])
 
@@ -1473,7 +1473,7 @@ class TestMonitoringWorker:
             new_callable=AsyncMock,
             return_value=result,
         ):
-            results = [item async for item in monitor._monitoring_worker(relay)]
+            results = [item async for item in monitor._monitor_worker(relay)]
             r, res = results[0]
 
         assert r is relay
@@ -1491,7 +1491,7 @@ class TestMonitoringWorker:
             new_callable=AsyncMock,
             return_value=empty_result,
         ):
-            results = [item async for item in monitor._monitoring_worker(relay)]
+            results = [item async for item in monitor._monitor_worker(relay)]
             r, res = results[0]
 
         assert r is relay
@@ -1508,7 +1508,7 @@ class TestMonitoringWorker:
             new_callable=AsyncMock,
             side_effect=RuntimeError("connection lost"),
         ):
-            results = [item async for item in monitor._monitoring_worker(relay)]
+            results = [item async for item in monitor._monitor_worker(relay)]
             r, res = results[0]
 
         assert r is relay
@@ -1531,7 +1531,7 @@ class TestMonitoringWorker:
             ),
             pytest.raises(exc_type),
         ):
-            async for _ in monitor._monitoring_worker(relay):
+            async for _ in monitor._monitor_worker(relay):
                 pass
 
 
@@ -1908,7 +1908,7 @@ class TestMonitorMetrics:
         relay2 = Relay("wss://fail.example.com")
         result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
 
-        async def fake_monitoring_worker(relay: Relay):
+        async def fake_monitor_worker(relay: Relay):
             if relay.url == relay1.url:
                 yield (relay, result)
             else:
@@ -1931,7 +1931,7 @@ class TestMonitorMetrics:
                 new_callable=AsyncMock,
                 side_effect=[[relay1, relay2], []],
             ),
-            patch.object(monitor, "_monitoring_worker", side_effect=fake_monitoring_worker),
+            patch.object(monitor, "_monitor_worker", side_effect=fake_monitor_worker),
             patch(
                 "bigbrotr.services.monitor.service.insert_relay_metadata",
                 new_callable=AsyncMock,
@@ -2142,7 +2142,7 @@ class TestCheckRelay:
         relay = Relay("wss://relay.example.com")
         monitor.network_semaphores = {}
 
-        results = [r async for r in monitor._monitoring_worker(relay)]
+        results = [r async for r in monitor._monitor_worker(relay)]
 
         assert len(results) == 1
         assert results[0] == (relay, None)
@@ -2474,7 +2474,7 @@ class TestMonitorMaxRelaysBudget:
                 new_callable=AsyncMock,
                 side_effect=[[relay1, relay2, relay3], []],
             ),
-            patch.object(monitor, "_monitoring_worker", side_effect=fake_worker),
+            patch.object(monitor, "_monitor_worker", side_effect=fake_worker),
             patch(
                 "bigbrotr.services.monitor.service.insert_relay_metadata",
                 new_callable=AsyncMock,
@@ -2519,7 +2519,7 @@ class TestMonitorMaxRelaysBudget:
                 new_callable=AsyncMock,
                 side_effect=[[relay1], []],
             ) as mock_fetch,
-            patch.object(monitor, "_monitoring_worker", side_effect=fake_worker),
+            patch.object(monitor, "_monitor_worker", side_effect=fake_worker),
             patch(
                 "bigbrotr.services.monitor.service.insert_relay_metadata",
                 new_callable=AsyncMock,

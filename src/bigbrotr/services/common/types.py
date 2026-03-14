@@ -43,11 +43,11 @@ class Checkpoint:
     Attributes:
         key: State key identifying the entity (relay URL, API source URL,
             or a named marker like ``"last_announcement"``).
-        timestamp: Unix timestamp of the last processing event.
+        timestamp: Unix timestamp of the last processing event (defaults to 0).
     """
 
     key: str
-    timestamp: int
+    timestamp: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,7 +77,7 @@ class PublishCheckpoint(Checkpoint):
     """
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class CandidateCheckpoint(Checkpoint):
     """Checkpoint for relay validation candidates (Validator).
 

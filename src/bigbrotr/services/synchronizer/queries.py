@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
+from bigbrotr.services.common.queries import batched_insert, upsert_service_states
 from bigbrotr.services.common.types import SyncCursor
 
 
@@ -117,13 +118,7 @@ async def insert_event_relays(brotr: Brotr, records: list[EventRelay]) -> int:
     Returns:
         Number of new event-relay records inserted.
     """
-    if not records:
-        return 0
-    total = 0
-    batch_size = brotr.config.batch.max_size
-    for i in range(0, len(records), batch_size):
-        total += await brotr.insert_event_relay(records[i : i + batch_size])
-    return total
+    return await batched_insert(brotr, records, brotr.insert_event_relay)
 
 
 async def upsert_sync_cursors(brotr: Brotr, cursors: Iterable[SyncCursor]) -> None:
@@ -149,8 +144,4 @@ async def upsert_sync_cursors(brotr: Brotr, cursors: Iterable[SyncCursor]) -> No
         )
         for cursor in cursors
     ]
-    if not states:
-        return
-    batch_size = brotr.config.batch.max_size
-    for i in range(0, len(states), batch_size):
-        await brotr.upsert_service_state(states[i : i + batch_size])
+    await upsert_service_states(brotr, states)
