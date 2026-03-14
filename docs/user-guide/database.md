@@ -582,22 +582,19 @@ Refreshes all materialized views in dependency order:
 | Index | Columns | Type | Purpose |
 |-------|---------|------|---------|
 | PK | `id` | BTREE | Primary key |
-| `idx_event_created_at` | `created_at DESC` | BTREE | Global timeline queries |
-| `idx_event_kind` | `kind` | BTREE | Kind filtering |
-| `idx_event_kind_created_at` | `kind, created_at DESC` | BTREE | Kind + timeline |
+| `idx_event_created_at_id` | `created_at DESC, id DESC` | BTREE | Global timeline with cursor pagination (covers created_at-only via prefix) |
+| `idx_event_kind_created_at` | `kind, created_at DESC` | BTREE | Kind + timeline (covers kind-only via leftmost prefix) |
 | `idx_event_pubkey_created_at` | `pubkey, created_at DESC` | BTREE | Author timeline |
 | `idx_event_pubkey_kind_created_at` | `pubkey, kind, created_at DESC` | BTREE | Author + kind + timeline |
 | `idx_event_tagvalues` | `tagvalues` | GIN | Tag containment (`@>`) |
-| `idx_event_created_at_id` | `created_at ASC, id ASC` | BTREE | Cursor-based pagination |
 
 #### event_relay Indexes
 
 | Index | Columns | Type | Purpose |
 |-------|---------|------|---------|
 | PK | `event_id, relay_url` | BTREE | Composite primary key |
-| `idx_event_relay_relay_url` | `relay_url` | BTREE | All events from a relay |
-| `idx_event_relay_seen_at` | `seen_at DESC` | BTREE | Recently discovered events |
-| `idx_event_relay_relay_url_seen_at` | `relay_url, seen_at DESC` | BTREE | Synchronizer cursor progress |
+| `idx_event_relay_seen_at` | `seen_at DESC` | BTREE | Global seen_at ordering for API |
+| `idx_event_relay_relay_url_seen_at_event_id` | `relay_url, seen_at ASC, event_id ASC` | BTREE | Finder cursor pagination (covers relay_url-only via prefix) |
 
 #### relay_metadata Indexes
 
@@ -616,7 +613,7 @@ Refreshes all materialized views in dependency order:
 | `idx_service_state_candidate_network` | `state_value ->> 'network'` (partial) | BTREE | Validator: filter candidates by network |
 
 !!! note
-    The partial index on `service_state` has a WHERE clause: `WHERE service_name = 'validator' AND state_type = 'candidate'`.
+    The partial index on `service_state` has a WHERE clause: `WHERE service_name = 'validator' AND state_type = 'checkpoint'`. Only validator checkpoint rows contain the `network` key in their `state_value` JSONB.
 
 ### Materialized View Indexes
 
