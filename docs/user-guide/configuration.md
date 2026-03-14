@@ -386,7 +386,8 @@ api:
 
 events:
   enabled: true
-  batch_size: 500                            # Events per scanning batch
+  scan_size: 500                             # Rows per paginated DB query
+  batch_size: 500                            # Discovered relays to buffer before flushing
   parallel_relays: 50                        # Concurrent relay event scans
   max_relay_time: 900.0                      # Max seconds per relay (15 min)
   max_duration: 7200.0                       # Max seconds for entire event phase (2 hours)
@@ -412,7 +413,8 @@ events:
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
 | `events.enabled` | bool | `true` | - | Enable event-based relay discovery |
-| `events.batch_size` | int | `500` | 10-10000 | Events per scanning batch |
+| `events.scan_size` | int | `500` | 10-10000 | Rows per paginated DB query |
+| `events.batch_size` | int | `500` | 10-10000 | Discovered relays to buffer before flushing |
 | `events.parallel_relays` | int | `50` | 1-200 | Maximum concurrent relay event scans |
 | `events.max_relay_time` | float | `900.0` | 10.0-86400.0 | Maximum seconds to scan a single relay |
 | `events.max_duration` | float | `7200.0` | 60.0-86400.0 | Maximum seconds for the entire event scanning phase |

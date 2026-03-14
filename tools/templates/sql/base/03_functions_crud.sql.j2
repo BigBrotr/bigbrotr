@@ -377,7 +377,7 @@ COMMENT ON FUNCTION relay_metadata_insert_cascade(TEXT [], TEXT [], BIGINT [], B
 
 
 /*
- * service_state_upsert(TEXT[], TEXT[], TEXT[], JSONB[]) -> VOID
+ * service_state_upsert(TEXT[], TEXT[], TEXT[], JSONB[]) -> INTEGER
  *
  * Bulk upsert (insert or replace) service state records. When a record with
  * the same (service_name, state_type, state_key) already exists, its

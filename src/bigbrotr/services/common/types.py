@@ -107,8 +107,8 @@ class Cursor:
     """Composite pagination cursor stored in ``service_state``.
 
     Tracks a position within an ordered stream using a ``(timestamp, id)``
-    pair for deterministic tie-breaking. Both fields must be ``None``
-    (new cursor, scan from beginning) or both set (resumption point).
+    pair for deterministic tie-breaking. Both fields default to sentinel
+    values (``0`` and ``"0" * 64``) representing "scan from beginning".
 
     Subclass per usage to enable type-level disambiguation:
 
@@ -117,8 +117,9 @@ class Cursor:
 
     Attributes:
         key: State key identifying the entity (typically a relay URL).
-        timestamp: Unix timestamp of the last processed record, or None.
-        id: Raw 32-byte ID for deterministic tie-breaking, or None.
+        timestamp: Unix timestamp of the last processed record (default ``0``).
+        id: Hex-encoded 64-char event ID for deterministic tie-breaking
+            (default ``"0" * 64``).
     """
 
     key: str
