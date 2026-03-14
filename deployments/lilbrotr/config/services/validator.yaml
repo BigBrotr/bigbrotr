@@ -15,9 +15,6 @@ metrics:
   enabled: true
   host: "0.0.0.0"                  # Bind to all interfaces for Docker access
 
-cleanup:
-  enabled: true                    # Remove candidates that exceed max_failures
-
 networks:
   tor:
     enabled: true                  # Validate Tor (.onion) relays
