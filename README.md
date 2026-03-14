@@ -54,16 +54,18 @@ Eight **independent** async services share a PostgreSQL database. Each runs on i
 
 ### Services
 
-| Service | Default Interval | What it does | External I/O |
-|---------|-----------------|-------------|-------------|
-| **Seeder** | One-shot | Loads relay URLs from a seed file | Seed file |
-| **Finder** | 5 min | Discovers relay URLs from event tag values and external APIs | HTTP (nostr.watch) |
-| **Validator** | 1 hour | Tests candidates via WebSocket handshake, promotes valid relays | WebSocket |
-| **Monitor** | 1 hour | Runs NIP-11 + 6 NIP-66 health checks, publishes kind 10166/30166 events | HTTP, WS, DNS, SSL, GeoIP |
-| **Synchronizer** | 5 min | Connects to relays, streams and archives signed events with cursor-based resumption | WebSocket |
-| **Refresher** | 1 hour | Refreshes 11 materialized views in dependency order | None |
-| **Api** | Continuous | Read-only REST API with auto-generated paginated endpoints | HTTP (FastAPI) |
-| **Dvm** | Continuous | NIP-90 Data Vending Machine for database queries over Nostr | WebSocket (Nostr) |
+| Service | What it does | External I/O |
+|---------|-------------|-------------|
+| **Seeder** | Loads relay URLs from a seed file (one-shot) | Seed file |
+| **Finder** | Discovers relay URLs from event tag values and external APIs | HTTP (nostr.watch) |
+| **Validator** | Tests candidates via WebSocket handshake, promotes valid relays | WebSocket |
+| **Monitor** | Runs NIP-11 + 6 NIP-66 health checks, publishes kind 10166/30166 events | HTTP, WS, DNS, SSL, GeoIP |
+| **Synchronizer** | Connects to relays, streams and archives signed events with cursor-based resumption | WebSocket |
+| **Refresher** | Refreshes 11 materialized views in dependency order | None |
+| **Api** | Read-only REST API with auto-generated paginated endpoints | HTTP (FastAPI) |
+| **Dvm** | NIP-90 Data Vending Machine for database queries over Nostr | WebSocket (Nostr) |
+
+All continuous services default to a 5-minute cycle interval (`interval=300.0`), configurable per deployment.
 
 Services are **loosely coupled through the database**: Seeder and Finder populate candidates, Validator promotes them to relays, Monitor and Synchronizer operate on validated relays, Refresher materializes analytics. Stopping one does not break the others.
 

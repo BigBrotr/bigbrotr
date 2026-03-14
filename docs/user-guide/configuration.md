@@ -367,44 +367,55 @@ seed:
 Discovers relay URLs from external APIs and stored Nostr events.
 
 ```yaml
-interval: 3600.0
-
-concurrency:
-  max_parallel: 5                            # Concurrent API requests
-
-events:
-  enabled: true
-  batch_size: 1000                           # Events per batch
-  kinds: [2, 3, 10002]                       # Event kinds to scan for relay URLs
-
 api:
   enabled: true
-  verify_ssl: true
+  cooldown: 86400.0                          # Seconds before re-querying any source
   sources:
     - url: "https://api.nostr.watch/v1/online"
+      expression: "[*]"                      # JMESPath expression (required)
       enabled: true
       timeout: 30.0
       connect_timeout: 10.0
+      allow_insecure: false
     - url: "https://api.nostr.watch/v1/offline"
+      expression: "[*]"
       enabled: true
       timeout: 30.0
   request_delay: 1.0
+  max_response_size: 5242880                 # 5 MB
+
+events:
+  enabled: true
+  batch_size: 500                            # Events per scanning batch
+  parallel_relays: 50                        # Concurrent relay event scans
+  max_relay_time: 900.0                      # Max seconds per relay (15 min)
+  max_duration: 7200.0                       # Max seconds for entire event phase (2 hours)
 ```
+
+### API Reference
 
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
-| `interval` | float | `3600.0` | >= 60.0 | Seconds between discovery cycles |
-| `concurrency.max_parallel` | int | `5` | 1-20 | Concurrent API requests |
-| `events.enabled` | bool | `true` | - | Enable event-based relay discovery |
-| `events.batch_size` | int | `1000` | 100-10000 | Events per scanning batch |
-| `events.kinds` | list[int] | `[2, 3, 10002]` | - | Nostr event kinds to scan |
 | `api.enabled` | bool | `true` | - | Enable API-based discovery |
-| `api.verify_ssl` | bool | `true` | - | Verify TLS certificates |
-| `api.sources[].url` | string | - | - | API endpoint URL |
+| `api.cooldown` | float | `86400.0` | 1.0-604800.0 | Minimum seconds before re-querying any source |
+| `api.sources[].url` | string | - | - | API endpoint URL (required) |
+| `api.sources[].expression` | string | - | - | JMESPath expression for URL extraction (required) |
 | `api.sources[].enabled` | bool | `true` | - | Enable this source |
 | `api.sources[].timeout` | float | `30.0` | 0.1-120.0 | HTTP request timeout |
-| `api.sources[].connect_timeout` | float | `10.0` | 0.1-60.0 | HTTP connect timeout |
+| `api.sources[].connect_timeout` | float | `10.0` | 0.1-60.0 | HTTP connect timeout (must not exceed timeout) |
+| `api.sources[].allow_insecure` | bool | `false` | - | Skip TLS certificate verification |
 | `api.request_delay` | float | `1.0` | 0.0-10.0 | Delay between API calls |
+| `api.max_response_size` | int | `5242880` | 1024-52428800 | Maximum API response body size in bytes |
+
+### Events Reference
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `events.enabled` | bool | `true` | - | Enable event-based relay discovery |
+| `events.batch_size` | int | `500` | 10-10000 | Events per scanning batch |
+| `events.parallel_relays` | int | `50` | 1-200 | Maximum concurrent relay event scans |
+| `events.max_relay_time` | float | `900.0` | 10.0-86400.0 | Maximum seconds to scan a single relay |
+| `events.max_duration` | float | `7200.0` | 60.0-86400.0 | Maximum seconds for the entire event scanning phase |
 
 ---
 
@@ -413,8 +424,6 @@ api:
 Tests WebSocket connectivity for candidate relays and promotes them to the relay table.
 
 ```yaml
-interval: 28800.0
-
 metrics:
   enabled: true
   port: 8002
@@ -422,10 +431,12 @@ metrics:
 processing:
   chunk_size: 100                            # Candidates per fetch batch
   max_candidates: null                       # Max candidates per cycle (null = unlimited)
+  interval: 3600.0                           # Minimum seconds before retrying a failed candidate
+  allow_insecure: false                      # Fall back to insecure transport on SSL failure
 
 cleanup:
-  enabled: true
-  max_failures: 100                          # Remove candidate after N failures
+  enabled: true                              # Enable exhausted candidate cleanup
+  max_failures: 720                          # Remove candidate after N failures (~30 days if hourly)
 
 networks:
   clearnet:
@@ -441,11 +452,12 @@ networks:
 
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
-| `interval` | float | `28800.0` | >= 60.0 | Seconds between validation cycles |
 | `processing.chunk_size` | int | `100` | 10-1000 | Candidates per fetch batch |
 | `processing.max_candidates` | int or null | `null` | >= 1 | Max candidates per cycle |
-| `cleanup.enabled` | bool | `false` | - | Enable stale candidate cleanup |
-| `cleanup.max_failures` | int | `100` | 1-1000 | Failure threshold for removal |
+| `processing.interval` | float | `3600.0` | 0.0-604800.0 | Minimum seconds before retrying a failed candidate |
+| `processing.allow_insecure` | bool | `false` | - | Fall back to insecure transport on SSL failure |
+| `cleanup.enabled` | bool | `true` | - | Enable exhausted candidate cleanup |
+| `cleanup.max_failures` | int | `720` | >= 1 | Failure threshold for candidate removal |
 
 ---
 
@@ -476,8 +488,7 @@ networks:
 processing:
   chunk_size: 100                            # Relays per batch
   max_relays: null                           # Max relays per cycle (null = unlimited)
-  nip11_max_size: 1048576                    # Max NIP-11 response size (bytes)
-  geohash_precision: 9                       # Geohash precision (1-12)
+  nip11_info_max_size: 1048576               # Max NIP-11 response size (bytes)
 
   compute:                                   # What metadata to compute
     nip11_info: true
@@ -516,6 +527,7 @@ geo:
   city_download_url: "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb"
   asn_download_url: "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-ASN.mmdb"
   max_age_days: 30                           # Re-download if older (null = never)
+  geohash_precision: 9                       # Geohash precision (1-12)
 
 publishing:
   relays: []                                 # Default relay list for publishing
@@ -556,8 +568,7 @@ profile:
 |-------|------|---------|-------|-------------|
 | `processing.chunk_size` | int | `100` | 10-1000 | Relays per batch |
 | `processing.max_relays` | int or null | `null` | >= 1 | Max relays per cycle |
-| `processing.nip11_max_size` | int | `1048576` | 1024-10485760 | Max NIP-11 response size (bytes) |
-| `processing.geohash_precision` | int | `9` | 1-12 | Geohash precision for geolocation |
+| `processing.nip11_info_max_size` | int | `1048576` | 1024-10485760 | Max NIP-11 response size (bytes) |
 | `processing.compute.*` | bool | `true` | - | Enable computation per metadata type |
 | `processing.store.*` | bool | `true` | - | Enable persistence per metadata type |
 
@@ -579,6 +590,7 @@ profile:
 | `geo.city_download_url` | string | GitHub mirror URL | Auto-download URL for City DB |
 | `geo.asn_download_url` | string | GitHub mirror URL | Auto-download URL for ASN DB |
 | `geo.max_age_days` | int or null | `30` | Re-download threshold in days (null = never) |
+| `geo.geohash_precision` | int | `9` | 1-12 | Geohash precision for geolocation |
 
 ### Publishing Reference
 
@@ -598,11 +610,9 @@ profile:
 
 ## Synchronizer Configuration
 
-Connects to validated relays and archives Nostr events using multiprocessing.
+Connects to validated relays and archives Nostr events with cursor-based resumption.
 
 ```yaml
-interval: 900.0
-
 metrics:
   enabled: true
   port: 8004
@@ -620,52 +630,34 @@ networks:
     max_tasks: 5
     timeout: 60.0
 
-filter:
-  ids: null                                  # Specific event IDs (null = all)
-  kinds: null                                # Event kinds to sync (null = all)
-  authors: null                              # Author pubkeys (null = all)
-  tags: null                                 # Tag filters: {"e": [...], "p": [...]}
-  limit: 500                                 # Events per REQ request
-
-time_range:
-  default_start: 0                           # Default start timestamp (0 = epoch)
-  use_relay_state: true                      # Use per-relay incremental cursors
-  lookback_seconds: 86400                    # Lookback window from cursor
+processing:
+  filters: [{}]                              # NIP-01 filter dicts (OR semantics, {} = all)
+  since: 0                                   # Default start timestamp (0 = epoch)
+  until: null                                # Upper bound (null = now())
+  limit: 500                                 # Max events per relay request (REQ limit)
+  end_lag: 86400                             # Seconds subtracted from until
+  batch_size: 1000                           # Events to buffer before DB flush
+  allow_insecure: false                      # Fall back to insecure transport on SSL failure
 
 timeouts:
   relay_clearnet: 1800.0                     # Max time per clearnet relay (30 min)
   relay_tor: 3600.0                          # Max time per Tor relay (1 hour)
   relay_i2p: 3600.0
   relay_loki: 3600.0
-
-concurrency:
-  max_parallel: 10                           # Concurrent relays per process
-  cursor_flush_interval: 50                  # Flush cursors every N relays
-
-overrides: []                                # Per-relay timeout overrides
-# - url: "wss://relay.damus.io"
-#   timeouts:
-#     request: 60.0
-#     relay: 7200.0
+  max_duration: 14400.0                      # Max seconds for entire sync phase (4 hours)
 ```
 
-### Filter Reference
+### Processing Reference
 
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
-| `filter.ids` | list[string] or null | `null` | - | Specific event IDs to sync |
-| `filter.kinds` | list[int] or null | `null` | 0-65535 | Event kinds to sync |
-| `filter.authors` | list[string] or null | `null` | 64-char hex | Author pubkeys |
-| `filter.tags` | dict or null | `null` | - | Tag filters |
-| `filter.limit` | int | `500` | 1-5000 | Events per REQ request |
-
-### Time Range Reference
-
-| Field | Type | Default | Range | Description |
-|-------|------|---------|-------|-------------|
-| `time_range.default_start` | int | `0` | - | Default start Unix timestamp |
-| `time_range.use_relay_state` | bool | `true` | - | Use per-relay incremental cursors |
-| `time_range.lookback_seconds` | int | `86400` | 3600-604800 | Lookback window from cursor position |
+| `processing.filters` | list[dict] | `[{}]` | - | NIP-01 filter dicts for event subscription (OR semantics) |
+| `processing.since` | int | `0` | >= 0 | Default start timestamp for relays without a cursor |
+| `processing.until` | int or null | `null` | >= 0 | Upper bound timestamp (null = now()) |
+| `processing.limit` | int | `500` | 10-5000 | Max events per relay request (REQ limit) |
+| `processing.end_lag` | int | `86400` | 0-604800 | Seconds subtracted from until to compute sync end time |
+| `processing.batch_size` | int | `1000` | 100-10000 | Events to buffer before flushing to the database |
+| `processing.allow_insecure` | bool | `false` | - | Fall back to insecure transport on SSL failure |
 
 ### Sync Timeouts Reference
 
@@ -675,13 +667,7 @@ overrides: []                                # Per-relay timeout overrides
 | `timeouts.relay_tor` | float | `3600.0` | 60.0-14400.0 | Max time per Tor relay |
 | `timeouts.relay_i2p` | float | `3600.0` | 60.0-14400.0 | Max time per I2P relay |
 | `timeouts.relay_loki` | float | `3600.0` | 60.0-14400.0 | Max time per Lokinet relay |
-
-### Concurrency Reference
-
-| Field | Type | Default | Range | Description |
-|-------|------|---------|-------|-------------|
-| `concurrency.max_parallel` | int | `10` | 1-100 | Concurrent relays per process |
-| `concurrency.cursor_flush_interval` | int | `50` | - | Flush cursors every N relays |
+| `timeouts.max_duration` | float | `14400.0` | 60.0-86400.0 | Maximum seconds for the entire sync phase |
 
 ---
 
@@ -760,8 +746,9 @@ pool:
 ```yaml
 # synchronizer.yaml
 interval: 300.0
-concurrency:
-  max_parallel: 50
+processing:
+  batch_size: 5000
+  limit: 1000
 ```
 
 ### Monitoring-Only (No Event Archiving)
