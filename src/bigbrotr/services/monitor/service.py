@@ -7,7 +7,7 @@ announcements to the Nostr network.
 
 Health checks include:
 
-- [Nip11][bigbrotr.nips.nip11.Nip11]: Relay info document (name,
+- [Nip11InfoMetadata][bigbrotr.nips.nip11.Nip11InfoMetadata]: Relay info document (name,
   description, pubkey, supported NIPs).
 - [Nip66RttMetadata][bigbrotr.nips.nip66.Nip66RttMetadata]: Open/read/write
   round-trip times in milliseconds.

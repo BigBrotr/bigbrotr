@@ -234,8 +234,6 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
 
         The response format is configurable per source via the ``expression``
         field on [ApiSourceConfig][bigbrotr.services.finder.ApiSourceConfig].
-        When left at its default (``[*]``) the response is expected to be a
-        flat JSON array of URL strings.
 
         Args:
             session: Shared aiohttp ClientSession for connection pooling.
