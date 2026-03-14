@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 import aiohttp
 import asyncpg
 import pytest
+from pydantic import ValidationError
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import Relay
@@ -85,10 +86,10 @@ class TestEventsConfig:
     def test_default_values(self) -> None:
         config = EventsConfig()
         assert config.enabled is True
-        assert config.batch_size == 100
+        assert config.batch_size == 500
         assert config.parallel_relays == 50
-        assert config.max_relay_time == 300.0
-        assert config.max_duration == 3600.0
+        assert config.max_relay_time == 900.0
+        assert config.max_duration == 7200.0
 
     def test_disabled(self) -> None:
         config = EventsConfig(enabled=False)
@@ -97,7 +98,7 @@ class TestEventsConfig:
     @pytest.mark.parametrize(
         ("field", "valid_min", "valid_max", "below_min", "above_max"),
         [
-            ("batch_size", 10, 1000, 5, 1001),
+            ("batch_size", 10, 10_000, 5, 10_001),
             ("parallel_relays", 1, 200, 0, 201),
         ],
     )
@@ -130,7 +131,7 @@ class TestEventsConfig:
 
 class TestApiSourceConfig:
     def test_default_values(self) -> None:
-        config = ApiSourceConfig(url="https://api.example.com")
+        config = ApiSourceConfig(url="https://api.example.com", expression="[*]")
 
         assert config.url == "https://api.example.com"
         assert config.enabled is True
@@ -138,11 +139,16 @@ class TestApiSourceConfig:
         assert config.expression == "[*]"
         assert config.allow_insecure is False
 
+    def test_expression_required(self) -> None:
+        with pytest.raises(ValidationError):
+            ApiSourceConfig(url="https://api.example.com")
+
     def test_custom_values(self) -> None:
         config = ApiSourceConfig(
             url="https://custom.api.com",
             enabled=False,
             timeout=60.0,
+            expression="[*]",
         )
 
         assert config.url == "https://custom.api.com"
@@ -150,10 +156,12 @@ class TestApiSourceConfig:
         assert config.timeout == 60.0
 
     def test_timeout_bounds(self) -> None:
-        config_min = ApiSourceConfig(url="https://api.com", timeout=0.1, connect_timeout=0.1)
+        config_min = ApiSourceConfig(
+            url="https://api.com", expression="[*]", timeout=0.1, connect_timeout=0.1
+        )
         assert config_min.timeout == 0.1
 
-        config_max = ApiSourceConfig(url="https://api.com", timeout=120.0)
+        config_max = ApiSourceConfig(url="https://api.com", expression="[*]", timeout=120.0)
         assert config_max.timeout == 120.0
 
     def test_custom_expression(self) -> None:
@@ -172,14 +180,20 @@ class TestApiSourceConfig:
 
     def test_connect_timeout_exceeds_timeout_rejected(self) -> None:
         with pytest.raises(ValueError, match=r"connect_timeout.*must not exceed.*timeout"):
-            ApiSourceConfig(url="https://api.com", timeout=10.0, connect_timeout=30.0)
+            ApiSourceConfig(
+                url="https://api.com", expression="[*]", timeout=10.0, connect_timeout=30.0
+            )
 
     def test_connect_timeout_equals_timeout_accepted(self) -> None:
-        config = ApiSourceConfig(url="https://api.com", timeout=10.0, connect_timeout=10.0)
+        config = ApiSourceConfig(
+            url="https://api.com", expression="[*]", timeout=10.0, connect_timeout=10.0
+        )
         assert config.connect_timeout == 10.0
 
     def test_allow_insecure_enabled(self) -> None:
-        config = ApiSourceConfig(url="https://internal.api.com", allow_insecure=True)
+        config = ApiSourceConfig(
+            url="https://internal.api.com", expression="[*]", allow_insecure=True
+        )
         assert config.allow_insecure is True
 
 
@@ -202,8 +216,8 @@ class TestApiConfig:
     def test_custom_sources(self) -> None:
         config = ApiConfig(
             sources=[
-                ApiSourceConfig(url="https://custom1.api.com"),
-                ApiSourceConfig(url="https://custom2.api.com"),
+                ApiSourceConfig(url="https://custom1.api.com", expression="[*]"),
+                ApiSourceConfig(url="https://custom2.api.com", expression="[*]"),
             ]
         )
 
@@ -836,7 +850,7 @@ class TestFinderFindFromApi:
             api=ApiConfig(
                 enabled=True,
                 sources=[
-                    ApiSourceConfig(url="https://api.example.com", enabled=False),
+                    ApiSourceConfig(url="https://api.example.com", expression="[*]", enabled=False),
                 ],
             )
         )
@@ -854,7 +868,7 @@ class TestFinderFindFromApi:
         config = FinderConfig(
             api=ApiConfig(
                 enabled=True,
-                sources=[ApiSourceConfig(url="https://api.example.com")],
+                sources=[ApiSourceConfig(url="https://api.example.com", expression="[*]")],
                 request_delay=0,
             )
         )
@@ -902,7 +916,7 @@ class TestFinderFindFromApi:
         config = FinderConfig(
             api=ApiConfig(
                 enabled=True,
-                sources=[ApiSourceConfig(url="https://api.example.com")],
+                sources=[ApiSourceConfig(url="https://api.example.com", expression="[*]")],
                 request_delay=0,
             )
         )
@@ -934,7 +948,7 @@ class TestFinderFindFromApi:
             api=ApiConfig(
                 enabled=True,
                 cooldown=3600.0,
-                sources=[ApiSourceConfig(url="https://api.example.com")],
+                sources=[ApiSourceConfig(url="https://api.example.com", expression="[*]")],
                 request_delay=0,
             )
         )
@@ -962,7 +976,7 @@ class TestFinderFindFromApi:
             api=ApiConfig(
                 enabled=True,
                 cooldown=3600.0,
-                sources=[ApiSourceConfig(url="https://api.example.com")],
+                sources=[ApiSourceConfig(url="https://api.example.com", expression="[*]")],
                 request_delay=0,
             )
         )
@@ -1004,8 +1018,8 @@ class TestFinderFindFromApi:
             api=ApiConfig(
                 enabled=True,
                 sources=[
-                    ApiSourceConfig(url="https://api1.example.com"),
-                    ApiSourceConfig(url="https://api2.example.com"),
+                    ApiSourceConfig(url="https://api1.example.com", expression="[*]"),
+                    ApiSourceConfig(url="https://api2.example.com", expression="[*]"),
                 ],
                 request_delay=0,
             )
@@ -1049,8 +1063,8 @@ class TestFinderFindFromApi:
             api=ApiConfig(
                 enabled=True,
                 sources=[
-                    ApiSourceConfig(url="https://api1.example.com"),
-                    ApiSourceConfig(url="https://api2.example.com"),
+                    ApiSourceConfig(url="https://api1.example.com", expression="[*]"),
+                    ApiSourceConfig(url="https://api2.example.com", expression="[*]"),
                 ],
                 request_delay=1.0,
             )
@@ -1096,8 +1110,8 @@ class TestFinderFindFromApi:
             api=ApiConfig(
                 enabled=True,
                 sources=[
-                    ApiSourceConfig(url="https://api1.example.com"),
-                    ApiSourceConfig(url="https://api2.example.com"),
+                    ApiSourceConfig(url="https://api1.example.com", expression="[*]"),
+                    ApiSourceConfig(url="https://api2.example.com", expression="[*]"),
                 ],
                 request_delay=0,
             )
@@ -1147,7 +1161,7 @@ class TestFinderFindFromApi:
         config = FinderConfig(
             api=ApiConfig(
                 enabled=True,
-                sources=[ApiSourceConfig(url="https://api.example.com")],
+                sources=[ApiSourceConfig(url="https://api.example.com", expression="[*]")],
                 request_delay=0,
             )
         )
@@ -1188,7 +1202,7 @@ class TestFinderFindFromApi:
 class TestFinderFetchSingleApi:
     async def test_valid_relays(self, mock_brotr: Brotr) -> None:
         finder = Finder(brotr=mock_brotr)
-        source = ApiSourceConfig(url="https://api.example.com")
+        source = ApiSourceConfig(url="https://api.example.com", expression="[*]")
 
         mock_response = _mock_api_response(["wss://relay1.com", "wss://relay2.com"])
         mock_session = MagicMock()
@@ -1203,7 +1217,7 @@ class TestFinderFetchSingleApi:
 
     async def test_empty_list(self, mock_brotr: Brotr) -> None:
         finder = Finder(brotr=mock_brotr)
-        source = ApiSourceConfig(url="https://api.example.com")
+        source = ApiSourceConfig(url="https://api.example.com", expression="[*]")
 
         mock_response = _mock_api_response([])
         mock_session = MagicMock()
@@ -1216,7 +1230,7 @@ class TestFinderFetchSingleApi:
     async def test_rejects_oversized_response(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(api=ApiConfig(max_response_size=1024))
         finder = Finder(brotr=mock_brotr, config=config)
-        source = ApiSourceConfig(url="https://api.example.com")
+        source = ApiSourceConfig(url="https://api.example.com", expression="[*]")
 
         oversized_body = b"x" * 1025
         content = MagicMock()
@@ -1235,7 +1249,9 @@ class TestFinderFetchSingleApi:
 
     async def test_passes_ssl_flag_from_allow_insecure(self, mock_brotr: Brotr) -> None:
         finder = Finder(brotr=mock_brotr)
-        source = ApiSourceConfig(url="https://api.example.com", allow_insecure=True)
+        source = ApiSourceConfig(
+            url="https://api.example.com", expression="[*]", allow_insecure=True
+        )
 
         mock_response = _mock_api_response([])
         mock_session = MagicMock()

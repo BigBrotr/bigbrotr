@@ -542,9 +542,9 @@ class TestSynchronize:
     async def test_flushes_at_batch_size(self, mock_synchronizer_brotr: Brotr) -> None:
         cursor = SyncCursor(key="wss://relay1.example.com")
         relay = Relay("wss://relay1.example.com")
-        events = [_make_mock_event(i * 100) for i in range(3)]
+        events = [_make_mock_event(i * 100) for i in range(300)]
 
-        config = SynchronizerConfig(processing=ProcessingConfig(batch_size=2))
+        config = SynchronizerConfig(processing=ProcessingConfig(batch_size=200))
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
         sync.set_gauge = MagicMock()  # type: ignore[method-assign]
 
@@ -552,7 +552,7 @@ class TestSynchronize:
             for evt in events:
                 yield evt, relay
 
-        mock_insert = AsyncMock(side_effect=[2, 1])
+        mock_insert = AsyncMock(side_effect=[200, 100])
         with (
             patch(
                 "bigbrotr.services.synchronizer.service.fetch_cursors_to_sync",
@@ -572,7 +572,7 @@ class TestSynchronize:
         ):
             result = await sync.synchronize()
 
-        assert result == 3
+        assert result == 300
         assert mock_insert.await_count == 2
 
     async def test_max_duration_exceeded_breaks_after_flush(
@@ -580,10 +580,10 @@ class TestSynchronize:
     ) -> None:
         cursor = SyncCursor(key="wss://relay1.example.com")
         relay = Relay("wss://relay1.example.com")
-        events = [_make_mock_event(i * 100) for i in range(4)]
+        events = [_make_mock_event(i * 100) for i in range(400)]
 
         config = SynchronizerConfig(
-            processing=ProcessingConfig(batch_size=2),
+            processing=ProcessingConfig(batch_size=200),
             timeouts=TimeoutsConfig(max_duration=1800.0),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
@@ -755,7 +755,7 @@ class TestSyncWorker:
         assert items == []
 
     async def test_yields_events_and_disconnects(self, mock_synchronizer_brotr: Brotr) -> None:
-        config = SynchronizerConfig(processing=ProcessingConfig(limit=2))
+        config = SynchronizerConfig(processing=ProcessingConfig(limit=10))
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
         cursor = SyncCursor(key="wss://relay.example.com")
