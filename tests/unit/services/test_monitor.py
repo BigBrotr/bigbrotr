@@ -2486,6 +2486,34 @@ class TestMonitorMaxRelaysBudget:
 
         assert total == 1
 
+    async def test_monitor_stops_on_shutdown(self, mock_brotr: Brotr) -> None:
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=_NO_GEO_NET,
+                store=_NO_GEO_NET,
+                chunk_size=10,
+            ),
+            discovery=DiscoveryConfig(enabled=False, include=_NO_GEO_NET),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay1 = Relay("wss://r1.example.com")
+        relay2 = Relay("wss://r2.example.com")
+
+        monitor.clients = MagicMock()
+        monitor.clients.disconnect = AsyncMock()
+        monitor.request_shutdown()
+
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
+                new_callable=AsyncMock,
+                return_value=[relay1, relay2],
+            ),
+        ):
+            total = await monitor.monitor()
+
+        assert total == 0
+
 
 # ============================================================================
 # Retry Fetch
