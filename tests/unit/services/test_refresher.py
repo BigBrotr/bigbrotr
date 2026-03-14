@@ -109,7 +109,7 @@ class TestRefresherConfig:
         config = RefresherConfig()
 
         assert config.refresh.views == DEFAULT_VIEWS
-        assert config.interval == 3600.0
+        assert config.interval == 86400.0
         assert config.max_consecutive_failures == 5
 
     def test_custom_nested_config(self) -> None:
