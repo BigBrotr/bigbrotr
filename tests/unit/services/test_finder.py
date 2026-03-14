@@ -42,6 +42,7 @@ from bigbrotr.services.finder.utils import (
     extract_relays_from_response,
     extract_relays_from_tagvalues,
     fetch_api,
+    stream_event_relays,
 )
 
 
@@ -1283,6 +1284,93 @@ class TestFetchApi:
         assert kwargs["ssl"] is False
 
 
+class TestStreamEventRelays:
+    async def test_empty_result_yields_nothing(self) -> None:
+        brotr = MagicMock()
+        cursor = FinderCursor(key="wss://relay.com")
+        with patch(
+            "bigbrotr.services.finder.utils.scan_event_relay",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            rows = [row async for row in stream_event_relays(brotr, cursor, 100)]
+
+        assert rows == []
+
+    async def test_single_batch_partial(self) -> None:
+        event_id = b"\xab" * 32
+        batch = [
+            {"event_id": event_id, "seen_at": 1700000001, "tagvalues": ["r:wss://r.com"]},
+            {"event_id": event_id, "seen_at": 1700000002, "tagvalues": ["r:wss://r2.com"]},
+        ]
+        brotr = MagicMock()
+        cursor = FinderCursor(key="wss://relay.com")
+        with patch(
+            "bigbrotr.services.finder.utils.scan_event_relay",
+            new_callable=AsyncMock,
+            return_value=batch,
+        ) as mock_scan:
+            rows = [row async for row in stream_event_relays(brotr, cursor, 100)]
+
+        assert len(rows) == 2
+        assert rows[0]["seen_at"] == 1700000001
+        assert rows[1]["seen_at"] == 1700000002
+        mock_scan.assert_awaited_once()
+
+    async def test_multi_batch_pagination(self) -> None:
+        id1 = b"\x01" * 32
+        id2 = b"\x02" * 32
+        batch1 = [
+            {"event_id": id1, "seen_at": 100, "tagvalues": []},
+            {"event_id": id2, "seen_at": 200, "tagvalues": []},
+        ]
+        batch2 = [{"event_id": id1, "seen_at": 300, "tagvalues": []}]
+        brotr = MagicMock()
+        cursor = FinderCursor(key="wss://relay.com")
+        with patch(
+            "bigbrotr.services.finder.utils.scan_event_relay",
+            new_callable=AsyncMock,
+            side_effect=[batch1, batch2],
+        ) as mock_scan:
+            rows = [row async for row in stream_event_relays(brotr, cursor, 2)]
+
+        assert len(rows) == 3
+        assert mock_scan.await_count == 2
+        second_call_cursor = mock_scan.call_args_list[1][0][1]
+        assert second_call_cursor.timestamp == 200
+        assert second_call_cursor.id == id2.hex()
+
+    async def test_exact_batch_size_triggers_next_fetch(self) -> None:
+        id1 = b"\xaa" * 32
+        batch1 = [{"event_id": id1, "seen_at": 100, "tagvalues": []}]
+        brotr = MagicMock()
+        cursor = FinderCursor(key="wss://relay.com")
+        with patch(
+            "bigbrotr.services.finder.utils.scan_event_relay",
+            new_callable=AsyncMock,
+            side_effect=[batch1, []],
+        ) as mock_scan:
+            rows = [row async for row in stream_event_relays(brotr, cursor, 1)]
+
+        assert len(rows) == 1
+        assert mock_scan.await_count == 2
+
+    async def test_cursor_key_preserved_across_batches(self) -> None:
+        id1 = b"\x01" * 32
+        batch1 = [{"event_id": id1, "seen_at": 100, "tagvalues": []}]
+        brotr = MagicMock()
+        cursor = FinderCursor(key="wss://specific.relay.com")
+        with patch(
+            "bigbrotr.services.finder.utils.scan_event_relay",
+            new_callable=AsyncMock,
+            side_effect=[batch1, []],
+        ) as mock_scan:
+            [row async for row in stream_event_relays(brotr, cursor, 1)]
+
+        for call in mock_scan.call_args_list:
+            assert call[0][1].key == "wss://specific.relay.com"
+
+
 # ============================================================================
 # Event Workers
 # ============================================================================
@@ -1428,6 +1516,41 @@ class TestFinderFindFromEvents:
             ]
 
         assert items == []
+
+    async def test_per_relay_deadline_exceeded_stops_worker(self, mock_brotr: Brotr) -> None:
+        events = [
+            {
+                "tagvalues": [f"r:wss://relay{i}.example.com"],
+                "seen_at": 1700000000 + i,
+                "event_id": bytes([i]) + b"\x00" * 31,
+            }
+            for i in range(3)
+        ]
+        config = FinderConfig(events=EventsConfig(max_relay_time=10.0, max_duration=7200))
+        finder = Finder(brotr=mock_brotr, config=config)
+        finder._phase_start = time.monotonic()
+        finder._event_semaphore = asyncio.Semaphore(50)
+
+        monotonic_calls = iter([100.0, 100.0, 100.0, 111.0])
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.stream_event_relays",
+                return_value=_mock_stream(*events),
+            ),
+            patch(
+                "bigbrotr.services.finder.service.time.monotonic",
+                side_effect=monotonic_calls,
+            ),
+        ):
+            items = [
+                item
+                async for item in finder._find_from_events_worker(
+                    FinderCursor(key="wss://source.relay.com")
+                )
+            ]
+
+        assert len(items) < 3
 
     async def test_emits_gauges_and_counters(self, mock_brotr: Brotr) -> None:
         mock_event = {
