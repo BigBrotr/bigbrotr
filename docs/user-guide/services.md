@@ -93,7 +93,7 @@ flowchart LR
 
 **Purpose**: Discover new relay URLs from stored Nostr events and external HTTP APIs.
 
-**Mode**: Continuous (`run_forever`, default interval 1 hour)
+**Mode**: Continuous (`run_forever`)
 
 **Reads**: `event` (stored Nostr events), external HTTP APIs
 **Writes**: `service_state` (candidates)
@@ -131,15 +131,16 @@ flowchart TD
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `interval` | float | `3600.0` | Seconds between discovery cycles |
 | `events.enabled` | bool | `true` | Enable event-based relay discovery |
-| `events.batch_size` | int | `100` | Events per scanning batch |
+| `events.batch_size` | int | `500` | Events per scanning batch |
+| `events.scan_size` | int | `500` | Rows per paginated DB query (range 10-10000) |
 | `events.parallel_relays` | int | `50` | Maximum concurrent relay event scans |
-| `events.max_relay_time` | float or null | `null` | Maximum seconds to scan a single relay (null = unlimited) |
-| `events.max_duration` | float | `86400.0` | Maximum seconds for the entire event scanning phase |
+| `events.max_relay_time` | float | `900.0` | Maximum seconds to scan a single relay |
+| `events.max_duration` | float | `7200.0` | Maximum seconds for the entire event scanning phase |
 | `api.enabled` | bool | `true` | Enable API-based discovery |
 | `api.cooldown` | float | `86400.0` | Minimum seconds before querying any source again |
-| `api.sources[].url` | string | -- | API endpoint URL |
+| `api.sources[].url` | string | -- | API endpoint URL (required) |
+| `api.sources[].expression` | string | -- | JMESPath expression for URL extraction (required) |
 | `api.request_delay` | float | `1.0` | Delay between API calls |
 | `api.max_response_size` | int | `5242880` | Maximum API response body size in bytes (5 MB) |
 
@@ -152,7 +153,7 @@ flowchart TD
 
 **Purpose**: Test candidate relay URLs via WebSocket and promote valid ones to the relay table.
 
-**Mode**: Continuous (`run_forever`, default interval 8 hours)
+**Mode**: Continuous (`run_forever`)
 
 **Reads**: `service_state` (candidates)
 **Writes**: `relay` (promoted valid relays), `service_state` (updated failure counts)
@@ -190,12 +191,11 @@ flowchart TD
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `interval` | float | `28800.0` | Seconds between validation cycles |
 | `processing.chunk_size` | int | `100` | Candidates per fetch batch |
 | `processing.max_candidates` | int or null | `null` | Max candidates per cycle |
 | `processing.interval` | float | `3600.0` | Minimum seconds before retrying a failed candidate |
 | `processing.allow_insecure` | bool | `false` | Fall back to insecure transport on SSL failure |
-| `cleanup.enabled` | bool | `false` | Enable stale candidate cleanup |
+| `cleanup.enabled` | bool | `true` | Enable exhausted candidate cleanup |
 | `cleanup.max_failures` | int | `720` | Failure threshold for removal |
 | `networks` | NetworksConfig | -- | Per-network timeouts and concurrency |
 
@@ -208,7 +208,7 @@ flowchart TD
 
 **Purpose**: Perform NIP-11 and NIP-66 health checks on all validated relays and publish results as Nostr events.
 
-**Mode**: Continuous (`run_forever`, default interval 1 hour)
+**Mode**: Continuous (`run_forever`)
 
 **Reads**: `relay` (validated relays)
 **Writes**: `metadata`, `relay_metadata` (health check results); publishes Nostr kind 0, 10166, 30166 events
@@ -242,6 +242,13 @@ class CheckResult(NamedTuple):
     nip66_http: Nip66HttpMetadata | None
 ```
 
+**Checkpoint tracking:**
+
+The Monitor uses two types of `CHECKPOINT` records in `service_state`:
+
+- **Per-relay monitoring checkpoints** (key = relay URL) -- track when each relay was last checked, used for cleanup of stale entries when relays are removed.
+- **Publishing checkpoints** (key = `"announcement"` or `"profile"`) -- track when the last kind 10166 announcement or kind 0 profile event was published, enforcing the configured minimum interval between publishes.
+
 **Published Nostr events:**
 
 | Kind | Type | Content |
@@ -256,7 +263,6 @@ class CheckResult(NamedTuple):
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `interval` | float | `3600.0` | Seconds between check cycles |
 | `processing.chunk_size` | int | `100` | Relays per batch |
 | `processing.max_relays` | int or null | `null` | Max relays per cycle |
 | `processing.compute.*` | bool | `true` | Enable computation per metadata type |
@@ -277,7 +283,7 @@ class CheckResult(NamedTuple):
 
 **Purpose**: Connect to relays, subscribe to events, and archive them to PostgreSQL.
 
-**Mode**: Continuous (`run_forever`, default interval 15 minutes)
+**Mode**: Continuous (`run_forever`)
 
 **Reads**: `relay` (validated relays), `service_state` (cursors)
 **Writes**: `event`, `event_relay` (archived events and junctions), `service_state` (updated cursors)
@@ -288,14 +294,14 @@ class CheckResult(NamedTuple):
 flowchart TD
     A["Synchronizer.run()"] --> B["Fetch relays from DB"]
     B --> C["Load cursors from service_state"]
-    C --> D["Shuffle relays<br/><small>prevent thundering herd</small>"]
-    D --> E["_run_sync(relays, cursors)<br/><small>TaskGroup + semaphore</small>"]
+    C --> D["Order relays<br/><small>most behind first</small>"]
+    D --> E["synchronize()<br/><small>_iter_concurrent + semaphore</small>"]
     E --> F["Per relay:"]
     F --> G["Connect via WebSocket"]
     G --> H["stream_events()<br/><small>windowing with binary-split fallback</small>"]
     H --> I["Buffer events"]
     I --> J{Buffer full?}
-    J -->|Yes| K["insert_events()<br/><small>cascade insert</small>"]
+    J -->|Yes| K["insert_event_relays()<br/><small>cascade insert</small>"]
     J -->|No| L{Stream done?}
     L -->|Yes| K
     L -->|No| I
@@ -303,27 +309,27 @@ flowchart TD
 
 ```
 
-1. `run()` delegates to `synchronize()` -- fetch relays, shuffle, load cursors, distribute work
-2. `_run_sync(relays, cursors)` -- `_iter_concurrent()` with per-network semaphores
-3. For each relay: `_sync_single_relay()` connects via WebSocket, streams events using `stream_events()` with data-driven windowing and binary-split fallback for completeness
-4. Events are buffered and batch-inserted via `insert_events()` (cascade insert to `event` + `event_relay`)
-5. Per-relay cursor tracking via `ServiceState` with `ServiceStateType.CURSOR`, batched flush every `flush_interval` relays
+1. `run()` delegates to `synchronize()` -- fetch cursors ordered by sync progress ascending (most behind first), distribute work
+2. `synchronize()` -- `_iter_concurrent()` with `_sync_worker` async generators and per-network semaphores
+3. For each relay: `_sync_relay_events()` connects via WebSocket, streams events using `stream_events()` with data-driven windowing and binary-split fallback for completeness
+4. Events are buffered and batch-inserted via `insert_event_relays()` (cascade insert to `event` + `event_relay`)
+5. Per-relay cursor tracking via `ServiceState` with `ServiceStateType.CURSOR`, cursors saved in batch via `upsert_sync_cursors()` at each buffer flush
 6. Cursor set to `end_time` on completion, or last event's `created_at` on partial completion
 
 ### Configuration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `interval` | float | `900.0` | Seconds between sync cycles |
-| `filters` | list[Filter] | `[Filter()]` | NIP-01 filter dicts for event subscription (null = all) |
-| `limit` | int | `500` | Max events per relay request (REQ limit) |
-| `since` | int | `0` | Default start timestamp for relays without a cursor |
-| `until` | int or null | `null` | Upper bound timestamp (null = now) |
-| `end_lag` | int | `86400` | Seconds subtracted from until to compute sync end time |
-| `flush_interval` | int | `50` | Flush cursor updates every N relays |
+| `processing.filters` | list[dict] | `[{}]` | NIP-01 filter dicts for event subscription (OR semantics) |
+| `processing.limit` | int | `500` | Max events per relay request (REQ limit) |
+| `processing.since` | int | `0` | Default start timestamp for relays without a cursor |
+| `processing.until` | int or null | `null` | Upper bound timestamp (null = now) |
+| `processing.end_lag` | int | `86400` | Seconds subtracted from until to compute sync end time |
+| `processing.batch_size` | int | `1000` | Events to buffer before flushing to the database |
+| `processing.allow_insecure` | bool | `false` | Fall back to insecure transport on SSL failure |
 | `timeouts.relay_clearnet` | float | `1800.0` | Max time per clearnet relay sync |
 | `timeouts.relay_tor` | float | `3600.0` | Max time per Tor relay sync |
-| `timeouts.max_duration` | float or null | `null` | Maximum seconds for the entire sync phase |
+| `timeouts.max_duration` | float | `14400.0` | Maximum seconds for the entire sync phase |
 | `networks` | NetworksConfig | -- | Per-network timeouts and concurrency |
 
 !!! tip "API Reference"
@@ -335,7 +341,7 @@ flowchart TD
 
 **Purpose**: Refresh materialized views that power analytics queries.
 
-**Mode**: Continuous (`run_forever`, default interval 1 hour)
+**Mode**: Continuous (`run_forever`)
 
 **Reads**: Base tables (indirectly, via `REFRESH MATERIALIZED VIEW CONCURRENTLY`)
 **Writes**: 11 materialized views
@@ -353,7 +359,6 @@ The Refresher calls views in dependency order: `relay_metadata_latest` first (be
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `interval` | float | `3600.0` | Seconds between refresh cycles |
 | `refresh.views` | list[string] | all 11 views | Materialized views to refresh |
 
 !!! tip "API Reference"

@@ -132,7 +132,7 @@ class ProcessingConfig(BaseModel):
         description="Upper bound timestamp (None = now())",
     )
     limit: int = Field(
-        default=500, ge=1, le=5000, description="Max events per relay request (REQ limit)"
+        default=500, ge=10, le=5000, description="Max events per relay request (REQ limit)"
     )
     end_lag: int = Field(
         default=86_400,
@@ -142,8 +142,8 @@ class ProcessingConfig(BaseModel):
     )
     batch_size: int = Field(
         default=1000,
-        ge=1,
-        le=100_000,
+        ge=100,
+        le=10_000,
         description="Events to buffer before flushing to the database",
     )
     allow_insecure: bool = Field(

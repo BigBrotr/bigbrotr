@@ -109,7 +109,7 @@ class TestRefresherConfig:
         config = RefresherConfig()
 
         assert config.refresh.views == DEFAULT_VIEWS
-        assert config.interval == 3600.0
+        assert config.interval == 86400.0
         assert config.max_consecutive_failures == 5
 
     def test_custom_nested_config(self) -> None:
@@ -320,9 +320,10 @@ class TestRefresherMetrics:
         with patch.object(refresher, "set_gauge") as mock_gauge:
             await refresher.run()
 
-            first_two = mock_gauge.call_args_list[:2]
-            assert first_two[0] == (("views_refreshed", 0),)
-            assert first_two[1] == (("views_failed", 0),)
+            first_three = mock_gauge.call_args_list[:3]
+            assert first_three[0] == (("views_total", 1),)
+            assert first_three[1] == (("views_refreshed", 0),)
+            assert first_three[2] == (("views_failed", 0),)
 
     @pytest.mark.parametrize(
         ("side_effects", "expected_refreshed", "expected_failed"),
@@ -353,32 +354,3 @@ class TestRefresherMetrics:
             final_gauges = {call[0][0]: call[0][1] for call in mock_gauge.call_args_list[2:]}
             assert final_gauges["views_refreshed"] == expected_refreshed
             assert final_gauges["views_failed"] == expected_failed
-
-    @pytest.mark.parametrize(
-        ("side_effects", "expected_refreshed", "expected_failed"),
-        [
-            ([None, None], 2, 0),
-            ([asyncpg.PostgresError("e")], 0, 1),
-            ([None, asyncpg.PostgresError("e"), None], 2, 1),
-        ],
-        ids=["all_success", "all_fail", "mixed"],
-    )
-    async def test_inc_counter_counts(
-        self,
-        mock_refresher_brotr: Brotr,
-        side_effects: list[Exception | None],
-        expected_refreshed: int,
-        expected_failed: int,
-    ) -> None:
-        mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=side_effects
-        )
-        views = [f"view_{i}" for i in range(len(side_effects))]
-        config = RefresherConfig(refresh=RefreshConfig(views=views))
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
-
-        with patch.object(refresher, "inc_counter") as mock_counter:
-            await refresher.run()
-
-        mock_counter.assert_any_call("total_views_refreshed", expected_refreshed)
-        mock_counter.assert_any_call("total_views_failed", expected_failed)

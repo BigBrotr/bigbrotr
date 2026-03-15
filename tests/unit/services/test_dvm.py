@@ -373,7 +373,10 @@ class TestDvmRun:
         ):
             await dvm_service.run()
 
-        mock_gauge.assert_any_call("jobs_received", 0)
+        mock_gauge.assert_any_call(
+            "tables_exposed",
+            sum(1 for n in dvm_service._catalog.tables if dvm_service._is_table_enabled(n)),
+        )
 
     async def test_run_no_events_updates_fetch_ts(self, dvm_service: Dvm) -> None:
         mock_client = _make_client_with_events([])
@@ -636,7 +639,7 @@ class TestDvmJobErrorHandling:
         ):
             await dvm_service.run()
 
-        mock_counter.assert_any_call("jobs_failed", 1)
+        mock_counter.assert_any_call("requests_failed", 1)
         mock_client.send_event_builder.assert_called_once()
 
     async def test_error_event_publish_failure_suppressed(self, dvm_service: Dvm) -> None:
@@ -657,7 +660,7 @@ class TestDvmJobErrorHandling:
         ):
             await dvm_service.run()
 
-        mock_counter.assert_any_call("jobs_failed", 1)
+        mock_counter.assert_any_call("requests_failed", 1)
 
 
 # ============================================================================
@@ -666,7 +669,7 @@ class TestDvmJobErrorHandling:
 
 
 class TestDvmMetrics:
-    async def test_report_metrics_emits_total_jobs_received(self, dvm_service: Dvm) -> None:
+    async def test_report_metrics_emits_requests_total(self, dvm_service: Dvm) -> None:
         event = _make_mock_event(tags=[["param", "table", "relay"], ["param", "limit", "5"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
@@ -687,21 +690,7 @@ class TestDvmMetrics:
         ):
             await dvm_service.run()
 
-        mock_counter.assert_any_call("total_jobs_received", 1)
-        mock_counter.assert_any_call("jobs_processed", 1)
-
-    async def test_payment_required_counter(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "premium_data"]])
-        mock_client = _make_client_with_events([event])
-        dvm_service._client = mock_client
-
-        with (
-            patch.object(dvm_service, "set_gauge"),
-            patch.object(dvm_service, "inc_counter") as mock_counter,
-        ):
-            await dvm_service.run()
-
-        mock_counter.assert_any_call("jobs_payment_required", 1)
+        mock_counter.assert_any_call("requests_total", 1)
 
 
 # ============================================================================

@@ -7,7 +7,7 @@ announcements to the Nostr network.
 
 Health checks include:
 
-- [Nip11][bigbrotr.nips.nip11.Nip11]: Relay info document (name,
+- [Nip11InfoMetadata][bigbrotr.nips.nip11.Nip11InfoMetadata]: Relay info document (name,
   description, pubkey, supported NIPs).
 - [Nip66RttMetadata][bigbrotr.nips.nip66.Nip66RttMetadata]: Open/read/write
   round-trip times in milliseconds.
@@ -93,7 +93,6 @@ from bigbrotr.utils.protocol import broadcast_events
 
 from .configs import MetadataFlags, MonitorConfig
 from .queries import (
-    count_relays_to_monitor,
     delete_stale_checkpoints,
     fetch_relays_to_monitor,
     insert_relay_metadata,
@@ -584,8 +583,13 @@ class Monitor(
             return 0
 
         monitored_before = int(time.time() - self._config.discovery.interval)
+        max_relays = self._config.processing.max_relays
 
-        total = await count_relays_to_monitor(self._brotr, monitored_before, networks)
+        all_relays = await fetch_relays_to_monitor(self._brotr, monitored_before, networks)
+        if max_relays is not None:
+            all_relays = all_relays[:max_relays]
+
+        total = len(all_relays)
         succeeded = 0
         failed = 0
 
@@ -596,25 +600,16 @@ class Monitor(
         self._logger.info("relays_available", total=total)
 
         chunk_size = self._config.processing.chunk_size
-        max_relays = self._config.processing.max_relays
 
-        while self.is_running:
-            if max_relays is not None:
-                budget = max_relays - succeeded - failed
-                if budget <= 0:
-                    break
-                limit = min(chunk_size, budget)
-            else:
-                limit = chunk_size
-
-            relays = await fetch_relays_to_monitor(self._brotr, monitored_before, networks, limit)
-            if not relays:
+        for i in range(0, total, chunk_size):
+            if not self.is_running:
                 break
 
+            relays = all_relays[i : i + chunk_size]
             chunk_successful: list[tuple[Relay, CheckResult]] = []
             chunk_failed: list[Relay] = []
 
-            async for relay, result in self._iter_concurrent(relays, self._monitoring_worker):
+            async for relay, result in self._iter_concurrent(relays, self._monitor_worker):
                 if result is not None:
                     chunk_successful.append((relay, result))
                     succeeded += 1
@@ -638,7 +633,7 @@ class Monitor(
 
         return succeeded + failed
 
-    async def _monitoring_worker(
+    async def _monitor_worker(
         self, relay: Relay
     ) -> AsyncGenerator[tuple[Relay, CheckResult | None], None]:
         """Health-check a single relay for use with ``_iter_concurrent``.

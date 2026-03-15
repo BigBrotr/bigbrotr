@@ -64,7 +64,7 @@ def query_brotr() -> MagicMock:
     brotr.fetchval = AsyncMock(return_value=0)
     brotr.fetch = AsyncMock(return_value=[])
     brotr.insert_event_relay = AsyncMock(return_value=0)
-    brotr.upsert_service_state = AsyncMock(return_value=None)
+    brotr.upsert_service_state = AsyncMock(return_value=0)
     brotr.config.batch.max_size = 1000
     return brotr
 
@@ -456,7 +456,7 @@ class TestSynchronize:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
         sync.set_gauge = MagicMock()  # type: ignore[method-assign]
 
-        async def fake_sync_worker(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        async def fake_synchronize_worker(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
             yield evt1, relay
             yield evt2, relay
 
@@ -472,7 +472,7 @@ class TestSynchronize:
                 new_callable=AsyncMock,
                 return_value=2,
             ),
-            patch.object(sync, "_sync_worker", side_effect=fake_sync_worker),
+            patch.object(sync, "_synchronize_worker", side_effect=fake_synchronize_worker),
             patch(
                 "bigbrotr.services.synchronizer.service.upsert_sync_cursors",
                 new_callable=AsyncMock,
@@ -500,7 +500,7 @@ class TestSynchronize:
                 new_callable=AsyncMock,
                 return_value=[cursor],
             ),
-            patch.object(sync, "_sync_worker", side_effect=failing_worker),
+            patch.object(sync, "_synchronize_worker", side_effect=failing_worker),
         ):
             result = await sync.synchronize()
 
@@ -514,7 +514,7 @@ class TestSynchronize:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
         sync.set_gauge = MagicMock()  # type: ignore[method-assign]
 
-        async def fake_sync_worker(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        async def fake_synchronize_worker(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
             yield evt1, relay
 
         with (
@@ -529,7 +529,7 @@ class TestSynchronize:
                 new_callable=AsyncMock,
                 return_value=1,
             ),
-            patch.object(sync, "_sync_worker", side_effect=fake_sync_worker),
+            patch.object(sync, "_synchronize_worker", side_effect=fake_synchronize_worker),
             patch(
                 "bigbrotr.services.synchronizer.service.upsert_sync_cursors",
                 new_callable=AsyncMock,
@@ -542,17 +542,17 @@ class TestSynchronize:
     async def test_flushes_at_batch_size(self, mock_synchronizer_brotr: Brotr) -> None:
         cursor = SyncCursor(key="wss://relay1.example.com")
         relay = Relay("wss://relay1.example.com")
-        events = [_make_mock_event(i * 100) for i in range(3)]
+        events = [_make_mock_event(i * 100) for i in range(300)]
 
-        config = SynchronizerConfig(processing=ProcessingConfig(batch_size=2))
+        config = SynchronizerConfig(processing=ProcessingConfig(batch_size=200))
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
         sync.set_gauge = MagicMock()  # type: ignore[method-assign]
 
-        async def fake_sync_worker(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        async def fake_synchronize_worker(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
             for evt in events:
                 yield evt, relay
 
-        mock_insert = AsyncMock(side_effect=[2, 1])
+        mock_insert = AsyncMock(side_effect=[200, 100])
         with (
             patch(
                 "bigbrotr.services.synchronizer.service.fetch_cursors_to_sync",
@@ -564,7 +564,7 @@ class TestSynchronize:
                 "bigbrotr.services.synchronizer.service.insert_event_relays",
                 mock_insert,
             ),
-            patch.object(sync, "_sync_worker", side_effect=fake_sync_worker),
+            patch.object(sync, "_synchronize_worker", side_effect=fake_synchronize_worker),
             patch(
                 "bigbrotr.services.synchronizer.service.upsert_sync_cursors",
                 new_callable=AsyncMock,
@@ -572,7 +572,7 @@ class TestSynchronize:
         ):
             result = await sync.synchronize()
 
-        assert result == 3
+        assert result == 300
         assert mock_insert.await_count == 2
 
     async def test_max_duration_exceeded_breaks_after_flush(
@@ -580,16 +580,16 @@ class TestSynchronize:
     ) -> None:
         cursor = SyncCursor(key="wss://relay1.example.com")
         relay = Relay("wss://relay1.example.com")
-        events = [_make_mock_event(i * 100) for i in range(4)]
+        events = [_make_mock_event(i * 100) for i in range(400)]
 
         config = SynchronizerConfig(
-            processing=ProcessingConfig(batch_size=2),
+            processing=ProcessingConfig(batch_size=200),
             timeouts=TimeoutsConfig(max_duration=1800.0),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
         sync.set_gauge = MagicMock()  # type: ignore[method-assign]
 
-        async def fake_sync_worker(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        async def fake_synchronize_worker(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
             for evt in events:
                 yield evt, relay
 
@@ -615,7 +615,7 @@ class TestSynchronize:
                 new_callable=AsyncMock,
                 return_value=2,
             ),
-            patch.object(sync, "_sync_worker", side_effect=fake_sync_worker),
+            patch.object(sync, "_synchronize_worker", side_effect=fake_synchronize_worker),
             patch(
                 "bigbrotr.services.synchronizer.service.upsert_sync_cursors",
                 new_callable=AsyncMock,
@@ -638,7 +638,7 @@ class TestSynchronize:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
         sync.set_gauge = MagicMock()  # type: ignore[method-assign]
 
-        async def fake_sync_worker(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        async def fake_synchronize_worker(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
             yield evt1, relay
 
         with (
@@ -653,7 +653,7 @@ class TestSynchronize:
                 new_callable=AsyncMock,
                 return_value=1,
             ),
-            patch.object(sync, "_sync_worker", side_effect=fake_sync_worker),
+            patch.object(sync, "_synchronize_worker", side_effect=fake_synchronize_worker),
             patch(
                 "bigbrotr.services.synchronizer.service.upsert_sync_cursors",
                 new_callable=AsyncMock,
@@ -673,7 +673,7 @@ class TestSynchronize:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
         sync.set_gauge = MagicMock()  # type: ignore[method-assign]
 
-        async def fake_sync_worker(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        async def fake_synchronize_worker(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
             yield evt1, relay
             yield evt2, relay
 
@@ -689,7 +689,7 @@ class TestSynchronize:
                 new_callable=AsyncMock,
                 return_value=2,
             ),
-            patch.object(sync, "_sync_worker", side_effect=fake_sync_worker),
+            patch.object(sync, "_synchronize_worker", side_effect=fake_synchronize_worker),
             patch(
                 "bigbrotr.services.synchronizer.service.upsert_sync_cursors",
                 new_callable=AsyncMock,
@@ -702,7 +702,7 @@ class TestSynchronize:
 
 
 # ============================================================================
-# _sync_worker
+# _synchronize_worker
 # ============================================================================
 
 
@@ -712,7 +712,7 @@ class TestSyncWorker:
         sync.network_semaphores = {}
 
         cursor = SyncCursor(key="wss://unknown.relay.com")
-        items = [item async for item in sync._sync_worker(cursor)]
+        items = [item async for item in sync._synchronize_worker(cursor)]
 
         assert items == []
 
@@ -728,7 +728,7 @@ class TestSyncWorker:
             "bigbrotr.services.synchronizer.service.connect_relay",
             new_callable=AsyncMock,
         ) as mock_connect:
-            items = [item async for item in sync._sync_worker(cursor)]
+            items = [item async for item in sync._synchronize_worker(cursor)]
 
         assert items == []
         mock_connect.assert_not_awaited()
@@ -750,12 +750,12 @@ class TestSyncWorker:
             new_callable=AsyncMock,
             side_effect=error,
         ):
-            items = [item async for item in sync._sync_worker(cursor)]
+            items = [item async for item in sync._synchronize_worker(cursor)]
 
         assert items == []
 
     async def test_yields_events_and_disconnects(self, mock_synchronizer_brotr: Brotr) -> None:
-        config = SynchronizerConfig(processing=ProcessingConfig(limit=2))
+        config = SynchronizerConfig(processing=ProcessingConfig(limit=10))
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
         cursor = SyncCursor(key="wss://relay.example.com")
@@ -782,7 +782,7 @@ class TestSyncWorker:
                 side_effect=fake_stream,
             ),
         ):
-            items = [item async for item in sync._sync_worker(cursor)]
+            items = [item async for item in sync._synchronize_worker(cursor)]
 
         assert len(items) == 2
         assert items[0][0] is evt_a
@@ -813,7 +813,7 @@ class TestSyncWorker:
                 side_effect=empty_stream,
             ),
         ):
-            items = [item async for item in sync._sync_worker(cursor)]
+            items = [item async for item in sync._synchronize_worker(cursor)]
 
         assert items == []
         mock_client.disconnect.assert_awaited_once()
@@ -852,7 +852,7 @@ class TestSyncWorker:
                 side_effect=error_stream,
             ),
         ):
-            items = [item async for item in sync._sync_worker(cursor)]
+            items = [item async for item in sync._synchronize_worker(cursor)]
 
         assert items == []
 
@@ -880,7 +880,7 @@ class TestSyncWorker:
                 side_effect=empty_stream,
             ),
         ):
-            items = [item async for item in sync._sync_worker(cursor)]
+            items = [item async for item in sync._synchronize_worker(cursor)]
 
         mock_client.shutdown.assert_awaited_once()
         assert items == []
@@ -930,7 +930,7 @@ class TestSyncWorker:
                 side_effect=mock_monotonic,
             ),
         ):
-            items = [item async for item in sync._sync_worker(cursor)]
+            items = [item async for item in sync._synchronize_worker(cursor)]
 
         # Only first event yielded; second was skipped due to deadline
         assert len(items) == 1
@@ -959,7 +959,7 @@ class TestSyncWorker:
                 side_effect=exploding_stream,
             ),
         ):
-            items = [item async for item in sync._sync_worker(cursor)]
+            items = [item async for item in sync._synchronize_worker(cursor)]
 
         assert items == []
 

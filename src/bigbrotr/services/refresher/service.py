@@ -38,6 +38,7 @@ Examples:
 
 from __future__ import annotations
 
+import time
 from typing import ClassVar
 
 import asyncpg
@@ -73,20 +74,22 @@ class Refresher(BaseService[RefresherConfig]):
         refreshed = 0
         failed = 0
 
+        self.set_gauge("views_total", len(views))
         self.set_gauge("views_refreshed", 0)
         self.set_gauge("views_failed", 0)
 
         for view in views:
+            start = time.monotonic()
             try:
                 await self._brotr.refresh_materialized_view(view)
                 refreshed += 1
-                self._logger.info("view_refreshed", view=view)
+                duration = time.monotonic() - start
+                self.set_gauge(f"duration_{view}", duration)
+                self._logger.info("view_refreshed", view=view, duration_s=duration)
             except (asyncpg.PostgresError, OSError) as exc:
                 failed += 1
                 self._logger.error("view_refresh_failed", view=view, error=str(exc))
 
         self.set_gauge("views_refreshed", refreshed)
         self.set_gauge("views_failed", failed)
-        self.inc_counter("total_views_refreshed", refreshed)
-        self.inc_counter("total_views_failed", failed)
         self._logger.info("refresh_completed", refreshed=refreshed, failed=failed)

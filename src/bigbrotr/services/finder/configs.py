@@ -30,18 +30,21 @@ class EventsConfig(BaseModel):
     """
 
     enabled: bool = Field(default=True, description="Enable event scanning")
-    batch_size: int = Field(default=100, ge=10, le=1000, description="Events to process per batch")
+    scan_size: int = Field(default=500, ge=10, le=10_000, description="Rows per paginated DB query")
+    batch_size: int = Field(
+        default=500, ge=10, le=10_000, description="Discovered relays to buffer before flushing"
+    )
     parallel_relays: int = Field(
         default=50, ge=1, le=200, description="Maximum concurrent relay event scans"
     )
     max_relay_time: float = Field(
-        default=300.0,
+        default=900.0,
         ge=10.0,
         le=86_400.0,
         description="Maximum seconds to scan a single relay",
     )
     max_duration: float = Field(
-        default=3600.0,
+        default=7200.0,
         ge=60.0,
         le=86_400.0,
         description="Maximum seconds for the entire event scanning phase",
@@ -78,8 +81,7 @@ class ApiSourceConfig(BaseModel):
         description="HTTP connection timeout (capped to total timeout)",
     )
     expression: str = Field(
-        default="[*]",
-        description="JMESPath expression to extract URL strings from the JSON response",
+        description="JMESPath expression to extract URL strings from the JSON response"
     )
     allow_insecure: bool = Field(
         default=False,
@@ -124,8 +126,8 @@ class ApiConfig(BaseModel):
     )
     sources: list[ApiSourceConfig] = Field(
         default_factory=lambda: [
-            ApiSourceConfig(url="https://api.nostr.watch/v1/online"),
-            ApiSourceConfig(url="https://api.nostr.watch/v1/offline"),
+            ApiSourceConfig(url="https://api.nostr.watch/v1/online", expression="[*]"),
+            ApiSourceConfig(url="https://api.nostr.watch/v1/offline", expression="[*]"),
         ],
         description="List of API endpoint configurations",
     )

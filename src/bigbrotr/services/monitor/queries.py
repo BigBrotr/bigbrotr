@@ -65,40 +65,10 @@ _RELAYS_TO_MONITOR_WHERE = """
 """
 
 
-async def count_relays_to_monitor(
-    brotr: Brotr,
-    monitored_before: int,
-    networks: list[NetworkType],
-) -> int:
-    """Count relays due for monitoring.
-
-    Args:
-        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
-        monitored_before: Exclusive upper bound -- only relays whose
-            checkpoint ``timestamp`` is before this Unix timestamp (or NULL)
-            are counted.
-        networks: Network types to include.
-
-    Returns:
-        Total count of matching relays.
-    """
-    count: int = await brotr.fetchval(
-        f"SELECT count(*)::int {_RELAYS_TO_MONITOR_WHERE}",
-        networks,
-        monitored_before,
-        ServiceName.MONITOR,
-        ServiceStateType.CHECKPOINT,
-    )
-    return count
-
-
 async def fetch_relays_to_monitor(
-    brotr: Brotr,
-    monitored_before: int,
-    networks: list[NetworkType],
-    limit: int,
+    brotr: Brotr, monitored_before: int, networks: list[NetworkType]
 ) -> list[Relay]:
-    """Fetch relays due for monitoring, ordered by least-recently-monitored.
+    """Fetch all relays due for monitoring, ordered by least-recently-monitored.
 
     Returns relays that have never been monitored or whose last monitoring
     occurred before ``monitored_before``.  Ordering ensures that relays
@@ -111,7 +81,6 @@ async def fetch_relays_to_monitor(
             checkpoint ``timestamp`` is before this Unix timestamp (or NULL)
             are returned.
         networks: Network types to include.
-        limit: Maximum relays to return.
 
     Returns:
         List of [Relay][bigbrotr.models.relay.Relay] instances.
@@ -123,13 +92,11 @@ async def fetch_relays_to_monitor(
         ORDER BY
             COALESCE((ss.state_value->>'timestamp')::BIGINT, 0) ASC,
             r.discovered_at ASC
-        LIMIT $5
         """,
         networks,
         monitored_before,
         ServiceName.MONITOR,
         ServiceStateType.CHECKPOINT,
-        limit,
     )
     relays: list[Relay] = []
     for row in rows:
@@ -235,14 +202,13 @@ async def upsert_publish_checkpoints(brotr: Brotr, state_keys: list[str]) -> Non
         return
     _validate_publish_keys(state_keys)
     now = int(time.time())
-    await brotr.upsert_service_state(
-        [
-            ServiceState(
-                service_name=ServiceName.MONITOR,
-                state_type=ServiceStateType.CHECKPOINT,
-                state_key=key,
-                state_value={"timestamp": now},
-            )
-            for key in state_keys
-        ]
-    )
+    records = [
+        ServiceState(
+            service_name=ServiceName.MONITOR,
+            state_type=ServiceStateType.CHECKPOINT,
+            state_key=key,
+            state_value={"timestamp": now},
+        )
+        for key in state_keys
+    ]
+    await upsert_service_states(brotr, records)

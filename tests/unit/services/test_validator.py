@@ -53,7 +53,7 @@ _UTILS = "bigbrotr.services.validator.utils"
 def validator_brotr(mock_brotr: Brotr) -> Brotr:
     mock_brotr.insert_relay = AsyncMock()
     mock_brotr.delete_service_state = AsyncMock()
-    mock_brotr.upsert_service_state = AsyncMock()
+    mock_brotr.upsert_service_state = AsyncMock(return_value=0)
     return mock_brotr
 
 
@@ -678,7 +678,7 @@ class TestValidate:
 
 
 # ============================================================================
-# Validator._validation_worker
+# Validator._validate_worker
 # ============================================================================
 
 
@@ -687,20 +687,20 @@ class TestValidationWorker:
         v = Validator(validator_brotr)
         c = _candidate("wss://good.com")
         with patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=True):
-            results = [r async for r in v._validation_worker(c)]
+            results = [r async for r in v._validate_worker(c)]
         assert results == [(c, True)]
 
     async def test_invalid_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
         c = _candidate("wss://bad.com")
         with patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=False):
-            results = [r async for r in v._validation_worker(c)]
+            results = [r async for r in v._validate_worker(c)]
         assert results == [(c, False)]
 
     async def test_unknown_network_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
         c = _candidate(network=NetworkType.UNKNOWN)
-        results = [r async for r in v._validation_worker(c)]
+        results = [r async for r in v._validate_worker(c)]
         assert results == [(c, False)]
 
     async def test_unexpected_error_returns_false(self, validator_brotr: Brotr) -> None:
@@ -711,13 +711,13 @@ class TestValidationWorker:
             new_callable=AsyncMock,
             side_effect=RuntimeError("boom"),
         ):
-            results = [r async for r in v._validation_worker(c)]
+            results = [r async for r in v._validate_worker(c)]
         assert results == [(c, False)]
 
     async def test_clearnet_no_proxy(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
         with patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=True) as mock:
-            _ = [r async for r in v._validation_worker(_candidate())]
+            _ = [r async for r in v._validate_worker(_candidate())]
         assert mock.call_args[0][1] is None
 
 
@@ -735,7 +735,7 @@ class TestNetworkRouting:
     ) -> tuple[str | None, float]:
         v = Validator(validator_brotr, config=cfg)
         with patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=True) as mock:
-            _ = [r async for r in v._validation_worker(candidate)]
+            _ = [r async for r in v._validate_worker(candidate)]
         return mock.call_args[0][1], mock.call_args[0][2]
 
     async def test_clearnet(self, validator_brotr: Brotr) -> None:
@@ -798,13 +798,13 @@ class TestNetworkRouting:
         cfg = ValidatorConfig(processing=ProcessingConfig(allow_insecure=True))
         v = Validator(validator_brotr, config=cfg)
         with patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=True) as mock:
-            _ = [r async for r in v._validation_worker(_candidate())]
+            _ = [r async for r in v._validate_worker(_candidate())]
         assert mock.call_args.kwargs["allow_insecure"] is True
 
     async def test_allow_insecure_default_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
         with patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=True) as mock:
-            _ = [r async for r in v._validation_worker(_candidate())]
+            _ = [r async for r in v._validate_worker(_candidate())]
         assert mock.call_args.kwargs["allow_insecure"] is False
 
 

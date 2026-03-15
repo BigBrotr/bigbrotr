@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11+">
-  <img src="https://img.shields.io/badge/postgresql-16+-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL 16+">
-  <img src="https://img.shields.io/badge/async-asyncpg-00ADD8?style=for-the-badge" alt="Async">
-  <img src="https://img.shields.io/badge/docker-compose-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
-  <img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge" alt="MIT License">
-  <a href="https://codecov.io/gh/Bigbrotr/bigbrotr"><img src="https://img.shields.io/codecov/c/github/Bigbrotr/bigbrotr?token=LM9D3ABW0L&style=for-the-badge&logo=codecov&logoColor=white&label=coverage" alt="Coverage"></a>
-  <a href="https://bigbrotr.github.io/bigbrotr/"><img src="https://img.shields.io/badge/docs-latest-brightgreen?style=for-the-badge&logo=readthedocs&logoColor=white" alt="Documentation"></a>
+  <a href="https://github.com/BigBrotr/bigbrotr/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/BigBrotr/bigbrotr/ci.yml?branch=develop&label=CI&logo=github" alt="CI"></a>
+  <a href="https://github.com/BigBrotr/bigbrotr/actions/workflows/codeql.yml"><img src="https://img.shields.io/github/actions/workflow/status/BigBrotr/bigbrotr/codeql.yml?branch=develop&label=CodeQL&logo=github" alt="CodeQL"></a>
+  <a href="https://codecov.io/gh/Bigbrotr/bigbrotr"><img src="https://img.shields.io/codecov/c/github/Bigbrotr/bigbrotr?token=LM9D3ABW0L&logo=codecov&label=coverage" alt="Coverage"></a>
+  <a href="https://bigbrotr.github.io/bigbrotr/"><img src="https://img.shields.io/badge/docs-latest-blue?logo=readthedocs&logoColor=white" alt="Docs"></a>
+  <img src="https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white" alt="Python 3.11+">
+  <img src="https://img.shields.io/badge/postgresql-16-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL 16">
+  <a href="https://github.com/BigBrotr/bigbrotr/blob/main/LICENSE"><img src="https://img.shields.io/github/license/BigBrotr/bigbrotr" alt="License"></a>
 </p>
 
 <h1 align="center">BigBrotr</h1>
@@ -54,16 +54,18 @@ Eight **independent** async services share a PostgreSQL database. Each runs on i
 
 ### Services
 
-| Service | Default Interval | What it does | External I/O |
-|---------|-----------------|-------------|-------------|
-| **Seeder** | One-shot | Loads relay URLs from a seed file | Seed file |
-| **Finder** | 5 min | Discovers relay URLs from event tag values and external APIs | HTTP (nostr.watch) |
-| **Validator** | 1 hour | Tests candidates via WebSocket handshake, promotes valid relays | WebSocket |
-| **Monitor** | 1 hour | Runs NIP-11 + 6 NIP-66 health checks, publishes kind 10166/30166 events | HTTP, WS, DNS, SSL, GeoIP |
-| **Synchronizer** | 5 min | Connects to relays, streams and archives signed events with cursor-based resumption | WebSocket |
-| **Refresher** | 1 hour | Refreshes 11 materialized views in dependency order | None |
-| **Api** | Continuous | Read-only REST API with auto-generated paginated endpoints | HTTP (FastAPI) |
-| **Dvm** | Continuous | NIP-90 Data Vending Machine for database queries over Nostr | WebSocket (Nostr) |
+| Service | What it does | External I/O |
+|---------|-------------|-------------|
+| **Seeder** | Loads relay URLs from a seed file (one-shot) | Seed file |
+| **Finder** | Discovers relay URLs from event tag values and external APIs | HTTP (nostr.watch) |
+| **Validator** | Tests candidates via WebSocket handshake, promotes valid relays | WebSocket |
+| **Monitor** | Runs NIP-11 + 6 NIP-66 health checks, publishes kind 10166/30166 events | HTTP, WS, DNS, SSL, GeoIP |
+| **Synchronizer** | Connects to relays, streams and archives signed events with cursor-based resumption | WebSocket |
+| **Refresher** | Refreshes 11 materialized views in dependency order | None |
+| **Api** | Read-only REST API with auto-generated paginated endpoints | HTTP (FastAPI) |
+| **Dvm** | NIP-90 Data Vending Machine for database queries over Nostr | WebSocket (Nostr) |
+
+All continuous services default to a 5-minute cycle interval (`interval=300.0`), configurable per deployment.
 
 Services are **loosely coupled through the database**: Seeder and Finder populate candidates, Validator promotes them to relays, Monitor and Synchronizer operate on validated relays, Refresher materializes analytics. Stopping one does not break the others.
 

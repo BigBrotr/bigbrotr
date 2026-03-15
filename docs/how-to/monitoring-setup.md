@@ -6,7 +6,7 @@ Configure Prometheus metrics collection, Grafana dashboards, and alerting for Bi
 
 ## Overview
 
-Every BigBrotr service exposes a `/metrics` endpoint in Prometheus exposition format. The Docker Compose stack includes Prometheus and Grafana pre-configured, but you can also connect to an external monitoring stack.
+All continuous BigBrotr services expose a `/metrics` endpoint in Prometheus exposition format. Seeder is a one-shot service and does not expose a metrics endpoint. The Docker Compose stack includes Prometheus and Grafana pre-configured, but you can also connect to an external monitoring stack.
 
 ### Metrics Exposed
 

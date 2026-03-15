@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
+from bigbrotr.services.common.queries import upsert_service_states
 from bigbrotr.services.common.types import ApiCheckpoint, FinderCursor
 
 
@@ -16,21 +16,17 @@ if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
 
 
-logger = logging.getLogger(__name__)
-
-
-async def fetch_event_relay_cursors(brotr: Brotr) -> list[FinderCursor]:
+async def fetch_cursors_to_find(brotr: Brotr) -> list[FinderCursor]:
     """Fetch all relays with their event-scanning cursor position.
 
     Performs a single ``LEFT JOIN`` between the ``relay`` table and
     ``service_state`` (filtered on ``finder`` / ``cursor``), returning an
     [FinderCursor][bigbrotr.services.common.types.FinderCursor] for
-    every relay.  Relays without a stored cursor get
-    ``timestamp=None, id=None`` (scan from beginning).
+    every relay.  Relays without a stored cursor get default values
+    (``timestamp=0``, scan from beginning).
 
-    Cursor rows with corrupt data (non-integer timestamp, non-hex
-    id) are silently treated as missing and the relay will be
-    rescanned from the beginning.
+    Results are ordered by ``(timestamp, id)`` ascending so that relays
+    with the least scanning progress are processed first.
 
     Args:
         brotr: The [Brotr][bigbrotr.core.brotr.Brotr] database facade.
@@ -38,45 +34,38 @@ async def fetch_event_relay_cursors(brotr: Brotr) -> list[FinderCursor]:
     Returns:
         List of
         [FinderCursor][bigbrotr.services.common.types.FinderCursor],
-        one per relay in the database.
+        one per relay in the database, ordered by ``(timestamp, id)``.
     """
     rows = await brotr.fetch(
         """
-        SELECT r.url,
-               (ss.state_value->>'seen_at') AS seen_at,
-               ss.state_value->>'event_id' AS event_id
+        WITH cursors AS (
+            SELECT state_key,
+                   state_value,
+                   (state_value->>'timestamp')::bigint AS ts,
+                   state_value->>'id' AS cursor_id
+            FROM service_state
+            WHERE service_name = $1
+              AND state_type = $2
+        )
+        SELECT r.url, c.state_value
         FROM relay r
-        LEFT JOIN service_state ss ON
-            ss.service_name = $1
-            AND ss.state_type = $2
-            AND ss.state_key = r.url
-        ORDER BY r.url
+        LEFT JOIN cursors c ON c.state_key = r.url
+        ORDER BY COALESCE(c.ts, 0) ASC,
+                 COALESCE(c.cursor_id, repeat('0', 64)) ASC
         """,
         ServiceName.FINDER,
         ServiceStateType.CURSOR,
     )
-    cursors: list[FinderCursor] = []
+    results: list[FinderCursor] = []
     for row in rows:
-        url = row["url"]
-        seen_at_raw = row["seen_at"]
-        event_id_hex = row["event_id"]
-        if seen_at_raw is not None and event_id_hex is not None:
-            try:
-                event_id = str(event_id_hex)
-                bytes.fromhex(event_id)  # validate hex format
-                cursors.append(
-                    FinderCursor(
-                        key=url,
-                        timestamp=int(seen_at_raw),
-                        id=event_id,
-                    )
-                )
-            except (ValueError, TypeError):
-                logger.warning("invalid_cursor_skipped: %s", url)
-                cursors.append(FinderCursor(key=url))
+        sv = row["state_value"]
+        if sv:
+            results.append(
+                FinderCursor(key=row["url"], timestamp=int(sv["timestamp"]), id=str(sv["id"]))
+            )
         else:
-            cursors.append(FinderCursor(key=url))
-    return cursors
+            results.append(FinderCursor(key=row["url"]))
+    return results
 
 
 async def scan_event_relay(
@@ -107,7 +96,7 @@ async def scan_event_relay(
         FROM event e
         INNER JOIN event_relay er ON e.id = er.event_id
         WHERE er.relay_url = $1
-          AND ($2::bigint = 0 OR (er.seen_at, e.id) > ($2::bigint, decode($3, 'hex')))
+          AND (er.seen_at, e.id) > ($2::bigint, decode($3, 'hex'))
         ORDER BY er.seen_at ASC, e.id ASC
         LIMIT $4
         """,
@@ -119,21 +108,24 @@ async def scan_event_relay(
     return [dict(row) for row in rows]
 
 
-async def load_api_checkpoints(brotr: Brotr, urls: list[str]) -> list[ApiCheckpoint]:
-    """Load per-source API timestamps from CHECKPOINT records.
+async def fetch_api_checkpoints(brotr: Brotr, urls: list[str]) -> list[ApiCheckpoint]:
+    """Fetch per-source API checkpoints, returning one per URL.
 
-    Fetches CHECKPOINT records for the given source URLs and returns them
-    as typed [ApiCheckpoint][bigbrotr.services.common.types.ApiCheckpoint]
-    instances.  Records that cannot be parsed (missing or non-integer
-    ``timestamp``) are silently skipped.
+    Returns an [ApiCheckpoint][bigbrotr.services.common.types.ApiCheckpoint]
+    for every URL in *urls*.  URLs with a stored CHECKPOINT record get
+    their persisted ``timestamp``; URLs without a record get a default
+    checkpoint with ``timestamp=0`` (immediately eligible for refresh).
+
+    Records that cannot be parsed (missing or non-integer ``timestamp``)
+    are treated as missing and receive the default.
 
     Args:
         brotr: The [Brotr][bigbrotr.core.brotr.Brotr] database facade.
-        urls: Source URLs to load checkpoints for.
+        urls: Source URLs to fetch checkpoints for.
 
     Returns:
         List of [ApiCheckpoint][bigbrotr.services.common.types.ApiCheckpoint],
-        one per valid stored record.
+        one per input URL, in the same order.
     """
     if not urls:
         return []
@@ -149,18 +141,18 @@ async def load_api_checkpoints(brotr: Brotr, urls: list[str]) -> list[ApiCheckpo
         ServiceStateType.CHECKPOINT,
         urls,
     )
-    checkpoints: list[ApiCheckpoint] = []
+    stored: dict[str, ApiCheckpoint] = {}
     for r in rows:
         try:
-            checkpoints.append(
-                ApiCheckpoint(key=r["state_key"], timestamp=int(r["state_value"]["timestamp"]))
+            stored[r["state_key"]] = ApiCheckpoint(
+                key=r["state_key"], timestamp=int(r["state_value"]["timestamp"])
             )
         except (KeyError, ValueError, TypeError):
             continue
-    return checkpoints
+    return [stored.get(url, ApiCheckpoint(key=url)) for url in urls]
 
 
-async def save_api_checkpoints(brotr: Brotr, checkpoints: list[ApiCheckpoint]) -> None:
+async def upsert_api_checkpoints(brotr: Brotr, checkpoints: list[ApiCheckpoint]) -> None:
     """Persist per-source API timestamps as CHECKPOINT records.
 
     Args:
@@ -168,20 +160,19 @@ async def save_api_checkpoints(brotr: Brotr, checkpoints: list[ApiCheckpoint]) -
         checkpoints: [ApiCheckpoint][bigbrotr.services.common.types.ApiCheckpoint]
             instances to persist.
     """
-    await brotr.upsert_service_state(
-        [
-            ServiceState(
-                service_name=ServiceName.FINDER,
-                state_type=ServiceStateType.CHECKPOINT,
-                state_key=cp.key,
-                state_value={"timestamp": cp.timestamp},
-            )
-            for cp in checkpoints
-        ]
-    )
+    records = [
+        ServiceState(
+            service_name=ServiceName.FINDER,
+            state_type=ServiceStateType.CHECKPOINT,
+            state_key=cp.key,
+            state_value={"timestamp": cp.timestamp},
+        )
+        for cp in checkpoints
+    ]
+    await upsert_service_states(brotr, records)
 
 
-async def save_event_relay_cursors(brotr: Brotr, cursors: Iterable[FinderCursor]) -> None:
+async def upsert_finder_cursors(brotr: Brotr, cursors: Iterable[FinderCursor]) -> None:
     """Persist multiple scan cursor positions in a single batch upsert.
 
     Cursors at default position (timestamp=0) are silently skipped.
@@ -197,15 +188,14 @@ async def save_event_relay_cursors(brotr: Brotr, cursors: Iterable[FinderCursor]
             state_type=ServiceStateType.CURSOR,
             state_key=cursor.key,
             state_value={
-                "seen_at": cursor.timestamp,
-                "event_id": cursor.id,
+                "timestamp": cursor.timestamp,
+                "id": cursor.id,
             },
         )
         for cursor in cursors
         if cursor.timestamp > 0
     ]
-    if states:
-        await brotr.upsert_service_state(states)
+    await upsert_service_states(brotr, states)
 
 
 async def delete_stale_cursors(brotr: Brotr) -> int:
