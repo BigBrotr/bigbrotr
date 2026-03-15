@@ -7546,22 +7546,16 @@
 <td>Primary key</td>
 </tr>
 <tr>
-<td><code>idx_event_created_at</code></td>
-<td><code>created_at DESC</code></td>
+<td><code>idx_event_created_at_id</code></td>
+<td><code>created_at DESC, id DESC</code></td>
 <td>BTREE</td>
-<td>Global timeline queries</td>
-</tr>
-<tr>
-<td><code>idx_event_kind</code></td>
-<td><code>kind</code></td>
-<td>BTREE</td>
-<td>Kind filtering</td>
+<td>Global timeline with cursor pagination (covers created_at-only via prefix)</td>
 </tr>
 <tr>
 <td><code>idx_event_kind_created_at</code></td>
 <td><code>kind, created_at DESC</code></td>
 <td>BTREE</td>
-<td>Kind + timeline</td>
+<td>Kind + timeline (covers kind-only via leftmost prefix)</td>
 </tr>
 <tr>
 <td><code>idx_event_pubkey_created_at</code></td>
@@ -7580,12 +7574,6 @@
 <td><code>tagvalues</code></td>
 <td>GIN</td>
 <td>Tag containment (<code>@&gt;</code>)</td>
-</tr>
-<tr>
-<td><code>idx_event_created_at_id</code></td>
-<td><code>created_at ASC, id ASC</code></td>
-<td>BTREE</td>
-<td>Cursor-based pagination</td>
 </tr>
 </tbody>
 </table>
@@ -7607,22 +7595,16 @@
 <td>Composite primary key</td>
 </tr>
 <tr>
-<td><code>idx_event_relay_relay_url</code></td>
-<td><code>relay_url</code></td>
-<td>BTREE</td>
-<td>All events from a relay</td>
-</tr>
-<tr>
 <td><code>idx_event_relay_seen_at</code></td>
 <td><code>seen_at DESC</code></td>
 <td>BTREE</td>
-<td>Recently discovered events</td>
+<td>Global seen_at ordering for API</td>
 </tr>
 <tr>
-<td><code>idx_event_relay_relay_url_seen_at</code></td>
-<td><code>relay_url, seen_at DESC</code></td>
+<td><code>idx_event_relay_relay_url_seen_at_event_id</code></td>
+<td><code>relay_url, seen_at ASC, event_id ASC</code></td>
 <td>BTREE</td>
-<td>Synchronizer cursor progress</td>
+<td>Finder cursor pagination (covers relay_url-only via prefix)</td>
 </tr>
 </tbody>
 </table>
@@ -7690,7 +7672,7 @@
 </table>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>The partial index on <code>service_state</code> has a WHERE clause: <code>WHERE service_name = 'validator' AND state_type = 'candidate'</code>.</p>
+<p>The partial index on <code>service_state</code> has a WHERE clause: <code>WHERE service_name = 'validator' AND state_type = 'checkpoint'</code>. Only validator checkpoint rows contain the <code>network</code> key in their <code>state_value</code> JSONB.</p>
 </div>
 <h3 id="materialized-view-indexes">Materialized View Indexes<a class="headerlink" href="#materialized-view-indexes" title="Permanent link">&para;</a></h3>
 <p>All materialized views require at least one unique index for <code>REFRESH CONCURRENTLY</code>. These indexes are shared across all deployments.</p>

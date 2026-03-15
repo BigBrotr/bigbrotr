@@ -5374,11 +5374,11 @@ from being refreshed.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/bigbrotr/services/refresher/service.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-66">66</a></span>
-<span class="normal"><a href="#__codelineno-0-67">67</a></span>
-<span class="normal"><a href="#__codelineno-0-68">68</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-66" name="__codelineno-0-66"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">cleanup</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;No-op: Refresher does not use service state.&quot;&quot;&quot;</span>
-<a id="__codelineno-0-68" name="__codelineno-0-68"></a>    <span class="k">return</span> <span class="mi">0</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-67">67</a></span>
+<span class="normal"><a href="#__codelineno-0-68">68</a></span>
+<span class="normal"><a href="#__codelineno-0-69">69</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">cleanup</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<a id="__codelineno-0-68" name="__codelineno-0-68"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;No-op: Refresher does not use service state.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-69" name="__codelineno-0-69"></a>    <span class="k">return</span> <span class="mi">0</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -5407,8 +5407,7 @@ from being refreshed.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/bigbrotr/services/refresher/service.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-70">70</a></span>
-<span class="normal"><a href="#__codelineno-0-71">71</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-71">71</a></span>
 <span class="normal"><a href="#__codelineno-0-72">72</a></span>
 <span class="normal"><a href="#__codelineno-0-73">73</a></span>
 <span class="normal"><a href="#__codelineno-0-74">74</a></span>
@@ -5429,29 +5428,34 @@ from being refreshed.</p>
 <span class="normal"><a href="#__codelineno-0-89">89</a></span>
 <span class="normal"><a href="#__codelineno-0-90">90</a></span>
 <span class="normal"><a href="#__codelineno-0-91">91</a></span>
-<span class="normal"><a href="#__codelineno-0-92">92</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-70" name="__codelineno-0-70"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-71" name="__codelineno-0-71"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Execute one refresh cycle over all configured views.&quot;&quot;&quot;</span>
-<a id="__codelineno-0-72" name="__codelineno-0-72"></a>    <span class="n">views</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">refresh</span><span class="o">.</span><span class="n">views</span>
-<a id="__codelineno-0-73" name="__codelineno-0-73"></a>    <span class="n">refreshed</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-0-74" name="__codelineno-0-74"></a>    <span class="n">failed</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-0-75" name="__codelineno-0-75"></a>
-<a id="__codelineno-0-76" name="__codelineno-0-76"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">set_gauge</span><span class="p">(</span><span class="s2">&quot;views_refreshed&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-0-77" name="__codelineno-0-77"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">set_gauge</span><span class="p">(</span><span class="s2">&quot;views_failed&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-0-78" name="__codelineno-0-78"></a>
-<a id="__codelineno-0-79" name="__codelineno-0-79"></a>    <span class="k">for</span> <span class="n">view</span> <span class="ow">in</span> <span class="n">views</span><span class="p">:</span>
-<a id="__codelineno-0-80" name="__codelineno-0-80"></a>        <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-81" name="__codelineno-0-81"></a>            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_brotr</span><span class="o">.</span><span class="n">refresh_materialized_view</span><span class="p">(</span><span class="n">view</span><span class="p">)</span>
-<a id="__codelineno-0-82" name="__codelineno-0-82"></a>            <span class="n">refreshed</span> <span class="o">+=</span> <span class="mi">1</span>
-<a id="__codelineno-0-83" name="__codelineno-0-83"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;view_refreshed&quot;</span><span class="p">,</span> <span class="n">view</span><span class="o">=</span><span class="n">view</span><span class="p">)</span>
-<a id="__codelineno-0-84" name="__codelineno-0-84"></a>        <span class="k">except</span> <span class="p">(</span><span class="n">asyncpg</span><span class="o">.</span><span class="n">PostgresError</span><span class="p">,</span> <span class="ne">OSError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
-<a id="__codelineno-0-85" name="__codelineno-0-85"></a>            <span class="n">failed</span> <span class="o">+=</span> <span class="mi">1</span>
-<a id="__codelineno-0-86" name="__codelineno-0-86"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;view_refresh_failed&quot;</span><span class="p">,</span> <span class="n">view</span><span class="o">=</span><span class="n">view</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">))</span>
-<a id="__codelineno-0-87" name="__codelineno-0-87"></a>
-<a id="__codelineno-0-88" name="__codelineno-0-88"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">set_gauge</span><span class="p">(</span><span class="s2">&quot;views_refreshed&quot;</span><span class="p">,</span> <span class="n">refreshed</span><span class="p">)</span>
-<a id="__codelineno-0-89" name="__codelineno-0-89"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">set_gauge</span><span class="p">(</span><span class="s2">&quot;views_failed&quot;</span><span class="p">,</span> <span class="n">failed</span><span class="p">)</span>
-<a id="__codelineno-0-90" name="__codelineno-0-90"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">inc_counter</span><span class="p">(</span><span class="s2">&quot;total_views_refreshed&quot;</span><span class="p">,</span> <span class="n">refreshed</span><span class="p">)</span>
-<a id="__codelineno-0-91" name="__codelineno-0-91"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">inc_counter</span><span class="p">(</span><span class="s2">&quot;total_views_failed&quot;</span><span class="p">,</span> <span class="n">failed</span><span class="p">)</span>
-<a id="__codelineno-0-92" name="__codelineno-0-92"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;refresh_completed&quot;</span><span class="p">,</span> <span class="n">refreshed</span><span class="o">=</span><span class="n">refreshed</span><span class="p">,</span> <span class="n">failed</span><span class="o">=</span><span class="n">failed</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-92">92</a></span>
+<span class="normal"><a href="#__codelineno-0-93">93</a></span>
+<span class="normal"><a href="#__codelineno-0-94">94</a></span>
+<span class="normal"><a href="#__codelineno-0-95">95</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-71" name="__codelineno-0-71"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Execute one refresh cycle over all configured views.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-73" name="__codelineno-0-73"></a>    <span class="n">views</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">refresh</span><span class="o">.</span><span class="n">views</span>
+<a id="__codelineno-0-74" name="__codelineno-0-74"></a>    <span class="n">refreshed</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-0-75" name="__codelineno-0-75"></a>    <span class="n">failed</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-0-76" name="__codelineno-0-76"></a>
+<a id="__codelineno-0-77" name="__codelineno-0-77"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">set_gauge</span><span class="p">(</span><span class="s2">&quot;views_total&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">views</span><span class="p">))</span>
+<a id="__codelineno-0-78" name="__codelineno-0-78"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">set_gauge</span><span class="p">(</span><span class="s2">&quot;views_refreshed&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-0-79" name="__codelineno-0-79"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">set_gauge</span><span class="p">(</span><span class="s2">&quot;views_failed&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-0-80" name="__codelineno-0-80"></a>
+<a id="__codelineno-0-81" name="__codelineno-0-81"></a>    <span class="k">for</span> <span class="n">view</span> <span class="ow">in</span> <span class="n">views</span><span class="p">:</span>
+<a id="__codelineno-0-82" name="__codelineno-0-82"></a>        <span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span>
+<a id="__codelineno-0-83" name="__codelineno-0-83"></a>        <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-84" name="__codelineno-0-84"></a>            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_brotr</span><span class="o">.</span><span class="n">refresh_materialized_view</span><span class="p">(</span><span class="n">view</span><span class="p">)</span>
+<a id="__codelineno-0-85" name="__codelineno-0-85"></a>            <span class="n">refreshed</span> <span class="o">+=</span> <span class="mi">1</span>
+<a id="__codelineno-0-86" name="__codelineno-0-86"></a>            <span class="n">duration</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span>
+<a id="__codelineno-0-87" name="__codelineno-0-87"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">set_gauge</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;duration_</span><span class="si">{</span><span class="n">view</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">duration</span><span class="p">)</span>
+<a id="__codelineno-0-88" name="__codelineno-0-88"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;view_refreshed&quot;</span><span class="p">,</span> <span class="n">view</span><span class="o">=</span><span class="n">view</span><span class="p">,</span> <span class="n">duration_s</span><span class="o">=</span><span class="n">duration</span><span class="p">)</span>
+<a id="__codelineno-0-89" name="__codelineno-0-89"></a>        <span class="k">except</span> <span class="p">(</span><span class="n">asyncpg</span><span class="o">.</span><span class="n">PostgresError</span><span class="p">,</span> <span class="ne">OSError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+<a id="__codelineno-0-90" name="__codelineno-0-90"></a>            <span class="n">failed</span> <span class="o">+=</span> <span class="mi">1</span>
+<a id="__codelineno-0-91" name="__codelineno-0-91"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;view_refresh_failed&quot;</span><span class="p">,</span> <span class="n">view</span><span class="o">=</span><span class="n">view</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">))</span>
+<a id="__codelineno-0-92" name="__codelineno-0-92"></a>
+<a id="__codelineno-0-93" name="__codelineno-0-93"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">set_gauge</span><span class="p">(</span><span class="s2">&quot;views_refreshed&quot;</span><span class="p">,</span> <span class="n">refreshed</span><span class="p">)</span>
+<a id="__codelineno-0-94" name="__codelineno-0-94"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">set_gauge</span><span class="p">(</span><span class="s2">&quot;views_failed&quot;</span><span class="p">,</span> <span class="n">failed</span><span class="p">)</span>
+<a id="__codelineno-0-95" name="__codelineno-0-95"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;refresh_completed&quot;</span><span class="p">,</span> <span class="n">refreshed</span><span class="o">=</span><span class="n">refreshed</span><span class="p">,</span> <span class="n">failed</span><span class="o">=</span><span class="n">failed</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>

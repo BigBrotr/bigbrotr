@@ -5666,7 +5666,7 @@ and flushes results at each pagination boundary.</p>
 <a id="__codelineno-0-174" name="__codelineno-0-174"></a>        <span class="n">chunk_invalid</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">CandidateCheckpoint</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
 <a id="__codelineno-0-175" name="__codelineno-0-175"></a>
 <a id="__codelineno-0-176" name="__codelineno-0-176"></a>        <span class="k">async</span> <span class="k">for</span> <span class="n">candidate</span><span class="p">,</span> <span class="n">is_valid</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_iter_concurrent</span><span class="p">(</span>
-<a id="__codelineno-0-177" name="__codelineno-0-177"></a>            <span class="n">candidates</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_validation_worker</span>
+<a id="__codelineno-0-177" name="__codelineno-0-177"></a>            <span class="n">candidates</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_validate_worker</span>
 <a id="__codelineno-0-178" name="__codelineno-0-178"></a>        <span class="p">):</span>
 <a id="__codelineno-0-179" name="__codelineno-0-179"></a>            <span class="k">if</span> <span class="n">is_valid</span><span class="p">:</span>
 <a id="__codelineno-0-180" name="__codelineno-0-180"></a>                <span class="n">chunk_valid</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">candidate</span><span class="p">)</span>

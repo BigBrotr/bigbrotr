@@ -6790,19 +6790,19 @@
 </thead>
 <tbody>
 <tr>
-<td><code>fetch_event_relay_cursors(brotr)</code></td>
-<td>LEFT JOIN relay with service_state for cursor positions</td>
+<td><code>fetch_cursors_to_find(brotr)</code></td>
+<td>LEFT JOIN relay with service_state for cursor positions, ordered by (timestamp, id)</td>
 </tr>
 <tr>
 <td><code>scan_event_relay(brotr, cursor, limit)</code></td>
 <td>Cursor-paginated event scan with <code>(seen_at, event_id)</code> tie-breaking</td>
 </tr>
 <tr>
-<td><code>load_api_checkpoints(brotr, urls)</code></td>
-<td>Load per-source timestamps from CHECKPOINT records</td>
+<td><code>fetch_api_checkpoints(brotr, urls)</code></td>
+<td>Fetch per-source timestamps from CHECKPOINT records</td>
 </tr>
 <tr>
-<td><code>save_api_checkpoints(brotr, checkpoints)</code></td>
+<td><code>upsert_api_checkpoints(brotr, checkpoints)</code></td>
 <td>Persist per-source timestamps as CHECKPOINT records</td>
 </tr>
 <tr>

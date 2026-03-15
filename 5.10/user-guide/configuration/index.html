@@ -1137,6 +1137,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Finder Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#api-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#events-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Events Reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1224,21 +1252,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#filter-reference" class="md-nav__link">
+  <a href="#processing-reference_1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Filter Reference
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#time-range-reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Time Range Reference
+        Processing Reference
       
     </span>
   </a>
@@ -1250,17 +1267,6 @@
     <span class="md-ellipsis">
       
         Sync Timeouts Reference
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#concurrency-reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Concurrency Reference
       
     </span>
   </a>
@@ -5774,6 +5780,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Finder Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#api-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#events-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Events Reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -5861,21 +5895,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#filter-reference" class="md-nav__link">
+  <a href="#processing-reference_1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Filter Reference
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#time-range-reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Time Range Reference
+        Processing Reference
       
     </span>
   </a>
@@ -5887,17 +5910,6 @@
     <span class="md-ellipsis">
       
         Sync Timeouts Reference
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#concurrency-reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Concurrency Reference
       
     </span>
   </a>
@@ -6853,29 +6865,32 @@
 <hr />
 <h2 id="finder-configuration">Finder Configuration<a class="headerlink" href="#finder-configuration" title="Permanent link">&para;</a></h2>
 <p>Discovers relay URLs from external APIs and stored Nostr events.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3600.0</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="nt">concurrency</span><span class="p">:</span>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span><span class="nt">max_parallel</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span><span class="w">                            </span><span class="c1"># Concurrent API requests</span>
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>
-<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="nt">events</span><span class="p">:</span>
-<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">  </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1000</span><span class="w">                           </span><span class="c1"># Events per batch</span>
-<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">  </span><span class="nt">kinds</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">2</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">3</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">10002</span><span class="p p-Indicator">]</span><span class="w">                       </span><span class="c1"># Event kinds to scan for relay URLs</span>
-<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>
-<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="nt">api</span><span class="p">:</span>
-<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="w">  </span><span class="nt">verify_ssl</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="w">  </span><span class="nt">sources</span><span class="p">:</span>
-<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://api.nostr.watch/v1/online&quot;</span>
-<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a><span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30.0</span>
-<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a><span class="w">      </span><span class="nt">connect_timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span>
-<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://api.nostr.watch/v1/offline&quot;</span>
-<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a><span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30.0</span>
-<a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a><span class="w">  </span><span class="nt">request_delay</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nt">api</span><span class="p">:</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span><span class="nt">cooldown</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">86400.0</span><span class="w">                          </span><span class="c1"># Seconds before re-querying any source</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span><span class="nt">sources</span><span class="p">:</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://api.nostr.watch/v1/online&quot;</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">      </span><span class="nt">expression</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;[*]&quot;</span><span class="w">                      </span><span class="c1"># JMESPath expression (required)</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30.0</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">      </span><span class="nt">connect_timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span>
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">      </span><span class="nt">allow_insecure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://api.nostr.watch/v1/offline&quot;</span>
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="w">      </span><span class="nt">expression</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;[*]&quot;</span>
+<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30.0</span>
+<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="w">  </span><span class="nt">request_delay</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
+<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="w">  </span><span class="nt">max_response_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5242880</span><span class="w">                 </span><span class="c1"># 5 MB</span>
+<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a>
+<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a><span class="nt">events</span><span class="p">:</span>
+<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a><span class="w">  </span><span class="nt">scan_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">500</span><span class="w">                             </span><span class="c1"># Rows per paginated DB query</span>
+<a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a><span class="w">  </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">500</span><span class="w">                            </span><span class="c1"># Discovered relays to buffer before flushing</span>
+<a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a><span class="w">  </span><span class="nt">parallel_relays</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span><span class="w">                        </span><span class="c1"># Concurrent relay event scans</span>
+<a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a><span class="w">  </span><span class="nt">max_relay_time</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">900.0</span><span class="w">                      </span><span class="c1"># Max seconds per relay (15 min)</span>
+<a id="__codelineno-9-24" name="__codelineno-9-24" href="#__codelineno-9-24"></a><span class="w">  </span><span class="nt">max_duration</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">7200.0</span><span class="w">                       </span><span class="c1"># Max seconds for entire event phase (2 hours)</span>
 </code></pre></div>
+<h3 id="api-reference">API Reference<a class="headerlink" href="#api-reference" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
@@ -6888,41 +6903,6 @@
 </thead>
 <tbody>
 <tr>
-<td><code>interval</code></td>
-<td>float</td>
-<td><code>3600.0</code></td>
-<td>&gt;= 60.0</td>
-<td>Seconds between discovery cycles</td>
-</tr>
-<tr>
-<td><code>concurrency.max_parallel</code></td>
-<td>int</td>
-<td><code>5</code></td>
-<td>1-20</td>
-<td>Concurrent API requests</td>
-</tr>
-<tr>
-<td><code>events.enabled</code></td>
-<td>bool</td>
-<td><code>true</code></td>
-<td>-</td>
-<td>Enable event-based relay discovery</td>
-</tr>
-<tr>
-<td><code>events.batch_size</code></td>
-<td>int</td>
-<td><code>1000</code></td>
-<td>100-10000</td>
-<td>Events per scanning batch</td>
-</tr>
-<tr>
-<td><code>events.kinds</code></td>
-<td>list[int]</td>
-<td><code>[2, 3, 10002]</code></td>
-<td>-</td>
-<td>Nostr event kinds to scan</td>
-</tr>
-<tr>
 <td><code>api.enabled</code></td>
 <td>bool</td>
 <td><code>true</code></td>
@@ -6930,18 +6910,25 @@
 <td>Enable API-based discovery</td>
 </tr>
 <tr>
-<td><code>api.verify_ssl</code></td>
-<td>bool</td>
-<td><code>true</code></td>
-<td>-</td>
-<td>Verify TLS certificates</td>
+<td><code>api.cooldown</code></td>
+<td>float</td>
+<td><code>86400.0</code></td>
+<td>1.0-604800.0</td>
+<td>Minimum seconds before re-querying any source</td>
 </tr>
 <tr>
 <td><code>api.sources[].url</code></td>
 <td>string</td>
 <td>-</td>
 <td>-</td>
-<td>API endpoint URL</td>
+<td>API endpoint URL (required)</td>
+</tr>
+<tr>
+<td><code>api.sources[].expression</code></td>
+<td>string</td>
+<td>-</td>
+<td>-</td>
+<td>JMESPath expression for URL extraction (required)</td>
 </tr>
 <tr>
 <td><code>api.sources[].enabled</code></td>
@@ -6962,7 +6949,14 @@
 <td>float</td>
 <td><code>10.0</code></td>
 <td>0.1-60.0</td>
-<td>HTTP connect timeout</td>
+<td>HTTP connect timeout (must not exceed timeout)</td>
+</tr>
+<tr>
+<td><code>api.sources[].allow_insecure</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td>-</td>
+<td>Skip TLS certificate verification</td>
 </tr>
 <tr>
 <td><code>api.request_delay</code></td>
@@ -6971,24 +6965,87 @@
 <td>0.0-10.0</td>
 <td>Delay between API calls</td>
 </tr>
+<tr>
+<td><code>api.max_response_size</code></td>
+<td>int</td>
+<td><code>5242880</code></td>
+<td>1024-52428800</td>
+<td>Maximum API response body size in bytes</td>
+</tr>
+</tbody>
+</table>
+<h3 id="events-reference">Events Reference<a class="headerlink" href="#events-reference" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Range</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>events.enabled</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td>-</td>
+<td>Enable event-based relay discovery</td>
+</tr>
+<tr>
+<td><code>events.scan_size</code></td>
+<td>int</td>
+<td><code>500</code></td>
+<td>10-10000</td>
+<td>Rows per paginated DB query</td>
+</tr>
+<tr>
+<td><code>events.batch_size</code></td>
+<td>int</td>
+<td><code>500</code></td>
+<td>10-10000</td>
+<td>Discovered relays to buffer before flushing</td>
+</tr>
+<tr>
+<td><code>events.parallel_relays</code></td>
+<td>int</td>
+<td><code>50</code></td>
+<td>1-200</td>
+<td>Maximum concurrent relay event scans</td>
+</tr>
+<tr>
+<td><code>events.max_relay_time</code></td>
+<td>float</td>
+<td><code>900.0</code></td>
+<td>10.0-86400.0</td>
+<td>Maximum seconds to scan a single relay</td>
+</tr>
+<tr>
+<td><code>events.max_duration</code></td>
+<td>float</td>
+<td><code>7200.0</code></td>
+<td>60.0-86400.0</td>
+<td>Maximum seconds for the entire event scanning phase</td>
+</tr>
 </tbody>
 </table>
 <hr />
 <h2 id="validator-configuration">Validator Configuration<a class="headerlink" href="#validator-configuration" title="Permanent link">&para;</a></h2>
 <p>Tests WebSocket connectivity for candidate relays and promotes them to the relay table.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">28800.0</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="nt">metrics</span><span class="p">:</span>
-<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8002</span>
-<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>
-<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="nt">processing</span><span class="p">:</span>
-<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="w">  </span><span class="nt">chunk_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span><span class="w">                            </span><span class="c1"># Candidates per fetch batch</span>
-<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="w">  </span><span class="nt">max_candidates</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">                       </span><span class="c1"># Max candidates per cycle (null = unlimited)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">metrics</span><span class="p">:</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8002</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="nt">processing</span><span class="p">:</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="w">  </span><span class="nt">chunk_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span><span class="w">                            </span><span class="c1"># Candidates per fetch batch</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="w">  </span><span class="nt">max_candidates</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">                       </span><span class="c1"># Max candidates per cycle (null = unlimited)</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3600.0</span><span class="w">                           </span><span class="c1"># Minimum seconds before retrying a failed candidate</span>
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="w">  </span><span class="nt">allow_insecure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">                      </span><span class="c1"># Fall back to insecure transport on SSL failure</span>
 <a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a>
 <a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="nt">cleanup</span><span class="p">:</span>
-<a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="w">  </span><span class="nt">max_failures</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span><span class="w">                          </span><span class="c1"># Remove candidate after N failures</span>
+<a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                              </span><span class="c1"># Enable exhausted candidate cleanup</span>
+<a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="w">  </span><span class="nt">max_failures</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">720</span><span class="w">                          </span><span class="c1"># Remove candidate after N failures (~30 days if hourly)</span>
 <a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a>
 <a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a><span class="nt">networks</span><span class="p">:</span>
 <a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a><span class="w">  </span><span class="nt">clearnet</span><span class="p">:</span>
@@ -7013,13 +7070,6 @@
 </thead>
 <tbody>
 <tr>
-<td><code>interval</code></td>
-<td>float</td>
-<td><code>28800.0</code></td>
-<td>&gt;= 60.0</td>
-<td>Seconds between validation cycles</td>
-</tr>
-<tr>
 <td><code>processing.chunk_size</code></td>
 <td>int</td>
 <td><code>100</code></td>
@@ -7034,18 +7084,32 @@
 <td>Max candidates per cycle</td>
 </tr>
 <tr>
-<td><code>cleanup.enabled</code></td>
+<td><code>processing.interval</code></td>
+<td>float</td>
+<td><code>3600.0</code></td>
+<td>0.0-604800.0</td>
+<td>Minimum seconds before retrying a failed candidate</td>
+</tr>
+<tr>
+<td><code>processing.allow_insecure</code></td>
 <td>bool</td>
 <td><code>false</code></td>
 <td>-</td>
-<td>Enable stale candidate cleanup</td>
+<td>Fall back to insecure transport on SSL failure</td>
+</tr>
+<tr>
+<td><code>cleanup.enabled</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td>-</td>
+<td>Enable exhausted candidate cleanup</td>
 </tr>
 <tr>
 <td><code>cleanup.max_failures</code></td>
 <td>int</td>
-<td><code>100</code></td>
-<td>1-1000</td>
-<td>Failure threshold for removal</td>
+<td><code>720</code></td>
+<td>&gt;= 1</td>
+<td>Failure threshold for candidate removal</td>
 </tr>
 </tbody>
 </table>
@@ -7074,46 +7138,46 @@
 <a id="__codelineno-11-20" name="__codelineno-11-20" href="#__codelineno-11-20"></a><span class="nt">processing</span><span class="p">:</span>
 <a id="__codelineno-11-21" name="__codelineno-11-21" href="#__codelineno-11-21"></a><span class="w">  </span><span class="nt">chunk_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span><span class="w">                            </span><span class="c1"># Relays per batch</span>
 <a id="__codelineno-11-22" name="__codelineno-11-22" href="#__codelineno-11-22"></a><span class="w">  </span><span class="nt">max_relays</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">                           </span><span class="c1"># Max relays per cycle (null = unlimited)</span>
-<a id="__codelineno-11-23" name="__codelineno-11-23" href="#__codelineno-11-23"></a><span class="w">  </span><span class="nt">nip11_max_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1048576</span><span class="w">                    </span><span class="c1"># Max NIP-11 response size (bytes)</span>
-<a id="__codelineno-11-24" name="__codelineno-11-24" href="#__codelineno-11-24"></a><span class="w">  </span><span class="nt">geohash_precision</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9</span><span class="w">                       </span><span class="c1"># Geohash precision (1-12)</span>
-<a id="__codelineno-11-25" name="__codelineno-11-25" href="#__codelineno-11-25"></a>
-<a id="__codelineno-11-26" name="__codelineno-11-26" href="#__codelineno-11-26"></a><span class="w">  </span><span class="nt">compute</span><span class="p">:</span><span class="w">                                   </span><span class="c1"># What metadata to compute</span>
-<a id="__codelineno-11-27" name="__codelineno-11-27" href="#__codelineno-11-27"></a><span class="w">    </span><span class="nt">nip11_info</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-11-28" name="__codelineno-11-28" href="#__codelineno-11-28"></a><span class="w">    </span><span class="nt">nip66_rtt</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-11-29" name="__codelineno-11-29" href="#__codelineno-11-29"></a><span class="w">    </span><span class="nt">nip66_ssl</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-11-30" name="__codelineno-11-30" href="#__codelineno-11-30"></a><span class="w">    </span><span class="nt">nip66_geo</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-11-31" name="__codelineno-11-31" href="#__codelineno-11-31"></a><span class="w">    </span><span class="nt">nip66_net</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-11-32" name="__codelineno-11-32" href="#__codelineno-11-32"></a><span class="w">    </span><span class="nt">nip66_dns</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-11-33" name="__codelineno-11-33" href="#__codelineno-11-33"></a><span class="w">    </span><span class="nt">nip66_http</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-11-34" name="__codelineno-11-34" href="#__codelineno-11-34"></a>
-<a id="__codelineno-11-35" name="__codelineno-11-35" href="#__codelineno-11-35"></a><span class="w">  </span><span class="nt">store</span><span class="p">:</span><span class="w">                                     </span><span class="c1"># What metadata to persist (must be subset of compute)</span>
-<a id="__codelineno-11-36" name="__codelineno-11-36" href="#__codelineno-11-36"></a><span class="w">    </span><span class="nt">nip11_info</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-11-37" name="__codelineno-11-37" href="#__codelineno-11-37"></a><span class="w">    </span><span class="nt">nip66_rtt</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-11-38" name="__codelineno-11-38" href="#__codelineno-11-38"></a><span class="w">    </span><span class="nt">nip66_ssl</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-11-39" name="__codelineno-11-39" href="#__codelineno-11-39"></a><span class="w">    </span><span class="nt">nip66_geo</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-11-40" name="__codelineno-11-40" href="#__codelineno-11-40"></a><span class="w">    </span><span class="nt">nip66_net</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-11-41" name="__codelineno-11-41" href="#__codelineno-11-41"></a><span class="w">    </span><span class="nt">nip66_dns</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-11-42" name="__codelineno-11-42" href="#__codelineno-11-42"></a><span class="w">    </span><span class="nt">nip66_http</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-11-43" name="__codelineno-11-43" href="#__codelineno-11-43"></a>
-<a id="__codelineno-11-44" name="__codelineno-11-44" href="#__codelineno-11-44"></a><span class="w">  </span><span class="nt">retry</span><span class="p">:</span><span class="w">                                     </span><span class="c1"># Per-metadata-type retry settings</span>
-<a id="__codelineno-11-45" name="__codelineno-11-45" href="#__codelineno-11-45"></a><span class="w">    </span><span class="nt">nip11_info</span><span class="p">:</span>
-<a id="__codelineno-11-46" name="__codelineno-11-46" href="#__codelineno-11-46"></a><span class="w">      </span><span class="nt">max_attempts</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span><span class="w">                        </span><span class="c1"># 0 = no retry</span>
-<a id="__codelineno-11-47" name="__codelineno-11-47" href="#__codelineno-11-47"></a><span class="w">      </span><span class="nt">initial_delay</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
-<a id="__codelineno-11-48" name="__codelineno-11-48" href="#__codelineno-11-48"></a><span class="w">      </span><span class="nt">max_delay</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span>
-<a id="__codelineno-11-49" name="__codelineno-11-49" href="#__codelineno-11-49"></a><span class="w">      </span><span class="nt">jitter</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span>
-<a id="__codelineno-11-50" name="__codelineno-11-50" href="#__codelineno-11-50"></a><span class="w">    </span><span class="nt">nip66_rtt</span><span class="p">:</span>
-<a id="__codelineno-11-51" name="__codelineno-11-51" href="#__codelineno-11-51"></a><span class="w">      </span><span class="nt">max_attempts</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
-<a id="__codelineno-11-52" name="__codelineno-11-52" href="#__codelineno-11-52"></a><span class="w">      </span><span class="nt">initial_delay</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
-<a id="__codelineno-11-53" name="__codelineno-11-53" href="#__codelineno-11-53"></a><span class="w">      </span><span class="nt">max_delay</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span>
-<a id="__codelineno-11-54" name="__codelineno-11-54" href="#__codelineno-11-54"></a><span class="w">      </span><span class="nt">jitter</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span>
-<a id="__codelineno-11-55" name="__codelineno-11-55" href="#__codelineno-11-55"></a><span class="w">    </span><span class="c1"># nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http: same structure</span>
-<a id="__codelineno-11-56" name="__codelineno-11-56" href="#__codelineno-11-56"></a>
-<a id="__codelineno-11-57" name="__codelineno-11-57" href="#__codelineno-11-57"></a><span class="nt">geo</span><span class="p">:</span>
-<a id="__codelineno-11-58" name="__codelineno-11-58" href="#__codelineno-11-58"></a><span class="w">  </span><span class="nt">city_database_path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;static/GeoLite2-City.mmdb&quot;</span>
-<a id="__codelineno-11-59" name="__codelineno-11-59" href="#__codelineno-11-59"></a><span class="w">  </span><span class="nt">asn_database_path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;static/GeoLite2-ASN.mmdb&quot;</span>
-<a id="__codelineno-11-60" name="__codelineno-11-60" href="#__codelineno-11-60"></a><span class="w">  </span><span class="nt">city_download_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb&quot;</span>
-<a id="__codelineno-11-61" name="__codelineno-11-61" href="#__codelineno-11-61"></a><span class="w">  </span><span class="nt">asn_download_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-ASN.mmdb&quot;</span>
-<a id="__codelineno-11-62" name="__codelineno-11-62" href="#__codelineno-11-62"></a><span class="w">  </span><span class="nt">max_age_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span><span class="w">                           </span><span class="c1"># Re-download if older (null = never)</span>
+<a id="__codelineno-11-23" name="__codelineno-11-23" href="#__codelineno-11-23"></a><span class="w">  </span><span class="nt">nip11_info_max_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1048576</span><span class="w">               </span><span class="c1"># Max NIP-11 response size (bytes)</span>
+<a id="__codelineno-11-24" name="__codelineno-11-24" href="#__codelineno-11-24"></a>
+<a id="__codelineno-11-25" name="__codelineno-11-25" href="#__codelineno-11-25"></a><span class="w">  </span><span class="nt">compute</span><span class="p">:</span><span class="w">                                   </span><span class="c1"># What metadata to compute</span>
+<a id="__codelineno-11-26" name="__codelineno-11-26" href="#__codelineno-11-26"></a><span class="w">    </span><span class="nt">nip11_info</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-11-27" name="__codelineno-11-27" href="#__codelineno-11-27"></a><span class="w">    </span><span class="nt">nip66_rtt</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-11-28" name="__codelineno-11-28" href="#__codelineno-11-28"></a><span class="w">    </span><span class="nt">nip66_ssl</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-11-29" name="__codelineno-11-29" href="#__codelineno-11-29"></a><span class="w">    </span><span class="nt">nip66_geo</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-11-30" name="__codelineno-11-30" href="#__codelineno-11-30"></a><span class="w">    </span><span class="nt">nip66_net</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-11-31" name="__codelineno-11-31" href="#__codelineno-11-31"></a><span class="w">    </span><span class="nt">nip66_dns</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-11-32" name="__codelineno-11-32" href="#__codelineno-11-32"></a><span class="w">    </span><span class="nt">nip66_http</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-11-33" name="__codelineno-11-33" href="#__codelineno-11-33"></a>
+<a id="__codelineno-11-34" name="__codelineno-11-34" href="#__codelineno-11-34"></a><span class="w">  </span><span class="nt">store</span><span class="p">:</span><span class="w">                                     </span><span class="c1"># What metadata to persist (must be subset of compute)</span>
+<a id="__codelineno-11-35" name="__codelineno-11-35" href="#__codelineno-11-35"></a><span class="w">    </span><span class="nt">nip11_info</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-11-36" name="__codelineno-11-36" href="#__codelineno-11-36"></a><span class="w">    </span><span class="nt">nip66_rtt</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-11-37" name="__codelineno-11-37" href="#__codelineno-11-37"></a><span class="w">    </span><span class="nt">nip66_ssl</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-11-38" name="__codelineno-11-38" href="#__codelineno-11-38"></a><span class="w">    </span><span class="nt">nip66_geo</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-11-39" name="__codelineno-11-39" href="#__codelineno-11-39"></a><span class="w">    </span><span class="nt">nip66_net</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-11-40" name="__codelineno-11-40" href="#__codelineno-11-40"></a><span class="w">    </span><span class="nt">nip66_dns</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-11-41" name="__codelineno-11-41" href="#__codelineno-11-41"></a><span class="w">    </span><span class="nt">nip66_http</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-11-42" name="__codelineno-11-42" href="#__codelineno-11-42"></a>
+<a id="__codelineno-11-43" name="__codelineno-11-43" href="#__codelineno-11-43"></a><span class="w">  </span><span class="nt">retry</span><span class="p">:</span><span class="w">                                     </span><span class="c1"># Per-metadata-type retry settings</span>
+<a id="__codelineno-11-44" name="__codelineno-11-44" href="#__codelineno-11-44"></a><span class="w">    </span><span class="nt">nip11_info</span><span class="p">:</span>
+<a id="__codelineno-11-45" name="__codelineno-11-45" href="#__codelineno-11-45"></a><span class="w">      </span><span class="nt">max_attempts</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span><span class="w">                        </span><span class="c1"># 0 = no retry</span>
+<a id="__codelineno-11-46" name="__codelineno-11-46" href="#__codelineno-11-46"></a><span class="w">      </span><span class="nt">initial_delay</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
+<a id="__codelineno-11-47" name="__codelineno-11-47" href="#__codelineno-11-47"></a><span class="w">      </span><span class="nt">max_delay</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span>
+<a id="__codelineno-11-48" name="__codelineno-11-48" href="#__codelineno-11-48"></a><span class="w">      </span><span class="nt">jitter</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span>
+<a id="__codelineno-11-49" name="__codelineno-11-49" href="#__codelineno-11-49"></a><span class="w">    </span><span class="nt">nip66_rtt</span><span class="p">:</span>
+<a id="__codelineno-11-50" name="__codelineno-11-50" href="#__codelineno-11-50"></a><span class="w">      </span><span class="nt">max_attempts</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<a id="__codelineno-11-51" name="__codelineno-11-51" href="#__codelineno-11-51"></a><span class="w">      </span><span class="nt">initial_delay</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
+<a id="__codelineno-11-52" name="__codelineno-11-52" href="#__codelineno-11-52"></a><span class="w">      </span><span class="nt">max_delay</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span>
+<a id="__codelineno-11-53" name="__codelineno-11-53" href="#__codelineno-11-53"></a><span class="w">      </span><span class="nt">jitter</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span>
+<a id="__codelineno-11-54" name="__codelineno-11-54" href="#__codelineno-11-54"></a><span class="w">    </span><span class="c1"># nip66_ssl, nip66_geo, nip66_net, nip66_dns, nip66_http: same structure</span>
+<a id="__codelineno-11-55" name="__codelineno-11-55" href="#__codelineno-11-55"></a>
+<a id="__codelineno-11-56" name="__codelineno-11-56" href="#__codelineno-11-56"></a><span class="nt">geo</span><span class="p">:</span>
+<a id="__codelineno-11-57" name="__codelineno-11-57" href="#__codelineno-11-57"></a><span class="w">  </span><span class="nt">city_database_path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;static/GeoLite2-City.mmdb&quot;</span>
+<a id="__codelineno-11-58" name="__codelineno-11-58" href="#__codelineno-11-58"></a><span class="w">  </span><span class="nt">asn_database_path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;static/GeoLite2-ASN.mmdb&quot;</span>
+<a id="__codelineno-11-59" name="__codelineno-11-59" href="#__codelineno-11-59"></a><span class="w">  </span><span class="nt">city_download_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb&quot;</span>
+<a id="__codelineno-11-60" name="__codelineno-11-60" href="#__codelineno-11-60"></a><span class="w">  </span><span class="nt">asn_download_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-ASN.mmdb&quot;</span>
+<a id="__codelineno-11-61" name="__codelineno-11-61" href="#__codelineno-11-61"></a><span class="w">  </span><span class="nt">max_age_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span><span class="w">                           </span><span class="c1"># Re-download if older (null = never)</span>
+<a id="__codelineno-11-62" name="__codelineno-11-62" href="#__codelineno-11-62"></a><span class="w">  </span><span class="nt">geohash_precision</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9</span><span class="w">                       </span><span class="c1"># Geohash precision (1-12)</span>
 <a id="__codelineno-11-63" name="__codelineno-11-63" href="#__codelineno-11-63"></a>
 <a id="__codelineno-11-64" name="__codelineno-11-64" href="#__codelineno-11-64"></a><span class="nt">publishing</span><span class="p">:</span>
 <a id="__codelineno-11-65" name="__codelineno-11-65" href="#__codelineno-11-65"></a><span class="w">  </span><span class="nt">relays</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span><span class="w">                                 </span><span class="c1"># Default relay list for publishing</span>
@@ -7174,18 +7238,11 @@
 <td>Max relays per cycle</td>
 </tr>
 <tr>
-<td><code>processing.nip11_max_size</code></td>
+<td><code>processing.nip11_info_max_size</code></td>
 <td>int</td>
 <td><code>1048576</code></td>
 <td>1024-10485760</td>
 <td>Max NIP-11 response size (bytes)</td>
-</tr>
-<tr>
-<td><code>processing.geohash_precision</code></td>
-<td>int</td>
-<td><code>9</code></td>
-<td>1-12</td>
-<td>Geohash precision for geolocation</td>
 </tr>
 <tr>
 <td><code>processing.compute.*</code></td>
@@ -7286,6 +7343,12 @@
 <td><code>30</code></td>
 <td>Re-download threshold in days (null = never)</td>
 </tr>
+<tr>
+<td><code>geo.geohash_precision</code></td>
+<td>int</td>
+<td><code>9</code></td>
+<td>1-12</td>
+</tr>
 </tbody>
 </table>
 <h3 id="publishing-reference">Publishing Reference<a class="headerlink" href="#publishing-reference" title="Permanent link">&para;</a></h3>
@@ -7367,55 +7430,41 @@
 </table>
 <hr />
 <h2 id="synchronizer-configuration">Synchronizer Configuration<a class="headerlink" href="#synchronizer-configuration" title="Permanent link">&para;</a></h2>
-<p>Connects to validated relays and archives Nostr events using multiprocessing.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">900.0</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="nt">metrics</span><span class="p">:</span>
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8004</span>
+<p>Connects to validated relays and archives Nostr events with cursor-based resumption.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">metrics</span><span class="p">:</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8004</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="nt">keys</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span><span class="w">                                     </span><span class="c1"># Loaded from NOSTR_PRIVATE_KEY env var (for NIP-42)</span>
 <a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>
-<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="nt">keys</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span><span class="w">                                     </span><span class="c1"># Loaded from NOSTR_PRIVATE_KEY env var (for NIP-42)</span>
-<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>
-<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="nt">networks</span><span class="p">:</span>
-<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="w">  </span><span class="nt">clearnet</span><span class="p">:</span>
-<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="w">    </span><span class="nt">max_tasks</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
-<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30.0</span>
-<a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a><span class="w">  </span><span class="nt">tor</span><span class="p">:</span>
-<a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a><span class="w">    </span><span class="nt">proxy_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;socks5://tor:9050&quot;</span>
-<a id="__codelineno-12-17" name="__codelineno-12-17" href="#__codelineno-12-17"></a><span class="w">    </span><span class="nt">max_tasks</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
-<a id="__codelineno-12-18" name="__codelineno-12-18" href="#__codelineno-12-18"></a><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60.0</span>
-<a id="__codelineno-12-19" name="__codelineno-12-19" href="#__codelineno-12-19"></a>
-<a id="__codelineno-12-20" name="__codelineno-12-20" href="#__codelineno-12-20"></a><span class="nt">filter</span><span class="p">:</span>
-<a id="__codelineno-12-21" name="__codelineno-12-21" href="#__codelineno-12-21"></a><span class="w">  </span><span class="nt">ids</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">                                  </span><span class="c1"># Specific event IDs (null = all)</span>
-<a id="__codelineno-12-22" name="__codelineno-12-22" href="#__codelineno-12-22"></a><span class="w">  </span><span class="nt">kinds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">                                </span><span class="c1"># Event kinds to sync (null = all)</span>
-<a id="__codelineno-12-23" name="__codelineno-12-23" href="#__codelineno-12-23"></a><span class="w">  </span><span class="nt">authors</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">                              </span><span class="c1"># Author pubkeys (null = all)</span>
-<a id="__codelineno-12-24" name="__codelineno-12-24" href="#__codelineno-12-24"></a><span class="w">  </span><span class="nt">tags</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">                                 </span><span class="c1"># Tag filters: {&quot;e&quot;: [...], &quot;p&quot;: [...]}</span>
-<a id="__codelineno-12-25" name="__codelineno-12-25" href="#__codelineno-12-25"></a><span class="w">  </span><span class="nt">limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">500</span><span class="w">                                 </span><span class="c1"># Events per REQ request</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="nt">networks</span><span class="p">:</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="w">  </span><span class="nt">clearnet</span><span class="p">:</span>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="w">    </span><span class="nt">max_tasks</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30.0</span>
+<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="w">  </span><span class="nt">tor</span><span class="p">:</span>
+<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a><span class="w">    </span><span class="nt">proxy_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;socks5://tor:9050&quot;</span>
+<a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a><span class="w">    </span><span class="nt">max_tasks</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+<a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60.0</span>
+<a id="__codelineno-12-17" name="__codelineno-12-17" href="#__codelineno-12-17"></a>
+<a id="__codelineno-12-18" name="__codelineno-12-18" href="#__codelineno-12-18"></a><span class="nt">processing</span><span class="p">:</span>
+<a id="__codelineno-12-19" name="__codelineno-12-19" href="#__codelineno-12-19"></a><span class="w">  </span><span class="nt">filters</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[{}]</span><span class="w">                              </span><span class="c1"># NIP-01 filter dicts (OR semantics, {} = all)</span>
+<a id="__codelineno-12-20" name="__codelineno-12-20" href="#__codelineno-12-20"></a><span class="w">  </span><span class="nt">since</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span><span class="w">                                   </span><span class="c1"># Default start timestamp (0 = epoch)</span>
+<a id="__codelineno-12-21" name="__codelineno-12-21" href="#__codelineno-12-21"></a><span class="w">  </span><span class="nt">until</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">                                </span><span class="c1"># Upper bound (null = now())</span>
+<a id="__codelineno-12-22" name="__codelineno-12-22" href="#__codelineno-12-22"></a><span class="w">  </span><span class="nt">limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">500</span><span class="w">                                 </span><span class="c1"># Max events per relay request (REQ limit)</span>
+<a id="__codelineno-12-23" name="__codelineno-12-23" href="#__codelineno-12-23"></a><span class="w">  </span><span class="nt">end_lag</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">86400</span><span class="w">                             </span><span class="c1"># Seconds subtracted from until</span>
+<a id="__codelineno-12-24" name="__codelineno-12-24" href="#__codelineno-12-24"></a><span class="w">  </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1000</span><span class="w">                           </span><span class="c1"># Events to buffer before DB flush</span>
+<a id="__codelineno-12-25" name="__codelineno-12-25" href="#__codelineno-12-25"></a><span class="w">  </span><span class="nt">allow_insecure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">                      </span><span class="c1"># Fall back to insecure transport on SSL failure</span>
 <a id="__codelineno-12-26" name="__codelineno-12-26" href="#__codelineno-12-26"></a>
-<a id="__codelineno-12-27" name="__codelineno-12-27" href="#__codelineno-12-27"></a><span class="nt">time_range</span><span class="p">:</span>
-<a id="__codelineno-12-28" name="__codelineno-12-28" href="#__codelineno-12-28"></a><span class="w">  </span><span class="nt">default_start</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span><span class="w">                           </span><span class="c1"># Default start timestamp (0 = epoch)</span>
-<a id="__codelineno-12-29" name="__codelineno-12-29" href="#__codelineno-12-29"></a><span class="w">  </span><span class="nt">use_relay_state</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                      </span><span class="c1"># Use per-relay incremental cursors</span>
-<a id="__codelineno-12-30" name="__codelineno-12-30" href="#__codelineno-12-30"></a><span class="w">  </span><span class="nt">lookback_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">86400</span><span class="w">                    </span><span class="c1"># Lookback window from cursor</span>
-<a id="__codelineno-12-31" name="__codelineno-12-31" href="#__codelineno-12-31"></a>
-<a id="__codelineno-12-32" name="__codelineno-12-32" href="#__codelineno-12-32"></a><span class="nt">timeouts</span><span class="p">:</span>
-<a id="__codelineno-12-33" name="__codelineno-12-33" href="#__codelineno-12-33"></a><span class="w">  </span><span class="nt">relay_clearnet</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1800.0</span><span class="w">                     </span><span class="c1"># Max time per clearnet relay (30 min)</span>
-<a id="__codelineno-12-34" name="__codelineno-12-34" href="#__codelineno-12-34"></a><span class="w">  </span><span class="nt">relay_tor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3600.0</span><span class="w">                          </span><span class="c1"># Max time per Tor relay (1 hour)</span>
-<a id="__codelineno-12-35" name="__codelineno-12-35" href="#__codelineno-12-35"></a><span class="w">  </span><span class="nt">relay_i2p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3600.0</span>
-<a id="__codelineno-12-36" name="__codelineno-12-36" href="#__codelineno-12-36"></a><span class="w">  </span><span class="nt">relay_loki</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3600.0</span>
-<a id="__codelineno-12-37" name="__codelineno-12-37" href="#__codelineno-12-37"></a>
-<a id="__codelineno-12-38" name="__codelineno-12-38" href="#__codelineno-12-38"></a><span class="nt">concurrency</span><span class="p">:</span>
-<a id="__codelineno-12-39" name="__codelineno-12-39" href="#__codelineno-12-39"></a><span class="w">  </span><span class="nt">max_parallel</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span><span class="w">                           </span><span class="c1"># Concurrent relays per process</span>
-<a id="__codelineno-12-40" name="__codelineno-12-40" href="#__codelineno-12-40"></a><span class="w">  </span><span class="nt">cursor_flush_interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span><span class="w">                  </span><span class="c1"># Flush cursors every N relays</span>
-<a id="__codelineno-12-41" name="__codelineno-12-41" href="#__codelineno-12-41"></a>
-<a id="__codelineno-12-42" name="__codelineno-12-42" href="#__codelineno-12-42"></a><span class="nt">overrides</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span><span class="w">                                </span><span class="c1"># Per-relay timeout overrides</span>
-<a id="__codelineno-12-43" name="__codelineno-12-43" href="#__codelineno-12-43"></a><span class="c1"># - url: &quot;wss://relay.damus.io&quot;</span>
-<a id="__codelineno-12-44" name="__codelineno-12-44" href="#__codelineno-12-44"></a><span class="c1">#   timeouts:</span>
-<a id="__codelineno-12-45" name="__codelineno-12-45" href="#__codelineno-12-45"></a><span class="c1">#     request: 60.0</span>
-<a id="__codelineno-12-46" name="__codelineno-12-46" href="#__codelineno-12-46"></a><span class="c1">#     relay: 7200.0</span>
+<a id="__codelineno-12-27" name="__codelineno-12-27" href="#__codelineno-12-27"></a><span class="nt">timeouts</span><span class="p">:</span>
+<a id="__codelineno-12-28" name="__codelineno-12-28" href="#__codelineno-12-28"></a><span class="w">  </span><span class="nt">relay_clearnet</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1800.0</span><span class="w">                     </span><span class="c1"># Max time per clearnet relay (30 min)</span>
+<a id="__codelineno-12-29" name="__codelineno-12-29" href="#__codelineno-12-29"></a><span class="w">  </span><span class="nt">relay_tor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3600.0</span><span class="w">                          </span><span class="c1"># Max time per Tor relay (1 hour)</span>
+<a id="__codelineno-12-30" name="__codelineno-12-30" href="#__codelineno-12-30"></a><span class="w">  </span><span class="nt">relay_i2p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3600.0</span>
+<a id="__codelineno-12-31" name="__codelineno-12-31" href="#__codelineno-12-31"></a><span class="w">  </span><span class="nt">relay_loki</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3600.0</span>
+<a id="__codelineno-12-32" name="__codelineno-12-32" href="#__codelineno-12-32"></a><span class="w">  </span><span class="nt">max_duration</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">14400.0</span><span class="w">                      </span><span class="c1"># Max seconds for entire sync phase (4 hours)</span>
 </code></pre></div>
-<h3 id="filter-reference">Filter Reference<a class="headerlink" href="#filter-reference" title="Permanent link">&para;</a></h3>
+<h3 id="processing-reference_1">Processing Reference<a class="headerlink" href="#processing-reference_1" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
@@ -7428,74 +7477,53 @@
 </thead>
 <tbody>
 <tr>
-<td><code>filter.ids</code></td>
-<td>list[string] or null</td>
-<td><code>null</code></td>
+<td><code>processing.filters</code></td>
+<td>list[dict]</td>
+<td><code>[{}]</code></td>
 <td>-</td>
-<td>Specific event IDs to sync</td>
+<td>NIP-01 filter dicts for event subscription (OR semantics)</td>
 </tr>
 <tr>
-<td><code>filter.kinds</code></td>
-<td>list[int] or null</td>
-<td><code>null</code></td>
-<td>0-65535</td>
-<td>Event kinds to sync</td>
-</tr>
-<tr>
-<td><code>filter.authors</code></td>
-<td>list[string] or null</td>
-<td><code>null</code></td>
-<td>64-char hex</td>
-<td>Author pubkeys</td>
-</tr>
-<tr>
-<td><code>filter.tags</code></td>
-<td>dict or null</td>
-<td><code>null</code></td>
-<td>-</td>
-<td>Tag filters</td>
-</tr>
-<tr>
-<td><code>filter.limit</code></td>
-<td>int</td>
-<td><code>500</code></td>
-<td>1-5000</td>
-<td>Events per REQ request</td>
-</tr>
-</tbody>
-</table>
-<h3 id="time-range-reference">Time Range Reference<a class="headerlink" href="#time-range-reference" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Type</th>
-<th>Default</th>
-<th>Range</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>time_range.default_start</code></td>
+<td><code>processing.since</code></td>
 <td>int</td>
 <td><code>0</code></td>
-<td>-</td>
-<td>Default start Unix timestamp</td>
+<td>&gt;= 0</td>
+<td>Default start timestamp for relays without a cursor</td>
 </tr>
 <tr>
-<td><code>time_range.use_relay_state</code></td>
-<td>bool</td>
-<td><code>true</code></td>
-<td>-</td>
-<td>Use per-relay incremental cursors</td>
+<td><code>processing.until</code></td>
+<td>int or null</td>
+<td><code>null</code></td>
+<td>&gt;= 0</td>
+<td>Upper bound timestamp (null = now())</td>
 </tr>
 <tr>
-<td><code>time_range.lookback_seconds</code></td>
+<td><code>processing.limit</code></td>
+<td>int</td>
+<td><code>500</code></td>
+<td>10-5000</td>
+<td>Max events per relay request (REQ limit)</td>
+</tr>
+<tr>
+<td><code>processing.end_lag</code></td>
 <td>int</td>
 <td><code>86400</code></td>
-<td>3600-604800</td>
-<td>Lookback window from cursor position</td>
+<td>0-604800</td>
+<td>Seconds subtracted from until to compute sync end time</td>
+</tr>
+<tr>
+<td><code>processing.batch_size</code></td>
+<td>int</td>
+<td><code>1000</code></td>
+<td>100-10000</td>
+<td>Events to buffer before flushing to the database</td>
+</tr>
+<tr>
+<td><code>processing.allow_insecure</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td>-</td>
+<td>Fall back to insecure transport on SSL failure</td>
 </tr>
 </tbody>
 </table>
@@ -7539,33 +7567,12 @@
 <td>60.0-14400.0</td>
 <td>Max time per Lokinet relay</td>
 </tr>
-</tbody>
-</table>
-<h3 id="concurrency-reference">Concurrency Reference<a class="headerlink" href="#concurrency-reference" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
 <tr>
-<th>Field</th>
-<th>Type</th>
-<th>Default</th>
-<th>Range</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>concurrency.max_parallel</code></td>
-<td>int</td>
-<td><code>10</code></td>
-<td>1-100</td>
-<td>Concurrent relays per process</td>
-</tr>
-<tr>
-<td><code>concurrency.cursor_flush_interval</code></td>
-<td>int</td>
-<td><code>50</code></td>
-<td>-</td>
-<td>Flush cursors every N relays</td>
+<td><code>timeouts.max_duration</code></td>
+<td>float</td>
+<td><code>14400.0</code></td>
+<td>60.0-86400.0</td>
+<td>Maximum seconds for the entire sync phase</td>
 </tr>
 </tbody>
 </table>
@@ -7625,8 +7632,9 @@
 <h3 id="high-volume-synchronizer">High-Volume Synchronizer<a class="headerlink" href="#high-volume-synchronizer" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># synchronizer.yaml</span>
 <a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300.0</span>
-<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="nt">concurrency</span><span class="p">:</span>
-<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="w">  </span><span class="nt">max_parallel</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="nt">processing</span><span class="p">:</span>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="w">  </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5000</span>
+<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a><span class="w">  </span><span class="nt">limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1000</span>
 </code></pre></div>
 <h3 id="monitoring-only-no-event-archiving">Monitoring-Only (No Event Archiving)<a class="headerlink" href="#monitoring-only-no-event-archiving" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="c1"># monitor.yaml - run without Synchronizer</span>

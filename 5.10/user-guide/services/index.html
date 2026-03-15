@@ -5953,7 +5953,7 @@
 <hr />
 <h2 id="finder">Finder<a class="headerlink" href="#finder" title="Permanent link">&para;</a></h2>
 <p><strong>Purpose</strong>: Discover new relay URLs from stored Nostr events and external HTTP APIs.</p>
-<p><strong>Mode</strong>: Continuous (<code>run_forever</code>, default interval 1 hour)</p>
+<p><strong>Mode</strong>: Continuous (<code>run_forever</code>)</p>
 <p><strong>Reads</strong>: <code>event</code> (stored Nostr events), external HTTP APIs
 <strong>Writes</strong>: <code>service_state</code> (candidates)</p>
 <h3 id="how-it-works_1">How It Works<a class="headerlink" href="#how-it-works_1" title="Permanent link">&para;</a></h3>
@@ -5998,12 +5998,6 @@
 </thead>
 <tbody>
 <tr>
-<td><code>interval</code></td>
-<td>float</td>
-<td><code>3600.0</code></td>
-<td>Seconds between discovery cycles</td>
-</tr>
-<tr>
 <td><code>events.enabled</code></td>
 <td>bool</td>
 <td><code>true</code></td>
@@ -6012,8 +6006,14 @@
 <tr>
 <td><code>events.batch_size</code></td>
 <td>int</td>
-<td><code>100</code></td>
+<td><code>500</code></td>
 <td>Events per scanning batch</td>
+</tr>
+<tr>
+<td><code>events.scan_size</code></td>
+<td>int</td>
+<td><code>500</code></td>
+<td>Rows per paginated DB query (range 10-10000)</td>
 </tr>
 <tr>
 <td><code>events.parallel_relays</code></td>
@@ -6023,14 +6023,14 @@
 </tr>
 <tr>
 <td><code>events.max_relay_time</code></td>
-<td>float or null</td>
-<td><code>null</code></td>
-<td>Maximum seconds to scan a single relay (null = unlimited)</td>
+<td>float</td>
+<td><code>900.0</code></td>
+<td>Maximum seconds to scan a single relay</td>
 </tr>
 <tr>
 <td><code>events.max_duration</code></td>
 <td>float</td>
-<td><code>86400.0</code></td>
+<td><code>7200.0</code></td>
 <td>Maximum seconds for the entire event scanning phase</td>
 </tr>
 <tr>
@@ -6049,7 +6049,13 @@
 <td><code>api.sources[].url</code></td>
 <td>string</td>
 <td>--</td>
-<td>API endpoint URL</td>
+<td>API endpoint URL (required)</td>
+</tr>
+<tr>
+<td><code>api.sources[].expression</code></td>
+<td>string</td>
+<td>--</td>
+<td>JMESPath expression for URL extraction (required)</td>
 </tr>
 <tr>
 <td><code>api.request_delay</code></td>
@@ -6072,7 +6078,7 @@
 <hr />
 <h2 id="validator">Validator<a class="headerlink" href="#validator" title="Permanent link">&para;</a></h2>
 <p><strong>Purpose</strong>: Test candidate relay URLs via WebSocket and promote valid ones to the relay table.</p>
-<p><strong>Mode</strong>: Continuous (<code>run_forever</code>, default interval 8 hours)</p>
+<p><strong>Mode</strong>: Continuous (<code>run_forever</code>)</p>
 <p><strong>Reads</strong>: <code>service_state</code> (candidates)
 <strong>Writes</strong>: <code>relay</code> (promoted valid relays), <code>service_state</code> (updated failure counts)</p>
 <h3 id="how-it-works_2">How It Works<a class="headerlink" href="#how-it-works_2" title="Permanent link">&para;</a></h3>
@@ -6114,12 +6120,6 @@
 </thead>
 <tbody>
 <tr>
-<td><code>interval</code></td>
-<td>float</td>
-<td><code>28800.0</code></td>
-<td>Seconds between validation cycles</td>
-</tr>
-<tr>
 <td><code>processing.chunk_size</code></td>
 <td>int</td>
 <td><code>100</code></td>
@@ -6146,8 +6146,8 @@
 <tr>
 <td><code>cleanup.enabled</code></td>
 <td>bool</td>
-<td><code>false</code></td>
-<td>Enable stale candidate cleanup</td>
+<td><code>true</code></td>
+<td>Enable exhausted candidate cleanup</td>
 </tr>
 <tr>
 <td><code>cleanup.max_failures</code></td>
@@ -6170,7 +6170,7 @@
 <hr />
 <h2 id="monitor">Monitor<a class="headerlink" href="#monitor" title="Permanent link">&para;</a></h2>
 <p><strong>Purpose</strong>: Perform NIP-11 and NIP-66 health checks on all validated relays and publish results as Nostr events.</p>
-<p><strong>Mode</strong>: Continuous (<code>run_forever</code>, default interval 1 hour)</p>
+<p><strong>Mode</strong>: Continuous (<code>run_forever</code>)</p>
 <p><strong>Reads</strong>: <code>relay</code> (validated relays)
 <strong>Writes</strong>: <code>metadata</code>, <code>relay_metadata</code> (health check results); publishes Nostr kind 0, 10166, 30166 events</p>
 <h3 id="how-it-works_3">How It Works<a class="headerlink" href="#how-it-works_3" title="Permanent link">&para;</a></h3>
@@ -6197,6 +6197,12 @@ to <code>nips/event_builders.py</code>.</p>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">nip66_dns</span><span class="p">:</span> <span class="n">Nip66DnsMetadata</span> <span class="o">|</span> <span class="kc">None</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">nip66_http</span><span class="p">:</span> <span class="n">Nip66HttpMetadata</span> <span class="o">|</span> <span class="kc">None</span>
 </code></pre></div>
+<p><strong>Checkpoint tracking:</strong></p>
+<p>The Monitor uses two types of <code>CHECKPOINT</code> records in <code>service_state</code>:</p>
+<ul>
+<li><strong>Per-relay monitoring checkpoints</strong> (key = relay URL) -- track when each relay was last checked, used for cleanup of stale entries when relays are removed.</li>
+<li><strong>Publishing checkpoints</strong> (key = <code>"announcement"</code> or <code>"profile"</code>) -- track when the last kind 10166 announcement or kind 0 profile event was published, enforcing the configured minimum interval between publishes.</li>
+</ul>
 <p><strong>Published Nostr events:</strong></p>
 <table>
 <thead>
@@ -6236,12 +6242,6 @@ to <code>nips/event_builders.py</code>.</p>
 </tr>
 </thead>
 <tbody>
-<tr>
-<td><code>interval</code></td>
-<td>float</td>
-<td><code>3600.0</code></td>
-<td>Seconds between check cycles</td>
-</tr>
 <tr>
 <td><code>processing.chunk_size</code></td>
 <td>int</td>
@@ -6297,32 +6297,32 @@ to <code>nips/event_builders.py</code>.</p>
 <hr />
 <h2 id="synchronizer">Synchronizer<a class="headerlink" href="#synchronizer" title="Permanent link">&para;</a></h2>
 <p><strong>Purpose</strong>: Connect to relays, subscribe to events, and archive them to PostgreSQL.</p>
-<p><strong>Mode</strong>: Continuous (<code>run_forever</code>, default interval 15 minutes)</p>
+<p><strong>Mode</strong>: Continuous (<code>run_forever</code>)</p>
 <p><strong>Reads</strong>: <code>relay</code> (validated relays), <code>service_state</code> (cursors)
 <strong>Writes</strong>: <code>event</code>, <code>event_relay</code> (archived events and junctions), <code>service_state</code> (updated cursors)</p>
 <h3 id="how-it-works_4">How It Works<a class="headerlink" href="#how-it-works_4" title="Permanent link">&para;</a></h3>
 <pre class="mermaid"><code>flowchart TD
     A["Synchronizer.run()"] --&gt; B["Fetch relays from DB"]
     B --&gt; C["Load cursors from service_state"]
-    C --&gt; D["Shuffle relays&lt;br/&gt;&lt;small&gt;prevent thundering herd&lt;/small&gt;"]
-    D --&gt; E["_run_sync(relays, cursors)&lt;br/&gt;&lt;small&gt;TaskGroup + semaphore&lt;/small&gt;"]
+    C --&gt; D["Order relays&lt;br/&gt;&lt;small&gt;most behind first&lt;/small&gt;"]
+    D --&gt; E["synchronize()&lt;br/&gt;&lt;small&gt;_iter_concurrent + semaphore&lt;/small&gt;"]
     E --&gt; F["Per relay:"]
     F --&gt; G["Connect via WebSocket"]
     G --&gt; H["stream_events()&lt;br/&gt;&lt;small&gt;windowing with binary-split fallback&lt;/small&gt;"]
     H --&gt; I["Buffer events"]
     I --&gt; J{Buffer full?}
-    J --&gt;|Yes| K["insert_events()&lt;br/&gt;&lt;small&gt;cascade insert&lt;/small&gt;"]
+    J --&gt;|Yes| K["insert_event_relays()&lt;br/&gt;&lt;small&gt;cascade insert&lt;/small&gt;"]
     J --&gt;|No| L{Stream done?}
     L --&gt;|Yes| K
     L --&gt;|No| I
     K --&gt; M["Update cursor"]
 </code></pre>
 <ol>
-<li><code>run()</code> delegates to <code>synchronize()</code> -- fetch relays, shuffle, load cursors, distribute work</li>
-<li><code>_run_sync(relays, cursors)</code> -- <code>_iter_concurrent()</code> with per-network semaphores</li>
-<li>For each relay: <code>_sync_single_relay()</code> connects via WebSocket, streams events using <code>stream_events()</code> with data-driven windowing and binary-split fallback for completeness</li>
-<li>Events are buffered and batch-inserted via <code>insert_events()</code> (cascade insert to <code>event</code> + <code>event_relay</code>)</li>
-<li>Per-relay cursor tracking via <code>ServiceState</code> with <code>ServiceStateType.CURSOR</code>, batched flush every <code>flush_interval</code> relays</li>
+<li><code>run()</code> delegates to <code>synchronize()</code> -- fetch cursors ordered by sync progress ascending (most behind first), distribute work</li>
+<li><code>synchronize()</code> -- <code>_iter_concurrent()</code> with <code>_sync_worker</code> async generators and per-network semaphores</li>
+<li>For each relay: <code>_sync_relay_events()</code> connects via WebSocket, streams events using <code>stream_events()</code> with data-driven windowing and binary-split fallback for completeness</li>
+<li>Events are buffered and batch-inserted via <code>insert_event_relays()</code> (cascade insert to <code>event</code> + <code>event_relay</code>)</li>
+<li>Per-relay cursor tracking via <code>ServiceState</code> with <code>ServiceStateType.CURSOR</code>, cursors saved in batch via <code>upsert_sync_cursors()</code> at each buffer flush</li>
 <li>Cursor set to <code>end_time</code> on completion, or last event's <code>created_at</code> on partial completion</li>
 </ol>
 <h3 id="configuration_4">Configuration<a class="headerlink" href="#configuration_4" title="Permanent link">&para;</a></h3>
@@ -6337,46 +6337,46 @@ to <code>nips/event_builders.py</code>.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>interval</code></td>
-<td>float</td>
-<td><code>900.0</code></td>
-<td>Seconds between sync cycles</td>
+<td><code>processing.filters</code></td>
+<td>list[dict]</td>
+<td><code>[{}]</code></td>
+<td>NIP-01 filter dicts for event subscription (OR semantics)</td>
 </tr>
 <tr>
-<td><code>filters</code></td>
-<td>list[Filter]</td>
-<td><code>[Filter()]</code></td>
-<td>NIP-01 filter dicts for event subscription (null = all)</td>
-</tr>
-<tr>
-<td><code>limit</code></td>
+<td><code>processing.limit</code></td>
 <td>int</td>
 <td><code>500</code></td>
 <td>Max events per relay request (REQ limit)</td>
 </tr>
 <tr>
-<td><code>since</code></td>
+<td><code>processing.since</code></td>
 <td>int</td>
 <td><code>0</code></td>
 <td>Default start timestamp for relays without a cursor</td>
 </tr>
 <tr>
-<td><code>until</code></td>
+<td><code>processing.until</code></td>
 <td>int or null</td>
 <td><code>null</code></td>
 <td>Upper bound timestamp (null = now)</td>
 </tr>
 <tr>
-<td><code>end_lag</code></td>
+<td><code>processing.end_lag</code></td>
 <td>int</td>
 <td><code>86400</code></td>
 <td>Seconds subtracted from until to compute sync end time</td>
 </tr>
 <tr>
-<td><code>flush_interval</code></td>
+<td><code>processing.batch_size</code></td>
 <td>int</td>
-<td><code>50</code></td>
-<td>Flush cursor updates every N relays</td>
+<td><code>1000</code></td>
+<td>Events to buffer before flushing to the database</td>
+</tr>
+<tr>
+<td><code>processing.allow_insecure</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td>Fall back to insecure transport on SSL failure</td>
 </tr>
 <tr>
 <td><code>timeouts.relay_clearnet</code></td>
@@ -6392,8 +6392,8 @@ to <code>nips/event_builders.py</code>.</p>
 </tr>
 <tr>
 <td><code>timeouts.max_duration</code></td>
-<td>float or null</td>
-<td><code>null</code></td>
+<td>float</td>
+<td><code>14400.0</code></td>
 <td>Maximum seconds for the entire sync phase</td>
 </tr>
 <tr>
@@ -6411,7 +6411,7 @@ to <code>nips/event_builders.py</code>.</p>
 <hr />
 <h2 id="refresher">Refresher<a class="headerlink" href="#refresher" title="Permanent link">&para;</a></h2>
 <p><strong>Purpose</strong>: Refresh materialized views that power analytics queries.</p>
-<p><strong>Mode</strong>: Continuous (<code>run_forever</code>, default interval 1 hour)</p>
+<p><strong>Mode</strong>: Continuous (<code>run_forever</code>)</p>
 <p><strong>Reads</strong>: Base tables (indirectly, via <code>REFRESH MATERIALIZED VIEW CONCURRENTLY</code>)
 <strong>Writes</strong>: 11 materialized views</p>
 <h3 id="how-it-works_5">How It Works<a class="headerlink" href="#how-it-works_5" title="Permanent link">&para;</a></h3>
@@ -6433,12 +6433,6 @@ to <code>nips/event_builders.py</code>.</p>
 </tr>
 </thead>
 <tbody>
-<tr>
-<td><code>interval</code></td>
-<td>float</td>
-<td><code>3600.0</code></td>
-<td>Seconds between refresh cycles</td>
-</tr>
 <tr>
 <td><code>refresh.views</code></td>
 <td>list[string]</td>
