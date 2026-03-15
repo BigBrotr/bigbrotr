@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.0.0] - 2026-03-15
+
+Service architecture refinements, database index overhaul, and monitoring stack rewrite. Finder service fully restructured with cursor-based pagination, database indexes redesigned for actual query patterns, and Grafana dashboards rewritten from scratch.
+
+### Changed
+
+- **Finder service restructured**: aligned with synchronizer patterns — cursor-based event scanning with `(seen_at, event_id)` composite pagination, streaming relay extraction, and per-relay deadline enforcement (#366, #367)
+- **Finder configs tightened**: `scan_size` replaces `batch_size` for DB queries, `max_relay_time` raised to 900s, `max_duration` to 7200s, API source `expression` field no longer has a default (#366, #367)
+- **Monitor simplified**: removed `count_relays_to_monitor` query — service now fetches all due relays once and slices in-memory; `_monitoring_worker` renamed to `_monitor_worker` (#372)
+- **Refresher interval**: default changed from 1 hour to 24 hours; per-view duration gauge and `time.monotonic()` timing added; counter metrics removed in favor of gauges (#371)
+- **Synchronizer configs**: `batch_size` minimum raised from 1 to 100, maximum lowered from 100k to 10k; `limit` minimum raised from 1 to 10; `_sync_worker` renamed to `_synchronize_worker` (#366)
+- **Checkpoint defaults**: `Checkpoint.timestamp` defaults to 0; `CandidateCheckpoint` is now `kw_only`; `Cursor` fields default to sentinel values instead of None (#366)
+- **Batched operations**: Synchronizer and Monitor queries use shared `batched_insert` and `upsert_service_states` helpers from `services/common/queries` (#366)
+- **Grafana dashboards**: complete rewrite for both bigbrotr and lilbrotr deployments with aligned service metrics and panel layout (#372)
+- **Postgres-exporter queries**: rewritten to match new metric names and dashboard panels (#372)
+
+### Fixed
+
+- **Database indexes redesigned**: replaced 6 redundant or misaligned indexes with 4 optimized composite indexes — `idx_event_created_at_id` (DESC for timeline), `idx_event_relay_relay_url_seen_at_event_id` (3-column covering index for cursor pagination), removed standalone `idx_event_kind`, `idx_event_relay_relay_url`, `idx_service_state_service_name`, `idx_service_state_service_name_state_type`; fixed candidate network partial index filter to use `state_type = 'checkpoint'` (#370)
+- **Materialized view indexes**: added `idx_relay_metadata_latest_relay_url` for relay-level lookups; added `idx_kind_counts_by_relay_relay_url` and `idx_pubkey_counts_by_relay_relay_url`; removed redundant `idx_kind_counts_by_relay_kind` (#370)
+
+### Docs
+
+- **README badges**: improved layout and styling (#374)
+- **Documentation drift**: comprehensive fix across configuration, services, architecture, and database pages (#366, #369)
+
 ## [5.10.0] - 2026-03-13
 
 API ergonomics and service architecture refinements: simplified public API for library consumers, unified async generator workers, and NIP protocol enhancements.
