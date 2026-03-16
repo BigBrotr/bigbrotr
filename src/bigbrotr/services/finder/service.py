@@ -306,7 +306,6 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
             ):
                 return
             try:
-                self.inc_gauge("relays_seen")
                 deadline = time.monotonic() + self._config.events.max_relay_time
                 async for row in stream_event_relays(
                     self._brotr, cursor, self._config.events.scan_size
@@ -327,3 +326,5 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
                     error_type=type(e).__name__,
                     relay=cursor.key,
                 )
+            finally:
+                self.inc_gauge("relays_seen")
