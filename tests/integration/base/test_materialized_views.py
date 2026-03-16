@@ -301,6 +301,7 @@ class TestRelayStats:
             {"name": "Test Relay", "software": "strfry", "version": "1.0.0"},
         )
         await brotr.insert_relay_metadata([rm], cascade=True)
+        await brotr.refresh_materialized_view("relay_metadata_latest")
         await brotr.refresh_materialized_view("relay_stats")
 
         rows = await brotr.fetch(
