@@ -594,8 +594,8 @@ class Monitor(
         failed = 0
 
         self.set_gauge("total", total)
-        self.set_gauge("succeeded", succeeded)
-        self.set_gauge("failed", failed)
+        self.set_gauge("succeeded", 0)
+        self.set_gauge("failed", 0)
 
         self._logger.info("relays_available", total=total)
 
@@ -616,8 +616,7 @@ class Monitor(
                 else:
                     chunk_failed.append(relay)
                     failed += 1
-                self.set_gauge("succeeded", succeeded)
-                self.set_gauge("failed", failed)
+                self.inc_gauge("succeeded" if result is not None else "failed")
 
             metadata = collect_metadata(chunk_successful, self._config.processing.store)
             await insert_relay_metadata(self._brotr, metadata)

@@ -622,6 +622,64 @@ class TestSetGauge:
             mock_gauge.labels.assert_not_called()
 
 
+class TestIncGauge:
+    """Tests for inc_gauge() method."""
+
+    def test_inc_gauge_when_enabled(self, mock_brotr: Brotr) -> None:
+        config = ConcreteServiceConfig(metrics=MetricsConfig(enabled=True))
+        service = ConcreteService(brotr=mock_brotr, config=config)
+
+        with patch("bigbrotr.core.base_service.SERVICE_GAUGE") as mock_gauge:
+            service.inc_gauge("test_metric", 5.0)
+            mock_gauge.labels.assert_called_with(service="test_service", name="test_metric")
+            mock_gauge.labels().inc.assert_called_with(5.0)
+
+    def test_inc_gauge_default_value(self, mock_brotr: Brotr) -> None:
+        config = ConcreteServiceConfig(metrics=MetricsConfig(enabled=True))
+        service = ConcreteService(brotr=mock_brotr, config=config)
+
+        with patch("bigbrotr.core.base_service.SERVICE_GAUGE") as mock_gauge:
+            service.inc_gauge("test_metric")
+            mock_gauge.labels().inc.assert_called_with(1)
+
+    def test_inc_gauge_when_disabled_is_noop(self, mock_brotr: Brotr) -> None:
+        config = ConcreteServiceConfig(metrics=MetricsConfig(enabled=False))
+        service = ConcreteService(brotr=mock_brotr, config=config)
+
+        with patch("bigbrotr.core.base_service.SERVICE_GAUGE") as mock_gauge:
+            service.inc_gauge("test_metric")
+            mock_gauge.labels.assert_not_called()
+
+
+class TestDecGauge:
+    """Tests for dec_gauge() method."""
+
+    def test_dec_gauge_when_enabled(self, mock_brotr: Brotr) -> None:
+        config = ConcreteServiceConfig(metrics=MetricsConfig(enabled=True))
+        service = ConcreteService(brotr=mock_brotr, config=config)
+
+        with patch("bigbrotr.core.base_service.SERVICE_GAUGE") as mock_gauge:
+            service.dec_gauge("test_metric", 3.0)
+            mock_gauge.labels.assert_called_with(service="test_service", name="test_metric")
+            mock_gauge.labels().dec.assert_called_with(3.0)
+
+    def test_dec_gauge_default_value(self, mock_brotr: Brotr) -> None:
+        config = ConcreteServiceConfig(metrics=MetricsConfig(enabled=True))
+        service = ConcreteService(brotr=mock_brotr, config=config)
+
+        with patch("bigbrotr.core.base_service.SERVICE_GAUGE") as mock_gauge:
+            service.dec_gauge("test_metric")
+            mock_gauge.labels().dec.assert_called_with(1)
+
+    def test_dec_gauge_when_disabled_is_noop(self, mock_brotr: Brotr) -> None:
+        config = ConcreteServiceConfig(metrics=MetricsConfig(enabled=False))
+        service = ConcreteService(brotr=mock_brotr, config=config)
+
+        with patch("bigbrotr.core.base_service.SERVICE_GAUGE") as mock_gauge:
+            service.dec_gauge("test_metric")
+            mock_gauge.labels.assert_not_called()
+
+
 class TestIncCounter:
     """Tests for inc_counter() method."""
 

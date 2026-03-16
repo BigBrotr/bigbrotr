@@ -159,11 +159,10 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         seen: set[str] = set()
         buffer: list[Relay] = []
         pending_checkpoints: list[ApiCheckpoint] = []
-        sources_fetched = 0
 
         self.set_gauge("total_sources", len(enabled))
-        self.set_gauge("sources_fetched", sources_fetched)
-        self.set_gauge("relays_seen", len(seen))
+        self.set_gauge("sources_fetched", 0)
+        self.set_gauge("relays_seen", 0)
 
         self._logger.info("api_started", source_count=len(enabled))
 
@@ -173,8 +172,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
                     seen.add(relay.url)
                     buffer.append(relay)
             pending_checkpoints.append(checkpoint)
-            sources_fetched += 1
-            self.set_gauge("sources_fetched", sources_fetched)
+            self.inc_gauge("sources_fetched")
             self.set_gauge("relays_seen", len(seen))
 
         if pending_checkpoints:
@@ -263,26 +261,24 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         self._phase_start = time.monotonic()
 
         total_found = 0
-        rows_seen = 0
         relays_seen: set[str] = set()
         buffer: list[Relay] = []
         pending_cursors: dict[str, FinderCursor] = {}
         batch_size = self._config.events.batch_size
 
         self.set_gauge("total_relays", len(cursors))
-        self.set_gauge("rows_seen", rows_seen)
-        self.set_gauge("relays_seen", len(relays_seen))
+        self.set_gauge("rows_seen", 0)
+        self.set_gauge("relays_seen", 0)
 
         self._logger.info("scan_started", relay_count=len(cursors))
 
         async for relays, cursor in self._iter_concurrent(cursors, self._find_from_events_worker):
             buffer.extend(relays)
             pending_cursors[cursor.key] = cursor
-            rows_seen += 1
-            self.set_gauge("rows_seen", rows_seen)
+            self.inc_gauge("rows_seen")
             if cursor.key not in relays_seen:
                 relays_seen.add(cursor.key)
-                self.set_gauge("relays_seen", len(relays_seen))
+                self.inc_gauge("relays_seen")
             if len(buffer) >= batch_size:
                 total_found += await insert_relays_as_candidates(self._brotr, buffer)
                 buffer = []

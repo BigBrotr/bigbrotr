@@ -1886,7 +1886,6 @@ class TestMonitorMetrics:
         monitor.clients.get_many = AsyncMock(return_value=[])
         monitor.clients.disconnect = AsyncMock()
 
-        gauge_calls: list[tuple[str, int]] = []
         with (
             patch(
                 "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
@@ -1902,18 +1901,16 @@ class TestMonitorMetrics:
                 "bigbrotr.services.monitor.service.upsert_monitor_checkpoints",
                 new_callable=AsyncMock,
             ),
-            patch.object(
-                monitor,
-                "set_gauge",
-                side_effect=lambda n, val: gauge_calls.append((n, val)),
-            ),
+            patch.object(monitor, "set_gauge") as mock_set,
+            patch.object(monitor, "inc_gauge") as mock_inc,
         ):
             await monitor.monitor()
 
-        calls = {(n, v) for n, v in gauge_calls}
-        assert ("total", 2) in calls
-        assert ("succeeded", 1) in calls
-        assert ("failed", 1) in calls
+        mock_set.assert_any_call("total", 2)
+        succeeded = [c for c in mock_inc.call_args_list if c.args[0] == "succeeded"]
+        failed = [c for c in mock_inc.call_args_list if c.args[0] == "failed"]
+        assert len(succeeded) == 1
+        assert len(failed) == 1
 
 
 # ============================================================================
