@@ -9,7 +9,7 @@ source "${SCRIPT_DIR}/.env"
 
 mkdir -p "${BACKUP_DIR}"
 
-PGPASSWORD="${DB_ADMIN_PASSWORD}" docker exec lilbrotr-postgres \
+docker exec -e PGPASSWORD="${DB_ADMIN_PASSWORD}" lilbrotr-postgres \
   pg_dump -U admin -d lilbrotr \
     --no-owner --no-privileges \
     -Z 6 \
