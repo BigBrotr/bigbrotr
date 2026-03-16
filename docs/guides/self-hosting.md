@@ -1113,11 +1113,19 @@ docker compose restart monitor
 
 **Symptom**: Synchronizer/Monitor logs show `connect_failed` with `"Temporary failure in name resolution"` or `"Network is unreachable"` for relays that are reachable from the host via `curl`.
 
-**Cause**: Some relays (especially behind Cloudflare) return **only** IPv6 (AAAA) DNS records. Docker's internal resolver returns these records, but the container has no IPv6 connectivity (even with `enable_ipv6: false` on the network). The underlying Nostr client library does not fall back to IPv4.
+**Cause**: glibc inside the container prefers IPv6 (RFC 6724). Some relays behind Cloudflare return both A (IPv4) and AAAA (IPv6) records, but the container has no IPv6 connectivity. The resolver picks IPv6 first and fails without falling back.
 
-**Impact**: Minimal — only affects the small minority of relays with IPv6-only DNS. The services continue processing all other relays normally.
+**Fix**: The deployment folder includes a `gai.conf` file mounted into all service containers that forces IPv4 precedence. If you're missing it:
 
-**Note**: This is a limitation of the Nostr client library (`nostr-sdk`), not BigBrotr. There is no server-side fix. The warning logs can be safely ignored.
+```bash
+echo "precedence ::ffff:0:0/96  100" > /opt/bigbrotr-production/gai.conf
+```
+
+Then add `- ./gai.conf:/etc/gai.conf:ro` under `volumes:` for each service in `docker-compose.yaml` and restart:
+
+```bash
+docker compose down && docker compose up -d
+```
 
 ---
 

@@ -218,6 +218,7 @@ services:
 
     volumes:
       - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
       - ./static:/app/static:ro
 
     networks:
@@ -257,6 +258,7 @@ services:
 
     volumes:
       - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
 
     ports:
       - "127.0.0.1:${FINDER_METRICS_PORT:-8001}:8000"  # Prometheus metrics
@@ -305,6 +307,7 @@ services:
 
     volumes:
       - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
 
     ports:
       - "127.0.0.1:${VALIDATOR_METRICS_PORT:-8002}:8000"  # Prometheus metrics
@@ -359,6 +362,7 @@ services:
 
     volumes:
       - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
       - ./static:/app/static
 
     ports:
@@ -414,6 +418,7 @@ services:
 
     volumes:
       - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
 
     ports:
       - "127.0.0.1:${SYNCHRONIZER_METRICS_PORT:-8004}:8000"  # Prometheus metrics
@@ -467,6 +472,7 @@ services:
 
     volumes:
       - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
 
     ports:
       - "127.0.0.1:${REFRESHER_METRICS_PORT:-8005}:8000"  # Prometheus metrics
@@ -514,6 +520,7 @@ services:
 
     volumes:
       - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
 
     ports:
       - "127.0.0.1:8080:8080"                              # HTTP API
@@ -563,6 +570,7 @@ services:
 
     volumes:
       - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
 
     ports:
       - "127.0.0.1:${DVM_METRICS_PORT:-8007}:8000"         # Prometheus metrics
