@@ -132,6 +132,7 @@ class Synchronizer(
         super().__init__(brotr=brotr, config=config, networks=config.networks)
         self._config: SynchronizerConfig
         self._keys: Keys = self._config.keys.keys
+        self._relays_connected: int = 0
 
     async def run(self) -> None:
         """Execute one complete synchronization cycle across all relays."""
@@ -169,7 +170,9 @@ class Synchronizer(
         pending_cursors: dict[str, SyncCursor] = {}
         batch_size = self._config.processing.batch_size
 
+        self._relays_connected = 0
         self.set_gauge("total_relays", len(cursors))
+        self.set_gauge("relays_connected", self._relays_connected)
         self.set_gauge("events_seen", events_seen)
         self.set_gauge("relays_seen", len(relays_seen))
 
@@ -246,6 +249,9 @@ class Synchronizer(
                 except (OSError, TimeoutError) as e:
                     self._logger.warning("connect_failed", relay=relay.url, error=str(e))
                     return
+
+                self._relays_connected += 1
+                self.set_gauge("relays_connected", self._relays_connected)
 
                 try:
                     async for event in stream_events(
