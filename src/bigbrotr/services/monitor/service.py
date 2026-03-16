@@ -68,6 +68,7 @@ from bigbrotr.nips.event_builders import (
     build_monitor_announcement,
     build_profile_event,
     build_relay_discovery,
+    build_relay_list_event,
 )
 from bigbrotr.nips.nip11 import Nip11, Nip11Options, Nip11Selection
 from bigbrotr.nips.nip66 import (
@@ -191,6 +192,7 @@ class Monitor(
 
         try:
             await self.publish_profile()
+            await self.publish_relay_list()
             await self.publish_announcement()
             await self.monitor()
         finally:
@@ -204,6 +206,8 @@ class Monitor(
             keep_keys.append("announcement")
         if self._config.profile.enabled:
             keep_keys.append("profile")
+        if self._config.relay_list.enabled:
+            keep_keys.append("relay_list")
         return await delete_stale_checkpoints(self._brotr, keep_keys)
 
     async def update_geo_databases(self) -> None:
@@ -280,6 +284,32 @@ class Monitor(
 
         self._logger.info("publish_completed", event="profile", relays=sent)
         await upsert_publish_checkpoints(self._brotr, ["profile"])
+
+    async def publish_relay_list(self) -> None:
+        """Publish Kind 10002 relay list metadata if the configured interval has elapsed."""
+        cfg = self._config.relay_list
+        if not cfg.enabled:
+            return
+
+        relays = cfg.relays if cfg.relays is not None else self._config.publishing.relays
+        if not relays:
+            return
+
+        if not await is_publish_due(self._brotr, "relay_list", cfg.interval):
+            return
+
+        clients = await self.clients.get_many(relays)
+        if not clients:
+            self._logger.warning("publish_failed", event="relay_list", error="no relays reachable")
+            return
+
+        sent = await broadcast_events([build_relay_list_event(relays)], clients)
+        if not sent:
+            self._logger.warning("publish_failed", event="relay_list", error="no relays reachable")
+            return
+
+        self._logger.info("publish_completed", event="relay_list", relays=sent)
+        await upsert_publish_checkpoints(self._brotr, ["relay_list"])
 
     async def publish_announcement(self) -> None:
         """Publish Kind 10166 monitor announcement if the configured interval has elapsed."""

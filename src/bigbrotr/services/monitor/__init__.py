@@ -13,6 +13,7 @@ from .configs import (
     ProcessingConfig,
     ProfileConfig,
     PublishingConfig,
+    RelayListConfig,
 )
 from .service import Monitor
 from .utils import CheckResult
@@ -29,4 +30,5 @@ __all__ = [
     "ProcessingConfig",
     "ProfileConfig",
     "PublishingConfig",
+    "RelayListConfig",
 ]

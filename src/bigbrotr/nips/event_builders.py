@@ -86,6 +86,12 @@ def build_profile_event(  # noqa: PLR0913
     return EventBuilder.metadata(NostrMetadata.from_json(json.dumps(profile_data)))
 
 
+def build_relay_list_event(relays: list[Relay]) -> EventBuilder:
+    """Build a Kind 10002 relay list metadata event per NIP-65."""
+    tags = [Tag.parse(["r", relay.url, "write"]) for relay in relays]
+    return EventBuilder(Kind(EventKind.RELAY_LIST), "").tags(tags)
+
+
 def build_monitor_announcement(
     *,
     interval: int,

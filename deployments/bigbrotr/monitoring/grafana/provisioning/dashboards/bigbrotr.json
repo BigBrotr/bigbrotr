@@ -4439,13 +4439,13 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"finder\", name=\"total_relays\"}",
+          "expr": "service_gauge{service=\"finder\", name=\"relays_seen\"}",
           "legendFormat": "Relays",
           "instant": true,
           "refId": "B"
         }
       ],
-      "title": "Event Scan",
+      "title": "Scanned",
       "type": "stat"
     },
     {

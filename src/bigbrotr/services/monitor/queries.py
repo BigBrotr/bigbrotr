@@ -150,7 +150,7 @@ async def upsert_monitor_checkpoints(brotr: Brotr, relays: list[Relay], now: int
     await upsert_service_states(brotr, records)
 
 
-_PUBLISH_KEYS: frozenset[str] = frozenset({"announcement", "profile"})
+_PUBLISH_KEYS: frozenset[str] = frozenset({"announcement", "profile", "relay_list"})
 
 
 def _validate_publish_keys(state_keys: list[str]) -> None:

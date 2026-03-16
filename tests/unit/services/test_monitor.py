@@ -39,6 +39,7 @@ from bigbrotr.services.monitor import (
     ProcessingConfig,
     ProfileConfig,
     PublishingConfig,
+    RelayListConfig,
 )
 from bigbrotr.services.monitor.configs import RetriesConfig, RetryConfig
 from bigbrotr.services.monitor.queries import (
@@ -105,6 +106,7 @@ class _MonitorStub:
         self._brotr = brotr or AsyncMock()
         self.inc_counter = MagicMock()
         self.set_gauge = MagicMock()
+        self.inc_gauge = MagicMock()
         self.clients = MagicMock()
         self.clients.get = AsyncMock(return_value=AsyncMock())
         self.clients.get_many = AsyncMock(return_value=[AsyncMock()])
@@ -113,6 +115,7 @@ class _MonitorStub:
     # Publishing methods bound from Monitor
     publish_announcement = Monitor.publish_announcement
     publish_profile = Monitor.publish_profile
+    publish_relay_list = Monitor.publish_relay_list
 
 
 @pytest.fixture
@@ -1369,7 +1372,7 @@ class TestMonitorCleanup:
         monitor = Monitor(brotr=mock_brotr, config=config)
         result = await monitor.cleanup()
 
-        mock_delete.assert_awaited_once_with(mock_brotr, ["announcement", "profile"])
+        mock_delete.assert_awaited_once_with(mock_brotr, ["announcement", "profile", "relay_list"])
         assert result == 3
 
     @patch(
@@ -1387,7 +1390,7 @@ class TestMonitorCleanup:
         monitor = Monitor(brotr=mock_brotr, config=config)
         result = await monitor.cleanup()
 
-        mock_delete.assert_awaited_once_with(mock_brotr, ["profile"])
+        mock_delete.assert_awaited_once_with(mock_brotr, ["profile", "relay_list"])
         assert result == 2
 
     @patch(
@@ -1402,7 +1405,7 @@ class TestMonitorCleanup:
         monitor = Monitor(brotr=mock_brotr, config=config)
         result = await monitor.cleanup()
 
-        mock_delete.assert_awaited_once_with(mock_brotr, ["announcement"])
+        mock_delete.assert_awaited_once_with(mock_brotr, ["announcement", "relay_list"])
         assert result == 1
 
     @patch(
@@ -1418,7 +1421,7 @@ class TestMonitorCleanup:
         monitor = Monitor(brotr=mock_brotr, config=config)
         result = await monitor.cleanup()
 
-        mock_delete.assert_awaited_once_with(mock_brotr, [])
+        mock_delete.assert_awaited_once_with(mock_brotr, ["relay_list"])
         assert result == 5
 
 
@@ -1731,6 +1734,110 @@ class TestPublishProfile:
         stub._logger.warning.assert_called_once()
         stub._logger.warning.assert_called_once_with(
             "publish_failed", event="profile", error="no relays reachable"
+        )
+
+
+# ============================================================================
+# Service: Publish relay list (Kind 10002)
+# ============================================================================
+
+
+class TestPublishRelayList:
+    async def test_disabled(self, test_keys: Keys) -> None:
+        config = _make_config(relay_list=RelayListConfig(enabled=False))
+        harness = _MonitorStub(config, test_keys)
+        with patch(
+            "bigbrotr.services.monitor.service.is_publish_due", new_callable=AsyncMock
+        ) as mock_due:
+            await harness.publish_relay_list()
+            mock_due.assert_not_awaited()
+
+    async def test_no_relays(self, test_keys: Keys) -> None:
+        config = _make_config(
+            relay_list=RelayListConfig(enabled=True, relays=[]),
+            publishing=PublishingConfig(relays=[]),
+        )
+        harness = _MonitorStub(config, test_keys)
+        with patch(
+            "bigbrotr.services.monitor.service.is_publish_due", new_callable=AsyncMock
+        ) as mock_due:
+            await harness.publish_relay_list()
+            mock_due.assert_not_awaited()
+
+    async def test_interval_not_elapsed(self, stub: _MonitorStub) -> None:
+        with patch(
+            "bigbrotr.services.monitor.service.is_publish_due",
+            new_callable=AsyncMock,
+            return_value=False,
+        ):
+            await stub.publish_relay_list()
+            stub.clients.get_many.assert_not_awaited()
+
+    async def test_successful(self, stub: _MonitorStub) -> None:
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+                return_value=1,
+            ) as mock_broadcast,
+            patch(
+                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
+        ):
+            await stub.publish_relay_list()
+
+        mock_broadcast.assert_awaited_once()
+        mock_save.assert_awaited_once_with(stub._brotr, ["relay_list"])
+        stub._logger.info.assert_called_with("publish_completed", event="relay_list", relays=1)
+
+    async def test_no_reachable_clients(self, stub: _MonitorStub) -> None:
+        stub.clients.get_many = AsyncMock(return_value=[])
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+            ) as mock_broadcast,
+        ):
+            await stub.publish_relay_list()
+
+        mock_broadcast.assert_not_awaited()
+        stub._logger.warning.assert_called_once_with(
+            "publish_failed", event="relay_list", error="no relays reachable"
+        )
+
+    async def test_broadcast_failure(self, stub: _MonitorStub) -> None:
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
+        ):
+            await stub.publish_relay_list()
+
+        mock_save.assert_not_awaited()
+        stub._logger.warning.assert_called_once_with(
+            "publish_failed", event="relay_list", error="no relays reachable"
         )
 
 
