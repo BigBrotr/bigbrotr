@@ -907,6 +907,7 @@ class TestCli:
     @pytest.mark.parametrize("return_code", [0, 1, 130])
     def test_cli_exits_with_main_return_code(self, return_code: int) -> None:
         with (
+            patch("bigbrotr.__main__.main", lambda: None),
             patch("bigbrotr.__main__.asyncio.run", return_value=return_code),
             pytest.raises(SystemExit) as exc_info,
         ):
