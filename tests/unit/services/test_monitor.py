@@ -1752,6 +1752,32 @@ class TestPublishRelayList:
             await harness.publish_relay_list()
             mock_due.assert_not_awaited()
 
+    async def test_uses_override_relays(self, stub: _MonitorStub) -> None:
+        stub._config = _make_config(
+            relay_list=RelayListConfig(enabled=True, relays=["wss://custom.relay.com"]),
+        )
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await stub.publish_relay_list()
+        stub.clients.get_many.assert_awaited_once()
+        call_relays = stub.clients.get_many.call_args[0][0]
+        assert len(call_relays) == 1
+        assert call_relays[0].url == "wss://custom.relay.com"
+
     async def test_no_relays(self, test_keys: Keys) -> None:
         config = _make_config(
             relay_list=RelayListConfig(enabled=True, relays=[]),
