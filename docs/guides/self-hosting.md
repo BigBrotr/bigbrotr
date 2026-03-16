@@ -979,36 +979,15 @@ dpkg-reconfigure -plow unattended-upgrades
 
 ## Phase 8 — Database Backup
 
-Create a manual backup script:
+A `backup.sh` script is included in the deployment folder. It dumps the database to `/mnt/work/dumps/`, compressed with gzip, and keeps only the 7 most recent dumps.
 
 ```bash
-cat > /opt/bigbrotr-production/backup.sh << 'BACKUP'
-#!/bin/bash
-set -euo pipefail
+# Make sure the dump directory exists
+mkdir -p /mnt/work/dumps
 
-BACKUP_DIR="/mnt/work/dumps"
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-DUMP_FILE="${BACKUP_DIR}/bigbrotr_${TIMESTAMP}.sql.gz"
-
-source /opt/bigbrotr-production/.env
-
-PGPASSWORD="${DB_ADMIN_PASSWORD}" docker exec bigbrotr-postgres \
-  pg_dump -U admin -d bigbrotr \
-    --no-owner --no-privileges \
-    -Z 6 \
-  > "${DUMP_FILE}"
-
-ls -t "${BACKUP_DIR}"/bigbrotr_*.sql.gz | tail -n +8 | xargs -r rm
-
-echo "[$(date)] Backup completed: ${DUMP_FILE} ($(du -h "${DUMP_FILE}" | cut -f1))"
-BACKUP
-
-chmod +x /opt/bigbrotr-production/backup.sh
+# Run a backup
+/opt/bigbrotr-production/backup.sh
 ```
-
-**Usage**: `/opt/bigbrotr-production/backup.sh`
-
-Dumps are saved to `/mnt/work/dumps/`, compressed with gzip. The script keeps only the 7 most recent.
 
 **Optional** — schedule automatic daily backups:
 
