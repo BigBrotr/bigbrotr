@@ -58,7 +58,7 @@ WORKDIR /app
 # Install runtime dependencies then strip the base image's Python packaging toolchain.
 # The production image runs exclusively from the .venv copied from the builder stage;
 # system-level Python packages are unused and only increase the attack surface.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     libpq5 \
     libsecp256k1-dev \
     tini \

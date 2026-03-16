@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.1.0] - 2026-03-16
+
+Performance optimizations, infrastructure fixes, and CI/CD improvements. Materialized views optimized for significantly faster refresh, Docker networking fixed for IPv6-less hosts, and image publishing migrated from GHCR to Docker Hub.
+
+### Changed
+
+- **Materialized view `relay_stats` optimized**: replaced 2 LATERAL subqueries with CTE ROW_NUMBER() for RTT averages and JOIN on `relay_metadata_latest` for NIP-11 info; `COUNT(DISTINCT)` replaced with `COUNT(*)`; `LEFT JOIN` replaced with `INNER JOIN` on event table (~4-8x speedup) (#378)
+- **Materialized view `network_stats` optimized**: relay count computed in separate CTE on relay table; events deduplicated per network before joining event table to avoid processing duplicates (~1.5-3x speedup) (#378)
+- **Materialized view `event_daily_counts` optimized**: replaced `to_timestamp()` + timezone conversion with integer arithmetic for faster date grouping (~1.1-1.3x speedup) (#378)
+- **Docker image publishing migrated from GHCR to Docker Hub**: GHCR packages defaulted to private under org settings; Docker Hub provides public images with anonymous pull access (#382)
+- **Dependabot PRs target `develop`**: all 3 ecosystems (uv, docker, github-actions) now create PRs against `develop` instead of `main` (#381)
+- **Streaming verify logs downgraded**: `inconsistent_relay_empty_verify` and `inconsistent_relay_verify_max` changed from `warning` to `debug` — expected during normal operation (#379)
+
+### Fixed
+
+- **Docker IPv6 networking**: disabled IPv6 on Docker bridge networks; containers preferred IPv6 (RFC 6724) but hosts without IPv6 connectivity failed with "Network is unreachable" for relays behind dual-stack CDNs (#380)
+- **`event_daily_counts` date arithmetic**: added explicit `::INTEGER` cast for `BIGINT / 86400` — PostgreSQL has no `DATE + BIGINT` operator (#381)
+
+### Security
+
+- **Docker base image hardened**: added `apt-get upgrade` in both Dockerfile stages to patch OS-level vulnerabilities (CVE-2026-0861, glibc heap corruption)
+
+### Docs
+
+- **Self-hosting guide**: added `docs/guides/self-hosting.md` (#379)
+
+### Dependencies
+
+- ruff 0.15.5 → 0.15.6 (#381)
+- mkdocs-material 9.7.4 → 9.7.5 (#381)
+- astral-sh/setup-uv v7.3.1 → v7.5.0, docker/setup-buildx-action v3.12.0 → v4.0.0, docker/build-push-action v6.19.2 → v7.0.0, docker/setup-qemu-action v3.7.0 → v4.0.0, docker/login-action v3.7.0 → v4.0.0, docker/metadata-action v5.10.0 → v6.0.0, aquasecurity/trivy-action v0.34.1 → v0.35.0, github/codeql-action v4.32.4 → v4.32.6, actions/download-artifact v8.0.0 → v8.0.1 (#381)
+
 ## [6.0.0] - 2026-03-15
 
 Service architecture refinements, database index overhaul, and monitoring stack rewrite. Finder service fully restructured with cursor-based pagination, database indexes redesigned for actual query patterns, and Grafana dashboards rewritten from scratch.
