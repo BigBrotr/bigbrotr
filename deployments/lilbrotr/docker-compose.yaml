@@ -770,9 +770,11 @@ networks:
   lilbrotr-data-network:
     driver: bridge
     name: lilbrotr-data-network
+    enable_ipv6: false
   lilbrotr-monitoring-network:
     driver: bridge
     name: lilbrotr-monitoring-network
+    enable_ipv6: false
 
 # ============================================================================
 # USAGE

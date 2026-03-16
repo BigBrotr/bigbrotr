@@ -124,9 +124,9 @@ COMMENT ON MATERIALIZED VIEW event_stats IS
 -- round-trip times from the last 10 NIP-66 RTT measurements, and the latest
 -- NIP-11 relay info (name, software, version).
 --
--- The RTT LATERAL subquery efficiently fetches only the 10 most recent RTT
--- records per relay. The NIP-11 LATERAL subquery fetches the single most
--- recent NIP-11 info snapshot.
+-- RTT uses a CTE with ROW_NUMBER() instead of LATERAL to compute averages
+-- in a single pass over relay_metadata. NIP-11 info joins the
+-- relay_metadata_latest materialized view directly.
 --
 -- Refresh: relay_stats_refresh()
 
@@ -134,14 +134,38 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS relay_stats AS
 WITH event_agg AS (
     SELECT
         er.relay_url,
-        COUNT(DISTINCT er.event_id) AS event_count,
+        COUNT(*) AS event_count,
         COUNT(DISTINCT e.pubkey) AS unique_pubkeys,
         COUNT(DISTINCT e.kind) AS unique_kinds,
         MIN(e.created_at) AS first_event_timestamp,
         MAX(e.created_at) AS last_event_timestamp
     FROM event_relay AS er
-    LEFT JOIN event AS e ON er.event_id = e.id
+    INNER JOIN event AS e ON er.event_id = e.id
     GROUP BY er.relay_url
+),
+rtt_ranked AS (
+    SELECT
+        rm.relay_url,
+        m.data -> 'data' ->> 'rtt_open' AS rtt_open,
+        m.data -> 'data' ->> 'rtt_read' AS rtt_read,
+        m.data -> 'data' ->> 'rtt_write' AS rtt_write,
+        ROW_NUMBER() OVER (
+            PARTITION BY rm.relay_url ORDER BY rm.generated_at DESC
+        ) AS rn
+    FROM relay_metadata AS rm
+    INNER JOIN metadata AS m
+        ON rm.metadata_id = m.id AND rm.metadata_type = m.type
+    WHERE rm.metadata_type = 'nip66_rtt'
+),
+rtt_agg AS (
+    SELECT
+        relay_url,
+        ROUND(AVG(rtt_open::INTEGER)::NUMERIC, 2) AS avg_rtt_open,
+        ROUND(AVG(rtt_read::INTEGER)::NUMERIC, 2) AS avg_rtt_read,
+        ROUND(AVG(rtt_write::INTEGER)::NUMERIC, 2) AS avg_rtt_write
+    FROM rtt_ranked
+    WHERE rn <= 10
+    GROUP BY relay_url
 )
 
 SELECT
@@ -150,51 +174,23 @@ SELECT
     r.discovered_at,
     ea.first_event_timestamp,
     ea.last_event_timestamp,
-    rp.avg_rtt_open,
-    rp.avg_rtt_read,
-    rp.avg_rtt_write,
+    rtt.avg_rtt_open,
+    rtt.avg_rtt_read,
+    rtt.avg_rtt_write,
     COALESCE(ea.event_count, 0) AS event_count,
     COALESCE(ea.unique_pubkeys, 0) AS unique_pubkeys,
     COALESCE(ea.unique_kinds, 0) AS unique_kinds,
-    nip11.name AS nip11_name,
-    nip11.software AS nip11_software,
-    nip11.version AS nip11_version
+    nip11m.data -> 'data' ->> 'name' AS nip11_name,
+    nip11m.data -> 'data' ->> 'software' AS nip11_software,
+    nip11m.data -> 'data' ->> 'version' AS nip11_version
 
 FROM relay AS r
-
 LEFT JOIN event_agg AS ea ON r.url = ea.relay_url
-
--- LATERAL join: compute average RTT from the 10 most recent measurements
-LEFT JOIN LATERAL (
-    SELECT
-        ROUND(AVG((m.data -> 'data' ->> 'rtt_open')::INTEGER)::NUMERIC, 2) AS avg_rtt_open,
-        ROUND(AVG((m.data -> 'data' ->> 'rtt_read')::INTEGER)::NUMERIC, 2) AS avg_rtt_read,
-        ROUND(AVG((m.data -> 'data' ->> 'rtt_write')::INTEGER)::NUMERIC, 2) AS avg_rtt_write
-    FROM (
-        SELECT
-            rm.metadata_id,
-            rm.metadata_type
-        FROM relay_metadata AS rm
-        WHERE rm.relay_url = r.url AND rm.metadata_type = 'nip66_rtt'
-        ORDER BY rm.generated_at DESC
-        LIMIT 10
-    ) AS recent
-    INNER JOIN metadata AS m ON recent.metadata_id = m.id AND recent.metadata_type = m.type
-) AS rp ON TRUE
-
--- LATERAL join: latest NIP-11 relay info
-LEFT JOIN LATERAL (
-    SELECT
-        m.data -> 'data' ->> 'name' AS name,
-        m.data -> 'data' ->> 'software' AS software,
-        m.data -> 'data' ->> 'version' AS version
-    FROM relay_metadata AS rm
-    INNER JOIN metadata AS m ON rm.metadata_id = m.id AND rm.metadata_type = m.type
-    WHERE rm.relay_url = r.url AND rm.metadata_type = 'nip11_info'
-    ORDER BY rm.generated_at DESC
-    LIMIT 1
-) AS nip11 ON TRUE
-
+LEFT JOIN rtt_agg AS rtt ON r.url = rtt.relay_url
+LEFT JOIN relay_metadata_latest AS nip11l
+    ON r.url = nip11l.relay_url AND nip11l.metadata_type = 'nip11_info'
+LEFT JOIN metadata AS nip11m
+    ON nip11l.metadata_id = nip11m.id AND nip11l.metadata_type = nip11m.type
 ORDER BY r.url;
 
 COMMENT ON MATERIALIZED VIEW relay_stats IS
@@ -312,20 +308,43 @@ COMMENT ON MATERIALIZED VIEW pubkey_counts_by_relay IS
 -- One row per network type (clearnet, tor, i2p, loki) with relay count and
 -- aggregated event metrics. Useful for comparing network adoption.
 --
+-- relay_counts CTE avoids COUNT(DISTINCT url) on the full join result.
+-- network_events CTE deduplicates (network, event_id) before joining event,
+-- so events seen on multiple relays in the same network are counted once.
+--
 -- Refresh: network_stats_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS network_stats AS
+WITH relay_counts AS (
+    SELECT network, COUNT(*) AS relay_count
+    FROM relay
+    GROUP BY network
+),
+network_events AS (
+    SELECT DISTINCT r.network, er.event_id
+    FROM relay AS r
+    INNER JOIN event_relay AS er ON r.url = er.relay_url
+),
+event_agg AS (
+    SELECT
+        ne.network,
+        COUNT(*)::BIGINT AS event_count,
+        COUNT(DISTINCT e.pubkey)::BIGINT AS unique_pubkeys,
+        COUNT(DISTINCT e.kind)::BIGINT AS unique_kinds
+    FROM network_events AS ne
+    INNER JOIN event AS e ON ne.event_id = e.id
+    GROUP BY ne.network
+)
+
 SELECT
-    r.network,
-    COUNT(DISTINCT r.url) AS relay_count,
-    COUNT(DISTINCT er.event_id)::BIGINT AS event_count,
-    COUNT(DISTINCT e.pubkey)::BIGINT AS unique_pubkeys,
-    COUNT(DISTINCT e.kind)::BIGINT AS unique_kinds
-FROM relay AS r
-LEFT JOIN event_relay AS er ON r.url = er.relay_url
-LEFT JOIN event AS e ON er.event_id = e.id
-GROUP BY r.network
-ORDER BY relay_count DESC;
+    rc.network,
+    rc.relay_count,
+    COALESCE(ea.event_count, 0)::BIGINT AS event_count,
+    COALESCE(ea.unique_pubkeys, 0)::BIGINT AS unique_pubkeys,
+    COALESCE(ea.unique_kinds, 0)::BIGINT AS unique_kinds
+FROM relay_counts AS rc
+LEFT JOIN event_agg AS ea ON rc.network = ea.network
+ORDER BY rc.relay_count DESC;
 
 COMMENT ON MATERIALIZED VIEW network_stats IS
 'Aggregate statistics per network type (clearnet, tor, i2p, loki). Refresh via network_stats_refresh().';
@@ -387,16 +406,19 @@ COMMENT ON MATERIALIZED VIEW supported_nip_counts IS
 -- One row per UTC day with event counts, unique authors, and unique kinds.
 -- Useful for trend analysis, growth tracking, and time-series visualization.
 --
+-- Uses integer arithmetic (created_at / 86400) instead of
+-- to_timestamp() + timezone conversion for faster grouping.
+--
 -- Refresh: event_daily_counts_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS event_daily_counts AS
 SELECT
-    (to_timestamp(created_at) AT TIME ZONE 'UTC')::DATE AS day,
+    '1970-01-01'::DATE + (created_at / 86400)::INTEGER AS day,
     COUNT(*) AS event_count,
     COUNT(DISTINCT pubkey) AS unique_pubkeys,
     COUNT(DISTINCT kind) AS unique_kinds
 FROM event
-GROUP BY (to_timestamp(created_at) AT TIME ZONE 'UTC')::DATE
+GROUP BY created_at / 86400
 ORDER BY day DESC;
 
 COMMENT ON MATERIALIZED VIEW event_daily_counts IS
