@@ -1758,7 +1758,7 @@ class TestFinderEventScanConcurrency:
             result = await finder.find_from_events()
 
             assert result == 0
-            finder.set_gauge.assert_any_call("total_relays", 2)
+            finder.set_gauge.assert_any_call("relays_seen", 0)
 
 
 # ============================================================================

@@ -261,7 +261,6 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         pending_cursors: dict[str, FinderCursor] = {}
         batch_size = self._config.events.batch_size
 
-        self.set_gauge("total_relays", len(cursors))
         self.set_gauge("relays_seen", 0)
         self.set_gauge("rows_seen", 0)
         self.set_gauge("candidates_found_from_events", 0)
