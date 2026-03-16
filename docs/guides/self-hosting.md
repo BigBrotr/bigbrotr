@@ -1051,8 +1051,8 @@ ssh -i ~/.ssh/bigbrotr -p 2222 root@<VM_IP>
 | `/opt/bigbrotr-production/docker-compose.yaml` | Docker Compose configuration |
 | `/opt/bigbrotr-production/postgres/postgresql.conf` | PostgreSQL tuning |
 | `/opt/bigbrotr-production/backup.sh` | Backup script |
+| `/opt/bigbrotr-production/data/` | PostgreSQL data (symlink to dedicated disk if available) |
 | `/opt/bigbrotr-production/dumps/` | Database backups (symlink to dedicated disk if available) |
-| `/mnt/pgdata/` | PostgreSQL data (dedicated disk) |
 
 ---
 
