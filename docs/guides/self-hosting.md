@@ -314,14 +314,12 @@ For all disks: **Discard: Yes**, **IO Thread: Yes**, **Cache: No cache**.
 
 ### 2.3 — Enable NUMA (Optional — Multi-CCD CPUs)
 
-If using a multi-CCD CPU (AMD Ryzen 9, EPYC, Threadripper, or similar), enable NUMA awareness to distribute the workload across chiplets. Without this, the hypervisor may schedule all vCPUs on one chiplet, causing thermal imbalance.
+If using a multi-CCD CPU (AMD Ryzen 9, EPYC, Threadripper, or similar), enable NUMA awareness to distribute the workload across chiplets:
 
 ```bash
 # From the Proxmox host
 qm set <VM_ID> --numa 1
 ```
-
-> On an AMD Ryzen 9 with 12 vCPUs under sustained load, enabling NUMA reduced the hot CCD from 93°C to 60°C.
 
 ---
 
@@ -1111,20 +1109,15 @@ docker compose restart monitor
 
 ### Services fail to connect to some relays (IPv6 DNS resolution)
 
-**Symptom**: Synchronizer/Monitor logs show `connect_failed` with `"Temporary failure in name resolution"` or `"Network is unreachable"` for relays that are reachable from the host via `curl`.
+**Symptom**: Synchronizer/Monitor logs show `connect_failed` with `"Temporary failure in name resolution"` or `"Network is unreachable"` for relays reachable from the host.
 
-**Cause**: glibc inside the container prefers IPv6 (RFC 6724). Some relays behind Cloudflare return both A (IPv4) and AAAA (IPv6) records, but the container has no IPv6 connectivity. The resolver picks IPv6 first and fails without falling back.
+**Cause**: glibc prefers IPv6 (RFC 6724). Some relays return AAAA records but the container has no IPv6 connectivity.
 
-**Fix**: The deployment folder includes a `gai.conf` file mounted into all service containers that forces IPv4 precedence. If you're missing it:
-
-```bash
-echo "precedence ::ffff:0:0/96  100" > /opt/bigbrotr-production/gai.conf
-```
-
-Then add `- ./gai.conf:/etc/gai.conf:ro` under `volumes:` for each service in `docker-compose.yaml` and restart:
+**Fix**: The deployment folder includes `gai.conf` which forces IPv4 precedence. Verify it's mounted in all services:
 
 ```bash
-docker compose down && docker compose up -d
+grep gai.conf docker-compose.yaml
+# Should show: - ./gai.conf:/etc/gai.conf:ro for each service
 ```
 
 ---
