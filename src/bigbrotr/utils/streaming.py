@@ -128,12 +128,12 @@ async def _try_verify_completeness(
     boundary_events = await _fetch_validated(ctx, current_since, min_ts, ctx.limit)
 
     if not boundary_events:
-        logger.warning("inconsistent_relay_empty_verify")
+        logger.debug("inconsistent_relay_empty_verify")
         return None
 
     boundary_max = max(e.created_at().as_secs() for e in boundary_events)
     if boundary_max != min_ts:
-        logger.warning("inconsistent_relay_verify_max expected=%s got=%s", min_ts, boundary_max)
+        logger.debug("inconsistent_relay_verify_max expected=%s got=%s", min_ts, boundary_max)
         return None
 
     boundary_min = min(e.created_at().as_secs() for e in boundary_events)
