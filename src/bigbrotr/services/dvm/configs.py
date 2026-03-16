@@ -58,9 +58,10 @@ class DvmConfig(BaseServiceConfig, KeysConfig):
         BeforeValidator(lambda v: [Relay(url) if isinstance(url, str) else url for url in v]),
     ] = Field(
         default_factory=lambda: [
+            Relay("wss://relay.mostr.pub"),
             Relay("wss://relay.damus.io"),
             Relay("wss://nos.lol"),
-            Relay("wss://relay.nostr.band"),
+            Relay("wss://relay.primal.net"),
         ],
         min_length=1,
         description="Relay URLs to listen on and publish to",

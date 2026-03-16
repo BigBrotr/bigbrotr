@@ -2634,8 +2634,8 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 4,
-        "x": 20,
+        "w": 8,
+        "x": 16,
         "y": 1
       },
       "id": 6,
@@ -4439,13 +4439,13 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"finder\", name=\"total_relays\"}",
+          "expr": "service_gauge{service=\"finder\", name=\"relays_seen\"}",
           "legendFormat": "Relays",
           "instant": true,
           "refId": "B"
         }
       ],
-      "title": "Event Scan",
+      "title": "Scanned",
       "type": "stat"
     },
     {
@@ -4512,52 +4512,6 @@
       ],
       "title": "Candidates Found",
       "type": "stat"
-    },
-    {
-      "type": "stat",
-      "title": "Total Candidates",
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 16,
-        "y": 1
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "none"
-      },
-      "targets": [
-        {
-          "expr": "bigbrotr_overview_candidate_count",
-          "legendFormat": "Candidates",
-          "refId": "A"
-        }
-      ],
-      "id": 1005
     }
   ],
   "refresh": "30s",

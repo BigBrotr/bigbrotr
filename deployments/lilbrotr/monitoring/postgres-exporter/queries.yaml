@@ -14,8 +14,7 @@ lilbrotr_overview:
   query: |
     SELECT
       (SELECT COUNT(*)::float FROM relay) AS relay_count,
-      GREATEST((SELECT reltuples FROM pg_class WHERE relname = 'event'), 0)::float AS event_count_approx,
-      (SELECT COUNT(*)::float FROM service_state WHERE service_name = 'validator' AND state_type = 'checkpoint') AS candidate_count
+      GREATEST((SELECT reltuples FROM pg_class WHERE relname = 'event'), 0)::float AS event_count_approx
   metrics:
     - relay_count:
         usage: "GAUGE"
@@ -23,9 +22,6 @@ lilbrotr_overview:
     - event_count_approx:
         usage: "GAUGE"
         description: "Approximate event count (from pg_class.reltuples)"
-    - candidate_count:
-        usage: "GAUGE"
-        description: "Total validation candidates in queue"
 
 lilbrotr_relay_by_network:
   query: "SELECT network, COUNT(*)::float AS count FROM relay GROUP BY network"

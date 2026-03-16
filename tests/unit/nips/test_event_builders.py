@@ -26,6 +26,7 @@ from bigbrotr.nips.event_builders import (
     build_monitor_announcement,
     build_profile_event,
     build_relay_discovery,
+    build_relay_list_event,
 )
 from bigbrotr.nips.nip11 import Nip11, Nip11Selection
 from bigbrotr.nips.nip11.data import Nip11InfoData, Nip11InfoDataLimitation
@@ -98,6 +99,26 @@ class TestBuildProfileEvent:
     def test_no_fields(self) -> None:
         """Test Kind 0 builder with no profile fields set."""
         builder = build_profile_event()
+        assert builder is not None
+
+
+# ============================================================================
+# build_relay_list_event (Kind 10002)
+# ============================================================================
+
+
+class TestBuildRelayListEvent:
+    def test_with_relays(self) -> None:
+        relays = [Relay("wss://relay1.com"), Relay("wss://relay2.com")]
+        builder = build_relay_list_event(relays)
+        assert builder is not None
+
+    def test_empty_relays(self) -> None:
+        builder = build_relay_list_event([])
+        assert builder is not None
+
+    def test_single_relay(self) -> None:
+        builder = build_relay_list_event([Relay("wss://solo.relay.com")])
         assert builder is not None
 
 

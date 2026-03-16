@@ -244,6 +244,7 @@ class PublishingConfig(BaseModel):
             Relay("wss://relay.mostr.pub"),
             Relay("wss://relay.damus.io"),
             Relay("wss://nos.lol"),
+            Relay("wss://relay.primal.net"),
         ],
         description="Default relay list for event publishing",
     )
@@ -331,6 +332,22 @@ class ProfileConfig(BaseModel):
     lud16: str | None = Field(default=None, description="Lightning address (LNURL)")
 
 
+class RelayListConfig(BaseModel):
+    """Kind 10002 relay list metadata settings (NIP-65)."""
+
+    enabled: bool = Field(default=True, description="Enable Kind 10002 relay list publishing")
+    interval: float = Field(
+        default=86_400.0,
+        ge=60.0,
+        le=604800.0,
+        description="Minimum seconds between relay list publishes",
+    )
+    relays: Annotated[
+        list[Relay] | None,
+        BeforeValidator(lambda v: safe_parse(v, Relay) if v is not None else None),
+    ] = Field(default=None, description="Override relay list (None = use publishing default)")
+
+
 class MonitorConfig(BaseServiceConfig):
     """Monitor service configuration with validation for dependency constraints.
 
@@ -377,6 +394,9 @@ class MonitorConfig(BaseServiceConfig):
     )
     profile: ProfileConfig = Field(
         default_factory=ProfileConfig, description="Kind 0 profile metadata settings"
+    )
+    relay_list: RelayListConfig = Field(
+        default_factory=RelayListConfig, description="Kind 10002 relay list metadata settings"
     )
 
     @model_validator(mode="after")
