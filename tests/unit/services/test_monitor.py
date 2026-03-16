@@ -1425,6 +1425,23 @@ class TestMonitorCleanup:
         mock_delete.assert_awaited_once_with(mock_brotr, ["relay_list"])
         assert result == 5
 
+    @patch(
+        "bigbrotr.services.monitor.service.delete_stale_checkpoints",
+        new_callable=AsyncMock,
+        return_value=0,
+    )
+    async def test_cleanup_all_disabled(self, mock_delete: AsyncMock, mock_brotr: Brotr) -> None:
+        config = _make_config(
+            announcement=AnnouncementConfig(enabled=False, include=_NO_GEO_NET),
+            profile=ProfileConfig(enabled=False),
+            relay_list=RelayListConfig(enabled=False),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        result = await monitor.cleanup()
+
+        mock_delete.assert_awaited_once_with(mock_brotr, [])
+        assert result == 0
+
 
 # ============================================================================
 # Service: Monitoring worker
