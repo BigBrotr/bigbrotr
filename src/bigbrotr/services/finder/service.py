@@ -161,7 +161,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
 
         self.set_gauge("total_sources", len(enabled))
         self.set_gauge("sources_fetched", 0)
-        self.set_gauge("candidates_found", 0)
+        self.set_gauge("candidates_found_from_api", 0)
 
         self._logger.info("api_started", source_count=len(enabled))
 
@@ -174,7 +174,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
             await upsert_api_checkpoints(self._brotr, pending_checkpoints)
 
         found = await insert_relays_as_candidates(self._brotr, buffer)
-        self.set_gauge("candidates_found", found)
+        self.set_gauge("candidates_found_from_api", found)
 
         self._logger.info("api_completed", found=found, collected=len(buffer))
         return found
@@ -264,7 +264,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         self.set_gauge("total_relays", len(cursors))
         self.set_gauge("relays_seen", 0)
         self.set_gauge("rows_seen", 0)
-        self.set_gauge("candidates_found", 0)
+        self.set_gauge("candidates_found_from_events", 0)
 
         self._logger.info("scan_started", relay_count=len(cursors))
 
@@ -275,7 +275,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
             if len(buffer) >= batch_size:
                 found = await insert_relays_as_candidates(self._brotr, buffer)
                 total_found += found
-                self.inc_gauge("candidates_found", found)
+                self.inc_gauge("candidates_found_from_events", found)
                 buffer = []
                 await upsert_finder_cursors(self._brotr, pending_cursors.values())
                 pending_cursors = {}
@@ -283,7 +283,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         if buffer:
             found = await insert_relays_as_candidates(self._brotr, buffer)
             total_found += found
-            self.inc_gauge("candidates_found", found)
+            self.inc_gauge("candidates_found_from_events", found)
         if pending_cursors:
             await upsert_finder_cursors(self._brotr, pending_cursors.values())
 

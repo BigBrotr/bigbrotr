@@ -4476,9 +4476,20 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"finder\", name=\"candidates_found\"}",
+          "expr": "service_gauge{service=\"finder\", name=\"candidates_found_from_api\"}",
           "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "From API"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "service_gauge{service=\"finder\", name=\"candidates_found_from_events\"}",
+          "instant": true,
+          "refId": "B",
+          "legendFormat": "From Events"
         }
       ],
       "title": "Candidates Found",
