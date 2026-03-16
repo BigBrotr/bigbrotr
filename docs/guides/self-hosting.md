@@ -19,7 +19,8 @@ A comprehensive, step-by-step guide for deploying BigBrotr on a self-hosted Prox
 - [Troubleshooting](#troubleshooting)
 - [Appendix A — Connecting for Research](#appendix-a--connecting-for-research)
 - [Appendix B — Expanding Storage](#appendix-b--expanding-storage)
-- [Appendix C — Updating BigBrotr](#appendix-c--updating-bigbrotr)
+- [Appendix C — Running Multiple Deployments](#appendix-c--running-multiple-deployments)
+- [Appendix D — Updating BigBrotr](#appendix-d--updating-bigbrotr)
 
 ---
 
@@ -50,10 +51,13 @@ This guide assumes a dedicated server with the following (adjust resource alloca
 │  │              vCPUs · RAM · OS on NVMe                          │  │
 │  │                                                                │  │
 │  │  /mnt/pgdata  ← virtio disk from datapool (SSD RAID10)        │  │
-│  │     └── PostgreSQL data directory (EXCLUSIVELY)                │  │
+│  │     ├── bigbrotr-production/  (PostgreSQL data)                │  │
+│  │     ├── lilbrotr-production/  (future)                         │  │
+│  │     └── bigbrotr-test/        (future)                         │  │
 │  │                                                                │  │
 │  │  /mnt/work    ← virtio disk from workpool (optional)           │  │
-│  │     └── pg_dump, exports, analysis results                     │  │
+│  │     ├── bigbrotr-production/{dumps,exports,analysis}           │  │
+│  │     └── lilbrotr-production/  (future)                         │  │
 │  │                                                                │  │
 │  │  Docker Compose → 15 containers (8 services + 7 infra)        │  │
 │  │  cloudflared  → Cloudflare Tunnel (zero open ports)            │  │
@@ -371,7 +375,7 @@ sed -i 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen && locale-gen
 
 apt update && apt upgrade -y
 apt install -y \
-  qemu-guest-agent curl wget git htop iotop tmux unzip \
+  qemu-guest-agent curl wget htop iotop tmux unzip \
   sudo ufw fail2ban parted xfsprogs
 
 systemctl enable --now qemu-guest-agent
@@ -415,7 +419,8 @@ mkdir -p /mnt/work
 echo 'LABEL=workdata /mnt/work xfs defaults,noatime,nodiratime,inode64 0 2' >> /etc/fstab
 mount /mnt/work
 
-mkdir -p /mnt/work/{dumps,exports,analysis}
+# Per-deployment subdirectories (add more as needed)
+mkdir -p /mnt/work/bigbrotr-production/{dumps,exports,analysis}
 ```
 
 ### 3.6 — Configure Static IP
@@ -562,11 +567,12 @@ You only need the deployment folder — not the full repository. Download the la
 cd /opt
 VARIANT=bigbrotr  # or lilbrotr
 RELEASE=$(curl -s https://api.github.com/repos/BigBrotr/bigbrotr/releases/latest | grep tarball_url | cut -d '"' -f 4)
-curl -sL "$RELEASE" | tar xz --strip-components=2 --include="*/deployments/$VARIANT"
-mv "$VARIANT" "${VARIANT}-production"
+curl -sL "$RELEASE" | tar xz
+mv BigBrotr-bigbrotr-*/deployments/$VARIANT "${VARIANT}-production"
+rm -rf BigBrotr-bigbrotr-*
 ```
 
-This gives you a standalone production folder at `/opt/bigbrotr-production/` with all configs, monitoring, SQL init scripts, and PGBouncer settings. No git required on the server.
+This gives you a standalone production folder at `/opt/bigbrotr-production/` with all configs, monitoring, SQL init scripts, PGBouncer settings, and backup script. No git required on the server.
 
 Next, edit `docker-compose.yaml` to use pre-built Docker Hub images instead of building locally. Replace every `build:` block in the 8 service definitions with an `image:` line:
 
@@ -586,13 +592,15 @@ The `:6` tag always points to the latest 6.x.x release. Updates are a single com
 
 ### 5.2 — Link PostgreSQL Data to Dedicated Disk
 
+Each deployment gets its own subdirectory on the datapool, enabling multiple deployments (bigbrotr-production, lilbrotr-production, bigbrotr-test) on the same hardware with isolated databases:
+
 ```bash
-mkdir -p /mnt/pgdata/postgres
+mkdir -p /mnt/pgdata/bigbrotr-production
 mkdir -p /opt/bigbrotr-production/data
-ln -s /mnt/pgdata/postgres /opt/bigbrotr-production/data/postgres
+ln -s /mnt/pgdata/bigbrotr-production /opt/bigbrotr-production/data/postgres
 
 # PostgreSQL in postgres:alpine runs as uid 999
-chown -R 999:999 /mnt/pgdata/postgres
+chown -R 999:999 /mnt/pgdata/bigbrotr-production
 ```
 
 ### 5.3 — Generate Credentials
@@ -985,12 +993,12 @@ A `backup.sh` script is included in the deployment folder. It dumps the database
 /opt/bigbrotr-production/backup.sh
 ```
 
-If you have a dedicated backup disk, symlink the dumps directory:
+If you have a dedicated backup disk, symlink the dumps directory to the per-deployment workpool folder:
 
 ```bash
-mkdir -p /mnt/work/dumps
+mkdir -p /mnt/work/bigbrotr-production/dumps
 rm -rf /opt/bigbrotr-production/dumps
-ln -s /mnt/work/dumps /opt/bigbrotr-production/dumps
+ln -s /mnt/work/bigbrotr-production/dumps /opt/bigbrotr-production/dumps
 ```
 
 **Optional** — schedule automatic daily backups:
@@ -1135,7 +1143,57 @@ xfs_growfs /mnt/pgdata
 
 ---
 
-## Appendix C — Updating BigBrotr
+## Appendix C — Running Multiple Deployments
+
+The same hardware can host multiple BigBrotr/LilBrotr instances, each fully isolated with its own database, configs, and Docker networks. Repeat Phase 5 with a different variant and name:
+
+```bash
+# Download lilbrotr deployment
+cd /opt
+curl -sL "$RELEASE" | tar xz
+mv BigBrotr-bigbrotr-*/deployments/lilbrotr lilbrotr-production
+rm -rf BigBrotr-bigbrotr-*
+
+# Edit docker-compose.yaml: replace build: with image: vincenzoimp/lilbrotr:6
+# Generate separate .env credentials
+# Link to isolated database storage
+mkdir -p /mnt/pgdata/lilbrotr-production
+mkdir -p /opt/lilbrotr-production/data
+ln -s /mnt/pgdata/lilbrotr-production /opt/lilbrotr-production/data/postgres
+chown -R 999:999 /mnt/pgdata/lilbrotr-production
+
+# Link to isolated workpool storage
+mkdir -p /mnt/work/lilbrotr-production/dumps
+ln -s /mnt/work/lilbrotr-production/dumps /opt/lilbrotr-production/dumps
+```
+
+Each deployment uses separate Docker networks and container names (prefixed `bigbrotr-` or `lilbrotr-`), so they coexist without conflicts. Adjust port mappings in `docker-compose.yaml` to avoid collisions (LilBrotr defaults use different ports — see the shipped compose file).
+
+### Storage layout with multiple deployments
+
+```
+/opt/
+├── bigbrotr-production/     # Full event storage
+└── lilbrotr-production/     # Lightweight (no tags/content/sig)
+
+/mnt/pgdata/
+├── bigbrotr-production/     # Isolated PostgreSQL data
+└── lilbrotr-production/     # Isolated PostgreSQL data
+
+/mnt/work/
+├── bigbrotr-production/     # Dumps, exports, analysis
+│   ├── dumps/
+│   ├── exports/
+│   └── analysis/
+└── lilbrotr-production/
+    ├── dumps/
+    ├── exports/
+    └── analysis/
+```
+
+---
+
+## Appendix D — Updating BigBrotr
 
 ```bash
 cd /opt/bigbrotr-production
