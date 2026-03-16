@@ -413,7 +413,7 @@ COMMENT ON MATERIALIZED VIEW supported_nip_counts IS
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS event_daily_counts AS
 SELECT
-    '1970-01-01'::DATE + (created_at / 86400) AS day,
+    '1970-01-01'::DATE + (created_at / 86400)::INTEGER AS day,
     COUNT(*) AS event_count,
     COUNT(DISTINCT pubkey) AS unique_pubkeys,
     COUNT(DISTINCT kind) AS unique_kinds
