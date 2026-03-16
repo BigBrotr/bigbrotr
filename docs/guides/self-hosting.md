@@ -780,7 +780,7 @@ docker compose up -d
 docker compose ps
 ```
 
-### 5.7 — Verify
+### 5.9 — Verify
 
 ```bash
 # API health
@@ -979,14 +979,18 @@ dpkg-reconfigure -plow unattended-upgrades
 
 ## Phase 8 — Database Backup
 
-A `backup.sh` script is included in the deployment folder. It dumps the database to `/mnt/work/dumps/`, compressed with gzip, and keeps only the 7 most recent dumps.
+A `backup.sh` script is included in the deployment folder. It dumps the database to the `dumps/` directory (already included in the deployment folder), compressed with gzip, and keeps only the 7 most recent dumps.
 
 ```bash
-# Make sure the dump directory exists
-mkdir -p /mnt/work/dumps
-
-# Run a backup
 /opt/bigbrotr-production/backup.sh
+```
+
+If you have a dedicated backup disk, symlink the dumps directory:
+
+```bash
+mkdir -p /mnt/work/dumps
+rm -rf /opt/bigbrotr-production/dumps
+ln -s /mnt/work/dumps /opt/bigbrotr-production/dumps
 ```
 
 **Optional** — schedule automatic daily backups:
@@ -1047,10 +1051,8 @@ ssh -i ~/.ssh/bigbrotr -p 2222 root@<VM_IP>
 | `/opt/bigbrotr-production/docker-compose.yaml` | Docker Compose configuration |
 | `/opt/bigbrotr-production/postgres/postgresql.conf` | PostgreSQL tuning |
 | `/opt/bigbrotr-production/backup.sh` | Backup script |
-| `/mnt/pgdata/` | PostgreSQL data |
-| `/mnt/work/dumps/` | Database backups |
-| `/mnt/work/exports/` | Data exports |
-| `/mnt/work/analysis/` | Research results |
+| `/opt/bigbrotr-production/dumps/` | Database backups (symlink to dedicated disk if available) |
+| `/mnt/pgdata/` | PostgreSQL data (dedicated disk) |
 
 ---
 
