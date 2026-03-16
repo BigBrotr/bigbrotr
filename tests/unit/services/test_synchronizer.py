@@ -482,7 +482,6 @@ class TestSynchronize:
             result = await sync.synchronize()
 
         assert result == 2
-        sync.inc_gauge.assert_any_call("relays_seen")
         events_seen = [c for c in sync.inc_gauge.call_args_list if c.args[0] == "events_seen"]
         assert len(events_seen) == 2
 
@@ -665,7 +664,6 @@ class TestSynchronize:
             await sync.synchronize()
 
         sync.set_gauge.assert_any_call("total_relays", 1)
-        sync.inc_gauge.assert_any_call("relays_seen")
 
     async def test_events_seen_gauge_incremented(self, mock_synchronizer_brotr: Brotr) -> None:
         cursor = SyncCursor(key="wss://relay1.example.com")

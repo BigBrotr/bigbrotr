@@ -163,15 +163,13 @@ class Synchronizer(
         cursors = await fetch_cursors_to_sync(self._brotr, end_time, networks)
 
         events_synced = 0
-        relays_seen: set[str] = set()
         buffer: list[EventRelay] = []
         pending_cursors: dict[str, SyncCursor] = {}
         batch_size = self._config.processing.batch_size
 
         self.set_gauge("total_relays", len(cursors))
-        self.set_gauge("relays_connected", 0)
-        self.set_gauge("events_seen", 0)
         self.set_gauge("relays_seen", 0)
+        self.set_gauge("events_seen", 0)
 
         deadline = time.monotonic() + self._config.timeouts.max_duration
 
@@ -185,9 +183,6 @@ class Synchronizer(
                 id=event.id().to_hex(),
             )
             self.inc_gauge("events_seen")
-            if relay.url not in relays_seen:
-                relays_seen.add(relay.url)
-                self.inc_gauge("relays_seen")
             if len(buffer) == batch_size:
                 events_synced += await insert_event_relays(self._brotr, buffer)
                 buffer = []
@@ -205,7 +200,6 @@ class Synchronizer(
         self._logger.info(
             "sync_completed",
             events_synced=events_synced,
-            relays_synced=len(relays_seen),
         )
         return events_synced
 
@@ -246,8 +240,6 @@ class Synchronizer(
                     self._logger.warning("connect_failed", relay=relay.url, error=str(e))
                     return
 
-                self.inc_gauge("relays_connected")
-
                 try:
                     async for event in stream_events(
                         client,
@@ -267,6 +259,7 @@ class Synchronizer(
                 except (TimeoutError, OSError, NostrSdkError) as e:
                     self._logger.warning("sync_relay_error", relay=relay.url, error=str(e))
                 finally:
+                    self.inc_gauge("relays_seen")
                     try:
                         await client.shutdown()
                     except Exception as e:  # nostr-sdk FFI can raise arbitrary errors on shutdown
