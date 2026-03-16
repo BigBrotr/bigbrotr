@@ -241,9 +241,9 @@ class PublishingConfig(BaseModel):
         BeforeValidator(lambda v: safe_parse(v, Relay)),
     ] = Field(
         default_factory=lambda: [
+            Relay("wss://relay.mostr.pub"),
             Relay("wss://relay.damus.io"),
             Relay("wss://nos.lol"),
-            Relay("wss://relay.nostr.band"),
         ],
         description="Default relay list for event publishing",
     )

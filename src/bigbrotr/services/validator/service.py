@@ -149,8 +149,8 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
         not_validated = 0
 
         self.set_gauge("total", total)
-        self.set_gauge("validated", validated)
-        self.set_gauge("not_validated", not_validated)
+        self.set_gauge("validated", 0)
+        self.set_gauge("not_validated", 0)
 
         self._logger.info("candidates_available", total=total)
 
@@ -182,8 +182,7 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
                 else:
                     chunk_invalid.append(candidate)
                     not_validated += 1
-                self.set_gauge("validated", validated)
-                self.set_gauge("not_validated", not_validated)
+                self.inc_gauge("validated" if is_valid else "not_validated")
 
             await promote_candidates(self._brotr, chunk_valid)
             await fail_candidates(self._brotr, chunk_invalid)

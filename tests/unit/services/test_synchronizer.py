@@ -455,6 +455,7 @@ class TestSynchronize:
 
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
         sync.set_gauge = MagicMock()  # type: ignore[method-assign]
+        sync.inc_gauge = MagicMock()  # type: ignore[method-assign]
 
         async def fake_synchronize_worker(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
             yield evt1, relay
@@ -481,8 +482,8 @@ class TestSynchronize:
             result = await sync.synchronize()
 
         assert result == 2
-        sync.set_gauge.assert_any_call("relays_seen", 1)
-        sync.set_gauge.assert_any_call("events_seen", 2)
+        events_seen = [c for c in sync.inc_gauge.call_args_list if c.args[0] == "events_seen"]
+        assert len(events_seen) == 2
 
     async def test_worker_exception_does_not_raise(self, mock_synchronizer_brotr: Brotr) -> None:
         cursor = SyncCursor(key="wss://failing.relay.com")
@@ -637,6 +638,7 @@ class TestSynchronize:
 
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
         sync.set_gauge = MagicMock()  # type: ignore[method-assign]
+        sync.inc_gauge = MagicMock()  # type: ignore[method-assign]
 
         async def fake_synchronize_worker(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
             yield evt1, relay
@@ -662,7 +664,6 @@ class TestSynchronize:
             await sync.synchronize()
 
         sync.set_gauge.assert_any_call("total_relays", 1)
-        sync.set_gauge.assert_any_call("relays_seen", 1)
 
     async def test_events_seen_gauge_incremented(self, mock_synchronizer_brotr: Brotr) -> None:
         cursor = SyncCursor(key="wss://relay1.example.com")
@@ -672,6 +673,7 @@ class TestSynchronize:
 
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
         sync.set_gauge = MagicMock()  # type: ignore[method-assign]
+        sync.inc_gauge = MagicMock()  # type: ignore[method-assign]
 
         async def fake_synchronize_worker(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
             yield evt1, relay
@@ -697,8 +699,8 @@ class TestSynchronize:
         ):
             await sync.synchronize()
 
-        sync.set_gauge.assert_any_call("events_seen", 1)
-        sync.set_gauge.assert_any_call("events_seen", 2)
+        events_seen_calls = [c for c in sync.inc_gauge.call_args_list if c.args[0] == "events_seen"]
+        assert len(events_seen_calls) == 2
 
 
 # ============================================================================

@@ -285,6 +285,15 @@
           "expr": "deriv(service_gauge{service=\"finder\", name=\"rows_seen\"}[5m])",
           "legendFormat": "Rows/s",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "deriv(service_gauge{service=\"finder\", name=\"relays_seen\"}[5m])",
+          "legendFormat": "Relays/s",
+          "refId": "B"
         }
       ],
       "title": "Processing Rate",
@@ -540,7 +549,7 @@
           "refId": "A"
         }
       ],
-      "title": "Total",
+      "title": "Total Candidates",
       "type": "stat"
     },
     {
@@ -1041,7 +1050,7 @@
           "refId": "A"
         }
       ],
-      "title": "Total",
+      "title": "Total Relays",
       "type": "stat"
     },
     {
@@ -1545,6 +1554,15 @@
           "expr": "deriv(service_gauge{service=\"synchronizer\", name=\"events_seen\"}[5m])",
           "legendFormat": "Events/s",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "deriv(service_gauge{service=\"synchronizer\", name=\"relays_seen\"}[5m])",
+          "legendFormat": "Relays/s",
+          "refId": "B"
         }
       ],
       "title": "Processing Rate",
@@ -2616,8 +2634,8 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 8,
-        "x": 16,
+        "w": 4,
+        "x": 20,
         "y": 1
       },
       "id": 6,
@@ -4476,13 +4494,70 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"finder\", name=\"relays_seen\"}",
+          "expr": "service_gauge{service=\"finder\", name=\"candidates_found_from_api\"}",
           "instant": true,
+          "refId": "A",
+          "legendFormat": "From API"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "service_gauge{service=\"finder\", name=\"candidates_found_from_events\"}",
+          "instant": true,
+          "refId": "B",
+          "legendFormat": "From Events"
+        }
+      ],
+      "title": "Candidates Found",
+      "type": "stat"
+    },
+    {
+      "type": "stat",
+      "title": "Total Candidates",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "expr": "bigbrotr_overview_candidate_count",
+          "legendFormat": "Candidates",
           "refId": "A"
         }
       ],
-      "title": "Relays Found",
-      "type": "stat"
+      "id": 1005
     }
   ],
   "refresh": "30s",

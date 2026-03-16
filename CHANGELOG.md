@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.2.0] - 2026-03-16
+
+Metrics overhaul, IPv4 DNS fix for Docker containers, and deployment improvements. Service gauges refactored with new `inc_gauge`/`dec_gauge` API, finder and synchronizer metrics redesigned for better observability, and Grafana dashboards updated with new panels.
+
+### Added
+
+- **`inc_gauge()` and `dec_gauge()` methods on BaseService**: native Prometheus gauge increment/decrement without intermediate variables
+- **`relays_connected` gauge in synchronizer**: tracks relays that connected successfully via WebSocket, regardless of events (later unified into `relays_seen`)
+- **`candidates_found_from_api` and `candidates_found_from_events` gauges in finder**: split candidate tracking by discovery source
+- **Total Candidates card in Grafana overview**: shows validator candidate queue size from postgres-exporter
+- **Relays/s in Processing Rate panels**: both finder and synchronizer now show relay processing rate alongside rows/events rate
+- **`gai.conf` for IPv4 DNS precedence**: mounted in all 8 service containers to force IPv4 over IPv6 (glibc RFC 6724)
+- **`backup.sh` in deployment folders**: included in both bigbrotr and lilbrotr deployments with per-deployment database names
+- **`data/` and `dumps/` directories**: with `.gitkeep` for deployment folder completeness
+
+### Changed
+
+- **Synchronizer `relays_seen` gauge**: now incremented in worker `finally` block after WebSocket session completes, counting all visited relays (not just those with events)
+- **Finder `relays_seen` gauge**: moved to worker `finally` block, counts relays scanned during event discovery
+- **Finder dedup removed**: `find_from_api` no longer deduplicates in-memory; `ON CONFLICT DO NOTHING` in `insert_relays_as_candidates` handles it
+- **Finder `total_relays` gauge removed**: redundant with `relays_seen`
+- **Validator "Total" card renamed to "Total Candidates"** in Grafana
+- **Monitor "Total" card renamed to "Total Relays"** in Grafana
+- **Services use `inc_gauge` instead of `set_gauge` with counter variables**: synchronizer, finder, validator, and monitor refactored for cleaner metric tracking
+- **Default publishing relays**: replaced `relay.nostr.band` with `relay.mostr.pub`
+- **Self-hosting guide rewritten**: download deployment folder instead of cloning repo, Docker Hub images, per-deployment storage layout, multi-deployment support (Appendix C)
+
+### Fixed
+
+- **IPv4 DNS precedence in containers**: full `gai.conf` with labels + precedence table for glibc compatibility; single-line version was silently ignored
+- **`backup.sh` PGPASSWORD**: use `docker exec -e` to inject password into container instead of shell-level env var
+
 ## [6.1.0] - 2026-03-16
 
 Performance optimizations, infrastructure fixes, and CI/CD improvements. Materialized views optimized for significantly faster refresh, Docker networking fixed for IPv6-less hosts, and image publishing migrated from GHCR to Docker Hub.

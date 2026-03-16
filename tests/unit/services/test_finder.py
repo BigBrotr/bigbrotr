@@ -860,6 +860,7 @@ class TestFinderFindFromApi:
         config = FinderConfig(api=ApiConfig(enabled=False))
         finder = Finder(brotr=mock_brotr, config=config)
         finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+        finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
 
         result = await finder.find_from_api()
 
@@ -1132,7 +1133,7 @@ class TestFinderFindFromApi:
             assert result == 1
             assert mock_fetch_api.call_count == 1
 
-    async def test_deduplicates_across_sources(self, mock_brotr: Brotr) -> None:
+    async def test_passes_all_relays_to_insert(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(
             api=ApiConfig(
                 enabled=True,
@@ -1175,14 +1176,12 @@ class TestFinderFindFromApi:
             mock_session.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session.__aexit__ = AsyncMock(return_value=None)
             mock_session_cls.return_value = mock_session
-            mock_insert.return_value = 3
+            mock_insert.return_value = 4
 
             await finder.find_from_api()
 
             relays = mock_insert.call_args[0][1]
-            urls = [r.url for r in relays]
-            assert len(urls) == 3
-            assert urls.count("wss://relay.com") == 1
+            assert len(relays) == 4
 
     async def test_emits_gauge_and_counter(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(
@@ -1194,6 +1193,7 @@ class TestFinderFindFromApi:
         )
         finder = Finder(brotr=mock_brotr, config=config)
         finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+        finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
         mock_response = _mock_api_response(["wss://relay1.com", "wss://relay2.com"])
 
         with (
@@ -1221,7 +1221,7 @@ class TestFinderFindFromApi:
 
             await finder.find_from_api()
 
-            finder.set_gauge.assert_any_call("sources_fetched", 1)
+            finder.inc_gauge.assert_any_call("sources_fetched")
             finder.set_gauge.assert_any_call("total_sources", 1)
 
 
@@ -1381,6 +1381,7 @@ class TestFinderFindFromEvents:
         config = FinderConfig(events=EventsConfig(enabled=False))
         finder = Finder(brotr=mock_brotr, config=config)
         finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+        finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
 
         result = await finder.find_from_events()
 
@@ -1495,6 +1496,7 @@ class TestFinderFindFromEvents:
             config = FinderConfig(events=EventsConfig(batch_size=10))
             finder = Finder(brotr=mock_brotr, config=config)
             finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+            finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
 
             result = await finder.find_from_events()
 
@@ -1579,11 +1581,12 @@ class TestFinderFindFromEvents:
 
             finder = Finder(brotr=mock_brotr)
             finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+            finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
 
             await finder.find_from_events()
 
-            finder.set_gauge.assert_any_call("rows_seen", 1)
-            finder.set_gauge.assert_any_call("relays_seen", 1)
+            finder.inc_gauge.assert_any_call("rows_seen")
+            finder.inc_gauge.assert_any_call("relays_seen")
 
 
 class TestFinderEventScanConcurrency:
@@ -1621,11 +1624,15 @@ class TestFinderEventScanConcurrency:
             )
             finder = Finder(brotr=mock_brotr, config=config)
             finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+            finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
 
             result = await finder.find_from_events()
 
             assert result == 3
-            finder.set_gauge.assert_any_call("relays_seen", 3)
+            relays_seen_calls = [
+                c for c in finder.inc_gauge.call_args_list if c.args[0] == "relays_seen"
+            ]
+            assert len(relays_seen_calls) == 3
 
     async def test_task_failure_does_not_block_others(self, mock_brotr: Brotr) -> None:
         mock_event = {
@@ -1666,11 +1673,12 @@ class TestFinderEventScanConcurrency:
 
             finder = Finder(brotr=mock_brotr)
             finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+            finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
 
             result = await finder.find_from_events()
 
             assert result == 1
-            finder.set_gauge.assert_any_call("relays_seen", 1)
+            finder.inc_gauge.assert_any_call("relays_seen")
 
     async def test_semaphore_limits_concurrency(self, mock_brotr: Brotr) -> None:
         max_concurrent = 0
@@ -1712,6 +1720,7 @@ class TestFinderEventScanConcurrency:
             )
             finder = Finder(brotr=mock_brotr, config=config)
             finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+            finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
 
             await finder.find_from_events()
 
@@ -1744,11 +1753,12 @@ class TestFinderEventScanConcurrency:
         ):
             finder = Finder(brotr=mock_brotr)
             finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+            finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
 
             result = await finder.find_from_events()
 
             assert result == 0
-            finder.set_gauge.assert_any_call("total_relays", 2)
+            finder.set_gauge.assert_any_call("relays_seen", 0)
 
 
 # ============================================================================

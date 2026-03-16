@@ -898,13 +898,7 @@ class TestValidatorMetrics:
             patch(f"{_SVC}.validate_candidate", new_callable=AsyncMock, return_value=True),
         ):
             v = Validator(validator_brotr)
-            gauge_calls: list[tuple[str, int]] = []
-            with patch.object(
-                v,
-                "set_gauge",
-                side_effect=lambda n, val: gauge_calls.append((n, val)),
-            ):
+            with patch.object(v, "inc_gauge") as mock_inc:
                 await v.validate()
-        validated = [val for name, val in gauge_calls if name == "validated"]
-        assert validated == sorted(validated)
-        assert validated[-1] == 5
+        validated_calls = [c for c in mock_inc.call_args_list if c.args[0] == "validated"]
+        assert len(validated_calls) == 5

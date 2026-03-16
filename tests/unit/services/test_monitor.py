@@ -427,9 +427,9 @@ class TestPublishingConfig:
         config = PublishingConfig()
 
         assert len(config.relays) == 3
-        assert config.relays[0].url == "wss://relay.damus.io"
-        assert config.relays[1].url == "wss://nos.lol"
-        assert config.relays[2].url == "wss://relay.nostr.band"
+        assert config.relays[0].url == "wss://relay.mostr.pub"
+        assert config.relays[1].url == "wss://relay.damus.io"
+        assert config.relays[2].url == "wss://nos.lol"
 
     def test_custom_values(self) -> None:
         config = PublishingConfig(relays=["wss://relay1.com", "wss://relay2.com"])
@@ -1886,7 +1886,6 @@ class TestMonitorMetrics:
         monitor.clients.get_many = AsyncMock(return_value=[])
         monitor.clients.disconnect = AsyncMock()
 
-        gauge_calls: list[tuple[str, int]] = []
         with (
             patch(
                 "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
@@ -1902,18 +1901,16 @@ class TestMonitorMetrics:
                 "bigbrotr.services.monitor.service.upsert_monitor_checkpoints",
                 new_callable=AsyncMock,
             ),
-            patch.object(
-                monitor,
-                "set_gauge",
-                side_effect=lambda n, val: gauge_calls.append((n, val)),
-            ),
+            patch.object(monitor, "set_gauge") as mock_set,
+            patch.object(monitor, "inc_gauge") as mock_inc,
         ):
             await monitor.monitor()
 
-        calls = {(n, v) for n, v in gauge_calls}
-        assert ("total", 2) in calls
-        assert ("succeeded", 1) in calls
-        assert ("failed", 1) in calls
+        mock_set.assert_any_call("total", 2)
+        succeeded = [c for c in mock_inc.call_args_list if c.args[0] == "succeeded"]
+        failed = [c for c in mock_inc.call_args_list if c.args[0] == "failed"]
+        assert len(succeeded) == 1
+        assert len(failed) == 1
 
 
 # ============================================================================
