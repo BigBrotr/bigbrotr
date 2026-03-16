@@ -379,6 +379,20 @@ class BaseService(ABC, Generic[ConfigT]):
             return
         SERVICE_GAUGE.labels(service=self.SERVICE_NAME, name=name).set(value)
 
+    def inc_gauge(self, name: str, value: float = 1) -> None:
+        """Increment a named gauge metric for this service.
+
+        Increments a point-in-time value via the shared ``SERVICE_GAUGE``
+        Prometheus metric. No-op if metrics are disabled.
+
+        Args:
+            name: Metric name (e.g. ``"relays_connected"``).
+            value: Amount to increment (default: 1).
+        """
+        if not self._config.metrics.enabled:
+            return
+        SERVICE_GAUGE.labels(service=self.SERVICE_NAME, name=name).inc(value)
+
     def inc_counter(self, name: str, value: float = 1) -> None:
         """Increment a named counter metric for this service.
 
