@@ -4476,12 +4476,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"finder\", name=\"relays_seen\"}",
+          "expr": "service_gauge{service=\"finder\", name=\"candidates_found\"}",
           "instant": true,
           "refId": "A"
         }
       ],
-      "title": "Relays Found",
+      "title": "Candidates Found",
       "type": "stat"
     }
   ],

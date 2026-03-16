@@ -1133,7 +1133,7 @@ class TestFinderFindFromApi:
             assert result == 1
             assert mock_fetch_api.call_count == 1
 
-    async def test_deduplicates_across_sources(self, mock_brotr: Brotr) -> None:
+    async def test_passes_all_relays_to_insert(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(
             api=ApiConfig(
                 enabled=True,
@@ -1176,14 +1176,12 @@ class TestFinderFindFromApi:
             mock_session.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session.__aexit__ = AsyncMock(return_value=None)
             mock_session_cls.return_value = mock_session
-            mock_insert.return_value = 3
+            mock_insert.return_value = 4
 
             await finder.find_from_api()
 
             relays = mock_insert.call_args[0][1]
-            urls = [r.url for r in relays]
-            assert len(urls) == 3
-            assert urls.count("wss://relay.com") == 1
+            assert len(relays) == 4
 
     async def test_emits_gauge_and_counter(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(

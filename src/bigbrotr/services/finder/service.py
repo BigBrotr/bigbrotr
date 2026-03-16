@@ -145,8 +145,8 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         """Discover relay URLs from configured external API endpoints.
 
         Delegates fetching to ``_find_from_api_worker``, which iterates
-        all enabled sources sequentially. The parent deduplicates, saves
-        updated checkpoints, and inserts discovered URLs as candidates.
+        all enabled sources sequentially. The parent saves updated
+        checkpoints and inserts discovered URLs as candidates.
 
         Returns:
             Number of relay URLs inserted as candidates.
@@ -156,29 +156,25 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
 
         enabled = [s for s in self._config.api.sources if s.enabled]
 
-        seen: set[str] = set()
         buffer: list[Relay] = []
         pending_checkpoints: list[ApiCheckpoint] = []
 
         self.set_gauge("total_sources", len(enabled))
         self.set_gauge("sources_fetched", 0)
-        self.set_gauge("relays_seen", 0)
+        self.set_gauge("candidates_found", 0)
 
         self._logger.info("api_started", source_count=len(enabled))
 
         async for relays, checkpoint in self._find_from_api_worker(enabled):
-            for relay in relays:
-                if relay.url not in seen:
-                    seen.add(relay.url)
-                    buffer.append(relay)
+            buffer.extend(relays)
             pending_checkpoints.append(checkpoint)
             self.inc_gauge("sources_fetched")
-            self.set_gauge("relays_seen", len(seen))
 
         if pending_checkpoints:
             await upsert_api_checkpoints(self._brotr, pending_checkpoints)
 
         found = await insert_relays_as_candidates(self._brotr, buffer)
+        self.set_gauge("candidates_found", found)
 
         self._logger.info("api_completed", found=found, collected=len(buffer))
         return found
@@ -261,14 +257,14 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         self._phase_start = time.monotonic()
 
         total_found = 0
-        relays_seen: set[str] = set()
         buffer: list[Relay] = []
         pending_cursors: dict[str, FinderCursor] = {}
         batch_size = self._config.events.batch_size
 
         self.set_gauge("total_relays", len(cursors))
-        self.set_gauge("rows_seen", 0)
         self.set_gauge("relays_seen", 0)
+        self.set_gauge("rows_seen", 0)
+        self.set_gauge("candidates_found", 0)
 
         self._logger.info("scan_started", relay_count=len(cursors))
 
@@ -276,25 +272,22 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
             buffer.extend(relays)
             pending_cursors[cursor.key] = cursor
             self.inc_gauge("rows_seen")
-            if cursor.key not in relays_seen:
-                relays_seen.add(cursor.key)
-                self.inc_gauge("relays_seen")
             if len(buffer) >= batch_size:
-                total_found += await insert_relays_as_candidates(self._brotr, buffer)
+                found = await insert_relays_as_candidates(self._brotr, buffer)
+                total_found += found
+                self.inc_gauge("candidates_found", found)
                 buffer = []
                 await upsert_finder_cursors(self._brotr, pending_cursors.values())
                 pending_cursors = {}
 
         if buffer:
-            total_found += await insert_relays_as_candidates(self._brotr, buffer)
+            found = await insert_relays_as_candidates(self._brotr, buffer)
+            total_found += found
+            self.inc_gauge("candidates_found", found)
         if pending_cursors:
             await upsert_finder_cursors(self._brotr, pending_cursors.values())
 
-        self._logger.info(
-            "scan_completed",
-            found=total_found,
-            relays_scanned=len(relays_seen),
-        )
+        self._logger.info("scan_completed", found=total_found)
         return total_found
 
     async def _find_from_events_worker(
@@ -314,6 +307,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
             ):
                 return
             try:
+                self.inc_gauge("relays_seen")
                 deadline = time.monotonic() + self._config.events.max_relay_time
                 async for row in stream_event_relays(
                     self._brotr, cursor, self._config.events.scan_size
