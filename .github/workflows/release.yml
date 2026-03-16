@@ -3,7 +3,7 @@
 # ============================================================================
 #
 # Triggered by pushing a version tag (v*.*.*).
-# Validates, builds, publishes to PyPI + GHCR, and creates a GitHub release.
+# Validates, builds, publishes to PyPI + Docker Hub, and creates a GitHub release.
 #
 # Job graph:
 #   validate ──┬──> build-python (sdist + wheel + twine check)
@@ -11,7 +11,7 @@
 #                        │
 #              ┌─────────┴─────────┐
 #              v                   v
-#        publish-pypi        publish-ghcr (matrix, cache-hit rebuild + push)
+#        publish-pypi        publish-dockerhub (matrix, cache-hit rebuild + push)
 #              │                   │
 #              └─────────┬─────────┘
 #                        v
@@ -241,15 +241,14 @@ jobs:
         run: uv publish --trusted-publishing always dist/*
 
   # --------------------------------------------------------------------------
-  # Publish to GHCR (cache-hit rebuild + push)
+  # Publish to Docker Hub (cache-hit rebuild + push)
   # --------------------------------------------------------------------------
-  publish-ghcr:
-    name: Publish GHCR (${{ matrix.deployment }})
+  publish-dockerhub:
+    name: Publish Docker Hub (${{ matrix.deployment }})
     runs-on: ubuntu-latest
     needs: [build-python, build-docker]
     timeout-minutes: 15
     permissions:
-      packages: write
       contents: read
     strategy:
       fail-fast: false
@@ -266,18 +265,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-      - name: Log in to GHCR
+      - name: Log in to Docker Hub
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
         with:
-          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.deployment }}
+          images: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.deployment }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -305,7 +303,7 @@ jobs:
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [publish-pypi, publish-ghcr]
+    needs: [publish-pypi, publish-dockerhub]
     timeout-minutes: 10
     permissions:
       contents: write
