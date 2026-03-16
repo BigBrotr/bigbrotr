@@ -770,9 +770,11 @@ networks:
   bigbrotr-data-network:
     driver: bridge
     name: bigbrotr-data-network
+    enable_ipv6: false
   bigbrotr-monitoring-network:
     driver: bridge
     name: bigbrotr-monitoring-network
+    enable_ipv6: false
 
 # ============================================================================
 # USAGE
