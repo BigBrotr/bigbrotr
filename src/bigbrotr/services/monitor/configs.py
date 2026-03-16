@@ -244,6 +244,7 @@ class PublishingConfig(BaseModel):
             Relay("wss://relay.mostr.pub"),
             Relay("wss://relay.damus.io"),
             Relay("wss://nos.lol"),
+            Relay("wss://relay.primal.net"),
         ],
         description="Default relay list for event publishing",
     )

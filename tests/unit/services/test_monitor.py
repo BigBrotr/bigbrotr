@@ -429,10 +429,11 @@ class TestPublishingConfig:
     def test_default_values(self) -> None:
         config = PublishingConfig()
 
-        assert len(config.relays) == 3
+        assert len(config.relays) == 4
         assert config.relays[0].url == "wss://relay.mostr.pub"
         assert config.relays[1].url == "wss://relay.damus.io"
         assert config.relays[2].url == "wss://nos.lol"
+        assert config.relays[3].url == "wss://relay.primal.net"
 
     def test_custom_values(self) -> None:
         config = PublishingConfig(relays=["wss://relay1.com", "wss://relay2.com"])

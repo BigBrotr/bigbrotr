@@ -61,6 +61,7 @@ class DvmConfig(BaseServiceConfig, KeysConfig):
             Relay("wss://relay.mostr.pub"),
             Relay("wss://relay.damus.io"),
             Relay("wss://nos.lol"),
+            Relay("wss://relay.primal.net"),
         ],
         min_length=1,
         description="Relay URLs to listen on and publish to",
