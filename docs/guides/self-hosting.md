@@ -1109,6 +1109,16 @@ chown -R 1000:1000 /opt/bigbrotr-production/static/
 docker compose restart monitor
 ```
 
+### Services fail to connect to some relays (IPv6 DNS resolution)
+
+**Symptom**: Synchronizer/Monitor logs show `connect_failed` with `"Temporary failure in name resolution"` or `"Network is unreachable"` for relays that are reachable from the host via `curl`.
+
+**Cause**: Some relays (especially behind Cloudflare) return **only** IPv6 (AAAA) DNS records. Docker's internal resolver returns these records, but the container has no IPv6 connectivity (even with `enable_ipv6: false` on the network). The underlying Nostr client library does not fall back to IPv4.
+
+**Impact**: Minimal — only affects the small minority of relays with IPv6-only DNS. The services continue processing all other relays normally.
+
+**Note**: This is a limitation of the Nostr client library (`nostr-sdk`), not BigBrotr. There is no server-side fix. The warning logs can be safely ignored.
+
 ---
 
 ## Appendix A — Connecting for Research
