@@ -549,7 +549,7 @@
           "refId": "A"
         }
       ],
-      "title": "Total",
+      "title": "Total Candidates",
       "type": "stat"
     },
     {
@@ -1050,7 +1050,7 @@
           "refId": "A"
         }
       ],
-      "title": "Total",
+      "title": "Total Relays",
       "type": "stat"
     },
     {
@@ -2634,7 +2634,7 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 8,
+        "w": 4,
         "x": 16,
         "y": 1
       },
@@ -4512,6 +4512,52 @@
       ],
       "title": "Candidates Found",
       "type": "stat"
+    },
+    {
+      "type": "stat",
+      "title": "Total Candidates",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "expr": "bigbrotr_overview_candidate_count",
+          "legendFormat": "Candidates",
+          "refId": "A"
+        }
+      ],
+      "id": 1005
     }
   ],
   "refresh": "30s",
