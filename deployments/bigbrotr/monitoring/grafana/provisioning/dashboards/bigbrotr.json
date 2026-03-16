@@ -285,6 +285,15 @@
           "expr": "deriv(service_gauge{service=\"finder\", name=\"rows_seen\"}[5m])",
           "legendFormat": "Rows/s",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "deriv(service_gauge{service=\"finder\", name=\"relays_seen\"}[5m])",
+          "legendFormat": "Relays/s",
+          "refId": "B"
         }
       ],
       "title": "Processing Rate",
@@ -1545,6 +1554,15 @@
           "expr": "deriv(service_gauge{service=\"synchronizer\", name=\"events_seen\"}[5m])",
           "legendFormat": "Events/s",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "deriv(service_gauge{service=\"synchronizer\", name=\"relays_seen\"}[5m])",
+          "legendFormat": "Relays/s",
+          "refId": "B"
         }
       ],
       "title": "Processing Rate",
