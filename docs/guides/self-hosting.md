@@ -554,25 +554,42 @@ systemctl restart docker
 
 ## Phase 5 — Deploy BigBrotr
 
-### 5.1 — Clone and Create Production Folder
+### 5.1 — Download the Deployment Folder
+
+You only need the deployment folder — not the full repository. Download the latest release and extract the deployment template for your variant (`bigbrotr` for full event storage, `lilbrotr` for lightweight):
 
 ```bash
 cd /opt
-git clone https://github.com/BigBrotr/bigbrotr.git
-
-# Create an isolated production deployment folder
-cp -r /opt/bigbrotr/deployments/bigbrotr /opt/bigbrotr/deployments/production
-echo "deployments/production/" >> /opt/bigbrotr/.gitignore
+VARIANT=bigbrotr  # or lilbrotr
+RELEASE=$(curl -s https://api.github.com/repos/BigBrotr/bigbrotr/releases/latest | grep tarball_url | cut -d '"' -f 4)
+curl -sL "$RELEASE" | tar xz --strip-components=2 --include="*/deployments/$VARIANT"
+mv "$VARIANT" "${VARIANT}-production"
 ```
 
-The `deployments/production/` folder is gitignored — `git pull` will never overwrite your configuration. The shipped `deployments/bigbrotr/` remains as a reference template.
+This gives you a standalone production folder at `/opt/bigbrotr-production/` with all configs, monitoring, SQL init scripts, and PGBouncer settings. No git required on the server.
+
+Next, edit `docker-compose.yaml` to use pre-built Docker Hub images instead of building locally. Replace every `build:` block in the 8 service definitions with an `image:` line:
+
+```yaml
+# Replace this (in seeder, finder, validator, monitor, synchronizer, refresher, api, dvm):
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: bigbrotr
+
+# With this:
+    image: vincenzoimp/bigbrotr:6    # or vincenzoimp/lilbrotr:6
+```
+
+The `:6` tag always points to the latest 6.x.x release. Updates are a single command: `docker compose pull && docker compose up -d`.
 
 ### 5.2 — Link PostgreSQL Data to Dedicated Disk
 
 ```bash
 mkdir -p /mnt/pgdata/postgres
-mkdir -p /opt/bigbrotr/deployments/production/data
-ln -s /mnt/pgdata/postgres /opt/bigbrotr/deployments/production/data/postgres
+mkdir -p /opt/bigbrotr-production/data
+ln -s /mnt/pgdata/postgres /opt/bigbrotr-production/data/postgres
 
 # PostgreSQL in postgres:alpine runs as uid 999
 chown -R 999:999 /mnt/pgdata/postgres
@@ -581,7 +598,7 @@ chown -R 999:999 /mnt/pgdata/postgres
 ### 5.3 — Generate Credentials
 
 ```bash
-cd /opt/bigbrotr/deployments/production
+cd /opt/bigbrotr-production
 
 DB_ADMIN_PW=$(openssl rand -base64 32)
 DB_WRITER_PW=$(openssl rand -base64 32)
@@ -701,7 +718,7 @@ timezone = 'UTC'
 To access PostgreSQL, Grafana, and Prometheus from your local network:
 
 ```bash
-cd /opt/bigbrotr/deployments/production
+cd /opt/bigbrotr-production
 
 # PostgreSQL — for research queries from other VMs
 sed -i 's/127.0.0.1:5432:5432/5432:5432/' docker-compose.yaml
@@ -736,16 +753,16 @@ sed -i '/container_name: bigbrotr-postgres/a\    shm_size: 16g' docker-compose.y
 The Monitor service downloads MaxMind GeoLite2 databases on first run for IP geolocation. The container runs as uid 1000 (non-root) and needs write access to the `static/` directory:
 
 ```bash
-chown -R 1000:1000 /opt/bigbrotr/deployments/production/static/
+chown -R 1000:1000 /opt/bigbrotr-production/static/
 ```
 
-### 5.8 — Build and Start
+### 5.8 — Pull Images and Start
 
 ```bash
-cd /opt/bigbrotr/deployments/production
+cd /opt/bigbrotr-production
 
-# Build images
-docker compose build
+# Pull pre-built images from Docker Hub
+docker compose pull
 
 # Start infrastructure gradually
 docker compose up -d postgres
@@ -965,7 +982,7 @@ dpkg-reconfigure -plow unattended-upgrades
 Create a manual backup script:
 
 ```bash
-cat > /opt/bigbrotr/backup.sh << 'BACKUP'
+cat > /opt/bigbrotr-production/backup.sh << 'BACKUP'
 #!/bin/bash
 set -euo pipefail
 
@@ -973,7 +990,7 @@ BACKUP_DIR="/mnt/work/dumps"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 DUMP_FILE="${BACKUP_DIR}/bigbrotr_${TIMESTAMP}.sql.gz"
 
-source /opt/bigbrotr/deployments/production/.env
+source /opt/bigbrotr-production/.env
 
 PGPASSWORD="${DB_ADMIN_PASSWORD}" docker exec bigbrotr-postgres \
   pg_dump -U admin -d bigbrotr \
@@ -986,17 +1003,17 @@ ls -t "${BACKUP_DIR}"/bigbrotr_*.sql.gz | tail -n +8 | xargs -r rm
 echo "[$(date)] Backup completed: ${DUMP_FILE} ($(du -h "${DUMP_FILE}" | cut -f1))"
 BACKUP
 
-chmod +x /opt/bigbrotr/backup.sh
+chmod +x /opt/bigbrotr-production/backup.sh
 ```
 
-**Usage**: `/opt/bigbrotr/backup.sh`
+**Usage**: `/opt/bigbrotr-production/backup.sh`
 
 Dumps are saved to `/mnt/work/dumps/`, compressed with gzip. The script keeps only the 7 most recent.
 
 **Optional** — schedule automatic daily backups:
 
 ```bash
-echo '0 4 * * * root /opt/bigbrotr/backup.sh >> /var/log/bigbrotr-backup.log 2>&1' > /etc/cron.d/bigbrotr-backup
+echo '0 4 * * * root /opt/bigbrotr-production/backup.sh >> /var/log/bigbrotr-backup.log 2>&1' > /etc/cron.d/bigbrotr-backup
 ```
 
 ---
@@ -1006,7 +1023,7 @@ echo '0 4 * * * root /opt/bigbrotr/backup.sh >> /var/log/bigbrotr-backup.log 2>&
 ### Checklist
 
 ```bash
-cd /opt/bigbrotr/deployments/production
+cd /opt/bigbrotr-production
 
 # All 14 containers healthy
 docker compose ps
@@ -1046,11 +1063,11 @@ ssh -i ~/.ssh/bigbrotr -p 2222 root@<VM_IP>
 
 | Path | Purpose |
 |------|---------|
-| `/opt/bigbrotr/` | Repository clone |
-| `/opt/bigbrotr/deployments/production/` | Production config (gitignored) |
-| `/opt/bigbrotr/deployments/production/.env` | Credentials |
-| `/opt/bigbrotr/deployments/production/postgres/postgresql.conf` | PostgreSQL tuning |
-| `/opt/bigbrotr/backup.sh` | Backup script |
+| `/opt/bigbrotr-production/` | Production deployment (standalone) |
+| `/opt/bigbrotr-production/.env` | Credentials |
+| `/opt/bigbrotr-production/docker-compose.yaml` | Docker Compose configuration |
+| `/opt/bigbrotr-production/postgres/postgresql.conf` | PostgreSQL tuning |
+| `/opt/bigbrotr-production/backup.sh` | Backup script |
 | `/mnt/pgdata/` | PostgreSQL data |
 | `/mnt/work/dumps/` | Database backups |
 | `/mnt/work/exports/` | Data exports |
@@ -1099,7 +1116,7 @@ docker compose down postgres && docker compose up -d postgres
 **Fix**:
 
 ```bash
-chown -R 1000:1000 /opt/bigbrotr/deployments/production/static/
+chown -R 1000:1000 /opt/bigbrotr-production/static/
 docker compose restart monitor
 ```
 
@@ -1140,11 +1157,11 @@ xfs_growfs /mnt/pgdata
 ## Appendix C — Updating BigBrotr
 
 ```bash
-cd /opt/bigbrotr
-git pull origin main
-cd deployments/production
-docker compose build
+cd /opt/bigbrotr-production
+docker compose pull
 docker compose up -d
 ```
 
-The `deployments/production/` folder is never modified by `git pull`. Only source code and the Dockerfile are updated, requiring a rebuild of the container images.
+This pulls the latest images from Docker Hub and restarts only the containers that changed. Your local configuration (`.env`, `postgresql.conf`, `docker-compose.yaml`) is never affected.
+
+> **Schema changes**: If a release includes database schema changes (new materialized views, stored procedures, or indexes), the release notes will include migration instructions. In most cases this means re-initializing the database: `docker compose down && rm -rf data/postgres && docker compose up -d`.
