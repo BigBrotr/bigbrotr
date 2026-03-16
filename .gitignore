@@ -183,6 +183,10 @@ docker-compose.local.yaml
 deployments/*/data/postgres/
 **/data/postgres/
 
+# Database dump directories (backup.sh output)
+deployments/*/dumps/*
+!deployments/*/dumps/.gitkeep
+
 # Database dumps and backups
 *.sql.gz
 *.dump

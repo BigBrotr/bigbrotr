@@ -1,11 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-BACKUP_DIR="/mnt/work/dumps"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BACKUP_DIR="${SCRIPT_DIR}/dumps"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 DUMP_FILE="${BACKUP_DIR}/bigbrotr_${TIMESTAMP}.sql.gz"
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/.env"
 
 mkdir -p "${BACKUP_DIR}"
