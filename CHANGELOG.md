@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.3.0] - 2026-03-16
+
+NIP-65 relay list publishing, default relay updates, Grafana improvements, and test cleanup.
+
+### Added
+
+- **Kind 10002 relay list publishing** (NIP-65): Monitor publishes its relay list so clients know where to find its events. Configurable via `relay_list` config with interval and relay override (#386)
+- **`build_relay_list_event()`**: event builder for Kind 10002 with `["r", url, "write"]` tags
+- **`relay.primal.net`**: added to default publishing relays for both Monitor and DVM
+
+### Changed
+
+- **DVM default relays**: `relay.nostr.band` replaced with `relay.mostr.pub`
+- **Grafana "Event Scan" card renamed to "Scanned"**: shows both rows and relays scanned
+- **Grafana "Total Candidates" card removed**: Database Size restored to full width in overview
+- **Grafana "Total Candidates" renamed in Validator section**: clarifies candidate vs relay counts
+- **Grafana "Total Relays" renamed in Monitor section**: clarifies monitored relay count
+
+### Fixed
+
+- **RuntimeWarning in cli test**: replaced async `main()` with sync lambda to prevent orphan coroutine when `asyncio.run` is mocked
+
 ## [6.2.0] - 2026-03-16
 
 Metrics overhaul, IPv4 DNS fix for Docker containers, and deployment improvements. Service gauges refactored with new `inc_gauge`/`dec_gauge` API, finder and synchronizer metrics redesigned for better observability, and Grafana dashboards updated with new panels.
