@@ -206,3 +206,29 @@ ON supported_nip_counts USING btree (nip);
 -- Required for REFRESH CONCURRENTLY
 CREATE UNIQUE INDEX IF NOT EXISTS idx_event_daily_counts_day
 ON event_daily_counts USING btree (day);
+
+
+-- ==========================================================================
+-- MATERIALIZED VIEW INDEXES: events_replaceable_latest
+-- ==========================================================================
+
+-- Required for REFRESH CONCURRENTLY
+CREATE UNIQUE INDEX IF NOT EXISTS idx_events_replaceable_latest_pk
+ON events_replaceable_latest USING btree (pubkey, kind);
+
+-- Filter by kind: WHERE kind = 0 (profiles), kind = 3 (contacts), etc.
+CREATE INDEX IF NOT EXISTS idx_events_replaceable_latest_kind
+ON events_replaceable_latest USING btree (kind);
+
+
+-- ==========================================================================
+-- MATERIALIZED VIEW INDEXES: events_addressable_latest
+-- ==========================================================================
+
+-- Required for REFRESH CONCURRENTLY
+CREATE UNIQUE INDEX IF NOT EXISTS idx_events_addressable_latest_pk
+ON events_addressable_latest USING btree (pubkey, kind, d_tag);
+
+-- Filter by kind: WHERE kind = 30023 (articles), kind = 30078 (app data), etc.
+CREATE INDEX IF NOT EXISTS idx_events_addressable_latest_kind
+ON events_addressable_latest USING btree (kind);

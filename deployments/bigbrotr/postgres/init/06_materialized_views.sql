@@ -418,3 +418,77 @@ ORDER BY day DESC;
 
 COMMENT ON MATERIALIZED VIEW event_daily_counts IS
 'Daily event counts for time-series analysis (UTC). Refresh via event_daily_counts_refresh().';
+
+
+-- ==========================================================================
+-- events_replaceable_latest: Latest replaceable event per pubkey and kind
+-- ==========================================================================
+-- NIP-01 replaceable events (kind 0, 3, 10000-19999) have "at most one per
+-- pubkey" semantics: only the event with the highest created_at is current.
+-- This view materializes that latest snapshot for efficient lookups of
+-- profiles (kind 0), contact lists (kind 3), relay lists (kind 10002), etc.
+--
+-- All event columns are included so consumers can read the full event
+-- without joining back to the event table.
+--
+-- Refresh: events_replaceable_latest_refresh()
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS events_replaceable_latest AS
+SELECT DISTINCT ON (pubkey, kind)
+    id,
+    pubkey,
+    created_at,
+    kind,
+    tags,
+    tagvalues,
+    content,
+    sig
+FROM event
+WHERE kind = 0
+    OR kind = 3
+    OR (kind >= 10000 AND kind <= 19999)
+ORDER BY pubkey, kind, created_at DESC;
+
+COMMENT ON MATERIALIZED VIEW events_replaceable_latest IS
+'Latest replaceable event per (pubkey, kind). Covers kind 0, 3, 10000-19999. Refresh via events_replaceable_latest_refresh().';
+
+
+-- ==========================================================================
+-- events_addressable_latest: Latest addressable event per pubkey, kind, d-tag
+-- ==========================================================================
+-- NIP-01 addressable events (kind 30000-39999) have "at most one per
+-- pubkey + kind + d-tag" semantics. The d-tag is extracted from the tags
+-- JSONB array (first element where tag[0] = 'd'). Events without a d-tag
+-- element use '' as the default, per NIP-01 specification.
+--
+-- Uses a LEFT JOIN LATERAL to extract the d-tag so that events without an
+-- explicit d-tag are still included (with d_tag = '').
+--
+-- All event columns are included so consumers can read the full event
+-- without joining back to the event table.
+--
+-- Refresh: events_addressable_latest_refresh()
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS events_addressable_latest AS
+SELECT DISTINCT ON (e.pubkey, e.kind, d_tag)
+    e.id,
+    e.pubkey,
+    e.created_at,
+    e.kind,
+    e.tags,
+    e.tagvalues,
+    e.content,
+    e.sig,
+    COALESCE(d.val, '') AS d_tag
+FROM event AS e
+LEFT JOIN LATERAL (
+    SELECT elem ->> 1 AS val
+    FROM jsonb_array_elements(e.tags) AS elem
+    WHERE elem ->> 0 = 'd'
+    LIMIT 1
+) AS d ON TRUE
+WHERE e.kind >= 30000 AND e.kind <= 39999
+ORDER BY e.pubkey, e.kind, d_tag, e.created_at DESC;
+
+COMMENT ON MATERIALIZED VIEW events_addressable_latest IS
+'Latest addressable event per (pubkey, kind, d_tag). Covers kind 30000-39999. Refresh via events_addressable_latest_refresh().';

@@ -33,6 +33,8 @@ DEFAULT_VIEWS: list[str] = [
     "pubkey_counts_by_relay",
     "network_stats",
     "event_daily_counts",
+    "events_replaceable_latest",
+    "events_addressable_latest",
     "relay_software_counts",
     "supported_nip_counts",
 ]
