@@ -16,9 +16,9 @@ tables:
   relay:
     enabled: true
   event:
-    enabled: true
+    enabled: false
   event_relay:
-    enabled: true
+    enabled: false
   metadata:
     enabled: true
   relay_metadata:

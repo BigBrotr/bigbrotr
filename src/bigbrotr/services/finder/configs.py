@@ -35,7 +35,7 @@ class EventsConfig(BaseModel):
         default=500, ge=10, le=10_000, description="Discovered relays to buffer before flushing"
     )
     parallel_relays: int = Field(
-        default=50, ge=1, le=200, description="Maximum concurrent relay event scans"
+        default=60, ge=1, le=200, description="Maximum concurrent relay event scans"
     )
     max_relay_time: float = Field(
         default=900.0,

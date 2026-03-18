@@ -81,7 +81,7 @@ class ClearnetConfig(BaseModel):
     proxy_url: str | None = Field(
         default=None, description="SOCKS5 proxy URL (None for direct connection)"
     )
-    max_tasks: int = Field(default=50, ge=1, le=200, description="Maximum concurrent connections")
+    max_tasks: int = Field(default=30, ge=1, le=200, description="Maximum concurrent connections")
     timeout: float = Field(
         default=10.0, ge=1.0, le=120.0, description="Connection timeout in seconds"
     )

@@ -80,9 +80,9 @@ class TestClearnetConfigDefaults:
         assert config.proxy_url is None
 
     def test_default_max_tasks(self) -> None:
-        """Test clearnet has 50 max_tasks by default."""
+        """Test clearnet has 30 max_tasks by default."""
         config = ClearnetConfig()
-        assert config.max_tasks == 50
+        assert config.max_tasks == 30
 
     def test_default_timeout(self) -> None:
         """Test clearnet has 10.0s timeout by default."""
@@ -362,7 +362,7 @@ class TestNetworksConfigDefaults:
         config = NetworksConfig()
         assert config.clearnet.enabled is True
         assert config.clearnet.proxy_url is None
-        assert config.clearnet.max_tasks == 50
+        assert config.clearnet.max_tasks == 30
         assert config.clearnet.timeout == 10.0
 
     def test_tor_defaults(self) -> None:
