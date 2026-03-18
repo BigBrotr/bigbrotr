@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -146,9 +145,15 @@ def _event_relay(
     kind: int = 1,
     pubkey: str = "bb" * 32,
     created_at: int = 1700000000,
+    tags: list[list[str]] | None = None,
 ) -> EventRelay:
     mock = make_mock_event(
-        event_id=event_id, pubkey=pubkey, kind=kind, created_at=created_at, sig="ee" * 64
+        event_id=event_id,
+        pubkey=pubkey,
+        kind=kind,
+        created_at=created_at,
+        sig="ee" * 64,
+        tags=tags,
     )
     relay = Relay(relay_url, discovered_at=1700000000)
     return EventRelay(event=Event(mock), relay=relay, seen_at=created_at + 1)
@@ -935,7 +940,7 @@ class TestEventsAddressableLatest:
 
     async def test_latest_per_pubkey_kind_dtag(self, brotr: Brotr) -> None:
         pubkey = "aa" * 32
-        d_tag = [["d", "my-article"]]
+        d_tags = [["d", "my-article"]]
         ers = [
             _event_relay(
                 "a0" * 32,
@@ -943,6 +948,7 @@ class TestEventsAddressableLatest:
                 kind=30023,
                 pubkey=pubkey,
                 created_at=1000,
+                tags=d_tags,
             ),
             _event_relay(
                 "a1" * 32,
@@ -950,16 +956,9 @@ class TestEventsAddressableLatest:
                 kind=30023,
                 pubkey=pubkey,
                 created_at=2000,
+                tags=d_tags,
             ),
         ]
-        # Override tags on the mock events to include the d-tag
-        ers[0].event._event.tags.return_value.to_vec.return_value = [
-            MagicMock(as_vec=MagicMock(return_value=t)) for t in d_tag
-        ]
-        ers[1].event._event.tags.return_value.to_vec.return_value = [
-            MagicMock(as_vec=MagicMock(return_value=t)) for t in d_tag
-        ]
-
         await brotr.insert_event_relay(ers, cascade=True)
         await brotr.refresh_materialized_view("events_addressable_latest")
 
@@ -974,15 +973,20 @@ class TestEventsAddressableLatest:
 
     async def test_different_dtags_same_pubkey_kind(self, brotr: Brotr) -> None:
         pubkey = "bb" * 32
-        er1 = _event_relay("b0" * 32, "wss://addr.example.com", kind=30023, pubkey=pubkey)
-        er2 = _event_relay("b1" * 32, "wss://addr.example.com", kind=30023, pubkey=pubkey)
-
-        er1.event._event.tags.return_value.to_vec.return_value = [
-            MagicMock(as_vec=MagicMock(return_value=["d", "article-1"]))
-        ]
-        er2.event._event.tags.return_value.to_vec.return_value = [
-            MagicMock(as_vec=MagicMock(return_value=["d", "article-2"]))
-        ]
+        er1 = _event_relay(
+            "b0" * 32,
+            "wss://addr.example.com",
+            kind=30023,
+            pubkey=pubkey,
+            tags=[["d", "article-1"]],
+        )
+        er2 = _event_relay(
+            "b1" * 32,
+            "wss://addr.example.com",
+            kind=30023,
+            pubkey=pubkey,
+            tags=[["d", "article-2"]],
+        )
 
         await brotr.insert_event_relay([er1, er2], cascade=True)
         await brotr.refresh_materialized_view("events_addressable_latest")
@@ -1019,10 +1023,13 @@ class TestEventsAddressableLatest:
         assert rows[0]["d_tag"] == ""
 
     async def test_includes_all_event_columns_plus_dtag(self, brotr: Brotr) -> None:
-        er = _event_relay("e0" * 32, "wss://addr.example.com", kind=30023, pubkey="ee" * 32)
-        er.event._event.tags.return_value.to_vec.return_value = [
-            MagicMock(as_vec=MagicMock(return_value=["d", "test-slug"]))
-        ]
+        er = _event_relay(
+            "e0" * 32,
+            "wss://addr.example.com",
+            kind=30023,
+            pubkey="ee" * 32,
+            tags=[["d", "test-slug"]],
+        )
 
         await brotr.insert_event_relay([er], cascade=True)
         await brotr.refresh_materialized_view("events_addressable_latest")
@@ -1041,10 +1048,13 @@ class TestEventsAddressableLatest:
         assert row["d_tag"] == "test-slug"
 
     async def test_refresh_function_callable_directly(self, brotr: Brotr) -> None:
-        er = _event_relay("f0" * 32, "wss://addr-fn.example.com", kind=30000, pubkey="ff" * 32)
-        er.event._event.tags.return_value.to_vec.return_value = [
-            MagicMock(as_vec=MagicMock(return_value=["d", "test"]))
-        ]
+        er = _event_relay(
+            "f0" * 32,
+            "wss://addr-fn.example.com",
+            kind=30000,
+            pubkey="ff" * 32,
+            tags=[["d", "test"]],
+        )
         await brotr.insert_event_relay([er], cascade=True)
 
         await brotr.execute("SELECT events_addressable_latest_refresh()")
@@ -1062,10 +1072,12 @@ class TestAllStatisticsRefresh:
     async def test_refreshes_all_thirteen_views(self, brotr: Brotr):
         er_regular = _event_relay("e0" * 32, "wss://allref.example.com")
         er_replaceable = _event_relay("e1" * 32, "wss://allref.example.com", kind=0)
-        er_addressable = _event_relay("e2" * 32, "wss://allref.example.com", kind=30023)
-        er_addressable.event._event.tags.return_value.to_vec.return_value = [
-            MagicMock(as_vec=MagicMock(return_value=["d", "test-article"]))
-        ]
+        er_addressable = _event_relay(
+            "e2" * 32,
+            "wss://allref.example.com",
+            kind=30023,
+            tags=[["d", "test-article"]],
+        )
         await brotr.insert_event_relay([er_regular, er_replaceable, er_addressable], cascade=True)
 
         rm = _nip11_metadata(
