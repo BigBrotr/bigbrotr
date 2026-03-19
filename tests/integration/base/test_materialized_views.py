@@ -145,9 +145,15 @@ def _event_relay(
     kind: int = 1,
     pubkey: str = "bb" * 32,
     created_at: int = 1700000000,
+    tags: list[list[str]] | None = None,
 ) -> EventRelay:
     mock = make_mock_event(
-        event_id=event_id, pubkey=pubkey, kind=kind, created_at=created_at, sig="ee" * 64
+        event_id=event_id,
+        pubkey=pubkey,
+        kind=kind,
+        created_at=created_at,
+        sig="ee" * 64,
+        tags=tags,
     )
     relay = Relay(relay_url, discovered_at=1700000000)
     return EventRelay(event=Event(mock), relay=relay, seen_at=created_at + 1)
@@ -800,17 +806,279 @@ class TestEventDailyCounts:
 
 
 # ============================================================================
+# events_replaceable_latest
+# ============================================================================
+
+
+class TestEventsReplaceableLatest:
+    async def test_empty_view(self, brotr: Brotr) -> None:
+        await brotr.refresh_materialized_view("events_replaceable_latest")
+        rows = await brotr.fetch("SELECT * FROM events_replaceable_latest")
+        assert len(rows) == 0
+
+    async def test_latest_profile_per_pubkey(self, brotr: Brotr) -> None:
+        pubkey = "aa" * 32
+        ers = [
+            _event_relay(
+                "a0" * 32, "wss://repl.example.com", kind=0, pubkey=pubkey, created_at=1000
+            ),
+            _event_relay(
+                "a1" * 32, "wss://repl.example.com", kind=0, pubkey=pubkey, created_at=2000
+            ),
+        ]
+        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.refresh_materialized_view("events_replaceable_latest")
+
+        rows = await brotr.fetch(
+            "SELECT created_at FROM events_replaceable_latest WHERE kind = 0 AND pubkey = $1",
+            bytes.fromhex(pubkey),
+        )
+        assert len(rows) == 1
+        assert rows[0]["created_at"] == 2000
+
+    async def test_contact_list_kind_3(self, brotr: Brotr) -> None:
+        ers = [
+            _event_relay("b0" * 32, "wss://repl.example.com", kind=3, pubkey="bb" * 32),
+        ]
+        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.refresh_materialized_view("events_replaceable_latest")
+
+        rows = await brotr.fetch("SELECT kind FROM events_replaceable_latest WHERE kind = 3")
+        assert len(rows) == 1
+
+    async def test_relay_list_kind_10002(self, brotr: Brotr) -> None:
+        ers = [
+            _event_relay("c0" * 32, "wss://repl.example.com", kind=10002, pubkey="cc" * 32),
+        ]
+        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.refresh_materialized_view("events_replaceable_latest")
+
+        rows = await brotr.fetch("SELECT kind FROM events_replaceable_latest WHERE kind = 10002")
+        assert len(rows) == 1
+
+    async def test_multiple_pubkeys_same_kind(self, brotr: Brotr) -> None:
+        ers = [
+            _event_relay("d0" * 32, "wss://repl.example.com", kind=0, pubkey="11" * 32),
+            _event_relay("d1" * 32, "wss://repl.example.com", kind=0, pubkey="22" * 32),
+        ]
+        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.refresh_materialized_view("events_replaceable_latest")
+
+        rows = await brotr.fetch("SELECT * FROM events_replaceable_latest WHERE kind = 0")
+        assert len(rows) == 2
+
+    async def test_multiple_kinds_same_pubkey(self, brotr: Brotr) -> None:
+        pubkey = "33" * 32
+        ers = [
+            _event_relay("e0" * 32, "wss://repl.example.com", kind=0, pubkey=pubkey),
+            _event_relay("e1" * 32, "wss://repl.example.com", kind=3, pubkey=pubkey),
+            _event_relay("e2" * 32, "wss://repl.example.com", kind=10002, pubkey=pubkey),
+        ]
+        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.refresh_materialized_view("events_replaceable_latest")
+
+        rows = await brotr.fetch(
+            "SELECT kind FROM events_replaceable_latest WHERE pubkey = $1 ORDER BY kind",
+            bytes.fromhex(pubkey),
+        )
+        assert len(rows) == 3
+        assert [r["kind"] for r in rows] == [0, 3, 10002]
+
+    async def test_excludes_non_replaceable_kinds(self, brotr: Brotr) -> None:
+        ers = [
+            _event_relay("f0" * 32, "wss://repl.example.com", kind=1),
+            _event_relay("f1" * 32, "wss://repl.example.com", kind=20000),
+            _event_relay("f2" * 32, "wss://repl.example.com", kind=30000),
+        ]
+        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.refresh_materialized_view("events_replaceable_latest")
+
+        rows = await brotr.fetch("SELECT * FROM events_replaceable_latest")
+        assert len(rows) == 0
+
+    async def test_includes_all_event_columns(self, brotr: Brotr) -> None:
+        ers = [
+            _event_relay("a5" * 32, "wss://repl.example.com", kind=0, pubkey="55" * 32),
+        ]
+        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.refresh_materialized_view("events_replaceable_latest")
+
+        rows = await brotr.fetch("SELECT * FROM events_replaceable_latest")
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["id"] is not None
+        assert row["pubkey"] is not None
+        assert row["created_at"] is not None
+        assert row["kind"] == 0
+        assert row["tags"] is not None
+        assert row["tagvalues"] is not None
+        assert row["content"] is not None
+        assert row["sig"] is not None
+
+    async def test_refresh_function_callable_directly(self, brotr: Brotr) -> None:
+        ers = [
+            _event_relay("a6" * 32, "wss://repl-fn.example.com", kind=0, pubkey="66" * 32),
+        ]
+        await brotr.insert_event_relay(ers, cascade=True)
+
+        await brotr.execute("SELECT events_replaceable_latest_refresh()")
+
+        count = await brotr.fetchval("SELECT COUNT(*) FROM events_replaceable_latest")
+        assert count == 1
+
+
+# ============================================================================
+# events_addressable_latest
+# ============================================================================
+
+
+class TestEventsAddressableLatest:
+    async def test_empty_view(self, brotr: Brotr) -> None:
+        await brotr.refresh_materialized_view("events_addressable_latest")
+        rows = await brotr.fetch("SELECT * FROM events_addressable_latest")
+        assert len(rows) == 0
+
+    async def test_latest_per_pubkey_kind_dtag(self, brotr: Brotr) -> None:
+        pubkey = "aa" * 32
+        d_tags = [["d", "my-article"]]
+        ers = [
+            _event_relay(
+                "a0" * 32,
+                "wss://addr.example.com",
+                kind=30023,
+                pubkey=pubkey,
+                created_at=1000,
+                tags=d_tags,
+            ),
+            _event_relay(
+                "a1" * 32,
+                "wss://addr.example.com",
+                kind=30023,
+                pubkey=pubkey,
+                created_at=2000,
+                tags=d_tags,
+            ),
+        ]
+        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.refresh_materialized_view("events_addressable_latest")
+
+        rows = await brotr.fetch(
+            "SELECT created_at, d_tag FROM events_addressable_latest"
+            " WHERE kind = 30023 AND pubkey = $1",
+            bytes.fromhex(pubkey),
+        )
+        assert len(rows) == 1
+        assert rows[0]["created_at"] == 2000
+        assert rows[0]["d_tag"] == "my-article"
+
+    async def test_different_dtags_same_pubkey_kind(self, brotr: Brotr) -> None:
+        pubkey = "bb" * 32
+        er1 = _event_relay(
+            "b0" * 32,
+            "wss://addr.example.com",
+            kind=30023,
+            pubkey=pubkey,
+            tags=[["d", "article-1"]],
+        )
+        er2 = _event_relay(
+            "b1" * 32,
+            "wss://addr.example.com",
+            kind=30023,
+            pubkey=pubkey,
+            tags=[["d", "article-2"]],
+        )
+
+        await brotr.insert_event_relay([er1, er2], cascade=True)
+        await brotr.refresh_materialized_view("events_addressable_latest")
+
+        rows = await brotr.fetch(
+            "SELECT d_tag FROM events_addressable_latest WHERE pubkey = $1 ORDER BY d_tag",
+            bytes.fromhex(pubkey),
+        )
+        assert len(rows) == 2
+        assert rows[0]["d_tag"] == "article-1"
+        assert rows[1]["d_tag"] == "article-2"
+
+    async def test_excludes_non_addressable_kinds(self, brotr: Brotr) -> None:
+        ers = [
+            _event_relay("c0" * 32, "wss://addr.example.com", kind=1),
+            _event_relay("c1" * 32, "wss://addr.example.com", kind=0),
+            _event_relay("c2" * 32, "wss://addr.example.com", kind=10002),
+            _event_relay("c3" * 32, "wss://addr.example.com", kind=20000),
+        ]
+        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.refresh_materialized_view("events_addressable_latest")
+
+        rows = await brotr.fetch("SELECT * FROM events_addressable_latest")
+        assert len(rows) == 0
+
+    async def test_event_without_dtag_uses_empty_string(self, brotr: Brotr) -> None:
+        er = _event_relay("d0" * 32, "wss://addr.example.com", kind=30078, pubkey="dd" * 32)
+        # Default tags don't include "d", so d_tag should be ''
+        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.refresh_materialized_view("events_addressable_latest")
+
+        rows = await brotr.fetch("SELECT d_tag FROM events_addressable_latest WHERE kind = 30078")
+        assert len(rows) == 1
+        assert rows[0]["d_tag"] == ""
+
+    async def test_includes_all_event_columns_plus_dtag(self, brotr: Brotr) -> None:
+        er = _event_relay(
+            "e0" * 32,
+            "wss://addr.example.com",
+            kind=30023,
+            pubkey="ee" * 32,
+            tags=[["d", "test-slug"]],
+        )
+
+        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.refresh_materialized_view("events_addressable_latest")
+
+        rows = await brotr.fetch("SELECT * FROM events_addressable_latest")
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["id"] is not None
+        assert row["pubkey"] is not None
+        assert row["created_at"] is not None
+        assert row["kind"] == 30023
+        assert row["tags"] is not None
+        assert row["tagvalues"] is not None
+        assert row["content"] is not None
+        assert row["sig"] is not None
+        assert row["d_tag"] == "test-slug"
+
+    async def test_refresh_function_callable_directly(self, brotr: Brotr) -> None:
+        er = _event_relay(
+            "f0" * 32,
+            "wss://addr-fn.example.com",
+            kind=30000,
+            pubkey="ff" * 32,
+            tags=[["d", "test"]],
+        )
+        await brotr.insert_event_relay([er], cascade=True)
+
+        await brotr.execute("SELECT events_addressable_latest_refresh()")
+
+        count = await brotr.fetchval("SELECT COUNT(*) FROM events_addressable_latest")
+        assert count == 1
+
+
+# ============================================================================
 # all_statistics_refresh
 # ============================================================================
 
 
 class TestAllStatisticsRefresh:
-    async def test_refreshes_all_eleven_views(self, brotr: Brotr):
-        ers = [
-            _event_relay("e0" * 32, "wss://allref.example.com"),
-            _event_relay("e1" * 32, "wss://allref.example.com"),
-        ]
-        await brotr.insert_event_relay(ers, cascade=True)
+    async def test_refreshes_all_thirteen_views(self, brotr: Brotr):
+        er_regular = _event_relay("e0" * 32, "wss://allref.example.com")
+        er_replaceable = _event_relay("e1" * 32, "wss://allref.example.com", kind=0)
+        er_addressable = _event_relay(
+            "e2" * 32,
+            "wss://allref.example.com",
+            kind=30023,
+            tags=[["d", "test-article"]],
+        )
+        await brotr.insert_event_relay([er_regular, er_replaceable, er_addressable], cascade=True)
 
         rm = _nip11_metadata(
             "wss://allref.example.com",
@@ -826,7 +1094,7 @@ class TestAllStatisticsRefresh:
         await brotr.execute("SELECT all_statistics_refresh()")
 
         es = await brotr.fetch("SELECT * FROM event_stats")
-        assert es[0]["event_count"] == 2
+        assert es[0]["event_count"] == 3
 
         rs = await brotr.fetch(
             "SELECT * FROM relay_stats WHERE relay_url = $1", "wss://allref.example.com"
@@ -859,6 +1127,12 @@ class TestAllStatisticsRefresh:
 
         edc = await brotr.fetch("SELECT * FROM event_daily_counts")
         assert len(edc) >= 1
+
+        erl = await brotr.fetch("SELECT * FROM events_replaceable_latest")
+        assert len(erl) >= 1
+
+        eal = await brotr.fetch("SELECT * FROM events_addressable_latest")
+        assert len(eal) >= 1
 
     async def test_dependency_order_metadata_latest_before_dependents(self, brotr: Brotr):
         er = _event_relay("f0" * 32, "wss://dep.example.com")
