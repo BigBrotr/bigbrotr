@@ -13,7 +13,9 @@ no service-layer dependencies — only ``nostr_sdk`` and ``bigbrotr.models``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -90,11 +92,16 @@ async def _fetch_validated(
     since_ts = Timestamp.from_secs(since)
     until_ts = Timestamp.from_secs(until)
 
+    recv_timeout = ctx.fetch_timeout.total_seconds()
     for base in ctx.filters:
         windowed = base.since(since_ts).until(until_ts).limit(limit)
         stream = await ctx.client.stream_events(windowed, ctx.fetch_timeout)
         while len(events) < limit:
-            evt = await stream.next()
+            try:
+                evt = await asyncio.wait_for(stream.next(), timeout=recv_timeout)
+            except TimeoutError:
+                logger.debug("stream_next_timeout since=%s until=%s", since, until)
+                break
             if evt is None:
                 break
             if not windowed.match_event(evt) or not evt.verify():
@@ -160,6 +167,7 @@ async def stream_events(  # noqa: PLR0913
     end_time: int,
     limit: int,
     request_timeout: float,
+    idle_timeout: float,
 ) -> AsyncIterator[Event]:
     """Stream all events matching ``filters`` in ``[start_time, end_time]``,
     yielded as domain ``Event`` objects in ascending ``(created_at, id)`` order.
@@ -174,6 +182,11 @@ async def stream_events(  # noqa: PLR0913
     sorts and converts raw events to domain ``Event`` models at each yield
     boundary via ``_to_domain_events``.
 
+    The ``idle_timeout`` is progress-based: the timer resets every time an
+    event is yielded.  A relay that produces events slowly but steadily will
+    never be killed by it.  A relay that connects but stops producing events
+    is abandoned after ``idle_timeout`` seconds.
+
     Args:
         client: Connected nostr-sdk ``Client`` with the target relay added.
         filters: Pre-validated base ``Filter`` objects **without**
@@ -183,6 +196,9 @@ async def stream_events(  # noqa: PLR0913
         end_time: Inclusive upper timestamp bound (until).
         limit: Max events per relay request (REQ limit).
         request_timeout: Seconds to wait for each ``stream_events`` call.
+        idle_timeout: Seconds without yielding an event before the stream
+            is abandoned.  The timer starts when the function enters its
+            main loop and resets on every yield.
 
     Yields:
         Domain ``Event`` objects in ascending ``(created_at, id)`` order.
@@ -198,8 +214,13 @@ async def stream_events(  # noqa: PLR0913
     )
     until_stack = [end_time]
     current_since = start_time
+    last_yield = time.monotonic()
 
     while until_stack:
+        if time.monotonic() - last_yield > idle_timeout:
+            logger.debug("idle_timeout_exceeded elapsed=%.1f", time.monotonic() - last_yield)
+            return
+
         current_until = until_stack[0]
 
         events = await _fetch_validated(ctx, current_since, current_until, limit)
@@ -213,6 +234,7 @@ async def stream_events(  # noqa: PLR0913
         if current_since == current_until:
             for evt in _to_domain_events(events):
                 yield evt
+                last_yield = time.monotonic()
             until_stack.pop(0)
             current_since = current_until + 1
             continue
@@ -225,6 +247,7 @@ async def stream_events(  # noqa: PLR0913
         if verified is not None:
             for evt in _to_domain_events(verified):
                 yield evt
+                last_yield = time.monotonic()
             until_stack.pop(0)
             current_since = current_until + 1
         else:
