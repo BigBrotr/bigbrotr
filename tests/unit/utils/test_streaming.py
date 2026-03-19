@@ -6,8 +6,11 @@ Tests:
 - _fetch_validated() event fetching with validation
 - _try_verify_completeness() data-driven verification
 - stream_events() windowing algorithm
+- stream_events() idle timeout
+- _fetch_validated() recv timeout on stream.next()
 """
 
+import asyncio
 from dataclasses import FrozenInstanceError
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -220,6 +223,24 @@ class TestFetchValidated:
         result = await _fetch_validated(ctx, since=100, until=200, limit=10)
         assert result == []
 
+    async def test_stream_next_timeout_breaks(self) -> None:
+        """When stream.next() hangs, asyncio.wait_for breaks out."""
+        mock_filter = MagicMock()
+        mock_filter.since.return_value.until.return_value.limit.return_value = mock_filter
+
+        async def hanging_next() -> None:
+            await asyncio.sleep(999)
+
+        mock_stream = MagicMock()
+        mock_stream.next = hanging_next
+
+        client = MagicMock()
+        client.stream_events = AsyncMock(return_value=mock_stream)
+
+        ctx = _make_ctx(mock_client=client, filters=[mock_filter], limit=10, fetch_timeout=0.05)
+        result = await _fetch_validated(ctx, since=100, until=200, limit=10)
+        assert result == []
+
     async def test_stops_at_limit(self) -> None:
         events = [_make_raw_event(event_id=f"{i:064x}", created_at=100 + i) for i in range(5)]
 
@@ -325,6 +346,7 @@ class TestStreamEvents:
                 end_time=100,
                 limit=10,
                 request_timeout=5.0,
+                idle_timeout=60.0,
             )
         ]
         assert events == []
@@ -341,6 +363,7 @@ class TestStreamEvents:
                     end_time=100,
                     limit=10,
                     request_timeout=5.0,
+                    idle_timeout=60.0,
                 )
             ]
         assert events == []
@@ -367,6 +390,7 @@ class TestStreamEvents:
                     end_time=100,
                     limit=10,
                     request_timeout=5.0,
+                    idle_timeout=60.0,
                 )
             ]
 
@@ -398,6 +422,7 @@ class TestStreamEvents:
                     end_time=200,
                     limit=10,
                     request_timeout=5.0,
+                    idle_timeout=60.0,
                 )
             ]
 
@@ -432,11 +457,87 @@ class TestStreamEvents:
                 end_time=200,
                 limit=10,
                 request_timeout=5.0,
+                idle_timeout=60.0,
             ):
                 pass
 
         # Binary split should have been triggered
         assert call_count > 1
+
+    async def test_idle_timeout_abandons_on_no_progress(self) -> None:
+        """When idle_timeout expires without yields, stream exits."""
+        fetch_count = 0
+
+        async def slow_fetch(ctx: _FetchContext, since: int, until: int, limit: int) -> list:
+            nonlocal fetch_count
+            fetch_count += 1
+            return []  # relay never returns events
+
+        with patch("bigbrotr.utils.streaming._fetch_validated", side_effect=slow_fetch):
+            # idle_timeout=0 means check triggers immediately on second iteration
+            events = [
+                evt
+                async for evt in stream_events(
+                    client=MagicMock(),
+                    filters=[MagicMock()],
+                    start_time=100,
+                    end_time=200,
+                    limit=10,
+                    request_timeout=5.0,
+                    idle_timeout=0.0,
+                )
+            ]
+
+        assert events == []
+
+    async def test_idle_timeout_resets_on_yield(self) -> None:
+        """Idle timer resets each time an event is yielded."""
+        raw_a = _make_raw_event(event_id="a" * 64, created_at=100)
+        raw_b = _make_raw_event(event_id="b" * 64, created_at=101)
+
+        async def fetch_by_window(ctx: _FetchContext, since: int, until: int, limit: int) -> list:
+            # Single-second windows: return one event per second
+            if since == 100 and until == 100:
+                return [raw_a]
+            if since == 101 and until == 101:
+                return [raw_b]
+            # Multi-second window: trigger binary split
+            if since != until:
+                return [raw_a]
+            return []
+
+        domain_a = MagicMock(name="domain_a")
+        domain_b = MagicMock(name="domain_b")
+
+        def mock_convert(raw_events: list) -> list:
+            if raw_events and raw_events[0] is raw_a:
+                return [domain_a]
+            return [domain_b]
+
+        with (
+            patch("bigbrotr.utils.streaming._fetch_validated", side_effect=fetch_by_window),
+            patch(
+                "bigbrotr.utils.streaming._try_verify_completeness",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch("bigbrotr.utils.streaming._to_domain_events", side_effect=mock_convert),
+        ):
+            events = [
+                evt
+                async for evt in stream_events(
+                    client=MagicMock(),
+                    filters=[MagicMock()],
+                    start_time=100,
+                    end_time=101,
+                    limit=10,
+                    request_timeout=5.0,
+                    idle_timeout=10.0,
+                )
+            ]
+
+        # Both events yielded — idle timer reset after first yield
+        assert len(events) == 2
 
 
 # ============================================================================
@@ -490,7 +591,7 @@ class TestStreamEventsIntegration:
         client.stream_events = AsyncMock(return_value=_make_stream([]))
         filters = [_make_filter_mock()]
 
-        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0, 60.0)]
 
         assert events == []
 
@@ -509,7 +610,7 @@ class TestStreamEventsIntegration:
         client.stream_events = AsyncMock(side_effect=[call1, call2, call3])
         filters = [_make_filter_mock()]
 
-        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0, 60.0)]
 
         assert len(events) == 3
         timestamps = [e.created_at().as_secs() for e in events]
@@ -533,7 +634,7 @@ class TestStreamEventsIntegration:
         client.stream_events = AsyncMock(side_effect=[call1, call2, call3])
         filters = [_make_filter_mock()]
 
-        events = [e async for e in stream_events(client, filters, 100, 200, 3, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 200, 3, 10.0, 60.0)]
 
         assert len(events) >= 3
         timestamps = [e.created_at().as_secs() for e in events]
@@ -565,7 +666,7 @@ class TestStreamEventsIntegration:
         )
         filters = [_make_filter_mock()]
 
-        events = [e async for e in stream_events(client, filters, 100, 200, 2, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 200, 2, 10.0, 60.0)]
 
         assert len(events) == 2
         timestamps = [e.created_at().as_secs() for e in events]
@@ -597,7 +698,7 @@ class TestStreamEventsIntegration:
         )
         filters = [_make_filter_mock()]
 
-        events = [e async for e in stream_events(client, filters, 100, 200, 2, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 200, 2, 10.0, 60.0)]
 
         assert len(events) == 2
 
@@ -607,7 +708,7 @@ class TestStreamEventsIntegration:
         client.stream_events = AsyncMock(return_value=_make_stream(evts))
         filters = [_make_filter_mock()]
 
-        events = [e async for e in stream_events(client, filters, 500, 500, 3, 10.0)]
+        events = [e async for e in stream_events(client, filters, 500, 500, 3, 10.0, 60.0)]
 
         assert len(events) == 3
 
@@ -626,7 +727,7 @@ class TestStreamEventsIntegration:
         client.stream_events = AsyncMock(side_effect=[call1, call2, call3])
         filters = [_make_filter_mock()]
 
-        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0, 60.0)]
 
         timestamps = [e.created_at().as_secs() for e in events]
         assert timestamps == [200, 300, 400]
@@ -649,7 +750,7 @@ class TestStreamEventsIntegration:
         client.stream_events = AsyncMock(side_effect=[s1, s2, s3, s4, s5, s6])
         filters = [_make_filter_mock(), _make_filter_mock()]
 
-        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 1000, 500, 10.0, 60.0)]
 
         assert len(events) == 2
 
@@ -659,7 +760,7 @@ class TestStreamEventsIntegration:
         filters = [_make_filter_mock()]
 
         with pytest.raises(TimeoutError, match="fetch timeout"):
-            async for _ in stream_events(client, filters, 100, 1000, 500, 10.0):
+            async for _ in stream_events(client, filters, 100, 1000, 500, 10.0, 60.0):
                 pass
 
     async def test_partial_completion_on_exception(self) -> None:
@@ -683,7 +784,7 @@ class TestStreamEventsIntegration:
 
         events: list[MagicMock] = []
         with pytest.raises(OSError, match="connection lost"):
-            async for e in stream_events(client, filters, 100, 1000, 2, 10.0):
+            async for e in stream_events(client, filters, 100, 1000, 2, 10.0, 60.0):
                 events.append(e)
 
         assert len(events) == 1
@@ -714,7 +815,7 @@ class TestStreamEventsIntegration:
         )
         filters = [_make_filter_mock()]
 
-        events = [e async for e in stream_events(client, filters, 100, 200, 2, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 200, 2, 10.0, 60.0)]
 
         assert len(events) == 2
         timestamps = [e.created_at().as_secs() for e in events]
@@ -749,7 +850,7 @@ class TestStreamEventsIntegration:
         )
         filters = [_make_filter_mock()]
 
-        events = [e async for e in stream_events(client, filters, 100, 300, 3, 10.0)]
+        events = [e async for e in stream_events(client, filters, 100, 300, 3, 10.0, 60.0)]
 
         assert len(events) >= 2
         timestamps = [e.created_at().as_secs() for e in events]

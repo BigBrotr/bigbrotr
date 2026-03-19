@@ -139,65 +139,28 @@ class TestTimeoutsConfig:
     def test_default_values(self) -> None:
         config = TimeoutsConfig()
 
-        assert config.relay_clearnet == 1800.0
-        assert config.relay_tor == 3600.0
-        assert config.relay_i2p == 3600.0
-        assert config.relay_loki == 3600.0
+        assert config.idle == 300.0
         assert config.max_duration == 14_400.0
 
-    def test_get_relay_timeout_defaults(self) -> None:
-        config = TimeoutsConfig()
+    def test_idle_custom(self) -> None:
+        config = TimeoutsConfig(idle=60.0)
+        assert config.idle == 60.0
 
-        assert config.get_relay_timeout(NetworkType.CLEARNET) == 1800.0
-        assert config.get_relay_timeout(NetworkType.TOR) == 3600.0
-        assert config.get_relay_timeout(NetworkType.I2P) == 3600.0
-        assert config.get_relay_timeout(NetworkType.LOKI) == 3600.0
+    def test_idle_below_minimum_raises(self) -> None:
+        with pytest.raises(ValueError, match="greater than or equal to 10"):
+            TimeoutsConfig(idle=5.0)
 
-    def test_get_relay_timeout_custom_values(self) -> None:
-        config = TimeoutsConfig(
-            relay_clearnet=500.0,
-            relay_tor=1800.0,
-            relay_i2p=2000.0,
-            relay_loki=2500.0,
-        )
-
-        assert config.get_relay_timeout(NetworkType.CLEARNET) == 500.0
-        assert config.get_relay_timeout(NetworkType.TOR) == 1800.0
-        assert config.get_relay_timeout(NetworkType.I2P) == 2000.0
-        assert config.get_relay_timeout(NetworkType.LOKI) == 2500.0
-
-    def test_custom_relay_values(self) -> None:
-        config = TimeoutsConfig(
-            relay_clearnet=900.0,
-            relay_tor=1800.0,
-        )
-
-        assert config.relay_clearnet == 900.0
-        assert config.relay_tor == 1800.0
+    def test_idle_above_maximum_raises(self) -> None:
+        with pytest.raises(ValueError, match="less than or equal to 3600"):
+            TimeoutsConfig(idle=7200.0)
 
     def test_max_duration_valid(self) -> None:
         config = TimeoutsConfig(max_duration=3600.0)
-
         assert config.max_duration == 3600.0
-
-    def test_max_duration_at_min_relay_timeout(self) -> None:
-        config = TimeoutsConfig(
-            relay_clearnet=60.0,
-            relay_tor=60.0,
-            relay_i2p=60.0,
-            relay_loki=60.0,
-            max_duration=60.0,
-        )
-
-        assert config.max_duration == 60.0
 
     def test_max_duration_below_minimum_raises(self) -> None:
         with pytest.raises(ValueError, match="greater than or equal to 60"):
             TimeoutsConfig(max_duration=1.0)
-
-    def test_max_duration_below_shortest_relay_raises(self) -> None:
-        with pytest.raises(ValueError, match="must be >= the shortest relay timeout"):
-            TimeoutsConfig(max_duration=60.0)
 
     def test_max_duration_above_upper_bound_raises(self) -> None:
         with pytest.raises(ValueError, match="less than or equal to 86400"):
@@ -215,7 +178,8 @@ class TestSynchronizerConfig:
         assert config.processing.limit == 500
         assert config.processing.end_lag == 86_400
         assert config.networks.clearnet.timeout == 10.0
-        assert config.timeouts.relay_clearnet == 1800.0
+        assert config.timeouts.idle == 300.0
+        assert config.timeouts.max_duration == 14_400.0
         assert config.processing.batch_size == 1000
         assert config.processing.allow_insecure is False
         assert config.interval == 300.0
@@ -887,35 +851,21 @@ class TestSyncWorker:
         mock_client.shutdown.assert_awaited_once()
         assert items == []
 
-    async def test_relay_deadline_exceeded(self, mock_synchronizer_brotr: Brotr) -> None:
-        config = SynchronizerConfig(
-            timeouts=TimeoutsConfig(relay_clearnet=60.0, max_duration=14_400.0),
-        )
+    async def test_passes_idle_timeout_to_stream_events(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        config = SynchronizerConfig(timeouts=TimeoutsConfig(idle=90.0))
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
         cursor = SyncCursor(key="wss://relay.example.com")
 
         mock_client = AsyncMock()
+        mock_client.disconnect = AsyncMock()
         mock_client.shutdown = AsyncMock()
 
-        evt_a = _make_mock_event(100)
-        evt_b = _make_mock_event(200)
-
-        original_monotonic = time.monotonic
-        call_count = 0
-
-        def mock_monotonic() -> float:
-            nonlocal call_count
-            call_count += 1
-            # First call: deadline = monotonic() + 60
-            # Second call (after first yield): return past deadline
-            if call_count >= 2:
-                return original_monotonic() + 3600
-            return original_monotonic()
-
-        async def fake_stream(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
-            yield evt_a
-            yield evt_b
+        async def empty_stream(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+            return
+            yield  # make it a generator  # pragma: no cover
 
         with (
             patch(
@@ -925,18 +875,13 @@ class TestSyncWorker:
             ),
             patch(
                 "bigbrotr.services.synchronizer.service.stream_events",
-                side_effect=fake_stream,
-            ),
-            patch(
-                "bigbrotr.services.synchronizer.service.time.monotonic",
-                side_effect=mock_monotonic,
-            ),
+                side_effect=empty_stream,
+            ) as mock_stream,
         ):
-            items = [item async for item in sync._synchronize_worker(cursor)]
+            _ = [item async for item in sync._synchronize_worker(cursor)]
 
-        # Only first event yielded; second was skipped due to deadline
-        assert len(items) == 1
-        assert items[0][0] is evt_a
+        # idle_timeout is the last positional arg
+        assert mock_stream.call_args.args[-1] == 90.0
 
     async def test_outer_exception_boundary(self, mock_synchronizer_brotr: Brotr) -> None:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
