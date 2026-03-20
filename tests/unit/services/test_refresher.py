@@ -39,7 +39,7 @@ class TestRefreshConfig:
         config = RefreshConfig()
 
         assert config.views == DEFAULT_VIEWS
-        assert len(config.views) == 11
+        assert len(config.views) == 13
 
     def test_default_views_dependency_order(self) -> None:
         config = RefreshConfig()
@@ -202,7 +202,7 @@ class TestRefresherRun:
 
         await refresher.run()
 
-        assert mock_refresher_brotr.refresh_materialized_view.call_count == 11
+        assert mock_refresher_brotr.refresh_materialized_view.call_count == 13
 
     async def test_run_logs_per_view(self, mock_refresher_brotr: Brotr) -> None:
         config = RefresherConfig(

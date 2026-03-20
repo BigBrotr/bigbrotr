@@ -17,7 +17,6 @@ from nostr_sdk import Filter
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
-from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.configs import NetworksConfig
 from bigbrotr.utils.keys import KeysConfig
 
@@ -46,31 +45,27 @@ def _parse_filter(raw: Any, index: int) -> Filter:
 
 
 class TimeoutsConfig(BaseModel):
-    """Sync timeout limits: per-relay bounds and phase-level cap.
+    """Sync timeout limits: idle progress check and phase-level cap.
 
-    The ``relay_*`` fields control the maximum wall-clock time for syncing
-    a single relay.  The per-request WebSocket timeout comes from
-    [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig].
+    ``idle`` controls the progress-based idle timeout per relay: if
+    ``stream_events`` yields no events for this many seconds the relay
+    is abandoned and the semaphore slot freed.  The timer resets on
+    every yielded event, so a relay that produces events slowly but
+    steadily is never killed.
 
-    ``max_duration`` caps the entire sync phase: once exceeded, remaining
-    relays are skipped.
+    ``max_duration`` caps the entire sync phase: once exceeded,
+    remaining relays are skipped.
 
     See Also:
         [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
             Parent config that embeds this model.
     """
 
-    relay_clearnet: float = Field(
-        default=1800.0, ge=60.0, le=14_400.0, description="Max time per clearnet relay sync"
-    )
-    relay_tor: float = Field(
-        default=3600.0, ge=60.0, le=14_400.0, description="Max time per Tor relay sync"
-    )
-    relay_i2p: float = Field(
-        default=3600.0, ge=60.0, le=14_400.0, description="Max time per I2P relay sync"
-    )
-    relay_loki: float = Field(
-        default=3600.0, ge=60.0, le=14_400.0, description="Max time per Loki relay sync"
+    idle: float = Field(
+        default=300.0,
+        ge=10.0,
+        le=3600.0,
+        description="Abandon relay if no events received for this many seconds",
     )
     max_duration: float = Field(
         default=14_400.0,
@@ -78,27 +73,6 @@ class TimeoutsConfig(BaseModel):
         le=86_400.0,
         description="Maximum seconds for the entire sync phase",
     )
-
-    @model_validator(mode="after")
-    def _validate_max_duration_covers_relay_timeouts(self) -> TimeoutsConfig:
-        """Ensure max_duration is at least as long as the shortest relay timeout."""
-        min_relay = min(self.relay_clearnet, self.relay_tor, self.relay_i2p, self.relay_loki)
-        if self.max_duration < min_relay:
-            raise ValueError(
-                f"max_duration ({self.max_duration}) must be >= the shortest "
-                f"relay timeout ({min_relay})"
-            )
-        return self
-
-    def get_relay_timeout(self, network: NetworkType) -> float:
-        """Get the maximum sync duration for a relay on the given network."""
-        if network == NetworkType.TOR:
-            return self.relay_tor
-        if network == NetworkType.I2P:
-            return self.relay_i2p
-        if network == NetworkType.LOKI:
-            return self.relay_loki
-        return self.relay_clearnet
 
 
 class ProcessingConfig(BaseModel):

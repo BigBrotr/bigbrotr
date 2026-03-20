@@ -226,7 +226,6 @@ class Synchronizer(
 
                 network_config = self._config.networks.get(relay.network)
                 request_timeout = network_config.timeout
-                deadline = time.monotonic() + self._config.timeouts.get_relay_timeout(relay.network)
 
                 try:
                     client = await connect_relay(
@@ -248,11 +247,9 @@ class Synchronizer(
                         self._config.processing.get_end_time(),
                         self._config.processing.limit,
                         request_timeout,
+                        self._config.timeouts.idle,
                     ):
                         yield event, relay
-                        if time.monotonic() > deadline:
-                            self._logger.debug("relay_timeout", relay=relay.url)
-                            return
 
                     await client.disconnect()
 

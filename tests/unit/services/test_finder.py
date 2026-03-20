@@ -99,7 +99,7 @@ class TestEventsConfig:
         config = EventsConfig()
         assert config.enabled is True
         assert config.batch_size == 500
-        assert config.parallel_relays == 50
+        assert config.parallel_relays == 60
         assert config.max_relay_time == 900.0
         assert config.max_duration == 7200.0
 

@@ -227,6 +227,44 @@ COMMENT ON FUNCTION event_daily_counts_refresh() IS
 
 
 /*
+ * events_replaceable_latest_refresh() -> VOID
+ *
+ * Refreshes the events_replaceable_latest view concurrently.
+ * Schedule: Daily or as needed.
+ */
+CREATE OR REPLACE FUNCTION events_replaceable_latest_refresh()
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    REFRESH MATERIALIZED VIEW CONCURRENTLY events_replaceable_latest;
+END;
+$$;
+
+COMMENT ON FUNCTION events_replaceable_latest_refresh() IS
+'Refresh events_replaceable_latest concurrently.';
+
+
+/*
+ * events_addressable_latest_refresh() -> VOID
+ *
+ * Refreshes the events_addressable_latest view concurrently.
+ * Schedule: Daily or as needed.
+ */
+CREATE OR REPLACE FUNCTION events_addressable_latest_refresh()
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    REFRESH MATERIALIZED VIEW CONCURRENTLY events_addressable_latest;
+END;
+$$;
+
+COMMENT ON FUNCTION events_addressable_latest_refresh() IS
+'Refresh events_addressable_latest concurrently.';
+
+
+/*
  * all_statistics_refresh() -> VOID
  *
  * Refreshes all materialized views in dependency order:
@@ -254,6 +292,8 @@ BEGIN
     PERFORM pubkey_counts_by_relay_refresh();
     PERFORM network_stats_refresh();
     PERFORM event_daily_counts_refresh();
+    PERFORM events_replaceable_latest_refresh();
+    PERFORM events_addressable_latest_refresh();
 
     -- Level 3: depend on relay_metadata_latest
     PERFORM relay_software_counts_refresh();

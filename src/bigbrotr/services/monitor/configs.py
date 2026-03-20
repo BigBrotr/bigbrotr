@@ -260,7 +260,7 @@ class DiscoveryConfig(BaseModel):
 
     enabled: bool = Field(default=True, description="Enable Kind 30166 relay discovery publishing")
     interval: float = Field(
-        default=3600.0,
+        default=14_400.0,
         ge=60.0,
         le=604800.0,
         description="Minimum seconds between discovery publishes",
