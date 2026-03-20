@@ -1,12 +1,12 @@
 # Services
 
-Deep dive into BigBrotr's eight independent services: how relays are discovered, validated, monitored, how events are archived, how analytics views are refreshed, and how data is exposed via REST API and Nostr.
+Deep dive into BigBrotr's nine independent services: how relays are discovered, validated, monitored, how events are archived, how analytics views are refreshed, and how data is exposed via REST API and Nostr.
 
 ---
 
 ## Overview
 
-BigBrotr uses eight independent async services that share a PostgreSQL database. Each service runs as its own process and can be started, stopped, and scaled independently:
+BigBrotr uses nine independent async services that share a PostgreSQL database. Each service runs as its own process and can be started, stopped, and scaled independently:
 
 --8<-- "docs/_snippets/pipeline.md"
 
@@ -344,22 +344,22 @@ flowchart TD
 **Mode**: Continuous (`run_forever`)
 
 **Reads**: Base tables (indirectly, via `REFRESH MATERIALIZED VIEW CONCURRENTLY`)
-**Writes**: 11 materialized views
+**Writes**: 6 summary tables + 6 materialized views
 
 ### How It Works
 
-1. Iterate over the configured list of materialized views
-2. Refresh each view individually via its stored function (e.g., `relay_metadata_latest_refresh()`)
-3. Log per-view timing and success/failure
-4. A failure on one view does not prevent subsequent views from refreshing
+1. Iterate over the configured list of summary tables and materialized views
+2. Refresh each individually via its stored function (e.g., `relay_metadata_latest_refresh()` for matviews, `kind_stats_refresh(after, until)` for summary tables)
+3. Log per-table/view timing and success/failure
+4. A failure on one does not prevent subsequent refreshes
 
-The Refresher calls views in dependency order: `relay_metadata_latest` first (because `relay_software_counts` and `supported_nip_counts` depend on it), then all remaining views.
+The Refresher orchestrates refresh in dependency order: summary tables first (incremental, range-based), then `relay_metadata_latest` (because `relay_software_counts` and `supported_nip_counts` depend on it), then all remaining materialized views.
 
 ### Configuration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `refresh.views` | list[string] | all 11 views | Materialized views to refresh |
+| `refresh.views` | list[string] | all 6 summary tables + 6 matviews | Summary tables and materialized views to refresh |
 
 !!! tip "API Reference"
     See [`bigbrotr.services.refresher`](../reference/services/refresher/index.md) for the complete Refresher API.

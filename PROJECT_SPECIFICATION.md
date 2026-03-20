@@ -49,7 +49,7 @@ BigBrotr is a **relay observatory** that maps the Nostr relay ecosystem. It oper
 | **Health Monitoring** | Runs 7 health check types per relay: NIP-11 info, round-trip time, SSL certificates, DNS records, geolocation, ASN/network info, HTTP headers. Publishes findings as NIP-66 events. | Content-addressed metadata archive + signed Nostr events |
 | **Event Archiving** | Collects and stores Nostr events from all validated relays with binary-split windowed pagination for completeness guarantees. | Time-series event database with relay attribution |
 
-Additionally, BigBrotr materializes 11 analytics views from accumulated data and exposes everything through a FastAPI REST API and a NIP-90 Data Vending Machine.
+Additionally, BigBrotr maintains 6 summary tables and 6 materialized views for analytics from accumulated data and exposes everything through a FastAPI REST API and a NIP-90 Data Vending Machine.
 
 ### What BigBrotr Publishes
 
@@ -89,13 +89,13 @@ The codebase follows a strict **diamond-shaped Directed Acyclic Graph** for impo
 | `core` | Connection pool with retry, DB facade (Brotr), service base class, structured logging, Prometheus metrics, YAML loading | Database | ~2,746 |
 | `nips` | NIP-11 relay info fetch/parse, NIP-66 health checks (6 types), declarative field parsing, event builders | HTTP, DNS, SSL, WebSocket, GeoIP | ~4,311 |
 | `utils` | WebSocket transport, DNS resolution, Nostr key management, bounded HTTP reads, event streaming with binary-split windowing | Network | ~1,410 |
-| `services` | 8 services + shared queries/mixins/configs/catalog | Orchestration | ~7,774 |
+| `services` | 9 services + shared queries/mixins/configs/catalog | Orchestration | ~7,774 |
 
 **Total source**: 17,863 lines across the `src/bigbrotr/` package.
 
 ### Independent Services, Shared Database
 
-All 8 services are **independent processes** with no direct service-to-service dependencies. They communicate exclusively through the shared PostgreSQL database. Stopping one service does not affect the others.
+All 9 services are **independent processes** with no direct service-to-service dependencies. They communicate exclusively through the shared PostgreSQL database. Stopping one service does not affect the others.
 
 ```
                     ┌───────────────────────────────────────────────┐
@@ -103,7 +103,7 @@ All 8 services are **independent processes** with no direct service-to-service d
                     │                                               │
                     │  relay ─── event_relay ─── event              │
                     │  metadata ─── relay_metadata                  │
-                    │  service_state     11 materialized views      │
+                    │  service_state   6 summary tables + 6 matviews│
                     └──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬───┘
                        │      │      │      │      │      │      │      │
                        ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼
@@ -122,8 +122,8 @@ All 8 services are **independent processes** with no direct service-to-service d
 ### Service-Database Interaction Map
 
 ```
-                 relay   event  event_  meta-  relay_    service_  materialized
-                                relay   data   metadata  state     views (11)
+                 relay   event  event_  meta-  relay_    service_  summary tables
+                                relay   data   metadata  state     + matviews
 ─────────────┬────────┬──────┬───────┬──────┬─────────┬─────────┬────────────
 Seeder       │  W(1)  │      │       │      │         │    W    │
 Finder       │   R    │      │   R   │      │         │   R/W   │
@@ -362,7 +362,7 @@ High-level database facade wrapping all stored procedures. All inserts return co
 
 #### BaseService (`core/base_service.py`, 418 LOC)
 
-Abstract base class for all 8 services. Provides lifecycle management, metrics, and graceful shutdown.
+Abstract base class for all 9 services. Provides lifecycle management, metrics, and graceful shutdown.
 
 **`BaseServiceConfig`** (Pydantic):
 - `interval: float` — 60-604800s, default=300 (5 min). Target seconds between cycle starts.
@@ -567,13 +567,14 @@ Services add custom metrics via `set_gauge(name, value)` and `inc_counter(name, 
 | Property | Value |
 |----------|-------|
 | Execution | Continuous (default 60-min interval) |
-| Input | Configured view list (11 views) |
-| Output | Fresh materialized view data |
+| Input | Configured summary tables (6) and materialized views (6) |
+| Output | Fresh summary table and materialized view data |
 
-**Refresh order** (3 dependency levels):
-1. `relay_metadata_latest` (base dependency for level 3)
-2. `event_stats`, `relay_stats`, `kind_counts`, `kind_counts_by_relay`, `pubkey_counts`, `pubkey_counts_by_relay`, `network_stats`, `event_daily_counts` (independent of each other)
-3. `relay_software_counts`, `supported_nip_counts` (depend on `relay_metadata_latest`)
+**Refresh order** (dependency levels):
+1. Summary tables refreshed incrementally via range-based refresh functions: `pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats`
+2. `relay_metadata_latest` (base dependency for level 3)
+3. `relay_software_counts`, `supported_nip_counts`, `daily_counts`, `events_replaceable_latest`, `events_addressable_latest` (bounded, full refresh)
+4. Periodic functions: `rolling_windows_refresh()`, `relay_stats_metadata_refresh()`
 
 Individual view failures do not block subsequent views (error isolation). Serial execution (CONCURRENTLY handles read isolation). No timeout (`refresh=None`). View names regex-validated (SQL injection prevention).
 
@@ -876,7 +877,7 @@ Event streaming with binary-split windowing for completeness guarantees:
 
 ### Schema
 
-6 tables, 25 stored procedures, 11 materialized views, 31 indexes.
+6 tables, 6 summary tables, 24 stored functions, 6 materialized views, 27 indexes.
 
 #### Tables
 
@@ -909,7 +910,7 @@ relay                    (url TEXT PK, network TEXT, discovered_at BIGINT)
 - **No CHECK constraints**: Validation enforced in Python enum layer.
 - **All functions SECURITY INVOKER**: PostgreSQL default, ensuring functions run with caller's permissions.
 
-#### Stored Procedures (25)
+#### Stored Functions (24)
 
 | Category | Functions |
 |----------|-----------|
@@ -917,27 +918,34 @@ relay                    (url TEXT PK, network TEXT, discovered_at BIGINT)
 | **CRUD** (8) | `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `service_state_upsert`, `service_state_get`, `service_state_delete` |
 | **Cascade** (2) | `event_relay_insert_cascade` (relay+event+junction), `relay_metadata_insert_cascade` (relay+metadata+junction) |
 | **Cleanup** (2) | `orphan_event_delete(batch_size=10000)`, `orphan_metadata_delete(batch_size=10000)` |
-| **Refresh** (12) | 11 individual view refresh functions + `all_statistics_refresh()` orchestrator |
+| **Summary refresh** (8) | `pubkey_kind_stats_refresh`, `pubkey_relay_stats_refresh`, `relay_kind_stats_refresh`, `pubkey_stats_refresh`, `kind_stats_refresh`, `relay_stats_refresh`, `rolling_windows_refresh`, `relay_stats_metadata_refresh` |
+| **Matview refresh** (6) | `relay_metadata_latest_refresh`, `relay_software_counts_refresh`, `supported_nip_counts_refresh`, `daily_counts_refresh`, `events_replaceable_latest_refresh`, `events_addressable_latest_refresh` |
 
-#### Materialized Views (11)
+#### Summary Tables (6)
+
+| Table | Granularity | Key Metrics |
+|-------|-------------|-------------|
+| `pubkey_kind_stats` | Per author + kind | Event count per author per kind |
+| `pubkey_relay_stats` | Per author + relay | Per-relay author activity |
+| `relay_kind_stats` | Per relay + kind | Per-relay kind distribution |
+| `pubkey_stats` | Per author | Event count, unique kinds, first/last timestamps |
+| `kind_stats` | Per event kind | Event count, unique pubkeys, NIP-01 category |
+| `relay_stats` | Per relay | Event count, unique pubkeys, avg RTT (last 10), NIP-11 info |
+
+#### Materialized Views (6)
 
 | View | Granularity | Key Metrics |
 |------|-------------|-------------|
 | `relay_metadata_latest` | Per relay + type | Most recent metadata snapshot (DISTINCT ON) |
-| `event_stats` | Global (singleton) | Total events, unique pubkeys/kinds, rolling windows (1h/24h/7d/30d), events/day |
-| `relay_stats` | Per relay | Event count, unique pubkeys, avg RTT (last 10), NIP-11 info |
-| `kind_counts` | Per event kind | Event count, unique pubkeys, NIP-01 category |
-| `kind_counts_by_relay` | Per kind + relay | Per-relay kind distribution |
-| `pubkey_counts` | Per author | Event count, unique kinds, first/last timestamps |
-| `pubkey_counts_by_relay` | Per author + relay | Per-relay author activity (≥2 events filter) |
-| `network_stats` | Per network type | Relay count, event count, unique pubkeys/kinds |
 | `relay_software_counts` | Per software + version | Relay count by software distribution |
 | `supported_nip_counts` | Per NIP number | Relay count supporting each NIP |
-| `event_daily_counts` | Per UTC day | Daily event volume, unique pubkeys/kinds |
+| `daily_counts` | Per UTC day | Daily event volume, unique pubkeys/kinds |
+| `events_replaceable_latest` | Per author + kind | Latest replaceable event per pubkey+kind |
+| `events_addressable_latest` | Per author + kind + d-tag | Latest addressable event per pubkey+kind+identifier |
 
 All views have unique indexes (required for `REFRESH MATERIALIZED VIEW CONCURRENTLY`) and are refreshed by the Refresher service in dependency order.
 
-#### Indexes (31)
+#### Indexes (27)
 
 **Event table** (7):
 - `created_at DESC` — timeline queries
@@ -963,9 +971,12 @@ All views have unique indexes (required for `REFRESH MATERIALIZED VIEW CONCURREN
 - `(service_name, state_type)` — state type within service
 - Partial expression index on `state_value->>'network'` WHERE state_type='checkpoint' — candidate filtering by network
 
-**Materialized view indexes** (15):
-- 11 unique indexes (one per view, required for CONCURRENTLY)
-- 4 secondary indexes (relay_metadata_latest type, relay_stats network, kind_counts_by_relay relay, pubkey_counts_by_relay relay)
+**Summary table indexes** (3 secondary):
+- Additional secondary indexes on summary tables for common query patterns
+
+**Materialized view indexes** (10):
+- 6 unique indexes (one per view, required for CONCURRENTLY)
+- 4 secondary indexes (relay_metadata_latest type, relay_stats network, and others)
 
 #### Database Roles (4)
 
@@ -1450,9 +1461,10 @@ python -m bigbrotr <service> [--config PATH] [--brotr-config PATH] [--log-level 
 | Docs dependencies | 6 |
 | Docker containers | 15 |
 | Database tables | 6 |
-| Stored procedures | 25 |
-| Materialized views | 11 |
-| Indexes | 31 |
+| Stored functions | 24 |
+| Summary tables | 6 |
+| Materialized views | 6 |
+| Indexes | 27 |
 | Unit tests | 2,737 |
 | Integration tests | 216 |
 | CI/CD pipelines | 4 |

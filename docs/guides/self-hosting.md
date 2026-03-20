@@ -59,7 +59,7 @@ This guide assumes a dedicated server with the following (adjust resource alloca
 │  │     ├── bigbrotr-production/{dumps,exports,analysis}           │  │
 │  │     └── lilbrotr-production/  (future)                         │  │
 │  │                                                                │  │
-│  │  Docker Compose → 15 containers (8 services + 7 infra)        │  │
+│  │  Docker Compose → 16 containers (9 services + 7 infra)        │  │
 │  │  cloudflared  → Cloudflare Tunnel (zero open ports)            │  │
 │  │                                                                │  │
 │  │  PostgreSQL accessible on internal network for research        │  │
@@ -491,7 +491,7 @@ sysctl --system
 | `vm.overcommit_memory=2` | Strict accounting — prevents OOM killer from targeting PostgreSQL |
 | `vm.swappiness=1` | Almost never swap — swapping shared_buffers is catastrophic |
 | `vm.dirty_*_ratio` | Flush dirty pages early — prevents I/O stalls from large write bursts |
-| `fs.file-max` | Docker + PostgreSQL + 8 services need many open file descriptors |
+| `fs.file-max` | Docker + PostgreSQL + 9 services need many open file descriptors |
 
 ### 3.8 — System Limits
 
@@ -572,7 +572,7 @@ rm -rf BigBrotr-bigbrotr-*
 
 This gives you a standalone production folder at `/opt/bigbrotr-production/` with all configs, monitoring, SQL init scripts, PGBouncer settings, and backup script. No git required on the server.
 
-Next, edit `docker-compose.yaml` to use pre-built Docker Hub images instead of building locally. Replace every `build:` block in the 8 service definitions with an `image:` line:
+Next, edit `docker-compose.yaml` to use pre-built Docker Hub images instead of building locally. Replace every `build:` block in the 9 service definitions with an `image:` line:
 
 ```yaml
 # Replace this (in seeder, finder, validator, monitor, synchronizer, refresher, api, dvm):

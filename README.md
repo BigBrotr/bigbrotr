@@ -28,7 +28,7 @@ BigBrotr answers three questions about the Nostr network:
 2. **How healthy are they?** — Validator confirms WebSocket connectivity, Monitor runs 7 health checks (RTT, SSL, DNS, Geo, Net, HTTP, NIP-11) and publishes NIP-66 events.
 3. **What events are they publishing?** — Synchronizer connects to relays, streams events, and archives them with cursor-based resumption.
 
-Eight **independent** async services share a PostgreSQL database. Each runs on its own schedule, can be started or stopped individually, and has no direct dependency on any other service.
+Nine **independent** async services share a PostgreSQL database. Each runs on its own schedule, can be started or stopped individually, and has no direct dependency on any other service.
 
 ```text
                     ┌──────────────────────────────────────────────────────┐
@@ -36,7 +36,7 @@ Eight **independent** async services share a PostgreSQL database. Each runs on i
                     │                                                      │
                     │         relay ─── event_relay ─── event              │
                     │         metadata ─── relay_metadata                  │
-                    │         service_state     11 materialized views      │
+                    │         service_state   6 summary tables + 6 matviews│
                     └──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬──┘
                        │      │      │      │      │      │      │      │
                        ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼
@@ -61,7 +61,7 @@ Eight **independent** async services share a PostgreSQL database. Each runs on i
 | **Validator** | Tests candidates via WebSocket handshake, promotes valid relays | WebSocket |
 | **Monitor** | Runs NIP-11 + 6 NIP-66 health checks, publishes kind 10166/30166 events | HTTP, WS, DNS, SSL, GeoIP |
 | **Synchronizer** | Connects to relays, streams and archives signed events with cursor-based resumption | WebSocket |
-| **Refresher** | Refreshes 11 materialized views in dependency order | None |
+| **Refresher** | Refreshes 6 summary tables and 6 materialized views in dependency order | None |
 | **Api** | Read-only REST API with auto-generated paginated endpoints | HTTP (FastAPI) |
 | **Dvm** | NIP-90 Data Vending Machine for database queries over Nostr | WebSocket (Nostr) |
 
@@ -89,7 +89,7 @@ Imports flow strictly downward:
 - **core** — Pool (asyncpg with retry), Brotr (DB facade), BaseService (lifecycle), Logger (structured kv/JSON), Metrics (Prometheus), YAML loader.
 - **nips** — NIP-11 relay info fetch/parse, NIP-66 health checks (RTT, SSL, DNS, Geo, Net, HTTP). Never raises — errors captured in structured logs.
 - **utils** — DNS resolution, Nostr key management, WebSocket/HTTP transport, SSL fallback, SOCKS5 proxy support, event streaming with binary-split windowing.
-- **services** — 8 independent services + shared queries, configs, mixins (ConcurrentStream, NetworkSemaphores, GeoReader, Clients, CatalogAccess).
+- **services** — 9 independent services + shared queries, configs, mixins (ConcurrentStream, NetworkSemaphores, GeoReader, Clients, CatalogAccess).
 
 ### Database Schema
 
@@ -154,8 +154,8 @@ Imports flow strictly downward:
 ### Service-Database Interaction Map
 
 ```text
-                 relay    event   event_   meta-   relay_    service_  materialized
-                                  relay    data    metadata  state     views (11)
+                 relay    event   event_   meta-   relay_    service_  summary tables
+                                  relay    data    metadata  state     + matviews
   ─────────────┬────────┬───────┬────────┬───────┬─────────┬─────────┬────────────
   Seeder       │  W(1)  │       │        │       │         │  W      │
   Finder       │  R     │       │  R     │       │         │  R/W    │
@@ -196,7 +196,7 @@ docker compose up -d
 docker compose logs -f seeder
 ```
 
-This starts PostgreSQL 16, PGBouncer, Tor proxy, all 8 services, Prometheus, Alertmanager, and Grafana.
+This starts PostgreSQL 16, PGBouncer, Tor proxy, all 9 services, Prometheus, Alertmanager, and Grafana.
 
 | Endpoint | URL |
 |----------|-----|
@@ -235,7 +235,7 @@ cd deployments/bigbrotr && docker compose up -d
 
 ### LilBrotr (Lightweight)
 
-Same eight services and schema, but tags, content, and sig columns are nullable and never populated — approximately 60% disk savings while retaining all metadata and relay health data.
+Same nine services and schema, but tags, content, and sig columns are nullable and never populated — approximately 60% disk savings while retaining all metadata and relay health data.
 
 ```bash
 cd deployments/lilbrotr && docker compose up -d
@@ -266,18 +266,23 @@ PostgreSQL 16 with PGBouncer (transaction-mode pooling) and asyncpg async driver
 | `relay_metadata` | Time-series snapshots linking relays to metadata records |
 | `service_state` | Per-service operational data (candidates, cursors, checkpoints) |
 
-### Stored Functions (25)
+### Stored Functions (24)
 
 - **1 utility**: `tags_to_tagvalues` (extracts key-prefixed single-char tag values for GIN indexing)
 - **10 CRUD**: `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `event_relay_insert_cascade`, `relay_metadata_insert_cascade`, `service_state_upsert`, `service_state_get`, `service_state_delete`
 - **2 cleanup**: `orphan_event_delete`, `orphan_metadata_delete` (batched)
-- **12 refresh**: one per materialized view + `all_statistics_refresh`
+- **14 refresh**: 8 summary table refresh functions + 6 materialized view refresh functions
+- **2 periodic**: `rolling_windows_refresh`, `relay_stats_metadata_refresh`
 
 All functions use `SECURITY INVOKER`, bulk array parameters, and `ON CONFLICT DO NOTHING`.
 
-### Materialized Views (11)
+### Summary Tables (6)
 
-`relay_metadata_latest`, `event_stats`, `relay_stats`, `kind_counts`, `kind_counts_by_relay`, `pubkey_counts`, `pubkey_counts_by_relay`, `network_stats`, `relay_software_counts`, `supported_nip_counts`, `event_daily_counts` — all support `REFRESH CONCURRENTLY` via unique indexes.
+`pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats` — incrementally refreshed via range-based refresh functions.
+
+### Materialized Views (6)
+
+`relay_metadata_latest`, `relay_software_counts`, `supported_nip_counts`, `daily_counts`, `events_replaceable_latest`, `events_addressable_latest` — all support `REFRESH CONCURRENTLY` via unique indexes.
 
 ---
 
@@ -499,8 +504,8 @@ bigbrotr/
 ├── deployments/
 │   ├── Dockerfile                   # Single parametric (ARG DEPLOYMENT)
 │   ├── bigbrotr/                    # Full archive deployment
-│   │   ├── config/                  # YAML configs (brotr + 8 services)
-│   │   ├── postgres/init/           # SQL schema (10 files, 25 functions)
+│   │   ├── config/                  # YAML configs (brotr + 9 services)
+│   │   ├── postgres/init/           # SQL schema (10 files, 24 functions)
 │   │   ├── monitoring/              # Prometheus + Alertmanager + Grafana
 │   │   └── docker-compose.yaml      # 15 containers, 2 networks
 │   └── lilbrotr/                    # Lightweight deployment

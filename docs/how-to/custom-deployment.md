@@ -82,11 +82,11 @@ Edit `postgres/init/02_tables.sql` to select which schema to use:
 
 === "BigBrotr (full archive)"
 
-    Keep the full event table with all columns (`tags`, `content`, `sig`). This stores complete Nostr events and enables the 11 materialized views.
+    Keep the full event table with all columns (`tags`, `content`, `sig`). This stores complete Nostr events and enables the 6 summary tables and 6 materialized views.
 
 === "LilBrotr (lightweight)"
 
-    Use the lightweight event table with all 8 columns where `tags`, `content`, and `sig` are nullable and always NULL. This provides approximately 60% disk savings since NULL values do not occupy storage. All 11 materialized views are still available.
+    Use the lightweight event table with all 8 columns where `tags`, `content`, and `sig` are nullable and always NULL. This provides approximately 60% disk savings since NULL values do not occupy storage. All 6 summary tables and 6 materialized views are still available.
 
 ## Step 6: Set Up the Seed File
 
