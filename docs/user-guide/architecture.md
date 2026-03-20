@@ -213,7 +213,7 @@ class BrotrConfig(BaseModel):
 
 ### BaseService (`base_service.py`)
 
-Abstract base class for all eight services. Generic over configuration type.
+Abstract base class for all nine services. Generic over configuration type.
 
 ```python
 class BaseService(ABC, Generic[ConfigT]):
@@ -410,7 +410,7 @@ flowchart TD
 
 ### Service Architecture Pattern
 
-All eight services follow the same pattern:
+All nine services follow the same pattern:
 
 ```python
 class MyService(BaseService[MyServiceConfig]):
@@ -752,7 +752,7 @@ tests/
 
 ## Related Documentation
 
-- [Services](services.md) -- Deep dive into the eight independent services and data flow
+- [Services](services.md) -- Deep dive into the nine independent services and data flow
 - [Configuration](configuration.md) -- Complete YAML configuration reference
 - [Database](database.md) -- PostgreSQL schema, stored functions, and indexes
 - [Monitoring](monitoring.md) -- Prometheus metrics, alerting, and Grafana dashboards

@@ -112,17 +112,17 @@ Stop all services that write to the database before restoring:
 
 ### Refresh materialized views
 
-After restoring, refresh all materialized views to ensure they reflect the restored data:
+After restoring, refresh all summary tables and materialized views to ensure they reflect the restored data. The simplest approach is to start the Refresher service, which orchestrates all refreshes in the correct dependency order:
 
-```sql
--- Connect to the database
--- Docker: docker compose exec postgres psql -U admin -d bigbrotr
--- Manual: psql -U admin -d bigbrotr
+```bash
+# Docker
+docker compose start refresher
 
-SELECT all_statistics_refresh();
+# Manual
+python -m bigbrotr refresher --once
 ```
 
-This calls the stored function that refreshes all 11 materialized views concurrently.
+Alternatively, connect to the database and call the individual refresh functions manually (summary table refresh functions require `(after, until)` range parameters; materialized view refresh functions take no arguments).
 
 ### Restart services
 

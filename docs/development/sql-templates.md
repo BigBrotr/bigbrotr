@@ -46,8 +46,8 @@ The 10 base templates define the minimal Brotr schema shared by all deployments:
 | `03_functions_crud.sql.j2` | 10 CRUD functions (inserts, upserts, cascade operations) |
 | `04_functions_cleanup.sql.j2` | 2 cleanup functions (orphan metadata + orphan event deletion) |
 | `05_views.sql.j2` | Regular views (extension point for future use) |
-| `06_materialized_views.sql.j2` | 11 materialized views: `relay_metadata_latest` + 10 statistics/analytics views |
-| `07_functions_refresh.sql.j2` | 12 refresh functions: one per matview + `all_statistics_refresh()` |
+| `06_materialized_views.sql.j2` | 6 summary tables + 6 materialized views |
+| `07_functions_refresh.sql.j2` | 14 refresh functions (8 summary + 6 matview) + 2 periodic functions |
 | `08_indexes.sql.j2` | Performance indexes for tables and materialized views |
 | `99_verify.sql.j2` | Post-init verification script (schema summary) |
 
@@ -81,16 +81,16 @@ Blocks not overridden are inherited from the base template unchanged.
 
 ### Extension Points
 
-Base templates provide `extra_*` blocks for extension. The 10 statistics/analytics
-matviews and their refresh functions are defined in the base templates and inherited
+Base templates provide `extra_*` blocks for extension. The summary tables, materialized
+views, and their refresh functions are defined in the base templates and inherited
 by all deployments:
 
 | Block | Defined in | Content |
 |-------|------------|---------|
 | `extra_cleanup_functions` | base (empty) | Additional cleanup functions |
-| `extra_materialized_views` | base | 10 statistics/analytics matviews |
-| `extra_refresh_functions` | base | 10 stat refresh + `all_statistics_refresh()` |
-| `extra_matview_indexes` | base | Indexes for statistics matviews |
+| `extra_materialized_views` | base | 6 summary tables + 6 materialized views |
+| `extra_refresh_functions` | base | 8 summary refresh + 6 matview refresh + 2 periodic |
+| `extra_matview_indexes` | base | Indexes for summary tables and materialized views |
 | `views` | base (empty) | Regular SQL views |
 
 All deployments generate the same 10 SQL files. The `OVERRIDES` dict in

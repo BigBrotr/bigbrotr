@@ -190,13 +190,13 @@ processing:
 
 ### What is the difference between BigBrotr and LilBrotr?
 
-**BigBrotr** stores complete Nostr events including `tags` (JSON), `content`, and `sig`. It provides 11 materialized views for analytics and uses more disk space.
+**BigBrotr** stores complete Nostr events including `tags` (JSON), `content`, and `sig`. It provides 6 summary tables and 6 materialized views for analytics and uses more disk space.
 
-**LilBrotr** has all 8 event columns but keeps `tags`, `content`, and `sig` as NULL (they are nullable columns that are never populated). The `tagvalues` column is computed at insert time. Since NULL values do not occupy storage, this results in approximately 60% disk savings. All 11 materialized views are available in both variants.
+**LilBrotr** has all 8 event columns but keeps `tags`, `content`, and `sig` as NULL (they are nullable columns that are never populated). The `tagvalues` column is computed at insert time. Since NULL values do not occupy storage, this results in approximately 60% disk savings. All 6 summary tables and 6 materialized views are available in both variants.
 
 Both use the same services and codebase. The only difference is the SQL schema.
 
-### Do I need to run all eight services?
+### Do I need to run all nine services?
 
 No. The only required services are:
 

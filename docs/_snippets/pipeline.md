@@ -8,6 +8,7 @@ flowchart TD
     MO["Monitor<br/><small>Health checks</small>"]
     SY["Synchronizer<br/><small>Event collection</small>"]
     RE["Refresher<br/><small>View refresh</small>"]
+    AS["Assertor<br/><small>Trust assertions</small>"]
     AP["Api<br/><small>REST API</small>"]
     DV["Dvm<br/><small>Data Vending Machine</small>"]
 
@@ -17,6 +18,7 @@ flowchart TD
     MO --> DB
     SY --> DB
     RE --> DB
+    AS --> DB
     AP --> DB
     DV --> DB
 ```
