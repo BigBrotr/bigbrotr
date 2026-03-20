@@ -2,9 +2,15 @@
 {% block header_comment %}
  * Brotr - 06_materialized_views.sql
  *
- * Materialized views for pre-computed lookups. Each view has a corresponding
- * refresh function in 07_functions_refresh.sql and a unique index for
- * REFRESH CONCURRENTLY in 08_indexes.sql.
+ * Analytics layer: materialized views (bounded, full refresh) and summary
+ * tables (incremental refresh via stored procedures in 07_functions_refresh).
+ *
+ * Materialized views are used for bounded result sets where full refresh is
+ * cheap. Summary tables are used for large aggregates where incremental
+ * refresh is essential for performance at scale.
+ *
+ * NIP-85 summary tables provide per-pubkey social metrics and per-event
+ * engagement metrics for Trusted Assertions (kind 30382/30383).
  *
  * Dependencies: 02_tables.sql
 {% endblock %}
@@ -38,316 +44,244 @@ COMMENT ON MATERIALIZED VIEW relay_metadata_latest IS
 {% block extra_materialized_views %}
 
 
--- ==========================================================================
--- event_stats: Global event counts and time-based metrics
--- ==========================================================================
--- Single-row view with aggregate statistics across all events, broken down
--- by NIP-01 event category (regular, replaceable, ephemeral, addressable),
--- time windows (1h, 24h, 7d, 30d), and average events per day.
+-- **************************************************************************
+-- SUMMARY TABLES (incremental refresh)
+-- **************************************************************************
+-- These are regular tables maintained by stored procedures that process
+-- only new data (delta since last checkpoint). The caller passes a
+-- (p_after, p_until) range of event_relay.seen_at timestamps.
 --
--- NIP-01 event categories:
---   Regular:     kind 1, 2, 4-44, 1000-9999 (stored indefinitely)
---   Replaceable: kind 0, 3, 10000-19999 (latest per pubkey replaces older)
---   Ephemeral:   kind 20000-29999 (not persisted by relays)
---   Addressable: kind 30000-39999 (latest per pubkey+d-tag replaces older)
+-- Cross-tabs are refreshed BEFORE entity tables because entity tables
+-- derive unique_kinds/unique_relays from cross-tab row counts.
+-- **************************************************************************
+
+
+-- ==========================================================================
+-- pubkey_kind_stats: Author activity per kind (cross-tabulation)
+-- ==========================================================================
+-- One row per (pubkey, kind). All columns are additive or monotone,
+-- making incremental maintenance trivial.
 --
--- Note: Time-window counts (event_count_last_*) are snapshot values computed
--- at refresh time via NOW(). They become static until the next refresh.
+-- Refresh: pubkey_kind_stats_refresh(p_after, p_until)
+
+CREATE TABLE IF NOT EXISTS pubkey_kind_stats (
+    pubkey TEXT NOT NULL,
+    kind INTEGER NOT NULL,
+    event_count BIGINT NOT NULL DEFAULT 0,
+    first_event_at BIGINT,
+    last_event_at BIGINT,
+    PRIMARY KEY (pubkey, kind)
+);
+
+COMMENT ON TABLE pubkey_kind_stats IS
+'Author event counts per kind. Incrementally refreshed via pubkey_kind_stats_refresh(after, until).';
+
+
+-- ==========================================================================
+-- pubkey_relay_stats: Author activity per relay (cross-tabulation)
+-- ==========================================================================
+-- One row per (pubkey, relay_url). All columns are additive or monotone.
 --
--- Refresh: event_stats_refresh()
+-- Refresh: pubkey_relay_stats_refresh(p_after, p_until)
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS event_stats AS
-SELECT
-    1 AS singleton_key,  -- Unique key required for REFRESH CONCURRENTLY
-    COUNT(*) AS event_count,
-    COUNT(DISTINCT pubkey) AS unique_pubkeys,
-    COUNT(DISTINCT kind) AS unique_kinds,
-    MIN(created_at) AS earliest_event_timestamp,
-    MAX(created_at) AS latest_event_timestamp,
+CREATE TABLE IF NOT EXISTS pubkey_relay_stats (
+    pubkey TEXT NOT NULL,
+    relay_url TEXT NOT NULL,
+    event_count BIGINT NOT NULL DEFAULT 0,
+    first_event_at BIGINT,
+    last_event_at BIGINT,
+    PRIMARY KEY (pubkey, relay_url)
+);
 
-    -- NIP-01 category breakdown
-    COUNT(*) FILTER (
-        WHERE kind = 1
-        OR kind = 2
-        OR (kind >= 4 AND kind <= 44)
-        OR (kind >= 1000 AND kind <= 9999)
-    ) AS regular_event_count,
-
-    COUNT(*) FILTER (
-        WHERE kind = 0
-        OR kind = 3
-        OR (kind >= 10000 AND kind <= 19999)
-    ) AS replaceable_event_count,
-
-    COUNT(*) FILTER (
-        WHERE kind >= 20000 AND kind <= 29999
-    ) AS ephemeral_event_count,
-
-    COUNT(*) FILTER (
-        WHERE kind >= 30000 AND kind <= 39999
-    ) AS addressable_event_count,
-
-    -- Rolling time-window counts (snapshot at refresh time)
-    COUNT(*) FILTER (
-        WHERE created_at >= EXTRACT(EPOCH FROM NOW() - INTERVAL '1 hour')
-    ) AS event_count_last_1h,
-    COUNT(*) FILTER (
-        WHERE created_at >= EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')
-    ) AS event_count_last_24h,
-    COUNT(*) FILTER (
-        WHERE created_at >= EXTRACT(EPOCH FROM NOW() - INTERVAL '7 days')
-    ) AS event_count_last_7d,
-    COUNT(*) FILTER (
-        WHERE created_at >= EXTRACT(EPOCH FROM NOW() - INTERVAL '30 days')
-    ) AS event_count_last_30d,
-
-    -- Average events per day (total events / elapsed days)
-    CASE WHEN MAX(created_at) > MIN(created_at)
-        THEN ROUND(
-            COUNT(*)::NUMERIC
-            / GREATEST(((MAX(created_at) - MIN(created_at)) / 86400.0), 1),
-            2
-        )
-        ELSE COUNT(*)::NUMERIC
-    END AS events_per_day
-
-FROM event;
-
-COMMENT ON MATERIALIZED VIEW event_stats IS
-'Global event statistics with NIP-01 category breakdowns and time windows. Refresh via event_stats_refresh().';
+COMMENT ON TABLE pubkey_relay_stats IS
+'Author event distribution per relay. Incrementally refreshed via pubkey_relay_stats_refresh(after, until).';
 
 
 -- ==========================================================================
--- relay_stats: Per-relay event counts, performance, and NIP-11 info
+-- relay_kind_stats: Kind distribution per relay (cross-tabulation)
 -- ==========================================================================
--- One row per relay with event counts, unique author/kind counts, averaged
--- round-trip times from the last 10 NIP-66 RTT measurements, and the latest
--- NIP-11 relay info (name, software, version).
+-- One row per (relay_url, kind). All columns are additive or monotone.
 --
--- RTT uses a CTE with ROW_NUMBER() instead of LATERAL to compute averages
--- in a single pass over relay_metadata. NIP-11 info joins the
--- relay_metadata_latest materialized view directly.
+-- Refresh: relay_kind_stats_refresh(p_after, p_until)
+
+CREATE TABLE IF NOT EXISTS relay_kind_stats (
+    relay_url TEXT NOT NULL,
+    kind INTEGER NOT NULL,
+    event_count BIGINT NOT NULL DEFAULT 0,
+    first_event_at BIGINT,
+    last_event_at BIGINT,
+    PRIMARY KEY (relay_url, kind)
+);
+
+COMMENT ON TABLE relay_kind_stats IS
+'Kind distribution per relay. Incrementally refreshed via relay_kind_stats_refresh(after, until).';
+
+
+-- ==========================================================================
+-- pubkey_stats: Rich per-author statistics (entity)
+-- ==========================================================================
+-- One row per pubkey. Additive counts maintained incrementally;
+-- unique_kinds and unique_relays derived from cross-tab row counts.
+-- Rolling windows (events_last_*) refreshed periodically.
 --
--- Refresh: relay_stats_refresh()
+-- Refresh: pubkey_stats_refresh(p_after, p_until)
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS relay_stats AS
-WITH event_agg AS (
-    SELECT
-        er.relay_url,
-        COUNT(*) AS event_count,
-        COUNT(DISTINCT e.pubkey) AS unique_pubkeys,
-        COUNT(DISTINCT e.kind) AS unique_kinds,
-        MIN(e.created_at) AS first_event_timestamp,
-        MAX(e.created_at) AS last_event_timestamp
-    FROM event_relay AS er
-    INNER JOIN event AS e ON er.event_id = e.id
-    GROUP BY er.relay_url
-),
-rtt_ranked AS (
-    SELECT
-        rm.relay_url,
-        m.data -> 'data' ->> 'rtt_open' AS rtt_open,
-        m.data -> 'data' ->> 'rtt_read' AS rtt_read,
-        m.data -> 'data' ->> 'rtt_write' AS rtt_write,
-        ROW_NUMBER() OVER (
-            PARTITION BY rm.relay_url ORDER BY rm.generated_at DESC
-        ) AS rn
-    FROM relay_metadata AS rm
-    INNER JOIN metadata AS m
-        ON rm.metadata_id = m.id AND rm.metadata_type = m.type
-    WHERE rm.metadata_type = 'nip66_rtt'
-),
-rtt_agg AS (
-    SELECT
-        relay_url,
-        ROUND(AVG(rtt_open::INTEGER)::NUMERIC, 2) AS avg_rtt_open,
-        ROUND(AVG(rtt_read::INTEGER)::NUMERIC, 2) AS avg_rtt_read,
-        ROUND(AVG(rtt_write::INTEGER)::NUMERIC, 2) AS avg_rtt_write
-    FROM rtt_ranked
-    WHERE rn <= 10
-    GROUP BY relay_url
-)
+CREATE TABLE IF NOT EXISTS pubkey_stats (
+    pubkey TEXT PRIMARY KEY,
+    event_count BIGINT NOT NULL DEFAULT 0,
+    unique_kinds INTEGER NOT NULL DEFAULT 0,
+    unique_relays INTEGER NOT NULL DEFAULT 0,
+    first_event_at BIGINT,
+    last_event_at BIGINT,
+    events_last_24h BIGINT NOT NULL DEFAULT 0,
+    events_last_7d BIGINT NOT NULL DEFAULT 0,
+    events_last_30d BIGINT NOT NULL DEFAULT 0,
+    regular_count BIGINT NOT NULL DEFAULT 0,
+    replaceable_count BIGINT NOT NULL DEFAULT 0,
+    ephemeral_count BIGINT NOT NULL DEFAULT 0,
+    addressable_count BIGINT NOT NULL DEFAULT 0
+);
 
-SELECT
-    r.url AS relay_url,
-    r.network,
-    r.discovered_at,
-    ea.first_event_timestamp,
-    ea.last_event_timestamp,
-    rtt.avg_rtt_open,
-    rtt.avg_rtt_read,
-    rtt.avg_rtt_write,
-    COALESCE(ea.event_count, 0) AS event_count,
-    COALESCE(ea.unique_pubkeys, 0) AS unique_pubkeys,
-    COALESCE(ea.unique_kinds, 0) AS unique_kinds,
-    nip11m.data -> 'data' ->> 'name' AS nip11_name,
-    nip11m.data -> 'data' ->> 'software' AS nip11_software,
-    nip11m.data -> 'data' ->> 'version' AS nip11_version
-
-FROM relay AS r
-LEFT JOIN event_agg AS ea ON r.url = ea.relay_url
-LEFT JOIN rtt_agg AS rtt ON r.url = rtt.relay_url
-LEFT JOIN relay_metadata_latest AS nip11l
-    ON r.url = nip11l.relay_url AND nip11l.metadata_type = 'nip11_info'
-LEFT JOIN metadata AS nip11m
-    ON nip11l.metadata_id = nip11m.id AND nip11l.metadata_type = nip11m.type
-ORDER BY r.url;
-
-COMMENT ON MATERIALIZED VIEW relay_stats IS
-'Per-relay statistics with event counts, avg RTT, and NIP-11 info. Refresh via relay_stats_refresh().';
+COMMENT ON TABLE pubkey_stats IS
+'Rich per-author statistics. Incrementally refreshed via pubkey_stats_refresh(after, until).';
 
 
 -- ==========================================================================
--- kind_counts: Event count distribution by kind (global)
+-- kind_stats: Rich per-kind statistics (entity)
 -- ==========================================================================
--- Aggregated event counts per NIP-01 kind across all relays with a category
--- label classifying each kind into regular/replaceable/ephemeral/addressable.
+-- One row per kind. Additive counts maintained incrementally;
+-- unique_pubkeys and unique_relays derived from cross-tab row counts.
 --
--- Refresh: kind_counts_refresh()
+-- Refresh: kind_stats_refresh(p_after, p_until)
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS kind_counts AS
-SELECT
-    kind,
-    COUNT(*) AS event_count,
-    COUNT(DISTINCT pubkey) AS unique_pubkeys,
-    CASE
-        WHEN kind = 1
-            OR kind = 2
-            OR (kind >= 4 AND kind <= 44)
-            OR (kind >= 1000 AND kind <= 9999) THEN 'regular'
-        WHEN kind = 0
-            OR kind = 3
-            OR (kind >= 10000 AND kind <= 19999) THEN 'replaceable'
-        WHEN kind >= 20000 AND kind <= 29999 THEN 'ephemeral'
-        WHEN kind >= 30000 AND kind <= 39999 THEN 'addressable'
-        ELSE 'other'
-    END AS category
-FROM event
-GROUP BY kind
-ORDER BY event_count DESC;
+CREATE TABLE IF NOT EXISTS kind_stats (
+    kind INTEGER PRIMARY KEY,
+    event_count BIGINT NOT NULL DEFAULT 0,
+    unique_pubkeys INTEGER NOT NULL DEFAULT 0,
+    unique_relays INTEGER NOT NULL DEFAULT 0,
+    category TEXT NOT NULL DEFAULT 'other',
+    first_event_at BIGINT,
+    last_event_at BIGINT,
+    events_last_24h BIGINT NOT NULL DEFAULT 0,
+    events_last_7d BIGINT NOT NULL DEFAULT 0,
+    events_last_30d BIGINT NOT NULL DEFAULT 0
+);
 
-COMMENT ON MATERIALIZED VIEW kind_counts IS
-'Total event counts by kind with NIP-01 category labels. Refresh via kind_counts_refresh().';
+COMMENT ON TABLE kind_stats IS
+'Rich per-kind statistics. Incrementally refreshed via kind_stats_refresh(after, until).';
 
 
 -- ==========================================================================
--- kind_counts_by_relay: Event count distribution by kind and relay
+-- relay_stats: Rich per-relay statistics (entity)
 -- ==========================================================================
--- Per-relay breakdown of event kinds. Helps identify which relays specialize
--- in certain event types or have unusual kind distributions.
+-- One row per relay. Event counts maintained incrementally;
+-- unique_pubkeys and unique_kinds derived from cross-tab row counts.
+-- RTT averages and NIP-11 info refreshed via relay_stats_metadata_refresh().
 --
--- Refresh: kind_counts_by_relay_refresh()
+-- Refresh: relay_stats_refresh(p_after, p_until)
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS kind_counts_by_relay AS
-SELECT
-    e.kind,
-    er.relay_url,
-    COUNT(*) AS event_count,
-    COUNT(DISTINCT e.pubkey) AS unique_pubkeys
-FROM event AS e
-INNER JOIN event_relay AS er ON e.id = er.event_id
-GROUP BY e.kind, er.relay_url
-ORDER BY e.kind ASC, event_count DESC;
+CREATE TABLE IF NOT EXISTS relay_stats (
+    relay_url TEXT PRIMARY KEY,
+    network TEXT,
+    discovered_at BIGINT,
+    event_count BIGINT NOT NULL DEFAULT 0,
+    unique_pubkeys INTEGER NOT NULL DEFAULT 0,
+    unique_kinds INTEGER NOT NULL DEFAULT 0,
+    first_event_at BIGINT,
+    last_event_at BIGINT,
+    events_last_24h BIGINT NOT NULL DEFAULT 0,
+    events_last_7d BIGINT NOT NULL DEFAULT 0,
+    events_last_30d BIGINT NOT NULL DEFAULT 0,
+    regular_count BIGINT NOT NULL DEFAULT 0,
+    replaceable_count BIGINT NOT NULL DEFAULT 0,
+    ephemeral_count BIGINT NOT NULL DEFAULT 0,
+    addressable_count BIGINT NOT NULL DEFAULT 0,
+    avg_rtt_open NUMERIC(10,2),
+    avg_rtt_read NUMERIC(10,2),
+    avg_rtt_write NUMERIC(10,2),
+    nip11_name TEXT,
+    nip11_software TEXT,
+    nip11_version TEXT
+);
 
-COMMENT ON MATERIALIZED VIEW kind_counts_by_relay IS
-'Event counts by kind for each relay. Refresh via kind_counts_by_relay_refresh().';
+COMMENT ON TABLE relay_stats IS
+'Rich per-relay statistics. Event counts via relay_stats_refresh(after, until). Metadata via relay_stats_metadata_refresh().';
 
 
--- ==========================================================================
--- pubkey_counts: Author activity counts (global)
--- ==========================================================================
--- Aggregated activity metrics per public key across all relays. The pubkey
--- is hex-encoded for easier display and joining with application data.
+-- **************************************************************************
+-- NIP-85 SUMMARY TABLES (incremental refresh)
+-- **************************************************************************
+-- Trusted Assertion metrics per NIP-85. Per-pubkey social stats (kind 30382)
+-- and per-event engagement stats (kind 30383). Incrementally maintained with
+-- the same (p_after, p_until) pattern as the core summary tables.
 --
--- Refresh: pubkey_counts_refresh()
-
-CREATE MATERIALIZED VIEW IF NOT EXISTS pubkey_counts AS
-SELECT
-    ENCODE(pubkey, 'hex') AS pubkey,
-    COUNT(*) AS event_count,
-    COUNT(DISTINCT kind) AS unique_kinds,
-    MIN(created_at) AS first_event_timestamp,
-    MAX(created_at) AS last_event_timestamp
-FROM event
-GROUP BY pubkey
-ORDER BY event_count DESC;
-
-COMMENT ON MATERIALIZED VIEW pubkey_counts IS
-'Total event counts by public key across all relays. Refresh via pubkey_counts_refresh().';
+-- follower_count requires periodic reconciliation from events_replaceable_latest
+-- (kind 3 is replaceable: contact lists overwrite, not accumulate).
+-- **************************************************************************
 
 
 -- ==========================================================================
--- pubkey_counts_by_relay: Author activity counts per relay (filtered)
+-- nip85_pubkey_stats: Per-pubkey social metrics (NIP-85 kind 30382)
 -- ==========================================================================
--- Per-relay breakdown of author activity. Only includes pubkeys with 2+
--- events per relay to avoid cartesian explosion at scale.
+-- Additive counters for posts, reactions, reposts, reports, zaps.
+-- activity_hours is a 24-slot heatmap (one INTEGER per UTC hour).
+-- topic_counts is a JSONB object of topic -> count.
+-- Zap amounts are bolt11-verified (claimed amount must match invoice).
 --
--- Refresh: pubkey_counts_by_relay_refresh()
+-- Refresh: nip85_pubkey_stats_refresh(p_after, p_until)
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS pubkey_counts_by_relay AS
-SELECT
-    er.relay_url,
-    ENCODE(e.pubkey, 'hex') AS pubkey,
-    COUNT(*) AS event_count,
-    COUNT(DISTINCT e.kind) AS unique_kinds,
-    MIN(e.created_at) AS first_event_timestamp,
-    MAX(e.created_at) AS last_event_timestamp
-FROM event AS e
-INNER JOIN event_relay AS er ON e.id = er.event_id
-GROUP BY e.pubkey, er.relay_url
-HAVING COUNT(*) >= 2
-ORDER BY e.pubkey ASC, event_count DESC;
+CREATE TABLE IF NOT EXISTS nip85_pubkey_stats (
+    pubkey TEXT PRIMARY KEY,
+    post_count BIGINT NOT NULL DEFAULT 0,
+    reply_count BIGINT NOT NULL DEFAULT 0,
+    reaction_count_sent BIGINT NOT NULL DEFAULT 0,
+    reaction_count_recd BIGINT NOT NULL DEFAULT 0,
+    repost_count_sent BIGINT NOT NULL DEFAULT 0,
+    repost_count_recd BIGINT NOT NULL DEFAULT 0,
+    report_count_sent BIGINT NOT NULL DEFAULT 0,
+    report_count_recd BIGINT NOT NULL DEFAULT 0,
+    zap_count_sent BIGINT NOT NULL DEFAULT 0,
+    zap_count_recd BIGINT NOT NULL DEFAULT 0,
+    zap_amount_sent BIGINT NOT NULL DEFAULT 0,
+    zap_amount_recd BIGINT NOT NULL DEFAULT 0,
+    first_created_at BIGINT,
+    activity_hours INTEGER[24] NOT NULL DEFAULT ARRAY_FILL(0, ARRAY[24]),
+    topic_counts JSONB NOT NULL DEFAULT '{}'::JSONB,
+    follower_count BIGINT NOT NULL DEFAULT 0,
+    following_count BIGINT NOT NULL DEFAULT 0
+);
 
-COMMENT ON MATERIALIZED VIEW pubkey_counts_by_relay IS
-'Event counts by public key for each relay (min 2 events). Refresh via pubkey_counts_by_relay_refresh().';
+COMMENT ON TABLE nip85_pubkey_stats IS
+'NIP-85 per-pubkey social metrics. Incrementally refreshed via nip85_pubkey_stats_refresh(after, until). Follower count via nip85_follower_count_refresh().';
 
 
 -- ==========================================================================
--- network_stats: Aggregate statistics per network type
+-- nip85_event_stats: Per-event engagement metrics (NIP-85 kind 30383)
 -- ==========================================================================
--- One row per network type (clearnet, tor, i2p, loki) with relay count and
--- aggregated event metrics. Useful for comparing network adoption.
+-- Tracks comments, quotes, reposts, reactions, and zaps per event.
+-- author_pubkey enables reverse lookup (find engagement for a pubkey's events).
+-- Zap amounts are bolt11-verified.
 --
--- relay_counts CTE avoids COUNT(DISTINCT url) on the full join result.
--- network_events CTE deduplicates (network, event_id) before joining event,
--- so events seen on multiple relays in the same network are counted once.
---
--- Refresh: network_stats_refresh()
+-- Refresh: nip85_event_stats_refresh(p_after, p_until)
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS network_stats AS
-WITH relay_counts AS (
-    SELECT network, COUNT(*) AS relay_count
-    FROM relay
-    GROUP BY network
-),
-network_events AS (
-    SELECT DISTINCT r.network, er.event_id
-    FROM relay AS r
-    INNER JOIN event_relay AS er ON r.url = er.relay_url
-),
-event_agg AS (
-    SELECT
-        ne.network,
-        COUNT(*)::BIGINT AS event_count,
-        COUNT(DISTINCT e.pubkey)::BIGINT AS unique_pubkeys,
-        COUNT(DISTINCT e.kind)::BIGINT AS unique_kinds
-    FROM network_events AS ne
-    INNER JOIN event AS e ON ne.event_id = e.id
-    GROUP BY ne.network
-)
+CREATE TABLE IF NOT EXISTS nip85_event_stats (
+    event_id TEXT PRIMARY KEY,
+    author_pubkey TEXT NOT NULL,
+    comment_count BIGINT NOT NULL DEFAULT 0,
+    quote_count BIGINT NOT NULL DEFAULT 0,
+    repost_count BIGINT NOT NULL DEFAULT 0,
+    reaction_count BIGINT NOT NULL DEFAULT 0,
+    zap_count BIGINT NOT NULL DEFAULT 0,
+    zap_amount BIGINT NOT NULL DEFAULT 0
+);
 
-SELECT
-    rc.network,
-    rc.relay_count,
-    COALESCE(ea.event_count, 0)::BIGINT AS event_count,
-    COALESCE(ea.unique_pubkeys, 0)::BIGINT AS unique_pubkeys,
-    COALESCE(ea.unique_kinds, 0)::BIGINT AS unique_kinds
-FROM relay_counts AS rc
-LEFT JOIN event_agg AS ea ON rc.network = ea.network
-ORDER BY rc.relay_count DESC;
+COMMENT ON TABLE nip85_event_stats IS
+'NIP-85 per-event engagement metrics. Incrementally refreshed via nip85_event_stats_refresh(after, until).';
 
-COMMENT ON MATERIALIZED VIEW network_stats IS
-'Aggregate statistics per network type (clearnet, tor, i2p, loki). Refresh via network_stats_refresh().';
+
+-- **************************************************************************
+-- MATERIALIZED VIEWS (bounded output, full refresh)
+-- **************************************************************************
 
 
 -- ==========================================================================
@@ -401,7 +335,7 @@ COMMENT ON MATERIALIZED VIEW supported_nip_counts IS
 
 
 -- ==========================================================================
--- event_daily_counts: Daily event aggregation time-series
+-- daily_counts: Daily aggregation time-series
 -- ==========================================================================
 -- One row per UTC day with event counts, unique authors, and unique kinds.
 -- Useful for trend analysis, growth tracking, and time-series visualization.
@@ -409,9 +343,9 @@ COMMENT ON MATERIALIZED VIEW supported_nip_counts IS
 -- Uses integer arithmetic (created_at / 86400) instead of
 -- to_timestamp() + timezone conversion for faster grouping.
 --
--- Refresh: event_daily_counts_refresh()
+-- Refresh: daily_counts_refresh()
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS event_daily_counts AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS daily_counts AS
 SELECT
     '1970-01-01'::DATE + (created_at / 86400)::INTEGER AS day,
     COUNT(*) AS event_count,
@@ -421,8 +355,8 @@ FROM event
 GROUP BY created_at / 86400
 ORDER BY day DESC;
 
-COMMENT ON MATERIALIZED VIEW event_daily_counts IS
-'Daily event counts for time-series analysis (UTC). Refresh via event_daily_counts_refresh().';
+COMMENT ON MATERIALIZED VIEW daily_counts IS
+'Daily event counts for time-series analysis (UTC). Refresh via daily_counts_refresh().';
 
 
 -- ==========================================================================

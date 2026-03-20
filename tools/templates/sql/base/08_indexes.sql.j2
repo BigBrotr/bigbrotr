@@ -2,9 +2,11 @@
 {% block header_comment %}
  * Brotr - 08_indexes.sql
  *
- * Performance indexes for tables and materialized views. Organized by
- * target object. Every materialized view requires a UNIQUE index for
+ * Performance indexes for tables, summary tables, and materialized views.
+ * Every materialized view requires a UNIQUE index for
  * REFRESH MATERIALIZED VIEW CONCURRENTLY to work.
+ * Summary tables have PRIMARY KEYs (defined in 06) but may need
+ * secondary indexes for common query patterns.
  *
  * Dependencies: 02_tables.sql, 06_materialized_views.sql
 {% endblock %}
@@ -35,6 +37,8 @@ ON event USING btree (pubkey, created_at DESC);
 
 -- Author + kind + timeline: WHERE pubkey = ? AND kind = ? ORDER BY created_at DESC
 -- Supports queries like "all text notes by this author, newest first"
+-- Also serves as a covering index for pubkey_kind_stats incremental
+-- refresh (index-only scan: pubkey, kind, created_at are all included)
 CREATE INDEX IF NOT EXISTS idx_event_pubkey_kind_created_at
 ON event USING btree (pubkey, kind, created_at DESC);
 
@@ -118,78 +122,29 @@ ON relay_metadata_latest USING btree (metadata_type);
 
 
 -- ==========================================================================
--- MATERIALIZED VIEW INDEXES: event_stats
+-- SUMMARY TABLE INDEXES (secondary — PKs are defined in 06)
 -- ==========================================================================
 
--- Required for REFRESH CONCURRENTLY (single-row view uses singleton_key)
-CREATE UNIQUE INDEX IF NOT EXISTS idx_event_stats_singleton_key
-ON event_stats USING btree (singleton_key);
+-- pubkey_kind_stats: lookup by kind for kind_stats unique_pubkeys derivation
+CREATE INDEX IF NOT EXISTS idx_pubkey_kind_stats_kind
+ON pubkey_kind_stats USING btree (kind);
 
+-- pubkey_relay_stats: lookup by relay for relay_stats unique_pubkeys derivation
+CREATE INDEX IF NOT EXISTS idx_pubkey_relay_stats_relay
+ON pubkey_relay_stats USING btree (relay_url);
 
--- ==========================================================================
--- MATERIALIZED VIEW INDEXES: relay_stats
--- ==========================================================================
-
--- Required for REFRESH CONCURRENTLY
-CREATE UNIQUE INDEX IF NOT EXISTS idx_relay_stats_relay_url
-ON relay_stats USING btree (relay_url);
-
--- Filter by network: WHERE network = ?
-CREATE INDEX IF NOT EXISTS idx_relay_stats_network
-ON relay_stats USING btree (network);
+-- relay_kind_stats: lookup by kind for kind_stats unique_relays derivation
+CREATE INDEX IF NOT EXISTS idx_relay_kind_stats_kind
+ON relay_kind_stats USING btree (kind);
 
 
 -- ==========================================================================
--- MATERIALIZED VIEW INDEXES: kind_counts
+-- NIP-85 SUMMARY TABLE INDEXES
 -- ==========================================================================
 
--- Required for REFRESH CONCURRENTLY
-CREATE UNIQUE INDEX IF NOT EXISTS idx_kind_counts_kind
-ON kind_counts USING btree (kind);
-
-
--- ==========================================================================
--- MATERIALIZED VIEW INDEXES: kind_counts_by_relay
--- ==========================================================================
-
--- Required for REFRESH CONCURRENTLY
-CREATE UNIQUE INDEX IF NOT EXISTS idx_kind_counts_by_relay_composite
-ON kind_counts_by_relay USING btree (kind, relay_url);
-
--- Filter by relay: WHERE relay_url = ?
-CREATE INDEX IF NOT EXISTS idx_kind_counts_by_relay_relay
-ON kind_counts_by_relay USING btree (relay_url);
-
-
--- ==========================================================================
--- MATERIALIZED VIEW INDEXES: pubkey_counts
--- ==========================================================================
-
--- Required for REFRESH CONCURRENTLY
-CREATE UNIQUE INDEX IF NOT EXISTS idx_pubkey_counts_pubkey
-ON pubkey_counts USING btree (pubkey);
-
-
--- ==========================================================================
--- MATERIALIZED VIEW INDEXES: pubkey_counts_by_relay
--- ==========================================================================
-
--- Required for REFRESH CONCURRENTLY
-CREATE UNIQUE INDEX IF NOT EXISTS idx_pubkey_counts_by_relay_composite
-ON pubkey_counts_by_relay USING btree (pubkey, relay_url);
-
--- Filter by relay: WHERE relay_url = ?
-CREATE INDEX IF NOT EXISTS idx_pubkey_counts_by_relay_relay
-ON pubkey_counts_by_relay USING btree (relay_url);
-
-
--- ==========================================================================
--- MATERIALIZED VIEW INDEXES: network_stats
--- ==========================================================================
-
--- Required for REFRESH CONCURRENTLY
-CREATE UNIQUE INDEX IF NOT EXISTS idx_network_stats_network
-ON network_stats USING btree (network);
+-- nip85_event_stats: lookup by author for "all engagement on my events"
+CREATE INDEX IF NOT EXISTS idx_nip85_event_stats_author
+ON nip85_event_stats USING btree (author_pubkey);
 
 
 -- ==========================================================================
@@ -211,12 +166,12 @@ ON supported_nip_counts USING btree (nip);
 
 
 -- ==========================================================================
--- MATERIALIZED VIEW INDEXES: event_daily_counts
+-- MATERIALIZED VIEW INDEXES: daily_counts
 -- ==========================================================================
 
 -- Required for REFRESH CONCURRENTLY
-CREATE UNIQUE INDEX IF NOT EXISTS idx_event_daily_counts_day
-ON event_daily_counts USING btree (day);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_counts_day
+ON daily_counts USING btree (day);
 
 
 -- ==========================================================================

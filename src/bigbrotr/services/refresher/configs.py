@@ -19,51 +19,77 @@ from bigbrotr.core.base_service import BaseServiceConfig
 
 _VIEW_NAME_PATTERN = re.compile(r"^[a-z_][a-z0-9_]*$")
 
-#: Default view refresh order respecting 3-level dependency chain:
-#: Level 1 — relay_metadata_latest (base dependency)
-#: Level 2 — independent views
-#: Level 3 — views depending on relay_metadata_latest
-DEFAULT_VIEWS: list[str] = [
+#: Default materialized views (bounded output, full REFRESH CONCURRENTLY).
+#: Order: relay_metadata_latest first (base dependency for software/NIP views),
+#: then independent views, then views depending on relay_metadata_latest.
+DEFAULT_MATVIEWS: list[str] = [
     "relay_metadata_latest",
-    "event_stats",
-    "relay_stats",
-    "kind_counts",
-    "kind_counts_by_relay",
-    "pubkey_counts",
-    "pubkey_counts_by_relay",
-    "network_stats",
-    "event_daily_counts",
+    "daily_counts",
     "events_replaceable_latest",
     "events_addressable_latest",
     "relay_software_counts",
     "supported_nip_counts",
 ]
 
+#: Default summary tables (incremental refresh via stored procedures).
+#: Order: cross-tabs first (entity tables derive unique_* from them),
+#: then NIP-85 tables (same incremental pattern).
+DEFAULT_SUMMARIES: list[str] = [
+    "pubkey_kind_stats",
+    "pubkey_relay_stats",
+    "relay_kind_stats",
+    "pubkey_stats",
+    "kind_stats",
+    "relay_stats",
+    "nip85_pubkey_stats",
+    "nip85_event_stats",
+]
+
+
+def _validate_names(v: list[str], label: str) -> list[str]:
+    if not v:
+        raise ValueError(f"{label} list must not be empty")
+    invalid = [name for name in v if not _VIEW_NAME_PATTERN.match(name)]
+    if invalid:
+        raise ValueError(
+            f"invalid {label} names (must match [a-z_][a-z0-9_]*): {', '.join(invalid)}"
+        )
+    return v
+
 
 class RefreshConfig(BaseModel):
-    """Configuration for materialized view refresh.
+    """Configuration for materialized view and summary table refresh.
 
     See Also:
         [RefresherConfig][bigbrotr.services.refresher.RefresherConfig]: Parent
             config that embeds this model.
     """
 
-    views: list[str] = Field(
-        default_factory=lambda: list(DEFAULT_VIEWS),
-        description="Ordered list of materialized view names to refresh.",
+    matviews: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_MATVIEWS),
+        description="Ordered list of matview names to refresh (full REFRESH CONCURRENTLY).",
     )
 
-    @field_validator("views")
+    summaries: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_SUMMARIES),
+        description="Ordered list of summary table names to refresh incrementally.",
+    )
+
+    chunk_size: int = Field(
+        default=2592000,
+        ge=86400,
+        description="Chunk size in seconds for full rebuild of summary tables.",
+    )
+
+    @field_validator("matviews")
     @classmethod
-    def views_not_empty(cls, v: list[str]) -> list[str]:
-        if not v:
-            raise ValueError("views list must not be empty")
-        invalid = [name for name in v if not _VIEW_NAME_PATTERN.match(name)]
-        if invalid:
-            raise ValueError(
-                f"invalid view names (must match [a-z_][a-z0-9_]*): {', '.join(invalid)}"
-            )
-        return v
+    def matviews_valid(cls, v: list[str]) -> list[str]:
+        return _validate_names(v, "matviews")
+
+    @field_validator("summaries")
+    @classmethod
+    def summaries_valid(cls, v: list[str]) -> list[str]:
+        return _validate_names(v, "summaries")
 
 
 class RefresherConfig(BaseServiceConfig):
@@ -82,5 +108,5 @@ class RefresherConfig(BaseServiceConfig):
         description="Target seconds between refresh cycle starts (fixed-schedule)",
     )
     refresh: RefreshConfig = Field(
-        default_factory=RefreshConfig, description="Materialized view refresh settings"
+        default_factory=RefreshConfig, description="Materialized view and summary table settings"
     )
