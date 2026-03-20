@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.4.0] - 2026-03-20
+
+Replaceable/addressable event matviews, synchronizer idle timeout fix, and configuration updates.
+
+### Added
+
+- **`events_replaceable_latest` and `events_addressable_latest` materialized views**: track latest replaceable (Kind 0, 3, 10000–19999) and addressable (Kind 30000–39999) events per author, enabling efficient lookups for profile metadata, contact lists, and parameterized replaceable content (#395)
+
+### Changed
+
+- **Default concurrency limits updated**: tuned `max_tasks` defaults across network configurations (#394)
+- **Monitor discovery interval**: increased from 1 hour to 4 hours to better match relay update cadence
+
+### Fixed
+
+- **Synchronizer idle timeout**: replaced per-relay deadline with progress-based idle timeout — relays that continuously receive events no longer get prematurely disconnected (#396)
+
 ## [6.3.0] - 2026-03-16
 
 NIP-65 relay list publishing, default relay updates, Grafana improvements, and test cleanup.
