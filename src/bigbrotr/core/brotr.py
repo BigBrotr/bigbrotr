@@ -916,7 +916,7 @@ class Brotr:
 
         Args:
             view_name: Name of the materialized view to refresh
-                (e.g. ``"relay_metadata_latest"``, ``"event_stats"``).
+                (e.g. ``"relay_metadata_latest"``, ``"daily_counts"``).
 
         Raises:
             ValueError: If the view name is not a valid SQL identifier.

@@ -86,11 +86,13 @@ bigbrotr_matview_row_estimates:
            GREATEST(reltuples, 0)::float AS approx_rows
     FROM pg_class
     WHERE relname IN (
-      'relay_metadata_latest', 'event_stats', 'relay_stats',
-      'kind_counts', 'kind_counts_by_relay', 'pubkey_counts',
-      'pubkey_counts_by_relay', 'network_stats', 'relay_software_counts',
-      'supported_nip_counts', 'event_daily_counts'
-    ) AND relkind = 'm'
+      'relay_metadata_latest',
+      'pubkey_stats', 'kind_stats', 'relay_stats',
+      'pubkey_relay_stats', 'pubkey_kind_stats', 'relay_kind_stats',
+      'relay_software_counts', 'supported_nip_counts', 'daily_counts',
+      'nip85_pubkey_stats', 'nip85_event_stats',
+      'events_replaceable_latest', 'events_addressable_latest'
+    ) AND relkind IN ('m', 'r')
   metrics:
     - view_name:
         usage: "LABEL"
