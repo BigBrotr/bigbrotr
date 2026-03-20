@@ -2,7 +2,8 @@
 
 Standalone functions for constructing Nostr events from typed NIP data
 models. Used by the Monitor service for publishing profile (Kind 0),
-monitor announcement (Kind 10166), and relay discovery (Kind 30166) events.
+monitor announcement (Kind 10166), and relay discovery (Kind 30166) events,
+and by the Assertor service for NIP-85 trusted assertions (Kind 30382-30385).
 
 See Also:
     [bigbrotr.nips.nip66.data][bigbrotr.nips.nip66.data]: Typed data models
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
     )
     from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs
     from bigbrotr.nips.nip66.nip66 import Nip66, Nip66Selection
+    from bigbrotr.nips.nip85.data import EventAssertion, UserAssertion
 
 
 _ISO_639_1_LENGTH = 2
@@ -395,6 +397,71 @@ def build_relay_discovery(
     return EventBuilder(Kind(EventKind.RELAY_DISCOVERY), nip11_canonical_json).tags(tags)
 
 
+def build_user_assertion(assertion: UserAssertion) -> EventBuilder:
+    """Build a Kind 30382 NIP-85 user trusted assertion event.
+
+    The ``d`` tag identifies the subject pubkey. All NIP-85 result tags are
+    included. Zap amounts are converted from millisats to sats.
+
+    Args:
+        assertion: Per-pubkey social metrics.
+
+    Returns:
+        An unsigned ``EventBuilder`` ready for signing by the service key.
+    """
+    tags: list[Tag] = [
+        Tag.identifier(assertion.pubkey),
+        Tag.parse(["p", assertion.pubkey]),
+        Tag.parse(["followers", str(assertion.follower_count)]),
+        Tag.parse(["post_cnt", str(assertion.post_count)]),
+        Tag.parse(["reply_cnt", str(assertion.reply_count)]),
+        Tag.parse(["reactions_cnt", str(assertion.reaction_count_recd)]),
+        Tag.parse(["zap_amt_recd", str(assertion.zap_amount_recd_sats)]),
+        Tag.parse(["zap_amt_sent", str(assertion.zap_amount_sent_sats)]),
+        Tag.parse(["zap_cnt_recd", str(assertion.zap_count_recd)]),
+        Tag.parse(["zap_cnt_sent", str(assertion.zap_count_sent)]),
+        Tag.parse(["zap_avg_amt_day_recd", str(assertion.zap_avg_amt_day_recd_sats)]),
+        Tag.parse(["zap_avg_amt_day_sent", str(assertion.zap_avg_amt_day_sent_sats)]),
+        Tag.parse(["reports_cnt_recd", str(assertion.report_count_recd)]),
+        Tag.parse(["reports_cnt_sent", str(assertion.report_count_sent)]),
+        Tag.parse(["active_hours_start", str(assertion.active_hours_start)]),
+        Tag.parse(["active_hours_end", str(assertion.active_hours_end)]),
+    ]
+
+    if assertion.first_created_at is not None:
+        tags.append(Tag.parse(["first_created_at", str(assertion.first_created_at)]))
+
+    tags.extend(Tag.parse(["t", topic]) for topic in assertion.top_topics)
+
+    return EventBuilder(Kind(EventKind.NIP85_USER_ASSERTION), "").tags(tags)
+
+
+def build_event_assertion(assertion: EventAssertion) -> EventBuilder:
+    """Build a Kind 30383 NIP-85 event trusted assertion event.
+
+    The ``d`` tag identifies the subject event id. Zap amounts are converted
+    from millisats to sats.
+
+    Args:
+        assertion: Per-event engagement metrics.
+
+    Returns:
+        An unsigned ``EventBuilder`` ready for signing by the service key.
+    """
+    tags: list[Tag] = [
+        Tag.identifier(assertion.event_id),
+        Tag.parse(["e", assertion.event_id]),
+        Tag.parse(["comment_cnt", str(assertion.comment_count)]),
+        Tag.parse(["quote_cnt", str(assertion.quote_count)]),
+        Tag.parse(["repost_cnt", str(assertion.repost_count)]),
+        Tag.parse(["reaction_cnt", str(assertion.reaction_count)]),
+        Tag.parse(["zap_cnt", str(assertion.zap_count)]),
+        Tag.parse(["zap_amount", str(assertion.zap_amount_sats)]),
+    ]
+
+    return EventBuilder(Kind(EventKind.NIP85_EVENT_ASSERTION), "").tags(tags)
+
+
 __all__ = [
     "AccessFlags",
     "add_attributes_tags",
@@ -408,8 +475,10 @@ __all__ = [
     "add_rtt_tags",
     "add_ssl_tags",
     "add_type_tags",
+    "build_event_assertion",
     "build_monitor_announcement",
     "build_profile_event",
     "build_relay_discovery",
     "build_relay_list_event",
+    "build_user_assertion",
 ]
