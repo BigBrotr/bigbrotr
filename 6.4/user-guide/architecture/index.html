@@ -1,0 +1,7335 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Modular Nostr network observatory — relay discovery, health monitoring, event archiving, analytics, and data access">
+      
+      
+      
+        <link rel="canonical" href="https://bigbrotr.github.io/bigbrotr/6.4/user-guide/architecture/">
+      
+      
+        <link rel="prev" href="../">
+      
+      
+        <link rel="next" href="../services/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Architecture - BigBrotr</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+  
+  
+  
+  
+  <style>:root{--md-annotation-icon:url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20d%3D%22M22%2012a10%2010%200%200%201-10%2010A10%2010%200%200%201%202%2012%2010%2010%200%200%201%2012%202a10%2010%200%200%201%2010%2010m-12%206%206-6-6-6-1.4%201.4%204.6%204.6-4.6%204.6z%22/%3E%3C/svg%3E');}</style>
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="deep-purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#architecture" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+        <aside class="md-banner">
+          <div class="md-banner__inner md-grid md-typeset">
+            
+            
+
+          </div>
+          
+        </aside>
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="BigBrotr" class="md-header__button md-logo" aria-label="BigBrotr" data-md-component="logo">
+      
+  <img src="../../assets/images/logo.webp" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            BigBrotr
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Architecture
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="deep-purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="deep-purple"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/BigBrotr/bigbrotr" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    BigBrotr/bigbrotr
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../how-to/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  How-to Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../development/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Development
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../changelog/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="BigBrotr" class="md-nav__button md-logo" aria-label="BigBrotr" data-md-component="logo">
+      
+  <img src="../../assets/images/logo.webp" alt="logo">
+
+    </a>
+    BigBrotr
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/BigBrotr/bigbrotr" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    BigBrotr/bigbrotr
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/first-deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#models-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Models Layer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Models Layer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#enumerations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enumerations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Patterns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#servicestate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ServiceState
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core Layer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Core Layer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pool-poolpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pool (pool.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#brotr-brotrpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Brotr (brotr.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#baseservice-base_servicepy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BaseService (base_service.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#logger-loggerpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logger (logger.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#metrics-metricspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metrics (metrics.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#yaml-loader-yamlpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YAML Loader (yaml.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nips-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NIPs Layer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="NIPs Layer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#nip-11-nip11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NIP-11 (nip11/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nip-66-nip66" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NIP-66 (nip66/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#utils-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Utils Layer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Utils Layer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#transport-ssl-fallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transport SSL Fallback
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#service-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Service Layer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Service Layer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#service-architecture-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Service Architecture Pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shared-infrastructure-servicescommon" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared Infrastructure (services/common/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Flow
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Data Flow">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#metadata-deduplication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metadata Deduplication
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#concurrency-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Concurrency Model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Concurrency Model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#async-io" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Async I/O
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#connection-pooling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection Pooling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-network-semaphores" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-Network Semaphores
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#design-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design Patterns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Design Patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dependency-injection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dependency Injection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#composition-over-inheritance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Composition over Inheritance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#template-method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Template Method
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mixins-for-cross-cutting-concerns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mixins for Cross-Cutting Concerns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#content-addressed-deduplication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Content-Addressed Deduplication
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#factory-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Factory Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#context-managers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context Managers
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration System
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration System">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#configuration-hierarchy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Hierarchy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pydantic-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pydantic Validation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variables
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Testing Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#test-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mock-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mock Patterns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related Documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../database/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Database
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../how-to/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How-to Guides
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    How-to Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/docker-deploy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deploy with Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/manual-deploy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deploy Manually
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/new-service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Add a New Service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/custom-deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/tor-relays/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tor Relay Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/monitoring-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/backup-restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backup & Restore
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../development/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/coding-standards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coding Standards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/sql-templates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Templates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/core/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    core
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_2" id="__nav_6_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    core
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/core/base_service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    base_service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/core/brotr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    brotr
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/core/logger/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    logger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/core/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/core/pool/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pool
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/core/yaml/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    yaml
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/models/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    models
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_3" id="__nav_6_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    models
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/models/_validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    _validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/models/constants/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    constants
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/models/event/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    event
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/models/event_relay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    event_relay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/models/metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/models/relay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    relay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/models/relay_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    relay_metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/models/service_state/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    service_state
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/nips/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    nips
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_4" id="__nav_6_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    nips
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/nips/base/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    base
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/nips/event_builders/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    event_builders
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_4_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/nips/nip11/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    nip11
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_4_4" id="__nav_6_4_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_4_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_4_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    nip11
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/nips/nip11/data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    data
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/nips/nip11/info/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    info
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/nips/nip11/logs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    logs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/nips/nip11/nip11/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    nip11
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_4_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/nips/nip66/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    nip66
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_4_5" id="__nav_6_4_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_4_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_4_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    nip66
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/nips/nip66/data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    data
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/nips/nip66/dns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    dns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/nips/nip66/geo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    geo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/nips/nip66/http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/nips/nip66/logs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    logs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/nips/nip66/net/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    net
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/nips/nip66/nip66/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    nip66
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/nips/nip66/rtt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    rtt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/nips/nip66/ssl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ssl
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/nips/parsing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    parsing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/services/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    services
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_5" id="__nav_6_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    services
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_5_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/services/api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    api
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_5_2" id="__nav_6_5_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_5_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    api
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/api/configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/api/service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_5_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/services/common/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    common
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_5_3" id="__nav_6_5_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    common
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/common/catalog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/common/configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/common/mixins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    mixins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/common/queries/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    queries
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/common/types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/common/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utils
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_5_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/services/dvm/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    dvm
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_5_4" id="__nav_6_5_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_5_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    dvm
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/dvm/configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/dvm/service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/dvm/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utils
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_5_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/services/finder/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    finder
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_5_5" id="__nav_6_5_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_5_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    finder
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/finder/configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/finder/queries/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    queries
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/finder/service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/finder/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utils
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_5_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/services/monitor/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    monitor
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_5_6" id="__nav_6_5_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_5_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    monitor
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/monitor/configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/monitor/queries/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    queries
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/monitor/service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/monitor/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utils
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_5_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/services/refresher/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    refresher
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_5_7" id="__nav_6_5_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_5_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    refresher
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/refresher/configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/refresher/service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_5_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/services/seeder/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    seeder
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_5_8" id="__nav_6_5_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_5_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    seeder
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/seeder/configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/seeder/queries/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    queries
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/seeder/service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/seeder/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utils
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_5_9" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/services/synchronizer/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    synchronizer
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_5_9" id="__nav_6_5_9_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_5_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    synchronizer
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/synchronizer/configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/synchronizer/queries/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    queries
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/synchronizer/service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_5_10" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/services/validator/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    validator
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_5_10" id="__nav_6_5_10_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_5_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    validator
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/validator/configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/validator/queries/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    queries
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/validator/service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/services/validator/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utils
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/utils/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utils
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_6" id="__nav_6_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    utils
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/utils/dns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    dns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/utils/http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/utils/keys/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    keys
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/utils/parsing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    parsing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/utils/protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/utils/streaming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    streaming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/utils/transport/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    transport
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#models-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Models Layer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Models Layer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#enumerations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enumerations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Patterns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#servicestate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ServiceState
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core Layer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Core Layer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pool-poolpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pool (pool.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#brotr-brotrpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Brotr (brotr.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#baseservice-base_servicepy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BaseService (base_service.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#logger-loggerpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logger (logger.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#metrics-metricspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metrics (metrics.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#yaml-loader-yamlpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YAML Loader (yaml.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nips-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NIPs Layer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="NIPs Layer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#nip-11-nip11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NIP-11 (nip11/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nip-66-nip66" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NIP-66 (nip66/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#utils-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Utils Layer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Utils Layer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#transport-ssl-fallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transport SSL Fallback
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#service-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Service Layer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Service Layer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#service-architecture-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Service Architecture Pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shared-infrastructure-servicescommon" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared Infrastructure (services/common/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Flow
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Data Flow">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#metadata-deduplication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metadata Deduplication
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#concurrency-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Concurrency Model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Concurrency Model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#async-io" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Async I/O
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#connection-pooling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection Pooling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-network-semaphores" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-Network Semaphores
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#design-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design Patterns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Design Patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dependency-injection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dependency Injection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#composition-over-inheritance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Composition over Inheritance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#template-method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Template Method
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mixins-for-cross-cutting-concerns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mixins for Cross-Cutting Concerns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#content-addressed-deduplication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Content-Addressed Deduplication
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#factory-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Factory Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#context-managers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context Managers
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration System
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration System">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#configuration-hierarchy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Hierarchy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pydantic-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pydantic Validation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variables
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Testing Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#test-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mock-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mock Patterns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related Documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    User Guide
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h1>
+<p>Comprehensive architecture reference for BigBrotr.</p>
+<hr />
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>BigBrotr uses a <strong>Diamond DAG</strong> architecture. Four tiers with strict top-to-bottom import flow:</p>
+<pre class="mermaid"><code>graph TD
+    S["&lt;b&gt;services&lt;/b&gt;&lt;br/&gt;&lt;small&gt;Business logic&lt;/small&gt;"]
+    C["&lt;b&gt;core&lt;/b&gt;&lt;br/&gt;&lt;small&gt;Pool, Brotr, BaseService&lt;/small&gt;"]
+    N["&lt;b&gt;nips&lt;/b&gt;&lt;br/&gt;&lt;small&gt;NIP-11, NIP-66&lt;/small&gt;"]
+    U["&lt;b&gt;utils&lt;/b&gt;&lt;br/&gt;&lt;small&gt;DNS, Keys, Transport&lt;/small&gt;"]
+    M["&lt;b&gt;models&lt;/b&gt;&lt;br/&gt;&lt;small&gt;Pure dataclasses&lt;/small&gt;"]
+
+    S --&gt; C
+    S --&gt; N
+    S --&gt; U
+    N --&gt; C
+    N --&gt; U
+    C --&gt; M
+    N --&gt; M
+    U --&gt; M</code></pre>
+<table>
+<thead>
+<tr>
+<th>Tier</th>
+<th>Layer</th>
+<th>Purpose</th>
+<th>Changes When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Top</strong></td>
+<td>Services</td>
+<td>Business logic, orchestration</td>
+<td>New features, protocol updates</td>
+</tr>
+<tr>
+<td><strong>Mid</strong></td>
+<td>Core</td>
+<td>Pool, Brotr, BaseService, Logger, Metrics</td>
+<td>Rarely</td>
+</tr>
+<tr>
+<td><strong>Mid</strong></td>
+<td>NIPs</td>
+<td>NIP-11 info fetch/parse, NIP-66 health checks (I/O)</td>
+<td>Protocol spec updates</td>
+</tr>
+<tr>
+<td><strong>Mid</strong></td>
+<td>Utils</td>
+<td>DNS, keys, transport, SOCKS5 proxy</td>
+<td>Cross-cutting needs</td>
+</tr>
+<tr>
+<td><strong>Foundation</strong></td>
+<td>Models</td>
+<td>Frozen dataclasses, validation, DB mapping</td>
+<td>Schema changes</td>
+</tr>
+</tbody>
+</table>
+<p>Deployments (<code>deployments/{bigbrotr,lilbrotr}/</code>) sit outside the package and configure behavior through YAML, SQL schemas, and Docker Compose.</p>
+<hr />
+<h2 id="models-layer">Models Layer<a class="headerlink" href="#models-layer" title="Permanent link">&para;</a></h2>
+<p><code>src/bigbrotr/models/</code> -- Pure frozen dataclasses. Zero I/O, zero <code>bigbrotr</code> imports. Uses only <code>import logging</code> + <code>logging.getLogger()</code>.</p>
+<h3 id="data-models">Data Models<a class="headerlink" href="#data-models" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Relay</code></td>
+<td><code>relay.py</code></td>
+<td>URL validation (rfc3986), network detection (clearnet/tor/i2p/loki/local), local IP rejection</td>
+</tr>
+<tr>
+<td><code>Event</code></td>
+<td><code>event.py</code></td>
+<td>Wraps nostr-sdk Event, extracts hex fields, tag parsing</td>
+</tr>
+<tr>
+<td><code>EventRelay</code></td>
+<td><code>event_relay.py</code></td>
+<td>Event-relay junction with <code>seen_at</code> timestamp</td>
+</tr>
+<tr>
+<td><code>Metadata</code></td>
+<td><code>metadata.py</code></td>
+<td>Content-addressed metadata: SHA-256 hash over canonical JSON</td>
+</tr>
+<tr>
+<td><code>RelayMetadata</code></td>
+<td><code>relay_metadata.py</code></td>
+<td>Relay-metadata junction with <code>metadata_type</code> and <code>generated_at</code></td>
+</tr>
+<tr>
+<td><code>ServiceState</code></td>
+<td><code>service_state.py</code></td>
+<td>Per-service operational state (checkpoints, cursors)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="enumerations">Enumerations<a class="headerlink" href="#enumerations" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>File</th>
+<th>Values</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>NetworkType</code></td>
+<td><code>constants.py</code></td>
+<td><code>clearnet</code>, <code>tor</code>, <code>i2p</code>, <code>loki</code>, <code>local</code>, <code>unknown</code></td>
+</tr>
+<tr>
+<td><code>MetadataType</code></td>
+<td><code>metadata.py</code></td>
+<td><code>nip11_info</code>, <code>nip66_rtt</code>, <code>nip66_ssl</code>, <code>nip66_geo</code>, <code>nip66_net</code>, <code>nip66_dns</code>, <code>nip66_http</code></td>
+</tr>
+<tr>
+<td><code>ServiceStateType</code></td>
+<td><code>service_state.py</code></td>
+<td><code>checkpoint</code>, <code>cursor</code></td>
+</tr>
+<tr>
+<td><code>ServiceName</code></td>
+<td><code>constants.py</code></td>
+<td><code>seeder</code>, <code>finder</code>, <code>validator</code>, <code>monitor</code>, <code>synchronizer</code>, <code>refresher</code>, <code>api</code>, <code>dvm</code></td>
+</tr>
+<tr>
+<td><code>EventKind</code></td>
+<td><code>constants.py</code></td>
+<td><code>SET_METADATA=0</code>, <code>RECOMMEND_RELAY=2</code>, <code>CONTACTS=3</code>, <code>RELAY_LIST=10002</code>, <code>NIP66_TEST=22456</code>, <code>MONITOR_ANNOUNCEMENT=10166</code>, <code>RELAY_DISCOVERY=30166</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="model-patterns">Model Patterns<a class="headerlink" href="#model-patterns" title="Permanent link">&para;</a></h3>
+<p>All models follow the same frozen dataclass pattern:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">slots</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">Relay</span><span class="p">:</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">discovered_at</span><span class="p">:</span> <span class="nb">int</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">_db_params</span><span class="p">:</span> <span class="n">RelayDbParams</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">init</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="nb">repr</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        <span class="c1"># Validate and compute derived fields</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>        <span class="n">parsed</span> <span class="o">=</span> <span class="n">rfc3986</span><span class="o">.</span><span class="n">uri_reference</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">url</span><span class="p">)</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>        <span class="n">network</span> <span class="o">=</span> <span class="n">_detect_network</span><span class="p">(</span><span class="n">parsed</span><span class="o">.</span><span class="n">host</span><span class="p">)</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>        <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;network&quot;</span><span class="p">,</span> <span class="n">network</span><span class="p">)</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>        <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;_db_params&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_compute_db_params</span><span class="p">())</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_compute_db_params</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RelayDbParams</span><span class="p">:</span> <span class="o">...</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">to_db_params</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RelayDbParams</span><span class="p">:</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_db_params</span>  <span class="c1"># cached, no recomputation</span>
+</code></pre></div>
+<p>Key characteristics:</p>
+<ul>
+<li><code>frozen=True</code> + <code>slots=True</code> on all models</li>
+<li><code>_compute_db_params()</code> runs once in <code>__post_init__</code>, cached in <code>_db_params</code></li>
+<li><code>object.__setattr__</code> for setting fields in frozen <code>__post_init__</code></li>
+<li><code>to_db_params()</code> returns a typed NamedTuple matching stored procedure parameter order</li>
+</ul>
+<h3 id="servicestate">ServiceState<a class="headerlink" href="#servicestate" title="Permanent link">&para;</a></h3>
+<p><code>ServiceState</code> follows the same DbParams pattern as other models, with typed <code>ServiceName</code> and <code>ServiceStateType</code> enum fields.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">slots</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">ServiceState</span><span class="p">:</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">service_name</span><span class="p">:</span> <span class="n">ServiceName</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">state_type</span><span class="p">:</span> <span class="n">ServiceStateType</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">state_key</span><span class="p">:</span> <span class="nb">str</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">state_value</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">updated_at</span><span class="p">:</span> <span class="nb">int</span>
+</code></pre></div>
+<hr />
+<h2 id="core-layer">Core Layer<a class="headerlink" href="#core-layer" title="Permanent link">&para;</a></h2>
+<p><code>src/bigbrotr/core/</code> -- Reusable infrastructure with zero business logic. Depends only on models.</p>
+<h3 id="pool-poolpy">Pool (<code>pool.py</code>)<a class="headerlink" href="#pool-poolpy" title="Permanent link">&para;</a></h3>
+<p>Async PostgreSQL connection pool via asyncpg with retry/backoff, health-checked acquisition.</p>
+<p><strong>Configuration:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">PoolConfig</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">database</span><span class="p">:</span> <span class="n">DatabaseConfig</span>       <span class="c1"># host, port, database, user, password_env (per-service overrides)</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">limits</span><span class="p">:</span> <span class="n">LimitsConfig</span>           <span class="c1"># min_size, max_size, max_queries, max_inactive_connection_lifetime</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">timeouts</span><span class="p">:</span> <span class="n">TimeoutsConfig</span>   <span class="c1"># acquisition</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">retry</span><span class="p">:</span> <span class="n">RetryConfig</span>         <span class="c1"># max_attempts, initial_delay, max_delay, exponential_backoff</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="n">server_settings</span><span class="p">:</span> <span class="n">ServerSettingsConfig</span>  <span class="c1"># application_name (auto-set), timezone, statement_timeout</span>
+</code></pre></div>
+<div class="admonition tip">
+<p class="admonition-title">API Reference</p>
+<p>See <a href="../../reference/core/pool/"><code>bigbrotr.core.pool</code></a> for the complete Pool API.</p>
+</div>
+<p><strong>Key methods:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>connect()</code></td>
+<td>Create asyncpg pool with retry backoff</td>
+</tr>
+<tr>
+<td><code>close()</code></td>
+<td>Idempotent pool teardown</td>
+</tr>
+<tr>
+<td><code>acquire()</code></td>
+<td>Get connection from pool</td>
+</tr>
+<tr>
+<td><code>transaction()</code></td>
+<td>Async context manager for ACID transactions</td>
+</tr>
+<tr>
+<td><code>fetch()</code>, <code>fetchrow()</code>, <code>fetchval()</code></td>
+<td>Query methods with automatic retry on transient errors</td>
+</tr>
+<tr>
+<td><code>execute()</code></td>
+<td>Mutation method</td>
+</tr>
+<tr>
+<td><code>metrics</code> (property)</td>
+<td>Pool statistics: size, utilization, is_connected</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Connection pooling flow:</strong></p>
+<pre class="mermaid"><code>sequenceDiagram
+    participant S as Service
+    participant P as Pool
+    participant PGB as PGBouncer
+    participant PG as PostgreSQL
+
+    S-&gt;&gt;P: acquire()
+    P-&gt;&gt;P: get connection from pool
+    P--&gt;&gt;S: connection
+    S-&gt;&gt;P: fetch() / execute()
+    P-&gt;&gt;PGB: SQL query
+    PGB-&gt;&gt;PG: forward
+    alt success
+        PG--&gt;&gt;PGB: result
+        PGB--&gt;&gt;P: result
+        P--&gt;&gt;S: result
+    else transient error
+        PG--&gt;&gt;P: error
+        P-&gt;&gt;P: retry with backoff
+        P-&gt;&gt;PGB: retry query
+        PGB-&gt;&gt;PG: forward
+        PG--&gt;&gt;PGB: result
+        PGB--&gt;&gt;P: result
+        P--&gt;&gt;S: result
+    end</code></pre>
+<p>In Docker deployments, services connect to <strong>PGBouncer</strong> (port 6432/6433) which provides infrastructure-level connection pooling in transaction mode. Pool provides application-level retry, health checking, and query methods.</p>
+<h3 id="brotr-brotrpy">Brotr (<code>brotr.py</code>)<a class="headerlink" href="#brotr-brotrpy" title="Permanent link">&para;</a></h3>
+<p>High-level database facade. Wraps stored procedures via <code>_call_procedure()</code>. Provides generic query methods that services use.</p>
+<div class="admonition tip">
+<p class="admonition-title">API Reference</p>
+<p>See <a href="../../reference/core/brotr/"><code>bigbrotr.core.brotr</code></a> for the complete Brotr API.</p>
+</div>
+<p><strong>Configuration:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">BrotrConfig</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="n">batch</span><span class="p">:</span> <span class="n">BatchConfig</span>              <span class="c1"># max_size (default 1000)</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="n">timeouts</span><span class="p">:</span> <span class="n">TimeoutsConfig</span>   <span class="c1"># query (60s), batch (120s), cleanup (90s), refresh (None)</span>
+</code></pre></div>
+<p><strong>Insert operations</strong> (all accept lists, auto-batch by <code>batch.max_size</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Stored Function Called</th>
+<th>Cascade</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>insert_relay(relays)</code></td>
+<td><code>relay_insert</code></td>
+<td>--</td>
+</tr>
+<tr>
+<td><code>insert_event(events)</code></td>
+<td><code>event_insert</code></td>
+<td>--</td>
+</tr>
+<tr>
+<td><code>insert_metadata(metadata)</code></td>
+<td><code>metadata_insert</code></td>
+<td>--</td>
+</tr>
+<tr>
+<td><code>insert_event_relay(records, cascade=True)</code></td>
+<td><code>event_relay_insert_cascade</code></td>
+<td>Relay + Event + Junction</td>
+</tr>
+<tr>
+<td><code>insert_relay_metadata(records, cascade=True)</code></td>
+<td><code>relay_metadata_insert_cascade</code></td>
+<td>Relay + Metadata + Junction</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Service state:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Stored Function Called</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>upsert_service_state(records)</code></td>
+<td><code>service_state_upsert</code></td>
+</tr>
+<tr>
+<td><code>get_service_state(service, type, key?)</code></td>
+<td><code>service_state_get</code></td>
+</tr>
+<tr>
+<td><code>delete_service_state(keys)</code></td>
+<td><code>service_state_delete</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Cleanup and maintenance:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Stored Function Called</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>delete_orphan_event()</code></td>
+<td><code>orphan_event_delete</code></td>
+</tr>
+<tr>
+<td><code>delete_orphan_metadata()</code></td>
+<td><code>orphan_metadata_delete</code></td>
+</tr>
+<tr>
+<td><code>refresh_materialized_view(name)</code></td>
+<td><code>{name}_refresh</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Generic query facade</strong> (used by services for ad-hoc queries):</p>
+<ul>
+<li><code>fetch(query, *args, timeout)</code> -&gt; <code>list[Record]</code></li>
+<li><code>fetchrow(query, *args, timeout)</code> -&gt; <code>Record | None</code></li>
+<li><code>fetchval(query, *args, timeout)</code> -&gt; <code>Any</code></li>
+<li><code>execute(query, *args, timeout)</code> -&gt; <code>str</code></li>
+<li><code>transaction()</code> -&gt; async context manager yielding a connection</li>
+</ul>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code>Brotr._pool</code> is <strong>private</strong> -- services use Brotr methods, never pool directly.</p>
+</div>
+<h3 id="baseservice-base_servicepy">BaseService (<code>base_service.py</code>)<a class="headerlink" href="#baseservice-base_servicepy" title="Permanent link">&para;</a></h3>
+<p>Abstract base class for all eight services. Generic over configuration type.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">BaseService</span><span class="p">(</span><span class="n">ABC</span><span class="p">,</span> <span class="n">Generic</span><span class="p">[</span><span class="n">ConfigT</span><span class="p">]):</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">SERVICE_NAME</span><span class="p">:</span> <span class="n">ClassVar</span><span class="p">[</span><span class="n">ServiceName</span><span class="p">]</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">CONFIG_CLASS</span><span class="p">:</span> <span class="n">ClassVar</span><span class="p">[</span><span class="nb">type</span><span class="p">[</span><span class="n">BaseModel</span><span class="p">]]</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">_brotr</span><span class="p">:</span> <span class="n">Brotr</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">_config</span><span class="p">:</span> <span class="n">ConfigT</span>
+</code></pre></div>
+<div class="admonition tip">
+<p class="admonition-title">API Reference</p>
+<p>See <a href="../../reference/core/base_service/"><code>bigbrotr.core.base_service</code></a> for the complete BaseService API.</p>
+</div>
+<p><strong>Lifecycle:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>run()</code></td>
+<td>Abstract -- single cycle logic</td>
+</tr>
+<tr>
+<td><code>run_forever()</code></td>
+<td>Loop: <code>run()</code> -&gt; <code>wait(interval)</code> -&gt; repeat. Tracks consecutive failures.</td>
+</tr>
+<tr>
+<td><code>request_shutdown()</code></td>
+<td>Sync-safe flag for signal handlers</td>
+</tr>
+<tr>
+<td><code>wait(timeout)</code> -&gt; <code>bool</code></td>
+<td>Interruptible sleep. Returns <code>True</code> if shutdown was requested.</td>
+</tr>
+<tr>
+<td><code>is_running</code> (property)</td>
+<td><code>True</code> until shutdown requested</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Factory methods:</strong></p>
+<ul>
+<li><code>from_yaml(config_path, brotr, **kwargs)</code> -&gt; configured service instance</li>
+<li><code>from_dict(data, brotr, **kwargs)</code> -&gt; configured service instance</li>
+</ul>
+<p><strong>Metrics integration:</strong></p>
+<ul>
+<li><code>set_gauge(name, value)</code> -- custom Prometheus gauge</li>
+<li><code>inc_counter(name, value=1)</code> -- custom Prometheus counter</li>
+<li>Automatic cycle duration tracking via <code>CYCLE_DURATION_SECONDS</code> histogram</li>
+</ul>
+<p><strong>Context manager</strong> (<code>async with service:</code>) handles lifecycle setup/teardown.</p>
+<p><strong>Graceful shutdown flow:</strong></p>
+<pre class="mermaid"><code>sequenceDiagram
+    participant OS as OS Signal
+    participant H as Signal Handler
+    participant S as Service
+    participant R as run_forever()
+
+    OS-&gt;&gt;H: SIGTERM
+    H-&gt;&gt;S: request_shutdown()
+    S-&gt;&gt;S: set _shutdown_event
+
+    loop Service Loop
+        R-&gt;&gt;S: run() (single cycle)
+        S--&gt;&gt;R: cycle complete
+        R-&gt;&gt;S: wait(interval)
+        S-&gt;&gt;S: check _shutdown_event
+        S--&gt;&gt;R: True (shutdown requested)
+    end
+
+    R-&gt;&gt;S: __aexit__()
+    S-&gt;&gt;S: cleanup resources</code></pre>
+<h3 id="logger-loggerpy">Logger (<code>logger.py</code>)<a class="headerlink" href="#logger-loggerpy" title="Permanent link">&para;</a></h3>
+<p>Structured key=value logging with optional JSON output mode.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">logger</span> <span class="o">=</span> <span class="n">Logger</span><span class="p">(</span><span class="s2">&quot;synchronizer&quot;</span><span class="p">)</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;sync_completed&quot;</span><span class="p">,</span> <span class="n">events</span><span class="o">=</span><span class="mi">1500</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="mf">45.2</span><span class="p">)</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="c1"># Output: 2026-02-09 12:00:00 INFO synchronizer: sync_completed events=1500 duration=45.2</span>
+</code></pre></div>
+<p>JSON mode output for cloud aggregation:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span><span class="nt">&quot;timestamp&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-02-09T12:34:56+00:00&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;info&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;service&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;synchronizer&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sync_completed&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;events&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1500</span><span class="p">}</span>
+</code></pre></div>
+<h3 id="metrics-metricspy">Metrics (<code>metrics.py</code>)<a class="headerlink" href="#metrics-metricspy" title="Permanent link">&para;</a></h3>
+<p>Prometheus metrics served on <code>/metrics</code> (port 8000).</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Type</th>
+<th>Labels</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>service_info</code></td>
+<td>Info</td>
+<td>service</td>
+<td>Static service metadata</td>
+</tr>
+<tr>
+<td><code>service_gauge</code></td>
+<td>Gauge</td>
+<td>service, name</td>
+<td>Point-in-time state (consecutive_failures, progress, last_cycle_timestamp)</td>
+</tr>
+<tr>
+<td><code>service_counter</code></td>
+<td>Counter</td>
+<td>service, name</td>
+<td>Cumulative totals (cycles_success, cycles_failed, errors)</td>
+</tr>
+<tr>
+<td><code>cycle_duration_seconds</code></td>
+<td>Histogram</td>
+<td>service</td>
+<td>Cycle latency, 10 buckets (1s to 1h)</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>For details on alerting and dashboard setup, see <a href="../monitoring/">Monitoring</a>.</p>
+</div>
+<h3 id="yaml-loader-yamlpy">YAML Loader (<code>yaml.py</code>)<a class="headerlink" href="#yaml-loader-yamlpy" title="Permanent link">&para;</a></h3>
+<p>YAML configuration loading with environment variable interpolation.</p>
+<hr />
+<h2 id="nips-layer">NIPs Layer<a class="headerlink" href="#nips-layer" title="Permanent link">&para;</a></h2>
+<p><code>src/bigbrotr/nips/</code> -- NIP-11 and NIP-66 protocol implementations. Has I/O (HTTP, DNS, SSL, WebSocket, GeoIP). Depends on models, utils, core.</p>
+<h3 id="nip-11-nip11">NIP-11 (<code>nip11/</code>)<a class="headerlink" href="#nip-11-nip11" title="Permanent link">&para;</a></h3>
+<p>Relay Information Document (NIP-11) fetch and parse.</p>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fetch.py</code></td>
+<td>HTTP GET to relay URL with <code>Accept: application/nostr+json</code></td>
+</tr>
+<tr>
+<td><code>data.py</code></td>
+<td>Parsed NIP-11 document fields (name, description, pubkey, contact, supported_nips, etc.)</td>
+</tr>
+<tr>
+<td><code>logs.py</code></td>
+<td>Structured logging for NIP-11 operations</td>
+</tr>
+<tr>
+<td><code>nip11.py</code></td>
+<td><code>Nip11</code> orchestrator class</td>
+</tr>
+</tbody>
+</table>
+<h3 id="nip-66-nip66">NIP-66 (<code>nip66/</code>)<a class="headerlink" href="#nip-66-nip66" title="Permanent link">&para;</a></h3>
+<p>Relay Monitoring and Discovery (NIP-66) health check implementations.</p>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>What It Measures</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rtt.py</code></td>
+<td>WebSocket round-trip times: open, read, write latency (ms)</td>
+</tr>
+<tr>
+<td><code>ssl.py</code></td>
+<td>Certificate validity, expiry date, issuer, cipher suite</td>
+</tr>
+<tr>
+<td><code>dns.py</code></td>
+<td>A/AAAA/CNAME/NS/PTR records, query time</td>
+</tr>
+<tr>
+<td><code>geo.py</code></td>
+<td>Country, city, coordinates, timezone, geohash (via GeoLite2)</td>
+</tr>
+<tr>
+<td><code>net.py</code></td>
+<td>IP address, ASN number, ASN organization (via GeoLite2 ASN)</td>
+</tr>
+<tr>
+<td><code>http.py</code></td>
+<td>Server header, X-Powered-By header</td>
+</tr>
+<tr>
+<td><code>nip66.py</code></td>
+<td><code>Nip66</code> orchestrator class</td>
+</tr>
+</tbody>
+</table>
+<p>Each module produces a <code>RelayMetadata</code> object with the corresponding <code>MetadataType</code>. The Monitor service calls these and persists results.</p>
+<p><strong>NIP-66 health check data flow:</strong></p>
+<pre class="mermaid"><code>flowchart LR
+    R["Relay URL"]
+    R --&gt; RTT["rtt.py&lt;br/&gt;&lt;small&gt;WebSocket RTT&lt;/small&gt;"]
+    R --&gt; SSL["ssl.py&lt;br/&gt;&lt;small&gt;Certificate&lt;/small&gt;"]
+    R --&gt; DNS["dns.py&lt;br/&gt;&lt;small&gt;DNS Records&lt;/small&gt;"]
+    R --&gt; GEO["geo.py&lt;br/&gt;&lt;small&gt;GeoIP&lt;/small&gt;"]
+    R --&gt; NET["net.py&lt;br/&gt;&lt;small&gt;ASN/IP&lt;/small&gt;"]
+    R --&gt; HTTP["http.py&lt;br/&gt;&lt;small&gt;HTTP Headers&lt;/small&gt;"]
+
+    RTT --&gt; RM["RelayMetadata"]
+    SSL --&gt; RM
+    DNS --&gt; RM
+    GEO --&gt; RM
+    NET --&gt; RM
+    HTTP --&gt; RM
+</code></pre>
+<hr />
+<h2 id="utils-layer">Utils Layer<a class="headerlink" href="#utils-layer" title="Permanent link">&para;</a></h2>
+<p><code>src/bigbrotr/utils/</code> -- Shared utilities. Depends only on models.</p>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Key Exports</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>transport.py</code></td>
+<td><code>connect_relay()</code>, <code>is_nostr_relay()</code>, <code>create_client()</code>, <code>create_insecure_client()</code></td>
+<td>WebSocket/HTTP transport with SOCKS5 proxy and SSL fallback</td>
+</tr>
+<tr>
+<td><code>keys.py</code></td>
+<td><code>load_keys_from_env()</code>, <code>KeysConfig</code></td>
+<td>Nostr key management (hex/nsec loading from env)</td>
+</tr>
+<tr>
+<td><code>dns.py</code></td>
+<td>DNS resolution utilities</td>
+<td>dnspython wrapper</td>
+</tr>
+</tbody>
+</table>
+<h3 id="transport-ssl-fallback">Transport SSL Fallback<a class="headerlink" href="#transport-ssl-fallback" title="Permanent link">&para;</a></h3>
+<p><code>connect_relay()</code> implements a two-phase connection strategy:</p>
+<pre class="mermaid"><code>flowchart TD
+    A["connect_relay(url)"] --&gt; B{Network type?}
+    B --&gt;|Clearnet| C["Try standard SSL"]
+    B --&gt;|Overlay&lt;br/&gt;Tor/I2P/Loki| G["Require proxy_url"]
+    C --&gt; D{Success?}
+    D --&gt;|Yes| E["Return connection"]
+    D --&gt;|No| F{allow_insecure?}
+    F --&gt;|Yes| H["Try insecure SSL&lt;br/&gt;(skip verification)"]
+    F --&gt;|No| I["Raise SSLError"]
+    H --&gt; J{Success?}
+    J --&gt;|Yes| E
+    J --&gt;|No| I
+    G --&gt; K["Connect via SOCKS5&lt;br/&gt;(no SSL fallback)"]
+    K --&gt; E
+</code></pre>
+<p><code>InsecureWebSocketAdapter</code> and <code>InsecureWebSocketTransport</code> handle relays with invalid certificates.</p>
+<hr />
+<h2 id="service-layer">Service Layer<a class="headerlink" href="#service-layer" title="Permanent link">&para;</a></h2>
+<p><code>src/bigbrotr/services/</code> -- Business logic. Depends on core, nips, utils, models.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>For a detailed walkthrough of each service and data flow, see <a href="../services/">Services</a>.</p>
+</div>
+<h3 id="service-architecture-pattern">Service Architecture Pattern<a class="headerlink" href="#service-architecture-pattern" title="Permanent link">&para;</a></h3>
+<p>All eight services follow the same pattern:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">MyService</span><span class="p">(</span><span class="n">BaseService</span><span class="p">[</span><span class="n">MyServiceConfig</span><span class="p">]):</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    <span class="n">SERVICE_NAME</span> <span class="o">=</span> <span class="s2">&quot;myservice&quot;</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    <span class="n">CONFIG_CLASS</span> <span class="o">=</span> <span class="n">MyServiceConfig</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">brotr</span><span class="p">:</span> <span class="n">Brotr</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">MyServiceConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">brotr</span><span class="o">=</span><span class="n">brotr</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span> <span class="ow">or</span> <span class="n">MyServiceConfig</span><span class="p">())</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Single cycle -- called repeatedly by run_forever().&quot;&quot;&quot;</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>        <span class="o">...</span>
+</code></pre></div>
+<p>Configuration classes inherit from <code>BaseServiceConfig</code> which provides:</p>
+<ul>
+<li><code>interval: float</code> (default 300s, minimum 60s)</li>
+<li><code>max_consecutive_failures: int</code> (default 5, 0=unlimited)</li>
+<li><code>metrics: MetricsConfig</code></li>
+</ul>
+<h3 id="shared-infrastructure-servicescommon">Shared Infrastructure (<code>services/common/</code>)<a class="headerlink" href="#shared-infrastructure-servicescommon" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>queries.py</code></td>
+<td>Batch insert utilities and cross-service state operations</td>
+</tr>
+<tr>
+<td><code>mixins.py</code></td>
+<td><code>ConcurrentStreamMixin</code>, <code>NetworkSemaphoresMixin</code>, <code>GeoReaderMixin</code>, <code>ClientsMixin</code>, <code>CatalogAccessMixin</code> — cooperative-inheritance mixins</td>
+</tr>
+<tr>
+<td><code>catalog.py</code></td>
+<td>Schema-driven <code>Catalog</code> for table discovery (Api, Dvm) and <code>CatalogError</code></td>
+</tr>
+<tr>
+<td><code>configs.py</code></td>
+<td>Per-network and per-table Pydantic config models</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Common Query Utilities</strong> (<code>common/queries.py</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>batched_insert(brotr, records, method)</code></td>
+<td>Split records into chunks of <code>batch.max_size</code>, call method per chunk</td>
+</tr>
+<tr>
+<td><code>upsert_service_states(brotr, records)</code></td>
+<td>Batch-upsert <code>ServiceState</code> via <code>batched_insert</code></td>
+</tr>
+<tr>
+<td><code>insert_relays_as_candidates(brotr, relays)</code></td>
+<td>Filter new URLs (via <code>_filter_new_relays</code>), create CHECKPOINT records</td>
+</tr>
+</tbody>
+</table>
+<p>Each service also has its own <code>queries.py</code> module with domain-specific queries:</p>
+<p><strong>Finder</strong> (<code>finder/queries.py</code> — 7 functions):</p>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fetch_cursors_to_find(brotr)</code></td>
+<td>LEFT JOIN relay with service_state for cursor positions, ordered by (timestamp, id)</td>
+</tr>
+<tr>
+<td><code>scan_event_relay(brotr, cursor, limit)</code></td>
+<td>Cursor-paginated event scan with <code>(seen_at, event_id)</code> tie-breaking</td>
+</tr>
+<tr>
+<td><code>fetch_api_checkpoints(brotr, urls)</code></td>
+<td>Fetch per-source timestamps from CHECKPOINT records</td>
+</tr>
+<tr>
+<td><code>upsert_api_checkpoints(brotr, checkpoints)</code></td>
+<td>Persist per-source timestamps as CHECKPOINT records</td>
+</tr>
+<tr>
+<td><code>save_event_relay_cursor(brotr, cursor)</code></td>
+<td>Persist scan position (no-op if cursor empty)</td>
+</tr>
+<tr>
+<td><code>delete_stale_cursors(brotr)</code></td>
+<td>Remove CURSOR records for deleted relays</td>
+</tr>
+<tr>
+<td><code>delete_stale_api_checkpoints(brotr, active_urls)</code></td>
+<td>Remove CHECKPOINT records for removed API sources</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Validator</strong> (<code>validator/queries.py</code> — 6 functions):</p>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>delete_promoted_candidates(brotr)</code></td>
+<td>Remove candidates already promoted to relay table</td>
+</tr>
+<tr>
+<td><code>delete_exhausted_candidates(brotr, max_failures)</code></td>
+<td>Remove candidates exceeding failure threshold</td>
+</tr>
+<tr>
+<td><code>count_candidates(brotr, networks, attempted_before)</code></td>
+<td>Count pending validation candidates</td>
+</tr>
+<tr>
+<td><code>fetch_candidates(brotr, networks, attempted_before, limit)</code></td>
+<td>Fetch candidates by priority: fewest failures, oldest</td>
+</tr>
+<tr>
+<td><code>promote_candidates(brotr, candidates)</code></td>
+<td>Insert to relay table + delete CHECKPOINT</td>
+</tr>
+<tr>
+<td><code>fail_candidates(brotr, candidates)</code></td>
+<td>Increment failure counter on invalid candidates</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Monitor</strong> (<code>monitor/queries.py</code> — 7 functions):</p>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>delete_stale_checkpoints(brotr, keep_keys)</code></td>
+<td>Remove CHECKPOINTs for deleted relays</td>
+</tr>
+<tr>
+<td><code>count_relays_to_monitor(brotr, monitored_before, networks)</code></td>
+<td>Count relays due for monitoring</td>
+</tr>
+<tr>
+<td><code>fetch_relays_to_monitor(brotr, monitored_before, networks, limit)</code></td>
+<td>Least-recently-monitored relays</td>
+</tr>
+<tr>
+<td><code>insert_relay_metadata(brotr, records)</code></td>
+<td>Batch-insert RelayMetadata (cascade)</td>
+</tr>
+<tr>
+<td><code>upsert_monitor_checkpoints(brotr, relays, now)</code></td>
+<td>Upsert CHECKPOINT with timestamp for checked relays</td>
+</tr>
+<tr>
+<td><code>is_publish_due(brotr, state_key, interval)</code></td>
+<td>Check if publish interval has elapsed</td>
+</tr>
+<tr>
+<td><code>upsert_publish_checkpoints(brotr, state_keys)</code></td>
+<td>Save current time as publish checkpoints</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Synchronizer</strong> (<code>synchronizer/queries.py</code> — 3 functions):</p>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fetch_relays(brotr)</code></td>
+<td>All relays ordered by <code>discovered_at</code></td>
+</tr>
+<tr>
+<td><code>delete_stale_cursors(brotr)</code></td>
+<td>Remove CURSOR state for deleted relays</td>
+</tr>
+<tr>
+<td><code>insert_event_relays(brotr, records)</code></td>
+<td>Batch-insert EventRelay (cascade)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Network Configuration</strong> (<code>configs.py</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Config</th>
+<th>Default Enabled</th>
+<th>Proxy</th>
+<th>Max Tasks</th>
+<th>Timeout</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ClearnetConfig</code></td>
+<td>Yes</td>
+<td>None</td>
+<td>50</td>
+<td>10s</td>
+</tr>
+<tr>
+<td><code>TorConfig</code></td>
+<td>No</td>
+<td><code>socks5://tor:9050</code></td>
+<td>10</td>
+<td>30s</td>
+</tr>
+<tr>
+<td><code>I2pConfig</code></td>
+<td>No</td>
+<td><code>socks5://i2p:4447</code></td>
+<td>5</td>
+<td>45s</td>
+</tr>
+<tr>
+<td><code>LokiConfig</code></td>
+<td>No</td>
+<td><code>socks5://lokinet:1080</code></td>
+<td>5</td>
+<td>30s</td>
+</tr>
+</tbody>
+</table>
+<p><code>NetworksConfig</code> wraps all four and provides <code>get(network)</code>, <code>is_enabled(network)</code>, <code>get_proxy_url(network)</code>, <code>get_enabled_networks()</code>.</p>
+<p><strong>ConcurrentStreamMixin</strong> (<code>mixins.py</code>):</p>
+<p>Provides <code>_iter_concurrent(items, worker)</code> for concurrent item processing with streaming results.
+Internally uses <code>asyncio.TaskGroup</code> to launch one task per item and an <code>asyncio.Queue</code> bridge
+to stream non-None results as workers complete — enabling progressive metric updates.
+Composed by: Finder, Validator, Monitor, Synchronizer.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">async</span> <span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_iter_concurrent</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">worker</span><span class="p">):</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>    <span class="c1"># results arrive as each worker completes</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>    <span class="n">update_metrics</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+</code></pre></div>
+<p><strong>NetworkSemaphores</strong> (<code>mixins.py</code>): creates one <code>asyncio.Semaphore</code> per enabled network, limiting concurrency to <code>max_tasks</code>.</p>
+<p><strong>GeoReaders</strong> (<code>mixins.py</code>): lifecycle manager for GeoIP2 database readers (city + ASN), with <code>open()</code> and <code>close()</code> methods.</p>
+<hr />
+<h2 id="data-flow">Data Flow<a class="headerlink" href="#data-flow" title="Permanent link">&para;</a></h2>
+<h3 id="metadata-deduplication">Metadata Deduplication<a class="headerlink" href="#metadata-deduplication" title="Permanent link">&para;</a></h3>
+<p>Metadata is content-addressed: SHA-256 hash over canonical JSON. When the Monitor produces identical metadata for a relay, only a new <code>relay_metadata</code> row is inserted (linking the relay to the existing <code>metadata</code> record). The cascade function handles this:</p>
+<pre class="mermaid"><code>flowchart TD
+    A["Monitor._check_one(relay)"] --&gt; B["CheckResult&lt;br/&gt;&lt;small&gt;7 metadata types&lt;/small&gt;"]
+    B --&gt; C["insert_relay_metadata&lt;br/&gt;(records, cascade=True)"]
+    C --&gt; D["relay_metadata_insert_cascade"]
+    D --&gt; E["1. INSERT INTO relay&lt;br/&gt;ON CONFLICT DO NOTHING"]
+    D --&gt; F["2. INSERT INTO metadata&lt;br/&gt;ON CONFLICT DO NOTHING&lt;br/&gt;&lt;small&gt;(dedup by hash)&lt;/small&gt;"]
+    D --&gt; G["3. INSERT INTO relay_metadata&lt;br/&gt;&lt;small&gt;(time-series link)&lt;/small&gt;"]
+</code></pre>
+<hr />
+<h2 id="concurrency-model">Concurrency Model<a class="headerlink" href="#concurrency-model" title="Permanent link">&para;</a></h2>
+<h3 id="async-io">Async I/O<a class="headerlink" href="#async-io" title="Permanent link">&para;</a></h3>
+<p>All I/O is async:</p>
+<ul>
+<li><code>asyncpg</code> for database</li>
+<li><code>aiohttp</code> for HTTP</li>
+<li><code>aiohttp-socks</code> for SOCKS5 proxy</li>
+<li><code>nostr-sdk</code> for WebSocket (via Rust FFI/PyO3)</li>
+</ul>
+<h3 id="connection-pooling">Connection Pooling<a class="headerlink" href="#connection-pooling" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>flowchart LR
+    subgraph "Writer Services"
+        F["Finder"]
+        V["Validator"]
+        MO["Monitor"]
+        SY["Synchronizer"]
+        RE["Refresher"]
+    end
+
+    subgraph "Reader Services"
+        API["Api"]
+        DVM["Dvm"]
+    end
+
+    subgraph "Per-Service asyncpg Pool"
+        APW["asyncpg Pool&lt;br/&gt;&lt;small&gt;per-service sizing&lt;/small&gt;"]
+        APR["asyncpg Pool&lt;br/&gt;&lt;small&gt;per-service sizing&lt;/small&gt;"]
+    end
+
+    subgraph PGBouncer
+        PBW["bigbrotr&lt;br/&gt;&lt;small&gt;pool_size=10&lt;/small&gt;"]
+        PBR["bigbrotr_readonly&lt;br/&gt;&lt;small&gt;pool_size=8&lt;/small&gt;"]
+    end
+
+    subgraph PostgreSQL
+        PG["Database&lt;br/&gt;&lt;small&gt;max_connections=200&lt;/small&gt;"]
+    end
+
+    F --&gt; APW
+    V --&gt; APW
+    MO --&gt; APW
+    SY --&gt; APW
+    RE --&gt; APW
+    API --&gt; APR
+    DVM --&gt; APR
+    APW --&gt; PBW
+    APR --&gt; PBR
+    PBW --&gt; PG
+    PBR --&gt; PG
+</code></pre>
+<p>Each service has its own asyncpg pool with per-service sizing (via pool overrides in service config). PGBouncer provides two database pools: <strong>bigbrotr</strong> (pool_size=10) for writer services (including Refresher, which uses its own DB role with materialized view ownership), and <strong>bigbrotr_readonly</strong> (pool_size=8) for read-only consumers (Api, Dvm, postgres-exporter).</p>
+<h3 id="per-network-semaphores">Per-Network Semaphores<a class="headerlink" href="#per-network-semaphores" title="Permanent link">&para;</a></h3>
+<p>Services that contact relays (Validator, Monitor, Synchronizer) use <code>NetworkSemaphoreMixin</code> to limit concurrent connections per network type:</p>
+<table>
+<thead>
+<tr>
+<th>Network</th>
+<th>Default Max Tasks</th>
+<th>Default Timeout</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Clearnet</td>
+<td>50</td>
+<td>10s</td>
+</tr>
+<tr>
+<td>Tor</td>
+<td>10</td>
+<td>30s</td>
+</tr>
+<tr>
+<td>I2P</td>
+<td>5</td>
+<td>45s</td>
+</tr>
+<tr>
+<td>Lokinet</td>
+<td>5</td>
+<td>30s</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="design-patterns">Design Patterns<a class="headerlink" href="#design-patterns" title="Permanent link">&para;</a></h2>
+<h3 id="dependency-injection">Dependency Injection<a class="headerlink" href="#dependency-injection" title="Permanent link">&para;</a></h3>
+<p>Services receive <code>Brotr</code> via constructor, enabling mock injection for testing:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">service</span> <span class="o">=</span> <span class="n">Monitor</span><span class="p">(</span><span class="n">brotr</span><span class="o">=</span><span class="n">brotr</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="c1"># Testing</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="n">mock_brotr</span> <span class="o">=</span> <span class="n">MagicMock</span><span class="p">(</span><span class="n">spec</span><span class="o">=</span><span class="n">Brotr</span><span class="p">)</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="n">service</span> <span class="o">=</span> <span class="n">Monitor</span><span class="p">(</span><span class="n">brotr</span><span class="o">=</span><span class="n">mock_brotr</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="composition-over-inheritance">Composition over Inheritance<a class="headerlink" href="#composition-over-inheritance" title="Permanent link">&para;</a></h3>
+<p><code>Brotr</code> HAS-A <code>Pool</code> (not IS-A). Services HAS-A <code>Brotr</code>. This enables independent testing and lifecycle management.</p>
+<h3 id="template-method">Template Method<a class="headerlink" href="#template-method" title="Permanent link">&para;</a></h3>
+<p><code>BaseService.run_forever()</code> calls the abstract <code>run()</code> method in a loop with interval, failure tracking, and shutdown checks. Subclasses implement only <code>run()</code>.</p>
+<h3 id="mixins-for-cross-cutting-concerns">Mixins for Cross-Cutting Concerns<a class="headerlink" href="#mixins-for-cross-cutting-concerns" title="Permanent link">&para;</a></h3>
+<p>Services use mixins from <code>services/common/mixins.py</code> to compose shared behavior:</p>
+<ul>
+<li><code>ConcurrentStreamMixin</code> -- concurrent item processing with streaming results (Finder, Validator, Monitor, Synchronizer)</li>
+<li><code>NetworkSemaphoresMixin</code> -- per-network concurrency (Validator, Monitor, Synchronizer)</li>
+<li><code>GeoReaderMixin</code> -- GeoIP database lifecycle (Monitor)</li>
+<li><code>ClientsMixin</code> -- managed pool of Nostr clients for event broadcasting (Monitor)</li>
+<li><code>CatalogAccessMixin</code> -- schema-driven table catalog (Api, Dvm)</li>
+</ul>
+<h3 id="content-addressed-deduplication">Content-Addressed Deduplication<a class="headerlink" href="#content-addressed-deduplication" title="Permanent link">&para;</a></h3>
+<p>Metadata uses SHA-256 hash as primary key. Identical NIP-11/NIP-66 results across time or relays produce the same hash, deduplicating storage. Time-series tracking is via the <code>relay_metadata</code> junction table.</p>
+<h3 id="factory-methods">Factory Methods<a class="headerlink" href="#factory-methods" title="Permanent link">&para;</a></h3>
+<p>All services support three construction paths:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">service</span> <span class="o">=</span> <span class="n">Monitor</span><span class="o">.</span><span class="n">from_yaml</span><span class="p">(</span><span class="s2">&quot;config.yaml&quot;</span><span class="p">,</span> <span class="n">brotr</span><span class="o">=</span><span class="n">brotr</span><span class="p">)</span>     <span class="c1"># from YAML file</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">service</span> <span class="o">=</span> <span class="n">Monitor</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="n">config_dict</span><span class="p">,</span> <span class="n">brotr</span><span class="o">=</span><span class="n">brotr</span><span class="p">)</span>        <span class="c1"># from dict</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">service</span> <span class="o">=</span> <span class="n">Monitor</span><span class="p">(</span><span class="n">brotr</span><span class="o">=</span><span class="n">brotr</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">MonitorConfig</span><span class="p">(</span><span class="o">...</span><span class="p">))</span>     <span class="c1"># direct</span>
+</code></pre></div>
+<h3 id="context-managers">Context Managers<a class="headerlink" href="#context-managers" title="Permanent link">&para;</a></h3>
+<p>Resources are automatically managed:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">brotr</span><span class="p">:</span>           <span class="c1"># connect pool on enter, close on exit</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">service</span><span class="p">:</span>     <span class="c1"># lifecycle setup/teardown</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>        <span class="k">await</span> <span class="n">service</span><span class="o">.</span><span class="n">run_forever</span><span class="p">()</span>
+</code></pre></div>
+<hr />
+<h2 id="configuration-system">Configuration System<a class="headerlink" href="#configuration-system" title="Permanent link">&para;</a></h2>
+<h3 id="configuration-hierarchy">Configuration Hierarchy<a class="headerlink" href="#configuration-hierarchy" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>flowchart TD
+    A["deployments/bigbrotr/config/"]
+    A --&gt; B["brotr.yaml&lt;br/&gt;&lt;small&gt;Pool, batch, timeouts&lt;/small&gt;"]
+    A --&gt; C["services/"]
+    C --&gt; D["seeder.yaml"]
+    C --&gt; E["finder.yaml"]
+    C --&gt; F["validator.yaml"]
+    C --&gt; G["monitor.yaml"]
+    C --&gt; H["synchronizer.yaml"]
+    C --&gt; I["refresher.yaml"]
+    C --&gt; J["api.yaml"]
+    C --&gt; K["dvm.yaml"]
+</code></pre>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>For the complete configuration reference with all fields, defaults, and examples, see <a href="../configuration/">Configuration</a>.</p>
+</div>
+<h3 id="pydantic-validation">Pydantic Validation<a class="headerlink" href="#pydantic-validation" title="Permanent link">&para;</a></h3>
+<p>All configuration uses Pydantic v2 models with:</p>
+<ul>
+<li>Typed fields with defaults and constraints (<code>Field(ge=1, le=65535)</code>)</li>
+<li>Nested models (e.g., <code>MonitorConfig.networks.clearnet.timeout</code>)</li>
+<li><code>model_validator</code> for cross-field validation (e.g., Monitor keys at config load time)</li>
+<li>Environment variable injection for secrets (<code>DB_WRITER_PASSWORD</code>, <code>DB_READER_PASSWORD</code>, <code>DB_REFRESHER_PASSWORD</code>, <code>NOSTR_PRIVATE_KEY</code>)</li>
+</ul>
+<h3 id="environment-variables">Environment Variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Required</th>
+<th>Used By</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DB_ADMIN_PASSWORD</code></td>
+<td>Yes</td>
+<td>PostgreSQL admin, PGBouncer auth</td>
+</tr>
+<tr>
+<td><code>DB_WRITER_PASSWORD</code></td>
+<td>Yes</td>
+<td>Writer services (via per-service pool overrides)</td>
+</tr>
+<tr>
+<td><code>DB_REFRESHER_PASSWORD</code></td>
+<td>Yes</td>
+<td>Refresher (matview ownership for REFRESH CONCURRENTLY)</td>
+</tr>
+<tr>
+<td><code>DB_READER_PASSWORD</code></td>
+<td>Yes</td>
+<td>Read-only services (postgres-exporter, Api, Dvm)</td>
+</tr>
+<tr>
+<td><code>NOSTR_PRIVATE_KEY</code></td>
+<td>For Monitor</td>
+<td>Monitor (Nostr event signing, RTT write tests)</td>
+</tr>
+<tr>
+<td><code>GRAFANA_PASSWORD</code></td>
+<td>No</td>
+<td>Grafana (admin password)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="testing-architecture">Testing Architecture<a class="headerlink" href="#testing-architecture" title="Permanent link">&para;</a></h2>
+<h3 id="test-structure">Test Structure<a class="headerlink" href="#test-structure" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>tests/
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>├── conftest.py                  # Root: mock_pool, mock_brotr, mock_connection, sample_*
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>├── fixtures/
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>│   └── relays.py                # Shared relay fixtures (registered as pytest plugin)
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>├── unit/                        # ~2500 tests, mirrors src/ structure
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>│   ├── core/                    # test_pool.py, test_brotr.py, test_base_service.py, ...
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>│   ├── models/                  # test_relay.py, test_event.py, test_metadata.py, ...
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>│   ├── nips/                    # nip11/, nip66/
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>│   ├── services/                # test_monitor.py, test_synchronizer.py, ...
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>│   └── utils/                   # test_transport.py, test_keys.py, ...
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a>└── integration/                 # ~95 tests (testcontainers PostgreSQL)
+</code></pre></div>
+<h3 id="test-configuration">Test Configuration<a class="headerlink" href="#test-configuration" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>asyncio_mode = "auto"</code> -- no <code>@pytest.mark.asyncio</code> needed</li>
+<li>Global timeout: <code>--timeout=120</code> per test</li>
+<li>Coverage threshold: <code>fail_under = 80</code> (branch coverage enabled)</li>
+<li>Fixtures registered via <code>pytest_plugins = ["tests.fixtures.relays"]</code></li>
+<li>Custom markers: <code>integration</code>, <code>unit</code>, <code>slow</code></li>
+</ul>
+<h3 id="mock-patterns">Mock Patterns<a class="headerlink" href="#mock-patterns" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Mock targets use <code>bigbrotr.</code> prefix: <code>@patch("bigbrotr.services.validator.is_nostr_relay")</code></li>
+<li>Service tests mock query functions at the <strong>service module namespace</strong> (not <code>bigbrotr.core.queries.*</code>)</li>
+<li>Root conftest provides: <code>mock_pool</code>, <code>mock_brotr</code>, <code>mock_connection</code>, <code>mock_asyncpg_pool</code>, <code>sample_event</code>, <code>sample_relay</code>, <code>sample_metadata</code>, <code>sample_events_batch</code>, <code>sample_relays_batch</code></li>
+</ul>
+<hr />
+<h2 id="related-documentation">Related Documentation<a class="headerlink" href="#related-documentation" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../services/">Services</a> -- Deep dive into the eight independent services and data flow</li>
+<li><a href="../configuration/">Configuration</a> -- Complete YAML configuration reference</li>
+<li><a href="../database/">Database</a> -- PostgreSQL schema, stored functions, and indexes</li>
+<li><a href="../monitoring/">Monitoring</a> -- Prometheus metrics, alerting, and Grafana dashboards</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../" class="md-footer__link md-footer__link--prev" aria-label="Previous: User Guide">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                User Guide
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../services/" class="md-footer__link md-footer__link--next" aria-label="Next: Services">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Services
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; BigBrotr Contributors
+    </div>
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/BigBrotr/bigbrotr" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.code.annotate", "content.tabs.link", "content.tooltips", "navigation.instant", "navigation.instant.progress", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "navigation.tabs", "navigation.tabs.sticky", "navigation.path", "navigation.footer", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
