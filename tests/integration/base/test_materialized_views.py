@@ -708,7 +708,10 @@ class TestNip85PubkeyStats:
         ers = [
             _event_relay("b0" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey),
             _event_relay(
-                "b1" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey,
+                "b1" * 32,
+                "wss://n85.example.com",
+                kind=1,
+                pubkey=pubkey,
                 tags=[["e", "aa" * 32]],
             ),
         ]
@@ -728,7 +731,10 @@ class TestNip85PubkeyStats:
         target = "c3" * 32
         ers = [
             _event_relay(
-                "b2" * 32, "wss://n85.example.com", kind=7, pubkey=author,
+                "b2" * 32,
+                "wss://n85.example.com",
+                kind=7,
+                pubkey=author,
                 tags=[["p", target]],
             ),
         ]
@@ -736,13 +742,15 @@ class TestNip85PubkeyStats:
         await _refresh_nip85(brotr)
 
         author_row = await brotr.fetchrow(
-            "SELECT reaction_count_sent FROM nip85_pubkey_stats WHERE pubkey = $1", author,
+            "SELECT reaction_count_sent FROM nip85_pubkey_stats WHERE pubkey = $1",
+            author,
         )
         assert author_row is not None
         assert author_row["reaction_count_sent"] == 1
 
         target_row = await brotr.fetchrow(
-            "SELECT reaction_count_recd FROM nip85_pubkey_stats WHERE pubkey = $1", target,
+            "SELECT reaction_count_recd FROM nip85_pubkey_stats WHERE pubkey = $1",
+            target,
         )
         assert target_row is not None
         assert target_row["reaction_count_recd"] == 1
@@ -752,7 +760,10 @@ class TestNip85PubkeyStats:
         reported = "c5" * 32
         ers = [
             _event_relay(
-                "b3" * 32, "wss://n85.example.com", kind=1984, pubkey=reporter,
+                "b3" * 32,
+                "wss://n85.example.com",
+                kind=1984,
+                pubkey=reporter,
                 tags=[["p", reported]],
             ),
         ]
@@ -760,13 +771,15 @@ class TestNip85PubkeyStats:
         await _refresh_nip85(brotr)
 
         row_sent = await brotr.fetchrow(
-            "SELECT report_count_sent FROM nip85_pubkey_stats WHERE pubkey = $1", reporter,
+            "SELECT report_count_sent FROM nip85_pubkey_stats WHERE pubkey = $1",
+            reporter,
         )
         assert row_sent is not None
         assert row_sent["report_count_sent"] == 1
 
         row_recd = await brotr.fetchrow(
-            "SELECT report_count_recd FROM nip85_pubkey_stats WHERE pubkey = $1", reported,
+            "SELECT report_count_recd FROM nip85_pubkey_stats WHERE pubkey = $1",
+            reported,
         )
         assert row_recd is not None
         assert row_recd["report_count_recd"] == 1
@@ -778,10 +791,16 @@ class TestNip85PubkeyStats:
         # First create the original event so the lookup works
         ers = [
             _event_relay(
-                original_event_id, "wss://n85.example.com", kind=1, pubkey=original_author,
+                original_event_id,
+                "wss://n85.example.com",
+                kind=1,
+                pubkey=original_author,
             ),
             _event_relay(
-                "b5" * 32, "wss://n85.example.com", kind=6, pubkey=reposter,
+                "b5" * 32,
+                "wss://n85.example.com",
+                kind=6,
+                pubkey=reposter,
                 tags=[["e", original_event_id]],
             ),
         ]
@@ -789,7 +808,8 @@ class TestNip85PubkeyStats:
         await _refresh_nip85(brotr)
 
         sent_row = await brotr.fetchrow(
-            "SELECT repost_count_sent FROM nip85_pubkey_stats WHERE pubkey = $1", reposter,
+            "SELECT repost_count_sent FROM nip85_pubkey_stats WHERE pubkey = $1",
+            reposter,
         )
         assert sent_row is not None
         assert sent_row["repost_count_sent"] == 1
@@ -805,27 +825,37 @@ class TestNip85PubkeyStats:
         pubkey = "c8" * 32
         # created_at at 14:00 UTC (14 * 3600 = 50400 seconds into day)
         created_at = 1700000000 - (1700000000 % 86400) + 50400
-        er = _event_relay("b6" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey,
-                          created_at=created_at)
+        er = _event_relay(
+            "b6" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey, created_at=created_at
+        )
         await brotr.insert_event_relay([er], cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
-            "SELECT activity_hours FROM nip85_pubkey_stats WHERE pubkey = $1", pubkey,
+            "SELECT activity_hours FROM nip85_pubkey_stats WHERE pubkey = $1",
+            pubkey,
         )
         assert row is not None
         hours = row["activity_hours"]
-        assert hours[14] == 1  # 0-indexed, hour 14 (PostgreSQL arrays are 1-indexed in SQL but 0-indexed in Python asyncpg)
+        assert (
+            hours[14] == 1
+        )  # 0-indexed, hour 14 (PostgreSQL arrays are 1-indexed in SQL but 0-indexed in Python asyncpg)
 
     async def test_topic_counts(self, brotr: Brotr) -> None:
         pubkey = "c9" * 32
         ers = [
             _event_relay(
-                "b7" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey,
+                "b7" * 32,
+                "wss://n85.example.com",
+                kind=1,
+                pubkey=pubkey,
                 tags=[["t", "bitcoin"]],
             ),
             _event_relay(
-                "b8" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey,
+                "b8" * 32,
+                "wss://n85.example.com",
+                kind=1,
+                pubkey=pubkey,
                 tags=[["t", "bitcoin"], ["t", "nostr"]],
             ),
         ]
@@ -833,7 +863,8 @@ class TestNip85PubkeyStats:
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
-            "SELECT topic_counts FROM nip85_pubkey_stats WHERE pubkey = $1", pubkey,
+            "SELECT topic_counts FROM nip85_pubkey_stats WHERE pubkey = $1",
+            pubkey,
         )
         assert row is not None
         topics = row["topic_counts"]
@@ -842,18 +873,17 @@ class TestNip85PubkeyStats:
 
     async def test_incremental_accumulation(self, brotr: Brotr) -> None:
         pubkey = "d0" * 32
-        er1 = _event_relay("b9" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey,
-                           seen_at=100)
+        er1 = _event_relay("b9" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey, seen_at=100)
         await brotr.insert_event_relay([er1], cascade=True)
         await _refresh_nip85(brotr, after=0, until=200)
 
-        er2 = _event_relay("ba" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey,
-                           seen_at=300)
+        er2 = _event_relay("ba" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey, seen_at=300)
         await brotr.insert_event_relay([er2], cascade=True)
         await _refresh_nip85(brotr, after=200, until=400)
 
         row = await brotr.fetchrow(
-            "SELECT post_count FROM nip85_pubkey_stats WHERE pubkey = $1", pubkey,
+            "SELECT post_count FROM nip85_pubkey_stats WHERE pubkey = $1",
+            pubkey,
         )
         assert row is not None
         assert row["post_count"] == 2
@@ -869,7 +899,8 @@ class TestNip85PubkeyStats:
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
-            "SELECT post_count FROM nip85_pubkey_stats WHERE pubkey = $1", pubkey,
+            "SELECT post_count FROM nip85_pubkey_stats WHERE pubkey = $1",
+            pubkey,
         )
         assert row is not None
         assert row["post_count"] == 1
@@ -880,11 +911,17 @@ class TestNip85EventStats:
         target_event = "e0" * 32
         target_author = "d2" * 32
         # Create the target event
-        er_target = _event_relay(target_event, "wss://n85e.example.com", kind=1,
-                                 pubkey=target_author)
+        er_target = _event_relay(
+            target_event, "wss://n85e.example.com", kind=1, pubkey=target_author
+        )
         # Create a comment on it
-        er_comment = _event_relay("e1" * 32, "wss://n85e.example.com", kind=1,
-                                  pubkey="d3" * 32, tags=[["e", target_event]])
+        er_comment = _event_relay(
+            "e1" * 32,
+            "wss://n85e.example.com",
+            kind=1,
+            pubkey="d3" * 32,
+            tags=[["e", target_event]],
+        )
         await brotr.insert_event_relay([er_target, er_comment], cascade=True)
         await _refresh_nip85(brotr)
 
@@ -898,10 +935,14 @@ class TestNip85EventStats:
 
     async def test_reaction_count(self, brotr: Brotr) -> None:
         target_event = "e2" * 32
-        er_target = _event_relay(target_event, "wss://n85e.example.com", kind=1,
-                                 pubkey="d4" * 32)
-        er_reaction = _event_relay("e3" * 32, "wss://n85e.example.com", kind=7,
-                                   pubkey="d5" * 32, tags=[["e", target_event]])
+        er_target = _event_relay(target_event, "wss://n85e.example.com", kind=1, pubkey="d4" * 32)
+        er_reaction = _event_relay(
+            "e3" * 32,
+            "wss://n85e.example.com",
+            kind=7,
+            pubkey="d5" * 32,
+            tags=[["e", target_event]],
+        )
         await brotr.insert_event_relay([er_target, er_reaction], cascade=True)
         await _refresh_nip85(brotr)
 
@@ -914,10 +955,14 @@ class TestNip85EventStats:
 
     async def test_repost_count(self, brotr: Brotr) -> None:
         target_event = "e4" * 32
-        er_target = _event_relay(target_event, "wss://n85e.example.com", kind=1,
-                                 pubkey="d6" * 32)
-        er_repost = _event_relay("e5" * 32, "wss://n85e.example.com", kind=6,
-                                 pubkey="d7" * 32, tags=[["e", target_event]])
+        er_target = _event_relay(target_event, "wss://n85e.example.com", kind=1, pubkey="d6" * 32)
+        er_repost = _event_relay(
+            "e5" * 32,
+            "wss://n85e.example.com",
+            kind=6,
+            pubkey="d7" * 32,
+            tags=[["e", target_event]],
+        )
         await brotr.insert_event_relay([er_target, er_repost], cascade=True)
         await _refresh_nip85(brotr)
 
@@ -930,10 +975,14 @@ class TestNip85EventStats:
 
     async def test_quote_count(self, brotr: Brotr) -> None:
         target_event = "e6" * 32
-        er_target = _event_relay(target_event, "wss://n85e.example.com", kind=1,
-                                 pubkey="d8" * 32)
-        er_quote = _event_relay("e7" * 32, "wss://n85e.example.com", kind=1,
-                                pubkey="d9" * 32, tags=[["q", target_event]])
+        er_target = _event_relay(target_event, "wss://n85e.example.com", kind=1, pubkey="d8" * 32)
+        er_quote = _event_relay(
+            "e7" * 32,
+            "wss://n85e.example.com",
+            kind=1,
+            pubkey="d9" * 32,
+            tags=[["q", target_event]],
+        )
         await brotr.insert_event_relay([er_target, er_quote], cascade=True)
         await _refresh_nip85(brotr)
 
@@ -946,15 +995,28 @@ class TestNip85EventStats:
 
     async def test_incremental_accumulation(self, brotr: Brotr) -> None:
         target_event = "e8" * 32
-        er_target = _event_relay(target_event, "wss://n85e.example.com", kind=1,
-                                 pubkey="da" * 32, seen_at=100)
-        er_react1 = _event_relay("e9" * 32, "wss://n85e.example.com", kind=7,
-                                 pubkey="db" * 32, tags=[["e", target_event]], seen_at=100)
+        er_target = _event_relay(
+            target_event, "wss://n85e.example.com", kind=1, pubkey="da" * 32, seen_at=100
+        )
+        er_react1 = _event_relay(
+            "e9" * 32,
+            "wss://n85e.example.com",
+            kind=7,
+            pubkey="db" * 32,
+            tags=[["e", target_event]],
+            seen_at=100,
+        )
         await brotr.insert_event_relay([er_target, er_react1], cascade=True)
         await _refresh_nip85(brotr, after=0, until=200)
 
-        er_react2 = _event_relay("ea" * 32, "wss://n85e.example.com", kind=7,
-                                 pubkey="dc" * 32, tags=[["e", target_event]], seen_at=300)
+        er_react2 = _event_relay(
+            "ea" * 32,
+            "wss://n85e.example.com",
+            kind=7,
+            pubkey="dc" * 32,
+            tags=[["e", target_event]],
+            seen_at=300,
+        )
         await brotr.insert_event_relay([er_react2], cascade=True)
         await _refresh_nip85(brotr, after=200, until=400)
 
@@ -974,11 +1036,17 @@ class TestNip85FollowerCount:
         # Create kind=3 contact lists that follow 'followed'
         ers = [
             _event_relay(
-                "fc" * 32, "wss://n85f.example.com", kind=3, pubkey=follower1,
+                "fc" * 32,
+                "wss://n85f.example.com",
+                kind=3,
+                pubkey=follower1,
                 tags=[["p", followed]],
             ),
             _event_relay(
-                "fd" * 32, "wss://n85f.example.com", kind=3, pubkey=follower2,
+                "fd" * 32,
+                "wss://n85f.example.com",
+                kind=3,
+                pubkey=follower2,
                 tags=[["p", followed]],
             ),
             # The followed pubkey needs at least one event for nip85 row to exist
@@ -1003,7 +1071,10 @@ class TestNip85FollowerCount:
         friend2 = "f5" * 32
         ers = [
             _event_relay(
-                "ff" * 32, "wss://n85f.example.com", kind=3, pubkey=user,
+                "ff" * 32,
+                "wss://n85f.example.com",
+                kind=3,
+                pubkey=user,
                 tags=[["p", friend1], ["p", friend2]],
             ),
             # User needs an event for the nip85 row
@@ -1015,7 +1086,8 @@ class TestNip85FollowerCount:
         await brotr.execute("SELECT nip85_follower_count_refresh()")
 
         row = await brotr.fetchrow(
-            "SELECT following_count FROM nip85_pubkey_stats WHERE pubkey = $1", user,
+            "SELECT following_count FROM nip85_pubkey_stats WHERE pubkey = $1",
+            user,
         )
         assert row is not None
         assert row["following_count"] == 2
