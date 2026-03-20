@@ -27,6 +27,7 @@ from bigbrotr.core.logger import Logger, StructuredFormatter
 from bigbrotr.core.yaml import load_yaml
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.api import Api
+from bigbrotr.services.assertor import Assertor
 from bigbrotr.services.dvm import Dvm
 from bigbrotr.services.finder import Finder
 from bigbrotr.services.monitor import Monitor
@@ -58,6 +59,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
     ),
     ServiceName.API: ServiceEntry(Api, CONFIG_BASE / "services" / "api.yaml"),
     ServiceName.DVM: ServiceEntry(Dvm, CONFIG_BASE / "services" / "dvm.yaml"),
+    ServiceName.ASSERTOR: ServiceEntry(Assertor, CONFIG_BASE / "services" / "assertor.yaml"),
 }
 
 logger = Logger("cli")

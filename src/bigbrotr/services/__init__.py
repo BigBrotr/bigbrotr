@@ -1,4 +1,4 @@
-"""Eight independent services plus shared utilities.
+"""Nine independent services plus shared utilities.
 
 Services are the top layer of the diamond DAG, depending on
 [bigbrotr.core][bigbrotr.core], [bigbrotr.nips][bigbrotr.nips],
@@ -23,6 +23,8 @@ Attributes:
         auto-generated paginated endpoints.
     Dvm: NIP-90 Data Vending Machine exposing database queries via
         the Nostr protocol with per-table pricing.
+    Assertor: NIP-85 Trusted Assertions publisher. Reads engagement
+        metrics from summary tables and publishes kind 30382/30383 events.
 
 Note:
     All services follow the same lifecycle pattern: instantiate with a
@@ -53,6 +55,10 @@ Examples:
 from .api import (
     Api,
     ApiConfig,
+)
+from .assertor import (
+    Assertor,
+    AssertorConfig,
 )
 from .dvm import (
     Dvm,
@@ -87,6 +93,8 @@ from .validator import (
 __all__ = [
     "Api",
     "ApiConfig",
+    "Assertor",
+    "AssertorConfig",
     "Dvm",
     "DvmConfig",
     "Finder",
