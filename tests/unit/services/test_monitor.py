@@ -452,7 +452,7 @@ class TestDiscoveryConfig:
         config = DiscoveryConfig()
 
         assert config.enabled is True
-        assert config.interval == 3600
+        assert config.interval == 14_400
         assert config.include.nip11_info is True
         assert config.relays is None
 
