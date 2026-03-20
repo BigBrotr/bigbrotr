@@ -65,7 +65,7 @@ class NetworkType(StrEnum):
 class ServiceName(StrEnum):
     """Canonical service identifiers used in logging, metrics, and persistence.
 
-    Each member corresponds to one of the eight services. The string
+    Each member corresponds to one of the nine services. The string
     values are used as the ``service_name`` column in the ``service_state``
     table and as the ``service`` label in Prometheus metrics.
 
@@ -86,6 +86,8 @@ class ServiceName(StrEnum):
             ([Api][bigbrotr.services.api.Api]).
         DVM: NIP-90 Data Vending Machine service
             ([Dvm][bigbrotr.services.dvm.Dvm]).
+        ASSERTOR: NIP-85 Trusted Assertions publisher
+            ([Assertor][bigbrotr.services.assertor.Assertor]).
 
     See Also:
         [BaseService][bigbrotr.core.base_service.BaseService]: Abstract
@@ -102,6 +104,7 @@ class ServiceName(StrEnum):
     REFRESHER = "refresher"
     API = "api"
     DVM = "dvm"
+    ASSERTOR = "assertor"
 
 
 class EventKind(IntEnum):
@@ -122,6 +125,12 @@ class EventKind(IntEnum):
         RELAY_DISCOVERY: Kind 30166 -- NIP-66 relay discovery event
             (parameterized replaceable, published by the
             [Monitor][bigbrotr.services.monitor.Monitor] service).
+        NIP85_USER_ASSERTION: Kind 30382 -- NIP-85 user trusted assertion
+            (addressable, published by the
+            [Assertor][bigbrotr.services.assertor.Assertor] service).
+        NIP85_EVENT_ASSERTION: Kind 30383 -- NIP-85 event trusted assertion.
+        NIP85_ADDRESSABLE_ASSERTION: Kind 30384 -- NIP-85 addressable event assertion.
+        NIP85_IDENTIFIER_ASSERTION: Kind 30385 -- NIP-85 NIP-73 identifier assertion.
 
     See Also:
         [Event][bigbrotr.models.event.Event]: The event wrapper that carries
@@ -136,6 +145,10 @@ class EventKind(IntEnum):
     NIP66_TEST = 22_456
     MONITOR_ANNOUNCEMENT = 10_166
     RELAY_DISCOVERY = 30_166
+    NIP85_USER_ASSERTION = 30_382
+    NIP85_EVENT_ASSERTION = 30_383
+    NIP85_ADDRESSABLE_ASSERTION = 30_384
+    NIP85_IDENTIFIER_ASSERTION = 30_385
 
 
 EVENT_KIND_MAX = 65_535
