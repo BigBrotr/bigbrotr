@@ -23,7 +23,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from ipaddress import IPv4Network, IPv6Network, ip_address, ip_network
 from time import time
-from typing import Any, ClassVar, NamedTuple
+from typing import Any, NamedTuple
+from urllib.parse import unquote
 
 from rfc3986 import uri_reference
 from rfc3986.exceptions import UnpermittedComponentError, ValidationError
@@ -31,6 +32,103 @@ from rfc3986.validators import Validator
 
 from ._validation import validate_str_no_null, validate_timestamp
 from .constants import NetworkType
+
+
+# RFC 3986 unreserved characters plus ":" (allowed in pchar).
+# Used to validate individual path segments after percent-decoding and splitting on "/".
+_PATH_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~:")
+
+# Characters that may appear at the start or end of a path segment.
+# Non-alphanumeric unreserved chars (-, ., _, ~) and ":" are only valid mid-segment.
+_PATH_BOUNDARY_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+
+_PORT_WS = 80
+_PORT_WSS = 443
+_MAX_URL_LENGTH = 2048
+
+_NETWORK_TLDS: dict[str, NetworkType] = {
+    ".onion": NetworkType.TOR,
+    ".i2p": NetworkType.I2P,
+    ".loki": NetworkType.LOKI,
+}
+
+# IANA private/reserved IP ranges used to reject local addresses.
+# References:
+#   https://www.iana.org/assignments/iana-ipv4-special-registry/
+#   https://www.iana.org/assignments/iana-ipv6-special-registry/
+_LOCAL_NETWORKS: list[IPv4Network | IPv6Network] = [
+    ip_network("0.0.0.0/8"),
+    ip_network("10.0.0.0/8"),
+    ip_network("100.64.0.0/10"),
+    ip_network("127.0.0.0/8"),
+    ip_network("169.254.0.0/16"),
+    ip_network("172.16.0.0/12"),
+    ip_network("192.0.0.0/24"),
+    ip_network("192.0.2.0/24"),
+    ip_network("192.88.99.0/24"),
+    ip_network("192.168.0.0/16"),
+    ip_network("198.18.0.0/15"),
+    ip_network("198.51.100.0/24"),
+    ip_network("203.0.113.0/24"),
+    ip_network("224.0.0.0/4"),
+    ip_network("240.0.0.0/4"),
+    ip_network("255.255.255.255/32"),
+    ip_network("::1/128"),
+    ip_network("::/128"),
+    ip_network("::ffff:0:0/96"),
+    ip_network("64:ff9b::/96"),
+    ip_network("100::/64"),
+    ip_network("2001::/32"),
+    ip_network("2001:2::/48"),
+    ip_network("2001:db8::/32"),
+    ip_network("2001:10::/28"),
+    ip_network("fc00::/7"),
+    ip_network("fe80::/10"),
+    ip_network("ff00::/8"),
+]
+
+
+def _detect_network(host: str) -> NetworkType:
+    """Classify a hostname into a network type.
+
+    Checks overlay network TLDs first (``.onion``, ``.i2p``, ``.loki``),
+    then tests whether the host is a known local/private IP against the
+    IANA special-purpose registries, and finally validates standard
+    domain name format.
+
+    Args:
+        host: Hostname or IP address string to classify.
+
+    Returns:
+        The detected [NetworkType][bigbrotr.models.constants.NetworkType].
+        Returns ``UNKNOWN`` for empty or invalid hostnames, and ``LOCAL``
+        for private/reserved IPs.
+    """
+    if not host:
+        return NetworkType.UNKNOWN
+
+    host_bare = host.lower().strip("[]")
+
+    for tld, network in _NETWORK_TLDS.items():
+        if host_bare.endswith(tld):
+            return network
+
+    if host_bare in ("localhost", "localhost.localdomain"):
+        return NetworkType.LOCAL
+
+    try:
+        ip = ip_address(host_bare)
+        is_local = any(ip in net for net in _LOCAL_NETWORKS)
+        return NetworkType.LOCAL if is_local else NetworkType.CLEARNET
+    except ValueError:
+        pass
+
+    if "." not in host_bare:
+        return NetworkType.UNKNOWN
+
+    labels = host_bare.split(".")
+    valid = all(label and not label.startswith("-") and not label.endswith("-") for label in labels)
+    return NetworkType.CLEARNET if valid else NetworkType.UNKNOWN
 
 
 class RelayDbParams(NamedTuple):
@@ -57,15 +155,20 @@ class RelayDbParams(NamedTuple):
 class Relay:
     """Immutable representation of a Nostr relay.
 
-    Validates and normalizes a WebSocket URL on construction, detecting the
-    [NetworkType][bigbrotr.models.constants.NetworkType] from the hostname.
-    The scheme is enforced per network:
+    Accepts only URLs already in canonical form.  If the input may be
+    dirty (from Nostr events, relay lists, external APIs), pass it through
+    [sanitize_relay_url][bigbrotr.models.relay.sanitize_relay_url] first.
 
-    * **clearnet** -- ``wss://`` (TLS required on the public internet)
-    * **tor / i2p / loki** -- ``ws://`` (encryption handled by the overlay)
+    The canonical form enforces:
+
+    * **scheme** -- ``wss://`` for clearnet, ``ws://`` for overlay networks
+    * **no query string or fragment**
+    * **no garbage path** (control characters, whitespace, embedded URI schemes)
+    * **default ports omitted** (443 for ``wss``, 80 for ``ws``)
+    * **lowercase host**, collapsed path slashes, no trailing slash
 
     Attributes:
-        url: Fully normalized URL including scheme.
+        url: Canonical normalized URL (init field and primary identity).
         network: Detected [NetworkType][bigbrotr.models.constants.NetworkType] enum value.
         scheme: URL scheme (``ws`` or ``wss``).
         host: Hostname or IP address (brackets stripped for IPv6).
@@ -74,8 +177,9 @@ class Relay:
         discovered_at: Unix timestamp when the relay was first discovered.
 
     Raises:
-        ValueError: If the URL is malformed, uses an unsupported scheme,
-            resolves to a local/private address, or contains null bytes.
+        ValueError: If the URL is not in canonical form, malformed,
+            uses an unsupported scheme, resolves to a local/private address,
+            or contains null bytes.
 
     Examples:
         ```python
@@ -87,12 +191,14 @@ class Relay:
         # RelayDbParams(url='wss://relay.damus.io', network='clearnet', ...)
         ```
 
-        Overlay networks automatically use ``ws://``:
+        For untrusted input, sanitize first:
 
         ```python
-        tor_relay = Relay("wss://abc123.onion")
-        tor_relay.scheme    # 'ws'
-        tor_relay.network   # NetworkType.TOR
+        from bigbrotr.models.relay import sanitize_relay_url
+
+        dirty = "ws://Relay.Example.Com:443/path?key=val#frag"
+        clean = sanitize_relay_url(dirty)  # 'wss://relay.example.com/path'
+        relay = Relay(clean)
         ```
 
     Note:
@@ -101,6 +207,8 @@ class Relay:
         safe because it runs during ``__init__`` before the instance is exposed.
 
     See Also:
+        [sanitize_relay_url][bigbrotr.models.relay.sanitize_relay_url]: Pre-processor
+            for untrusted relay URLs.
         [NetworkType][bigbrotr.models.constants.NetworkType]: Enum of supported network types.
         [RelayDbParams][bigbrotr.models.relay.RelayDbParams]: Database parameter container
             produced by [to_db_params()][bigbrotr.models.relay.Relay.to_db_params].
@@ -110,10 +218,9 @@ class Relay:
             to an [Event][bigbrotr.models.event.Event].
     """
 
-    raw_url: str = field(repr=False, compare=False)
+    url: str
     discovered_at: int = field(default_factory=lambda: int(time()))
 
-    url: str = field(init=False)
     network: NetworkType = field(init=False)
     scheme: str = field(init=False)
     host: str = field(init=False)
@@ -127,68 +234,27 @@ class Relay:
         hash=False,  # type: ignore[assignment]  # mypy expects bool literal, field() accepts it at runtime
     )
 
-    _PORT_WS: ClassVar[int] = 80
-    _PORT_WSS: ClassVar[int] = 443
-
-    _NETWORK_TLDS: ClassVar[dict[str, NetworkType]] = {
-        ".onion": NetworkType.TOR,
-        ".i2p": NetworkType.I2P,
-        ".loki": NetworkType.LOKI,
-    }
-
-    # IANA private/reserved IP ranges used to reject local addresses.
-    # References:
-    #   https://www.iana.org/assignments/iana-ipv4-special-registry/
-    #   https://www.iana.org/assignments/iana-ipv6-special-registry/
-    _LOCAL_NETWORKS: ClassVar[list[IPv4Network | IPv6Network]] = [
-        ip_network("0.0.0.0/8"),
-        ip_network("10.0.0.0/8"),
-        ip_network("100.64.0.0/10"),
-        ip_network("127.0.0.0/8"),
-        ip_network("169.254.0.0/16"),
-        ip_network("172.16.0.0/12"),
-        ip_network("192.0.0.0/24"),
-        ip_network("192.0.2.0/24"),
-        ip_network("192.88.99.0/24"),
-        ip_network("192.168.0.0/16"),
-        ip_network("198.18.0.0/15"),
-        ip_network("198.51.100.0/24"),
-        ip_network("203.0.113.0/24"),
-        ip_network("224.0.0.0/4"),
-        ip_network("240.0.0.0/4"),
-        ip_network("255.255.255.255/32"),
-        ip_network("::1/128"),
-        ip_network("::/128"),
-        ip_network("::ffff:0:0/96"),
-        ip_network("64:ff9b::/96"),
-        ip_network("100::/64"),
-        ip_network("2001::/32"),
-        ip_network("2001:2::/48"),
-        ip_network("2001:db8::/32"),
-        ip_network("2001:10::/28"),
-        ip_network("fc00::/7"),
-        ip_network("fe80::/10"),
-        ip_network("ff00::/8"),
-    ]
-
     def __post_init__(self) -> None:
-        """Parse and validate the raw URL, populating all computed fields.
+        """Validate that the URL is in canonical form and populate computed fields.
 
         Raises:
             TypeError: If field types are incorrect.
-            ValueError: If the URL is invalid, local, or contains null bytes.
+            ValueError: If the URL is not canonical, invalid, local, or contains null bytes.
         """
-        validate_str_no_null(self.raw_url, "raw_url")
+        validate_str_no_null(self.url, "url")
         validate_timestamp(self.discovered_at, "discovered_at")
 
-        parsed = self._parse(self.raw_url)
+        # Defence in depth: re-sanitize to guarantee canonical form even though
+        # callers should pre-sanitize.  This duplicates the RFC 3986 parse in
+        # _parse() below -- a deliberate "never trust input" trade-off.
+        canonical = sanitize_relay_url(self.url)
+        if canonical != self.url:
+            raise ValueError(
+                f"Relay URL is not in canonical form: {self.url!r} (expected {canonical!r})"
+            )
 
-        if parsed["network"] == NetworkType.LOCAL:
-            raise ValueError("Local addresses not allowed")
-        if parsed["network"] == NetworkType.UNKNOWN:
-            raise ValueError(f"Invalid host: '{parsed['host']}'")
+        parsed = self._parse(self.url)
 
-        object.__setattr__(self, "url", f"{parsed['scheme']}://{parsed['url_without_scheme']}")
         object.__setattr__(self, "network", parsed["network"])
         object.__setattr__(self, "scheme", parsed["scheme"])
         object.__setattr__(self, "host", parsed["host"])
@@ -198,121 +264,33 @@ class Relay:
         object.__setattr__(self, "_db_params", self._compute_db_params())
 
     @staticmethod
-    def _detect_network(host: str) -> NetworkType:
-        """Classify a hostname into a [NetworkType][bigbrotr.models.constants.NetworkType].
+    def _parse(url: str) -> dict[str, Any]:
+        """Extract components from a canonical relay URL.
 
-        Checks overlay network TLDs first (``.onion``, ``.i2p``, ``.loki``),
-        then tests whether the host is a known local/private IP against the
-        IANA special-purpose registries, and finally validates standard
-        domain name format.
-
-        Args:
-            host: Hostname or IP address string to classify.
-
-        Returns:
-            The detected [NetworkType][bigbrotr.models.constants.NetworkType].
-            Returns ``UNKNOWN`` for empty or invalid hostnames, and ``LOCAL``
-            for private/reserved IPs.
-
-        Note:
-            Both ``LOCAL`` and ``UNKNOWN`` results cause ``__post_init__`` to
-            raise ``ValueError``, preventing construction of invalid relays.
-        """
-        if not host:
-            return NetworkType.UNKNOWN
-
-        host_bare = host.lower().strip("[]")
-
-        for tld, network in Relay._NETWORK_TLDS.items():
-            if host_bare.endswith(tld):
-                return network
-
-        if host_bare in ("localhost", "localhost.localdomain"):
-            return NetworkType.LOCAL
-
-        try:
-            ip = ip_address(host_bare)
-            is_local = any(ip in net for net in Relay._LOCAL_NETWORKS)
-            return NetworkType.LOCAL if is_local else NetworkType.CLEARNET
-        except ValueError:
-            pass
-
-        if "." not in host_bare:
-            return NetworkType.UNKNOWN
-
-        labels = host_bare.split(".")
-        valid = all(
-            label and not label.startswith("-") and not label.endswith("-") for label in labels
-        )
-        return NetworkType.CLEARNET if valid else NetworkType.UNKNOWN
-
-    @staticmethod
-    def _parse(raw: str) -> dict[str, Any]:
-        """Parse and normalize a raw relay URL string.
-
-        Validates the URI structure using RFC 3986 (via ``rfc3986`` library),
-        detects the [NetworkType][bigbrotr.models.constants.NetworkType],
-        enforces the correct WebSocket scheme, normalizes the path,
-        and strips default ports.
+        The URL must already be validated and normalized by
+        [sanitize_relay_url][bigbrotr.models.relay.sanitize_relay_url].
+        Path normalization is intentionally not repeated here; it is
+        performed once in ``sanitize_relay_url()`` and verified by the
+        canonical form check in ``__post_init__``.
 
         Args:
-            raw: Raw URL string (e.g., ``"ws://relay.example.com:8080/path"``).
+            url: Canonical URL string.
 
         Returns:
-            Dictionary containing ``url_without_scheme``, ``scheme``,
-            ``host``, ``port``, ``path``, and ``network``.
-
-        Raises:
-            ValueError: If the scheme is not ``ws``/``wss``, the URI is
-                structurally invalid, or it contains query strings or fragments.
+            Dictionary containing ``scheme``, ``host``, ``port``, ``path``,
+            and ``network``.
         """
-        uri = uri_reference(raw.strip()).normalize()
-
-        validator = (
-            Validator()
-            .require_presence_of("scheme", "host")
-            .allow_schemes("ws", "wss")
-            .check_validity_of("scheme", "host", "port", "path")
-        )
-
-        try:
-            validator.validate(uri)
-        except UnpermittedComponentError:
-            raise ValueError("Invalid scheme: must be ws or wss") from None
-        except ValidationError as e:
-            raise ValueError(f"Invalid URL: {e}") from None
-
-        # Relay URLs must not contain query strings or fragments
-        if uri.query:
-            raise ValueError(f"Relay URL must not contain a query string: ?{uri.query}")
-        if uri.fragment:
-            raise ValueError(f"Relay URL must not contain a fragment: #{uri.fragment}")
+        uri = uri_reference(url).normalize()
 
         port = int(uri.port) if uri.port else None
-        host = uri.host.strip("[]")
+        host = uri.host.strip("[]") if uri.host else ""
 
-        # Collapse duplicate slashes and strip trailing slash
-        path = uri.path or ""
-        while "//" in path:
-            path = path.replace("//", "/")
-        path = path.rstrip("/") or None
+        path = uri.path or None
 
-        # Clearnet requires TLS; overlay networks handle encryption themselves
-        network = Relay._detect_network(host)
+        network = _detect_network(host)
         scheme = "wss" if network == NetworkType.CLEARNET else "ws"
 
-        # Re-bracket IPv6 addresses for the final URL
-        formatted_host = f"[{host}]" if ":" in host else host
-
-        # Omit the port when it matches the default for the scheme
-        default_port = Relay._PORT_WSS if scheme == "wss" else Relay._PORT_WS
-        if port and port != default_port:
-            url_without_scheme = f"{formatted_host}:{port}{path or ''}"
-        else:
-            url_without_scheme = f"{formatted_host}{path or ''}"
-
         return {
-            "url_without_scheme": url_without_scheme,
             "scheme": scheme,
             "host": host,
             "port": port,
@@ -349,3 +327,87 @@ class Relay:
             normalized URL, network name, and discovery timestamp.
         """
         return self._db_params
+
+
+def sanitize_relay_url(raw: str) -> str:
+    """Normalize and clean a raw relay URL for untrusted input.
+
+    Performs full canonicalization: RFC 3986 normalization, scheme enforcement
+    (``wss://`` for clearnet, ``ws://`` for overlays), default port omission,
+    query string and fragment stripping, and garbage path removal (control
+    characters, whitespace, embedded URI schemes).
+
+    The result is in canonical form and can be passed directly to
+    :class:`Relay`.
+
+    Args:
+        raw: Raw URL string, potentially malformed.
+
+    Returns:
+        Canonical URL string with enforced scheme, host, optional port,
+        and optional path.
+
+    Raises:
+        ValueError: If the URL is structurally unrecoverable (no scheme, no host,
+            non-WebSocket scheme, local/private address, invalid hostname).
+    """
+    uri = uri_reference(raw.strip()).normalize()
+
+    validator = (
+        Validator()
+        .require_presence_of("scheme", "host")
+        .allow_schemes("ws", "wss")
+        .check_validity_of("scheme", "host", "port", "path")
+    )
+
+    try:
+        validator.validate(uri)
+    except UnpermittedComponentError:
+        raise ValueError("Invalid scheme: must be ws or wss") from None
+    except ValidationError as e:
+        raise ValueError(f"Invalid URL: {e}") from None
+
+    host = uri.host.strip("[]") if uri.host else ""
+    port = int(uri.port) if uri.port else None
+
+    # Detect network and enforce the correct scheme
+    network = _detect_network(host)
+    if network == NetworkType.LOCAL:
+        raise ValueError("Local addresses not allowed")
+    if network == NetworkType.UNKNOWN:
+        raise ValueError(f"Invalid host: '{host}'")
+
+    scheme = "wss" if network == NetworkType.CLEARNET else "ws"
+
+    # Sanitize the path: collapse slashes, strip trailing slash, then validate
+    # each segment against RFC 3986 unreserved + ":" with alphanumeric boundaries.
+    path = uri.path or ""
+    while "//" in path:
+        path = path.replace("//", "/")
+    path = path.rstrip("/")
+
+    if path:
+        decoded = unquote(path)
+        segments = [s for s in decoded.split("/") if s]
+        if not all(
+            set(s) <= _PATH_CHARS and s[0] in _PATH_BOUNDARY_CHARS and s[-1] in _PATH_BOUNDARY_CHARS
+            for s in segments
+        ):
+            path = ""
+
+    # Re-bracket IPv6 addresses for the final URL
+    formatted_host = f"[{host}]" if ":" in host else host
+
+    # Omit the port when it matches the default for the scheme
+    default_port = _PORT_WSS if scheme == "wss" else _PORT_WS
+    if port and port != default_port:
+        url = f"{scheme}://{formatted_host}:{port}{path}"
+    else:
+        url = f"{scheme}://{formatted_host}{path}"
+
+    if len(url) > _MAX_URL_LENGTH:
+        raise ValueError(
+            f"URL exceeds maximum length ({len(url)} > {_MAX_URL_LENGTH}): '{url[:80]}...'"
+        )
+
+    return url

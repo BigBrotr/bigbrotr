@@ -573,7 +573,7 @@ class TestNip66Immutability:
         """Cannot modify relay after creation."""
         from pydantic import ValidationError
 
-        new_relay = Relay(raw_url="wss://other.example.com", discovered_at=1)
+        new_relay = Relay(url="wss://other.example.com", discovered_at=1)
         with pytest.raises((ValidationError, TypeError, AttributeError)):
             nip66_full.relay = new_relay  # type: ignore[misc]
 

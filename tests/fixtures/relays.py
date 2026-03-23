@@ -23,28 +23,22 @@ def relay_clearnet_with_port() -> Relay:
 
 
 @pytest.fixture
-def relay_clearnet_ws() -> Relay:
-    """Clearnet ws:// (non-TLS) relay."""
-    return Relay("ws://relay.example.com", discovered_at=1700000000)
-
-
-@pytest.fixture
 def relay_tor() -> Relay:
     """Tor (.onion) relay with valid 56-char v3 address."""
     onion = "a" * 56
-    return Relay(f"wss://{onion}.onion", discovered_at=1700000000)
+    return Relay(f"ws://{onion}.onion", discovered_at=1700000000)
 
 
 @pytest.fixture
 def relay_i2p() -> Relay:
     """I2P (.i2p) relay."""
-    return Relay("wss://example.i2p", discovered_at=1700000000)
+    return Relay("ws://example.i2p", discovered_at=1700000000)
 
 
 @pytest.fixture
 def relay_loki() -> Relay:
     """Lokinet (.loki) relay."""
-    return Relay("wss://example.loki", discovered_at=1700000000)
+    return Relay("ws://example.loki", discovered_at=1700000000)
 
 
 @pytest.fixture
@@ -60,9 +54,9 @@ def relay_ipv6() -> Relay:
 def relay_overlay(request: pytest.FixtureRequest) -> Relay:
     """Parametrized overlay relay (tor, i2p, loki)."""
     urls = {
-        "tor": f"wss://{'a' * 56}.onion",
-        "i2p": "wss://example.i2p",
-        "loki": "wss://example.loki",
+        "tor": f"ws://{'a' * 56}.onion",
+        "i2p": "ws://example.i2p",
+        "loki": "ws://example.loki",
     }
     return Relay(urls[request.param], discovered_at=1700000000)
 

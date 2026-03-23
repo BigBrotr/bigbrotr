@@ -2,7 +2,7 @@
 Shared fixtures for NIP-66 module tests.
 
 Provides:
-- Relay fixtures (clearnet, tor, ws://)
+- Relay fixtures (clearnet, tor, i2p, loki)
 - Complete metadata fixtures for all NIP-66 types
 - Mock fixtures for nostr-sdk, GeoIP, and ASN readers
 - Helper fixtures for building test data
@@ -46,37 +46,31 @@ from bigbrotr.nips.nip66 import (
 @pytest.fixture
 def relay() -> Relay:
     """Create a clearnet test relay (wss://)."""
-    return Relay(raw_url="wss://relay.example.com", discovered_at=1234567890)
+    return Relay(url="wss://relay.example.com", discovered_at=1234567890)
 
 
 @pytest.fixture
 def relay_with_port() -> Relay:
     """Create a clearnet relay with explicit port."""
-    return Relay(raw_url="wss://relay.example.com:8443", discovered_at=1234567890)
+    return Relay(url="wss://relay.example.com:8443", discovered_at=1234567890)
 
 
 @pytest.fixture
 def tor_relay() -> Relay:
     """Create a Tor relay (.onion)."""
-    return Relay(raw_url="wss://abcdef1234567890.onion", discovered_at=1234567890)
+    return Relay(url="ws://abcdef1234567890.onion", discovered_at=1234567890)
 
 
 @pytest.fixture
 def i2p_relay() -> Relay:
     """Create an I2P relay (.i2p)."""
-    return Relay(raw_url="wss://example.i2p", discovered_at=1234567890)
+    return Relay(url="ws://example.i2p", discovered_at=1234567890)
 
 
 @pytest.fixture
 def loki_relay() -> Relay:
     """Create a Lokinet relay (.loki)."""
-    return Relay(raw_url="wss://example.loki", discovered_at=1234567890)
-
-
-@pytest.fixture
-def ws_relay() -> Relay:
-    """Create a ws:// relay (no SSL)."""
-    return Relay(raw_url="ws://relay.example.com", discovered_at=1234567890)
+    return Relay(url="ws://example.loki", discovered_at=1234567890)
 
 
 # =============================================================================
