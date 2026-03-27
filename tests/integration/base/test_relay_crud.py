@@ -92,7 +92,7 @@ class TestRelayInsert:
         assert row["url"] == "wss://relay.example.com:9090/custom/path"
 
     async def test_overlay_scheme_downgrade(self, brotr: Brotr) -> None:
-        relay = Relay("wss://torhost.onion", discovered_at=1700000000)
+        relay = Relay("ws://torhost.onion", discovered_at=1700000000)
         assert relay.url == "ws://torhost.onion"
         await brotr.insert_relay([relay])
 
@@ -147,7 +147,10 @@ class TestRelayInsertEdgeCases:
         assert count == 100
 
     async def test_url_normalization_roundtrip(self, brotr: Brotr) -> None:
-        relay = Relay("WSS://RELAY.EXAMPLE.COM:443/", discovered_at=1700000000)
+        from bigbrotr.models.relay import sanitize_relay_url
+
+        canonical = sanitize_relay_url("WSS://RELAY.EXAMPLE.COM:443/")
+        relay = Relay(canonical, discovered_at=1700000000)
         await brotr.insert_relay([relay])
 
         row = await brotr.fetchrow(
@@ -155,7 +158,7 @@ class TestRelayInsertEdgeCases:
             relay.url,
         )
         assert row is not None
-        assert row["url"] == relay.url
+        assert row["url"] == "wss://relay.example.com"
 
 
 class TestBrotrQueryFacade:

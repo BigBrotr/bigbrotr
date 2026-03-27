@@ -136,7 +136,7 @@ class TestToDbParams:
         assert result.generated_at == 9999999999
 
     def test_with_tor_relay(self):
-        tor_relay = Relay("wss://abc123.onion", discovered_at=1234567890)
+        tor_relay = Relay("ws://abc123.onion", discovered_at=1234567890)
         metadata = Metadata(type=MetadataType.NIP11_INFO, data={"test": "data"})
         rm = RelayMetadata(relay=tor_relay, metadata=metadata, generated_at=1234567890)
         result = rm.to_db_params()
@@ -144,7 +144,7 @@ class TestToDbParams:
         assert result.relay_network == "tor"
 
     def test_with_i2p_relay(self):
-        i2p_relay = Relay("wss://relay.i2p", discovered_at=1234567890)
+        i2p_relay = Relay("ws://relay.i2p", discovered_at=1234567890)
         metadata = Metadata(type=MetadataType.NIP66_GEO, data={"test": "data"})
         rm = RelayMetadata(relay=i2p_relay, metadata=metadata, generated_at=1234567890)
         result = rm.to_db_params()

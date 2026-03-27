@@ -20,6 +20,7 @@ from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
 from bigbrotr.services.common.configs import TableConfig  # noqa: TC001 (Pydantic runtime)
 from bigbrotr.utils.keys import KeysConfig
+from bigbrotr.utils.parsing import parse_relay_url, safe_parse
 
 
 class DvmConfig(BaseServiceConfig, KeysConfig):
@@ -55,7 +56,7 @@ class DvmConfig(BaseServiceConfig, KeysConfig):
     )
     relays: Annotated[
         list[Relay],
-        BeforeValidator(lambda v: [Relay(url) if isinstance(url, str) else url for url in v]),
+        BeforeValidator(lambda v: safe_parse(v, parse_relay_url)),
     ] = Field(
         default_factory=lambda: [
             Relay("wss://relay.mostr.pub"),

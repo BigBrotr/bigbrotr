@@ -26,7 +26,7 @@ from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.configs import NetworksConfig
 from bigbrotr.utils.keys import KeysConfig
-from bigbrotr.utils.parsing import safe_parse
+from bigbrotr.utils.parsing import parse_relay_url, safe_parse
 
 
 _CLEARNET_ONLY_FLAGS: Final[tuple[str, ...]] = (
@@ -238,7 +238,7 @@ class PublishingConfig(BaseModel):
 
     relays: Annotated[
         list[Relay],
-        BeforeValidator(lambda v: safe_parse(v, Relay)),
+        BeforeValidator(lambda v: safe_parse(v, parse_relay_url)),
     ] = Field(
         default_factory=lambda: [
             Relay("wss://relay.mostr.pub"),
@@ -271,7 +271,7 @@ class DiscoveryConfig(BaseModel):
     )
     relays: Annotated[
         list[Relay] | None,
-        BeforeValidator(lambda v: safe_parse(v, Relay) if v is not None else None),
+        BeforeValidator(lambda v: safe_parse(v, parse_relay_url) if v is not None else None),
     ] = Field(default=None, description="Override relay list (None = use publishing default)")
 
 
@@ -296,7 +296,7 @@ class AnnouncementConfig(BaseModel):
     )
     relays: Annotated[
         list[Relay] | None,
-        BeforeValidator(lambda v: safe_parse(v, Relay) if v is not None else None),
+        BeforeValidator(lambda v: safe_parse(v, parse_relay_url) if v is not None else None),
     ] = Field(default=None, description="Override relay list (None = use publishing default)")
 
 
@@ -317,7 +317,7 @@ class ProfileConfig(BaseModel):
     )
     relays: Annotated[
         list[Relay] | None,
-        BeforeValidator(lambda v: safe_parse(v, Relay) if v is not None else None),
+        BeforeValidator(lambda v: safe_parse(v, parse_relay_url) if v is not None else None),
     ] = Field(default=None, description="Override relay list (None = use publishing default)")
     name: str | None = Field(
         default="BigBrotr Monitor", description="Display name for the monitor profile"
@@ -344,7 +344,7 @@ class RelayListConfig(BaseModel):
     )
     relays: Annotated[
         list[Relay] | None,
-        BeforeValidator(lambda v: safe_parse(v, Relay) if v is not None else None),
+        BeforeValidator(lambda v: safe_parse(v, parse_relay_url) if v is not None else None),
     ] = Field(default=None, description="Override relay list (None = use publishing default)")
 
 

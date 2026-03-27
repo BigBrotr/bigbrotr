@@ -6,7 +6,7 @@ from time import time
 import pytest
 
 from bigbrotr.models.constants import NetworkType
-from bigbrotr.models.relay import Relay, RelayDbParams
+from bigbrotr.models.relay import Relay, RelayDbParams, _detect_network, sanitize_relay_url
 
 
 # =============================================================================
@@ -26,11 +26,9 @@ class TestUrlParsing:
         assert r.port is None
         assert r.path is None
 
-    def test_ws_clearnet_upgraded_to_wss(self):
-        r = Relay("ws://relay.example.com")
-        assert r.scheme == "wss"
-        assert r.url == "wss://relay.example.com"
-        assert r.network == NetworkType.CLEARNET
+    def test_ws_clearnet_not_canonical(self):
+        with pytest.raises(ValueError, match="not in canonical form"):
+            Relay("ws://relay.example.com")
 
     def test_explicit_port(self):
         r = Relay("wss://relay.example.com:8080")
@@ -38,34 +36,30 @@ class TestUrlParsing:
         assert r.port == 8080
         assert r.host == "relay.example.com"
 
-    def test_default_port_443_omitted(self):
-        r = Relay("wss://relay.example.com:443")
-        assert r.url == "wss://relay.example.com"
-        assert r.port == 443
+    def test_default_port_443_not_canonical(self):
+        with pytest.raises(ValueError, match="not in canonical form"):
+            Relay("wss://relay.example.com:443")
 
-    def test_port_80_preserved_for_wss(self):
-        r = Relay("ws://relay.example.com:80")
-        assert r.url == "wss://relay.example.com:80"
-        assert r.port == 80
-        assert r.scheme == "wss"
+    def test_port_80_not_canonical_with_ws(self):
+        with pytest.raises(ValueError, match="not in canonical form"):
+            Relay("ws://relay.example.com:80")
 
     def test_path_preserved(self):
         r = Relay("wss://relay.example.com/nostr")
         assert r.path == "/nostr"
         assert r.url == "wss://relay.example.com/nostr"
 
-    def test_trailing_slash_removed(self):
-        r = Relay("wss://relay.example.com/")
-        assert r.path is None
-        assert r.url == "wss://relay.example.com"
+    def test_trailing_slash_not_canonical(self):
+        with pytest.raises(ValueError, match="not in canonical form"):
+            Relay("wss://relay.example.com/")
 
-    def test_double_slashes_normalized(self):
-        r = Relay("wss://relay.example.com//nostr//")
-        assert r.path == "/nostr"
+    def test_double_slashes_not_canonical(self):
+        with pytest.raises(ValueError, match="not in canonical form"):
+            Relay("wss://relay.example.com//nostr//")
 
-    def test_whitespace_stripped(self):
-        r = Relay("  wss://relay.example.com  ")
-        assert r.url == "wss://relay.example.com"
+    def test_whitespace_not_canonical(self):
+        with pytest.raises(ValueError, match="not in canonical form"):
+            Relay("  wss://relay.example.com  ")
 
     def test_ipv4_address(self):
         r = Relay("wss://8.8.8.8")
@@ -98,6 +92,25 @@ class TestUrlParsing:
         assert r.path == "/nostr"
         assert r.url == "wss://relay.example.com:8080/nostr"
 
+    @pytest.mark.parametrize(
+        ("url", "expected_path"),
+        [
+            ("wss://haven.example.com/inbox", "/inbox"),
+            ("wss://haven.example.com/outbox", "/outbox"),
+            ("wss://haven.example.com/chat", "/chat"),
+            ("wss://hypertuna.com/npub1abc123def456/groupName", "/npub1abc123def456/groupName"),
+            ("wss://lang.relays.land/it", "/it"),
+            ("wss://cache.primal.net/v1", "/v1"),
+            ("wss://lnbits.example.com/nostrclient/api/v1/relay", "/nostrclient/api/v1/relay"),
+            ("wss://relay.example.com/nostrrelay/myRelay", "/nostrrelay/myRelay"),
+            ("wss://pyramid.example.com/favorites", "/favorites"),
+            ("wss://relay.example.com/npub1abc:groupName", "/npub1abc:groupName"),
+        ],
+    )
+    def test_legitimate_paths_accepted(self, url, expected_path):
+        r = Relay(url)
+        assert r.path == expected_path
+
 
 # =============================================================================
 # Network Detection Tests
@@ -108,66 +121,70 @@ class TestNetworkDetection:
     """Network type detection via _detect_network."""
 
     def test_tor_onion(self):
-        r = Relay("wss://abc123.onion")
+        r = Relay("ws://abc123.onion")
         assert r.network == NetworkType.TOR
         assert r.scheme == "ws"
         assert r.url == "ws://abc123.onion"
 
+    def test_tor_wss_not_canonical(self):
+        with pytest.raises(ValueError, match="not in canonical form"):
+            Relay("wss://abc123.onion")
+
     def test_i2p(self):
-        r = Relay("wss://relay.i2p")
+        r = Relay("ws://relay.i2p")
         assert r.network == NetworkType.I2P
         assert r.scheme == "ws"
         assert r.url == "ws://relay.i2p"
 
     def test_loki(self):
-        r = Relay("wss://relay.loki")
+        r = Relay("ws://relay.loki")
         assert r.network == NetworkType.LOKI
         assert r.scheme == "ws"
         assert r.url == "ws://relay.loki"
 
     def test_clearnet_domain(self):
-        r = Relay("ws://relay.example.com")
+        r = Relay("wss://relay.example.com")
         assert r.network == NetworkType.CLEARNET
         assert r.scheme == "wss"
 
     def test_case_insensitive_tld(self):
-        assert Relay._detect_network("ABC.ONION") == NetworkType.TOR
-        assert Relay._detect_network("RELAY.I2P") == NetworkType.I2P
-        assert Relay._detect_network("TEST.LOKI") == NetworkType.LOKI
+        assert _detect_network("ABC.ONION") == NetworkType.TOR
+        assert _detect_network("RELAY.I2P") == NetworkType.I2P
+        assert _detect_network("TEST.LOKI") == NetworkType.LOKI
 
     def test_detect_local_localhost(self):
-        assert Relay._detect_network("localhost") == NetworkType.LOCAL
-        assert Relay._detect_network("localhost.localdomain") == NetworkType.LOCAL
+        assert _detect_network("localhost") == NetworkType.LOCAL
+        assert _detect_network("localhost.localdomain") == NetworkType.LOCAL
 
     def test_detect_local_loopback_ipv4(self):
-        assert Relay._detect_network("127.0.0.1") == NetworkType.LOCAL
-        assert Relay._detect_network("127.0.0.254") == NetworkType.LOCAL
+        assert _detect_network("127.0.0.1") == NetworkType.LOCAL
+        assert _detect_network("127.0.0.254") == NetworkType.LOCAL
 
     def test_detect_local_private_ipv4(self):
-        assert Relay._detect_network("10.0.0.1") == NetworkType.LOCAL
-        assert Relay._detect_network("172.16.0.1") == NetworkType.LOCAL
-        assert Relay._detect_network("172.31.255.255") == NetworkType.LOCAL
-        assert Relay._detect_network("192.168.1.1") == NetworkType.LOCAL
+        assert _detect_network("10.0.0.1") == NetworkType.LOCAL
+        assert _detect_network("172.16.0.1") == NetworkType.LOCAL
+        assert _detect_network("172.31.255.255") == NetworkType.LOCAL
+        assert _detect_network("192.168.1.1") == NetworkType.LOCAL
 
     def test_detect_local_link_local(self):
-        assert Relay._detect_network("169.254.0.1") == NetworkType.LOCAL
+        assert _detect_network("169.254.0.1") == NetworkType.LOCAL
 
     def test_detect_local_ipv6_loopback(self):
-        assert Relay._detect_network("::1") == NetworkType.LOCAL
+        assert _detect_network("::1") == NetworkType.LOCAL
 
     def test_detect_unknown_empty(self):
-        assert Relay._detect_network("") == NetworkType.UNKNOWN
+        assert _detect_network("") == NetworkType.UNKNOWN
 
     def test_detect_unknown_single_label(self):
-        assert Relay._detect_network("singlehost") == NetworkType.UNKNOWN
+        assert _detect_network("singlehost") == NetworkType.UNKNOWN
 
     def test_detect_unknown_invalid_label(self):
-        assert Relay._detect_network("invalid-host-") == NetworkType.UNKNOWN
-        assert Relay._detect_network("-invalid.host") == NetworkType.UNKNOWN
+        assert _detect_network("invalid-host-") == NetworkType.UNKNOWN
+        assert _detect_network("-invalid.host") == NetworkType.UNKNOWN
 
     def test_detect_clearnet_public_ip(self):
-        assert Relay._detect_network("8.8.8.8") == NetworkType.CLEARNET
-        assert Relay._detect_network("1.1.1.1") == NetworkType.CLEARNET
+        assert _detect_network("8.8.8.8") == NetworkType.CLEARNET
+        assert _detect_network("1.1.1.1") == NetworkType.CLEARNET
 
 
 # =============================================================================
@@ -231,13 +248,26 @@ class TestRejection:
         with pytest.raises(ValueError, match="Invalid host"):
             Relay("wss://singlehost")
 
-    def test_query_string_rejected(self):
-        with pytest.raises(ValueError, match="query string"):
-            Relay("wss://relay.example.com?key=value")
-
-    def test_fragment_rejected(self):
-        with pytest.raises(ValueError, match="fragment"):
-            Relay("wss://relay.example.com#section")
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "wss://relay.example.com?key=value",
+            "wss://relay.example.com#section",
+            "wss://relay.example.com/%0Awss:/other.relay",
+            "wss://relay.example.com/path%0D%0Amore",
+            "wss://relay.example.com/%00hidden",
+            "wss://relay.example.com/%09tab",
+            "wss://relay.example.com/%20wss:/other.relay",
+            "wss://relay.example.com/path%20path",
+            "wss://atlas.nostr.land/wss://relay.damus.io/wss://nos.lol",
+            "wss://relay.example.com/ws://other.relay",
+            "wss://relay.example.com/http://example.com",
+            "wss://relay.example.com/https://example.com",
+        ],
+    )
+    def test_non_canonical_url_rejected(self, url):
+        with pytest.raises(ValueError, match="not in canonical form"):
+            Relay(url)
 
 
 # =============================================================================
@@ -345,7 +375,7 @@ class TestToDbParams:
         assert params.discovered_at == 1234567890
 
     def test_structure_tor(self):
-        r = Relay("wss://abc123.onion", discovered_at=1234567890)
+        r = Relay("ws://abc123.onion", discovered_at=1234567890)
         params = r.to_db_params()
         assert params.url == "ws://abc123.onion"
         assert params.network == "tor"
@@ -410,9 +440,9 @@ class TestEquality:
 class TestEdgeCases:
     """Edge cases and boundary conditions."""
 
-    def test_url_case_normalized(self):
-        r = Relay("wss://RELAY.EXAMPLE.COM")
-        assert r.host == "relay.example.com"
+    def test_url_case_not_canonical(self):
+        with pytest.raises(ValueError, match="not in canonical form"):
+            Relay("wss://RELAY.EXAMPLE.COM")
 
     def test_long_hostname(self):
         long_subdomain = "a" * 63
@@ -421,13 +451,12 @@ class TestEdgeCases:
         assert r.host == f"{long_subdomain}.example.com"
 
     def test_numeric_tld(self):
-        r = Relay("wss://abc123xyz789.onion")
+        r = Relay("ws://abc123xyz789.onion")
         assert r.network == NetworkType.TOR
 
-    def test_default_port_80_for_ws(self):
-        r = Relay("wss://abc.onion:80")
-        assert r.url == "ws://abc.onion"
-        assert r.port == 80
+    def test_default_port_80_for_ws_not_canonical(self):
+        with pytest.raises(ValueError, match="not in canonical form"):
+            Relay("wss://abc.onion:80")
 
 
 # =============================================================================
@@ -438,26 +467,161 @@ class TestEdgeCases:
 class TestTypeValidation:
     """Runtime type validation in __post_init__."""
 
-    def test_raw_url_non_string_rejected(self):
-        with pytest.raises(TypeError, match="raw_url must be a str"):
-            Relay(raw_url=12345, discovered_at=1234567890)  # type: ignore[arg-type]
+    def test_url_non_string_rejected(self):
+        with pytest.raises(TypeError, match="url must be a str"):
+            Relay(url=12345, discovered_at=1234567890)  # type: ignore[arg-type]
 
     def test_discovered_at_non_int_rejected(self):
         with pytest.raises(TypeError, match="discovered_at must be an int"):
-            Relay(raw_url="wss://relay.example.com", discovered_at="abc")  # type: ignore[arg-type]
+            Relay(url="wss://relay.example.com", discovered_at="abc")  # type: ignore[arg-type]
 
     def test_discovered_at_float_rejected(self):
         with pytest.raises(TypeError, match="discovered_at must be an int"):
-            Relay(raw_url="wss://relay.example.com", discovered_at=1.5)  # type: ignore[arg-type]
+            Relay(url="wss://relay.example.com", discovered_at=1.5)  # type: ignore[arg-type]
 
     def test_discovered_at_bool_rejected(self):
         with pytest.raises(TypeError, match="discovered_at must be an int"):
-            Relay(raw_url="wss://relay.example.com", discovered_at=True)  # type: ignore[arg-type]
+            Relay(url="wss://relay.example.com", discovered_at=True)  # type: ignore[arg-type]
 
     def test_discovered_at_negative_rejected(self):
         with pytest.raises(ValueError, match="discovered_at must be non-negative"):
-            Relay(raw_url="wss://relay.example.com", discovered_at=-1)
+            Relay(url="wss://relay.example.com", discovered_at=-1)
 
     def test_discovered_at_zero_accepted(self):
-        r = Relay(raw_url="wss://relay.example.com", discovered_at=0)
+        r = Relay(url="wss://relay.example.com", discovered_at=0)
         assert r.discovered_at == 0
+
+
+# =============================================================================
+# sanitize_relay_url Tests
+# =============================================================================
+
+
+class TestSanitizeRelayUrl:
+    """sanitize_relay_url() strips garbage while preserving valid components."""
+
+    def test_clean_url_unchanged(self):
+        assert sanitize_relay_url("wss://relay.example.com") == "wss://relay.example.com"
+
+    def test_clean_url_with_path_unchanged(self):
+        assert (
+            sanitize_relay_url("wss://relay.example.com/inbox") == "wss://relay.example.com/inbox"
+        )
+
+    def test_strips_query_string(self):
+        result = sanitize_relay_url("wss://relay.example.com?key=value")
+        assert result == "wss://relay.example.com"
+
+    def test_strips_query_preserves_path(self):
+        result = sanitize_relay_url("wss://relay.example.com/v1?secret=abc123")
+        assert result == "wss://relay.example.com/v1"
+
+    def test_strips_fragment(self):
+        result = sanitize_relay_url("wss://relay.example.com#section")
+        assert result == "wss://relay.example.com"
+
+    def test_strips_query_and_fragment(self):
+        result = sanitize_relay_url("wss://relay.example.com/v1?key=val#top")
+        assert result == "wss://relay.example.com/v1"
+
+    @pytest.mark.parametrize(
+        ("url", "expected"),
+        [
+            ("wss://relay.example.com/%0Awss:/other", "wss://relay.example.com"),
+            ("wss://relay.example.com/path%0D%0Amore", "wss://relay.example.com"),
+            ("wss://relay.example.com/%00hidden", "wss://relay.example.com"),
+            ("wss://relay.example.com/%09tab", "wss://relay.example.com"),
+        ],
+    )
+    def test_strips_path_with_control_characters(self, url, expected):
+        assert sanitize_relay_url(url) == expected
+
+    @pytest.mark.parametrize(
+        ("url", "expected"),
+        [
+            ("wss://relay.example.com/%20other", "wss://relay.example.com"),
+            ("wss://relay.example.com/path%20path", "wss://relay.example.com"),
+        ],
+    )
+    def test_strips_path_with_whitespace(self, url, expected):
+        assert sanitize_relay_url(url) == expected
+
+    @pytest.mark.parametrize(
+        ("url", "expected"),
+        [
+            ("wss://atlas.nostr.land/wss://relay.damus.io/wss://nos.lol", "wss://atlas.nostr.land"),
+            ("wss://relay.example.com/ws://other.relay", "wss://relay.example.com"),
+            ("wss://relay.example.com/http://example.com", "wss://relay.example.com"),
+            ("wss://relay.example.com/https://example.com", "wss://relay.example.com"),
+        ],
+    )
+    def test_strips_path_with_embedded_uri_scheme(self, url, expected):
+        assert sanitize_relay_url(url) == expected
+
+    def test_preserves_port(self):
+        result = sanitize_relay_url("wss://relay.example.com:8080?q=1")
+        assert result == "wss://relay.example.com:8080"
+
+    def test_preserves_port_and_path(self):
+        result = sanitize_relay_url("wss://relay.example.com:8080/nostr?q=1")
+        assert result == "wss://relay.example.com:8080/nostr"
+
+    def test_collapses_double_slashes_in_path(self):
+        result = sanitize_relay_url("wss://relay.example.com//nostr//")
+        assert result == "wss://relay.example.com/nostr"
+
+    def test_strips_trailing_slash(self):
+        result = sanitize_relay_url("wss://relay.example.com/")
+        assert result == "wss://relay.example.com"
+
+    def test_result_creates_valid_relay(self):
+        dirty = "wss://relay.example.com/v1?secret=abc&lud16=user@host.com#top"
+        clean = sanitize_relay_url(dirty)
+        r = Relay(clean)
+        assert r.url == "wss://relay.example.com/v1"
+        assert r.path == "/v1"
+
+    def test_garbage_path_result_creates_valid_relay(self):
+        dirty = "wss://relay.damus.io/%0Awss://nos.lol"
+        clean = sanitize_relay_url(dirty)
+        r = Relay(clean)
+        assert r.url == "wss://relay.damus.io"
+        assert r.path is None
+
+    def test_invalid_scheme_raises(self):
+        with pytest.raises(ValueError, match="Invalid scheme"):
+            sanitize_relay_url("http://relay.example.com")
+
+    def test_missing_host_raises(self):
+        with pytest.raises(ValueError):
+            sanitize_relay_url("wss://")
+
+    def test_no_scheme_raises(self):
+        with pytest.raises(ValueError):
+            sanitize_relay_url("relay.example.com")
+
+    @pytest.mark.parametrize(
+        ("url", "expected"),
+        [
+            ("wss://abc123.onion", "ws://abc123.onion"),
+            ("ws://relay.i2p/path?query", "ws://relay.i2p/path"),
+            ("wss://relay.i2p:80", "ws://relay.i2p"),
+            ("wss://relay.loki:80/path", "ws://relay.loki/path"),
+            ("ws://relay.loki", "ws://relay.loki"),
+        ],
+    )
+    def test_overlay_network_sanitization(self, url, expected):
+        assert sanitize_relay_url(url) == expected
+
+    def test_url_exceeding_max_length_rejected(self):
+        long_path = "/" + "a" * 2048
+        with pytest.raises(ValueError, match="exceeds maximum length"):
+            sanitize_relay_url(f"wss://relay.example.com{long_path}")
+
+    def test_url_at_max_length_accepted(self):
+        from bigbrotr.models.relay import _MAX_URL_LENGTH
+
+        base = "wss://relay.example.com/"
+        url = base + "a" * (_MAX_URL_LENGTH - len(base))
+        result = sanitize_relay_url(url)
+        assert len(result) == _MAX_URL_LENGTH
