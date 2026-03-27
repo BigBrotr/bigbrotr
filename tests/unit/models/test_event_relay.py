@@ -143,7 +143,7 @@ class TestToDbParams:
         assert mock_event.to_db_params.call_count == 1
 
     def test_with_different_relay_networks(self, mock_event):
-        tor_relay = Relay("wss://abc123.onion", discovered_at=1234567890)
+        tor_relay = Relay("ws://abc123.onion", discovered_at=1234567890)
         er = EventRelay(mock_event, tor_relay, seen_at=1234567890)
         result = er.to_db_params()
         assert result.relay_url == "ws://abc123.onion"
@@ -227,14 +227,14 @@ class TestEdgeCases:
         assert result.relay_network == "clearnet"
 
     def test_with_i2p_relay(self, mock_event):
-        relay = Relay("wss://relay.i2p", discovered_at=1234567890)
+        relay = Relay("ws://relay.i2p", discovered_at=1234567890)
         er = EventRelay(mock_event, relay, seen_at=1234567890)
         result = er.to_db_params()
         assert result.relay_url == "ws://relay.i2p"
         assert result.relay_network == "i2p"
 
     def test_with_loki_relay(self, mock_event):
-        relay = Relay("wss://relay.loki", discovered_at=1234567890)
+        relay = Relay("ws://relay.loki", discovered_at=1234567890)
         er = EventRelay(mock_event, relay, seen_at=1234567890)
         result = er.to_db_params()
         assert result.relay_url == "ws://relay.loki"

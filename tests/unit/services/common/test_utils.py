@@ -28,12 +28,13 @@ class TestParseRelayUrl:
         assert isinstance(result, Relay)
         assert result.url == "wss://relay.example.com"
 
-    def test_valid_ws(self) -> None:
-        """Test parsing a valid ws:// URL (normalized to wss by Relay)."""
+    def test_valid_ws_clearnet_sanitized(self) -> None:
+        """Test that ws:// clearnet URL is sanitized to wss://."""
         result = parse_relay("ws://relay.example.com")
 
-        assert isinstance(result, Relay)
+        assert result is not None
         assert result.url == "wss://relay.example.com"
+        assert result.scheme == "wss"
 
     def test_strips_whitespace(self) -> None:
         """Test that leading/trailing whitespace is stripped."""

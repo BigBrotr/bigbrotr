@@ -10,10 +10,9 @@ keeping it safe to import from any layer above ``models``.
 
 Examples:
     ```python
-    from bigbrotr.models import Relay
-    from bigbrotr.utils.parsing import safe_parse
+    from bigbrotr.utils.parsing import safe_parse, parse_relay_url
 
-    relays = safe_parse(["wss://relay.example.com", "wss://nos.lol"], Relay)
+    relays = safe_parse(["wss://relay.example.com", "wss://nos.lol"], parse_relay_url)
     relays = safe_parse(rows, lambda r: Relay(r["url"], discovered_at=r["discovered_at"]))
     ```
 """
@@ -22,6 +21,9 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, TypeVar
+
+from bigbrotr.models import Relay
+from bigbrotr.models.relay import sanitize_relay_url
 
 
 if TYPE_CHECKING:
@@ -51,6 +53,28 @@ def safe_parse(
     return results
 
 
+def parse_relay_url(url: str) -> Relay:
+    """Sanitize a raw relay URL and construct a Relay.
+
+    Applies [sanitize_relay_url][bigbrotr.models.relay.sanitize_relay_url] to
+    canonicalize the input, then constructs a [Relay][bigbrotr.models.relay.Relay].
+    Intended as a factory for [safe_parse][bigbrotr.utils.parsing.safe_parse]
+    when parsing relay URLs from untrusted sources (config files, Nostr events,
+    API responses).
+
+    Args:
+        url: Raw relay URL string.
+
+    Returns:
+        [Relay][bigbrotr.models.relay.Relay] in canonical form.
+
+    Raises:
+        ValueError: If the URL is structurally unrecoverable.
+    """
+    return Relay(sanitize_relay_url(url))
+
+
 __all__ = [
+    "parse_relay_url",
     "safe_parse",
 ]

@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-
-if TYPE_CHECKING:
-    import pytest
+import pytest
 
 from bigbrotr.models import Relay
-from bigbrotr.utils.parsing import safe_parse
+from bigbrotr.utils.parsing import parse_relay_url, safe_parse
 
 
 # ============================================================================
@@ -65,3 +63,55 @@ class TestSafeParse:
             result = safe_parse([{"wrong_key": "x"}], lambda r: Relay(r["url"]))
         assert result == []
         assert "parse_failed" in caplog.text
+
+
+# ============================================================================
+# TestParseRelayUrl
+# ============================================================================
+
+
+class TestParseRelayUrl:
+    """Tests for parse_relay_url factory function."""
+
+    def test_clean_url_returns_relay(self):
+        relay = parse_relay_url("wss://relay.example.com")
+        assert isinstance(relay, Relay)
+        assert relay.url == "wss://relay.example.com"
+
+    def test_dirty_url_sanitized(self):
+        relay = parse_relay_url("wss://relay.example.com?key=val#frag")
+        assert relay.url == "wss://relay.example.com"
+
+    def test_scheme_corrected_for_overlay(self):
+        relay = parse_relay_url("wss://abc123.onion")
+        assert relay.url == "ws://abc123.onion"
+        assert relay.scheme == "ws"
+
+    def test_uppercase_host_lowered(self):
+        relay = parse_relay_url("wss://RELAY.EXAMPLE.COM")
+        assert relay.url == "wss://relay.example.com"
+
+    def test_default_port_stripped(self):
+        relay = parse_relay_url("wss://relay.example.com:443")
+        assert relay.url == "wss://relay.example.com"
+
+    def test_explicit_port_preserved(self):
+        relay = parse_relay_url("wss://relay.example.com:8080")
+        assert relay.url == "wss://relay.example.com:8080"
+        assert relay.port == 8080
+
+    def test_path_preserved(self):
+        relay = parse_relay_url("wss://relay.example.com/nostr")
+        assert relay.path == "/nostr"
+
+    def test_invalid_scheme_raises(self):
+        with pytest.raises(ValueError):
+            parse_relay_url("http://relay.example.com")
+
+    def test_no_host_raises(self):
+        with pytest.raises(ValueError):
+            parse_relay_url("wss://")
+
+    def test_local_address_raises(self):
+        with pytest.raises(ValueError):
+            parse_relay_url("wss://127.0.0.1")

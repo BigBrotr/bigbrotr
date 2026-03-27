@@ -175,12 +175,14 @@ class TestNip66HttpMetadataHttp:
         assert result.data.http_server is None
         assert result.data.http_powered_by == "Express"
 
-    async def test_ws_relay_works(self, ws_relay: Relay) -> None:
-        """ws:// relay (no SSL) works for HTTP check."""
+    async def test_overlay_relay_with_proxy(self, tor_relay: Relay) -> None:
+        """ws:// overlay relay works for HTTP check with proxy."""
         http_result = {"http_server": "nginx/1.24.0"}
 
         with patch.object(Nip66HttpMetadata, "_http", return_value=http_result):
-            result = await Nip66HttpMetadata.execute(ws_relay, 10.0)
+            result = await Nip66HttpMetadata.execute(
+                tor_relay, 10.0, proxy_url="socks5://localhost:9050"
+            )
 
         assert isinstance(result, Nip66HttpMetadata)
         assert result.logs.success is True

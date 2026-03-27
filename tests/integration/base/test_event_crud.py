@@ -172,7 +172,7 @@ class TestEventRelayInsertCascade:
     async def test_clearnet_and_tor_in_same_batch(self, brotr: Brotr):
         clearnet = Relay("wss://clear.example.com", discovered_at=1700000000)
         tor = Relay(
-            "wss://abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuv.onion",
+            "ws://abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuv.onion",
             discovered_at=1700000000,
         )
         er_clear = EventRelay(
@@ -196,7 +196,7 @@ class TestEventRelayInsertCascade:
     async def test_relay_network_column(self, brotr: Brotr):
         clearnet = Relay("wss://netcheck.example.com", discovered_at=1700000000)
         tor = Relay(
-            "wss://abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuv.onion",
+            "ws://abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuv.onion",
             discovered_at=1700000000,
         )
 

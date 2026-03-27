@@ -506,7 +506,7 @@ class TestExtractRelaysFromTagvalues:
         assert any("good.relay.com" in u for u in urls)
         assert any("another.relay.com" in u for u in urls)
 
-    def test_ws_scheme_accepted(self) -> None:
+    def test_ws_clearnet_sanitized(self) -> None:
         rows = [
             {
                 "tagvalues": ["r:ws://clearnet.relay.com"],
@@ -516,6 +516,7 @@ class TestExtractRelaysFromTagvalues:
 
         relays = extract_relays_from_tagvalues(rows)
         assert len(relays) == 1
+        assert relays[0].url == "wss://clearnet.relay.com"
 
     def test_tagvalue_without_prefix_skipped(self) -> None:
         rows = [

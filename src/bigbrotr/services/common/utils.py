@@ -19,6 +19,7 @@ import logging
 from typing import Any
 
 from bigbrotr.models import Relay
+from bigbrotr.models.relay import sanitize_relay_url
 
 
 logger = logging.getLogger(__name__)
@@ -43,8 +44,9 @@ def parse_relay(url: str, discovered_at: int | None = None) -> Relay | None:
     if not url or not isinstance(url, str):
         return None
 
-    url = url.strip()
-    if not url:
+    try:
+        url = sanitize_relay_url(url)
+    except ValueError:
         return None
 
     try:
