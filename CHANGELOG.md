@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.5.0] - 2026-03-27
+
+Relay URL validation hardening, `parse_relay_url` factory, and dependency updates.
+
+### Added
+
+- **`parse_relay_url()` factory function**: centralizes URL-to-Relay conversion with logging for invalid URLs, wired into finder, monitor, DVM, and common utils (#400)
+
+### Changed
+
+- **Relay URL sanitization separated from construction**: path validation (character whitelist, segment structure, length limit) extracted into `sanitize_relay_path()` in `utils/parsing.py`, keeping `Relay.__post_init__` focused on structural validation
+- **URL length limit enforced**: relay URLs exceeding 2048 characters are rejected at construction, preventing PostgreSQL B-tree index overflow (`index row requires N bytes, maximum size is 8191`)
+- **CI actions pinned to commit SHAs**: `actions/checkout`, `actions/setup-python`, `actions/upload-pages-artifact`, `actions/deploy-pages`, `actions/upload-artifact`, and `github/codeql-action` now use full SHA pins instead of version tags
+- **`requests` upgraded to 2.33.0**: security update; unfixed Pygments CVE added to `tool.pip-audit.ignore` with tracking link
+
+### Fixed
+
+- **Synchronizer crash on oversized relay URLs**: URLs with long percent-encoded paths (e.g. 29KB) caused `index row requires 29656 bytes, maximum size is 8191` after 5 consecutive failures, stopping the service (#400)
+
 ## [6.4.0] - 2026-03-20
 
 Replaceable/addressable event matviews, synchronizer idle timeout fix, and configuration updates.
