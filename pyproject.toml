@@ -256,3 +256,13 @@ capitalisation_policy = "upper"
 
 [tool.sqlfluff.rules.references.keywords]
 ignore_words = "value,content,data,type"
+
+[tool.uv]
+constraint-dependencies = [
+    "requests>=2.33.0",
+]
+
+[tool.uv-secure.vulnerability_criteria]
+ignore_vulnerabilities = [
+    "GHSA-5239-wwwm-4pmq",  # Pygments: no fix available (2.19.2 is latest)
+]
