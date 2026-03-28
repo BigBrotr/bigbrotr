@@ -6063,9 +6063,7 @@ with a stale (or missing) database.</p>
 <span class="normal"><a href="#__codelineno-0-362">362</a></span>
 <span class="normal"><a href="#__codelineno-0-363">363</a></span>
 <span class="normal"><a href="#__codelineno-0-364">364</a></span>
-<span class="normal"><a href="#__codelineno-0-365">365</a></span>
-<span class="normal"><a href="#__codelineno-0-366">366</a></span>
-<span class="normal"><a href="#__codelineno-0-367">367</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-314" name="__codelineno-0-314"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">publish_announcement</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="normal"><a href="#__codelineno-0-365">365</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-314" name="__codelineno-0-314"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">publish_announcement</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <a id="__codelineno-0-315" name="__codelineno-0-315"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Publish Kind 10166 monitor announcement if the configured interval has elapsed.&quot;&quot;&quot;</span>
 <a id="__codelineno-0-316" name="__codelineno-0-316"></a>    <span class="n">cfg</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">announcement</span>
 <a id="__codelineno-0-317" name="__codelineno-0-317"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">cfg</span><span class="o">.</span><span class="n">enabled</span><span class="p">:</span>
@@ -6079,46 +6077,44 @@ with a stale (or missing) database.</p>
 <a id="__codelineno-0-325" name="__codelineno-0-325"></a>        <span class="k">return</span>
 <a id="__codelineno-0-326" name="__codelineno-0-326"></a>
 <a id="__codelineno-0-327" name="__codelineno-0-327"></a>    <span class="n">include</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">include</span>
-<a id="__codelineno-0-328" name="__codelineno-0-328"></a>    <span class="n">enabled_networks</span> <span class="o">=</span> <span class="p">[</span>
-<a id="__codelineno-0-329" name="__codelineno-0-329"></a>        <span class="n">network</span> <span class="k">for</span> <span class="n">network</span> <span class="ow">in</span> <span class="n">NetworkType</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">networks</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">(</span><span class="n">network</span><span class="p">)</span>
-<a id="__codelineno-0-330" name="__codelineno-0-330"></a>    <span class="p">]</span>
-<a id="__codelineno-0-331" name="__codelineno-0-331"></a>    <span class="n">first_network</span> <span class="o">=</span> <span class="n">enabled_networks</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="n">enabled_networks</span> <span class="k">else</span> <span class="n">NetworkType</span><span class="o">.</span><span class="n">CLEARNET</span>
-<a id="__codelineno-0-332" name="__codelineno-0-332"></a>    <span class="n">timeout_ms</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">networks</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">first_network</span><span class="p">)</span><span class="o">.</span><span class="n">timeout</span> <span class="o">*</span> <span class="mi">1000</span><span class="p">)</span>
-<a id="__codelineno-0-333" name="__codelineno-0-333"></a>
-<a id="__codelineno-0-334" name="__codelineno-0-334"></a>    <span class="n">clients</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">clients</span><span class="o">.</span><span class="n">get_many</span><span class="p">(</span><span class="n">relays</span><span class="p">)</span>
-<a id="__codelineno-0-335" name="__codelineno-0-335"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">clients</span><span class="p">:</span>
-<a id="__codelineno-0-336" name="__codelineno-0-336"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
-<a id="__codelineno-0-337" name="__codelineno-0-337"></a>            <span class="s2">&quot;publish_failed&quot;</span><span class="p">,</span> <span class="n">event</span><span class="o">=</span><span class="s2">&quot;announcement&quot;</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="s2">&quot;no relays reachable&quot;</span>
-<a id="__codelineno-0-338" name="__codelineno-0-338"></a>        <span class="p">)</span>
-<a id="__codelineno-0-339" name="__codelineno-0-339"></a>        <span class="k">return</span>
-<a id="__codelineno-0-340" name="__codelineno-0-340"></a>
-<a id="__codelineno-0-341" name="__codelineno-0-341"></a>    <span class="n">sent</span> <span class="o">=</span> <span class="k">await</span> <span class="n">broadcast_events</span><span class="p">(</span>
-<a id="__codelineno-0-342" name="__codelineno-0-342"></a>        <span class="p">[</span>
-<a id="__codelineno-0-343" name="__codelineno-0-343"></a>            <span class="n">build_monitor_announcement</span><span class="p">(</span>
-<a id="__codelineno-0-344" name="__codelineno-0-344"></a>                <span class="n">interval</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">discovery</span><span class="o">.</span><span class="n">interval</span><span class="p">),</span>
-<a id="__codelineno-0-345" name="__codelineno-0-345"></a>                <span class="n">timeout_ms</span><span class="o">=</span><span class="n">timeout_ms</span><span class="p">,</span>
-<a id="__codelineno-0-346" name="__codelineno-0-346"></a>                <span class="n">enabled_networks</span><span class="o">=</span><span class="n">enabled_networks</span><span class="p">,</span>
-<a id="__codelineno-0-347" name="__codelineno-0-347"></a>                <span class="n">nip11_selection</span><span class="o">=</span><span class="n">Nip11Selection</span><span class="p">(</span><span class="n">info</span><span class="o">=</span><span class="n">include</span><span class="o">.</span><span class="n">nip11_info</span><span class="p">),</span>
-<a id="__codelineno-0-348" name="__codelineno-0-348"></a>                <span class="n">nip66_selection</span><span class="o">=</span><span class="n">Nip66Selection</span><span class="p">(</span>
-<a id="__codelineno-0-349" name="__codelineno-0-349"></a>                    <span class="n">rtt</span><span class="o">=</span><span class="n">include</span><span class="o">.</span><span class="n">nip66_rtt</span><span class="p">,</span>
-<a id="__codelineno-0-350" name="__codelineno-0-350"></a>                    <span class="n">ssl</span><span class="o">=</span><span class="n">include</span><span class="o">.</span><span class="n">nip66_ssl</span><span class="p">,</span>
-<a id="__codelineno-0-351" name="__codelineno-0-351"></a>                    <span class="n">geo</span><span class="o">=</span><span class="n">include</span><span class="o">.</span><span class="n">nip66_geo</span><span class="p">,</span>
-<a id="__codelineno-0-352" name="__codelineno-0-352"></a>                    <span class="n">net</span><span class="o">=</span><span class="n">include</span><span class="o">.</span><span class="n">nip66_net</span><span class="p">,</span>
-<a id="__codelineno-0-353" name="__codelineno-0-353"></a>                    <span class="n">dns</span><span class="o">=</span><span class="n">include</span><span class="o">.</span><span class="n">nip66_dns</span><span class="p">,</span>
-<a id="__codelineno-0-354" name="__codelineno-0-354"></a>                    <span class="n">http</span><span class="o">=</span><span class="n">include</span><span class="o">.</span><span class="n">nip66_http</span><span class="p">,</span>
-<a id="__codelineno-0-355" name="__codelineno-0-355"></a>                <span class="p">),</span>
-<a id="__codelineno-0-356" name="__codelineno-0-356"></a>            <span class="p">),</span>
-<a id="__codelineno-0-357" name="__codelineno-0-357"></a>        <span class="p">],</span>
-<a id="__codelineno-0-358" name="__codelineno-0-358"></a>        <span class="n">clients</span><span class="p">,</span>
-<a id="__codelineno-0-359" name="__codelineno-0-359"></a>    <span class="p">)</span>
-<a id="__codelineno-0-360" name="__codelineno-0-360"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">sent</span><span class="p">:</span>
-<a id="__codelineno-0-361" name="__codelineno-0-361"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
-<a id="__codelineno-0-362" name="__codelineno-0-362"></a>            <span class="s2">&quot;publish_failed&quot;</span><span class="p">,</span> <span class="n">event</span><span class="o">=</span><span class="s2">&quot;announcement&quot;</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="s2">&quot;no relays reachable&quot;</span>
-<a id="__codelineno-0-363" name="__codelineno-0-363"></a>        <span class="p">)</span>
-<a id="__codelineno-0-364" name="__codelineno-0-364"></a>        <span class="k">return</span>
-<a id="__codelineno-0-365" name="__codelineno-0-365"></a>
-<a id="__codelineno-0-366" name="__codelineno-0-366"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;publish_completed&quot;</span><span class="p">,</span> <span class="n">event</span><span class="o">=</span><span class="s2">&quot;announcement&quot;</span><span class="p">,</span> <span class="n">relays</span><span class="o">=</span><span class="n">sent</span><span class="p">)</span>
-<a id="__codelineno-0-367" name="__codelineno-0-367"></a>    <span class="k">await</span> <span class="n">upsert_publish_checkpoints</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_brotr</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;announcement&quot;</span><span class="p">])</span>
+<a id="__codelineno-0-328" name="__codelineno-0-328"></a>    <span class="n">enabled_networks</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">networks</span><span class="o">.</span><span class="n">get_enabled_networks</span><span class="p">()</span>
+<a id="__codelineno-0-329" name="__codelineno-0-329"></a>    <span class="n">first_network</span> <span class="o">=</span> <span class="n">enabled_networks</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="n">enabled_networks</span> <span class="k">else</span> <span class="n">NetworkType</span><span class="o">.</span><span class="n">CLEARNET</span>
+<a id="__codelineno-0-330" name="__codelineno-0-330"></a>    <span class="n">timeout_ms</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">networks</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">first_network</span><span class="p">)</span><span class="o">.</span><span class="n">timeout</span> <span class="o">*</span> <span class="mi">1000</span><span class="p">)</span>
+<a id="__codelineno-0-331" name="__codelineno-0-331"></a>
+<a id="__codelineno-0-332" name="__codelineno-0-332"></a>    <span class="n">clients</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">clients</span><span class="o">.</span><span class="n">get_many</span><span class="p">(</span><span class="n">relays</span><span class="p">)</span>
+<a id="__codelineno-0-333" name="__codelineno-0-333"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">clients</span><span class="p">:</span>
+<a id="__codelineno-0-334" name="__codelineno-0-334"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+<a id="__codelineno-0-335" name="__codelineno-0-335"></a>            <span class="s2">&quot;publish_failed&quot;</span><span class="p">,</span> <span class="n">event</span><span class="o">=</span><span class="s2">&quot;announcement&quot;</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="s2">&quot;no relays reachable&quot;</span>
+<a id="__codelineno-0-336" name="__codelineno-0-336"></a>        <span class="p">)</span>
+<a id="__codelineno-0-337" name="__codelineno-0-337"></a>        <span class="k">return</span>
+<a id="__codelineno-0-338" name="__codelineno-0-338"></a>
+<a id="__codelineno-0-339" name="__codelineno-0-339"></a>    <span class="n">sent</span> <span class="o">=</span> <span class="k">await</span> <span class="n">broadcast_events</span><span class="p">(</span>
+<a id="__codelineno-0-340" name="__codelineno-0-340"></a>        <span class="p">[</span>
+<a id="__codelineno-0-341" name="__codelineno-0-341"></a>            <span class="n">build_monitor_announcement</span><span class="p">(</span>
+<a id="__codelineno-0-342" name="__codelineno-0-342"></a>                <span class="n">interval</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">discovery</span><span class="o">.</span><span class="n">interval</span><span class="p">),</span>
+<a id="__codelineno-0-343" name="__codelineno-0-343"></a>                <span class="n">timeout_ms</span><span class="o">=</span><span class="n">timeout_ms</span><span class="p">,</span>
+<a id="__codelineno-0-344" name="__codelineno-0-344"></a>                <span class="n">enabled_networks</span><span class="o">=</span><span class="n">enabled_networks</span><span class="p">,</span>
+<a id="__codelineno-0-345" name="__codelineno-0-345"></a>                <span class="n">nip11_selection</span><span class="o">=</span><span class="n">Nip11Selection</span><span class="p">(</span><span class="n">info</span><span class="o">=</span><span class="n">include</span><span class="o">.</span><span class="n">nip11_info</span><span class="p">),</span>
+<a id="__codelineno-0-346" name="__codelineno-0-346"></a>                <span class="n">nip66_selection</span><span class="o">=</span><span class="n">Nip66Selection</span><span class="p">(</span>
+<a id="__codelineno-0-347" name="__codelineno-0-347"></a>                    <span class="n">rtt</span><span class="o">=</span><span class="n">include</span><span class="o">.</span><span class="n">nip66_rtt</span><span class="p">,</span>
+<a id="__codelineno-0-348" name="__codelineno-0-348"></a>                    <span class="n">ssl</span><span class="o">=</span><span class="n">include</span><span class="o">.</span><span class="n">nip66_ssl</span><span class="p">,</span>
+<a id="__codelineno-0-349" name="__codelineno-0-349"></a>                    <span class="n">geo</span><span class="o">=</span><span class="n">include</span><span class="o">.</span><span class="n">nip66_geo</span><span class="p">,</span>
+<a id="__codelineno-0-350" name="__codelineno-0-350"></a>                    <span class="n">net</span><span class="o">=</span><span class="n">include</span><span class="o">.</span><span class="n">nip66_net</span><span class="p">,</span>
+<a id="__codelineno-0-351" name="__codelineno-0-351"></a>                    <span class="n">dns</span><span class="o">=</span><span class="n">include</span><span class="o">.</span><span class="n">nip66_dns</span><span class="p">,</span>
+<a id="__codelineno-0-352" name="__codelineno-0-352"></a>                    <span class="n">http</span><span class="o">=</span><span class="n">include</span><span class="o">.</span><span class="n">nip66_http</span><span class="p">,</span>
+<a id="__codelineno-0-353" name="__codelineno-0-353"></a>                <span class="p">),</span>
+<a id="__codelineno-0-354" name="__codelineno-0-354"></a>            <span class="p">),</span>
+<a id="__codelineno-0-355" name="__codelineno-0-355"></a>        <span class="p">],</span>
+<a id="__codelineno-0-356" name="__codelineno-0-356"></a>        <span class="n">clients</span><span class="p">,</span>
+<a id="__codelineno-0-357" name="__codelineno-0-357"></a>    <span class="p">)</span>
+<a id="__codelineno-0-358" name="__codelineno-0-358"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">sent</span><span class="p">:</span>
+<a id="__codelineno-0-359" name="__codelineno-0-359"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+<a id="__codelineno-0-360" name="__codelineno-0-360"></a>            <span class="s2">&quot;publish_failed&quot;</span><span class="p">,</span> <span class="n">event</span><span class="o">=</span><span class="s2">&quot;announcement&quot;</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="s2">&quot;no relays reachable&quot;</span>
+<a id="__codelineno-0-361" name="__codelineno-0-361"></a>        <span class="p">)</span>
+<a id="__codelineno-0-362" name="__codelineno-0-362"></a>        <span class="k">return</span>
+<a id="__codelineno-0-363" name="__codelineno-0-363"></a>
+<a id="__codelineno-0-364" name="__codelineno-0-364"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;publish_completed&quot;</span><span class="p">,</span> <span class="n">event</span><span class="o">=</span><span class="s2">&quot;announcement&quot;</span><span class="p">,</span> <span class="n">relays</span><span class="o">=</span><span class="n">sent</span><span class="p">)</span>
+<a id="__codelineno-0-365" name="__codelineno-0-365"></a>    <span class="k">await</span> <span class="n">upsert_publish_checkpoints</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_brotr</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;announcement&quot;</span><span class="p">])</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -6182,7 +6178,9 @@ via <code>clients.get_many()</code>, builds the event, and broadcasts.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/bigbrotr/services/monitor/service.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-369">369</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-367">367</a></span>
+<span class="normal"><a href="#__codelineno-0-368">368</a></span>
+<span class="normal"><a href="#__codelineno-0-369">369</a></span>
 <span class="normal"><a href="#__codelineno-0-370">370</a></span>
 <span class="normal"><a href="#__codelineno-0-371">371</a></span>
 <span class="normal"><a href="#__codelineno-0-372">372</a></span>
@@ -6224,53 +6222,51 @@ via <code>clients.get_many()</code>, builds the event, and broadcasts.</p>
 <span class="normal"><a href="#__codelineno-0-408">408</a></span>
 <span class="normal"><a href="#__codelineno-0-409">409</a></span>
 <span class="normal"><a href="#__codelineno-0-410">410</a></span>
-<span class="normal"><a href="#__codelineno-0-411">411</a></span>
-<span class="normal"><a href="#__codelineno-0-412">412</a></span>
-<span class="normal"><a href="#__codelineno-0-413">413</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-369" name="__codelineno-0-369"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">publish_discovery</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">relay</span><span class="p">:</span> <span class="n">Relay</span><span class="p">,</span> <span class="n">result</span><span class="p">:</span> <span class="n">CheckResult</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-370" name="__codelineno-0-370"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Publish a Kind 30166 relay discovery event for a single relay.</span>
-<a id="__codelineno-0-371" name="__codelineno-0-371"></a>
-<a id="__codelineno-0-372" name="__codelineno-0-372"></a><span class="sd">    Resolves discovery publish relays from config, connects lazily</span>
-<a id="__codelineno-0-373" name="__codelineno-0-373"></a><span class="sd">    via ``clients.get_many()``, builds the event, and broadcasts.</span>
-<a id="__codelineno-0-374" name="__codelineno-0-374"></a>
-<a id="__codelineno-0-375" name="__codelineno-0-375"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-376" name="__codelineno-0-376"></a><span class="sd">        relay: The relay that was health-checked.</span>
-<a id="__codelineno-0-377" name="__codelineno-0-377"></a><span class="sd">        result: Health check result containing metadata.</span>
-<a id="__codelineno-0-378" name="__codelineno-0-378"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-379" name="__codelineno-0-379"></a>    <span class="n">cfg</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">discovery</span>
-<a id="__codelineno-0-380" name="__codelineno-0-380"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">cfg</span><span class="o">.</span><span class="n">enabled</span><span class="p">:</span>
-<a id="__codelineno-0-381" name="__codelineno-0-381"></a>        <span class="k">return</span>
-<a id="__codelineno-0-382" name="__codelineno-0-382"></a>
-<a id="__codelineno-0-383" name="__codelineno-0-383"></a>    <span class="n">relays</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">relays</span> <span class="k">if</span> <span class="n">cfg</span><span class="o">.</span><span class="n">relays</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">publishing</span><span class="o">.</span><span class="n">relays</span>
-<a id="__codelineno-0-384" name="__codelineno-0-384"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">relays</span><span class="p">:</span>
-<a id="__codelineno-0-385" name="__codelineno-0-385"></a>        <span class="k">return</span>
-<a id="__codelineno-0-386" name="__codelineno-0-386"></a>
-<a id="__codelineno-0-387" name="__codelineno-0-387"></a>    <span class="n">clients</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">clients</span><span class="o">.</span><span class="n">get_many</span><span class="p">(</span><span class="n">relays</span><span class="p">)</span>
-<a id="__codelineno-0-388" name="__codelineno-0-388"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">clients</span><span class="p">:</span>
-<a id="__codelineno-0-389" name="__codelineno-0-389"></a>        <span class="k">return</span>
-<a id="__codelineno-0-390" name="__codelineno-0-390"></a>
-<a id="__codelineno-0-391" name="__codelineno-0-391"></a>    <span class="n">include</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">include</span>
-<a id="__codelineno-0-392" name="__codelineno-0-392"></a>    <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-393" name="__codelineno-0-393"></a>        <span class="n">nip11</span> <span class="o">=</span> <span class="n">Nip11</span><span class="p">(</span>
-<a id="__codelineno-0-394" name="__codelineno-0-394"></a>            <span class="n">relay</span><span class="o">=</span><span class="n">relay</span><span class="p">,</span>
-<a id="__codelineno-0-395" name="__codelineno-0-395"></a>            <span class="n">info</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">nip11_info</span> <span class="k">if</span> <span class="n">include</span><span class="o">.</span><span class="n">nip11_info</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-396" name="__codelineno-0-396"></a>        <span class="p">)</span>
-<a id="__codelineno-0-397" name="__codelineno-0-397"></a>        <span class="n">nip66</span> <span class="o">=</span> <span class="n">Nip66</span><span class="p">(</span>
-<a id="__codelineno-0-398" name="__codelineno-0-398"></a>            <span class="n">relay</span><span class="o">=</span><span class="n">relay</span><span class="p">,</span>
-<a id="__codelineno-0-399" name="__codelineno-0-399"></a>            <span class="n">rtt</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">nip66_rtt</span> <span class="k">if</span> <span class="n">include</span><span class="o">.</span><span class="n">nip66_rtt</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-400" name="__codelineno-0-400"></a>            <span class="n">ssl</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">nip66_ssl</span> <span class="k">if</span> <span class="n">include</span><span class="o">.</span><span class="n">nip66_ssl</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-401" name="__codelineno-0-401"></a>            <span class="n">geo</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">nip66_geo</span> <span class="k">if</span> <span class="n">include</span><span class="o">.</span><span class="n">nip66_geo</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-402" name="__codelineno-0-402"></a>            <span class="n">net</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">nip66_net</span> <span class="k">if</span> <span class="n">include</span><span class="o">.</span><span class="n">nip66_net</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-403" name="__codelineno-0-403"></a>            <span class="n">dns</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">nip66_dns</span> <span class="k">if</span> <span class="n">include</span><span class="o">.</span><span class="n">nip66_dns</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-404" name="__codelineno-0-404"></a>            <span class="n">http</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">nip66_http</span> <span class="k">if</span> <span class="n">include</span><span class="o">.</span><span class="n">nip66_http</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-405" name="__codelineno-0-405"></a>        <span class="p">)</span>
-<a id="__codelineno-0-406" name="__codelineno-0-406"></a>        <span class="n">builder</span> <span class="o">=</span> <span class="n">build_relay_discovery</span><span class="p">(</span><span class="n">relay</span><span class="p">,</span> <span class="n">nip11</span><span class="p">,</span> <span class="n">nip66</span><span class="p">)</span>
-<a id="__codelineno-0-407" name="__codelineno-0-407"></a>    <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-<a id="__codelineno-0-408" name="__codelineno-0-408"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;build_30166_failed&quot;</span><span class="p">,</span> <span class="n">url</span><span class="o">=</span><span class="n">relay</span><span class="o">.</span><span class="n">url</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
-<a id="__codelineno-0-409" name="__codelineno-0-409"></a>        <span class="k">return</span>
-<a id="__codelineno-0-410" name="__codelineno-0-410"></a>
-<a id="__codelineno-0-411" name="__codelineno-0-411"></a>    <span class="n">sent</span> <span class="o">=</span> <span class="k">await</span> <span class="n">broadcast_events</span><span class="p">([</span><span class="n">builder</span><span class="p">],</span> <span class="n">clients</span><span class="p">)</span>
-<a id="__codelineno-0-412" name="__codelineno-0-412"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">sent</span><span class="p">:</span>
-<a id="__codelineno-0-413" name="__codelineno-0-413"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;discovery_broadcast_failed&quot;</span><span class="p">,</span> <span class="n">url</span><span class="o">=</span><span class="n">relay</span><span class="o">.</span><span class="n">url</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-411">411</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-367" name="__codelineno-0-367"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">publish_discovery</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">relay</span><span class="p">:</span> <span class="n">Relay</span><span class="p">,</span> <span class="n">result</span><span class="p">:</span> <span class="n">CheckResult</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-368" name="__codelineno-0-368"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Publish a Kind 30166 relay discovery event for a single relay.</span>
+<a id="__codelineno-0-369" name="__codelineno-0-369"></a>
+<a id="__codelineno-0-370" name="__codelineno-0-370"></a><span class="sd">    Resolves discovery publish relays from config, connects lazily</span>
+<a id="__codelineno-0-371" name="__codelineno-0-371"></a><span class="sd">    via ``clients.get_many()``, builds the event, and broadcasts.</span>
+<a id="__codelineno-0-372" name="__codelineno-0-372"></a>
+<a id="__codelineno-0-373" name="__codelineno-0-373"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-374" name="__codelineno-0-374"></a><span class="sd">        relay: The relay that was health-checked.</span>
+<a id="__codelineno-0-375" name="__codelineno-0-375"></a><span class="sd">        result: Health check result containing metadata.</span>
+<a id="__codelineno-0-376" name="__codelineno-0-376"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-377" name="__codelineno-0-377"></a>    <span class="n">cfg</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">discovery</span>
+<a id="__codelineno-0-378" name="__codelineno-0-378"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">cfg</span><span class="o">.</span><span class="n">enabled</span><span class="p">:</span>
+<a id="__codelineno-0-379" name="__codelineno-0-379"></a>        <span class="k">return</span>
+<a id="__codelineno-0-380" name="__codelineno-0-380"></a>
+<a id="__codelineno-0-381" name="__codelineno-0-381"></a>    <span class="n">relays</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">relays</span> <span class="k">if</span> <span class="n">cfg</span><span class="o">.</span><span class="n">relays</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">publishing</span><span class="o">.</span><span class="n">relays</span>
+<a id="__codelineno-0-382" name="__codelineno-0-382"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">relays</span><span class="p">:</span>
+<a id="__codelineno-0-383" name="__codelineno-0-383"></a>        <span class="k">return</span>
+<a id="__codelineno-0-384" name="__codelineno-0-384"></a>
+<a id="__codelineno-0-385" name="__codelineno-0-385"></a>    <span class="n">clients</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">clients</span><span class="o">.</span><span class="n">get_many</span><span class="p">(</span><span class="n">relays</span><span class="p">)</span>
+<a id="__codelineno-0-386" name="__codelineno-0-386"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">clients</span><span class="p">:</span>
+<a id="__codelineno-0-387" name="__codelineno-0-387"></a>        <span class="k">return</span>
+<a id="__codelineno-0-388" name="__codelineno-0-388"></a>
+<a id="__codelineno-0-389" name="__codelineno-0-389"></a>    <span class="n">include</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">include</span>
+<a id="__codelineno-0-390" name="__codelineno-0-390"></a>    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-391" name="__codelineno-0-391"></a>        <span class="n">nip11</span> <span class="o">=</span> <span class="n">Nip11</span><span class="p">(</span>
+<a id="__codelineno-0-392" name="__codelineno-0-392"></a>            <span class="n">relay</span><span class="o">=</span><span class="n">relay</span><span class="p">,</span>
+<a id="__codelineno-0-393" name="__codelineno-0-393"></a>            <span class="n">info</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">nip11_info</span> <span class="k">if</span> <span class="n">include</span><span class="o">.</span><span class="n">nip11_info</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-394" name="__codelineno-0-394"></a>        <span class="p">)</span>
+<a id="__codelineno-0-395" name="__codelineno-0-395"></a>        <span class="n">nip66</span> <span class="o">=</span> <span class="n">Nip66</span><span class="p">(</span>
+<a id="__codelineno-0-396" name="__codelineno-0-396"></a>            <span class="n">relay</span><span class="o">=</span><span class="n">relay</span><span class="p">,</span>
+<a id="__codelineno-0-397" name="__codelineno-0-397"></a>            <span class="n">rtt</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">nip66_rtt</span> <span class="k">if</span> <span class="n">include</span><span class="o">.</span><span class="n">nip66_rtt</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-398" name="__codelineno-0-398"></a>            <span class="n">ssl</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">nip66_ssl</span> <span class="k">if</span> <span class="n">include</span><span class="o">.</span><span class="n">nip66_ssl</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-399" name="__codelineno-0-399"></a>            <span class="n">geo</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">nip66_geo</span> <span class="k">if</span> <span class="n">include</span><span class="o">.</span><span class="n">nip66_geo</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-400" name="__codelineno-0-400"></a>            <span class="n">net</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">nip66_net</span> <span class="k">if</span> <span class="n">include</span><span class="o">.</span><span class="n">nip66_net</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-401" name="__codelineno-0-401"></a>            <span class="n">dns</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">nip66_dns</span> <span class="k">if</span> <span class="n">include</span><span class="o">.</span><span class="n">nip66_dns</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-402" name="__codelineno-0-402"></a>            <span class="n">http</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">nip66_http</span> <span class="k">if</span> <span class="n">include</span><span class="o">.</span><span class="n">nip66_http</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-403" name="__codelineno-0-403"></a>        <span class="p">)</span>
+<a id="__codelineno-0-404" name="__codelineno-0-404"></a>        <span class="n">builder</span> <span class="o">=</span> <span class="n">build_relay_discovery</span><span class="p">(</span><span class="n">relay</span><span class="p">,</span> <span class="n">nip11</span><span class="p">,</span> <span class="n">nip66</span><span class="p">)</span>
+<a id="__codelineno-0-405" name="__codelineno-0-405"></a>    <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+<a id="__codelineno-0-406" name="__codelineno-0-406"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;build_30166_failed&quot;</span><span class="p">,</span> <span class="n">url</span><span class="o">=</span><span class="n">relay</span><span class="o">.</span><span class="n">url</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
+<a id="__codelineno-0-407" name="__codelineno-0-407"></a>        <span class="k">return</span>
+<a id="__codelineno-0-408" name="__codelineno-0-408"></a>
+<a id="__codelineno-0-409" name="__codelineno-0-409"></a>    <span class="n">sent</span> <span class="o">=</span> <span class="k">await</span> <span class="n">broadcast_events</span><span class="p">([</span><span class="n">builder</span><span class="p">],</span> <span class="n">clients</span><span class="p">)</span>
+<a id="__codelineno-0-410" name="__codelineno-0-410"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">sent</span><span class="p">:</span>
+<a id="__codelineno-0-411" name="__codelineno-0-411"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;discovery_broadcast_failed&quot;</span><span class="p">,</span> <span class="n">url</span><span class="o">=</span><span class="n">relay</span><span class="o">.</span><span class="n">url</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -6333,7 +6329,9 @@ to apply proof-of-work on the test event. All other checks
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/bigbrotr/services/monitor/service.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-415">415</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-413">413</a></span>
+<span class="normal"><a href="#__codelineno-0-414">414</a></span>
+<span class="normal"><a href="#__codelineno-0-415">415</a></span>
 <span class="normal"><a href="#__codelineno-0-416">416</a></span>
 <span class="normal"><a href="#__codelineno-0-417">417</a></span>
 <span class="normal"><a href="#__codelineno-0-418">418</a></span>
@@ -6447,125 +6445,123 @@ to apply proof-of-work on the test event. All other checks
 <span class="normal"><a href="#__codelineno-0-526">526</a></span>
 <span class="normal"><a href="#__codelineno-0-527">527</a></span>
 <span class="normal"><a href="#__codelineno-0-528">528</a></span>
-<span class="normal"><a href="#__codelineno-0-529">529</a></span>
-<span class="normal"><a href="#__codelineno-0-530">530</a></span>
-<span class="normal"><a href="#__codelineno-0-531">531</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-415" name="__codelineno-0-415"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">check_relay</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">relay</span><span class="p">:</span> <span class="n">Relay</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CheckResult</span><span class="p">:</span>
-<a id="__codelineno-0-416" name="__codelineno-0-416"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Perform all configured health checks on a single relay.</span>
-<a id="__codelineno-0-417" name="__codelineno-0-417"></a>
-<a id="__codelineno-0-418" name="__codelineno-0-418"></a><span class="sd">    Runs NIP-11, RTT, SSL, DNS, geo, net, and HTTP checks as configured.</span>
-<a id="__codelineno-0-419" name="__codelineno-0-419"></a><span class="sd">    The caller is responsible for acquiring the per-network semaphore.</span>
-<a id="__codelineno-0-420" name="__codelineno-0-420"></a>
-<a id="__codelineno-0-421" name="__codelineno-0-421"></a><span class="sd">    Note:</span>
-<a id="__codelineno-0-422" name="__codelineno-0-422"></a><span class="sd">        NIP-11 is fetched first because the RTT write-test may need</span>
-<a id="__codelineno-0-423" name="__codelineno-0-423"></a><span class="sd">        the ``min_pow_difficulty`` from NIP-11&#39;s ``limitation`` object</span>
-<a id="__codelineno-0-424" name="__codelineno-0-424"></a><span class="sd">        to apply proof-of-work on the test event. All other checks</span>
-<a id="__codelineno-0-425" name="__codelineno-0-425"></a><span class="sd">        (SSL, DNS, Geo, Net, HTTP) run in parallel after NIP-11 and RTT.</span>
-<a id="__codelineno-0-426" name="__codelineno-0-426"></a>
-<a id="__codelineno-0-427" name="__codelineno-0-427"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-428" name="__codelineno-0-428"></a><span class="sd">        [CheckResult][bigbrotr.services.monitor.CheckResult] with</span>
-<a id="__codelineno-0-429" name="__codelineno-0-429"></a><span class="sd">        metadata for each completed check (``None`` if skipped/failed).</span>
-<a id="__codelineno-0-430" name="__codelineno-0-430"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-431" name="__codelineno-0-431"></a>    <span class="n">empty</span> <span class="o">=</span> <span class="n">CheckResult</span><span class="p">()</span>
-<a id="__codelineno-0-432" name="__codelineno-0-432"></a>
-<a id="__codelineno-0-433" name="__codelineno-0-433"></a>    <span class="n">network_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">networks</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">relay</span><span class="o">.</span><span class="n">network</span><span class="p">)</span>
-<a id="__codelineno-0-434" name="__codelineno-0-434"></a>    <span class="n">proxy_url</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">networks</span><span class="o">.</span><span class="n">get_proxy_url</span><span class="p">(</span><span class="n">relay</span><span class="o">.</span><span class="n">network</span><span class="p">)</span>
-<a id="__codelineno-0-435" name="__codelineno-0-435"></a>    <span class="n">timeout</span> <span class="o">=</span> <span class="n">network_config</span><span class="o">.</span><span class="n">timeout</span>
-<a id="__codelineno-0-436" name="__codelineno-0-436"></a>    <span class="n">compute</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">compute</span>
-<a id="__codelineno-0-437" name="__codelineno-0-437"></a>
-<a id="__codelineno-0-438" name="__codelineno-0-438"></a>    <span class="n">nip11_info</span><span class="p">:</span> <span class="n">Nip11InfoMetadata</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-439" name="__codelineno-0-439"></a>    <span class="n">generated_at</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())</span>
-<a id="__codelineno-0-440" name="__codelineno-0-440"></a>
-<a id="__codelineno-0-441" name="__codelineno-0-441"></a>    <span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-0-442" name="__codelineno-0-442"></a>        <span class="k">if</span> <span class="n">compute</span><span class="o">.</span><span class="n">nip11_info</span><span class="p">:</span>
-<a id="__codelineno-0-443" name="__codelineno-0-443"></a>
-<a id="__codelineno-0-444" name="__codelineno-0-444"></a>            <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_fetch_nip11</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Nip11InfoMetadata</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-445" name="__codelineno-0-445"></a>                <span class="k">return</span> <span class="p">(</span>
-<a id="__codelineno-0-446" name="__codelineno-0-446"></a>                    <span class="k">await</span> <span class="n">Nip11</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
-<a id="__codelineno-0-447" name="__codelineno-0-447"></a>                        <span class="n">relay</span><span class="p">,</span>
-<a id="__codelineno-0-448" name="__codelineno-0-448"></a>                        <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">,</span>
-<a id="__codelineno-0-449" name="__codelineno-0-449"></a>                        <span class="n">proxy_url</span><span class="o">=</span><span class="n">proxy_url</span><span class="p">,</span>
-<a id="__codelineno-0-450" name="__codelineno-0-450"></a>                        <span class="n">options</span><span class="o">=</span><span class="n">Nip11Options</span><span class="p">(</span>
-<a id="__codelineno-0-451" name="__codelineno-0-451"></a>                            <span class="n">allow_insecure</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">allow_insecure</span><span class="p">,</span>
-<a id="__codelineno-0-452" name="__codelineno-0-452"></a>                            <span class="n">max_size</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">nip11_info_max_size</span><span class="p">,</span>
-<a id="__codelineno-0-453" name="__codelineno-0-453"></a>                        <span class="p">),</span>
-<a id="__codelineno-0-454" name="__codelineno-0-454"></a>                    <span class="p">)</span>
-<a id="__codelineno-0-455" name="__codelineno-0-455"></a>                <span class="p">)</span><span class="o">.</span><span class="n">info</span>
-<a id="__codelineno-0-456" name="__codelineno-0-456"></a>
-<a id="__codelineno-0-457" name="__codelineno-0-457"></a>            <span class="n">nip11_info</span> <span class="o">=</span> <span class="k">await</span> <span class="n">retry_fetch</span><span class="p">(</span>
-<a id="__codelineno-0-458" name="__codelineno-0-458"></a>                <span class="n">relay</span><span class="p">,</span>
-<a id="__codelineno-0-459" name="__codelineno-0-459"></a>                <span class="n">_fetch_nip11</span><span class="p">,</span>
-<a id="__codelineno-0-460" name="__codelineno-0-460"></a>                <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">retries</span><span class="o">.</span><span class="n">nip11_info</span><span class="p">,</span>
-<a id="__codelineno-0-461" name="__codelineno-0-461"></a>                <span class="s2">&quot;nip11_info&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-462" name="__codelineno-0-462"></a>                <span class="n">wait</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">wait</span><span class="p">,</span>
-<a id="__codelineno-0-463" name="__codelineno-0-463"></a>            <span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-529">529</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-413" name="__codelineno-0-413"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">check_relay</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">relay</span><span class="p">:</span> <span class="n">Relay</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CheckResult</span><span class="p">:</span>
+<a id="__codelineno-0-414" name="__codelineno-0-414"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Perform all configured health checks on a single relay.</span>
+<a id="__codelineno-0-415" name="__codelineno-0-415"></a>
+<a id="__codelineno-0-416" name="__codelineno-0-416"></a><span class="sd">    Runs NIP-11, RTT, SSL, DNS, geo, net, and HTTP checks as configured.</span>
+<a id="__codelineno-0-417" name="__codelineno-0-417"></a><span class="sd">    The caller is responsible for acquiring the per-network semaphore.</span>
+<a id="__codelineno-0-418" name="__codelineno-0-418"></a>
+<a id="__codelineno-0-419" name="__codelineno-0-419"></a><span class="sd">    Note:</span>
+<a id="__codelineno-0-420" name="__codelineno-0-420"></a><span class="sd">        NIP-11 is fetched first because the RTT write-test may need</span>
+<a id="__codelineno-0-421" name="__codelineno-0-421"></a><span class="sd">        the ``min_pow_difficulty`` from NIP-11&#39;s ``limitation`` object</span>
+<a id="__codelineno-0-422" name="__codelineno-0-422"></a><span class="sd">        to apply proof-of-work on the test event. All other checks</span>
+<a id="__codelineno-0-423" name="__codelineno-0-423"></a><span class="sd">        (SSL, DNS, Geo, Net, HTTP) run in parallel after NIP-11 and RTT.</span>
+<a id="__codelineno-0-424" name="__codelineno-0-424"></a>
+<a id="__codelineno-0-425" name="__codelineno-0-425"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-426" name="__codelineno-0-426"></a><span class="sd">        [CheckResult][bigbrotr.services.monitor.CheckResult] with</span>
+<a id="__codelineno-0-427" name="__codelineno-0-427"></a><span class="sd">        metadata for each completed check (``None`` if skipped/failed).</span>
+<a id="__codelineno-0-428" name="__codelineno-0-428"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-429" name="__codelineno-0-429"></a>    <span class="n">empty</span> <span class="o">=</span> <span class="n">CheckResult</span><span class="p">()</span>
+<a id="__codelineno-0-430" name="__codelineno-0-430"></a>
+<a id="__codelineno-0-431" name="__codelineno-0-431"></a>    <span class="n">network_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">networks</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">relay</span><span class="o">.</span><span class="n">network</span><span class="p">)</span>
+<a id="__codelineno-0-432" name="__codelineno-0-432"></a>    <span class="n">proxy_url</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">networks</span><span class="o">.</span><span class="n">get_proxy_url</span><span class="p">(</span><span class="n">relay</span><span class="o">.</span><span class="n">network</span><span class="p">)</span>
+<a id="__codelineno-0-433" name="__codelineno-0-433"></a>    <span class="n">timeout</span> <span class="o">=</span> <span class="n">network_config</span><span class="o">.</span><span class="n">timeout</span>
+<a id="__codelineno-0-434" name="__codelineno-0-434"></a>    <span class="n">compute</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">compute</span>
+<a id="__codelineno-0-435" name="__codelineno-0-435"></a>
+<a id="__codelineno-0-436" name="__codelineno-0-436"></a>    <span class="n">nip11_info</span><span class="p">:</span> <span class="n">Nip11InfoMetadata</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-437" name="__codelineno-0-437"></a>    <span class="n">generated_at</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())</span>
+<a id="__codelineno-0-438" name="__codelineno-0-438"></a>
+<a id="__codelineno-0-439" name="__codelineno-0-439"></a>    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-440" name="__codelineno-0-440"></a>        <span class="k">if</span> <span class="n">compute</span><span class="o">.</span><span class="n">nip11_info</span><span class="p">:</span>
+<a id="__codelineno-0-441" name="__codelineno-0-441"></a>
+<a id="__codelineno-0-442" name="__codelineno-0-442"></a>            <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_fetch_nip11</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Nip11InfoMetadata</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-443" name="__codelineno-0-443"></a>                <span class="k">return</span> <span class="p">(</span>
+<a id="__codelineno-0-444" name="__codelineno-0-444"></a>                    <span class="k">await</span> <span class="n">Nip11</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+<a id="__codelineno-0-445" name="__codelineno-0-445"></a>                        <span class="n">relay</span><span class="p">,</span>
+<a id="__codelineno-0-446" name="__codelineno-0-446"></a>                        <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">,</span>
+<a id="__codelineno-0-447" name="__codelineno-0-447"></a>                        <span class="n">proxy_url</span><span class="o">=</span><span class="n">proxy_url</span><span class="p">,</span>
+<a id="__codelineno-0-448" name="__codelineno-0-448"></a>                        <span class="n">options</span><span class="o">=</span><span class="n">Nip11Options</span><span class="p">(</span>
+<a id="__codelineno-0-449" name="__codelineno-0-449"></a>                            <span class="n">allow_insecure</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">allow_insecure</span><span class="p">,</span>
+<a id="__codelineno-0-450" name="__codelineno-0-450"></a>                            <span class="n">max_size</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">nip11_info_max_size</span><span class="p">,</span>
+<a id="__codelineno-0-451" name="__codelineno-0-451"></a>                        <span class="p">),</span>
+<a id="__codelineno-0-452" name="__codelineno-0-452"></a>                    <span class="p">)</span>
+<a id="__codelineno-0-453" name="__codelineno-0-453"></a>                <span class="p">)</span><span class="o">.</span><span class="n">info</span>
+<a id="__codelineno-0-454" name="__codelineno-0-454"></a>
+<a id="__codelineno-0-455" name="__codelineno-0-455"></a>            <span class="n">nip11_info</span> <span class="o">=</span> <span class="k">await</span> <span class="n">retry_fetch</span><span class="p">(</span>
+<a id="__codelineno-0-456" name="__codelineno-0-456"></a>                <span class="n">relay</span><span class="p">,</span>
+<a id="__codelineno-0-457" name="__codelineno-0-457"></a>                <span class="n">_fetch_nip11</span><span class="p">,</span>
+<a id="__codelineno-0-458" name="__codelineno-0-458"></a>                <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">retries</span><span class="o">.</span><span class="n">nip11_info</span><span class="p">,</span>
+<a id="__codelineno-0-459" name="__codelineno-0-459"></a>                <span class="s2">&quot;nip11_info&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-460" name="__codelineno-0-460"></a>                <span class="n">wait</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">wait</span><span class="p">,</span>
+<a id="__codelineno-0-461" name="__codelineno-0-461"></a>            <span class="p">)</span>
+<a id="__codelineno-0-462" name="__codelineno-0-462"></a>
+<a id="__codelineno-0-463" name="__codelineno-0-463"></a>        <span class="n">rtt_meta</span><span class="p">:</span> <span class="n">Nip66RttMetadata</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <a id="__codelineno-0-464" name="__codelineno-0-464"></a>
-<a id="__codelineno-0-465" name="__codelineno-0-465"></a>        <span class="n">rtt_meta</span><span class="p">:</span> <span class="n">Nip66RttMetadata</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-466" name="__codelineno-0-466"></a>
-<a id="__codelineno-0-467" name="__codelineno-0-467"></a>        <span class="c1"># RTT test: open/read/write round-trip times</span>
-<a id="__codelineno-0-468" name="__codelineno-0-468"></a>        <span class="k">if</span> <span class="n">compute</span><span class="o">.</span><span class="n">nip66_rtt</span><span class="p">:</span>
-<a id="__codelineno-0-469" name="__codelineno-0-469"></a>            <span class="n">event_builder</span> <span class="o">=</span> <span class="n">EventBuilder</span><span class="p">(</span><span class="n">Kind</span><span class="p">(</span><span class="n">EventKind</span><span class="o">.</span><span class="n">NIP66_TEST</span><span class="p">),</span> <span class="s2">&quot;nip66-test&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">tags</span><span class="p">(</span>
-<a id="__codelineno-0-470" name="__codelineno-0-470"></a>                <span class="p">[</span><span class="n">Tag</span><span class="o">.</span><span class="n">identifier</span><span class="p">(</span><span class="n">relay</span><span class="o">.</span><span class="n">url</span><span class="p">)]</span>
-<a id="__codelineno-0-471" name="__codelineno-0-471"></a>            <span class="p">)</span>
-<a id="__codelineno-0-472" name="__codelineno-0-472"></a>            <span class="c1"># Apply proof-of-work if NIP-11 specifies minimum difficulty</span>
-<a id="__codelineno-0-473" name="__codelineno-0-473"></a>            <span class="k">if</span> <span class="n">nip11_info</span> <span class="ow">and</span> <span class="n">nip11_info</span><span class="o">.</span><span class="n">logs</span><span class="o">.</span><span class="n">success</span><span class="p">:</span>
-<a id="__codelineno-0-474" name="__codelineno-0-474"></a>                <span class="n">pow_difficulty</span> <span class="o">=</span> <span class="n">nip11_info</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">limitation</span><span class="o">.</span><span class="n">min_pow_difficulty</span>
-<a id="__codelineno-0-475" name="__codelineno-0-475"></a>                <span class="k">if</span> <span class="n">pow_difficulty</span> <span class="ow">and</span> <span class="n">pow_difficulty</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-<a id="__codelineno-0-476" name="__codelineno-0-476"></a>                    <span class="n">event_builder</span> <span class="o">=</span> <span class="n">event_builder</span><span class="o">.</span><span class="n">pow</span><span class="p">(</span><span class="n">pow_difficulty</span><span class="p">)</span>
-<a id="__codelineno-0-477" name="__codelineno-0-477"></a>            <span class="n">read_filter</span> <span class="o">=</span> <span class="n">Filter</span><span class="p">()</span><span class="o">.</span><span class="n">limit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-0-478" name="__codelineno-0-478"></a>            <span class="n">rtt_deps</span> <span class="o">=</span> <span class="n">Nip66RttDependencies</span><span class="p">(</span>
-<a id="__codelineno-0-479" name="__codelineno-0-479"></a>                <span class="n">keys</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_keys</span><span class="p">,</span>
-<a id="__codelineno-0-480" name="__codelineno-0-480"></a>                <span class="n">event_builder</span><span class="o">=</span><span class="n">event_builder</span><span class="p">,</span>
-<a id="__codelineno-0-481" name="__codelineno-0-481"></a>                <span class="n">read_filter</span><span class="o">=</span><span class="n">read_filter</span><span class="p">,</span>
-<a id="__codelineno-0-482" name="__codelineno-0-482"></a>            <span class="p">)</span>
-<a id="__codelineno-0-483" name="__codelineno-0-483"></a>            <span class="n">rtt_meta</span> <span class="o">=</span> <span class="k">await</span> <span class="n">retry_fetch</span><span class="p">(</span>
-<a id="__codelineno-0-484" name="__codelineno-0-484"></a>                <span class="n">relay</span><span class="p">,</span>
-<a id="__codelineno-0-485" name="__codelineno-0-485"></a>                <span class="k">lambda</span><span class="p">:</span> <span class="n">Nip66RttMetadata</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
-<a id="__codelineno-0-486" name="__codelineno-0-486"></a>                    <span class="n">relay</span><span class="p">,</span>
-<a id="__codelineno-0-487" name="__codelineno-0-487"></a>                    <span class="n">rtt_deps</span><span class="p">,</span>
-<a id="__codelineno-0-488" name="__codelineno-0-488"></a>                    <span class="n">timeout</span><span class="p">,</span>
-<a id="__codelineno-0-489" name="__codelineno-0-489"></a>                    <span class="n">proxy_url</span><span class="p">,</span>
-<a id="__codelineno-0-490" name="__codelineno-0-490"></a>                    <span class="n">allow_insecure</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">allow_insecure</span><span class="p">,</span>
-<a id="__codelineno-0-491" name="__codelineno-0-491"></a>                <span class="p">),</span>
-<a id="__codelineno-0-492" name="__codelineno-0-492"></a>                <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">retries</span><span class="o">.</span><span class="n">nip66_rtt</span><span class="p">,</span>
-<a id="__codelineno-0-493" name="__codelineno-0-493"></a>                <span class="s2">&quot;nip66_rtt&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-494" name="__codelineno-0-494"></a>                <span class="n">wait</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">wait</span><span class="p">,</span>
-<a id="__codelineno-0-495" name="__codelineno-0-495"></a>            <span class="p">)</span>
-<a id="__codelineno-0-496" name="__codelineno-0-496"></a>
-<a id="__codelineno-0-497" name="__codelineno-0-497"></a>        <span class="c1"># Run independent checks (SSL, DNS, Geo, Net, HTTP) in parallel</span>
-<a id="__codelineno-0-498" name="__codelineno-0-498"></a>        <span class="n">parallel_tasks</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_parallel_checks</span><span class="p">(</span><span class="n">relay</span><span class="p">,</span> <span class="n">compute</span><span class="p">,</span> <span class="n">timeout</span><span class="p">,</span> <span class="n">proxy_url</span><span class="p">)</span>
-<a id="__codelineno-0-499" name="__codelineno-0-499"></a>
-<a id="__codelineno-0-500" name="__codelineno-0-500"></a>        <span class="n">gathered</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
-<a id="__codelineno-0-501" name="__codelineno-0-501"></a>        <span class="k">if</span> <span class="n">parallel_tasks</span><span class="p">:</span>
-<a id="__codelineno-0-502" name="__codelineno-0-502"></a>            <span class="n">parallel_results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span>
-<a id="__codelineno-0-503" name="__codelineno-0-503"></a>                <span class="o">*</span><span class="n">parallel_tasks</span><span class="o">.</span><span class="n">values</span><span class="p">(),</span> <span class="n">return_exceptions</span><span class="o">=</span><span class="kc">True</span>
-<a id="__codelineno-0-504" name="__codelineno-0-504"></a>            <span class="p">)</span>
-<a id="__codelineno-0-505" name="__codelineno-0-505"></a>            <span class="c1"># Re-raise CancelledError from parallel checks</span>
-<a id="__codelineno-0-506" name="__codelineno-0-506"></a>            <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">parallel_results</span><span class="p">:</span>
-<a id="__codelineno-0-507" name="__codelineno-0-507"></a>                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
-<a id="__codelineno-0-508" name="__codelineno-0-508"></a>                    <span class="k">raise</span> <span class="n">r</span>
-<a id="__codelineno-0-509" name="__codelineno-0-509"></a>            <span class="n">gathered</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">parallel_tasks</span><span class="o">.</span><span class="n">keys</span><span class="p">(),</span> <span class="n">parallel_results</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
-<a id="__codelineno-0-510" name="__codelineno-0-510"></a>
-<a id="__codelineno-0-511" name="__codelineno-0-511"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">CheckResult</span><span class="p">(</span>
-<a id="__codelineno-0-512" name="__codelineno-0-512"></a>            <span class="n">generated_at</span><span class="o">=</span><span class="n">generated_at</span><span class="p">,</span>
-<a id="__codelineno-0-513" name="__codelineno-0-513"></a>            <span class="n">nip11_info</span><span class="o">=</span><span class="n">nip11_info</span><span class="p">,</span>
-<a id="__codelineno-0-514" name="__codelineno-0-514"></a>            <span class="n">nip66_rtt</span><span class="o">=</span><span class="n">rtt_meta</span><span class="p">,</span>
-<a id="__codelineno-0-515" name="__codelineno-0-515"></a>            <span class="n">nip66_ssl</span><span class="o">=</span><span class="n">extract_result</span><span class="p">(</span><span class="n">gathered</span><span class="p">,</span> <span class="s2">&quot;ssl&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-516" name="__codelineno-0-516"></a>            <span class="n">nip66_geo</span><span class="o">=</span><span class="n">extract_result</span><span class="p">(</span><span class="n">gathered</span><span class="p">,</span> <span class="s2">&quot;geo&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-517" name="__codelineno-0-517"></a>            <span class="n">nip66_net</span><span class="o">=</span><span class="n">extract_result</span><span class="p">(</span><span class="n">gathered</span><span class="p">,</span> <span class="s2">&quot;net&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-518" name="__codelineno-0-518"></a>            <span class="n">nip66_dns</span><span class="o">=</span><span class="n">extract_result</span><span class="p">(</span><span class="n">gathered</span><span class="p">,</span> <span class="s2">&quot;dns&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-519" name="__codelineno-0-519"></a>            <span class="n">nip66_http</span><span class="o">=</span><span class="n">extract_result</span><span class="p">(</span><span class="n">gathered</span><span class="p">,</span> <span class="s2">&quot;http&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-520" name="__codelineno-0-520"></a>        <span class="p">)</span>
-<a id="__codelineno-0-521" name="__codelineno-0-521"></a>
-<a id="__codelineno-0-522" name="__codelineno-0-522"></a>        <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">has_data</span><span class="p">:</span>
-<a id="__codelineno-0-523" name="__codelineno-0-523"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;check_succeeded&quot;</span><span class="p">,</span> <span class="n">url</span><span class="o">=</span><span class="n">relay</span><span class="o">.</span><span class="n">url</span><span class="p">)</span>
-<a id="__codelineno-0-524" name="__codelineno-0-524"></a>        <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-525" name="__codelineno-0-525"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;check_failed&quot;</span><span class="p">,</span> <span class="n">url</span><span class="o">=</span><span class="n">relay</span><span class="o">.</span><span class="n">url</span><span class="p">)</span>
+<a id="__codelineno-0-465" name="__codelineno-0-465"></a>        <span class="c1"># RTT test: open/read/write round-trip times</span>
+<a id="__codelineno-0-466" name="__codelineno-0-466"></a>        <span class="k">if</span> <span class="n">compute</span><span class="o">.</span><span class="n">nip66_rtt</span><span class="p">:</span>
+<a id="__codelineno-0-467" name="__codelineno-0-467"></a>            <span class="n">event_builder</span> <span class="o">=</span> <span class="n">EventBuilder</span><span class="p">(</span><span class="n">Kind</span><span class="p">(</span><span class="n">EventKind</span><span class="o">.</span><span class="n">NIP66_TEST</span><span class="p">),</span> <span class="s2">&quot;nip66-test&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">tags</span><span class="p">(</span>
+<a id="__codelineno-0-468" name="__codelineno-0-468"></a>                <span class="p">[</span><span class="n">Tag</span><span class="o">.</span><span class="n">identifier</span><span class="p">(</span><span class="n">relay</span><span class="o">.</span><span class="n">url</span><span class="p">)]</span>
+<a id="__codelineno-0-469" name="__codelineno-0-469"></a>            <span class="p">)</span>
+<a id="__codelineno-0-470" name="__codelineno-0-470"></a>            <span class="c1"># Apply proof-of-work if NIP-11 specifies minimum difficulty</span>
+<a id="__codelineno-0-471" name="__codelineno-0-471"></a>            <span class="k">if</span> <span class="n">nip11_info</span> <span class="ow">and</span> <span class="n">nip11_info</span><span class="o">.</span><span class="n">logs</span><span class="o">.</span><span class="n">success</span><span class="p">:</span>
+<a id="__codelineno-0-472" name="__codelineno-0-472"></a>                <span class="n">pow_difficulty</span> <span class="o">=</span> <span class="n">nip11_info</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">limitation</span><span class="o">.</span><span class="n">min_pow_difficulty</span>
+<a id="__codelineno-0-473" name="__codelineno-0-473"></a>                <span class="k">if</span> <span class="n">pow_difficulty</span> <span class="ow">and</span> <span class="n">pow_difficulty</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-0-474" name="__codelineno-0-474"></a>                    <span class="n">event_builder</span> <span class="o">=</span> <span class="n">event_builder</span><span class="o">.</span><span class="n">pow</span><span class="p">(</span><span class="n">pow_difficulty</span><span class="p">)</span>
+<a id="__codelineno-0-475" name="__codelineno-0-475"></a>            <span class="n">read_filter</span> <span class="o">=</span> <span class="n">Filter</span><span class="p">()</span><span class="o">.</span><span class="n">limit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-0-476" name="__codelineno-0-476"></a>            <span class="n">rtt_deps</span> <span class="o">=</span> <span class="n">Nip66RttDependencies</span><span class="p">(</span>
+<a id="__codelineno-0-477" name="__codelineno-0-477"></a>                <span class="n">keys</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_keys</span><span class="p">,</span>
+<a id="__codelineno-0-478" name="__codelineno-0-478"></a>                <span class="n">event_builder</span><span class="o">=</span><span class="n">event_builder</span><span class="p">,</span>
+<a id="__codelineno-0-479" name="__codelineno-0-479"></a>                <span class="n">read_filter</span><span class="o">=</span><span class="n">read_filter</span><span class="p">,</span>
+<a id="__codelineno-0-480" name="__codelineno-0-480"></a>            <span class="p">)</span>
+<a id="__codelineno-0-481" name="__codelineno-0-481"></a>            <span class="n">rtt_meta</span> <span class="o">=</span> <span class="k">await</span> <span class="n">retry_fetch</span><span class="p">(</span>
+<a id="__codelineno-0-482" name="__codelineno-0-482"></a>                <span class="n">relay</span><span class="p">,</span>
+<a id="__codelineno-0-483" name="__codelineno-0-483"></a>                <span class="k">lambda</span><span class="p">:</span> <span class="n">Nip66RttMetadata</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
+<a id="__codelineno-0-484" name="__codelineno-0-484"></a>                    <span class="n">relay</span><span class="p">,</span>
+<a id="__codelineno-0-485" name="__codelineno-0-485"></a>                    <span class="n">rtt_deps</span><span class="p">,</span>
+<a id="__codelineno-0-486" name="__codelineno-0-486"></a>                    <span class="n">timeout</span><span class="p">,</span>
+<a id="__codelineno-0-487" name="__codelineno-0-487"></a>                    <span class="n">proxy_url</span><span class="p">,</span>
+<a id="__codelineno-0-488" name="__codelineno-0-488"></a>                    <span class="n">allow_insecure</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">allow_insecure</span><span class="p">,</span>
+<a id="__codelineno-0-489" name="__codelineno-0-489"></a>                <span class="p">),</span>
+<a id="__codelineno-0-490" name="__codelineno-0-490"></a>                <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">retries</span><span class="o">.</span><span class="n">nip66_rtt</span><span class="p">,</span>
+<a id="__codelineno-0-491" name="__codelineno-0-491"></a>                <span class="s2">&quot;nip66_rtt&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-492" name="__codelineno-0-492"></a>                <span class="n">wait</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">wait</span><span class="p">,</span>
+<a id="__codelineno-0-493" name="__codelineno-0-493"></a>            <span class="p">)</span>
+<a id="__codelineno-0-494" name="__codelineno-0-494"></a>
+<a id="__codelineno-0-495" name="__codelineno-0-495"></a>        <span class="c1"># Run independent checks (SSL, DNS, Geo, Net, HTTP) in parallel</span>
+<a id="__codelineno-0-496" name="__codelineno-0-496"></a>        <span class="n">parallel_tasks</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_parallel_checks</span><span class="p">(</span><span class="n">relay</span><span class="p">,</span> <span class="n">compute</span><span class="p">,</span> <span class="n">timeout</span><span class="p">,</span> <span class="n">proxy_url</span><span class="p">)</span>
+<a id="__codelineno-0-497" name="__codelineno-0-497"></a>
+<a id="__codelineno-0-498" name="__codelineno-0-498"></a>        <span class="n">gathered</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+<a id="__codelineno-0-499" name="__codelineno-0-499"></a>        <span class="k">if</span> <span class="n">parallel_tasks</span><span class="p">:</span>
+<a id="__codelineno-0-500" name="__codelineno-0-500"></a>            <span class="n">parallel_results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span>
+<a id="__codelineno-0-501" name="__codelineno-0-501"></a>                <span class="o">*</span><span class="n">parallel_tasks</span><span class="o">.</span><span class="n">values</span><span class="p">(),</span> <span class="n">return_exceptions</span><span class="o">=</span><span class="kc">True</span>
+<a id="__codelineno-0-502" name="__codelineno-0-502"></a>            <span class="p">)</span>
+<a id="__codelineno-0-503" name="__codelineno-0-503"></a>            <span class="c1"># Re-raise CancelledError from parallel checks</span>
+<a id="__codelineno-0-504" name="__codelineno-0-504"></a>            <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">parallel_results</span><span class="p">:</span>
+<a id="__codelineno-0-505" name="__codelineno-0-505"></a>                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
+<a id="__codelineno-0-506" name="__codelineno-0-506"></a>                    <span class="k">raise</span> <span class="n">r</span>
+<a id="__codelineno-0-507" name="__codelineno-0-507"></a>            <span class="n">gathered</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">parallel_tasks</span><span class="o">.</span><span class="n">keys</span><span class="p">(),</span> <span class="n">parallel_results</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+<a id="__codelineno-0-508" name="__codelineno-0-508"></a>
+<a id="__codelineno-0-509" name="__codelineno-0-509"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">CheckResult</span><span class="p">(</span>
+<a id="__codelineno-0-510" name="__codelineno-0-510"></a>            <span class="n">generated_at</span><span class="o">=</span><span class="n">generated_at</span><span class="p">,</span>
+<a id="__codelineno-0-511" name="__codelineno-0-511"></a>            <span class="n">nip11_info</span><span class="o">=</span><span class="n">nip11_info</span><span class="p">,</span>
+<a id="__codelineno-0-512" name="__codelineno-0-512"></a>            <span class="n">nip66_rtt</span><span class="o">=</span><span class="n">rtt_meta</span><span class="p">,</span>
+<a id="__codelineno-0-513" name="__codelineno-0-513"></a>            <span class="n">nip66_ssl</span><span class="o">=</span><span class="n">extract_result</span><span class="p">(</span><span class="n">gathered</span><span class="p">,</span> <span class="s2">&quot;ssl&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-514" name="__codelineno-0-514"></a>            <span class="n">nip66_geo</span><span class="o">=</span><span class="n">extract_result</span><span class="p">(</span><span class="n">gathered</span><span class="p">,</span> <span class="s2">&quot;geo&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-515" name="__codelineno-0-515"></a>            <span class="n">nip66_net</span><span class="o">=</span><span class="n">extract_result</span><span class="p">(</span><span class="n">gathered</span><span class="p">,</span> <span class="s2">&quot;net&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-516" name="__codelineno-0-516"></a>            <span class="n">nip66_dns</span><span class="o">=</span><span class="n">extract_result</span><span class="p">(</span><span class="n">gathered</span><span class="p">,</span> <span class="s2">&quot;dns&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-517" name="__codelineno-0-517"></a>            <span class="n">nip66_http</span><span class="o">=</span><span class="n">extract_result</span><span class="p">(</span><span class="n">gathered</span><span class="p">,</span> <span class="s2">&quot;http&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-518" name="__codelineno-0-518"></a>        <span class="p">)</span>
+<a id="__codelineno-0-519" name="__codelineno-0-519"></a>
+<a id="__codelineno-0-520" name="__codelineno-0-520"></a>        <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">has_data</span><span class="p">:</span>
+<a id="__codelineno-0-521" name="__codelineno-0-521"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;check_succeeded&quot;</span><span class="p">,</span> <span class="n">url</span><span class="o">=</span><span class="n">relay</span><span class="o">.</span><span class="n">url</span><span class="p">)</span>
+<a id="__codelineno-0-522" name="__codelineno-0-522"></a>        <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-523" name="__codelineno-0-523"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;check_failed&quot;</span><span class="p">,</span> <span class="n">url</span><span class="o">=</span><span class="n">relay</span><span class="o">.</span><span class="n">url</span><span class="p">)</span>
+<a id="__codelineno-0-524" name="__codelineno-0-524"></a>
+<a id="__codelineno-0-525" name="__codelineno-0-525"></a>        <span class="k">return</span> <span class="n">result</span>
 <a id="__codelineno-0-526" name="__codelineno-0-526"></a>
-<a id="__codelineno-0-527" name="__codelineno-0-527"></a>        <span class="k">return</span> <span class="n">result</span>
-<a id="__codelineno-0-528" name="__codelineno-0-528"></a>
-<a id="__codelineno-0-529" name="__codelineno-0-529"></a>    <span class="k">except</span> <span class="p">(</span><span class="ne">TimeoutError</span><span class="p">,</span> <span class="ne">OSError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-<a id="__codelineno-0-530" name="__codelineno-0-530"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;check_error&quot;</span><span class="p">,</span> <span class="n">url</span><span class="o">=</span><span class="n">relay</span><span class="o">.</span><span class="n">url</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
-<a id="__codelineno-0-531" name="__codelineno-0-531"></a>        <span class="k">return</span> <span class="n">empty</span>
+<a id="__codelineno-0-527" name="__codelineno-0-527"></a>    <span class="k">except</span> <span class="p">(</span><span class="ne">TimeoutError</span><span class="p">,</span> <span class="ne">OSError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+<a id="__codelineno-0-528" name="__codelineno-0-528"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;check_error&quot;</span><span class="p">,</span> <span class="n">url</span><span class="o">=</span><span class="n">relay</span><span class="o">.</span><span class="n">url</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
+<a id="__codelineno-0-529" name="__codelineno-0-529"></a>        <span class="k">return</span> <span class="n">empty</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -6610,7 +6606,9 @@ discovery events per successful check.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/bigbrotr/services/monitor/service.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-599">599</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-597">597</a></span>
+<span class="normal"><a href="#__codelineno-0-598">598</a></span>
+<span class="normal"><a href="#__codelineno-0-599">599</a></span>
 <span class="normal"><a href="#__codelineno-0-600">600</a></span>
 <span class="normal"><a href="#__codelineno-0-601">601</a></span>
 <span class="normal"><a href="#__codelineno-0-602">602</a></span>
@@ -6672,73 +6670,71 @@ discovery events per successful check.</p>
 <span class="normal"><a href="#__codelineno-0-658">658</a></span>
 <span class="normal"><a href="#__codelineno-0-659">659</a></span>
 <span class="normal"><a href="#__codelineno-0-660">660</a></span>
-<span class="normal"><a href="#__codelineno-0-661">661</a></span>
-<span class="normal"><a href="#__codelineno-0-662">662</a></span>
-<span class="normal"><a href="#__codelineno-0-663">663</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-599" name="__codelineno-0-599"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">monitor</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<a id="__codelineno-0-600" name="__codelineno-0-600"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Check, persist, and publish all pending relays.</span>
-<a id="__codelineno-0-601" name="__codelineno-0-601"></a>
-<a id="__codelineno-0-602" name="__codelineno-0-602"></a><span class="sd">    Fetches relays in pages (``chunk_size``), checks each page</span>
-<a id="__codelineno-0-603" name="__codelineno-0-603"></a><span class="sd">    concurrently via ``_iter_concurrent()``, persists results</span>
-<a id="__codelineno-0-604" name="__codelineno-0-604"></a><span class="sd">    at each pagination boundary, and publishes Kind 30166</span>
-<a id="__codelineno-0-605" name="__codelineno-0-605"></a><span class="sd">    discovery events per successful check.</span>
-<a id="__codelineno-0-606" name="__codelineno-0-606"></a>
-<a id="__codelineno-0-607" name="__codelineno-0-607"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-608" name="__codelineno-0-608"></a><span class="sd">        Total number of relays processed (succeeded + failed).</span>
-<a id="__codelineno-0-609" name="__codelineno-0-609"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-610" name="__codelineno-0-610"></a>    <span class="n">networks</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">networks</span><span class="o">.</span><span class="n">get_enabled_networks</span><span class="p">()</span>
-<a id="__codelineno-0-611" name="__codelineno-0-611"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">networks</span><span class="p">:</span>
-<a id="__codelineno-0-612" name="__codelineno-0-612"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;no_networks_enabled&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-613" name="__codelineno-0-613"></a>        <span class="k">return</span> <span class="mi">0</span>
-<a id="__codelineno-0-614" name="__codelineno-0-614"></a>
-<a id="__codelineno-0-615" name="__codelineno-0-615"></a>    <span class="n">monitored_before</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">discovery</span><span class="o">.</span><span class="n">interval</span><span class="p">)</span>
-<a id="__codelineno-0-616" name="__codelineno-0-616"></a>    <span class="n">max_relays</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">max_relays</span>
-<a id="__codelineno-0-617" name="__codelineno-0-617"></a>
-<a id="__codelineno-0-618" name="__codelineno-0-618"></a>    <span class="n">all_relays</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fetch_relays_to_monitor</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_brotr</span><span class="p">,</span> <span class="n">monitored_before</span><span class="p">,</span> <span class="n">networks</span><span class="p">)</span>
-<a id="__codelineno-0-619" name="__codelineno-0-619"></a>    <span class="k">if</span> <span class="n">max_relays</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-620" name="__codelineno-0-620"></a>        <span class="n">all_relays</span> <span class="o">=</span> <span class="n">all_relays</span><span class="p">[:</span><span class="n">max_relays</span><span class="p">]</span>
-<a id="__codelineno-0-621" name="__codelineno-0-621"></a>
-<a id="__codelineno-0-622" name="__codelineno-0-622"></a>    <span class="n">total</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_relays</span><span class="p">)</span>
-<a id="__codelineno-0-623" name="__codelineno-0-623"></a>    <span class="n">succeeded</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-0-624" name="__codelineno-0-624"></a>    <span class="n">failed</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-0-625" name="__codelineno-0-625"></a>
-<a id="__codelineno-0-626" name="__codelineno-0-626"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">set_gauge</span><span class="p">(</span><span class="s2">&quot;total&quot;</span><span class="p">,</span> <span class="n">total</span><span class="p">)</span>
-<a id="__codelineno-0-627" name="__codelineno-0-627"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">set_gauge</span><span class="p">(</span><span class="s2">&quot;succeeded&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-0-628" name="__codelineno-0-628"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">set_gauge</span><span class="p">(</span><span class="s2">&quot;failed&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-661">661</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-597" name="__codelineno-0-597"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">monitor</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<a id="__codelineno-0-598" name="__codelineno-0-598"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Check, persist, and publish all pending relays.</span>
+<a id="__codelineno-0-599" name="__codelineno-0-599"></a>
+<a id="__codelineno-0-600" name="__codelineno-0-600"></a><span class="sd">    Fetches relays in pages (``chunk_size``), checks each page</span>
+<a id="__codelineno-0-601" name="__codelineno-0-601"></a><span class="sd">    concurrently via ``_iter_concurrent()``, persists results</span>
+<a id="__codelineno-0-602" name="__codelineno-0-602"></a><span class="sd">    at each pagination boundary, and publishes Kind 30166</span>
+<a id="__codelineno-0-603" name="__codelineno-0-603"></a><span class="sd">    discovery events per successful check.</span>
+<a id="__codelineno-0-604" name="__codelineno-0-604"></a>
+<a id="__codelineno-0-605" name="__codelineno-0-605"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-606" name="__codelineno-0-606"></a><span class="sd">        Total number of relays processed (succeeded + failed).</span>
+<a id="__codelineno-0-607" name="__codelineno-0-607"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-608" name="__codelineno-0-608"></a>    <span class="n">networks</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">networks</span><span class="o">.</span><span class="n">get_enabled_networks</span><span class="p">()</span>
+<a id="__codelineno-0-609" name="__codelineno-0-609"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">networks</span><span class="p">:</span>
+<a id="__codelineno-0-610" name="__codelineno-0-610"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;no_networks_enabled&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-611" name="__codelineno-0-611"></a>        <span class="k">return</span> <span class="mi">0</span>
+<a id="__codelineno-0-612" name="__codelineno-0-612"></a>
+<a id="__codelineno-0-613" name="__codelineno-0-613"></a>    <span class="n">monitored_before</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">discovery</span><span class="o">.</span><span class="n">interval</span><span class="p">)</span>
+<a id="__codelineno-0-614" name="__codelineno-0-614"></a>    <span class="n">max_relays</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">max_relays</span>
+<a id="__codelineno-0-615" name="__codelineno-0-615"></a>
+<a id="__codelineno-0-616" name="__codelineno-0-616"></a>    <span class="n">all_relays</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fetch_relays_to_monitor</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_brotr</span><span class="p">,</span> <span class="n">monitored_before</span><span class="p">,</span> <span class="n">networks</span><span class="p">)</span>
+<a id="__codelineno-0-617" name="__codelineno-0-617"></a>    <span class="k">if</span> <span class="n">max_relays</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-618" name="__codelineno-0-618"></a>        <span class="n">all_relays</span> <span class="o">=</span> <span class="n">all_relays</span><span class="p">[:</span><span class="n">max_relays</span><span class="p">]</span>
+<a id="__codelineno-0-619" name="__codelineno-0-619"></a>
+<a id="__codelineno-0-620" name="__codelineno-0-620"></a>    <span class="n">total</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_relays</span><span class="p">)</span>
+<a id="__codelineno-0-621" name="__codelineno-0-621"></a>    <span class="n">succeeded</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-0-622" name="__codelineno-0-622"></a>    <span class="n">failed</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-0-623" name="__codelineno-0-623"></a>
+<a id="__codelineno-0-624" name="__codelineno-0-624"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">set_gauge</span><span class="p">(</span><span class="s2">&quot;total&quot;</span><span class="p">,</span> <span class="n">total</span><span class="p">)</span>
+<a id="__codelineno-0-625" name="__codelineno-0-625"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">set_gauge</span><span class="p">(</span><span class="s2">&quot;succeeded&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-0-626" name="__codelineno-0-626"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">set_gauge</span><span class="p">(</span><span class="s2">&quot;failed&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-0-627" name="__codelineno-0-627"></a>
+<a id="__codelineno-0-628" name="__codelineno-0-628"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;relays_available&quot;</span><span class="p">,</span> <span class="n">total</span><span class="o">=</span><span class="n">total</span><span class="p">)</span>
 <a id="__codelineno-0-629" name="__codelineno-0-629"></a>
-<a id="__codelineno-0-630" name="__codelineno-0-630"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;relays_available&quot;</span><span class="p">,</span> <span class="n">total</span><span class="o">=</span><span class="n">total</span><span class="p">)</span>
+<a id="__codelineno-0-630" name="__codelineno-0-630"></a>    <span class="n">chunk_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">chunk_size</span>
 <a id="__codelineno-0-631" name="__codelineno-0-631"></a>
-<a id="__codelineno-0-632" name="__codelineno-0-632"></a>    <span class="n">chunk_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">chunk_size</span>
-<a id="__codelineno-0-633" name="__codelineno-0-633"></a>
-<a id="__codelineno-0-634" name="__codelineno-0-634"></a>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">total</span><span class="p">,</span> <span class="n">chunk_size</span><span class="p">):</span>
-<a id="__codelineno-0-635" name="__codelineno-0-635"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_running</span><span class="p">:</span>
-<a id="__codelineno-0-636" name="__codelineno-0-636"></a>            <span class="k">break</span>
-<a id="__codelineno-0-637" name="__codelineno-0-637"></a>
-<a id="__codelineno-0-638" name="__codelineno-0-638"></a>        <span class="n">relays</span> <span class="o">=</span> <span class="n">all_relays</span><span class="p">[</span><span class="n">i</span> <span class="p">:</span> <span class="n">i</span> <span class="o">+</span> <span class="n">chunk_size</span><span class="p">]</span>
-<a id="__codelineno-0-639" name="__codelineno-0-639"></a>        <span class="n">chunk_successful</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Relay</span><span class="p">,</span> <span class="n">CheckResult</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-640" name="__codelineno-0-640"></a>        <span class="n">chunk_failed</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Relay</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-641" name="__codelineno-0-641"></a>
-<a id="__codelineno-0-642" name="__codelineno-0-642"></a>        <span class="k">async</span> <span class="k">for</span> <span class="n">relay</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_iter_concurrent</span><span class="p">(</span><span class="n">relays</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_monitor_worker</span><span class="p">):</span>
-<a id="__codelineno-0-643" name="__codelineno-0-643"></a>            <span class="k">if</span> <span class="n">result</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-644" name="__codelineno-0-644"></a>                <span class="n">chunk_successful</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">relay</span><span class="p">,</span> <span class="n">result</span><span class="p">))</span>
-<a id="__codelineno-0-645" name="__codelineno-0-645"></a>                <span class="n">succeeded</span> <span class="o">+=</span> <span class="mi">1</span>
-<a id="__codelineno-0-646" name="__codelineno-0-646"></a>            <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-647" name="__codelineno-0-647"></a>                <span class="n">chunk_failed</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">relay</span><span class="p">)</span>
-<a id="__codelineno-0-648" name="__codelineno-0-648"></a>                <span class="n">failed</span> <span class="o">+=</span> <span class="mi">1</span>
-<a id="__codelineno-0-649" name="__codelineno-0-649"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">inc_gauge</span><span class="p">(</span><span class="s2">&quot;succeeded&quot;</span> <span class="k">if</span> <span class="n">result</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="s2">&quot;failed&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-650" name="__codelineno-0-650"></a>
-<a id="__codelineno-0-651" name="__codelineno-0-651"></a>        <span class="n">metadata</span> <span class="o">=</span> <span class="n">collect_metadata</span><span class="p">(</span><span class="n">chunk_successful</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">store</span><span class="p">)</span>
-<a id="__codelineno-0-652" name="__codelineno-0-652"></a>        <span class="k">await</span> <span class="n">insert_relay_metadata</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_brotr</span><span class="p">,</span> <span class="n">metadata</span><span class="p">)</span>
-<a id="__codelineno-0-653" name="__codelineno-0-653"></a>        <span class="n">all_checked</span> <span class="o">=</span> <span class="p">[</span><span class="n">relay</span> <span class="k">for</span> <span class="n">relay</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">chunk_successful</span><span class="p">]</span> <span class="o">+</span> <span class="n">chunk_failed</span>
-<a id="__codelineno-0-654" name="__codelineno-0-654"></a>        <span class="k">await</span> <span class="n">upsert_monitor_checkpoints</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_brotr</span><span class="p">,</span> <span class="n">all_checked</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()))</span>
-<a id="__codelineno-0-655" name="__codelineno-0-655"></a>
-<a id="__codelineno-0-656" name="__codelineno-0-656"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
-<a id="__codelineno-0-657" name="__codelineno-0-657"></a>            <span class="s2">&quot;chunk_completed&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-658" name="__codelineno-0-658"></a>            <span class="n">succeeded</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">chunk_successful</span><span class="p">),</span>
-<a id="__codelineno-0-659" name="__codelineno-0-659"></a>            <span class="n">failed</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">chunk_failed</span><span class="p">),</span>
-<a id="__codelineno-0-660" name="__codelineno-0-660"></a>            <span class="n">remaining</span><span class="o">=</span><span class="n">total</span> <span class="o">-</span> <span class="n">succeeded</span> <span class="o">-</span> <span class="n">failed</span><span class="p">,</span>
-<a id="__codelineno-0-661" name="__codelineno-0-661"></a>        <span class="p">)</span>
-<a id="__codelineno-0-662" name="__codelineno-0-662"></a>
-<a id="__codelineno-0-663" name="__codelineno-0-663"></a>    <span class="k">return</span> <span class="n">succeeded</span> <span class="o">+</span> <span class="n">failed</span>
+<a id="__codelineno-0-632" name="__codelineno-0-632"></a>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">total</span><span class="p">,</span> <span class="n">chunk_size</span><span class="p">):</span>
+<a id="__codelineno-0-633" name="__codelineno-0-633"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_running</span><span class="p">:</span>
+<a id="__codelineno-0-634" name="__codelineno-0-634"></a>            <span class="k">break</span>
+<a id="__codelineno-0-635" name="__codelineno-0-635"></a>
+<a id="__codelineno-0-636" name="__codelineno-0-636"></a>        <span class="n">relays</span> <span class="o">=</span> <span class="n">all_relays</span><span class="p">[</span><span class="n">i</span> <span class="p">:</span> <span class="n">i</span> <span class="o">+</span> <span class="n">chunk_size</span><span class="p">]</span>
+<a id="__codelineno-0-637" name="__codelineno-0-637"></a>        <span class="n">chunk_successful</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Relay</span><span class="p">,</span> <span class="n">CheckResult</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-638" name="__codelineno-0-638"></a>        <span class="n">chunk_failed</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Relay</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-639" name="__codelineno-0-639"></a>
+<a id="__codelineno-0-640" name="__codelineno-0-640"></a>        <span class="k">async</span> <span class="k">for</span> <span class="n">relay</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_iter_concurrent</span><span class="p">(</span><span class="n">relays</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_monitor_worker</span><span class="p">):</span>
+<a id="__codelineno-0-641" name="__codelineno-0-641"></a>            <span class="k">if</span> <span class="n">result</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-642" name="__codelineno-0-642"></a>                <span class="n">chunk_successful</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">relay</span><span class="p">,</span> <span class="n">result</span><span class="p">))</span>
+<a id="__codelineno-0-643" name="__codelineno-0-643"></a>                <span class="n">succeeded</span> <span class="o">+=</span> <span class="mi">1</span>
+<a id="__codelineno-0-644" name="__codelineno-0-644"></a>            <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-645" name="__codelineno-0-645"></a>                <span class="n">chunk_failed</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">relay</span><span class="p">)</span>
+<a id="__codelineno-0-646" name="__codelineno-0-646"></a>                <span class="n">failed</span> <span class="o">+=</span> <span class="mi">1</span>
+<a id="__codelineno-0-647" name="__codelineno-0-647"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">inc_gauge</span><span class="p">(</span><span class="s2">&quot;succeeded&quot;</span> <span class="k">if</span> <span class="n">result</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="s2">&quot;failed&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-648" name="__codelineno-0-648"></a>
+<a id="__codelineno-0-649" name="__codelineno-0-649"></a>        <span class="n">metadata</span> <span class="o">=</span> <span class="n">collect_metadata</span><span class="p">(</span><span class="n">chunk_successful</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">store</span><span class="p">)</span>
+<a id="__codelineno-0-650" name="__codelineno-0-650"></a>        <span class="k">await</span> <span class="n">insert_relay_metadata</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_brotr</span><span class="p">,</span> <span class="n">metadata</span><span class="p">)</span>
+<a id="__codelineno-0-651" name="__codelineno-0-651"></a>        <span class="n">all_checked</span> <span class="o">=</span> <span class="p">[</span><span class="n">relay</span> <span class="k">for</span> <span class="n">relay</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">chunk_successful</span><span class="p">]</span> <span class="o">+</span> <span class="n">chunk_failed</span>
+<a id="__codelineno-0-652" name="__codelineno-0-652"></a>        <span class="k">await</span> <span class="n">upsert_monitor_checkpoints</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_brotr</span><span class="p">,</span> <span class="n">all_checked</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()))</span>
+<a id="__codelineno-0-653" name="__codelineno-0-653"></a>
+<a id="__codelineno-0-654" name="__codelineno-0-654"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+<a id="__codelineno-0-655" name="__codelineno-0-655"></a>            <span class="s2">&quot;chunk_completed&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-656" name="__codelineno-0-656"></a>            <span class="n">succeeded</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">chunk_successful</span><span class="p">),</span>
+<a id="__codelineno-0-657" name="__codelineno-0-657"></a>            <span class="n">failed</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">chunk_failed</span><span class="p">),</span>
+<a id="__codelineno-0-658" name="__codelineno-0-658"></a>            <span class="n">remaining</span><span class="o">=</span><span class="n">total</span> <span class="o">-</span> <span class="n">succeeded</span> <span class="o">-</span> <span class="n">failed</span><span class="p">,</span>
+<a id="__codelineno-0-659" name="__codelineno-0-659"></a>        <span class="p">)</span>
+<a id="__codelineno-0-660" name="__codelineno-0-660"></a>
+<a id="__codelineno-0-661" name="__codelineno-0-661"></a>    <span class="k">return</span> <span class="n">succeeded</span> <span class="o">+</span> <span class="n">failed</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
