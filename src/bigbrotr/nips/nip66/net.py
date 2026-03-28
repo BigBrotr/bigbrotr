@@ -42,6 +42,7 @@ from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.nips.base import BaseNipMetadata
 from bigbrotr.utils.dns import resolve_host
+from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 from .data import Nip66NetData
 from .logs import Nip66NetLogs
@@ -125,6 +126,7 @@ class Nip66NetMetadata(BaseNipMetadata):
         cls,
         relay: Relay,
         asn_reader: geoip2.database.Reader,
+        timeout: float | None = None,  # noqa: ASYNC109
     ) -> Self:
         """Perform network/ASN lookups for a clearnet relay.
 
@@ -134,11 +136,13 @@ class Nip66NetMetadata(BaseNipMetadata):
         Args:
             relay: Clearnet relay to look up.
             asn_reader: Open GeoLite2-ASN database reader.
+            timeout: Overall timeout in seconds (default: 10.0).
 
         Returns:
             An ``Nip66NetMetadata`` instance with network data and logs.
         """
-        logger.debug("net_testing relay=%s", relay.url)
+        timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
+        logger.debug("net_testing relay=%s timeout_s=%s", relay.url, timeout)
 
         if relay.network != NetworkType.CLEARNET:
             return cls(
@@ -150,17 +154,32 @@ class Nip66NetMetadata(BaseNipMetadata):
 
         logs: dict[str, Any] = {"success": False, "reason": None}
 
-        resolved = await resolve_host(relay.host)
+        try:
+            resolved = await asyncio.wait_for(resolve_host(relay.host), timeout=timeout)
+        except TimeoutError:
+            logs["reason"] = "timeout resolving hostname"
+            logger.debug("net_resolve_timeout relay=%s", relay.url)
+            return cls(
+                data=Nip66NetData.model_validate(Nip66NetData.parse({})),
+                logs=Nip66NetLogs.model_validate(logs),
+            )
 
         data: dict[str, Any] = {}
         if resolved.has_ip:
-            data = await asyncio.to_thread(cls._net, resolved.ipv4, resolved.ipv6, asn_reader)
-            if data:
-                logs["success"] = True
-                logger.debug("net_completed relay=%s asn=%s", relay.url, data.get("net_asn"))
-            else:
-                logs["reason"] = "no ASN data found for IP"
-                logger.debug("net_no_data relay=%s", relay.url)
+            try:
+                data = await asyncio.wait_for(
+                    asyncio.to_thread(cls._net, resolved.ipv4, resolved.ipv6, asn_reader),
+                    timeout=timeout,
+                )
+                if data:
+                    logs["success"] = True
+                    logger.debug("net_completed relay=%s asn=%s", relay.url, data.get("net_asn"))
+                else:
+                    logs["reason"] = "no ASN data found for IP"
+                    logger.debug("net_no_data relay=%s", relay.url)
+            except (TimeoutError, geoip2.errors.GeoIP2Error, ValueError) as e:
+                logs["reason"] = str(e) or type(e).__name__
+                logger.debug("net_lookup_failed relay=%s error=%s", relay.url, logs["reason"])
         else:
             logs["reason"] = "could not resolve hostname to IP"
             logger.debug("net_no_ip relay=%s", relay.url)

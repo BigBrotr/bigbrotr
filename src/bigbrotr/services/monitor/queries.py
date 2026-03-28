@@ -150,6 +150,7 @@ async def upsert_monitor_checkpoints(brotr: Brotr, relays: list[Relay], now: int
     await upsert_service_states(brotr, records)
 
 
+# Sync with: Monitor.cleanup() keep_keys and MonitorConfig publishing sub-configs.
 _PUBLISH_KEYS: frozenset[str] = frozenset({"announcement", "profile", "relay_list"})
 
 

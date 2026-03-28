@@ -43,6 +43,7 @@ from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.nips.base import BaseNipMetadata
 from bigbrotr.utils.dns import resolve_host
+from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 from .data import Nip66GeoData
 from .logs import Nip66GeoLogs
@@ -188,6 +189,7 @@ class Nip66GeoMetadata(BaseNipMetadata):
         relay: Relay,
         city_reader: geoip2.database.Reader,
         geohash_precision: int = 9,
+        timeout: float | None = None,  # noqa: ASYNC109
     ) -> Self:
         """Perform a geolocation lookup for a clearnet relay.
 
@@ -198,11 +200,13 @@ class Nip66GeoMetadata(BaseNipMetadata):
             relay: Clearnet relay to geolocate.
             city_reader: Open GeoLite2-City database reader.
             geohash_precision: Geohash character length (default 9).
+            timeout: Overall timeout in seconds (default: 10.0).
 
         Returns:
             An ``Nip66GeoMetadata`` instance with location data and logs.
         """
-        logger.debug("geo_testing relay=%s", relay.url)
+        timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
+        logger.debug("geo_testing relay=%s timeout_s=%s", relay.url, timeout)
 
         if relay.network != NetworkType.CLEARNET:
             return cls(
@@ -214,13 +218,25 @@ class Nip66GeoMetadata(BaseNipMetadata):
 
         logs: dict[str, Any] = {"success": False, "reason": None}
 
-        resolved = await resolve_host(relay.host)
+        try:
+            resolved = await asyncio.wait_for(resolve_host(relay.host), timeout=timeout)
+        except TimeoutError:
+            logs["reason"] = "timeout resolving hostname"
+            logger.debug("geo_resolve_timeout relay=%s", relay.url)
+            return cls(
+                data=Nip66GeoData.model_validate(Nip66GeoData.parse({})),
+                logs=Nip66GeoLogs.model_validate(logs),
+            )
+
         ip = resolved.ipv4 or resolved.ipv6
 
         data: dict[str, Any] = {}
         if ip:
             try:
-                data = await asyncio.to_thread(cls._geo, ip, city_reader, geohash_precision)
+                data = await asyncio.wait_for(
+                    asyncio.to_thread(cls._geo, ip, city_reader, geohash_precision),
+                    timeout=timeout,
+                )
                 if data:
                     logs["success"] = True
                     logger.debug(
@@ -229,7 +245,7 @@ class Nip66GeoMetadata(BaseNipMetadata):
                 else:
                     logs["reason"] = "no geo data found for IP"
                     logger.debug("geo_no_data relay=%s", relay.url)
-            except (geoip2.errors.GeoIP2Error, ValueError) as e:
+            except (TimeoutError, geoip2.errors.GeoIP2Error, ValueError) as e:
                 logs["reason"] = str(e) or type(e).__name__
                 logger.debug("geo_lookup_failed relay=%s error=%s", relay.url, logs["reason"])
         else:
