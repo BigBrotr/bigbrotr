@@ -5560,31 +5560,31 @@ and tag serialization.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/bigbrotr/models/event.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-170">170</a></span>
-<span class="normal"><a href="#__codelineno-0-171">171</a></span>
-<span class="normal"><a href="#__codelineno-0-172">172</a></span>
-<span class="normal"><a href="#__codelineno-0-173">173</a></span>
-<span class="normal"><a href="#__codelineno-0-174">174</a></span>
-<span class="normal"><a href="#__codelineno-0-175">175</a></span>
-<span class="normal"><a href="#__codelineno-0-176">176</a></span>
-<span class="normal"><a href="#__codelineno-0-177">177</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-177">177</a></span>
 <span class="normal"><a href="#__codelineno-0-178">178</a></span>
 <span class="normal"><a href="#__codelineno-0-179">179</a></span>
 <span class="normal"><a href="#__codelineno-0-180">180</a></span>
 <span class="normal"><a href="#__codelineno-0-181">181</a></span>
-<span class="normal"><a href="#__codelineno-0-182">182</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-170" name="__codelineno-0-170"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_db_params</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">EventDbParams</span><span class="p">:</span>
-<a id="__codelineno-0-171" name="__codelineno-0-171"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return cached positional parameters for the database insert procedure.</span>
-<a id="__codelineno-0-172" name="__codelineno-0-172"></a>
-<a id="__codelineno-0-173" name="__codelineno-0-173"></a><span class="sd">    The result is computed once during construction and cached for the</span>
-<a id="__codelineno-0-174" name="__codelineno-0-174"></a><span class="sd">    lifetime of the (frozen) instance, avoiding repeated hex conversions</span>
-<a id="__codelineno-0-175" name="__codelineno-0-175"></a><span class="sd">    and tag serialization.</span>
-<a id="__codelineno-0-176" name="__codelineno-0-176"></a>
-<a id="__codelineno-0-177" name="__codelineno-0-177"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-178" name="__codelineno-0-178"></a><span class="sd">        [EventDbParams][bigbrotr.models.event.EventDbParams] with binary</span>
-<a id="__codelineno-0-179" name="__codelineno-0-179"></a><span class="sd">        id/pubkey/sig, integer timestamps, JSON-encoded tags, and raw</span>
-<a id="__codelineno-0-180" name="__codelineno-0-180"></a><span class="sd">        content string.</span>
-<a id="__codelineno-0-181" name="__codelineno-0-181"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-182" name="__codelineno-0-182"></a>    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_db_params</span>
+<span class="normal"><a href="#__codelineno-0-182">182</a></span>
+<span class="normal"><a href="#__codelineno-0-183">183</a></span>
+<span class="normal"><a href="#__codelineno-0-184">184</a></span>
+<span class="normal"><a href="#__codelineno-0-185">185</a></span>
+<span class="normal"><a href="#__codelineno-0-186">186</a></span>
+<span class="normal"><a href="#__codelineno-0-187">187</a></span>
+<span class="normal"><a href="#__codelineno-0-188">188</a></span>
+<span class="normal"><a href="#__codelineno-0-189">189</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-177" name="__codelineno-0-177"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_db_params</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">EventDbParams</span><span class="p">:</span>
+<a id="__codelineno-0-178" name="__codelineno-0-178"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return cached positional parameters for the database insert procedure.</span>
+<a id="__codelineno-0-179" name="__codelineno-0-179"></a>
+<a id="__codelineno-0-180" name="__codelineno-0-180"></a><span class="sd">    The result is computed once during construction and cached for the</span>
+<a id="__codelineno-0-181" name="__codelineno-0-181"></a><span class="sd">    lifetime of the (frozen) instance, avoiding repeated hex conversions</span>
+<a id="__codelineno-0-182" name="__codelineno-0-182"></a><span class="sd">    and tag serialization.</span>
+<a id="__codelineno-0-183" name="__codelineno-0-183"></a>
+<a id="__codelineno-0-184" name="__codelineno-0-184"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-185" name="__codelineno-0-185"></a><span class="sd">        [EventDbParams][bigbrotr.models.event.EventDbParams] with binary</span>
+<a id="__codelineno-0-186" name="__codelineno-0-186"></a><span class="sd">        id/pubkey/sig, integer timestamps, JSON-encoded tags, and raw</span>
+<a id="__codelineno-0-187" name="__codelineno-0-187"></a><span class="sd">        content string.</span>
+<a id="__codelineno-0-188" name="__codelineno-0-188"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-189" name="__codelineno-0-189"></a>    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_db_params</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>

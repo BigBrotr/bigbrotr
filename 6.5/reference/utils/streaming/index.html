@@ -5181,7 +5181,8 @@ no service-layer dependencies — only <code>nostr_sdk</code> and <code>bigbrotr
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">limit</span><span class="p">:</span> <span class="n"><span title="int">int</span></span><span class="p">,</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">request_timeout</span><span class="p">:</span> <span class="n"><span title="float">float</span></span><span class="p">,</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">idle_timeout</span><span class="p">:</span> <span class="n"><span title="float">float</span></span><span class="p">,</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="collections.abc.AsyncIterator">AsyncIterator</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;Event&lt;/span&gt;
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">max_event_size</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="collections.abc.AsyncIterator">AsyncIterator</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;Event&lt;/span&gt;
 
 
   &lt;span class=&quot;doc doc-labels&quot;&gt;
@@ -5291,15 +5292,7 @@ main loop and resets on every yield.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/bigbrotr/utils/streaming.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-163">163</a></span>
-<span class="normal"><a href="#__codelineno-0-164">164</a></span>
-<span class="normal"><a href="#__codelineno-0-165">165</a></span>
-<span class="normal"><a href="#__codelineno-0-166">166</a></span>
-<span class="normal"><a href="#__codelineno-0-167">167</a></span>
-<span class="normal"><a href="#__codelineno-0-168">168</a></span>
-<span class="normal"><a href="#__codelineno-0-169">169</a></span>
-<span class="normal"><a href="#__codelineno-0-170">170</a></span>
-<span class="normal"><a href="#__codelineno-0-171">171</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-171">171</a></span>
 <span class="normal"><a href="#__codelineno-0-172">172</a></span>
 <span class="normal"><a href="#__codelineno-0-173">173</a></span>
 <span class="normal"><a href="#__codelineno-0-174">174</a></span>
@@ -5383,99 +5376,111 @@ main loop and resets on every yield.</p>
 <span class="normal"><a href="#__codelineno-0-252">252</a></span>
 <span class="normal"><a href="#__codelineno-0-253">253</a></span>
 <span class="normal"><a href="#__codelineno-0-254">254</a></span>
-<span class="normal"><a href="#__codelineno-0-255">255</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-163" name="__codelineno-0-163"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">stream_events</span><span class="p">(</span>  <span class="c1"># noqa: PLR0913</span>
-<a id="__codelineno-0-164" name="__codelineno-0-164"></a>    <span class="n">client</span><span class="p">:</span> <span class="n">Client</span><span class="p">,</span>
-<a id="__codelineno-0-165" name="__codelineno-0-165"></a>    <span class="n">filters</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Filter</span><span class="p">],</span>
-<a id="__codelineno-0-166" name="__codelineno-0-166"></a>    <span class="n">start_time</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-<a id="__codelineno-0-167" name="__codelineno-0-167"></a>    <span class="n">end_time</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-<a id="__codelineno-0-168" name="__codelineno-0-168"></a>    <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-<a id="__codelineno-0-169" name="__codelineno-0-169"></a>    <span class="n">request_timeout</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
-<a id="__codelineno-0-170" name="__codelineno-0-170"></a>    <span class="n">idle_timeout</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
-<a id="__codelineno-0-171" name="__codelineno-0-171"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AsyncIterator</span><span class="p">[</span><span class="n">Event</span><span class="p">]:</span>
-<a id="__codelineno-0-172" name="__codelineno-0-172"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Stream all events matching ``filters`` in ``[start_time, end_time]``,</span>
-<a id="__codelineno-0-173" name="__codelineno-0-173"></a><span class="sd">    yielded as domain ``Event`` objects in ascending ``(created_at, id)`` order.</span>
-<a id="__codelineno-0-174" name="__codelineno-0-174"></a>
-<a id="__codelineno-0-175" name="__codelineno-0-175"></a><span class="sd">    Uses a data-driven windowing algorithm for completeness: when a fetch</span>
-<a id="__codelineno-0-176" name="__codelineno-0-176"></a><span class="sd">    returns ``limit`` events (possible truncation), a verification re-fetch</span>
-<a id="__codelineno-0-177" name="__codelineno-0-177"></a><span class="sd">    at ``min_created_at`` determines whether all events have been captured.</span>
-<a id="__codelineno-0-178" name="__codelineno-0-178"></a><span class="sd">    Falls back to binary-split windowing on inconsistent relay responses.</span>
-<a id="__codelineno-0-179" name="__codelineno-0-179"></a>
-<a id="__codelineno-0-180" name="__codelineno-0-180"></a><span class="sd">    Validation (filter matching, signature verification, deduplication) is</span>
-<a id="__codelineno-0-181" name="__codelineno-0-181"></a><span class="sd">    handled by ``_fetch_validated``. This function orchestrates windowing, then</span>
-<a id="__codelineno-0-182" name="__codelineno-0-182"></a><span class="sd">    sorts and converts raw events to domain ``Event`` models at each yield</span>
-<a id="__codelineno-0-183" name="__codelineno-0-183"></a><span class="sd">    boundary via ``_to_domain_events``.</span>
-<a id="__codelineno-0-184" name="__codelineno-0-184"></a>
-<a id="__codelineno-0-185" name="__codelineno-0-185"></a><span class="sd">    The ``idle_timeout`` is progress-based: the timer resets every time an</span>
-<a id="__codelineno-0-186" name="__codelineno-0-186"></a><span class="sd">    event is yielded.  A relay that produces events slowly but steadily will</span>
-<a id="__codelineno-0-187" name="__codelineno-0-187"></a><span class="sd">    never be killed by it.  A relay that connects but stops producing events</span>
-<a id="__codelineno-0-188" name="__codelineno-0-188"></a><span class="sd">    is abandoned after ``idle_timeout`` seconds.</span>
-<a id="__codelineno-0-189" name="__codelineno-0-189"></a>
-<a id="__codelineno-0-190" name="__codelineno-0-190"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="sd">        client: Connected nostr-sdk ``Client`` with the target relay added.</span>
-<a id="__codelineno-0-192" name="__codelineno-0-192"></a><span class="sd">        filters: Pre-validated base ``Filter`` objects **without**</span>
-<a id="__codelineno-0-193" name="__codelineno-0-193"></a><span class="sd">            ``since``/``until``/``limit`` (use</span>
-<a id="__codelineno-0-194" name="__codelineno-0-194"></a><span class="sd">            ``SynchronizerConfig.filters``).</span>
-<a id="__codelineno-0-195" name="__codelineno-0-195"></a><span class="sd">        start_time: Inclusive lower timestamp bound (since).</span>
-<a id="__codelineno-0-196" name="__codelineno-0-196"></a><span class="sd">        end_time: Inclusive upper timestamp bound (until).</span>
-<a id="__codelineno-0-197" name="__codelineno-0-197"></a><span class="sd">        limit: Max events per relay request (REQ limit).</span>
-<a id="__codelineno-0-198" name="__codelineno-0-198"></a><span class="sd">        request_timeout: Seconds to wait for each ``stream_events`` call.</span>
-<a id="__codelineno-0-199" name="__codelineno-0-199"></a><span class="sd">        idle_timeout: Seconds without yielding an event before the stream</span>
-<a id="__codelineno-0-200" name="__codelineno-0-200"></a><span class="sd">            is abandoned.  The timer starts when the function enters its</span>
-<a id="__codelineno-0-201" name="__codelineno-0-201"></a><span class="sd">            main loop and resets on every yield.</span>
-<a id="__codelineno-0-202" name="__codelineno-0-202"></a>
-<a id="__codelineno-0-203" name="__codelineno-0-203"></a><span class="sd">    Yields:</span>
-<a id="__codelineno-0-204" name="__codelineno-0-204"></a><span class="sd">        Domain ``Event`` objects in ascending ``(created_at, id)`` order.</span>
-<a id="__codelineno-0-205" name="__codelineno-0-205"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-206" name="__codelineno-0-206"></a>    <span class="k">if</span> <span class="n">start_time</span> <span class="o">&gt;</span> <span class="n">end_time</span><span class="p">:</span>
-<a id="__codelineno-0-207" name="__codelineno-0-207"></a>        <span class="k">return</span>
-<a id="__codelineno-0-208" name="__codelineno-0-208"></a>
-<a id="__codelineno-0-209" name="__codelineno-0-209"></a>    <span class="n">ctx</span> <span class="o">=</span> <span class="n">_FetchContext</span><span class="p">(</span>
-<a id="__codelineno-0-210" name="__codelineno-0-210"></a>        <span class="n">client</span><span class="o">=</span><span class="n">client</span><span class="p">,</span>
-<a id="__codelineno-0-211" name="__codelineno-0-211"></a>        <span class="n">filters</span><span class="o">=</span><span class="n">filters</span><span class="p">,</span>
-<a id="__codelineno-0-212" name="__codelineno-0-212"></a>        <span class="n">limit</span><span class="o">=</span><span class="n">limit</span><span class="p">,</span>
-<a id="__codelineno-0-213" name="__codelineno-0-213"></a>        <span class="n">fetch_timeout</span><span class="o">=</span><span class="n">timedelta</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="n">request_timeout</span><span class="p">),</span>
-<a id="__codelineno-0-214" name="__codelineno-0-214"></a>    <span class="p">)</span>
-<a id="__codelineno-0-215" name="__codelineno-0-215"></a>    <span class="n">until_stack</span> <span class="o">=</span> <span class="p">[</span><span class="n">end_time</span><span class="p">]</span>
-<a id="__codelineno-0-216" name="__codelineno-0-216"></a>    <span class="n">current_since</span> <span class="o">=</span> <span class="n">start_time</span>
-<a id="__codelineno-0-217" name="__codelineno-0-217"></a>    <span class="n">last_yield</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span>
-<a id="__codelineno-0-218" name="__codelineno-0-218"></a>
-<a id="__codelineno-0-219" name="__codelineno-0-219"></a>    <span class="k">while</span> <span class="n">until_stack</span><span class="p">:</span>
-<a id="__codelineno-0-220" name="__codelineno-0-220"></a>        <span class="k">if</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span> <span class="o">-</span> <span class="n">last_yield</span> <span class="o">&gt;</span> <span class="n">idle_timeout</span><span class="p">:</span>
-<a id="__codelineno-0-221" name="__codelineno-0-221"></a>            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;idle_timeout_exceeded elapsed=</span><span class="si">%.1f</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span> <span class="o">-</span> <span class="n">last_yield</span><span class="p">)</span>
-<a id="__codelineno-0-222" name="__codelineno-0-222"></a>            <span class="k">return</span>
-<a id="__codelineno-0-223" name="__codelineno-0-223"></a>
-<a id="__codelineno-0-224" name="__codelineno-0-224"></a>        <span class="n">current_until</span> <span class="o">=</span> <span class="n">until_stack</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-<a id="__codelineno-0-225" name="__codelineno-0-225"></a>
-<a id="__codelineno-0-226" name="__codelineno-0-226"></a>        <span class="n">events</span> <span class="o">=</span> <span class="k">await</span> <span class="n">_fetch_validated</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">current_since</span><span class="p">,</span> <span class="n">current_until</span><span class="p">,</span> <span class="n">limit</span><span class="p">)</span>
-<a id="__codelineno-0-227" name="__codelineno-0-227"></a>
-<a id="__codelineno-0-228" name="__codelineno-0-228"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">events</span><span class="p">:</span>
-<a id="__codelineno-0-229" name="__codelineno-0-229"></a>            <span class="n">until_stack</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-0-230" name="__codelineno-0-230"></a>            <span class="n">current_since</span> <span class="o">=</span> <span class="n">current_until</span> <span class="o">+</span> <span class="mi">1</span>
-<a id="__codelineno-0-231" name="__codelineno-0-231"></a>            <span class="k">continue</span>
-<a id="__codelineno-0-232" name="__codelineno-0-232"></a>
-<a id="__codelineno-0-233" name="__codelineno-0-233"></a>        <span class="c1"># Single-second window: cannot split further, yield everything.</span>
-<a id="__codelineno-0-234" name="__codelineno-0-234"></a>        <span class="k">if</span> <span class="n">current_since</span> <span class="o">==</span> <span class="n">current_until</span><span class="p">:</span>
-<a id="__codelineno-0-235" name="__codelineno-0-235"></a>            <span class="k">for</span> <span class="n">evt</span> <span class="ow">in</span> <span class="n">_to_domain_events</span><span class="p">(</span><span class="n">events</span><span class="p">):</span>
-<a id="__codelineno-0-236" name="__codelineno-0-236"></a>                <span class="k">yield</span> <span class="n">evt</span>
-<a id="__codelineno-0-237" name="__codelineno-0-237"></a>                <span class="n">last_yield</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span>
-<a id="__codelineno-0-238" name="__codelineno-0-238"></a>            <span class="n">until_stack</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-0-239" name="__codelineno-0-239"></a>            <span class="n">current_since</span> <span class="o">=</span> <span class="n">current_until</span> <span class="o">+</span> <span class="mi">1</span>
-<a id="__codelineno-0-240" name="__codelineno-0-240"></a>            <span class="k">continue</span>
-<a id="__codelineno-0-241" name="__codelineno-0-241"></a>
-<a id="__codelineno-0-242" name="__codelineno-0-242"></a>        <span class="c1"># Multi-second window: always verify completeness. A relay may</span>
-<a id="__codelineno-0-243" name="__codelineno-0-243"></a>        <span class="c1"># enforce its own limit lower than ours, returning fewer events</span>
-<a id="__codelineno-0-244" name="__codelineno-0-244"></a>        <span class="c1"># even when more exist in the window.</span>
-<a id="__codelineno-0-245" name="__codelineno-0-245"></a>        <span class="n">verified</span> <span class="o">=</span> <span class="k">await</span> <span class="n">_try_verify_completeness</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">events</span><span class="p">,</span> <span class="n">current_since</span><span class="p">)</span>
-<a id="__codelineno-0-246" name="__codelineno-0-246"></a>
-<a id="__codelineno-0-247" name="__codelineno-0-247"></a>        <span class="k">if</span> <span class="n">verified</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-248" name="__codelineno-0-248"></a>            <span class="k">for</span> <span class="n">evt</span> <span class="ow">in</span> <span class="n">_to_domain_events</span><span class="p">(</span><span class="n">verified</span><span class="p">):</span>
-<a id="__codelineno-0-249" name="__codelineno-0-249"></a>                <span class="k">yield</span> <span class="n">evt</span>
-<a id="__codelineno-0-250" name="__codelineno-0-250"></a>                <span class="n">last_yield</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span>
-<a id="__codelineno-0-251" name="__codelineno-0-251"></a>            <span class="n">until_stack</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-0-252" name="__codelineno-0-252"></a>            <span class="n">current_since</span> <span class="o">=</span> <span class="n">current_until</span> <span class="o">+</span> <span class="mi">1</span>
-<a id="__codelineno-0-253" name="__codelineno-0-253"></a>        <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-0-254" name="__codelineno-0-254"></a>            <span class="n">mid</span> <span class="o">=</span> <span class="n">current_since</span> <span class="o">+</span> <span class="p">(</span><span class="n">current_until</span> <span class="o">-</span> <span class="n">current_since</span><span class="p">)</span> <span class="o">//</span> <span class="mi">2</span>
-<a id="__codelineno-0-255" name="__codelineno-0-255"></a>            <span class="n">until_stack</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">mid</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-255">255</a></span>
+<span class="normal"><a href="#__codelineno-0-256">256</a></span>
+<span class="normal"><a href="#__codelineno-0-257">257</a></span>
+<span class="normal"><a href="#__codelineno-0-258">258</a></span>
+<span class="normal"><a href="#__codelineno-0-259">259</a></span>
+<span class="normal"><a href="#__codelineno-0-260">260</a></span>
+<span class="normal"><a href="#__codelineno-0-261">261</a></span>
+<span class="normal"><a href="#__codelineno-0-262">262</a></span>
+<span class="normal"><a href="#__codelineno-0-263">263</a></span>
+<span class="normal"><a href="#__codelineno-0-264">264</a></span>
+<span class="normal"><a href="#__codelineno-0-265">265</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-171" name="__codelineno-0-171"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">stream_events</span><span class="p">(</span>  <span class="c1"># noqa: PLR0913</span>
+<a id="__codelineno-0-172" name="__codelineno-0-172"></a>    <span class="n">client</span><span class="p">:</span> <span class="n">Client</span><span class="p">,</span>
+<a id="__codelineno-0-173" name="__codelineno-0-173"></a>    <span class="n">filters</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Filter</span><span class="p">],</span>
+<a id="__codelineno-0-174" name="__codelineno-0-174"></a>    <span class="n">start_time</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<a id="__codelineno-0-175" name="__codelineno-0-175"></a>    <span class="n">end_time</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<a id="__codelineno-0-176" name="__codelineno-0-176"></a>    <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<a id="__codelineno-0-177" name="__codelineno-0-177"></a>    <span class="n">request_timeout</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+<a id="__codelineno-0-178" name="__codelineno-0-178"></a>    <span class="n">idle_timeout</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+<a id="__codelineno-0-179" name="__codelineno-0-179"></a>    <span class="n">max_event_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-180" name="__codelineno-0-180"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AsyncIterator</span><span class="p">[</span><span class="n">Event</span><span class="p">]:</span>
+<a id="__codelineno-0-181" name="__codelineno-0-181"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Stream all events matching ``filters`` in ``[start_time, end_time]``,</span>
+<a id="__codelineno-0-182" name="__codelineno-0-182"></a><span class="sd">    yielded as domain ``Event`` objects in ascending ``(created_at, id)`` order.</span>
+<a id="__codelineno-0-183" name="__codelineno-0-183"></a>
+<a id="__codelineno-0-184" name="__codelineno-0-184"></a><span class="sd">    Uses a data-driven windowing algorithm for completeness: when a fetch</span>
+<a id="__codelineno-0-185" name="__codelineno-0-185"></a><span class="sd">    returns ``limit`` events (possible truncation), a verification re-fetch</span>
+<a id="__codelineno-0-186" name="__codelineno-0-186"></a><span class="sd">    at ``min_created_at`` determines whether all events have been captured.</span>
+<a id="__codelineno-0-187" name="__codelineno-0-187"></a><span class="sd">    Falls back to binary-split windowing on inconsistent relay responses.</span>
+<a id="__codelineno-0-188" name="__codelineno-0-188"></a>
+<a id="__codelineno-0-189" name="__codelineno-0-189"></a><span class="sd">    Validation (filter matching, signature verification, deduplication) is</span>
+<a id="__codelineno-0-190" name="__codelineno-0-190"></a><span class="sd">    handled by ``_fetch_validated``. This function orchestrates windowing, then</span>
+<a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="sd">    sorts and converts raw events to domain ``Event`` models at each yield</span>
+<a id="__codelineno-0-192" name="__codelineno-0-192"></a><span class="sd">    boundary via ``_to_domain_events``.</span>
+<a id="__codelineno-0-193" name="__codelineno-0-193"></a>
+<a id="__codelineno-0-194" name="__codelineno-0-194"></a><span class="sd">    The ``idle_timeout`` is progress-based: the timer resets every time an</span>
+<a id="__codelineno-0-195" name="__codelineno-0-195"></a><span class="sd">    event is yielded.  A relay that produces events slowly but steadily will</span>
+<a id="__codelineno-0-196" name="__codelineno-0-196"></a><span class="sd">    never be killed by it.  A relay that connects but stops producing events</span>
+<a id="__codelineno-0-197" name="__codelineno-0-197"></a><span class="sd">    is abandoned after ``idle_timeout`` seconds.</span>
+<a id="__codelineno-0-198" name="__codelineno-0-198"></a>
+<a id="__codelineno-0-199" name="__codelineno-0-199"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-200" name="__codelineno-0-200"></a><span class="sd">        client: Connected nostr-sdk ``Client`` with the target relay added.</span>
+<a id="__codelineno-0-201" name="__codelineno-0-201"></a><span class="sd">        filters: Pre-validated base ``Filter`` objects **without**</span>
+<a id="__codelineno-0-202" name="__codelineno-0-202"></a><span class="sd">            ``since``/``until``/``limit`` (use</span>
+<a id="__codelineno-0-203" name="__codelineno-0-203"></a><span class="sd">            ``SynchronizerConfig.filters``).</span>
+<a id="__codelineno-0-204" name="__codelineno-0-204"></a><span class="sd">        start_time: Inclusive lower timestamp bound (since).</span>
+<a id="__codelineno-0-205" name="__codelineno-0-205"></a><span class="sd">        end_time: Inclusive upper timestamp bound (until).</span>
+<a id="__codelineno-0-206" name="__codelineno-0-206"></a><span class="sd">        limit: Max events per relay request (REQ limit).</span>
+<a id="__codelineno-0-207" name="__codelineno-0-207"></a><span class="sd">        request_timeout: Seconds to wait for each ``stream_events`` call.</span>
+<a id="__codelineno-0-208" name="__codelineno-0-208"></a><span class="sd">        idle_timeout: Seconds without yielding an event before the stream</span>
+<a id="__codelineno-0-209" name="__codelineno-0-209"></a><span class="sd">            is abandoned.  The timer starts when the function enters its</span>
+<a id="__codelineno-0-210" name="__codelineno-0-210"></a><span class="sd">            main loop and resets on every yield.</span>
+<a id="__codelineno-0-211" name="__codelineno-0-211"></a>
+<a id="__codelineno-0-212" name="__codelineno-0-212"></a><span class="sd">    Yields:</span>
+<a id="__codelineno-0-213" name="__codelineno-0-213"></a><span class="sd">        Domain ``Event`` objects in ascending ``(created_at, id)`` order.</span>
+<a id="__codelineno-0-214" name="__codelineno-0-214"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-215" name="__codelineno-0-215"></a>    <span class="k">if</span> <span class="n">start_time</span> <span class="o">&gt;</span> <span class="n">end_time</span><span class="p">:</span>
+<a id="__codelineno-0-216" name="__codelineno-0-216"></a>        <span class="k">return</span>
+<a id="__codelineno-0-217" name="__codelineno-0-217"></a>
+<a id="__codelineno-0-218" name="__codelineno-0-218"></a>    <span class="n">ctx</span> <span class="o">=</span> <span class="n">_FetchContext</span><span class="p">(</span>
+<a id="__codelineno-0-219" name="__codelineno-0-219"></a>        <span class="n">client</span><span class="o">=</span><span class="n">client</span><span class="p">,</span>
+<a id="__codelineno-0-220" name="__codelineno-0-220"></a>        <span class="n">filters</span><span class="o">=</span><span class="n">filters</span><span class="p">,</span>
+<a id="__codelineno-0-221" name="__codelineno-0-221"></a>        <span class="n">limit</span><span class="o">=</span><span class="n">limit</span><span class="p">,</span>
+<a id="__codelineno-0-222" name="__codelineno-0-222"></a>        <span class="n">fetch_timeout</span><span class="o">=</span><span class="n">timedelta</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="n">request_timeout</span><span class="p">),</span>
+<a id="__codelineno-0-223" name="__codelineno-0-223"></a>        <span class="n">max_event_size</span><span class="o">=</span><span class="n">max_event_size</span><span class="p">,</span>
+<a id="__codelineno-0-224" name="__codelineno-0-224"></a>    <span class="p">)</span>
+<a id="__codelineno-0-225" name="__codelineno-0-225"></a>    <span class="n">until_stack</span> <span class="o">=</span> <span class="p">[</span><span class="n">end_time</span><span class="p">]</span>
+<a id="__codelineno-0-226" name="__codelineno-0-226"></a>    <span class="n">current_since</span> <span class="o">=</span> <span class="n">start_time</span>
+<a id="__codelineno-0-227" name="__codelineno-0-227"></a>    <span class="n">last_yield</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span>
+<a id="__codelineno-0-228" name="__codelineno-0-228"></a>
+<a id="__codelineno-0-229" name="__codelineno-0-229"></a>    <span class="k">while</span> <span class="n">until_stack</span><span class="p">:</span>
+<a id="__codelineno-0-230" name="__codelineno-0-230"></a>        <span class="k">if</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span> <span class="o">-</span> <span class="n">last_yield</span> <span class="o">&gt;</span> <span class="n">idle_timeout</span><span class="p">:</span>
+<a id="__codelineno-0-231" name="__codelineno-0-231"></a>            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;idle_timeout_exceeded elapsed=</span><span class="si">%.1f</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span> <span class="o">-</span> <span class="n">last_yield</span><span class="p">)</span>
+<a id="__codelineno-0-232" name="__codelineno-0-232"></a>            <span class="k">return</span>
+<a id="__codelineno-0-233" name="__codelineno-0-233"></a>
+<a id="__codelineno-0-234" name="__codelineno-0-234"></a>        <span class="n">current_until</span> <span class="o">=</span> <span class="n">until_stack</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+<a id="__codelineno-0-235" name="__codelineno-0-235"></a>
+<a id="__codelineno-0-236" name="__codelineno-0-236"></a>        <span class="n">events</span> <span class="o">=</span> <span class="k">await</span> <span class="n">_fetch_validated</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">current_since</span><span class="p">,</span> <span class="n">current_until</span><span class="p">,</span> <span class="n">limit</span><span class="p">)</span>
+<a id="__codelineno-0-237" name="__codelineno-0-237"></a>
+<a id="__codelineno-0-238" name="__codelineno-0-238"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">events</span><span class="p">:</span>
+<a id="__codelineno-0-239" name="__codelineno-0-239"></a>            <span class="n">until_stack</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-0-240" name="__codelineno-0-240"></a>            <span class="n">current_since</span> <span class="o">=</span> <span class="n">current_until</span> <span class="o">+</span> <span class="mi">1</span>
+<a id="__codelineno-0-241" name="__codelineno-0-241"></a>            <span class="k">continue</span>
+<a id="__codelineno-0-242" name="__codelineno-0-242"></a>
+<a id="__codelineno-0-243" name="__codelineno-0-243"></a>        <span class="c1"># Single-second window: cannot split further, yield everything.</span>
+<a id="__codelineno-0-244" name="__codelineno-0-244"></a>        <span class="k">if</span> <span class="n">current_since</span> <span class="o">==</span> <span class="n">current_until</span><span class="p">:</span>
+<a id="__codelineno-0-245" name="__codelineno-0-245"></a>            <span class="k">for</span> <span class="n">evt</span> <span class="ow">in</span> <span class="n">_to_domain_events</span><span class="p">(</span><span class="n">events</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">max_event_size</span><span class="p">):</span>
+<a id="__codelineno-0-246" name="__codelineno-0-246"></a>                <span class="k">yield</span> <span class="n">evt</span>
+<a id="__codelineno-0-247" name="__codelineno-0-247"></a>                <span class="n">last_yield</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span>
+<a id="__codelineno-0-248" name="__codelineno-0-248"></a>            <span class="n">until_stack</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-0-249" name="__codelineno-0-249"></a>            <span class="n">current_since</span> <span class="o">=</span> <span class="n">current_until</span> <span class="o">+</span> <span class="mi">1</span>
+<a id="__codelineno-0-250" name="__codelineno-0-250"></a>            <span class="k">continue</span>
+<a id="__codelineno-0-251" name="__codelineno-0-251"></a>
+<a id="__codelineno-0-252" name="__codelineno-0-252"></a>        <span class="c1"># Multi-second window: always verify completeness. A relay may</span>
+<a id="__codelineno-0-253" name="__codelineno-0-253"></a>        <span class="c1"># enforce its own limit lower than ours, returning fewer events</span>
+<a id="__codelineno-0-254" name="__codelineno-0-254"></a>        <span class="c1"># even when more exist in the window.</span>
+<a id="__codelineno-0-255" name="__codelineno-0-255"></a>        <span class="n">verified</span> <span class="o">=</span> <span class="k">await</span> <span class="n">_try_verify_completeness</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">events</span><span class="p">,</span> <span class="n">current_since</span><span class="p">)</span>
+<a id="__codelineno-0-256" name="__codelineno-0-256"></a>
+<a id="__codelineno-0-257" name="__codelineno-0-257"></a>        <span class="k">if</span> <span class="n">verified</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-258" name="__codelineno-0-258"></a>            <span class="k">for</span> <span class="n">evt</span> <span class="ow">in</span> <span class="n">_to_domain_events</span><span class="p">(</span><span class="n">verified</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">max_event_size</span><span class="p">):</span>
+<a id="__codelineno-0-259" name="__codelineno-0-259"></a>                <span class="k">yield</span> <span class="n">evt</span>
+<a id="__codelineno-0-260" name="__codelineno-0-260"></a>                <span class="n">last_yield</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span>
+<a id="__codelineno-0-261" name="__codelineno-0-261"></a>            <span class="n">until_stack</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-0-262" name="__codelineno-0-262"></a>            <span class="n">current_since</span> <span class="o">=</span> <span class="n">current_until</span> <span class="o">+</span> <span class="mi">1</span>
+<a id="__codelineno-0-263" name="__codelineno-0-263"></a>        <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-264" name="__codelineno-0-264"></a>            <span class="n">mid</span> <span class="o">=</span> <span class="n">current_since</span> <span class="o">+</span> <span class="p">(</span><span class="n">current_until</span> <span class="o">-</span> <span class="n">current_since</span><span class="p">)</span> <span class="o">//</span> <span class="mi">2</span>
+<a id="__codelineno-0-265" name="__codelineno-0-265"></a>            <span class="n">until_stack</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">mid</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
