@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.5.4] - 2026-03-28
+
+### Added
+
+- **Configurable `max_event_size`**: synchronizer can now drop events exceeding a configurable JSON size limit via `processing.max_event_size` (default: `None`, no limit). Applied before domain model construction in `stream_events()`
+
+### Fixed
+
+- **Synchronizer crash on oversized tag values**: events with tag values exceeding 2048 characters caused `index row size exceeds maximum for index "idx_event_tagvalues"`. Now rejected at `Event` construction, consistent with `Relay` URL length validation
+
 ## [6.5.3] - 2026-03-28
 
 ### Added
