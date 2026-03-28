@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from nostr_sdk import Keys
+
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay
 from bigbrotr.nips.event_builders import (
@@ -176,6 +178,58 @@ class TestBuildMonitorAnnouncement:
             ),
         )
         assert builder is not None
+
+    def test_geo_net_timeout_tags_present(self) -> None:
+        """Geo and Net checks emit timeout tags when enabled."""
+        keys = Keys.generate()
+        builder = build_monitor_announcement(
+            interval=3600,
+            timeout_ms=10000,
+            enabled_networks=[NetworkType.CLEARNET],
+            nip11_selection=Nip11Selection(info=False),
+            nip66_selection=Nip66Selection(
+                rtt=False, ssl=False, geo=True, net=True, dns=False, http=False
+            ),
+        )
+        event = builder.sign_with_keys(keys)
+        tag_vecs = [tag.as_vec() for tag in event.tags().to_vec()]
+        assert ["timeout", "geo", "10000"] in tag_vecs
+        assert ["timeout", "net", "10000"] in tag_vecs
+        assert ["c", "geo"] in tag_vecs
+        assert ["c", "net"] in tag_vecs
+
+    def test_geohash_included_when_provided(self) -> None:
+        """Geohash tag is present when geohash is provided."""
+        keys = Keys.generate()
+        builder = build_monitor_announcement(
+            interval=3600,
+            timeout_ms=10000,
+            enabled_networks=[NetworkType.CLEARNET],
+            nip11_selection=Nip11Selection(info=False),
+            nip66_selection=Nip66Selection(
+                rtt=False, ssl=False, geo=False, net=False, dns=False, http=False
+            ),
+            geohash="u0nd9f",
+        )
+        event = builder.sign_with_keys(keys)
+        tag_vecs = [tag.as_vec() for tag in event.tags().to_vec()]
+        assert ["g", "u0nd9f"] in tag_vecs
+
+    def test_geohash_omitted_when_none(self) -> None:
+        """Geohash tag is absent when geohash is None."""
+        keys = Keys.generate()
+        builder = build_monitor_announcement(
+            interval=3600,
+            timeout_ms=10000,
+            enabled_networks=[NetworkType.CLEARNET],
+            nip11_selection=Nip11Selection(info=False),
+            nip66_selection=Nip66Selection(
+                rtt=False, ssl=False, geo=False, net=False, dns=False, http=False
+            ),
+        )
+        event = builder.sign_with_keys(keys)
+        tag_vecs = [tag.as_vec() for tag in event.tags().to_vec()]
+        assert not any(t[0] == "g" for t in tag_vecs)
 
 
 # ============================================================================
