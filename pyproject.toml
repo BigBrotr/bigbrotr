@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "bigbrotr"
-version = "6.5.1"
+version = "6.5.2"
 description = "Modular Nostr network observatory — relay discovery, health monitoring, event archiving, analytics, and data access across clearnet, Tor, I2P, and Lokinet"
 readme = "README.md"
 license = { text = "MIT" }
