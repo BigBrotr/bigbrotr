@@ -92,47 +92,43 @@ def build_relay_list_event(relays: list[Relay]) -> EventBuilder:
     return EventBuilder(Kind(EventKind.RELAY_LIST), "").tags(tags)
 
 
-def build_monitor_announcement(
+def build_monitor_announcement(  # noqa: PLR0913
     *,
     interval: int,
     timeout_ms: int,
     enabled_networks: list[NetworkType],
     nip11_selection: Nip11Selection,
     nip66_selection: Nip66Selection,
+    geohash: str | None = None,
 ) -> EventBuilder:
     """Build a Kind 10166 monitor announcement event per NIP-66."""
     tags = [Tag.parse(["frequency", str(interval)])]
+    if geohash:
+        tags.append(Tag.parse(["g", geohash]))
     tags.extend(Tag.parse(["n", network.value]) for network in enabled_networks)
 
     ms = str(timeout_ms)
 
-    # Timeout tags — only NIP-66 check types that have timeouts
-    if nip66_selection.rtt:
-        tags.extend(Tag.parse(["timeout", name, ms]) for name in ("open", "read", "write"))
-    if nip11_selection.info:
-        tags.append(Tag.parse(["timeout", "nip11", ms]))
-    if nip66_selection.ssl:
-        tags.append(Tag.parse(["timeout", "ssl", ms]))
-    if nip66_selection.dns:
-        tags.append(Tag.parse(["timeout", "dns", ms]))
-    if nip66_selection.http:
-        tags.append(Tag.parse(["timeout", "http", ms]))
+    # Map check names to their enabled flag
+    checks: list[tuple[str, bool]] = [
+        ("nip11", nip11_selection.info),
+        ("ssl", nip66_selection.ssl),
+        ("geo", nip66_selection.geo),
+        ("net", nip66_selection.net),
+        ("dns", nip66_selection.dns),
+        ("http", nip66_selection.http),
+    ]
 
-    # Capability tags — all NIP-66 check types (includes geo/net which have no timeout)
+    # RTT has three sub-phases
     if nip66_selection.rtt:
-        tags.extend(Tag.parse(["c", name]) for name in ("open", "read", "write"))
-    if nip11_selection.info:
-        tags.append(Tag.parse(["c", "nip11"]))
-    if nip66_selection.ssl:
-        tags.append(Tag.parse(["c", "ssl"]))
-    if nip66_selection.geo:
-        tags.append(Tag.parse(["c", "geo"]))
-    if nip66_selection.net:
-        tags.append(Tag.parse(["c", "net"]))
-    if nip66_selection.dns:
-        tags.append(Tag.parse(["c", "dns"]))
-    if nip66_selection.http:
-        tags.append(Tag.parse(["c", "http"]))
+        for name in ("open", "read", "write"):
+            tags.append(Tag.parse(["timeout", name, ms]))
+            tags.append(Tag.parse(["c", name]))
+
+    for name, enabled in checks:
+        if enabled:
+            tags.append(Tag.parse(["timeout", name, ms]))
+            tags.append(Tag.parse(["c", name]))
 
     return EventBuilder(Kind(EventKind.MONITOR_ANNOUNCEMENT), "").tags(tags)
 

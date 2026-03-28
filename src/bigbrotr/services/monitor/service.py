@@ -351,6 +351,7 @@ class Monitor(
                         dns=include.nip66_dns,
                         http=include.nip66_http,
                     ),
+                    geohash=cfg.geohash,
                 ),
             ],
             clients,
