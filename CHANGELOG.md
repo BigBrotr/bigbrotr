@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.5.2] - 2026-03-28
+
+### Fixed
+
+- **Announcement included LOCAL/UNKNOWN networks**: `publish_announcement()` iterated over all `NetworkType` enum members; LOCAL and UNKNOWN fell back to clearnet config, causing the Kind 10166 event to declare monitoring of invalid networks. Now uses `get_enabled_networks()` which only returns configured networks (clearnet, tor, i2p, loki)
+- **Profile publishing disabled by default**: `ProfileConfig.enabled` was `False` while announcement and relay_list were `True`. All three publishing features now default to enabled
+
 ## [6.5.1] - 2026-03-28
 
 Monitor hardening, announcement frequency fix, and dependency cleanup.

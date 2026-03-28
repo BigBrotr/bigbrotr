@@ -325,9 +325,7 @@ class Monitor(
             return
 
         include = cfg.include
-        enabled_networks = [
-            network for network in NetworkType if self._config.networks.is_enabled(network)
-        ]
+        enabled_networks = self._config.networks.get_enabled_networks()
         first_network = enabled_networks[0] if enabled_networks else NetworkType.CLEARNET
         timeout_ms = int(self._config.networks.get(first_network).timeout * 1000)
 

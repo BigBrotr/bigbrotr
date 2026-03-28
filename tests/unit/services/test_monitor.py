@@ -509,7 +509,7 @@ class TestProfileConfig:
     def test_default_values(self) -> None:
         config = ProfileConfig()
 
-        assert config.enabled is False
+        assert config.enabled is True
         assert config.interval == 86400
         assert config.relays is None
         assert config.name == "BigBrotr Monitor"

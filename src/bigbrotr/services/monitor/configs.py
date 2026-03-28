@@ -308,7 +308,7 @@ class ProfileConfig(BaseModel):
             Builds the profile event from these fields.
     """
 
-    enabled: bool = Field(default=False, description="Enable Kind 0 profile publishing")
+    enabled: bool = Field(default=True, description="Enable Kind 0 profile publishing")
     interval: float = Field(
         default=86_400.0,
         ge=60.0,
