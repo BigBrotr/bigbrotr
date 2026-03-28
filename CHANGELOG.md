@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.5.1] - 2026-03-28
+
+Monitor hardening, announcement frequency fix, and dependency cleanup.
+
+### Fixed
+
+- **NIP-66 Geo/Net timeout protection**: `Nip66GeoMetadata.execute()` and `Nip66NetMetadata.execute()` had no timeout — `resolve_host()` and `asyncio.to_thread()` could hang indefinitely. Now wrapped in `asyncio.wait_for()` with `DEFAULT_TIMEOUT` (10s) fallback, and monitor passes network timeout to both checks (#402)
+- **Announcement frequency tag**: Kind 10166 `["frequency"]` tag was using the cycle interval (`BaseServiceConfig.interval`) instead of the per-relay monitoring frequency (`DiscoveryConfig.interval`)
+- **`build_relay_list_event` missing from `__all__`**: Kind 10002 builder was defined and used but not exported in `event_builders.__all__`
+
+### Changed
+
+- **`cryptography` floor raised to >=46.0.6**: prevents installation of 46.0.5 which has GHSA-m959-cc7f-wv43
+- **`nostr-sdk` floor raised to >=0.44.0**: aligns minimum with actual deployed version
+- **Removed stale mypy ignores**: `fastapi` and `starlette` no longer need `ignore_missing_imports` (native stubs available)
+
 ## [6.5.0] - 2026-03-27
 
 Relay URL validation hardening, `parse_relay_url` factory, and dependency updates.
