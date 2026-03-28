@@ -12,6 +12,7 @@ Tests:
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -566,3 +567,44 @@ class TestNip66GeoMetadataGeoAsync:
             await Nip66GeoMetadata.execute(relay, mock_city_reader)
 
         mock_geo.assert_called_once_with("2001:4860:4860::8888", mock_city_reader, 9)
+
+    async def test_resolve_timeout_returns_failure(
+        self,
+        relay: Relay,
+        mock_city_reader: MagicMock,
+    ) -> None:
+        """Returns failure when hostname resolution times out."""
+        with patch(
+            "bigbrotr.nips.nip66.geo.resolve_host",
+            new_callable=AsyncMock,
+            side_effect=TimeoutError,
+        ):
+            result = await Nip66GeoMetadata.execute(relay, mock_city_reader, timeout=0.1)
+
+        assert result.logs.success is False
+        assert "timeout" in result.logs.reason
+
+    async def test_lookup_timeout_returns_failure(
+        self,
+        relay: Relay,
+        mock_city_reader: MagicMock,
+    ) -> None:
+        """Returns failure when GeoIP lookup times out."""
+        mock_resolved = MagicMock()
+        mock_resolved.ipv4 = "8.8.8.8"
+        mock_resolved.ipv6 = None
+
+        async def slow_thread(*args: object, **kwargs: object) -> None:
+            await asyncio.sleep(999)
+
+        with (
+            patch(
+                "bigbrotr.nips.nip66.geo.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
+            ),
+            patch("bigbrotr.nips.nip66.geo.asyncio.to_thread", side_effect=slow_thread),
+        ):
+            result = await Nip66GeoMetadata.execute(relay, mock_city_reader, timeout=0.1)
+
+        assert result.logs.success is False

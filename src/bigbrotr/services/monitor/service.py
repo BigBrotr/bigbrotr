@@ -341,7 +341,7 @@ class Monitor(
         sent = await broadcast_events(
             [
                 build_monitor_announcement(
-                    interval=int(self._config.interval),
+                    interval=int(self._config.discovery.interval),
                     timeout_ms=timeout_ms,
                     enabled_networks=enabled_networks,
                     nip11_selection=Nip11Selection(info=include.nip11_info),
@@ -566,7 +566,7 @@ class Monitor(
             precision = self._config.geo.geohash_precision
             tasks["geo"] = retry_fetch(
                 relay,
-                lambda: Nip66GeoMetadata.execute(relay, city_reader, precision),
+                lambda: Nip66GeoMetadata.execute(relay, city_reader, precision, timeout=timeout),
                 self._config.processing.retries.nip66_geo,
                 "nip66_geo",
                 wait=self.wait,
@@ -575,7 +575,7 @@ class Monitor(
             asn_reader = self.geo_readers.asn
             tasks["net"] = retry_fetch(
                 relay,
-                lambda: Nip66NetMetadata.execute(relay, asn_reader),
+                lambda: Nip66NetMetadata.execute(relay, asn_reader, timeout=timeout),
                 self._config.processing.retries.nip66_net,
                 "nip66_net",
                 wait=self.wait,

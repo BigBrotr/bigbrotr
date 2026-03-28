@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "bigbrotr"
-version = "6.5.0"
+version = "6.5.1"
 description = "Modular Nostr network observatory — relay discovery, health monitoring, event archiving, analytics, and data access across clearnet, Tor, I2P, and Lokinet"
 readme = "README.md"
 license = { text = "MIT" }
@@ -53,13 +53,13 @@ dependencies = [
     "geoip2>=4.8.0",
     "jmespath>=1.0.0",
     "geohash2>=1.1",
-    "nostr-sdk>=0.37.0",
+    "nostr-sdk>=0.44.0",
     "prometheus-client>=0.20.0",
     "pydantic>=2.5.0",
     "PyYAML>=6.0.1",
     "rfc3986>=2.0.0",
     "tldextract>=5.1.0",
-    "cryptography>=46.0.5",
+    "cryptography>=46.0.6",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
 ]
@@ -221,8 +221,6 @@ module = [
     "tldextract.*",
     "cryptography.*",
     "uvicorn.*",
-    "fastapi.*",
-    "starlette.*",
 ]
 ignore_missing_imports = true
 

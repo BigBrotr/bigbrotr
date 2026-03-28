@@ -10,6 +10,7 @@ Tests:
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from bigbrotr.models import Relay
@@ -340,3 +341,45 @@ class TestNip66NetMetadataNetAsync:
         assert result.logs.success is True
         assert result.data.net_asn == 15169
         assert result.data.net_asn_org is None
+
+    async def test_resolve_timeout_returns_failure(
+        self,
+        relay: Relay,
+        mock_asn_reader: MagicMock,
+    ) -> None:
+        """Returns failure when hostname resolution times out."""
+        with patch(
+            "bigbrotr.nips.nip66.net.resolve_host",
+            new_callable=AsyncMock,
+            side_effect=TimeoutError,
+        ):
+            result = await Nip66NetMetadata.execute(relay, mock_asn_reader, timeout=0.1)
+
+        assert result.logs.success is False
+        assert "timeout" in result.logs.reason
+
+    async def test_lookup_timeout_returns_failure(
+        self,
+        relay: Relay,
+        mock_asn_reader: MagicMock,
+    ) -> None:
+        """Returns failure when ASN lookup times out."""
+        mock_resolved = MagicMock()
+        mock_resolved.ipv4 = "8.8.8.8"
+        mock_resolved.ipv6 = None
+        mock_resolved.has_ip = True
+
+        async def slow_thread(*args: object, **kwargs: object) -> None:
+            await asyncio.sleep(999)
+
+        with (
+            patch(
+                "bigbrotr.nips.nip66.net.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
+            ),
+            patch("bigbrotr.nips.nip66.net.asyncio.to_thread", side_effect=slow_thread),
+        ):
+            result = await Nip66NetMetadata.execute(relay, mock_asn_reader, timeout=0.1)
+
+        assert result.logs.success is False
