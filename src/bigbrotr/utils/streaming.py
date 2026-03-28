@@ -38,17 +38,24 @@ logger = logging.getLogger(__name__)
 # ── Event conversion ──────────────────────────────────────────────
 
 
-def _to_domain_events(raw_events: list[NostrEvent]) -> list[Event]:
+def _to_domain_events(
+    raw_events: list[NostrEvent],
+    max_event_size: int | None = None,
+) -> list[Event]:
     """Sort raw events and convert to domain models.
 
     Sorts by ascending ``(created_at, id)`` then wraps each ``NostrEvent``
     in an ``Event`` domain model. Events that fail model validation (null
-    bytes, overflow) are silently dropped with a debug log.
+    bytes, overflow) or exceed ``max_event_size`` are silently dropped
+    with a debug log.
     """
     raw_events.sort(key=lambda e: (e.created_at().as_secs(), e.id().to_hex()))
     result: list[Event] = []
     for evt in raw_events:
         try:
+            if max_event_size is not None and len(evt.as_json()) > max_event_size:
+                logger.debug("event_too_large id=%s", evt.id().to_hex()[:16])
+                continue
             result.append(Event(evt))
         except (ValueError, TypeError, OverflowError) as e:
             logger.debug("event_parse_error error=%s", e)
@@ -66,6 +73,7 @@ class _FetchContext:
     filters: list[Filter]
     limit: int
     fetch_timeout: timedelta
+    max_event_size: int | None = None
 
 
 async def _fetch_validated(
@@ -168,6 +176,7 @@ async def stream_events(  # noqa: PLR0913
     limit: int,
     request_timeout: float,
     idle_timeout: float,
+    max_event_size: int | None = None,
 ) -> AsyncIterator[Event]:
     """Stream all events matching ``filters`` in ``[start_time, end_time]``,
     yielded as domain ``Event`` objects in ascending ``(created_at, id)`` order.
@@ -211,6 +220,7 @@ async def stream_events(  # noqa: PLR0913
         filters=filters,
         limit=limit,
         fetch_timeout=timedelta(seconds=request_timeout),
+        max_event_size=max_event_size,
     )
     until_stack = [end_time]
     current_since = start_time
@@ -232,7 +242,7 @@ async def stream_events(  # noqa: PLR0913
 
         # Single-second window: cannot split further, yield everything.
         if current_since == current_until:
-            for evt in _to_domain_events(events):
+            for evt in _to_domain_events(events, ctx.max_event_size):
                 yield evt
                 last_yield = time.monotonic()
             until_stack.pop(0)
@@ -245,7 +255,7 @@ async def stream_events(  # noqa: PLR0913
         verified = await _try_verify_completeness(ctx, events, current_since)
 
         if verified is not None:
-            for evt in _to_domain_events(verified):
+            for evt in _to_domain_events(verified, ctx.max_event_size):
                 yield evt
                 last_yield = time.monotonic()
             until_stack.pop(0)

@@ -509,7 +509,7 @@ class TestStreamEvents:
         domain_a = MagicMock(name="domain_a")
         domain_b = MagicMock(name="domain_b")
 
-        def mock_convert(raw_events: list) -> list:
+        def mock_convert(raw_events: list, max_event_size: int | None = None) -> list:
             if raw_events and raw_events[0] is raw_a:
                 return [domain_a]
             return [domain_b]
