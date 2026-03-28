@@ -415,4 +415,5 @@ __all__ = [
     "build_monitor_announcement",
     "build_profile_event",
     "build_relay_discovery",
+    "build_relay_list_event",
 ]
