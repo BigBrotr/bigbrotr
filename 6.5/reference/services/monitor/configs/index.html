@@ -6405,11 +6405,7 @@ downloads asynchronously via <code>aiohttp</code>.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/bigbrotr/services/monitor/configs.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-402">402</a></span>
-<span class="normal"><a href="#__codelineno-0-403">403</a></span>
-<span class="normal"><a href="#__codelineno-0-404">404</a></span>
-<span class="normal"><a href="#__codelineno-0-405">405</a></span>
-<span class="normal"><a href="#__codelineno-0-406">406</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-406">406</a></span>
 <span class="normal"><a href="#__codelineno-0-407">407</a></span>
 <span class="normal"><a href="#__codelineno-0-408">408</a></span>
 <span class="normal"><a href="#__codelineno-0-409">409</a></span>
@@ -6428,30 +6424,34 @@ downloads asynchronously via <code>aiohttp</code>.</p>
 <span class="normal"><a href="#__codelineno-0-422">422</a></span>
 <span class="normal"><a href="#__codelineno-0-423">423</a></span>
 <span class="normal"><a href="#__codelineno-0-424">424</a></span>
-<span class="normal"><a href="#__codelineno-0-425">425</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-402" name="__codelineno-0-402"></a><span class="nd">@model_validator</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="s2">&quot;after&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-403" name="__codelineno-0-403"></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_geo_databases</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MonitorConfig</span><span class="p">:</span>
-<a id="__codelineno-0-404" name="__codelineno-0-404"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Validate GeoLite2 database paths have download URLs if files are missing.</span>
-<a id="__codelineno-0-405" name="__codelineno-0-405"></a>
-<a id="__codelineno-0-406" name="__codelineno-0-406"></a><span class="sd">    Actual downloads are deferred to ``_update_geo_databases()`` which</span>
-<a id="__codelineno-0-407" name="__codelineno-0-407"></a><span class="sd">    downloads asynchronously via ``aiohttp``.</span>
-<a id="__codelineno-0-408" name="__codelineno-0-408"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-409" name="__codelineno-0-409"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">compute</span><span class="o">.</span><span class="n">nip66_geo</span><span class="p">:</span>
-<a id="__codelineno-0-410" name="__codelineno-0-410"></a>        <span class="n">city_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">geo</span><span class="o">.</span><span class="n">city_database_path</span><span class="p">)</span>
-<a id="__codelineno-0-411" name="__codelineno-0-411"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">city_path</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">geo</span><span class="o">.</span><span class="n">city_download_url</span><span class="p">:</span>
-<a id="__codelineno-0-412" name="__codelineno-0-412"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-413" name="__codelineno-0-413"></a>                <span class="sa">f</span><span class="s2">&quot;GeoLite2 City database not found at </span><span class="si">{</span><span class="n">city_path</span><span class="si">}</span><span class="s2"> &quot;</span>
-<a id="__codelineno-0-414" name="__codelineno-0-414"></a>                <span class="s2">&quot;and no download URL configured in geo.city_download_url&quot;</span>
-<a id="__codelineno-0-415" name="__codelineno-0-415"></a>            <span class="p">)</span>
-<a id="__codelineno-0-416" name="__codelineno-0-416"></a>
-<a id="__codelineno-0-417" name="__codelineno-0-417"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">compute</span><span class="o">.</span><span class="n">nip66_net</span><span class="p">:</span>
-<a id="__codelineno-0-418" name="__codelineno-0-418"></a>        <span class="n">asn_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">geo</span><span class="o">.</span><span class="n">asn_database_path</span><span class="p">)</span>
-<a id="__codelineno-0-419" name="__codelineno-0-419"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">asn_path</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">geo</span><span class="o">.</span><span class="n">asn_download_url</span><span class="p">:</span>
-<a id="__codelineno-0-420" name="__codelineno-0-420"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-421" name="__codelineno-0-421"></a>                <span class="sa">f</span><span class="s2">&quot;GeoLite2 ASN database not found at </span><span class="si">{</span><span class="n">asn_path</span><span class="si">}</span><span class="s2"> &quot;</span>
-<a id="__codelineno-0-422" name="__codelineno-0-422"></a>                <span class="s2">&quot;and no download URL configured in geo.asn_download_url&quot;</span>
-<a id="__codelineno-0-423" name="__codelineno-0-423"></a>            <span class="p">)</span>
-<a id="__codelineno-0-424" name="__codelineno-0-424"></a>
-<a id="__codelineno-0-425" name="__codelineno-0-425"></a>    <span class="k">return</span> <span class="bp">self</span>
+<span class="normal"><a href="#__codelineno-0-425">425</a></span>
+<span class="normal"><a href="#__codelineno-0-426">426</a></span>
+<span class="normal"><a href="#__codelineno-0-427">427</a></span>
+<span class="normal"><a href="#__codelineno-0-428">428</a></span>
+<span class="normal"><a href="#__codelineno-0-429">429</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-406" name="__codelineno-0-406"></a><span class="nd">@model_validator</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="s2">&quot;after&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-407" name="__codelineno-0-407"></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_geo_databases</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MonitorConfig</span><span class="p">:</span>
+<a id="__codelineno-0-408" name="__codelineno-0-408"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Validate GeoLite2 database paths have download URLs if files are missing.</span>
+<a id="__codelineno-0-409" name="__codelineno-0-409"></a>
+<a id="__codelineno-0-410" name="__codelineno-0-410"></a><span class="sd">    Actual downloads are deferred to ``_update_geo_databases()`` which</span>
+<a id="__codelineno-0-411" name="__codelineno-0-411"></a><span class="sd">    downloads asynchronously via ``aiohttp``.</span>
+<a id="__codelineno-0-412" name="__codelineno-0-412"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-413" name="__codelineno-0-413"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">compute</span><span class="o">.</span><span class="n">nip66_geo</span><span class="p">:</span>
+<a id="__codelineno-0-414" name="__codelineno-0-414"></a>        <span class="n">city_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">geo</span><span class="o">.</span><span class="n">city_database_path</span><span class="p">)</span>
+<a id="__codelineno-0-415" name="__codelineno-0-415"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">city_path</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">geo</span><span class="o">.</span><span class="n">city_download_url</span><span class="p">:</span>
+<a id="__codelineno-0-416" name="__codelineno-0-416"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-417" name="__codelineno-0-417"></a>                <span class="sa">f</span><span class="s2">&quot;GeoLite2 City database not found at </span><span class="si">{</span><span class="n">city_path</span><span class="si">}</span><span class="s2"> &quot;</span>
+<a id="__codelineno-0-418" name="__codelineno-0-418"></a>                <span class="s2">&quot;and no download URL configured in geo.city_download_url&quot;</span>
+<a id="__codelineno-0-419" name="__codelineno-0-419"></a>            <span class="p">)</span>
+<a id="__codelineno-0-420" name="__codelineno-0-420"></a>
+<a id="__codelineno-0-421" name="__codelineno-0-421"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">compute</span><span class="o">.</span><span class="n">nip66_net</span><span class="p">:</span>
+<a id="__codelineno-0-422" name="__codelineno-0-422"></a>        <span class="n">asn_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">geo</span><span class="o">.</span><span class="n">asn_database_path</span><span class="p">)</span>
+<a id="__codelineno-0-423" name="__codelineno-0-423"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">asn_path</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">geo</span><span class="o">.</span><span class="n">asn_download_url</span><span class="p">:</span>
+<a id="__codelineno-0-424" name="__codelineno-0-424"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-425" name="__codelineno-0-425"></a>                <span class="sa">f</span><span class="s2">&quot;GeoLite2 ASN database not found at </span><span class="si">{</span><span class="n">asn_path</span><span class="si">}</span><span class="s2"> &quot;</span>
+<a id="__codelineno-0-426" name="__codelineno-0-426"></a>                <span class="s2">&quot;and no download URL configured in geo.asn_download_url&quot;</span>
+<a id="__codelineno-0-427" name="__codelineno-0-427"></a>            <span class="p">)</span>
+<a id="__codelineno-0-428" name="__codelineno-0-428"></a>
+<a id="__codelineno-0-429" name="__codelineno-0-429"></a>    <span class="k">return</span> <span class="bp">self</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -6476,11 +6476,7 @@ downloads asynchronously via <code>aiohttp</code>.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/bigbrotr/services/monitor/configs.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-427">427</a></span>
-<span class="normal"><a href="#__codelineno-0-428">428</a></span>
-<span class="normal"><a href="#__codelineno-0-429">429</a></span>
-<span class="normal"><a href="#__codelineno-0-430">430</a></span>
-<span class="normal"><a href="#__codelineno-0-431">431</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-431">431</a></span>
 <span class="normal"><a href="#__codelineno-0-432">432</a></span>
 <span class="normal"><a href="#__codelineno-0-433">433</a></span>
 <span class="normal"><a href="#__codelineno-0-434">434</a></span>
@@ -6488,19 +6484,23 @@ downloads asynchronously via <code>aiohttp</code>.</p>
 <span class="normal"><a href="#__codelineno-0-436">436</a></span>
 <span class="normal"><a href="#__codelineno-0-437">437</a></span>
 <span class="normal"><a href="#__codelineno-0-438">438</a></span>
-<span class="normal"><a href="#__codelineno-0-439">439</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-427" name="__codelineno-0-427"></a><span class="nd">@model_validator</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="s2">&quot;after&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-428" name="__codelineno-0-428"></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_clearnet_only_checks</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MonitorConfig</span><span class="p">:</span>
-<a id="__codelineno-0-429" name="__codelineno-0-429"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Ensure clearnet-only compute flags are disabled when clearnet is off.&quot;&quot;&quot;</span>
-<a id="__codelineno-0-430" name="__codelineno-0-430"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">networks</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">(</span><span class="n">NetworkType</span><span class="o">.</span><span class="n">CLEARNET</span><span class="p">):</span>
-<a id="__codelineno-0-431" name="__codelineno-0-431"></a>        <span class="k">return</span> <span class="bp">self</span>
-<a id="__codelineno-0-432" name="__codelineno-0-432"></a>    <span class="n">enabled</span> <span class="o">=</span> <span class="p">[</span><span class="n">f</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">_CLEARNET_ONLY_FLAGS</span> <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">compute</span><span class="p">,</span> <span class="n">f</span><span class="p">)]</span>
-<a id="__codelineno-0-433" name="__codelineno-0-433"></a>    <span class="k">if</span> <span class="n">enabled</span><span class="p">:</span>
-<a id="__codelineno-0-434" name="__codelineno-0-434"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-435" name="__codelineno-0-435"></a>            <span class="sa">f</span><span class="s2">&quot;Clearnet is disabled but these clearnet-only checks are enabled &quot;</span>
-<a id="__codelineno-0-436" name="__codelineno-0-436"></a>            <span class="sa">f</span><span class="s2">&quot;in processing.compute: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">enabled</span><span class="p">)</span><span class="si">}</span><span class="s2">. &quot;</span>
-<a id="__codelineno-0-437" name="__codelineno-0-437"></a>            <span class="sa">f</span><span class="s2">&quot;Disable them or enable the clearnet network.&quot;</span>
-<a id="__codelineno-0-438" name="__codelineno-0-438"></a>        <span class="p">)</span>
-<a id="__codelineno-0-439" name="__codelineno-0-439"></a>    <span class="k">return</span> <span class="bp">self</span>
+<span class="normal"><a href="#__codelineno-0-439">439</a></span>
+<span class="normal"><a href="#__codelineno-0-440">440</a></span>
+<span class="normal"><a href="#__codelineno-0-441">441</a></span>
+<span class="normal"><a href="#__codelineno-0-442">442</a></span>
+<span class="normal"><a href="#__codelineno-0-443">443</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-431" name="__codelineno-0-431"></a><span class="nd">@model_validator</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="s2">&quot;after&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-432" name="__codelineno-0-432"></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_clearnet_only_checks</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MonitorConfig</span><span class="p">:</span>
+<a id="__codelineno-0-433" name="__codelineno-0-433"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Ensure clearnet-only compute flags are disabled when clearnet is off.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-434" name="__codelineno-0-434"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">networks</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">(</span><span class="n">NetworkType</span><span class="o">.</span><span class="n">CLEARNET</span><span class="p">):</span>
+<a id="__codelineno-0-435" name="__codelineno-0-435"></a>        <span class="k">return</span> <span class="bp">self</span>
+<a id="__codelineno-0-436" name="__codelineno-0-436"></a>    <span class="n">enabled</span> <span class="o">=</span> <span class="p">[</span><span class="n">f</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">_CLEARNET_ONLY_FLAGS</span> <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">compute</span><span class="p">,</span> <span class="n">f</span><span class="p">)]</span>
+<a id="__codelineno-0-437" name="__codelineno-0-437"></a>    <span class="k">if</span> <span class="n">enabled</span><span class="p">:</span>
+<a id="__codelineno-0-438" name="__codelineno-0-438"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-439" name="__codelineno-0-439"></a>            <span class="sa">f</span><span class="s2">&quot;Clearnet is disabled but these clearnet-only checks are enabled &quot;</span>
+<a id="__codelineno-0-440" name="__codelineno-0-440"></a>            <span class="sa">f</span><span class="s2">&quot;in processing.compute: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">enabled</span><span class="p">)</span><span class="si">}</span><span class="s2">. &quot;</span>
+<a id="__codelineno-0-441" name="__codelineno-0-441"></a>            <span class="sa">f</span><span class="s2">&quot;Disable them or enable the clearnet network.&quot;</span>
+<a id="__codelineno-0-442" name="__codelineno-0-442"></a>        <span class="p">)</span>
+<a id="__codelineno-0-443" name="__codelineno-0-443"></a>    <span class="k">return</span> <span class="bp">self</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -6525,25 +6525,25 @@ downloads asynchronously via <code>aiohttp</code>.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/bigbrotr/services/monitor/configs.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-441">441</a></span>
-<span class="normal"><a href="#__codelineno-0-442">442</a></span>
-<span class="normal"><a href="#__codelineno-0-443">443</a></span>
-<span class="normal"><a href="#__codelineno-0-444">444</a></span>
-<span class="normal"><a href="#__codelineno-0-445">445</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-445">445</a></span>
 <span class="normal"><a href="#__codelineno-0-446">446</a></span>
 <span class="normal"><a href="#__codelineno-0-447">447</a></span>
 <span class="normal"><a href="#__codelineno-0-448">448</a></span>
 <span class="normal"><a href="#__codelineno-0-449">449</a></span>
-<span class="normal"><a href="#__codelineno-0-450">450</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-441" name="__codelineno-0-441"></a><span class="nd">@model_validator</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="s2">&quot;after&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-442" name="__codelineno-0-442"></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_store_requires_compute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MonitorConfig</span><span class="p">:</span>
-<a id="__codelineno-0-443" name="__codelineno-0-443"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Ensure every stored metadata type is also computed.&quot;&quot;&quot;</span>
-<a id="__codelineno-0-444" name="__codelineno-0-444"></a>    <span class="n">errors</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">get_missing_from</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">compute</span><span class="p">)</span>
-<a id="__codelineno-0-445" name="__codelineno-0-445"></a>    <span class="k">if</span> <span class="n">errors</span><span class="p">:</span>
-<a id="__codelineno-0-446" name="__codelineno-0-446"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-447" name="__codelineno-0-447"></a>            <span class="sa">f</span><span class="s2">&quot;Cannot store metadata that is not computed: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">errors</span><span class="p">)</span><span class="si">}</span><span class="s2">. &quot;</span>
-<a id="__codelineno-0-448" name="__codelineno-0-448"></a>            <span class="s2">&quot;Enable in processing.compute.* or disable in processing.store.*&quot;</span>
-<a id="__codelineno-0-449" name="__codelineno-0-449"></a>        <span class="p">)</span>
-<a id="__codelineno-0-450" name="__codelineno-0-450"></a>    <span class="k">return</span> <span class="bp">self</span>
+<span class="normal"><a href="#__codelineno-0-450">450</a></span>
+<span class="normal"><a href="#__codelineno-0-451">451</a></span>
+<span class="normal"><a href="#__codelineno-0-452">452</a></span>
+<span class="normal"><a href="#__codelineno-0-453">453</a></span>
+<span class="normal"><a href="#__codelineno-0-454">454</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-445" name="__codelineno-0-445"></a><span class="nd">@model_validator</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="s2">&quot;after&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-446" name="__codelineno-0-446"></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_store_requires_compute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MonitorConfig</span><span class="p">:</span>
+<a id="__codelineno-0-447" name="__codelineno-0-447"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Ensure every stored metadata type is also computed.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-448" name="__codelineno-0-448"></a>    <span class="n">errors</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">get_missing_from</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">compute</span><span class="p">)</span>
+<a id="__codelineno-0-449" name="__codelineno-0-449"></a>    <span class="k">if</span> <span class="n">errors</span><span class="p">:</span>
+<a id="__codelineno-0-450" name="__codelineno-0-450"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-451" name="__codelineno-0-451"></a>            <span class="sa">f</span><span class="s2">&quot;Cannot store metadata that is not computed: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">errors</span><span class="p">)</span><span class="si">}</span><span class="s2">. &quot;</span>
+<a id="__codelineno-0-452" name="__codelineno-0-452"></a>            <span class="s2">&quot;Enable in processing.compute.* or disable in processing.store.*&quot;</span>
+<a id="__codelineno-0-453" name="__codelineno-0-453"></a>        <span class="p">)</span>
+<a id="__codelineno-0-454" name="__codelineno-0-454"></a>    <span class="k">return</span> <span class="bp">self</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -6568,11 +6568,7 @@ downloads asynchronously via <code>aiohttp</code>.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/bigbrotr/services/monitor/configs.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-452">452</a></span>
-<span class="normal"><a href="#__codelineno-0-453">453</a></span>
-<span class="normal"><a href="#__codelineno-0-454">454</a></span>
-<span class="normal"><a href="#__codelineno-0-455">455</a></span>
-<span class="normal"><a href="#__codelineno-0-456">456</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-456">456</a></span>
 <span class="normal"><a href="#__codelineno-0-457">457</a></span>
 <span class="normal"><a href="#__codelineno-0-458">458</a></span>
 <span class="normal"><a href="#__codelineno-0-459">459</a></span>
@@ -6585,24 +6581,28 @@ downloads asynchronously via <code>aiohttp</code>.</p>
 <span class="normal"><a href="#__codelineno-0-466">466</a></span>
 <span class="normal"><a href="#__codelineno-0-467">467</a></span>
 <span class="normal"><a href="#__codelineno-0-468">468</a></span>
-<span class="normal"><a href="#__codelineno-0-469">469</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-452" name="__codelineno-0-452"></a><span class="nd">@model_validator</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="s2">&quot;after&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-453" name="__codelineno-0-453"></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_publish_requires_compute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MonitorConfig</span><span class="p">:</span>
-<a id="__codelineno-0-454" name="__codelineno-0-454"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Ensure every published metadata type is also computed.&quot;&quot;&quot;</span>
-<a id="__codelineno-0-455" name="__codelineno-0-455"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">discovery</span><span class="o">.</span><span class="n">enabled</span><span class="p">:</span>
-<a id="__codelineno-0-456" name="__codelineno-0-456"></a>        <span class="n">errors</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">discovery</span><span class="o">.</span><span class="n">include</span><span class="o">.</span><span class="n">get_missing_from</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">compute</span><span class="p">)</span>
-<a id="__codelineno-0-457" name="__codelineno-0-457"></a>        <span class="k">if</span> <span class="n">errors</span><span class="p">:</span>
-<a id="__codelineno-0-458" name="__codelineno-0-458"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-459" name="__codelineno-0-459"></a>                <span class="sa">f</span><span class="s2">&quot;Cannot publish metadata that is not computed: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">errors</span><span class="p">)</span><span class="si">}</span><span class="s2">. &quot;</span>
-<a id="__codelineno-0-460" name="__codelineno-0-460"></a>                <span class="s2">&quot;Enable in processing.compute.* or disable in discovery.include.*&quot;</span>
-<a id="__codelineno-0-461" name="__codelineno-0-461"></a>            <span class="p">)</span>
-<a id="__codelineno-0-462" name="__codelineno-0-462"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">announcement</span><span class="o">.</span><span class="n">enabled</span><span class="p">:</span>
-<a id="__codelineno-0-463" name="__codelineno-0-463"></a>        <span class="n">errors</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">announcement</span><span class="o">.</span><span class="n">include</span><span class="o">.</span><span class="n">get_missing_from</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">compute</span><span class="p">)</span>
-<a id="__codelineno-0-464" name="__codelineno-0-464"></a>        <span class="k">if</span> <span class="n">errors</span><span class="p">:</span>
-<a id="__codelineno-0-465" name="__codelineno-0-465"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-466" name="__codelineno-0-466"></a>                <span class="sa">f</span><span class="s2">&quot;Cannot announce metadata that is not computed: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">errors</span><span class="p">)</span><span class="si">}</span><span class="s2">. &quot;</span>
-<a id="__codelineno-0-467" name="__codelineno-0-467"></a>                <span class="s2">&quot;Enable in processing.compute.* or disable in announcement.include.*&quot;</span>
-<a id="__codelineno-0-468" name="__codelineno-0-468"></a>            <span class="p">)</span>
-<a id="__codelineno-0-469" name="__codelineno-0-469"></a>    <span class="k">return</span> <span class="bp">self</span>
+<span class="normal"><a href="#__codelineno-0-469">469</a></span>
+<span class="normal"><a href="#__codelineno-0-470">470</a></span>
+<span class="normal"><a href="#__codelineno-0-471">471</a></span>
+<span class="normal"><a href="#__codelineno-0-472">472</a></span>
+<span class="normal"><a href="#__codelineno-0-473">473</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-456" name="__codelineno-0-456"></a><span class="nd">@model_validator</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="s2">&quot;after&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-457" name="__codelineno-0-457"></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_publish_requires_compute</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MonitorConfig</span><span class="p">:</span>
+<a id="__codelineno-0-458" name="__codelineno-0-458"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Ensure every published metadata type is also computed.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-459" name="__codelineno-0-459"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">discovery</span><span class="o">.</span><span class="n">enabled</span><span class="p">:</span>
+<a id="__codelineno-0-460" name="__codelineno-0-460"></a>        <span class="n">errors</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">discovery</span><span class="o">.</span><span class="n">include</span><span class="o">.</span><span class="n">get_missing_from</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">compute</span><span class="p">)</span>
+<a id="__codelineno-0-461" name="__codelineno-0-461"></a>        <span class="k">if</span> <span class="n">errors</span><span class="p">:</span>
+<a id="__codelineno-0-462" name="__codelineno-0-462"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-463" name="__codelineno-0-463"></a>                <span class="sa">f</span><span class="s2">&quot;Cannot publish metadata that is not computed: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">errors</span><span class="p">)</span><span class="si">}</span><span class="s2">. &quot;</span>
+<a id="__codelineno-0-464" name="__codelineno-0-464"></a>                <span class="s2">&quot;Enable in processing.compute.* or disable in discovery.include.*&quot;</span>
+<a id="__codelineno-0-465" name="__codelineno-0-465"></a>            <span class="p">)</span>
+<a id="__codelineno-0-466" name="__codelineno-0-466"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">announcement</span><span class="o">.</span><span class="n">enabled</span><span class="p">:</span>
+<a id="__codelineno-0-467" name="__codelineno-0-467"></a>        <span class="n">errors</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">announcement</span><span class="o">.</span><span class="n">include</span><span class="o">.</span><span class="n">get_missing_from</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">processing</span><span class="o">.</span><span class="n">compute</span><span class="p">)</span>
+<a id="__codelineno-0-468" name="__codelineno-0-468"></a>        <span class="k">if</span> <span class="n">errors</span><span class="p">:</span>
+<a id="__codelineno-0-469" name="__codelineno-0-469"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-470" name="__codelineno-0-470"></a>                <span class="sa">f</span><span class="s2">&quot;Cannot announce metadata that is not computed: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">errors</span><span class="p">)</span><span class="si">}</span><span class="s2">. &quot;</span>
+<a id="__codelineno-0-471" name="__codelineno-0-471"></a>                <span class="s2">&quot;Enable in processing.compute.* or disable in announcement.include.*&quot;</span>
+<a id="__codelineno-0-472" name="__codelineno-0-472"></a>            <span class="p">)</span>
+<a id="__codelineno-0-473" name="__codelineno-0-473"></a>    <span class="k">return</span> <span class="bp">self</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
