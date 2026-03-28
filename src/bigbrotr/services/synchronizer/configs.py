@@ -124,6 +124,11 @@ class ProcessingConfig(BaseModel):
         default=False,
         description="Fall back to insecure transport on SSL certificate failure",
     )
+    max_event_size: int | None = Field(
+        default=None,
+        ge=1024,
+        description="Maximum event JSON size in bytes (None = no limit)",
+    )
 
     @field_validator("filters", mode="before")
     @classmethod

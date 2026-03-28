@@ -248,6 +248,7 @@ class Synchronizer(
                         self._config.processing.limit,
                         request_timeout,
                         self._config.timeouts.idle,
+                        self._config.processing.max_event_size,
                     ):
                         yield event, relay
 

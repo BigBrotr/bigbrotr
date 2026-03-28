@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, NamedTuple
+from typing import Any, ClassVar, NamedTuple
 
 from nostr_sdk import Event as NostrEvent
 
@@ -119,6 +119,8 @@ class Event:
         hash=False,  # type: ignore[assignment]  # mypy expects bool literal, field() accepts it at runtime
     )
 
+    _MAX_TAG_VALUE_LENGTH: ClassVar[int] = 2048
+
     def __post_init__(self) -> None:
         """Validate the event for database compatibility on construction."""
         validate_instance(self._nostr_event, NostrEvent, "_nostr_event")
@@ -131,6 +133,11 @@ class Event:
             for value in tag.as_vec():
                 if "\x00" in value:
                     raise ValueError(f"Event {event_id}... tags contain null bytes")
+                if len(value) > Event._MAX_TAG_VALUE_LENGTH:
+                    raise ValueError(
+                        f"Event {event_id}... tag value exceeds {Event._MAX_TAG_VALUE_LENGTH} "
+                        f"chars ({len(value)})"
+                    )
 
         object.__setattr__(self, "_db_params", self._compute_db_params())
 

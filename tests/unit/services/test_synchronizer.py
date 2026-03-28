@@ -880,8 +880,9 @@ class TestSyncWorker:
         ):
             _ = [item async for item in sync._synchronize_worker(cursor)]
 
-        # idle_timeout is the last positional arg
-        assert mock_stream.call_args.args[-1] == 90.0
+        # idle_timeout is the second-to-last positional arg; max_event_size is last
+        assert mock_stream.call_args.args[-2] == 90.0
+        assert mock_stream.call_args.args[-1] is None
 
     async def test_outer_exception_boundary(self, mock_synchronizer_brotr: Brotr) -> None:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)

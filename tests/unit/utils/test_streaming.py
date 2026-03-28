@@ -118,6 +118,30 @@ class TestToDomainEvents:
             result = _to_domain_events([evt])
         assert result == []
 
+    def test_drops_event_exceeding_max_size(self) -> None:
+        evt = _make_raw_event()
+        evt.as_json.return_value = "x" * 1001
+        with patch("bigbrotr.utils.streaming.Event") as MockEvent:
+            MockEvent.side_effect = lambda e: e
+            result = _to_domain_events([evt], max_event_size=1000)
+        assert result == []
+
+    def test_accepts_event_within_max_size(self) -> None:
+        evt = _make_raw_event()
+        evt.as_json.return_value = "x" * 1000
+        with patch("bigbrotr.utils.streaming.Event") as MockEvent:
+            MockEvent.side_effect = lambda e: e
+            result = _to_domain_events([evt], max_event_size=1000)
+        assert len(result) == 1
+
+    def test_no_size_filter_when_none(self) -> None:
+        evt = _make_raw_event()
+        with patch("bigbrotr.utils.streaming.Event") as MockEvent:
+            MockEvent.side_effect = lambda e: e
+            result = _to_domain_events([evt], max_event_size=None)
+        assert len(result) == 1
+        evt.as_json.assert_not_called()
+
 
 # ============================================================================
 # _FetchContext Tests
@@ -509,7 +533,7 @@ class TestStreamEvents:
         domain_a = MagicMock(name="domain_a")
         domain_b = MagicMock(name="domain_b")
 
-        def mock_convert(raw_events: list) -> list:
+        def mock_convert(raw_events: list, max_event_size: int | None = None) -> list:
             if raw_events and raw_events[0] is raw_a:
                 return [domain_a]
             return [domain_b]

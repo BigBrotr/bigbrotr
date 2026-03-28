@@ -129,6 +129,17 @@ class TestNullByteValidation:
             Event(mock)
         assert "aaaaaaaaaaaaaaaa" in str(exc_info.value)
 
+    def test_rejects_tag_value_exceeding_max_length(self):
+        long_value = "a" * (Event._MAX_TAG_VALUE_LENGTH + 1)
+        mock = _make_mock_nostr_event(tags=[["r", long_value]])
+        with pytest.raises(ValueError, match="tag value exceeds"):
+            Event(mock)
+
+    def test_accepts_tag_value_at_max_length(self):
+        value = "a" * Event._MAX_TAG_VALUE_LENGTH
+        mock = _make_mock_nostr_event(tags=[["r", value]])
+        Event(mock)
+
 
 # =============================================================================
 # Immutability Tests
