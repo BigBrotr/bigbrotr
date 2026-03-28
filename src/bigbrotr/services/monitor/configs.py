@@ -290,6 +290,10 @@ class AnnouncementConfig(BaseModel):
         le=604800.0,
         description="Minimum seconds between announcements",
     )
+    geohash: str | None = Field(
+        default=None,
+        description="NIP-52 geohash of the monitor's location (None = omit from announcement)",
+    )
     include: MetadataFlags = Field(
         default_factory=MetadataFlags,
         description="Which metadata types to include in announcement",
