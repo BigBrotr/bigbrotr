@@ -11,6 +11,7 @@ from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import EventRelay, Relay
 from bigbrotr.models.event import Event
 from tests.conftest import make_mock_event
+from tests.fixtures.relays import ONION_HOST
 
 
 pytestmark = pytest.mark.integration
@@ -172,7 +173,7 @@ class TestEventRelayInsertCascade:
     async def test_clearnet_and_tor_in_same_batch(self, brotr: Brotr):
         clearnet = Relay("wss://clear.example.com", discovered_at=1700000000)
         tor = Relay(
-            "ws://abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuv.onion",
+            f"ws://{ONION_HOST}.onion",
             discovered_at=1700000000,
         )
         er_clear = EventRelay(
@@ -196,7 +197,7 @@ class TestEventRelayInsertCascade:
     async def test_relay_network_column(self, brotr: Brotr):
         clearnet = Relay("wss://netcheck.example.com", discovered_at=1700000000)
         tor = Relay(
-            "ws://abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuv.onion",
+            f"ws://{ONION_HOST}.onion",
             discovered_at=1700000000,
         )
 

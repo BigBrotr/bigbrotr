@@ -113,8 +113,10 @@ class TestParseSeedFile:
         assert parse_seed_file(f)[0].url == "wss://relay.example.com"
 
     def test_tor_and_i2p(self, tmp_path: Path) -> None:
+        from tests.fixtures.relays import ONION_HOST
+
         f = tmp_path / "seed.txt"
-        f.write_text("ws://example.onion\nws://example.i2p\n")
+        f.write_text(f"ws://{ONION_HOST}.onion\nws://example.i2p\n")
         assert len(parse_seed_file(f)) == 2
 
     @pytest.mark.parametrize(

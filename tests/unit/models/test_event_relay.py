@@ -143,10 +143,12 @@ class TestToDbParams:
         assert mock_event.to_db_params.call_count == 1
 
     def test_with_different_relay_networks(self, mock_event):
-        tor_relay = Relay("ws://abc123.onion", discovered_at=1234567890)
+        from tests.fixtures.relays import ONION_HOST
+
+        tor_relay = Relay(f"ws://{ONION_HOST}.onion", discovered_at=1234567890)
         er = EventRelay(mock_event, tor_relay, seen_at=1234567890)
         result = er.to_db_params()
-        assert result.relay_url == "ws://abc123.onion"
+        assert result.relay_url == f"ws://{ONION_HOST}.onion"
         assert result.relay_network == "tor"
 
     def test_caching(self, mock_event, relay):
@@ -234,10 +236,12 @@ class TestEdgeCases:
         assert result.relay_network == "i2p"
 
     def test_with_loki_relay(self, mock_event):
-        relay = Relay("ws://relay.loki", discovered_at=1234567890)
+        from tests.fixtures.relays import LOKI_HOST
+
+        relay = Relay(f"ws://{LOKI_HOST}.loki", discovered_at=1234567890)
         er = EventRelay(mock_event, relay, seen_at=1234567890)
         result = er.to_db_params()
-        assert result.relay_url == "ws://relay.loki"
+        assert result.relay_url == f"ws://{LOKI_HOST}.loki"
         assert result.relay_network == "loki"
 
 

@@ -7,6 +7,7 @@ import pytest
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay, RelayDbParams, _detect_network, sanitize_relay_url
+from tests.fixtures.relays import LOKI_HOST, ONION_HOST
 
 
 # =============================================================================
@@ -121,14 +122,14 @@ class TestNetworkDetection:
     """Network type detection via _detect_network."""
 
     def test_tor_onion(self):
-        r = Relay("ws://abc123.onion")
+        r = Relay(f"ws://{ONION_HOST}.onion")
         assert r.network == NetworkType.TOR
         assert r.scheme == "ws"
-        assert r.url == "ws://abc123.onion"
+        assert r.url == f"ws://{ONION_HOST}.onion"
 
     def test_tor_wss_not_canonical(self):
         with pytest.raises(ValueError, match="not in canonical form"):
-            Relay("wss://abc123.onion")
+            Relay(f"wss://{ONION_HOST}.onion")
 
     def test_i2p(self):
         r = Relay("ws://relay.i2p")
@@ -137,10 +138,10 @@ class TestNetworkDetection:
         assert r.url == "ws://relay.i2p"
 
     def test_loki(self):
-        r = Relay("ws://relay.loki")
+        r = Relay(f"ws://{LOKI_HOST}.loki")
         assert r.network == NetworkType.LOKI
         assert r.scheme == "ws"
-        assert r.url == "ws://relay.loki"
+        assert r.url == f"ws://{LOKI_HOST}.loki"
 
     def test_clearnet_domain(self):
         r = Relay("wss://relay.example.com")
@@ -148,9 +149,9 @@ class TestNetworkDetection:
         assert r.scheme == "wss"
 
     def test_case_insensitive_tld(self):
-        assert _detect_network("ABC.ONION") == NetworkType.TOR
+        assert _detect_network(ONION_HOST.upper() + ".ONION") == NetworkType.TOR
         assert _detect_network("RELAY.I2P") == NetworkType.I2P
-        assert _detect_network("TEST.LOKI") == NetworkType.LOKI
+        assert _detect_network(LOKI_HOST.upper() + ".LOKI") == NetworkType.LOKI
 
     def test_detect_local_localhost(self):
         assert _detect_network("localhost") == NetworkType.LOCAL
@@ -375,9 +376,9 @@ class TestToDbParams:
         assert params.discovered_at == 1234567890
 
     def test_structure_tor(self):
-        r = Relay("ws://abc123.onion", discovered_at=1234567890)
+        r = Relay(f"ws://{ONION_HOST}.onion", discovered_at=1234567890)
         params = r.to_db_params()
-        assert params.url == "ws://abc123.onion"
+        assert params.url == f"ws://{ONION_HOST}.onion"
         assert params.network == "tor"
 
     def test_with_port_and_path(self):
@@ -451,12 +452,12 @@ class TestEdgeCases:
         assert r.host == f"{long_subdomain}.example.com"
 
     def test_numeric_tld(self):
-        r = Relay("ws://abc123xyz789.onion")
+        r = Relay(f"ws://{ONION_HOST}.onion")
         assert r.network == NetworkType.TOR
 
     def test_default_port_80_for_ws_not_canonical(self):
         with pytest.raises(ValueError, match="not in canonical form"):
-            Relay("wss://abc.onion:80")
+            Relay(f"wss://{ONION_HOST}.onion:80")
 
 
 # =============================================================================
@@ -603,11 +604,11 @@ class TestSanitizeRelayUrl:
     @pytest.mark.parametrize(
         ("url", "expected"),
         [
-            ("wss://abc123.onion", "ws://abc123.onion"),
+            (f"wss://{ONION_HOST}.onion", f"ws://{ONION_HOST}.onion"),
             ("ws://relay.i2p/path?query", "ws://relay.i2p/path"),
             ("wss://relay.i2p:80", "ws://relay.i2p"),
-            ("wss://relay.loki:80/path", "ws://relay.loki/path"),
-            ("ws://relay.loki", "ws://relay.loki"),
+            (f"wss://{LOKI_HOST}.loki:80/path", f"ws://{LOKI_HOST}.loki/path"),
+            (f"ws://{LOKI_HOST}.loki", f"ws://{LOKI_HOST}.loki"),
         ],
     )
     def test_overlay_network_sanitization(self, url, expected):

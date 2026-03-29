@@ -226,7 +226,7 @@ def sample_relay() -> Relay:
 @pytest.fixture
 def sample_tor_relay() -> Relay:
     """Sample Tor relay for testing."""
-    return Relay("wss://example.onion", discovered_at=1700000000)
+    return Relay(f"ws://{'a' * 56}.onion", discovered_at=1700000000)
 
 
 @pytest.fixture
@@ -238,7 +238,7 @@ def sample_i2p_relay() -> Relay:
 @pytest.fixture
 def sample_loki_relay() -> Relay:
     """Sample Lokinet relay for testing."""
-    return Relay("wss://example.loki", discovered_at=1700000000)
+    return Relay(f"ws://{'d' * 52}.loki", discovered_at=1700000000)
 
 
 @pytest.fixture

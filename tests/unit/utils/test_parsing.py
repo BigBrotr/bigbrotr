@@ -83,8 +83,10 @@ class TestParseRelayUrl:
         assert relay.url == "wss://relay.example.com"
 
     def test_scheme_corrected_for_overlay(self):
-        relay = parse_relay_url("wss://abc123.onion")
-        assert relay.url == "ws://abc123.onion"
+        from tests.fixtures.relays import ONION_HOST
+
+        relay = parse_relay_url(f"wss://{ONION_HOST}.onion")
+        assert relay.url == f"ws://{ONION_HOST}.onion"
         assert relay.scheme == "ws"
 
     def test_uppercase_host_lowered(self):

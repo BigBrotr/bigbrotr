@@ -36,6 +36,20 @@ from .constants import NetworkType
 
 # RFC 3986 unreserved characters plus ":" (allowed in pchar).
 # Used to validate individual path segments after percent-decoding and splitting on "/".
+# RFC 952/1123: valid characters for DNS hostname labels.
+_HOSTNAME_LABEL_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789-")
+_HOSTNAME_MAX_LABEL_LENGTH = 63
+_HOSTNAME_MAX_LENGTH = 253
+
+# Overlay network hostname validation.
+# Base32 alphabet used by Tor v3, I2P b32, and Lokinet.
+_BASE32_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz234567")
+_ONION_V3_LENGTH = 56
+_ONION_V2_LENGTH = 16
+_I2P_B32_LENGTH = 52
+_LOKI_LENGTH = 52
+
+# RFC 3986 unreserved characters plus ":" (allowed in pchar).
 _PATH_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~:")
 
 # Characters that may appear at the start or end of a path segment.
@@ -93,8 +107,8 @@ def _detect_network(host: str) -> NetworkType:
 
     Checks overlay network TLDs first (``.onion``, ``.i2p``, ``.loki``),
     then tests whether the host is a known local/private IP against the
-    IANA special-purpose registries, and finally validates standard
-    domain name format.
+    IANA special-purpose registries, and finally validates the hostname
+    against RFC 952/1123 (label charset, length, no numeric-only TLD).
 
     Args:
         host: Hostname or IP address string to classify.
@@ -111,6 +125,9 @@ def _detect_network(host: str) -> NetworkType:
 
     for tld, network in _NETWORK_TLDS.items():
         if host_bare.endswith(tld):
+            name = host_bare[: -len(tld)]
+            if not _is_valid_overlay_hostname(name, network):
+                return NetworkType.UNKNOWN
             return network
 
     if host_bare in ("localhost", "localhost.localdomain"):
@@ -123,12 +140,62 @@ def _detect_network(host: str) -> NetworkType:
     except ValueError:
         pass
 
-    if "." not in host_bare:
-        return NetworkType.UNKNOWN
+    return NetworkType.CLEARNET if _is_valid_hostname(host_bare) else NetworkType.UNKNOWN
 
-    labels = host_bare.split(".")
-    valid = all(label and not label.startswith("-") and not label.endswith("-") for label in labels)
-    return NetworkType.CLEARNET if valid else NetworkType.UNKNOWN
+
+def _is_valid_hostname(host: str) -> bool:
+    """Check whether a hostname conforms to RFC 952/1123.
+
+    Rules:
+        - At least one dot (no single-label hostnames).
+        - Total length <= 253 characters.
+        - Each label: 1-63 characters, ``[a-z0-9-]`` only, no leading/trailing ``-``.
+        - TLD must contain at least one letter (no numeric-only TLDs).
+    """
+    if "." not in host or len(host) > _HOSTNAME_MAX_LENGTH:
+        return False
+
+    labels = host.split(".")
+    if not all(
+        label
+        and len(label) <= _HOSTNAME_MAX_LABEL_LENGTH
+        and not label.startswith("-")
+        and not label.endswith("-")
+        and set(label) <= _HOSTNAME_LABEL_CHARS
+        for label in labels
+    ):
+        return False
+
+    return not labels[-1].isdigit()
+
+
+def _is_valid_overlay_hostname(name: str, network: NetworkType) -> bool:
+    """Validate the hostname portion (without TLD) of an overlay address.
+
+    Rules per network:
+        - **Tor** (``.onion``): 56-char base32 (v3) or 16-char base32 (v2, deprecated).
+        - **I2P** (``.i2p``): 52-char base32 hash (``*.b32.i2p``) or
+          human-readable hostname (RFC 952/1123 labels).
+        - **Loki** (``.loki``): 52-char base32.
+    """
+    if not name:
+        return False
+
+    if network == NetworkType.TOR:
+        return len(name) in (_ONION_V3_LENGTH, _ONION_V2_LENGTH) and set(name) <= _BASE32_CHARS
+
+    if network == NetworkType.LOKI:
+        return len(name) == _LOKI_LENGTH and set(name) <= _BASE32_CHARS
+
+    if network == NetworkType.I2P:
+        # *.b32.i2p: 52-char base32 hash
+        if name.endswith(".b32"):
+            b32_part = name[:-4]
+            return len(b32_part) == _I2P_B32_LENGTH and set(b32_part) <= _BASE32_CHARS
+        # Human-readable: standard hostname labels
+        return _is_valid_hostname(name + ".i2p")
+
+    return False
 
 
 class RelayDbParams(NamedTuple):
@@ -367,7 +434,9 @@ def sanitize_relay_url(raw: str) -> str:
     except ValidationError as e:
         raise ValueError(f"Invalid URL: {e}") from None
 
-    host = uri.host.strip("[]") if uri.host else ""
+    host = unquote(uri.host.strip("[]")) if uri.host else ""
+    if host != host.strip() or any(c in host for c in " \t\n\r\x00\\"):
+        raise ValueError(f"Invalid host: '{host[:50]}'")
     port = int(uri.port) if uri.port else None
 
     # Detect network and enforce the correct scheme
