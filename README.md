@@ -4,7 +4,7 @@
   <a href="https://codecov.io/gh/Bigbrotr/bigbrotr"><img src="https://img.shields.io/codecov/c/github/Bigbrotr/bigbrotr?token=LM9D3ABW0L&logo=codecov&label=coverage" alt="Coverage"></a>
   <a href="https://bigbrotr.github.io/bigbrotr/"><img src="https://img.shields.io/badge/docs-latest-blue?logo=readthedocs&logoColor=white" alt="Docs"></a>
   <img src="https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white" alt="Python 3.11+">
-  <img src="https://img.shields.io/badge/postgresql-16-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL 16">
+  <img src="https://img.shields.io/badge/postgresql-18-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL 18">
   <a href="https://github.com/BigBrotr/bigbrotr/blob/main/LICENSE"><img src="https://img.shields.io/github/license/BigBrotr/bigbrotr" alt="License"></a>
 </p>
 
@@ -196,7 +196,7 @@ docker compose up -d
 docker compose logs -f seeder
 ```
 
-This starts PostgreSQL 16, PGBouncer, Tor proxy, all 8 services, Prometheus, Alertmanager, and Grafana.
+This starts PostgreSQL 18, PGBouncer, Tor proxy, all 8 services, Prometheus, Alertmanager, and Grafana.
 
 | Endpoint | URL |
 |----------|-----|
@@ -253,7 +253,7 @@ cd deployments/myrelay && docker compose up -d
 
 ## Database
 
-PostgreSQL 16 with PGBouncer (transaction-mode pooling) and asyncpg async driver. All mutations via stored functions with bulk array parameters.
+PostgreSQL 18 with PGBouncer (transaction-mode pooling) and asyncpg async driver. All mutations via stored functions with bulk array parameters.
 
 ### Schema
 
@@ -521,7 +521,7 @@ bigbrotr/
 
 | Container | Image | Purpose |
 |-----------|-------|---------|
-| postgres | `postgres:16-alpine` | Primary storage |
+| postgres | `postgres:18-alpine` | Primary storage |
 | pgbouncer | `edoburu/pgbouncer:v1.25.1-p0` | Transaction-mode connection pooling |
 | tor | `osminogin/tor-simple:0.4.8.10` | SOCKS5 proxy for .onion relays |
 | seeder | bigbrotr (parametric) | Relay bootstrapping (one-shot) |
@@ -557,7 +557,7 @@ bigbrotr/
 | Category | Technologies |
 |----------|-------------|
 | Language | Python 3.11+ (fully typed, strict mypy) |
-| Database | PostgreSQL 16, asyncpg, PGBouncer |
+| Database | PostgreSQL 18, asyncpg, PGBouncer |
 | Async | asyncio, aiohttp, aiohttp-socks |
 | Nostr | nostr-sdk (Rust FFI via UniFFI) |
 | Web Framework | FastAPI, uvicorn |

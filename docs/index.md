@@ -2,10 +2,10 @@
 
 **Modular Nostr network observatory.**
 
-BigBrotr discovers relays across clearnet, Tor, I2P, and Lokinet, validates their connectivity, runs NIP-11 and NIP-66 health checks, archives events, materializes analytics views, and exposes everything through a REST API and a NIP-90 Data Vending Machine. Eight independent async services share a PostgreSQL 16 backend, each deployable and scalable on its own. Built on Python 3.11+ with strict typing and asyncio.
+BigBrotr discovers relays across clearnet, Tor, I2P, and Lokinet, validates their connectivity, runs NIP-11 and NIP-66 health checks, archives events, materializes analytics views, and exposes everything through a REST API and a NIP-90 Data Vending Machine. Eight independent async services share a PostgreSQL 18 backend, each deployable and scalable on its own. Built on Python 3.11+ with strict typing and asyncio.
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL-16-blue.svg)](https://www.postgresql.org/)
+[![PostgreSQL 18](https://img.shields.io/badge/PostgreSQL-18-blue.svg)](https://www.postgresql.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Documentation](https://img.shields.io/badge/docs-latest-brightgreen.svg)](https://bigbrotr.github.io/bigbrotr/)
 

@@ -33,7 +33,7 @@ This section walks you through the complete setup process in three stages:
 | Requirement | Version | Notes |
 |-------------|---------|-------|
 | Python | 3.11+ | Required for local development; not needed for Docker-only |
-| PostgreSQL | 16+ | Provided by Docker Compose, or install locally |
+| PostgreSQL | 18+ | Provided by Docker Compose, or install locally |
 | Docker | 20.10+ | Recommended for infrastructure and full deployments |
 | Git | Any | To clone the repository |
 

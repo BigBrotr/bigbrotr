@@ -34,8 +34,8 @@ from bigbrotr.core.pool import DatabaseConfig, Pool, PoolConfig
 
 @pytest.fixture(scope="session")
 def pg_container():
-    """Spawn an ephemeral PostgreSQL 16 container for the test session."""
-    with PostgresContainer("postgres:16-alpine") as pg:
+    """Spawn an ephemeral PostgreSQL 18 container for the test session."""
+    with PostgresContainer("postgres:18-alpine") as pg:
         yield pg
 
 

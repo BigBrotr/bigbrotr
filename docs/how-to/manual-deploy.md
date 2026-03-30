@@ -8,7 +8,7 @@ Install and run BigBrotr services directly on a Linux host without Docker.
 
 - Ubuntu 22.04+ or Debian 12+ (other Linux distributions work with equivalent packages)
 - Python 3.11+
-- PostgreSQL 16+
+- PostgreSQL 18+
 - PGBouncer (recommended)
 
 ## 1. Set Up PostgreSQL
@@ -16,7 +16,7 @@ Install and run BigBrotr services directly on a Linux host without Docker.
 ### Install and start PostgreSQL
 
 ```bash
-sudo apt update && sudo apt install postgresql-16 postgresql-contrib-16
+sudo apt update && sudo apt install postgresql-18 postgresql-contrib-18
 sudo systemctl start postgresql && sudo systemctl enable postgresql
 ```
 
