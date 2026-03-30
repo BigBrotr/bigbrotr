@@ -446,7 +446,7 @@ make test-integration
 ```
 
 !!! warning
-    Integration tests require Docker to be running. They start a PostgreSQL 16 container,
+    Integration tests require Docker to be running. They start a PostgreSQL 18 container,
     run migrations, and execute tests against the real database.
 
 The integration test suite validates stored procedures, cascade functions, and materialized

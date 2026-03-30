@@ -65,8 +65,8 @@ Choose the path that matches your use case:
     where Docker is unavailable.
 
     ```bash
-    # 1. Install PostgreSQL 16
-    sudo apt update && sudo apt install postgresql-16 postgresql-contrib-16
+    # 1. Install PostgreSQL 18
+    sudo apt update && sudo apt install postgresql-18 postgresql-contrib-18
     sudo systemctl start postgresql && sudo systemctl enable postgresql
 
     # 2. Create database and user
