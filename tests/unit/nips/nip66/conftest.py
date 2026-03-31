@@ -36,6 +36,7 @@ from bigbrotr.nips.nip66 import (
     Nip66SslLogs,
     Nip66SslMetadata,
 )
+from tests.fixtures.relays import LOKI_HOST, ONION_HOST
 
 
 # =============================================================================
@@ -58,7 +59,7 @@ def relay_with_port() -> Relay:
 @pytest.fixture
 def tor_relay() -> Relay:
     """Create a Tor relay (.onion)."""
-    return Relay(url="ws://abcdef1234567890.onion", discovered_at=1234567890)
+    return Relay(url=f"ws://{ONION_HOST}.onion", discovered_at=1234567890)
 
 
 @pytest.fixture
@@ -70,7 +71,7 @@ def i2p_relay() -> Relay:
 @pytest.fixture
 def loki_relay() -> Relay:
     """Create a Lokinet relay (.loki)."""
-    return Relay(url="ws://example.loki", discovered_at=1234567890)
+    return Relay(url=f"ws://{LOKI_HOST}.loki", discovered_at=1234567890)
 
 
 # =============================================================================

@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.5.5] - 2026-03-31
+
+### Fixed
+
+- **Hostname validation too strict**: underscores in DNS labels now accepted per RFC 2181 §11, fixing rejection of real-world relay hostnames (e.g. Coracle room subdomains like `https_2140_wtf.spaces.coracle.social`)
+- **Tor subdomains rejected**: `.onion` validation now supports virtual subdomains (RFC 7686 §2), validating the onion hash on the rightmost label and standard hostname rules on subdomain labels (e.g. `relay.hash.onion`)
+- **IDN hostnames rejected**: internationalized domain names are now converted to punycode via stdlib IDNA 2003 codec before RFC 3986 parsing (e.g. `wss://cafe.com` -> `wss://xn--caf-dma.com`)
+- **Trailing-dot hostnames rejected**: FQDN root labels are now stripped during normalization (e.g. `relay.com.` -> `relay.com`)
+- **IPv6 not normalized**: equivalent IPv6 representations now produce the same canonical URL via RFC 5952 compression
+- **Port range not validated**: ports outside 1-65535 are now rejected
+
+### Changed
+
+- **PostgreSQL upgraded**: `16-alpine` → `18-alpine`
+- **Tor proxy upgraded**: `osminogin/tor-simple` `0.4.8.10` → `0.4.8.16` (fixes SIGSEGV crashes)
+- **postgres-exporter upgraded**: `v0.16.0` → `v0.17.0` (fixes goroutine panic during metric collection)
+- **Docker image pinning**: all 7 infrastructure images pinned with SHA256 digests for supply chain security
+- **Relay hostname validation**: extracted `_is_valid_hostname` and `_is_valid_overlay_hostname` with strict per-network hash validation (Tor v3/v2 base32, I2P b32, Loki), replacing the previous permissive label-only check
+
 ## [6.5.4] - 2026-03-28
 
 ### Added

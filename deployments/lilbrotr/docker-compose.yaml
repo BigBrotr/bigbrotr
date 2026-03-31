@@ -18,7 +18,7 @@ services:
   # PostgreSQL Database
   # --------------------------------------------------------------------------
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine@sha256:ef9e5f962db375d64c9e01bf12c41426d63c64b8cdf962daf35b60e74aa95ce5
     container_name: lilbrotr-postgres
     restart: unless-stopped
 
@@ -63,7 +63,7 @@ services:
   # PGBouncer (Connection Pooler)
   # --------------------------------------------------------------------------
   pgbouncer:
-    image: edoburu/pgbouncer:v1.25.1-p0
+    image: edoburu/pgbouncer:v1.25.1-p0@sha256:cf8ba55692e4818e983dc047acf1711f17dd4ab1da7d47bdab8b9b2cc14337dc
     container_name: lilbrotr-pgbouncer
     restart: unless-stopped
 
@@ -108,7 +108,7 @@ services:
   # Tor Proxy (SOCKS5) - .onion relay support
   # --------------------------------------------------------------------------
   tor:
-    image: osminogin/tor-simple:0.4.8.10
+    image: osminogin/tor-simple:0.4.8.16@sha256:6794c080e9f6530f53be11efceb6cfbcdeceb9154fa652ef589dc8ac12aeeed3
     container_name: lilbrotr-tor
     restart: unless-stopped
 
@@ -605,7 +605,7 @@ services:
   # PostgreSQL Exporter (Database Metrics)
   # --------------------------------------------------------------------------
   postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:v0.16.0
+    image: prometheuscommunity/postgres-exporter:v0.17.0@sha256:170643ebfcc377e444914db22244b1a265b3d25740732423fd9c3e1a1d5f86cb
     container_name: lilbrotr-postgres-exporter
     restart: unless-stopped
 
@@ -644,7 +644,7 @@ services:
   # Prometheus (Metrics Collection)
   # --------------------------------------------------------------------------
   prometheus:
-    image: prom/prometheus:v2.51.0
+    image: prom/prometheus:v2.51.0@sha256:3305cd2e483c13364c94ae4905368eb425c9fa804f8e523ee47d8bf4de9d87a2
     container_name: lilbrotr-prometheus
     restart: unless-stopped
 
@@ -683,7 +683,7 @@ services:
   # Alertmanager (Alert Routing)
   # --------------------------------------------------------------------------
   alertmanager:
-    image: prom/alertmanager:v0.27.0
+    image: prom/alertmanager:v0.27.0@sha256:45c3a586d4332d710bef92b06e90380c0b1f588968c00100d4b5e4e44c40ca5f
     container_name: lilbrotr-alertmanager
     restart: unless-stopped
 
@@ -718,7 +718,7 @@ services:
   # Grafana (Metrics Visualization)
   # --------------------------------------------------------------------------
   grafana:
-    image: grafana/grafana:10.4.1
+    image: grafana/grafana:10.4.1@sha256:8b10c3744b8fede79af784d967911691d0e2d6e505512d1466ae1dbcaf745033
     container_name: lilbrotr-grafana
     restart: unless-stopped
 

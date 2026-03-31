@@ -8,7 +8,7 @@ BigBrotr is a modular Nostr network observatory — a production-grade, fully as
 2. **How healthy are they?**
 3. **What events are they publishing?**
 
-Eight independent async services share a PostgreSQL 16 backend, each deployable and scalable on its own. The system supports clearnet (TLS), Tor (.onion), I2P (.i2p), and Lokinet (.loki) relay networks with per-network concurrency control and proxy routing. Built on Python 3.11+ with strict typing, asyncio, and full Prometheus/Grafana observability.
+Eight independent async services share a PostgreSQL 18 backend, each deployable and scalable on its own. The system supports clearnet (TLS), Tor (.onion), I2P (.i2p), and Lokinet (.loki) relay networks with per-network concurrency control and proxy routing. Built on Python 3.11+ with strict typing, asyncio, and full Prometheus/Grafana observability.
 
 ---
 
@@ -993,7 +993,7 @@ SQL schema generated from Jinja2 templates via `tools/generate_sql.py`:
 
 | Container | Image | Purpose |
 |-----------|-------|---------|
-| PostgreSQL 16 | postgres:16-alpine | Primary database, persistent volume |
+| PostgreSQL 18 | postgres:18-alpine | Primary database, persistent volume |
 | PGBouncer | edoburu/pgbouncer:v1.25.1-p0 | Connection pooler (transaction mode, scram-sha-256) |
 | Tor | osminogin/tor-simple:0.4.8.10 | SOCKS5 proxy for .onion relays |
 | Seeder | bigbrotr (custom) | One-shot relay bootstrapping |

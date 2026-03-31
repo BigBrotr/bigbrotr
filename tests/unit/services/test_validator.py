@@ -753,7 +753,7 @@ class TestNetworkRouting:
         proxy, timeout = await self._run(
             validator_brotr,
             cfg,
-            _candidate("ws://abc.onion", NetworkType.TOR),
+            _candidate(f"ws://{'a' * 56}.onion", NetworkType.TOR),
         )
         assert proxy == "socks5://tor:9050"
         assert timeout == 45.0
@@ -789,7 +789,7 @@ class TestNetworkRouting:
         proxy, timeout = await self._run(
             validator_brotr,
             cfg,
-            _candidate("ws://test.loki", NetworkType.LOKI),
+            _candidate(f"ws://{'d' * 52}.loki", NetworkType.LOKI),
         )
         assert proxy == "socks5://lokinet:1080"
         assert timeout == 30.0

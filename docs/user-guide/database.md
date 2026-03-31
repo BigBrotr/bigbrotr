@@ -6,7 +6,7 @@ Complete reference for BigBrotr's PostgreSQL schema, stored functions, materiali
 
 ## Overview
 
-BigBrotr uses PostgreSQL 16+ with a schema designed for high-throughput event archiving and relay monitoring. Key design principles:
+BigBrotr uses PostgreSQL 18+ with a schema designed for high-throughput event archiving and relay monitoring. Key design principles:
 
 - **Content-addressed storage**: Metadata documents are deduplicated by SHA-256 hash (~90% savings)
 - **Bulk array parameters**: All mutations use stored functions with array parameters for batch efficiency

@@ -18,6 +18,7 @@ from bigbrotr.nips.nip11 import (
     Nip11InfoLogs,
     Nip11InfoMetadata,
 )
+from tests.fixtures.relays import LOKI_HOST, ONION_HOST
 
 
 # =============================================================================
@@ -52,7 +53,7 @@ def relay_with_port_and_path() -> Relay:
 @pytest.fixture
 def tor_relay() -> Relay:
     """Tor (.onion) relay fixture."""
-    return Relay("ws://abc123xyz789abc123xyz789abc123xyz789abc123xyz789abcdefgh.onion")
+    return Relay(f"ws://{ONION_HOST}.onion")
 
 
 @pytest.fixture
@@ -64,7 +65,7 @@ def i2p_relay() -> Relay:
 @pytest.fixture
 def loki_relay() -> Relay:
     """Lokinet (.loki) relay fixture."""
-    return Relay("ws://example.loki")
+    return Relay(f"ws://{LOKI_HOST}.loki")
 
 
 @pytest.fixture

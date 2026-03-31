@@ -221,7 +221,7 @@ class TestConnectRelayOverlayNetworks:
 
     async def test_tor_requires_proxy(self) -> None:
         """Test Tor relay requires proxy_url."""
-        relay = Relay("ws://example.onion")
+        relay = Relay(f"ws://{'a' * 56}.onion")
 
         with pytest.raises(ValueError) as exc_info:
             from bigbrotr.utils.protocol import connect_relay
@@ -244,7 +244,7 @@ class TestConnectRelayOverlayNetworks:
 
     async def test_loki_requires_proxy(self) -> None:
         """Test Lokinet relay requires proxy_url."""
-        relay = Relay("ws://example.loki")
+        relay = Relay(f"ws://{'d' * 52}.loki")
 
         with pytest.raises(ValueError) as exc_info:
             from bigbrotr.utils.protocol import connect_relay
@@ -380,7 +380,7 @@ class TestIsNostrRelayMocked:
 
     async def test_passes_proxy_url(self) -> None:
         """Test proxy URL is passed to connect_relay."""
-        relay = Relay("ws://example.onion")
+        relay = Relay(f"ws://{'a' * 56}.onion")
 
         with patch("bigbrotr.utils.protocol.connect_relay") as mock_connect:
             mock_client = AsyncMock()
@@ -657,7 +657,7 @@ class TestConnectRelayOverlaySuccess:
 
     async def test_overlay_connects_with_proxy(self) -> None:
         """Overlay relay connects via proxy and returns client."""
-        relay = Relay("ws://example.onion")
+        relay = Relay(f"ws://{'a' * 56}.onion")
 
         mock_relay_obj = MagicMock()
         mock_relay_obj.is_connected.return_value = True
@@ -681,7 +681,7 @@ class TestConnectRelayOverlaySuccess:
 
     async def test_overlay_timeout_raises(self) -> None:
         """Overlay relay that fails to connect raises TimeoutError."""
-        relay = Relay("ws://example.onion")
+        relay = Relay(f"ws://{'a' * 56}.onion")
 
         mock_relay_obj = MagicMock()
         mock_relay_obj.is_connected.return_value = False

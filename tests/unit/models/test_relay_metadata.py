@@ -136,11 +136,13 @@ class TestToDbParams:
         assert result.generated_at == 9999999999
 
     def test_with_tor_relay(self):
-        tor_relay = Relay("ws://abc123.onion", discovered_at=1234567890)
+        from tests.fixtures.relays import ONION_HOST
+
+        tor_relay = Relay(f"ws://{ONION_HOST}.onion", discovered_at=1234567890)
         metadata = Metadata(type=MetadataType.NIP11_INFO, data={"test": "data"})
         rm = RelayMetadata(relay=tor_relay, metadata=metadata, generated_at=1234567890)
         result = rm.to_db_params()
-        assert result.relay_url == "ws://abc123.onion"
+        assert result.relay_url == f"ws://{ONION_HOST}.onion"
         assert result.relay_network == "tor"
 
     def test_with_i2p_relay(self):

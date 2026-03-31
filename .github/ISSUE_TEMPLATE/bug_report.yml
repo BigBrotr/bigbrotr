@@ -96,7 +96,7 @@ body:
       placeholder: |
         - OS: Ubuntu 22.04
         - Python: 3.11
-        - PostgreSQL: 16
+        - PostgreSQL: 18
         - Docker: 24.0.5
     validations:
       required: false
