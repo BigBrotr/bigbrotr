@@ -5408,12 +5408,12 @@
 <ul>
 <li>Ubuntu 22.04+ or Debian 12+ (other Linux distributions work with equivalent packages)</li>
 <li>Python 3.11+</li>
-<li>PostgreSQL 16+</li>
+<li>PostgreSQL 18+</li>
 <li>PGBouncer (recommended)</li>
 </ul>
 <h2 id="1-set-up-postgresql">1. Set Up PostgreSQL<a class="headerlink" href="#1-set-up-postgresql" title="Permanent link">&para;</a></h2>
 <h3 id="install-and-start-postgresql">Install and start PostgreSQL<a class="headerlink" href="#install-and-start-postgresql" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>sudo<span class="w"> </span>apt<span class="w"> </span>update<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>postgresql-16<span class="w"> </span>postgresql-contrib-16
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>sudo<span class="w"> </span>apt<span class="w"> </span>update<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>postgresql-18<span class="w"> </span>postgresql-contrib-18
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>sudo<span class="w"> </span>systemctl<span class="w"> </span>start<span class="w"> </span>postgresql<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>sudo<span class="w"> </span>systemctl<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>postgresql
 </code></pre></div>
 <h3 id="create-the-database">Create the database<a class="headerlink" href="#create-the-database" title="Permanent link">&para;</a></h3>
