@@ -244,6 +244,8 @@ CREATE TABLE IF NOT EXISTS metadata (
     PRIMARY KEY (id, type)
 );
 
+ALTER TABLE metadata ALTER COLUMN data SET COMPRESSION lz4;
+
 COMMENT ON TABLE metadata IS 'Content-addressed storage for NIP-11/NIP-66 metadata (deduplicated by SHA-256 hash + type)';
 COMMENT ON COLUMN metadata.id IS 'SHA-256 hash of the JSON data (content-addressed key, part of composite PK)';
 COMMENT ON COLUMN metadata.type IS 'Check type: nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, or nip66_http';
