@@ -1,3 +1,4 @@
+{% set partitions = partitions | default(16) %}
 /*
 {% block header_comment %}
  * Brotr - 02_tables.sql
@@ -57,15 +58,21 @@ COMMENT ON COLUMN relay.discovered_at IS 'Unix timestamp when first discovered a
 --     Includes all NIP-01 fields with tagvalues computed at insert time.
 
 CREATE TABLE IF NOT EXISTS event (
-    id BYTEA PRIMARY KEY,
+    id BYTEA NOT NULL,
     pubkey BYTEA NOT NULL,
     created_at BIGINT NOT NULL,
     kind INTEGER NOT NULL,
     tags JSONB NOT NULL,
     tagvalues TEXT [] NOT NULL,    -- Computed at insert time by event_insert()
     content TEXT NOT NULL,
-    sig BYTEA NOT NULL
-);
+    sig BYTEA NOT NULL,
+    PRIMARY KEY (id)
+) PARTITION BY HASH (id);
+
+{% for i in range(partitions) %}
+CREATE TABLE IF NOT EXISTS event_p{{ i }} PARTITION OF event
+    FOR VALUES WITH (MODULUS {{ partitions }}, REMAINDER {{ i }});
+{% endfor %}
 
 COMMENT ON TABLE event IS 'Complete Nostr events with computed tag values for efficient querying';
 COMMENT ON COLUMN event.id IS 'SHA-256 event hash (32 bytes, stored as bytea from hex)';
@@ -93,7 +100,20 @@ CREATE TABLE IF NOT EXISTS event_relay (
     PRIMARY KEY (event_id, relay_url),
     FOREIGN KEY (event_id) REFERENCES event (id) ON DELETE CASCADE,
     FOREIGN KEY (relay_url) REFERENCES relay (url) ON DELETE CASCADE
+) PARTITION BY HASH (event_id);
+
+{% for i in range(partitions) %}
+CREATE TABLE IF NOT EXISTS event_relay_p{{ i }} PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS {{ partitions }}, REMAINDER {{ i }});
+{% endfor %}
+
+{% for i in range(partitions) %}
+ALTER TABLE event_relay_p{{ i }} SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
 );
+{% endfor %}
 
 COMMENT ON TABLE event_relay IS 'Tracks which events appear on which relays, with first-seen timestamps';
 COMMENT ON COLUMN event_relay.event_id IS 'Foreign key to event.id';

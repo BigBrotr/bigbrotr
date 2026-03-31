@@ -20,7 +20,7 @@ BEGIN
     RAISE NOTICE '  btree_gin, pg_stat_statements';
     RAISE NOTICE '';
     RAISE NOTICE 'Tables:';
-    RAISE NOTICE '  relay, event, event_relay, metadata, relay_metadata, service_state';
+    RAISE NOTICE '  relay, event (HASH x), event_relay (HASH x), metadata, relay_metadata, service_state';
     RAISE NOTICE '';
     RAISE NOTICE 'Utility Functions:';
     RAISE NOTICE '  tags_to_tagvalues';

@@ -54,15 +54,49 @@ COMMENT ON COLUMN relay.discovered_at IS 'Unix timestamp when first discovered a
 --     Includes all NIP-01 fields with tagvalues computed at insert time.
 
 CREATE TABLE IF NOT EXISTS event (
-    id BYTEA PRIMARY KEY,
+    id BYTEA NOT NULL,
     pubkey BYTEA NOT NULL,
     created_at BIGINT NOT NULL,
     kind INTEGER NOT NULL,
     tags JSONB NOT NULL,
     tagvalues TEXT [] NOT NULL,    -- Computed at insert time by event_insert()
     content TEXT NOT NULL,
-    sig BYTEA NOT NULL
-);
+    sig BYTEA NOT NULL,
+    PRIMARY KEY (id)
+) PARTITION BY HASH (id);
+
+CREATE TABLE IF NOT EXISTS event_p0 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 0);
+CREATE TABLE IF NOT EXISTS event_p1 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 1);
+CREATE TABLE IF NOT EXISTS event_p2 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 2);
+CREATE TABLE IF NOT EXISTS event_p3 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 3);
+CREATE TABLE IF NOT EXISTS event_p4 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 4);
+CREATE TABLE IF NOT EXISTS event_p5 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 5);
+CREATE TABLE IF NOT EXISTS event_p6 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 6);
+CREATE TABLE IF NOT EXISTS event_p7 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 7);
+CREATE TABLE IF NOT EXISTS event_p8 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 8);
+CREATE TABLE IF NOT EXISTS event_p9 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 9);
+CREATE TABLE IF NOT EXISTS event_p10 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 10);
+CREATE TABLE IF NOT EXISTS event_p11 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 11);
+CREATE TABLE IF NOT EXISTS event_p12 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 12);
+CREATE TABLE IF NOT EXISTS event_p13 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 13);
+CREATE TABLE IF NOT EXISTS event_p14 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 14);
+CREATE TABLE IF NOT EXISTS event_p15 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 15);
 
 COMMENT ON TABLE event IS 'Complete Nostr events with computed tag values for efficient querying';
 COMMENT ON COLUMN event.id IS 'SHA-256 event hash (32 bytes, stored as bytea from hex)';
@@ -89,6 +123,120 @@ CREATE TABLE IF NOT EXISTS event_relay (
     PRIMARY KEY (event_id, relay_url),
     FOREIGN KEY (event_id) REFERENCES event (id) ON DELETE CASCADE,
     FOREIGN KEY (relay_url) REFERENCES relay (url) ON DELETE CASCADE
+) PARTITION BY HASH (event_id);
+
+CREATE TABLE IF NOT EXISTS event_relay_p0 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 0);
+CREATE TABLE IF NOT EXISTS event_relay_p1 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 1);
+CREATE TABLE IF NOT EXISTS event_relay_p2 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 2);
+CREATE TABLE IF NOT EXISTS event_relay_p3 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 3);
+CREATE TABLE IF NOT EXISTS event_relay_p4 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 4);
+CREATE TABLE IF NOT EXISTS event_relay_p5 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 5);
+CREATE TABLE IF NOT EXISTS event_relay_p6 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 6);
+CREATE TABLE IF NOT EXISTS event_relay_p7 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 7);
+CREATE TABLE IF NOT EXISTS event_relay_p8 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 8);
+CREATE TABLE IF NOT EXISTS event_relay_p9 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 9);
+CREATE TABLE IF NOT EXISTS event_relay_p10 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 10);
+CREATE TABLE IF NOT EXISTS event_relay_p11 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 11);
+CREATE TABLE IF NOT EXISTS event_relay_p12 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 12);
+CREATE TABLE IF NOT EXISTS event_relay_p13 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 13);
+CREATE TABLE IF NOT EXISTS event_relay_p14 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 14);
+CREATE TABLE IF NOT EXISTS event_relay_p15 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 15);
+
+ALTER TABLE event_relay_p0 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p1 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p2 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p3 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p4 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p5 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p6 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p7 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p8 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p9 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p10 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p11 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p12 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p13 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p14 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p15 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
 );
 
 COMMENT ON TABLE event_relay IS 'Tracks which events appear on which relays, with first-seen timestamps';
