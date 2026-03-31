@@ -54,6 +54,8 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     ALTER MATERIALIZED VIEW event_daily_counts OWNER TO ${REFRESHER_ROLE};
     ALTER MATERIALIZED VIEW relay_software_counts OWNER TO ${REFRESHER_ROLE};
     ALTER MATERIALIZED VIEW supported_nip_counts OWNER TO ${REFRESHER_ROLE};
+    ALTER MATERIALIZED VIEW events_replaceable_latest OWNER TO ${REFRESHER_ROLE};
+    ALTER MATERIALIZED VIEW events_addressable_latest OWNER TO ${REFRESHER_ROLE};
 
     -- Monitoring: pg_monitor grants read access to system statistics (WAL, replication)
     GRANT pg_monitor TO ${READER_ROLE};
