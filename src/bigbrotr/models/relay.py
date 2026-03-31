@@ -203,7 +203,7 @@ def _is_valid_overlay_hostname(name: str, network: NetworkType) -> bool:
             return len(b32_part) == _I2P_B32_LENGTH and set(b32_part) <= _BASE32_CHARS
         return _is_valid_hostname(name + ".i2p")
 
-    return False
+    return False  # pragma: no cover
 
 
 class RelayDbParams(NamedTuple):
@@ -458,33 +458,14 @@ def _normalize_ip(host: str) -> str:
         return host
 
 
-def _resolve_dot_segments(path: str) -> str:
-    """Resolve ``.`` and ``..`` segments in a URL path per RFC 3986 §5.2.4.
-
-    Traversal above the root is silently clamped (``/../a`` → ``/a``).
-    """
-    if "/." not in path:
-        return path
-    segments = path.split("/")
-    output: list[str] = []
-    for s in segments:
-        if s == ".":
-            continue
-        if s == "..":
-            if len(output) > 1:
-                output.pop()
-            continue
-        output.append(s)
-    return "/".join(output)
-
-
 def _sanitize_path(raw_path: str) -> str:
     """Normalize and validate a URL path component.
 
-    Collapses double slashes, strips trailing slashes, resolves dot
-    segments (RFC 3986 §5.2.4), then validates each segment against
-    the allowed character set.  Returns empty string if the path
-    contains invalid segments.
+    Dot segments (``.`` and ``..``) are already resolved by
+    ``rfc3986.normalize()`` before this function is called.
+    Collapses double slashes, strips trailing slashes, then validates
+    each segment against the allowed character set.  Returns empty
+    string if the path contains invalid segments.
     """
     path = raw_path or ""
     while "//" in path:
@@ -494,7 +475,6 @@ def _sanitize_path(raw_path: str) -> str:
     if not path:
         return ""
 
-    path = _resolve_dot_segments(path)
     decoded = unquote(path)
     segments = [s for s in decoded.split("/") if s]
     if not all(
@@ -520,8 +500,8 @@ def sanitize_relay_url(raw: str) -> str:
     4. **Scheme enforcement** — ``wss://`` for clearnet, ``ws://`` for overlays.
     5. **Port normalization** — range validation (1-65535), default port
        omission (443 for ``wss``, 80 for ``ws``).
-    6. **Path normalization** — slash collapsing, dot-segment resolution
-       (RFC 3986 §5.2.4), trailing-slash removal, segment validation.
+    6. **Path normalization** — dot-segment resolution (via ``rfc3986``),
+       slash collapsing, trailing-slash removal, segment validation.
     7. **Query/fragment stripping** — irrelevant for WebSocket relay identity.
 
     Args:
