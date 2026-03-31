@@ -58,6 +58,8 @@ _PATH_BOUNDARY_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRST
 
 _PORT_WS = 80
 _PORT_WSS = 443
+_PORT_MIN = 1
+_PORT_MAX = 65535
 _MAX_URL_LENGTH = 2048
 
 _NETWORK_TLDS: dict[str, NetworkType] = {
@@ -402,29 +404,136 @@ class Relay:
         return self._db_params
 
 
+def _encode_idn_host(raw: str) -> str:
+    """Convert internationalized domain labels to ASCII punycode in-place.
+
+    Locates the host portion of a raw URL and converts non-ASCII labels
+    through the stdlib ``encodings.idna`` codec (IDNA 2003) so that
+    downstream RFC 3986 parsing receives a pure-ASCII URL.  ASCII labels
+    (which may contain underscores) are left untouched.
+
+    Must run *before* ``uri_reference()`` because RFC 3986 is ASCII-only.
+    """
+    if raw.isascii():
+        return raw
+    scheme_end = raw.find("://")
+    if scheme_end == -1:
+        return raw
+    prefix = raw[: scheme_end + 3]
+    after = raw[scheme_end + 3 :]
+    host_end = len(after)
+    for ch in "/:?#":
+        pos = after.find(ch)
+        if pos != -1 and pos < host_end:
+            host_end = pos
+    host = after[:host_end]
+    rest = after[host_end:]
+    if host.isascii():
+        return raw
+    labels = host.split(".")
+    converted: list[str] = []
+    for label in labels:
+        if label.isascii():
+            converted.append(label)
+            continue
+        try:
+            converted.append(label.encode("idna").decode("ascii"))
+        except (UnicodeError, UnicodeDecodeError):
+            raise ValueError(f"Invalid internationalized hostname: '{host[:50]}'") from None
+    return prefix + ".".join(converted) + rest
+
+
+def _normalize_ip(host: str) -> str:
+    """Normalize IP address representation.
+
+    IPv6 addresses are compressed to canonical form (RFC 5952):
+    ``2001:0db8::0001`` → ``2001:db8::1``.  IPv4 addresses with
+    leading zeros are rejected by Python's ``ipaddress`` module
+    (ambiguous octal/decimal), which is the desired behavior.
+    Non-IP hostnames pass through unchanged.
+    """
+    try:
+        return str(ip_address(host))
+    except ValueError:
+        return host
+
+
+def _resolve_dot_segments(path: str) -> str:
+    """Resolve ``.`` and ``..`` segments in a URL path per RFC 3986 §5.2.4.
+
+    Traversal above the root is silently clamped (``/../a`` → ``/a``).
+    """
+    if "/." not in path:
+        return path
+    segments = path.split("/")
+    output: list[str] = []
+    for s in segments:
+        if s == ".":
+            continue
+        if s == "..":
+            if len(output) > 1:
+                output.pop()
+            continue
+        output.append(s)
+    return "/".join(output)
+
+
+def _sanitize_path(raw_path: str) -> str:
+    """Normalize and validate a URL path component.
+
+    Collapses double slashes, strips trailing slashes, resolves dot
+    segments (RFC 3986 §5.2.4), then validates each segment against
+    the allowed character set.  Returns empty string if the path
+    contains invalid segments.
+    """
+    path = raw_path or ""
+    while "//" in path:
+        path = path.replace("//", "/")
+    path = path.rstrip("/")
+
+    if not path:
+        return ""
+
+    path = _resolve_dot_segments(path)
+    decoded = unquote(path)
+    segments = [s for s in decoded.split("/") if s]
+    if not all(
+        set(s) <= _PATH_CHARS and s[0] in _PATH_BOUNDARY_CHARS and s[-1] in _PATH_BOUNDARY_CHARS
+        for s in segments
+    ):
+        return ""
+
+    return path
+
+
 def sanitize_relay_url(raw: str) -> str:
-    """Normalize and clean a raw relay URL for untrusted input.
+    """Normalize and canonicalize a raw relay URL from untrusted input.
 
-    Performs full canonicalization: RFC 3986 normalization, scheme enforcement
-    (``wss://`` for clearnet, ``ws://`` for overlays), default port omission,
-    query string and fragment stripping, and garbage path removal (control
-    characters, whitespace, embedded URI schemes).
+    Applies the full normalization pipeline:
 
-    The result is in canonical form and can be passed directly to
-    :class:`Relay`.
+    1. **RFC 3986 parsing** — scheme, host, port, path decomposition.
+    2. **Host normalization** — percent-decoding, trailing-dot removal,
+       IDN-to-punycode conversion, whitespace/control-char rejection,
+       IP address canonicalization (IPv6 compression, IPv4 validation).
+    3. **Network detection** — overlay TLD matching (``.onion``, ``.i2p``,
+       ``.loki``), private/reserved IP rejection, hostname validation.
+    4. **Scheme enforcement** — ``wss://`` for clearnet, ``ws://`` for overlays.
+    5. **Port normalization** — range validation (1-65535), default port
+       omission (443 for ``wss``, 80 for ``ws``).
+    6. **Path normalization** — slash collapsing, dot-segment resolution
+       (RFC 3986 §5.2.4), trailing-slash removal, segment validation.
+    7. **Query/fragment stripping** — irrelevant for WebSocket relay identity.
 
     Args:
         raw: Raw URL string, potentially malformed.
 
     Returns:
-        Canonical URL string with enforced scheme, host, optional port,
-        and optional path.
+        Canonical URL string suitable for :class:`Relay` construction.
 
     Raises:
-        ValueError: If the URL is structurally unrecoverable (no scheme, no host,
-            non-WebSocket scheme, local/private address, invalid hostname).
+        ValueError: If the URL is structurally unrecoverable.
     """
-    uri = uri_reference(raw.strip()).normalize()
+    uri = uri_reference(_encode_idn_host(raw.strip())).normalize()
 
     validator = (
         Validator()
@@ -440,40 +549,32 @@ def sanitize_relay_url(raw: str) -> str:
     except ValidationError as e:
         raise ValueError(f"Invalid URL: {e}") from None
 
+    # --- Host normalization ---
     host = unquote(uri.host.strip("[]")) if uri.host else ""
+    host = host.rstrip(".")
     if host != host.strip() or any(c in host for c in " \t\n\r\x00\\"):
         raise ValueError(f"Invalid host: '{host[:50]}'")
-    port = int(uri.port) if uri.port else None
 
-    # Detect network and enforce the correct scheme
+    # --- Network classification and rejection ---
     network = _detect_network(host)
     if network == NetworkType.LOCAL:
         raise ValueError("Local addresses not allowed")
     if network == NetworkType.UNKNOWN:
         raise ValueError(f"Invalid host: '{host}'")
 
+    host = _normalize_ip(host)
     scheme = "wss" if network == NetworkType.CLEARNET else "ws"
 
-    # Sanitize the path: collapse slashes, strip trailing slash, then validate
-    # each segment against RFC 3986 unreserved + ":" with alphanumeric boundaries.
-    path = uri.path or ""
-    while "//" in path:
-        path = path.replace("//", "/")
-    path = path.rstrip("/")
+    # --- Port validation ---
+    port = int(uri.port) if uri.port else None
+    if port is not None and not _PORT_MIN <= port <= _PORT_MAX:
+        raise ValueError(f"Port out of range: {port}")
 
-    if path:
-        decoded = unquote(path)
-        segments = [s for s in decoded.split("/") if s]
-        if not all(
-            set(s) <= _PATH_CHARS and s[0] in _PATH_BOUNDARY_CHARS and s[-1] in _PATH_BOUNDARY_CHARS
-            for s in segments
-        ):
-            path = ""
+    # --- Path normalization ---
+    path = _sanitize_path(uri.path)
 
-    # Re-bracket IPv6 addresses for the final URL
+    # --- URL reconstruction ---
     formatted_host = f"[{host}]" if ":" in host else host
-
-    # Omit the port when it matches the default for the scheme
     default_port = _PORT_WSS if scheme == "wss" else _PORT_WS
     if port and port != default_port:
         url = f"{scheme}://{formatted_host}:{port}{path}"
