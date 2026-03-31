@@ -404,7 +404,7 @@ class Relay:
         return self._db_params
 
 
-def _encode_idn_host(raw: str) -> str:
+def _preprocess_idn(raw: str) -> str:
     """Convert internationalized domain labels to ASCII punycode in-place.
 
     Locates the host portion of a raw URL and converts non-ASCII labels
@@ -533,7 +533,7 @@ def sanitize_relay_url(raw: str) -> str:
     Raises:
         ValueError: If the URL is structurally unrecoverable.
     """
-    uri = uri_reference(_encode_idn_host(raw.strip())).normalize()
+    uri = uri_reference(_preprocess_idn(raw.strip())).normalize()
 
     validator = (
         Validator()
