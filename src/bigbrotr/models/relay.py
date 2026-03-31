@@ -34,10 +34,10 @@ from ._validation import validate_str_no_null, validate_timestamp
 from .constants import NetworkType
 
 
-# RFC 3986 unreserved characters plus ":" (allowed in pchar).
-# Used to validate individual path segments after percent-decoding and splitting on "/".
-# RFC 952/1123: valid characters for DNS hostname labels.
-_HOSTNAME_LABEL_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789-")
+# Hostname labels: RFC 952 allows [a-z0-9-] but RFC 2181 §11 imposes no charset
+# restriction on DNS labels, and underscores are widespread in practice (SRV records,
+# Coracle rooms, Nostr relay subdomains). We accept [a-z0-9-_].
+_HOSTNAME_LABEL_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789-_")
 _HOSTNAME_MAX_LABEL_LENGTH = 63
 _HOSTNAME_MAX_LENGTH = 253
 
@@ -173,26 +173,32 @@ def _is_valid_overlay_hostname(name: str, network: NetworkType) -> bool:
     """Validate the hostname portion (without TLD) of an overlay address.
 
     Rules per network:
-        - **Tor** (``.onion``): 56-char base32 (v3) or 16-char base32 (v2, deprecated).
+        - **Tor** (``.onion``): rightmost label must be a 56-char base32 v3
+          hash (or 16-char v2). Optional subdomain labels to the left are
+          validated as standard hostname labels (RFC 7686 §2).
         - **I2P** (``.i2p``): 52-char base32 hash (``*.b32.i2p``) or
-          human-readable hostname (RFC 952/1123 labels).
+          human-readable hostname (standard labels).
         - **Loki** (``.loki``): 52-char base32.
     """
     if not name:
         return False
 
     if network == NetworkType.TOR:
-        return len(name) in (_ONION_V3_LENGTH, _ONION_V2_LENGTH) and set(name) <= _BASE32_CHARS
+        parts = name.rsplit(".", 1)
+        onion_hash = parts[-1]
+        valid_hash = (
+            len(onion_hash) in (_ONION_V3_LENGTH, _ONION_V2_LENGTH)
+            and set(onion_hash) <= _BASE32_CHARS
+        )
+        return valid_hash and (len(parts) == 1 or _is_valid_hostname(parts[0] + ".onion"))
 
     if network == NetworkType.LOKI:
         return len(name) == _LOKI_LENGTH and set(name) <= _BASE32_CHARS
 
     if network == NetworkType.I2P:
-        # *.b32.i2p: 52-char base32 hash
         if name.endswith(".b32"):
             b32_part = name[:-4]
             return len(b32_part) == _I2P_B32_LENGTH and set(b32_part) <= _BASE32_CHARS
-        # Human-readable: standard hostname labels
         return _is_valid_hostname(name + ".i2p")
 
     return False
