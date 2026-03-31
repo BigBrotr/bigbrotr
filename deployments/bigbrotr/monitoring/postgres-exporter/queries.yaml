@@ -36,11 +36,15 @@ bigbrotr_relay_by_network:
 bigbrotr_table_sizes:
   query: |
     SELECT c.relname AS table_name,
-           pg_total_relation_size(c.oid)::float AS total_bytes
+           CASE WHEN c.relkind = 'p'
+                THEN COALESCE((SELECT SUM(pg_total_relation_size(i.inhrelid)) FROM pg_inherits i WHERE i.inhparent = c.oid), 0)
+                ELSE pg_total_relation_size(c.oid)
+           END::float AS total_bytes
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = 'public' AND c.relkind = 'r'
-    ORDER BY pg_total_relation_size(c.oid) DESC
+    WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+      AND NOT EXISTS (SELECT 1 FROM pg_inherits WHERE inhrelid = c.oid)
+    ORDER BY total_bytes DESC
   metrics:
     - table_name:
         usage: "LABEL"
@@ -71,7 +75,7 @@ bigbrotr_row_estimates:
            GREATEST(reltuples, 0)::float AS approx_rows
     FROM pg_class
     WHERE relname IN ('relay', 'event', 'event_relay', 'metadata', 'relay_metadata', 'service_state')
-      AND relkind = 'r'
+      AND relkind IN ('r', 'p')
   metrics:
     - table_name:
         usage: "LABEL"
@@ -116,3 +120,23 @@ bigbrotr_index_usage:
     - ratio:
         usage: "GAUGE"
         description: "Index usage ratio (1.0 = all index scans)"
+
+bigbrotr_partition_distribution:
+  query: |
+    SELECT parent.relname AS parent_table,
+           child.relname AS partition_name,
+           GREATEST(child.reltuples, 0)::float AS approx_rows
+    FROM pg_inherits
+    JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
+    JOIN pg_class child ON pg_inherits.inhrelid = child.oid
+    WHERE parent.relname IN ('event', 'event_relay')
+  metrics:
+    - parent_table:
+        usage: "LABEL"
+        description: "Parent partitioned table name"
+    - partition_name:
+        usage: "LABEL"
+        description: "Partition name"
+    - approx_rows:
+        usage: "GAUGE"
+        description: "Estimated row count per partition"

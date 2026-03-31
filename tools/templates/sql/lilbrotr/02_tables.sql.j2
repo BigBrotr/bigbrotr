@@ -8,15 +8,21 @@
 -- savings. Tagvalues is computed at insert time via tags_to_tagvalues().
 
 CREATE TABLE IF NOT EXISTS event (
-    id BYTEA PRIMARY KEY,
+    id BYTEA NOT NULL,
     pubkey BYTEA NOT NULL,
     created_at BIGINT NOT NULL,
     kind INTEGER NOT NULL,
     tags JSONB,
     tagvalues TEXT [] NOT NULL,
     content TEXT,
-    sig BYTEA
-);
+    sig BYTEA,
+    PRIMARY KEY (id)
+) PARTITION BY HASH (id);
+
+{% for i in range(partitions) %}
+CREATE TABLE IF NOT EXISTS event_p{{ i }} PARTITION OF event
+    FOR VALUES WITH (MODULUS {{ partitions }}, REMAINDER {{ i }});
+{% endfor %}
 
 COMMENT ON TABLE event IS 'Nostr events (tags/content/sig nullable, always NULL)';
 COMMENT ON COLUMN event.id IS 'SHA-256 event hash (32 bytes, stored as bytea from hex)';

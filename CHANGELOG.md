@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.6.0] - 2026-03-31
+
+### Added
+
+- **HASH partitioning on `event` and `event_relay`**: 16 partitions each, keyed by `id` and `event_id` respectively. Same hash key enables partition-wise joins. Configurable via Jinja2 template variable (`partitions`, default 16). Zero changes to CRUD functions, indexes, matviews, or Python code
+- **LZ4 compression**: `event.content`, `event.tags` (bigbrotr), and `metadata.data` (both deployments) use LZ4 instead of the default `pglz` for faster compression at high insert rates
+- **Partition monitoring**: new `partition_distribution` Prometheus metric exposing per-partition row estimates; two Grafana dashboard panels showing distribution as percentage
+- **7 integration tests**: partition structure, distribution across partitions, event/event_relay co-location
+
+### Fixed
+
+- **Missing matview ownership grants**: `events_replaceable_latest` and `events_addressable_latest` were not granted to the `refresher` role in `98_grants.sh`, preventing `REFRESH MATERIALIZED VIEW CONCURRENTLY` on fresh deployments
+- **Table sizes metric showed 0 for partitioned tables**: `pg_total_relation_size` on a partitioned parent returns 0; now aggregates child partition sizes
+- **LilBrotr verify script**: corrected matview count (11 to 13) and refresh function count (12 to 14)
+
+### Changed
+
+- **postgresql.conf**: `enable_partitionwise_join` and `enable_partitionwise_aggregate` enabled (both deployments)
+- **Monitoring queries**: `table_sizes` excludes individual partitions and aggregates their sizes under the parent; `row_estimates` includes partitioned parent tables (`relkind = 'p'`)
+- **Autovacuum tuning**: aggressive settings (`scale_factor = 0.02`, `threshold = 10000`) applied per leaf partition on `event_relay` (cannot be set on partitioned parent)
+
 ## [6.5.5] - 2026-03-31
 
 ### Fixed
