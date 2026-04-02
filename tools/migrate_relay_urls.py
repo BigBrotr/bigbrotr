@@ -127,6 +127,20 @@ async def migrate(  # noqa: PLR0912, PLR0913, PLR0915
 
                 if not dry_run:
                     await conn.execute("DELETE FROM relay WHERE url = $1", old_url)
+                    # Re-insert canonical URL as a validator candidate so it gets
+                    # re-validated and promoted back into the relay table.
+                    relay = Relay(canonical)
+                    await conn.execute(
+                        """
+                        INSERT INTO service_state
+                            (service_name, state_type, state_key, state_value)
+                        VALUES ('validator', 'checkpoint', $1,
+                                jsonb_build_object('network', $2::text, 'failures', 0))
+                        ON CONFLICT DO NOTHING
+                        """,
+                        canonical,
+                        relay.network.value,
+                    )
 
             # =============================================================
             # Phase 2: Validator candidates (service_state)
