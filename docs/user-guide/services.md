@@ -29,6 +29,9 @@ flowchart LR
         MO["Monitor"]
         SY["Synchronizer"]
         RE2["Refresher"]
+        AS["Assertor"]
+        AP["Api"]
+        DV["Dvm"]
     end
 
     subgraph Database
@@ -38,6 +41,7 @@ flowchart LR
         RM["relay_metadata"]
         EV["event"]
         ER["event_relay"]
+        ST["summary tables"]
         MV["materialized views"]
     end
 
@@ -54,7 +58,14 @@ flowchart LR
     SY -->|"cursors"| SS
     SY -->|"write"| EV
     SY -->|"junctions"| ER
+    RE2 -->|"refresh"| ST
     RE2 -->|"refresh"| MV
+    AS -->|"read"| ST
+    AS -->|"checkpoints"| SS
+    AP -->|"read"| RE
+    AP -->|"read"| MV
+    DV -->|"read"| RE
+    DV -->|"read"| MV
 ```
 
 ---

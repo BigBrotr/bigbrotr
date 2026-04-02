@@ -68,7 +68,7 @@ deployments/
 | `DB_WRITER_PASSWORD` | Yes | Writer services | Writer role password (seeder, finder, validator, monitor, synchronizer) |
 | `DB_READER_PASSWORD` | Yes | Read-only services | Reader role password (postgres-exporter, Api, Dvm) |
 | `DB_REFRESHER_PASSWORD` | Yes | Refresher | Refresher role password (matview ownership for REFRESH CONCURRENTLY) |
-| `NOSTR_PRIVATE_KEY` | Monitor, optional for Synchronizer | Monitor, Synchronizer | Nostr private key (64-char hex or `nsec1...` bech32). Required for NIP-66 write tests and event publishing. Optional for Synchronizer NIP-42 authentication. |
+| `NOSTR_PRIVATE_KEY` | Monitor, Assertor, Dvm; optional for Synchronizer | Monitor, Assertor, Dvm, Synchronizer | Nostr private key (64-char hex or `nsec1...` bech32). Required for event publishing (NIP-66, NIP-85, NIP-90). Optional for Synchronizer NIP-42 authentication. |
 | `GRAFANA_PASSWORD` | Docker only | Grafana | Grafana admin password |
 
 ### Setting Environment Variables

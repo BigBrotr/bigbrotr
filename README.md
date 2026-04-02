@@ -379,7 +379,7 @@ JSON mode available for cloud aggregation:
 | `DB_WRITER_PASSWORD` | Yes | Writer role password (Seeder, Finder, Validator, Monitor, Synchronizer) |
 | `DB_REFRESHER_PASSWORD` | Yes | Refresher role password (matview ownership) |
 | `DB_READER_PASSWORD` | Yes | Reader role password (Api, Dvm, postgres-exporter) |
-| `NOSTR_PRIVATE_KEY` | For Monitor, Validator, Synchronizer, Dvm | Nostr private key (hex or nsec) for event signing and NIP-42 auth |
+| `NOSTR_PRIVATE_KEY` | For Monitor, Validator, Synchronizer, Assertor, Dvm | Nostr private key (hex or nsec) for event signing and NIP-42 auth |
 | `GRAFANA_PASSWORD` | For Grafana | Grafana admin password |
 
 ### Configuration Files
@@ -394,6 +394,7 @@ deployments/bigbrotr/config/
     ├── monitor.yaml            # Health checks, retry per type, publishing, GeoIP
     ├── synchronizer.yaml       # Networks, filter, time range, per-relay overrides
     ├── refresher.yaml          # View list, refresh interval
+    ├── assertor.yaml           # NIP-85 assertion relays, kinds, batch size
     ├── api.yaml                # Host, port, pagination, CORS
     └── dvm.yaml                # NIP-90 kind, relay list, response format
 ```
@@ -499,6 +500,7 @@ bigbrotr/
 │       ├── monitor/                 # Health check orchestration + publishing
 │       ├── synchronizer/            # Event collection (cursor-based)
 │       ├── refresher/               # Materialized view refresh
+│       ├── assertor/               # NIP-85 trusted assertions
 │       ├── api/                     # REST API (FastAPI, read-only)
 │       ├── dvm/                     # NIP-90 Data Vending Machine
 │       └── common/                  # Shared queries, configs, mixins
@@ -512,8 +514,8 @@ bigbrotr/
 │   └── lilbrotr/                    # Lightweight deployment
 ├── tests/
 │   ├── fixtures/relays.py           # Shared relay fixtures
-│   ├── unit/                        # ~2,737 tests (mirrors src/ structure)
-│   └── integration/                 # ~216 tests (testcontainers PostgreSQL)
+│   ├── unit/                        # ~2,900 tests (mirrors src/ structure)
+│   └── integration/                 # ~211 tests (testcontainers PostgreSQL)
 ├── docs/                            # MkDocs Material documentation
 ├── Makefile                         # Development targets
 └── pyproject.toml                   # All config: deps, ruff, mypy, pytest, coverage

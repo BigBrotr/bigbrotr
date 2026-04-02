@@ -1146,9 +1146,9 @@ JSON output mode available for machine parsing:
 
 | Category | Count | Description |
 |----------|-------|-------------|
-| Unit tests | 2,737 | Isolated logic tests with mocked I/O |
-| Integration tests | 216 | Real PostgreSQL via testcontainers |
-| **Total** | **2,953** | Full suite |
+| Unit tests | ~2,900 | Isolated logic tests with mocked I/O |
+| Integration tests | ~211 | Real PostgreSQL via testcontainers |
+| **Total** | **~3,111** | Full suite |
 
 **Test LOC**: 38,569 lines across 62 test files (53 unit + 9 integration).
 
@@ -1465,8 +1465,8 @@ python -m bigbrotr <service> [--config PATH] [--brotr-config PATH] [--log-level 
 | Summary tables | 6 |
 | Materialized views | 6 |
 | Indexes | 27 |
-| Unit tests | 2,737 |
-| Integration tests | 216 |
+| Unit tests | ~2,900 |
+| Integration tests | ~211 |
 | CI/CD pipelines | 4 |
 | Pre-commit hooks | 23 |
 | Alert rules | 7 |

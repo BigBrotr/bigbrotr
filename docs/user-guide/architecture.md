@@ -711,7 +711,7 @@ All configuration uses Pydantic v2 models with:
 | `DB_WRITER_PASSWORD` | Yes | Writer services (via per-service pool overrides) |
 | `DB_REFRESHER_PASSWORD` | Yes | Refresher (matview ownership for REFRESH CONCURRENTLY) |
 | `DB_READER_PASSWORD` | Yes | Read-only services (postgres-exporter, Api, Dvm) |
-| `NOSTR_PRIVATE_KEY` | For Monitor | Monitor (Nostr event signing, RTT write tests) |
+| `NOSTR_PRIVATE_KEY` | For Monitor, Assertor, Dvm | Monitor, Assertor, Dvm (Nostr event signing) |
 | `GRAFANA_PASSWORD` | No | Grafana (admin password) |
 
 ---
