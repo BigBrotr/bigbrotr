@@ -65,15 +65,15 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     GRANT INSERT, UPDATE, DELETE ON nip85_pubkey_stats TO ${REFRESHER_ROLE};
     GRANT INSERT, UPDATE, DELETE ON nip85_event_stats TO ${REFRESHER_ROLE};
 
-    -- NIP-85 functions
-    GRANT EXECUTE ON FUNCTION nip85_pubkey_stats_refresh TO ${WRITER_ROLE};
-    GRANT EXECUTE ON FUNCTION nip85_event_stats_refresh TO ${WRITER_ROLE};
-    GRANT EXECUTE ON FUNCTION nip85_follower_count_refresh TO ${WRITER_ROLE};
-    GRANT EXECUTE ON FUNCTION bolt11_amount_msats TO ${WRITER_ROLE};
-    GRANT EXECUTE ON FUNCTION nip85_pubkey_stats_refresh TO ${REFRESHER_ROLE};
-    GRANT EXECUTE ON FUNCTION nip85_event_stats_refresh TO ${REFRESHER_ROLE};
-    GRANT EXECUTE ON FUNCTION nip85_follower_count_refresh TO ${REFRESHER_ROLE};
-    GRANT EXECUTE ON FUNCTION bolt11_amount_msats TO ${REFRESHER_ROLE};
+    -- NIP-85 functions (signature-qualified for PostgreSQL correctness)
+    GRANT EXECUTE ON FUNCTION nip85_pubkey_stats_refresh(BIGINT, BIGINT) TO ${WRITER_ROLE};
+    GRANT EXECUTE ON FUNCTION nip85_event_stats_refresh(BIGINT, BIGINT) TO ${WRITER_ROLE};
+    GRANT EXECUTE ON FUNCTION nip85_follower_count_refresh() TO ${WRITER_ROLE};
+    GRANT EXECUTE ON FUNCTION bolt11_amount_msats(TEXT) TO ${WRITER_ROLE};
+    GRANT EXECUTE ON FUNCTION nip85_pubkey_stats_refresh(BIGINT, BIGINT) TO ${REFRESHER_ROLE};
+    GRANT EXECUTE ON FUNCTION nip85_event_stats_refresh(BIGINT, BIGINT) TO ${REFRESHER_ROLE};
+    GRANT EXECUTE ON FUNCTION nip85_follower_count_refresh() TO ${REFRESHER_ROLE};
+    GRANT EXECUTE ON FUNCTION bolt11_amount_msats(TEXT) TO ${REFRESHER_ROLE};
 
     -- Monitoring: pg_monitor grants read access to system statistics (WAL, replication)
     GRANT pg_monitor TO ${READER_ROLE};
