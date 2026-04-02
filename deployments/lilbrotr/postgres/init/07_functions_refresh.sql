@@ -822,15 +822,20 @@ BEGIN
         FROM _nip85_new_events
         GROUP BY pubkey, ((created_at % 86400) / 3600)::INTEGER
     ),
+    pubkeys AS (
+        SELECT DISTINCT pubkey FROM hourly
+    ),
     delta_arrays AS (
         SELECT
-            h.pubkey,
+            p.pubkey,
             ARRAY(
-                SELECT COALESCE(SUM(h2.cnt), 0)::INTEGER
+                SELECT COALESCE(
+                    (SELECT SUM(h.cnt) FROM hourly h WHERE h.pubkey = p.pubkey AND h.hour_utc = gs.hr),
+                    0
+                )::INTEGER
                 FROM generate_series(0, 23) AS gs(hr)
-                LEFT JOIN hourly h2 ON h2.pubkey = h.pubkey AND h2.hour_utc = gs.hr
             ) AS hours_delta
-        FROM (SELECT DISTINCT pubkey FROM hourly) h
+        FROM pubkeys p
     )
     INSERT INTO nip85_pubkey_stats (pubkey, activity_hours)
     SELECT pubkey, hours_delta FROM delta_arrays

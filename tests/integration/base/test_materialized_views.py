@@ -706,7 +706,7 @@ class TestNip85PubkeyStats:
     async def test_post_and_reply_counts(self, brotr: Brotr) -> None:
         pubkey = "c1" * 32
         ers = [
-            _event_relay("b0" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey),
+            _event_relay("b0" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey, tags=[]),
             _event_relay(
                 "b1" * 32,
                 "wss://n85.example.com",
@@ -826,7 +826,12 @@ class TestNip85PubkeyStats:
         # created_at at 14:00 UTC (14 * 3600 = 50400 seconds into day)
         created_at = 1700000000 - (1700000000 % 86400) + 50400
         er = _event_relay(
-            "b6" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey, created_at=created_at
+            "b6" * 32,
+            "wss://n85.example.com",
+            kind=1,
+            pubkey=pubkey,
+            created_at=created_at,
+            tags=[],
         )
         await brotr.insert_event_relay([er], cascade=True)
         await _refresh_nip85(brotr)
