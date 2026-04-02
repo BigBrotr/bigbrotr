@@ -316,8 +316,8 @@ class TestRefresherRunMatviews:
 
 class TestRefresherRunSummaries:
     async def test_no_new_data_skips_refresh(self, mock_refresher_brotr: Brotr) -> None:
-        # fetchval returns same value as checkpoint (0) -> no new data
-        mock_refresher_brotr.fetchval = AsyncMock(return_value=0)  # type: ignore[method-assign]
+        # EXISTS returns False -> no new data
+        mock_refresher_brotr.fetchval = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
         config = RefresherConfig(
             refresh=RefreshConfig(
@@ -331,13 +331,13 @@ class TestRefresherRunSummaries:
 
         # Should not call any summary refresh (no new data)
         fetchval_calls = mock_refresher_brotr.fetchval.call_args_list
-        # Only get_max_seen_at is called, not the refresh function
+        # Only get_max_seen_at EXISTS check is called, not the refresh function
         assert all("_refresh" not in str(c) for c in fetchval_calls)
 
     async def test_new_data_triggers_refresh(self, mock_refresher_brotr: Brotr) -> None:
-        # fetchval: first call returns new watermark, second returns row count
+        # fetchval: EXISTS=True, then row count for each of 8 summaries
         mock_refresher_brotr.fetchval = AsyncMock(  # type: ignore[method-assign]
-            side_effect=[100, 5, 100, 3, 100, 2, 100, 10, 100, 8, 100, 7, 100, 4, 100, 6]
+            side_effect=[True, 5, True, 3, True, 2, True, 10, True, 8, True, 7, True, 4, True, 6]
         )
 
         config = RefresherConfig(
@@ -355,7 +355,7 @@ class TestRefresherRunSummaries:
 
     async def test_summary_failure_continues(self, mock_refresher_brotr: Brotr) -> None:
         mock_refresher_brotr.fetchval = AsyncMock(  # type: ignore[method-assign]
-            side_effect=[100, asyncpg.PostgresError("error"), 100, 5]
+            side_effect=[True, asyncpg.PostgresError("error"), True, 5]
         )
 
         config = RefresherConfig(
@@ -382,8 +382,8 @@ class TestRefresherRunSummaries:
 
 class TestRefresherRunCounts:
     async def test_refresh_completed_counts(self, mock_refresher_brotr: Brotr) -> None:
-        # 1 matview success, 1 summary with new data
-        mock_refresher_brotr.fetchval = AsyncMock(side_effect=[100, 5])  # type: ignore[method-assign]
+        # 1 matview success, 1 summary with new data (EXISTS=True, row count=5)
+        mock_refresher_brotr.fetchval = AsyncMock(side_effect=[True, 5])  # type: ignore[method-assign]
 
         config = RefresherConfig(
             refresh=RefreshConfig(

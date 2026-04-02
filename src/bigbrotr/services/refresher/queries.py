@@ -10,6 +10,7 @@ See Also:
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 
@@ -18,15 +19,24 @@ if TYPE_CHECKING:
 
 
 async def get_max_seen_at(brotr: Brotr, after: int) -> int:
-    """Return the maximum ``event_relay.seen_at`` after the given timestamp.
+    """Return the wall-clock timestamp if new ``event_relay`` rows exist after checkpoint.
 
-    Returns ``after`` if no newer rows exist (caller should skip refresh).
+    Uses wall-clock time (not ``MAX(seen_at)``) as the upper bound to prevent
+    the TOCTOU race where rows with ``seen_at`` equal to the previous checkpoint
+    arrive after the checkpoint was saved. Since ``EventRelay.seen_at`` defaults
+    to ``int(time.time())`` at insert time, it is always ``<=`` wall-clock, so
+    the range ``(after, wall_clock]`` captures all visible rows.
+
+    Returns ``after`` unchanged if no newer rows exist (caller should skip
+    refresh).
     """
-    result = await brotr.fetchval(
-        "SELECT COALESCE(MAX(seen_at), $1) FROM event_relay WHERE seen_at > $1",
+    exists = await brotr.fetchval(
+        "SELECT EXISTS(SELECT 1 FROM event_relay WHERE seen_at > $1)",
         after,
     )
-    return int(result)
+    if not exists:
+        return after
+    return int(time.time())
 
 
 async def refresh_summary(brotr: Brotr, table: str, after: int, until: int) -> int:
