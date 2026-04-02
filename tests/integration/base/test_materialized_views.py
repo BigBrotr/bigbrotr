@@ -499,8 +499,8 @@ class TestRollingWindows:
     async def test_kind_stats_windows(self, brotr: Brotr):
         now = int(time.time())
         ers = [
-            _event_relay("g1" * 32, "wss://tw2.example.com", kind=7, created_at=now - 600),
-            _event_relay("g2" * 32, "wss://tw2.example.com", kind=7, created_at=now - 1800),
+            _event_relay("a1" * 32, "wss://tw2.example.com", kind=7, created_at=now - 600),
+            _event_relay("a2" * 32, "wss://tw2.example.com", kind=7, created_at=now - 1800),
         ]
         await brotr.insert_event_relay(ers, cascade=True)
         await _refresh_summaries(brotr)
@@ -515,8 +515,8 @@ class TestRollingWindows:
     async def test_relay_stats_windows(self, brotr: Brotr):
         now = int(time.time())
         ers = [
-            _event_relay("h1" * 32, "wss://tw3.example.com", created_at=now - 600),
-            _event_relay("h2" * 32, "wss://tw3.example.com", created_at=now - 43200),
+            _event_relay("b1" * 32, "wss://tw3.example.com", created_at=now - 600),
+            _event_relay("b2" * 32, "wss://tw3.example.com", created_at=now - 43200),
         ]
         await brotr.insert_event_relay(ers, cascade=True)
         await _refresh_summaries(brotr)
