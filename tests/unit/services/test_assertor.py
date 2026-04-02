@@ -228,7 +228,10 @@ class TestAssertorPublishUserFlow:
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_user_rows", new_callable=AsyncMock)
     async def test_publishes_new_assertion(
-        self, mock_fetch: AsyncMock, mock_broadcast: AsyncMock, mock_brotr: MagicMock,
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
     ) -> None:
         mock_fetch.return_value = [self._make_row()]
         mock_broadcast.return_value = 1
@@ -245,7 +248,10 @@ class TestAssertorPublishUserFlow:
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_user_rows", new_callable=AsyncMock)
     async def test_skips_unchanged(
-        self, mock_fetch: AsyncMock, mock_broadcast: AsyncMock, mock_brotr: MagicMock,
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
     ) -> None:
         row = self._make_row()
         mock_fetch.return_value = [row]
@@ -269,7 +275,10 @@ class TestAssertorPublishUserFlow:
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_user_rows", new_callable=AsyncMock)
     async def test_broadcast_failure_counts_as_failed(
-        self, mock_fetch: AsyncMock, mock_broadcast: AsyncMock, mock_brotr: MagicMock,
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
     ) -> None:
         mock_fetch.return_value = [self._make_row()]
         mock_broadcast.return_value = 0  # No relays accepted
@@ -284,7 +293,10 @@ class TestAssertorPublishUserFlow:
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_user_rows", new_callable=AsyncMock)
     async def test_empty_batch_returns_zeros(
-        self, mock_fetch: AsyncMock, mock_broadcast: AsyncMock, mock_brotr: MagicMock,
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
     ) -> None:
         mock_fetch.return_value = []
         service = self._make_service(mock_brotr)
@@ -299,7 +311,10 @@ class TestAssertorPublishUserFlow:
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_user_rows", new_callable=AsyncMock)
     async def test_pagination_stops_on_partial_batch(
-        self, mock_fetch: AsyncMock, mock_broadcast: AsyncMock, mock_brotr: MagicMock,
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
     ) -> None:
         # Return fewer rows than batch_size -> should stop after first call
         mock_fetch.return_value = [self._make_row(pubkey=f"{i:02x}" * 32) for i in range(3)]
@@ -314,7 +329,10 @@ class TestAssertorPublishUserFlow:
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_user_rows", new_callable=AsyncMock)
     async def test_os_error_during_publish_counts_as_failed(
-        self, mock_fetch: AsyncMock, mock_broadcast: AsyncMock, mock_brotr: MagicMock,
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
     ) -> None:
         mock_fetch.return_value = [self._make_row()]
         mock_broadcast.side_effect = OSError("connection lost")
@@ -325,3 +343,171 @@ class TestAssertorPublishUserFlow:
         assert published == 0
         assert failed == 1
         service._logger.error.assert_called_once()
+
+
+class TestAssertorCheckpointNamespacing:
+    """Verify checkpoint keys use 'user:' and 'event:' prefixes to prevent collisions."""
+
+    @pytest.fixture
+    def mock_brotr(self) -> MagicMock:
+        brotr = MagicMock()
+        brotr.get_service_state = AsyncMock(return_value=[])
+        brotr.upsert_service_state = AsyncMock()
+        brotr.fetch = AsyncMock(return_value=[])
+        return brotr
+
+    def _make_service(self, mock_brotr: MagicMock) -> MagicMock:
+        from bigbrotr.services.assertor.service import Assertor
+
+        service = Assertor.__new__(Assertor)
+        service._brotr = mock_brotr
+        service._client = MagicMock()
+        service._config = MagicMock()
+        service._config.min_events = 1
+        service._config.batch_size = 100
+        service._config.top_topics = 5
+        service._logger = MagicMock()
+        return service
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_user_rows", new_callable=AsyncMock)
+    async def test_user_assertion_uses_user_prefix(
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        pubkey = "aa" * 32
+        mock_fetch.return_value = [
+            {
+                "pubkey": pubkey,
+                "post_count": 10,
+                "reply_count": 0,
+                "reaction_count_recd": 0,
+                "reaction_count_sent": 0,
+                "repost_count_recd": 0,
+                "repost_count_sent": 0,
+                "report_count_recd": 0,
+                "report_count_sent": 0,
+                "zap_count_recd": 0,
+                "zap_count_sent": 0,
+                "zap_amount_recd": 0,
+                "zap_amount_sent": 0,
+                "first_created_at": 1700000000,
+                "last_event_at": 1710000000,
+                "activity_hours": [0] * 24,
+                "topic_counts": {},
+                "follower_count": 0,
+                "following_count": 0,
+            }
+        ]
+        mock_broadcast.return_value = 1
+        service = self._make_service(mock_brotr)
+
+        await service._publish_user_assertions()
+
+        # _is_unchanged called with user: prefix
+        mock_brotr.get_service_state.assert_awaited()
+        key_arg = mock_brotr.get_service_state.call_args[0][2]
+        assert key_arg == f"user:{pubkey}"
+
+        # _save_hash called with user: prefix
+        upsert_call = mock_brotr.upsert_service_state.call_args[0][0]
+        assert upsert_call[0].state_key == f"user:{pubkey}"
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_event_rows", new_callable=AsyncMock)
+    async def test_event_assertion_uses_event_prefix(
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        event_id = "bb" * 32
+        mock_fetch.return_value = [
+            {
+                "event_id": event_id,
+                "author_pubkey": "cc" * 32,
+                "comment_count": 5,
+                "quote_count": 0,
+                "repost_count": 0,
+                "reaction_count": 0,
+                "zap_count": 0,
+                "zap_amount": 0,
+            }
+        ]
+        mock_broadcast.return_value = 1
+        service = self._make_service(mock_brotr)
+
+        await service._publish_event_assertions()
+
+        key_arg = mock_brotr.get_service_state.call_args[0][2]
+        assert key_arg == f"event:{event_id}"
+
+        upsert_call = mock_brotr.upsert_service_state.call_args[0][0]
+        assert upsert_call[0].state_key == f"event:{event_id}"
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_event_rows", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_user_rows", new_callable=AsyncMock)
+    async def test_same_hex_different_namespace_no_collision(
+        self,
+        mock_fetch_user: AsyncMock,
+        mock_fetch_event: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        """A 64-char hex string used as both pubkey and event_id must not collide."""
+        hex_id = "dd" * 32
+        mock_fetch_user.return_value = [
+            {
+                "pubkey": hex_id,
+                "post_count": 10,
+                "reply_count": 0,
+                "reaction_count_recd": 0,
+                "reaction_count_sent": 0,
+                "repost_count_recd": 0,
+                "repost_count_sent": 0,
+                "report_count_recd": 0,
+                "report_count_sent": 0,
+                "zap_count_recd": 0,
+                "zap_count_sent": 0,
+                "zap_amount_recd": 0,
+                "zap_amount_sent": 0,
+                "first_created_at": 1700000000,
+                "last_event_at": 1710000000,
+                "activity_hours": [0] * 24,
+                "topic_counts": {},
+                "follower_count": 0,
+                "following_count": 0,
+            }
+        ]
+        mock_fetch_event.return_value = [
+            {
+                "event_id": hex_id,
+                "author_pubkey": "ee" * 32,
+                "comment_count": 3,
+                "quote_count": 0,
+                "repost_count": 0,
+                "reaction_count": 0,
+                "zap_count": 0,
+                "zap_amount": 0,
+            }
+        ]
+        mock_broadcast.return_value = 1
+        service = self._make_service(mock_brotr)
+
+        from bigbrotr.models.constants import EventKind
+
+        service._config.kinds = [
+            EventKind.NIP85_USER_ASSERTION,
+            EventKind.NIP85_EVENT_ASSERTION,
+        ]
+        await service.run()
+
+        saved_keys = [
+            call[0][0][0].state_key for call in mock_brotr.upsert_service_state.call_args_list
+        ]
+        assert f"user:{hex_id}" in saved_keys
+        assert f"event:{hex_id}" in saved_keys
+        assert f"user:{hex_id}" != f"event:{hex_id}"

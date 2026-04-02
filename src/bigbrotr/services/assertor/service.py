@@ -153,7 +153,8 @@ class Assertor(BaseService[AssertorConfig]):
                 assertion = UserAssertion.from_db_row(row)
                 current_hash = assertion.tags_hash()
 
-                if await self._is_unchanged(assertion.pubkey, current_hash):
+                state_key = f"user:{assertion.pubkey}"
+                if await self._is_unchanged(state_key, current_hash):
                     skipped += 1
                     continue
 
@@ -161,7 +162,7 @@ class Assertor(BaseService[AssertorConfig]):
                     builder = build_user_assertion(assertion)
                     sent = await broadcast_events([builder], [self._client])
                     if sent > 0:
-                        await self._save_hash(assertion.pubkey, current_hash)
+                        await self._save_hash(state_key, current_hash)
                         published += 1
                     else:
                         failed += 1
@@ -197,7 +198,8 @@ class Assertor(BaseService[AssertorConfig]):
                 assertion = EventAssertion.from_db_row(row)
                 current_hash = assertion.tags_hash()
 
-                if await self._is_unchanged(assertion.event_id, current_hash):
+                state_key = f"event:{assertion.event_id}"
+                if await self._is_unchanged(state_key, current_hash):
                     skipped += 1
                     continue
 
@@ -205,7 +207,7 @@ class Assertor(BaseService[AssertorConfig]):
                     builder = build_event_assertion(assertion)
                     sent = await broadcast_events([builder], [self._client])
                     if sent > 0:
-                        await self._save_hash(assertion.event_id, current_hash)
+                        await self._save_hash(state_key, current_hash)
                         published += 1
                     else:
                         failed += 1
