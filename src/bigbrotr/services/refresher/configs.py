@@ -60,6 +60,10 @@ def _validate_names(v: list[str], label: str) -> list[str]:
 class RefreshConfig(BaseModel):
     """Configuration for materialized view and summary table refresh.
 
+    Summary tables assume append-only ingestion of ``event_relay``; there is
+    no full-rebuild path. Incremental refresh processes only new rows since the
+    last checkpoint.
+
     See Also:
         [RefresherConfig][bigbrotr.services.refresher.RefresherConfig]: Parent
             config that embeds this model.
@@ -73,12 +77,6 @@ class RefreshConfig(BaseModel):
     summaries: list[str] = Field(
         default_factory=lambda: list(DEFAULT_SUMMARIES),
         description="Ordered list of summary table names to refresh incrementally.",
-    )
-
-    chunk_size: int = Field(
-        default=2592000,
-        ge=86400,
-        description="Chunk size in seconds for full rebuild of summary tables.",
     )
 
     @field_validator("matviews")

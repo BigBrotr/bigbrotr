@@ -18,7 +18,6 @@ from pydantic import BeforeValidator, Field
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
-from bigbrotr.services.common.configs import NetworksConfig
 from bigbrotr.utils.keys import KeysConfig
 
 
@@ -27,11 +26,14 @@ class AssertorConfig(BaseServiceConfig, KeysConfig):
 
     Inherits key management from
     [KeysConfig][bigbrotr.utils.keys.KeysConfig] for Nostr signing.
-    NIP-85 requires a dedicated service key per algorithm.
+
+    Note:
+        Uses the same ``NOSTR_PRIVATE_KEY`` environment variable as other
+        publishing services (Monitor, DVM) by default. Override ``keys_env``
+        to use a dedicated signing identity if required.
 
     Attributes:
         relays: Relay URLs to publish assertions to.
-        networks: Per-network connection settings (proxy, timeouts).
         kinds: NIP-85 assertion kinds to publish.
         batch_size: Maximum pubkeys/events to process per cycle.
         min_events: Minimum event count for a pubkey to qualify for assertion.
@@ -50,11 +52,6 @@ class AssertorConfig(BaseServiceConfig, KeysConfig):
         ],
         min_length=1,
         description="Relay URLs to publish assertions to",
-    )
-
-    networks: NetworksConfig = Field(
-        default_factory=NetworksConfig,
-        description="Per-network connection settings",
     )
 
     kinds: list[int] = Field(

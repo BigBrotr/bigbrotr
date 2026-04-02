@@ -47,7 +47,6 @@ class TestRefreshConfig:
         assert config.summaries == DEFAULT_SUMMARIES
         assert len(config.matviews) == 6
         assert len(config.summaries) == 8
-        assert config.chunk_size == 2592000
 
     def test_default_matviews_dependency_order(self) -> None:
         config = RefreshConfig()
@@ -86,14 +85,6 @@ class TestRefreshConfig:
     def test_custom_summaries(self) -> None:
         config = RefreshConfig(summaries=["pubkey_stats"])
         assert config.summaries == ["pubkey_stats"]
-
-    def test_custom_chunk_size(self) -> None:
-        config = RefreshConfig(chunk_size=604800)
-        assert config.chunk_size == 604800
-
-    def test_chunk_size_minimum(self) -> None:
-        with pytest.raises(ValueError, match="greater than or equal to 86400"):
-            RefreshConfig(chunk_size=1000)
 
     def test_empty_matviews_rejected(self) -> None:
         with pytest.raises(ValueError, match="matviews list must not be empty"):
@@ -168,14 +159,12 @@ class TestRefresherConfig:
             "refresh": {
                 "matviews": ["relay_metadata_latest"],
                 "summaries": ["pubkey_stats", "kind_stats"],
-                "chunk_size": 604800,
             },
             "interval": 1800.0,
         }
         config = RefresherConfig(**data)
         assert config.refresh.matviews == ["relay_metadata_latest"]
         assert config.refresh.summaries == ["pubkey_stats", "kind_stats"]
-        assert config.refresh.chunk_size == 604800
         assert config.interval == 1800.0
 
 
