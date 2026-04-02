@@ -980,12 +980,18 @@ BEGIN
     SELECT pubkey, new_topics FROM topic_agg
     ON CONFLICT (pubkey) DO UPDATE SET
         topic_counts = (
-            SELECT COALESCE(jsonb_object_agg(
-                key,
-                (COALESCE((nip85_pubkey_stats.topic_counts ->> key)::BIGINT, 0)
-                 + (val)::BIGINT)::TEXT
-            ), '{}'::JSONB)
-            FROM jsonb_each_text(EXCLUDED.topic_counts) AS t(key, val)
+            SELECT COALESCE(jsonb_object_agg(key, val::TEXT), '{}'::JSONB)
+            FROM (
+                SELECT key, SUM(val) AS val
+                FROM (
+                    SELECT key, (val)::BIGINT AS val
+                    FROM jsonb_each_text(nip85_pubkey_stats.topic_counts) AS t(key, val)
+                    UNION ALL
+                    SELECT key, (val)::BIGINT AS val
+                    FROM jsonb_each_text(EXCLUDED.topic_counts) AS t(key, val)
+                ) AS combined
+                GROUP BY key
+            ) AS merged
         );
 
     GET DIAGNOSTICS v_partial = ROW_COUNT;
