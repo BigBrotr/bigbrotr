@@ -634,6 +634,33 @@ class TestLogLevelsJsonMode:
         parsed = json.loads(mock.debug.call_args[0][0])
         assert parsed["message"] == "simple"
 
+    def test_warning_json(self, mock_logger: tuple[Logger, MagicMock]) -> None:
+        logger, mock = mock_logger
+        logger.warning("watch_out", detail="something")
+
+        mock.warning.assert_called_once()
+        parsed = json.loads(mock.warning.call_args[0][0])
+        assert parsed["message"] == "watch_out"
+        assert parsed["level"] == "warning"
+
+    def test_critical_json(self, mock_logger: tuple[Logger, MagicMock]) -> None:
+        logger, mock = mock_logger
+        logger.critical("system_down", code=1)
+
+        mock.critical.assert_called_once()
+        parsed = json.loads(mock.critical.call_args[0][0])
+        assert parsed["message"] == "system_down"
+        assert parsed["level"] == "critical"
+
+    def test_exception_json(self, mock_logger: tuple[Logger, MagicMock]) -> None:
+        logger, mock = mock_logger
+        logger.exception("crash", trace="tb")
+
+        mock.exception.assert_called_once()
+        parsed = json.loads(mock.exception.call_args[0][0])
+        assert parsed["message"] == "crash"
+        assert parsed["level"] == "error"
+
 
 # ============================================================================
 # Integration Tests

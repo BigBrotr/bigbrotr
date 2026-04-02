@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import asyncpg
 import pytest
 from pydantic import ValidationError
 
@@ -340,6 +341,24 @@ class TestAssertorPublishUserFlow:
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_user_rows", new_callable=AsyncMock)
+    async def test_user_pagination_full_batch(
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        batch = [self._make_row(pubkey=f"{i:02x}" * 32) for i in range(100)]
+        mock_fetch.side_effect = [batch, []]
+        mock_broadcast.return_value = 1
+        service = self._make_service(mock_brotr)
+        service._config.batch_size = 100
+
+        await service._publish_user_assertions()
+
+        assert mock_fetch.await_count == 2
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_user_rows", new_callable=AsyncMock)
     async def test_os_error_during_publish_counts_as_failed(
         self,
         mock_fetch: AsyncMock,
@@ -523,3 +542,337 @@ class TestAssertorCheckpointNamespacing:
         assert f"user:{hex_id}" in saved_keys
         assert f"event:{hex_id}" in saved_keys
         assert f"user:{hex_id}" != f"event:{hex_id}"
+
+
+# ============================================================================
+# Lifecycle tests (__aenter__, __aexit__, cleanup)
+# ============================================================================
+
+
+class TestAssertorLifecycle:
+    @patch("bigbrotr.services.assertor.service.create_client", new_callable=AsyncMock)
+    async def test_aenter_creates_client_and_connects(
+        self,
+        mock_create_client: AsyncMock,
+    ) -> None:
+        from bigbrotr.services.assertor.service import Assertor
+
+        mock_client = AsyncMock()
+        mock_create_client.return_value = mock_client
+        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
+            svc = Assertor.__new__(Assertor)
+            svc._brotr = MagicMock()
+            svc._config = AssertorConfig()
+            svc._client = None
+            svc._logger = MagicMock()
+            svc._metrics_server = None
+
+            with (
+                patch.object(type(svc).__bases__[0], "__aenter__", new_callable=AsyncMock),
+            ):
+                result = await svc.__aenter__()
+
+            assert svc._client is mock_client
+            mock_client.connect.assert_awaited_once()
+            assert result is svc
+
+    async def test_aexit_shuts_down_client(self) -> None:
+        from bigbrotr.services.assertor.service import Assertor
+
+        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
+            svc = Assertor.__new__(Assertor)
+            svc._client = AsyncMock()
+            svc._logger = MagicMock()
+
+            with patch.object(type(svc).__bases__[0], "__aexit__", new_callable=AsyncMock):
+                await svc.__aexit__(None, None, None)
+
+            assert svc._client is None
+            svc._logger.info.assert_any_call("client_disconnected")
+
+    async def test_aexit_suppresses_ffi_shutdown_error(self) -> None:
+        from bigbrotr.services.assertor.service import Assertor
+
+        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
+            svc = Assertor.__new__(Assertor)
+            svc._client = AsyncMock()
+            svc._client.shutdown = AsyncMock(side_effect=RuntimeError("FFI error"))
+            svc._logger = MagicMock()
+
+            with patch.object(type(svc).__bases__[0], "__aexit__", new_callable=AsyncMock):
+                await svc.__aexit__(None, None, None)
+
+            assert svc._client is None
+            svc._logger.debug.assert_called_once()
+
+    async def test_aexit_noop_when_client_is_none(self) -> None:
+        from bigbrotr.services.assertor.service import Assertor
+
+        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
+            svc = Assertor.__new__(Assertor)
+            svc._client = None
+            svc._logger = MagicMock()
+
+            with patch.object(type(svc).__bases__[0], "__aexit__", new_callable=AsyncMock):
+                await svc.__aexit__(None, None, None)
+
+            svc._logger.info.assert_not_called()
+
+    async def test_cleanup_returns_zero(self) -> None:
+        from bigbrotr.services.assertor.service import Assertor
+
+        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
+            svc = Assertor.__new__(Assertor)
+            assert await svc.cleanup() == 0
+
+
+# ============================================================================
+# Event assertion publish flow tests
+# ============================================================================
+
+
+class TestAssertorPublishEventFlow:
+    @pytest.fixture
+    def mock_brotr(self) -> MagicMock:
+        brotr = MagicMock()
+        brotr.get_service_state = AsyncMock(return_value=[])
+        brotr.upsert_service_state = AsyncMock()
+        brotr.fetch = AsyncMock(return_value=[])
+        return brotr
+
+    def _make_service(self, mock_brotr: MagicMock) -> MagicMock:
+        from bigbrotr.services.assertor.service import Assertor
+
+        service = Assertor.__new__(Assertor)
+        service._brotr = mock_brotr
+        service._client = MagicMock()
+        service._config = MagicMock()
+        service._config.batch_size = 100
+        service._logger = MagicMock()
+        return service
+
+    def _make_event_row(self, event_id: str = "ee" * 32) -> dict:
+        return {
+            "event_id": event_id,
+            "author_pubkey": "ff" * 32,
+            "comment_count": 5,
+            "quote_count": 2,
+            "repost_count": 1,
+            "reaction_count": 3,
+            "zap_count": 0,
+            "zap_amount": 0,
+        }
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_event_rows", new_callable=AsyncMock)
+    async def test_publishes_new_event_assertion(
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        mock_fetch.return_value = [self._make_event_row()]
+        mock_broadcast.return_value = 1
+        service = self._make_service(mock_brotr)
+
+        published, skipped, failed = await service._publish_event_assertions()
+
+        assert published == 1
+        assert skipped == 0
+        assert failed == 0
+        mock_broadcast.assert_awaited_once()
+        mock_brotr.upsert_service_state.assert_awaited_once()
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_event_rows", new_callable=AsyncMock)
+    async def test_skips_unchanged_event(
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        row = self._make_event_row()
+        mock_fetch.return_value = [row]
+        service = self._make_service(mock_brotr)
+
+        from bigbrotr.nips.nip85.data import EventAssertion
+
+        assertion = EventAssertion.from_db_row(row)
+        state = MagicMock()
+        state.state_value = {"hash": assertion.tags_hash()}
+        mock_brotr.get_service_state = AsyncMock(return_value=[state])
+
+        published, skipped, _failed = await service._publish_event_assertions()
+
+        assert published == 0
+        assert skipped == 1
+        mock_broadcast.assert_not_awaited()
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_event_rows", new_callable=AsyncMock)
+    async def test_event_broadcast_failure_counts_as_failed(
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        mock_fetch.return_value = [self._make_event_row()]
+        mock_broadcast.return_value = 0
+        service = self._make_service(mock_brotr)
+
+        published, _skipped, failed = await service._publish_event_assertions()
+
+        assert published == 0
+        assert failed == 1
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_event_rows", new_callable=AsyncMock)
+    async def test_event_os_error_counts_as_failed(
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        mock_fetch.return_value = [self._make_event_row()]
+        mock_broadcast.side_effect = OSError("connection lost")
+        service = self._make_service(mock_brotr)
+
+        published, _skipped, failed = await service._publish_event_assertions()
+
+        assert published == 0
+        assert failed == 1
+        service._logger.error.assert_called_once()
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_event_rows", new_callable=AsyncMock)
+    async def test_event_pagination_full_batch(
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        batch = [self._make_event_row(event_id=f"{i:02x}" * 32) for i in range(100)]
+        mock_fetch.side_effect = [batch, []]
+        mock_broadcast.return_value = 1
+        service = self._make_service(mock_brotr)
+        service._config.batch_size = 100
+
+        await service._publish_event_assertions()
+
+        assert mock_fetch.await_count == 2
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_event_rows", new_callable=AsyncMock)
+    async def test_event_empty_returns_zeros(
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        mock_fetch.return_value = []
+        service = self._make_service(mock_brotr)
+
+        published, skipped, failed = await service._publish_event_assertions()
+
+        assert published == 0
+        assert skipped == 0
+        assert failed == 0
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_event_rows", new_callable=AsyncMock)
+    async def test_event_postgres_error_counts_as_failed(
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        mock_fetch.return_value = [self._make_event_row()]
+        mock_broadcast.side_effect = asyncpg.PostgresError("query error")
+        service = self._make_service(mock_brotr)
+
+        published, _skipped, failed = await service._publish_event_assertions()
+
+        assert published == 0
+        assert failed == 1
+
+
+# ============================================================================
+# Query function tests
+# ============================================================================
+
+
+class TestAssertorQueries:
+    async def test_fetch_user_rows(self) -> None:
+        from bigbrotr.services.assertor.queries import fetch_user_rows
+
+        mock_brotr = MagicMock()
+        mock_row = MagicMock()
+        mock_row.__iter__ = MagicMock(return_value=iter([("pubkey", "aa" * 32)]))
+        mock_row.items = MagicMock(return_value=[("pubkey", "aa" * 32)])
+        mock_brotr.fetch = AsyncMock(return_value=[{"pubkey": "aa" * 32}])
+
+        rows = await fetch_user_rows(mock_brotr, min_events=1, limit=10, offset=0)
+        assert len(rows) == 1
+        mock_brotr.fetch.assert_awaited_once()
+
+    async def test_fetch_event_rows(self) -> None:
+        from bigbrotr.services.assertor.queries import fetch_event_rows
+
+        mock_brotr = MagicMock()
+        mock_brotr.fetch = AsyncMock(return_value=[{"event_id": "bb" * 32}])
+
+        rows = await fetch_event_rows(mock_brotr, limit=10, offset=0)
+        assert len(rows) == 1
+        mock_brotr.fetch.assert_awaited_once()
+
+
+# ============================================================================
+# Run method event assertion branch
+# ============================================================================
+
+
+class TestAssertorRunEventBranch:
+    async def test_run_event_assertions_only(self) -> None:
+        from bigbrotr.services.assertor.service import Assertor
+
+        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
+            service = Assertor.__new__(Assertor)
+            service._client = MagicMock()
+            service._config = MagicMock()
+            service._config.kinds = [EventKind.NIP85_EVENT_ASSERTION]
+            service._brotr = MagicMock()
+            service._logger = MagicMock()
+            service.set_gauge = MagicMock()
+
+            service._publish_user_assertions = AsyncMock(return_value=(0, 0, 0))
+            service._publish_event_assertions = AsyncMock(return_value=(3, 1, 0))
+
+            await service.run()
+
+            service._publish_user_assertions.assert_not_awaited()
+            service._publish_event_assertions.assert_awaited_once()
+            service.set_gauge.assert_any_call("assertions_published", 3)
+
+    async def test_run_both_kinds(self) -> None:
+        from bigbrotr.services.assertor.service import Assertor
+
+        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
+            service = Assertor.__new__(Assertor)
+            service._client = MagicMock()
+            service._config = MagicMock()
+            service._config.kinds = [
+                EventKind.NIP85_USER_ASSERTION,
+                EventKind.NIP85_EVENT_ASSERTION,
+            ]
+            service._brotr = MagicMock()
+            service._logger = MagicMock()
+            service.set_gauge = MagicMock()
+
+            service._publish_user_assertions = AsyncMock(return_value=(2, 0, 0))
+            service._publish_event_assertions = AsyncMock(return_value=(1, 0, 0))
+
+            await service.run()
+
+            service._publish_user_assertions.assert_awaited_once()
+            service._publish_event_assertions.assert_awaited_once()
+            service.set_gauge.assert_any_call("assertions_published", 3)

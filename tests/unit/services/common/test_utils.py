@@ -85,6 +85,12 @@ class TestParseRelayUrl:
         assert isinstance(result, Relay)
         assert result.url == url
 
+    def test_invalid_discovered_at_type_returns_none(self) -> None:
+        """Test that TypeError from Relay constructor returns None."""
+        result = parse_relay("wss://relay.example.com", discovered_at="not_an_int")  # type: ignore[arg-type]
+
+        assert result is None
+
 
 # ============================================================================
 # parse_relay_row Tests

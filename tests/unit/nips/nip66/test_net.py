@@ -168,6 +168,55 @@ class TestNip66NetMetadataNetSync:
 
         assert result["net_network"] == "8.8.8.0/24"
 
+    def test_ipv4_asn_partial_fields(self) -> None:
+        """IPv4 ASN lookup with some fields None."""
+        mock_asn_response = MagicMock()
+        mock_asn_response.autonomous_system_number = None
+        mock_asn_response.autonomous_system_organization = None
+        mock_asn_response.network = None
+
+        mock_asn_reader = MagicMock()
+        mock_asn_reader.asn.return_value = mock_asn_response
+
+        result = Nip66NetMetadata._net("8.8.8.8", None, mock_asn_reader)
+
+        assert result["net_ip"] == "8.8.8.8"
+        assert "net_asn" not in result
+        assert "net_asn_org" not in result
+        assert "net_network" not in result
+
+    def test_ipv6_only_asn_fallback(self) -> None:
+        """IPv6-only lookup provides ASN when IPv4 is absent."""
+        mock_asn_response = MagicMock()
+        mock_asn_response.autonomous_system_number = 15169
+        mock_asn_response.autonomous_system_organization = "GOOGLE"
+        mock_asn_response.network = "2001:4860::/32"
+
+        mock_asn_reader = MagicMock()
+        mock_asn_reader.asn.return_value = mock_asn_response
+
+        result = Nip66NetMetadata._net(None, "2001:4860:4860::8888", mock_asn_reader)
+
+        assert result["net_ipv6"] == "2001:4860:4860::8888"
+        assert result["net_asn"] == 15169
+        assert result["net_asn_org"] == "GOOGLE"
+        assert result["net_network_v6"] == "2001:4860::/32"
+
+    def test_ipv6_partial_fields_no_network(self) -> None:
+        """IPv6 ASN lookup with network None."""
+        mock_asn_response = MagicMock()
+        mock_asn_response.autonomous_system_number = 15169
+        mock_asn_response.autonomous_system_organization = "GOOGLE"
+        mock_asn_response.network = None
+
+        mock_asn_reader = MagicMock()
+        mock_asn_reader.asn.return_value = mock_asn_response
+
+        result = Nip66NetMetadata._net(None, "2001:4860:4860::8888", mock_asn_reader)
+
+        assert "net_network_v6" not in result
+        assert result["net_asn"] == 15169
+
 
 class TestNip66NetMetadataNetAsync:
     """Test Nip66NetMetadata.execute() async class method."""
