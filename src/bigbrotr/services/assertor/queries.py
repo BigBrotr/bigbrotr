@@ -42,7 +42,7 @@ SELECT
 FROM nip85_pubkey_stats AS n
 INNER JOIN pubkey_stats AS ps ON n.pubkey = ps.pubkey
 WHERE ps.event_count >= $1
-ORDER BY ps.event_count DESC
+ORDER BY ps.event_count DESC, n.pubkey ASC
 LIMIT $2
 OFFSET $3
 """
@@ -59,7 +59,7 @@ SELECT
     zap_amount
 FROM nip85_event_stats
 WHERE comment_count + quote_count + repost_count + reaction_count + zap_count > 0
-ORDER BY comment_count + quote_count + repost_count + reaction_count + zap_count DESC
+ORDER BY comment_count + quote_count + repost_count + reaction_count + zap_count DESC, event_id ASC
 LIMIT $1
 OFFSET $2
 """
