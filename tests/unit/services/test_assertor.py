@@ -64,6 +64,18 @@ class TestAssertorConfig:
         with pytest.raises(ValidationError):
             AssertorConfig(relays=[])
 
+    def test_unsupported_kind_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="unsupported assertion kinds"):
+            AssertorConfig(kinds=[42])
+
+    def test_mixed_valid_invalid_kinds_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="unsupported assertion kinds"):
+            AssertorConfig(kinds=[30382, 99999])
+
+    def test_valid_single_kind(self) -> None:
+        config = AssertorConfig(kinds=[30382])
+        assert config.kinds == [30382]
+
 
 class TestAssertorInit:
     def test_service_name(self) -> None:

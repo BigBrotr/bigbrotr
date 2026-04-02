@@ -14,11 +14,15 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BeforeValidator, Field
+from pydantic import BeforeValidator, Field, field_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
+from bigbrotr.models.constants import EventKind
 from bigbrotr.utils.keys import KeysConfig
+
+
+_SUPPORTED_KINDS = frozenset({EventKind.NIP85_USER_ASSERTION, EventKind.NIP85_EVENT_ASSERTION})
 
 
 class AssertorConfig(BaseServiceConfig, KeysConfig):
@@ -59,6 +63,17 @@ class AssertorConfig(BaseServiceConfig, KeysConfig):
         min_length=1,
         description="NIP-85 assertion kinds to publish (30382=user, 30383=event)",
     )
+
+    @field_validator("kinds")
+    @classmethod
+    def kinds_supported(cls, v: list[int]) -> list[int]:
+        unsupported = set(v) - _SUPPORTED_KINDS
+        if unsupported:
+            raise ValueError(
+                f"unsupported assertion kinds: {sorted(unsupported)}; "
+                f"supported: {sorted(_SUPPORTED_KINDS)}"
+            )
+        return v
 
     batch_size: int = Field(
         default=500,
