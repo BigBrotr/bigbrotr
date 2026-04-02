@@ -8,7 +8,7 @@ BigBrotr is a modular Nostr network observatory — a production-grade, fully as
 2. **How healthy are they?**
 3. **What events are they publishing?**
 
-Eight independent async services share a PostgreSQL 18 backend, each deployable and scalable on its own. The system supports clearnet (TLS), Tor (.onion), I2P (.i2p), and Lokinet (.loki) relay networks with per-network concurrency control and proxy routing. Built on Python 3.11+ with strict typing, asyncio, and full Prometheus/Grafana observability.
+Nine independent async services share a PostgreSQL 18 backend, each deployable and scalable on its own. The system supports clearnet (TLS), Tor (.onion), I2P (.i2p), and Lokinet (.loki) relay networks with per-network concurrency control and proxy routing. Built on Python 3.11+ with strict typing, asyncio, and full Prometheus/Grafana observability.
 
 ---
 

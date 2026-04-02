@@ -31,25 +31,25 @@ BigBrotr answers three questions about the Nostr network:
 Nine **independent** async services share a PostgreSQL database. Each runs on its own schedule, can be started or stopped individually, and has no direct dependency on any other service.
 
 ```text
-                    ┌──────────────────────────────────────────────────────┐
-                    │                    PostgreSQL Database               │
-                    │                                                      │
-                    │         relay ─── event_relay ─── event              │
-                    │         metadata ─── relay_metadata                  │
-                    │         service_state   6 summary tables + 6 matviews│
-                    └──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬──┘
-                       │      │      │      │      │      │      │      │
-                       ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼
-                    Seeder Finder Valid. Monitor Sync. Refresh. Api    Dvm
-                       │      │      │      │      │      │      │      │
-                       ▼      ▼      ▼      ▼      ▼      │      ▼      ▼
-                    seed   HTTP   Relays Relays  Relays (no I/O) HTTP  Nostr
-                    file   APIs   (WS)  (NIP-11, (fetch               clients
-                                         NIP-66)  events)               │
-                                           │                            ▼
-                                           ▼                       Nostr Network
-                                      Nostr Network               (kind 5050/6050)
-                                    (kind 10166/30166)
+              ┌───────────────────────────────────────────────────────────────────┐
+              │                         PostgreSQL Database                       │
+              │                                                                   │
+              │              relay ─── event_relay ─── event                      │
+              │              metadata ─── relay_metadata                          │
+              │              service_state   6 summary tables + 6 matviews        │
+              └──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬──────────────┘
+                 │      │      │      │      │      │      │      │      │
+                 ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼
+              Seeder Finder Valid. Monitor Sync. Refresh. Assert. Api    Dvm
+                 │      │      │      │      │      │      │      │      │
+                 ▼      ▼      ▼      ▼      ▼      │      ▼      ▼      ▼
+              seed   HTTP   Relays Relays  Relays (no I/O) Nostr  HTTP  Nostr
+              file   APIs   (WS)  (NIP-11, (fetch          Network      clients
+                                   NIP-66)  events)       (NIP-85)       │
+                                     │                                    ▼
+                                     ▼                              Nostr Network
+                                Nostr Network                      (kind 5050/6050)
+                              (kind 10166/30166)
 ```
 
 ### Services
@@ -62,6 +62,7 @@ Nine **independent** async services share a PostgreSQL database. Each runs on it
 | **Monitor** | Runs NIP-11 + 6 NIP-66 health checks, publishes kind 10166/30166 events | HTTP, WS, DNS, SSL, GeoIP |
 | **Synchronizer** | Connects to relays, streams and archives signed events with cursor-based resumption | WebSocket |
 | **Refresher** | Refreshes 6 summary tables and 6 materialized views in dependency order | None |
+| **Assertor** | Publishes NIP-85 trusted assertion events for users and events with engagement | WebSocket (Nostr) |
 | **Api** | Read-only REST API with auto-generated paginated endpoints | HTTP (FastAPI) |
 | **Dvm** | NIP-90 Data Vending Machine for database queries over Nostr | WebSocket (Nostr) |
 
@@ -418,8 +419,8 @@ pre-commit install
 make lint             # ruff check src/ tests/
 make format           # ruff format src/ tests/
 make typecheck        # mypy src/bigbrotr (strict mode)
-make test             # pytest unit tests (~2,737 tests)
-make test-integration # pytest integration tests (~216 tests, requires Docker)
+make test             # pytest unit tests (~2,900 tests)
+make test-integration # pytest integration tests (~211 tests, requires Docker)
 make test-fast        # pytest -m "not slow"
 make coverage         # pytest --cov with HTML report (80% branch minimum)
 make ci               # all checks: lint + format-check + typecheck + test + sql-check + audit
@@ -434,7 +435,7 @@ make clean            # remove build artifacts and caches
 
 ### Test Suite
 
-- ~2,737 unit tests + ~216 integration tests (testcontainers PostgreSQL)
+- ~2,900 unit tests + ~211 integration tests (testcontainers PostgreSQL)
 - `asyncio_mode = "auto"` — no `@pytest.mark.asyncio` needed
 - Global timeout: 120s per test
 - Shared fixtures via `tests/fixtures/relays.py` (registered as pytest plugin)
@@ -449,7 +450,7 @@ make clean            # remove build artifacts and caches
 | Integration Test | pytest + testcontainers | PostgreSQL integration tests |
 | Build | Docker Buildx (matrix) | Multi-deployment image builds + Trivy scan |
 | Security | uv-secure, Trivy, CodeQL | Dependency vulns, container scanning, static analysis |
-| Release | PyPI (OIDC) + GHCR | Package + Docker image publishing, SBOM generation |
+| Release | PyPI (OIDC) + Docker Hub | Package + Docker image publishing, SBOM generation |
 | Docs | MkDocs Material | Auto-generated API docs deployed to GitHub Pages |
 | Dependencies | Dependabot | Weekly updates for uv, Docker, GitHub Actions |
 
