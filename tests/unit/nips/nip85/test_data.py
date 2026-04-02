@@ -133,6 +133,16 @@ class TestUserAssertionFromDbRow:
         assert len(a.top_topics) == 3
         assert a.top_topics == ("a", "b", "c")
 
+    def test_topic_counts_string_values_sorted_numerically(self) -> None:
+        """JSONB topic counts may arrive as strings after upsert merge; sort must be numeric."""
+        row = {
+            "pubkey": "cc" * 32,
+            "topic_counts": {"bitcoin": "10", "nostr": "2", "lightning": "100"},
+            "top_topics_limit": 3,
+        }
+        a = UserAssertion.from_db_row(row)
+        assert a.top_topics == ("lightning", "bitcoin", "nostr")
+
 
 class TestEventAssertionProperties:
     def test_zap_amount_sats(self) -> None:

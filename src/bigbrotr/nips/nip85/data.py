@@ -130,8 +130,8 @@ class UserAssertion:
     @classmethod
     def from_db_row(cls, row: dict[str, Any]) -> UserAssertion:
         """Construct from a joined nip85_pubkey_stats + pubkey_stats row."""
-        topic_counts: dict[str, int] = row.get("topic_counts") or {}
-        sorted_topics = sorted(topic_counts.items(), key=lambda t: t[1], reverse=True)
+        raw_topics: dict[str, Any] = row.get("topic_counts") or {}
+        sorted_topics = sorted(raw_topics.items(), key=lambda t: int(t[1]), reverse=True)
         top_n = row.get("top_topics_limit", 5)
 
         hours_raw = row.get("activity_hours") or [0] * 24

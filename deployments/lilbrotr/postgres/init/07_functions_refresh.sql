@@ -980,7 +980,7 @@ BEGIN
     SELECT pubkey, new_topics FROM topic_agg
     ON CONFLICT (pubkey) DO UPDATE SET
         topic_counts = (
-            SELECT COALESCE(jsonb_object_agg(key, val::TEXT), '{}'::JSONB)
+            SELECT COALESCE(jsonb_object_agg(key, to_jsonb(val)), '{}'::JSONB)
             FROM (
                 SELECT key, SUM(val) AS val
                 FROM (
