@@ -78,7 +78,12 @@ class Refresher(BaseService[RefresherConfig]):
         """Execute one refresh cycle."""
         matviews = self._config.refresh.matviews
         summaries = self._config.refresh.summaries
-        total = len(matviews) + len(summaries)
+        periodic_tasks = [
+            ("rolling_windows", refresh_rolling_windows),
+            ("relay_stats_metadata", refresh_relay_metadata),
+            ("nip85_followers", refresh_nip85_followers),
+        ]
+        total = len(matviews) + len(summaries) + len(periodic_tasks)
         refreshed = 0
         failed = 0
 
@@ -112,19 +117,17 @@ class Refresher(BaseService[RefresherConfig]):
                 failed += 1
                 self._logger.error("summary_refresh_failed", table=table, error=str(exc))
 
-        # Phase 3: Rolling windows + relay metadata (periodic)
-        for label, func in [
-            ("rolling_windows", refresh_rolling_windows),
-            ("relay_stats_metadata", refresh_relay_metadata),
-            ("nip85_followers", refresh_nip85_followers),
-        ]:
+        # Phase 3: Rolling windows + relay metadata + NIP-85 followers (periodic)
+        for label, func in periodic_tasks:
             start = time.monotonic()
             try:
                 await func(self._brotr)
+                refreshed += 1
                 duration = time.monotonic() - start
                 self.set_gauge(f"duration_{label}", duration)
                 self._logger.info("periodic_refreshed", name=label, duration_s=duration)
             except (asyncpg.PostgresError, OSError) as exc:
+                failed += 1
                 self._logger.error("periodic_refresh_failed", name=label, error=str(exc))
 
         self.set_gauge("views_refreshed", refreshed)

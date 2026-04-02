@@ -398,7 +398,8 @@ class TestRefresherRunCounts:
 
             cycle_calls = [c for c in mock_log.call_args_list if c[0][0] == "refresh_completed"]
             assert len(cycle_calls) == 1
-            assert cycle_calls[0][1]["refreshed"] == 2
+            # 1 matview + 1 summary + 3 periodic = 5 refreshed
+            assert cycle_calls[0][1]["refreshed"] == 5
             assert cycle_calls[0][1]["failed"] == 0
 
     async def test_all_fail(self, mock_refresher_brotr: Brotr) -> None:
@@ -406,6 +407,9 @@ class TestRefresherRunCounts:
             side_effect=asyncpg.PostgresError("error")
         )
         mock_refresher_brotr.fetchval = AsyncMock(  # type: ignore[method-assign]
+            side_effect=asyncpg.PostgresError("error")
+        )
+        mock_refresher_brotr.execute = AsyncMock(  # type: ignore[method-assign]
             side_effect=asyncpg.PostgresError("error")
         )
 
@@ -422,7 +426,8 @@ class TestRefresherRunCounts:
 
             cycle_calls = [c for c in mock_log.call_args_list if c[0][0] == "refresh_completed"]
             assert cycle_calls[0][1]["refreshed"] == 0
-            assert cycle_calls[0][1]["failed"] == 2
+            # 1 matview + 1 summary + 3 periodic = 5 failed
+            assert cycle_calls[0][1]["failed"] == 5
 
 
 # ============================================================================
@@ -444,6 +449,7 @@ class TestRefresherMetrics:
             await refresher.run()
 
             first_three = mock_gauge.call_args_list[:3]
-            assert first_three[0] == (("views_total", 2),)
+            # 1 matview + 1 summary + 3 periodic tasks = 5
+            assert first_three[0] == (("views_total", 5),)
             assert first_three[1] == (("views_refreshed", 0),)
             assert first_three[2] == (("views_failed", 0),)
