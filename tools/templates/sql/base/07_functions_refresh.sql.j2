@@ -823,19 +823,19 @@ BEGIN
         SELECT
             ENCODE(pubkey, 'hex') AS pubkey,
             ((created_at % 86400) / 3600)::INTEGER AS hour_utc,
-            COUNT(*) AS cnt
+            COUNT(*)::INTEGER AS cnt
         FROM _nip85_new_events
         GROUP BY pubkey, ((created_at % 86400) / 3600)::INTEGER
     ),
     delta_arrays AS (
         SELECT
-            pubkey,
+            h.pubkey,
             ARRAY(
-                SELECT COALESCE(SUM(cnt) FILTER (WHERE hour_utc = h), 0)::INTEGER
-                FROM generate_series(0, 23) AS h
+                SELECT COALESCE(SUM(h2.cnt), 0)::INTEGER
+                FROM generate_series(0, 23) AS gs(hr)
+                LEFT JOIN hourly h2 ON h2.pubkey = h.pubkey AND h2.hour_utc = gs.hr
             ) AS hours_delta
-        FROM hourly
-        GROUP BY pubkey
+        FROM (SELECT DISTINCT pubkey FROM hourly) h
     )
     INSERT INTO nip85_pubkey_stats (pubkey, activity_hours)
     SELECT pubkey, hours_delta FROM delta_arrays

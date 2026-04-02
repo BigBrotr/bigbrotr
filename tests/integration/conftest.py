@@ -55,7 +55,12 @@ def pg_dsn(pg_container: PostgresContainer) -> dict[str, str | int]:
 # Deployment-aware Brotr factory
 # ---------------------------------------------------------------------------
 
-_TABLES = "relay, event, event_relay, metadata, relay_metadata, service_state"
+_TABLES = (
+    "relay, event, event_relay, metadata, relay_metadata, service_state, "
+    "pubkey_kind_stats, pubkey_relay_stats, relay_kind_stats, "
+    "pubkey_stats, kind_stats, relay_stats, "
+    "nip85_pubkey_stats, nip85_event_stats"
+)
 
 _current_deployment: str | None = None
 
