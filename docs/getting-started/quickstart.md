@@ -160,13 +160,15 @@ You ran three of BigBrotr's nine independent services:
 2. **Finder** discovered additional relay URLs from events and external APIs
 3. **Validator** tested every candidate via WebSocket and promoted live relays
 
-The remaining five services handle monitoring, event archiving, analytics, and data access:
+The remaining six services handle monitoring, event archiving, analytics, trust assertions, and data access:
 
 - **Monitor** performs NIP-11 and NIP-66 health checks on validated relays and
   publishes results as kind 10166/30166 Nostr events (requires `NOSTR_PRIVATE_KEY`)
 - **Synchronizer** connects to validated relays, subscribes to events, and
   archives them with cursor-based pagination
-- **Refresher** refreshes materialized views that power analytics queries
+- **Refresher** refreshes 6 summary tables and 6 materialized views that power analytics queries
+- **Assertor** publishes NIP-85 trusted assertion events for users and events with engagement
+  (requires `NOSTR_PRIVATE_KEY`)
 - **Api** exposes the database as a read-only REST API with paginated endpoints
 - **Dvm** serves database queries over the Nostr protocol as a NIP-90 Data Vending Machine
 
@@ -182,6 +184,7 @@ python -m bigbrotr validator
 python -m bigbrotr monitor       # requires NOSTR_PRIVATE_KEY env var
 python -m bigbrotr synchronizer
 python -m bigbrotr refresher
+python -m bigbrotr assertor      # requires NOSTR_PRIVATE_KEY env var
 python -m bigbrotr api
 python -m bigbrotr dvm           # requires NOSTR_PRIVATE_KEY env var
 ```
