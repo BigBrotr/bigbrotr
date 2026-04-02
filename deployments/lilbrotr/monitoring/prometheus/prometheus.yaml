@@ -55,6 +55,11 @@ scrape_configs:
       - targets: ["dvm:8000"]
     scrape_interval: 30s
 
+  - job_name: "assertor"
+    static_configs:
+      - targets: ["assertor:8000"]
+    scrape_interval: 30s
+
   # --------------------------------------------------------------------------
   # PostgreSQL Exporter
   # --------------------------------------------------------------------------

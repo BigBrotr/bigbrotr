@@ -602,6 +602,54 @@ services:
         max-file: "3"
 
   # --------------------------------------------------------------------------
+  # BigBrotr Assertor Service (NIP-85 Trusted Assertions)
+  # --------------------------------------------------------------------------
+  assertor:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: bigbrotr
+    container_name: bigbrotr-assertor
+    restart: unless-stopped
+
+    environment:
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+      NOSTR_PRIVATE_KEY: ${NOSTR_PRIVATE_KEY}
+
+    volumes:
+      - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
+
+    ports:
+      - "127.0.0.1:${ASSERTOR_METRICS_PORT:-8008}:8000"     # Prometheus metrics
+
+    networks:
+      - bigbrotr-data-network
+      - bigbrotr-monitoring-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+    command: ["bigbrotr", "assertor"]
+
+    stop_grace_period: 30s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
   # PostgreSQL Exporter (Database Metrics)
   # --------------------------------------------------------------------------
   postgres-exporter:
