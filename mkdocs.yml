@@ -82,6 +82,7 @@ nav:
       - Monitoring Setup: how-to/monitoring-setup.md
       - Backup & Restore: how-to/backup-restore.md
       - Troubleshooting: how-to/troubleshooting.md
+      - Self-Hosting Guide: guides/self-hosting.md
   - Development:
       - development/index.md
       - Setup: development/setup.md
