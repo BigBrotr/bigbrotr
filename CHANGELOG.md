@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Assertor service**: NIP-85 trusted assertions publisher (kind 30382/30383). Reads engagement metrics from summary tables, publishes only on hash change. Includes CLI registration, deployment configs (docker-compose, Prometheus), and dedicated config validation
+- **NIP-85 data models and event builders**: `UserAssertion` and `EventAssertion` frozen dataclasses with SHA-256 change detection, plus `build_user_assertion()` and `build_event_assertion()` event builder functions
+- **Incremental summary tables**: 6 summary tables (`pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats`) refreshed incrementally via `(after, until]` watermark ranges, replacing expensive full-refresh materialized views for analytics
+- **NIP-85 summary tables**: `nip85_pubkey_stats` and `nip85_event_stats` with dedicated refresh functions including bolt11-verified zap accounting and follower count refresh
+- **Assertor deployment**: docker-compose service definitions (both bigbrotr/lilbrotr), Prometheus scrape jobs, config YAML files, and signature-qualified SQL GRANT statements
+
+### Changed
+
+- **Refresher service redesigned**: three-phase refresh cycle (matviews → summary tables → periodic tasks). Periodic tasks now counted in total/failed metrics. Wall-clock watermark replaces `MAX(seen_at)` to prevent TOCTOU race on same-timestamp rows
+- **Analytics layer**: 11 materialized views replaced with hybrid model (6 incremental summary tables + 6 bounded materialized views). `event_daily_counts` renamed to `daily_counts`
+- **CI pipeline**: `docs/**` and `*.md` removed from `paths-ignore` so documentation-only PRs trigger the full CI pipeline including `mkdocs build --strict`
+
+### Fixed
+
+- **Catalog ILIKE on non-text columns**: `ILIKE` operator now restricted to text-like column types; previously produced PostgreSQL `UndefinedFunctionError` causing API 500 responses and DVM cycle crashes
+- **Catalog error boundary**: `asyncpg.PostgresError` (not just `DataError`) now caught and converted to `CatalogError` in both `query()` and `get_by_pk()`
+- **DVM error boundary**: `asyncpg.PostgresError` added to `_process_event()` exception handling to prevent query-level DB errors from crashing the service cycle
+- **Topic counts merge logic**: JSONB upsert now uses `UNION ALL + SUM` to preserve existing topic keys; previously dropped historical topics absent from the new batch. Values stored as native JSONB numbers (not text strings) to prevent lexicographic sorting
+- **Documentation topology**: service count, env var tables, architecture diagrams, test counts, and release target aligned across all 10+ documentation surfaces (README, PROJECT\_SPECIFICATION, docs site, quickstart, configuration, architecture guides)
+- **Self-hosting guide**: broken TOC anchors fixed, page added to mkdocs.yml navigation
+
 ## [6.6.9] - 2026-04-08
 
 ### Fixed
