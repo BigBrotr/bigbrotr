@@ -847,3 +847,114 @@ class TestPartialIndexExclusion:
 
         # No PK discovered (only partial indexes existed)
         assert catalog.tables["relay_stats"].primary_key == ()
+
+
+# ============================================================================
+# Operator/Type Validation Tests (CR-001)
+# ============================================================================
+
+
+class TestOperatorTypeValidation:
+    """Tests that ILIKE is restricted to text-like columns."""
+
+    async def test_ilike_on_text_column_accepted(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+    ) -> None:
+        catalog_brotr.fetchval = AsyncMock(return_value=1)  # type: ignore[method-assign]
+        catalog_brotr.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+        result = await populated_catalog.query(
+            catalog_brotr,
+            "relay",
+            limit=10,
+            offset=0,
+            filters={"url": "ILIKE:%relay%"},
+        )
+        assert result.total == 1
+
+    async def test_ilike_on_bigint_column_rejected(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+    ) -> None:
+        with pytest.raises(CatalogError, match="ILIKE operator requires a text column"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay",
+                limit=10,
+                offset=0,
+                filters={"discovered_at": "ILIKE:%1%"},
+            )
+
+    async def test_ilike_on_bytea_column_rejected(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+    ) -> None:
+        with pytest.raises(CatalogError, match="ILIKE operator requires a text column"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "event",
+                limit=10,
+                offset=0,
+                filters={"id": "ILIKE:%abc%"},
+            )
+
+    async def test_ilike_on_integer_column_rejected(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+    ) -> None:
+        with pytest.raises(CatalogError, match="ILIKE operator requires a text column"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "event",
+                limit=10,
+                offset=0,
+                filters={"kind": "ILIKE:%1%"},
+            )
+
+
+# ============================================================================
+# PostgresError Conversion Tests (MED-007)
+# ============================================================================
+
+
+class TestPostgresErrorConversion:
+    """Tests that asyncpg.PostgresError (non-DataError) is converted to CatalogError."""
+
+    async def test_query_postgres_error_becomes_catalog_error(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+    ) -> None:
+        catalog_brotr.fetchval = AsyncMock(  # type: ignore[method-assign]
+            side_effect=asyncpg.PostgresError("operator does not exist"),
+        )
+
+        with pytest.raises(CatalogError, match="Query execution failed"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay",
+                limit=10,
+                offset=0,
+                filters={"network": "clearnet"},
+            )
+
+    async def test_get_by_pk_postgres_error_becomes_catalog_error(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+    ) -> None:
+        catalog_brotr.fetchrow = AsyncMock(  # type: ignore[method-assign]
+            side_effect=asyncpg.PostgresError("undefined function"),
+        )
+
+        with pytest.raises(CatalogError, match="Query execution failed"):
+            await populated_catalog.get_by_pk(
+                catalog_brotr,
+                "relay",
+                {"url": "wss://example.com"},
+            )

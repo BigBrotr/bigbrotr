@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import asyncpg
 import pytest
 from nostr_sdk import Keys
 
@@ -617,8 +618,9 @@ class TestDvmJobErrorHandling:
             CatalogError("query failed"),
             OSError("network error"),
             TimeoutError("timed out"),
+            asyncpg.PostgresError("operator does not exist"),
         ],
-        ids=["CatalogError", "OSError", "TimeoutError"],
+        ids=["CatalogError", "OSError", "TimeoutError", "PostgresError"],
     )
     async def test_caught_error_publishes_error_and_increments_failed(
         self, dvm_service: Dvm, error: Exception

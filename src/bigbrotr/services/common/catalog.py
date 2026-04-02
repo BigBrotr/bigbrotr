@@ -54,6 +54,9 @@ class CatalogError(Exception):
 # Allowed filter operators (whitelist)
 _FILTER_OPERATORS: frozenset[str] = frozenset({"=", ">", "<", ">=", "<=", "ILIKE"})
 
+# PG types compatible with the ILIKE operator (text-like types only)
+_TEXT_TYPES: frozenset[str] = frozenset({"text", "character varying", "character", "name"})
+
 # PG types that need SQL transforms in SELECT
 _BYTEA_TYPES: frozenset[str] = frozenset({"bytea"})
 _DATE_TYPES: frozenset[str] = frozenset(
@@ -229,6 +232,10 @@ class Catalog:
                 if col not in col_names:
                     raise CatalogError(f"Unknown column: {col}")
                 op, value = self._parse_filter(raw_value)
+                if op == "ILIKE" and col_types[col] not in _TEXT_TYPES:
+                    raise CatalogError(
+                        f"ILIKE operator requires a text column, got {col_types[col]} for {col}"
+                    )
                 cast = self._param_cast(col_types[col])
                 where_clauses.append(f"{col} {op} ${param_idx}{cast}")
                 if col_types[col] in _BYTEA_TYPES:
@@ -263,6 +270,8 @@ class Catalog:
             rows = await brotr.fetch(data_query, *params)
         except asyncpg.DataError as e:
             raise CatalogError("Invalid filter value") from e
+        except asyncpg.PostgresError as e:
+            raise CatalogError("Query execution failed") from e
 
         return QueryResult(
             rows=[dict(row) for row in rows],
@@ -320,6 +329,8 @@ class Catalog:
             row = await brotr.fetchrow(query, *params)
         except asyncpg.DataError as e:
             raise CatalogError("Invalid parameter value") from e
+        except asyncpg.PostgresError as e:
+            raise CatalogError("Query execution failed") from e
 
         return dict(row) if row else None
 

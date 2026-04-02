@@ -47,6 +47,7 @@ import time
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
+import asyncpg
 from nostr_sdk import Client, Filter, Kind, RelayUrl, Timestamp
 
 from bigbrotr.core.base_service import BaseService
@@ -228,7 +229,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
 
         try:
             return await self._handle_job(event_id, customer_pubkey, params, table)
-        except (CatalogError, OSError, TimeoutError) as e:
+        except (CatalogError, OSError, TimeoutError, asyncpg.PostgresError) as e:
             with contextlib.suppress(OSError, TimeoutError):
                 await self._send_event(build_error_event(event_id, customer_pubkey, str(e)))
             self._logger.error("job_failed", event_id=event_id, error=str(e))
