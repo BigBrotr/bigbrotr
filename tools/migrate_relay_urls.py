@@ -5,7 +5,7 @@ Run against a live PostgreSQL (services stopped, only postgres running):
 
     DB_ADMIN_PASSWORD=<pw> python tools/migrate_relay_urls.py [--dry-run]
 
-Three phases:
+Five phases:
 
 Phase 1 — Relay table:
     For each URL in the relay table, apply sanitize_relay_url + Relay().
@@ -24,9 +24,18 @@ Phase 3 — Finder reset:
     DELETE all finder cursors and checkpoints from service_state to force a
     full re-scan from the beginning.
 
+Phase 4 — Orphan cleanup:
+    Run orphan cleanup procedures for metadata and events detached by relay
+    deletions or renormalization.
+
+Phase 5 — Analytics rebuild:
+    Rebuild summary tables and reset dependent checkpoints so incremental
+    analytics and Assertor publications realign with the new relay set.
+
 Safety:
-    - Runs in a single transaction (all-or-nothing).
-    - Use --dry-run to preview without making changes.
+    - Phases 1-3 run in a single transaction (all-or-nothing).
+    - Phases 4-5 run only after a committed live migration.
+    - Use --dry-run to preview phases 1-3 without making changes.
     - Back up your database first.
 """
 
@@ -46,8 +55,15 @@ import asyncpg
 # ---------------------------------------------------------------------------
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1] / "src"))
 
+from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import Relay
 from bigbrotr.models.relay import sanitize_relay_url
+
+
+try:
+    from tools.rebuild_analytics import rebuild_analytics
+except ModuleNotFoundError:  # pragma: no cover - direct script execution path
+    from rebuild_analytics import rebuild_analytics
 
 
 @dataclass
@@ -278,6 +294,31 @@ class _DryRunRollbackError(Exception):
     pass
 
 
+async def _run_rebuild(
+    *,
+    host: str,
+    port: int,
+    database: str,
+    user: str,
+    password: str,
+) -> None:
+    brotr = Brotr.from_dict(
+        {
+            "pool": {
+                "database": {
+                    "host": host,
+                    "port": port,
+                    "database": database,
+                    "user": user,
+                    "password": password,
+                }
+            }
+        }
+    )
+    async with brotr:
+        await rebuild_analytics(brotr)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Re-normalize relay URLs and reset finder state.",
@@ -308,6 +349,19 @@ def main() -> None:
         )
     )
 
+    if not args.dry_run and (result.relays.renormalized or result.relays.invalid):
+        print("\n--- Phase 5: Analytics rebuild ---\n")
+        asyncio.run(
+            _run_rebuild(
+                host=args.host,
+                port=args.port,
+                database=args.database,
+                user=args.user,
+                password=password,
+            )
+        )
+        print("  Analytics rebuild completed successfully.")
+
     print(f"\n{'=' * 40}")
     print("  Phase 1 — Relays")
     print(f"    Total:         {result.relays.total}")
@@ -325,6 +379,9 @@ def main() -> None:
     print("  Phase 4 — Orphan cleanup")
     print(f"    Metadata deleted:    {result.orphan_metadata_deleted}")
     print(f"    Events deleted:      {result.orphan_events_deleted}")
+    rebuilt = not args.dry_run and (result.relays.renormalized or result.relays.invalid)
+    print("  Phase 5 — Analytics rebuild")
+    print(f"    Rebuilt:            {'yes' if rebuilt else 'no'}")
     print(f"{'=' * 40}")
 
     if args.dry_run and (

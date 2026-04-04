@@ -59,18 +59,26 @@ CREATE OR REPLACE FUNCTION bolt11_amount_msats(bolt11 TEXT)
 RETURNS BIGINT
 LANGUAGE sql IMMUTABLE STRICT
 AS $$
+    WITH parsed AS (
+        SELECT (regexp_match(LOWER(bolt11), '^ln(?:bc|bcrt|tb|tbs)(\d+)([munp])?1'))[1:2] AS parts
+    ),
+    normalized AS (
+        SELECT CASE
+            WHEN parts[1] IS NULL THEN NULL::NUMERIC
+            WHEN parts[2] = 'm' THEN parts[1]::NUMERIC * 100000000
+            WHEN parts[2] = 'u' THEN parts[1]::NUMERIC * 100000
+            WHEN parts[2] = 'n' THEN parts[1]::NUMERIC * 100
+            WHEN parts[2] = 'p' THEN TRUNC(parts[1]::NUMERIC / 10)
+            WHEN parts[2] IS NULL THEN parts[1]::NUMERIC * 100000000000
+            ELSE NULL::NUMERIC
+        END AS msats
+        FROM parsed
+    )
     SELECT CASE
-        WHEN parts[2] = 'm' THEN parts[1]::BIGINT * 100000000
-        WHEN parts[2] = 'u' THEN parts[1]::BIGINT * 100000
-        WHEN parts[2] = 'n' THEN parts[1]::BIGINT * 100
-        WHEN parts[2] = 'p' THEN parts[1]::BIGINT / 10
-        WHEN parts[1] IS NOT NULL AND parts[2] IS NULL
-            THEN parts[1]::BIGINT * 100000000000
-        ELSE NULL
+        WHEN msats IS NULL OR msats > 9223372036854775807::NUMERIC THEN NULL
+        ELSE msats::BIGINT
     END
-    FROM (
-        SELECT (regexp_match(bolt11, '^lntbs?(\d+)([munp])?1'))[1:2] AS parts
-    ) parsed;
+    FROM normalized;
 $$;
 
 COMMENT ON FUNCTION bolt11_amount_msats(TEXT) IS
@@ -264,6 +272,12 @@ BEGIN
                 AND older.seen_at <= p_after
           )
     ),
+    impacted_pubkeys AS (
+        SELECT DISTINCT ENCODE(e.pubkey, 'hex') AS pubkey
+        FROM event_relay AS er
+        INNER JOIN event AS e ON er.event_id = e.id
+        WHERE er.seen_at > p_after AND er.seen_at <= p_until
+    ),
     delta AS (
         SELECT
             ENCODE(pubkey, 'hex') AS pubkey,
@@ -289,31 +303,62 @@ BEGIN
             ) AS addressable_count
         FROM new_events
         GROUP BY pubkey
+    ),
+    kind_rollup AS (
+        SELECT
+            pks.pubkey,
+            COUNT(*)::INTEGER AS unique_kinds,
+            MIN(pks.first_event_at) AS first_event_at,
+            MAX(pks.last_event_at) AS last_event_at
+        FROM pubkey_kind_stats AS pks
+        INNER JOIN impacted_pubkeys AS ip ON ip.pubkey = pks.pubkey
+        GROUP BY pks.pubkey
+    ),
+    relay_rollup AS (
+        SELECT
+            prs.pubkey,
+            COUNT(*)::INTEGER AS unique_relays
+        FROM pubkey_relay_stats AS prs
+        INNER JOIN impacted_pubkeys AS ip ON ip.pubkey = prs.pubkey
+        GROUP BY prs.pubkey
     )
     INSERT INTO pubkey_stats
         (pubkey, event_count, first_event_at, last_event_at,
          regular_count, replaceable_count, ephemeral_count, addressable_count,
          unique_kinds, unique_relays)
     SELECT
-        d.pubkey, d.event_count, d.first_event_at, d.last_event_at,
-        d.regular_count, d.replaceable_count, d.ephemeral_count, d.addressable_count,
-        COALESCE((SELECT COUNT(*)::INTEGER FROM pubkey_kind_stats WHERE pubkey = d.pubkey), 0),
-        COALESCE((SELECT COUNT(*)::INTEGER FROM pubkey_relay_stats WHERE pubkey = d.pubkey), 0)
-    FROM delta AS d
+        ip.pubkey,
+        COALESCE(d.event_count, 0),
+        COALESCE(d.first_event_at, kr.first_event_at),
+        COALESCE(d.last_event_at, kr.last_event_at),
+        COALESCE(d.regular_count, 0),
+        COALESCE(d.replaceable_count, 0),
+        COALESCE(d.ephemeral_count, 0),
+        COALESCE(d.addressable_count, 0),
+        COALESCE(kr.unique_kinds, 0),
+        COALESCE(rr.unique_relays, 0)
+    FROM impacted_pubkeys AS ip
+    LEFT JOIN delta AS d ON d.pubkey = ip.pubkey
+    LEFT JOIN kind_rollup AS kr ON kr.pubkey = ip.pubkey
+    LEFT JOIN relay_rollup AS rr ON rr.pubkey = ip.pubkey
     ON CONFLICT (pubkey) DO UPDATE SET
         event_count       = pubkey_stats.event_count + EXCLUDED.event_count,
-        first_event_at    = LEAST(pubkey_stats.first_event_at, EXCLUDED.first_event_at),
-        last_event_at     = GREATEST(pubkey_stats.last_event_at, EXCLUDED.last_event_at),
+        first_event_at    = CASE
+            WHEN EXCLUDED.first_event_at IS NULL THEN pubkey_stats.first_event_at
+            WHEN pubkey_stats.first_event_at IS NULL THEN EXCLUDED.first_event_at
+            ELSE LEAST(pubkey_stats.first_event_at, EXCLUDED.first_event_at)
+        END,
+        last_event_at     = CASE
+            WHEN EXCLUDED.last_event_at IS NULL THEN pubkey_stats.last_event_at
+            WHEN pubkey_stats.last_event_at IS NULL THEN EXCLUDED.last_event_at
+            ELSE GREATEST(pubkey_stats.last_event_at, EXCLUDED.last_event_at)
+        END,
         regular_count     = pubkey_stats.regular_count + EXCLUDED.regular_count,
         replaceable_count = pubkey_stats.replaceable_count + EXCLUDED.replaceable_count,
         ephemeral_count   = pubkey_stats.ephemeral_count + EXCLUDED.ephemeral_count,
         addressable_count = pubkey_stats.addressable_count + EXCLUDED.addressable_count,
-        unique_kinds  = COALESCE(
-            (SELECT COUNT(*)::INTEGER FROM pubkey_kind_stats WHERE pubkey = pubkey_stats.pubkey), 0
-        ),
-        unique_relays = COALESCE(
-            (SELECT COUNT(*)::INTEGER FROM pubkey_relay_stats WHERE pubkey = pubkey_stats.pubkey), 0
-        );
+        unique_kinds      = EXCLUDED.unique_kinds,
+        unique_relays     = EXCLUDED.unique_relays;
 
     GET DIAGNOSTICS v_rows = ROW_COUNT;
     RETURN v_rows;
@@ -351,6 +396,12 @@ BEGIN
                 AND older.seen_at <= p_after
           )
     ),
+    impacted_kinds AS (
+        SELECT DISTINCT e.kind
+        FROM event_relay AS er
+        INNER JOIN event AS e ON er.event_id = e.id
+        WHERE er.seen_at > p_after AND er.seen_at <= p_until
+    ),
     delta AS (
         SELECT
             kind,
@@ -371,25 +422,54 @@ BEGIN
             END AS category
         FROM new_events
         GROUP BY kind
+    ),
+    pubkey_rollup AS (
+        SELECT
+            pks.kind,
+            COUNT(*)::INTEGER AS unique_pubkeys,
+            MIN(pks.first_event_at) AS first_event_at,
+            MAX(pks.last_event_at) AS last_event_at
+        FROM pubkey_kind_stats AS pks
+        INNER JOIN impacted_kinds AS ik ON ik.kind = pks.kind
+        GROUP BY pks.kind
+    ),
+    relay_rollup AS (
+        SELECT
+            rks.kind,
+            COUNT(*)::INTEGER AS unique_relays
+        FROM relay_kind_stats AS rks
+        INNER JOIN impacted_kinds AS ik ON ik.kind = rks.kind
+        GROUP BY rks.kind
     )
     INSERT INTO kind_stats
         (kind, event_count, category, first_event_at, last_event_at,
          unique_pubkeys, unique_relays)
     SELECT
-        d.kind, d.event_count, d.category, d.first_event_at, d.last_event_at,
-        COALESCE((SELECT COUNT(*)::INTEGER FROM pubkey_kind_stats WHERE kind = d.kind), 0),
-        COALESCE((SELECT COUNT(*)::INTEGER FROM relay_kind_stats WHERE kind = d.kind), 0)
-    FROM delta AS d
+        ik.kind,
+        COALESCE(d.event_count, 0),
+        COALESCE(d.category, 'other'),
+        COALESCE(d.first_event_at, pr.first_event_at),
+        COALESCE(d.last_event_at, pr.last_event_at),
+        COALESCE(pr.unique_pubkeys, 0),
+        COALESCE(rr.unique_relays, 0)
+    FROM impacted_kinds AS ik
+    LEFT JOIN delta AS d ON d.kind = ik.kind
+    LEFT JOIN pubkey_rollup AS pr ON pr.kind = ik.kind
+    LEFT JOIN relay_rollup AS rr ON rr.kind = ik.kind
     ON CONFLICT (kind) DO UPDATE SET
         event_count    = kind_stats.event_count + EXCLUDED.event_count,
-        first_event_at = LEAST(kind_stats.first_event_at, EXCLUDED.first_event_at),
-        last_event_at  = GREATEST(kind_stats.last_event_at, EXCLUDED.last_event_at),
-        unique_pubkeys = COALESCE(
-            (SELECT COUNT(*)::INTEGER FROM pubkey_kind_stats WHERE kind = kind_stats.kind), 0
-        ),
-        unique_relays = COALESCE(
-            (SELECT COUNT(*)::INTEGER FROM relay_kind_stats WHERE kind = kind_stats.kind), 0
-        );
+        first_event_at = CASE
+            WHEN EXCLUDED.first_event_at IS NULL THEN kind_stats.first_event_at
+            WHEN kind_stats.first_event_at IS NULL THEN EXCLUDED.first_event_at
+            ELSE LEAST(kind_stats.first_event_at, EXCLUDED.first_event_at)
+        END,
+        last_event_at  = CASE
+            WHEN EXCLUDED.last_event_at IS NULL THEN kind_stats.last_event_at
+            WHEN kind_stats.last_event_at IS NULL THEN EXCLUDED.last_event_at
+            ELSE GREATEST(kind_stats.last_event_at, EXCLUDED.last_event_at)
+        END,
+        unique_pubkeys = EXCLUDED.unique_pubkeys,
+        unique_relays  = EXCLUDED.unique_relays;
 
     GET DIAGNOSTICS v_rows = ROW_COUNT;
     RETURN v_rows;
@@ -552,16 +632,15 @@ BEGIN
     WHERE last_event_at < v_30d
       AND (events_last_24h > 0 OR events_last_7d > 0 OR events_last_30d > 0);
 
-    -- relay_stats (uses event_relay.seen_at for relay-specific windows)
+    -- relay_stats uses event_relay.seen_at (observed activity by relay)
     WITH windows AS (
         SELECT
             er.relay_url,
-            COUNT(*) FILTER (WHERE e.created_at >= v_24h) AS last_24h,
-            COUNT(*) FILTER (WHERE e.created_at >= v_7d)  AS last_7d,
-            COUNT(*) FILTER (WHERE e.created_at >= v_30d) AS last_30d
+            COUNT(*) FILTER (WHERE er.seen_at >= v_24h) AS last_24h,
+            COUNT(*) FILTER (WHERE er.seen_at >= v_7d)  AS last_7d,
+            COUNT(*) FILTER (WHERE er.seen_at >= v_30d) AS last_30d
         FROM event_relay AS er
-        INNER JOIN event AS e ON er.event_id = e.id
-        WHERE e.created_at >= v_30d
+        WHERE er.seen_at >= v_30d
         GROUP BY er.relay_url
     )
     UPDATE relay_stats rs SET
@@ -573,7 +652,12 @@ BEGIN
 
     UPDATE relay_stats SET
         events_last_24h = 0, events_last_7d = 0, events_last_30d = 0
-    WHERE last_event_at < v_30d
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM event_relay AS er
+        WHERE er.relay_url = relay_stats.relay_url
+          AND er.seen_at >= v_30d
+    )
       AND (events_last_24h > 0 OR events_last_7d > 0 OR events_last_30d > 0);
 END;
 $$;
@@ -595,6 +679,14 @@ RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
+    -- Remove rows for relays that no longer exist in the source table.
+    DELETE FROM relay_stats AS rs
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM relay AS r
+        WHERE r.url = rs.relay_url
+    );
+
     -- Seed new relays that have no relay_stats row yet
     INSERT INTO relay_stats (relay_url, network, discovered_at)
     SELECT r.url, r.network, r.discovered_at
@@ -791,6 +883,7 @@ BEGIN
           WHERE older.event_id = er.event_id
             AND older.seen_at <= p_after
       );
+    CREATE INDEX idx__nip85_new_events_kind ON _nip85_new_events (kind);
 
     -- 1. Post count + reply count + first_created_at + activity_hours
     WITH post_delta AS (
@@ -809,7 +902,11 @@ BEGIN
     ON CONFLICT (pubkey) DO UPDATE SET
         post_count = nip85_pubkey_stats.post_count + EXCLUDED.post_count,
         reply_count = nip85_pubkey_stats.reply_count + EXCLUDED.reply_count,
-        first_created_at = LEAST(nip85_pubkey_stats.first_created_at, EXCLUDED.first_created_at);
+        first_created_at = CASE
+            WHEN nip85_pubkey_stats.first_created_at IS NULL THEN EXCLUDED.first_created_at
+            WHEN EXCLUDED.first_created_at IS NULL THEN nip85_pubkey_stats.first_created_at
+            ELSE LEAST(nip85_pubkey_stats.first_created_at, EXCLUDED.first_created_at)
+        END;
     GET DIAGNOSTICS v_partial = ROW_COUNT;
     v_rows := v_rows + v_partial;
 
@@ -844,6 +941,8 @@ BEGIN
             SELECT nip85_pubkey_stats.activity_hours[i] + EXCLUDED.activity_hours[i]
             FROM generate_series(1, 24) AS i
         );
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
 
     -- 3. Reactions sent (kind=7, group by author)
     WITH delta AS (
@@ -855,18 +954,54 @@ BEGIN
     SELECT pubkey, cnt FROM delta
     ON CONFLICT (pubkey) DO UPDATE SET
         reaction_count_sent = nip85_pubkey_stats.reaction_count_sent + EXCLUDED.reaction_count_sent;
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
 
-    -- 4. Reactions received (kind=7, tag p=target)
-    WITH delta AS (
-        SELECT substring(tv FROM 3) AS target_pubkey, COUNT(*) AS cnt
-        FROM _nip85_new_events, unnest(tagvalues) AS tv
-        WHERE kind = 7 AND tv LIKE 'p:%'
-        GROUP BY substring(tv FROM 3)
+    -- 4. Reactions received (kind=7, first p from tags when present, else DISTINCT fallback)
+    WITH exact_targets AS (
+        SELECT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            LOWER(p_tag.target_pubkey) AS target_pubkey
+        FROM _nip85_new_events AS ne
+        INNER JOIN LATERAL (
+            SELECT t.tag ->> 1 AS target_pubkey
+            FROM jsonb_array_elements(ne.tags) WITH ORDINALITY AS t(tag, ord)
+            WHERE t.tag ->> 0 = 'p'
+            ORDER BY ord
+            LIMIT 1
+        ) AS p_tag ON TRUE
+        WHERE ne.kind = 7
+          AND ne.tags IS NOT NULL
+    ),
+    fallback_targets AS (
+        SELECT DISTINCT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            LOWER(substring(tv FROM 3)) AS target_pubkey
+        FROM _nip85_new_events AS ne,
+             unnest(ne.tagvalues) AS tv
+        WHERE ne.kind = 7
+          AND ne.tags IS NULL
+          AND tv LIKE 'p:%'
+    ),
+    delta AS (
+        SELECT target_pubkey, COUNT(*) AS cnt
+        FROM (
+            SELECT source_event_id, target_pubkey
+            FROM exact_targets
+            WHERE target_pubkey ~ '^[0-9a-f]{64}$'
+            UNION ALL
+            SELECT source_event_id, target_pubkey
+            FROM fallback_targets
+            WHERE target_pubkey ~ '^[0-9a-f]{64}$'
+        ) AS targets
+        GROUP BY target_pubkey
     )
     INSERT INTO nip85_pubkey_stats (pubkey, reaction_count_recd)
     SELECT target_pubkey, cnt FROM delta
     ON CONFLICT (pubkey) DO UPDATE SET
         reaction_count_recd = nip85_pubkey_stats.reaction_count_recd + EXCLUDED.reaction_count_recd;
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
 
     -- 5. Reports sent (kind=1984, group by author)
     WITH delta AS (
@@ -878,18 +1013,54 @@ BEGIN
     SELECT pubkey, cnt FROM delta
     ON CONFLICT (pubkey) DO UPDATE SET
         report_count_sent = nip85_pubkey_stats.report_count_sent + EXCLUDED.report_count_sent;
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
 
-    -- 6. Reports received (kind=1984, tag p=target)
-    WITH delta AS (
-        SELECT substring(tv FROM 3) AS target_pubkey, COUNT(*) AS cnt
-        FROM _nip85_new_events, unnest(tagvalues) AS tv
-        WHERE kind = 1984 AND tv LIKE 'p:%'
-        GROUP BY substring(tv FROM 3)
+    -- 6. Reports received (kind=1984, first p from tags when present, else DISTINCT fallback)
+    WITH exact_targets AS (
+        SELECT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            LOWER(p_tag.target_pubkey) AS target_pubkey
+        FROM _nip85_new_events AS ne
+        INNER JOIN LATERAL (
+            SELECT t.tag ->> 1 AS target_pubkey
+            FROM jsonb_array_elements(ne.tags) WITH ORDINALITY AS t(tag, ord)
+            WHERE t.tag ->> 0 = 'p'
+            ORDER BY ord
+            LIMIT 1
+        ) AS p_tag ON TRUE
+        WHERE ne.kind = 1984
+          AND ne.tags IS NOT NULL
+    ),
+    fallback_targets AS (
+        SELECT DISTINCT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            LOWER(substring(tv FROM 3)) AS target_pubkey
+        FROM _nip85_new_events AS ne,
+             unnest(ne.tagvalues) AS tv
+        WHERE ne.kind = 1984
+          AND ne.tags IS NULL
+          AND tv LIKE 'p:%'
+    ),
+    delta AS (
+        SELECT target_pubkey, COUNT(*) AS cnt
+        FROM (
+            SELECT source_event_id, target_pubkey
+            FROM exact_targets
+            WHERE target_pubkey ~ '^[0-9a-f]{64}$'
+            UNION ALL
+            SELECT source_event_id, target_pubkey
+            FROM fallback_targets
+            WHERE target_pubkey ~ '^[0-9a-f]{64}$'
+        ) AS targets
+        GROUP BY target_pubkey
     )
     INSERT INTO nip85_pubkey_stats (pubkey, report_count_recd)
     SELECT target_pubkey, cnt FROM delta
     ON CONFLICT (pubkey) DO UPDATE SET
         report_count_recd = nip85_pubkey_stats.report_count_recd + EXCLUDED.report_count_recd;
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
 
     -- 7a. Reposts sent (kind=6, group by author)
     WITH delta AS (
@@ -901,41 +1072,97 @@ BEGIN
     SELECT pubkey, cnt FROM delta
     ON CONFLICT (pubkey) DO UPDATE SET
         repost_count_sent = nip85_pubkey_stats.repost_count_sent + EXCLUDED.repost_count_sent;
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
 
-    -- 7b. Reposts received (kind=6, tag e → lookup original author)
-    WITH repost_targets AS (
-        SELECT substring(tv FROM 3) AS target_event_hex
-        FROM _nip85_new_events, unnest(tagvalues) AS tv
-        WHERE kind = 6 AND tv LIKE 'e:%'
+    -- 7b. Reposts received (kind=6, first e from tags when present, else DISTINCT fallback)
+    WITH exact_targets AS (
+        SELECT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            LOWER(e_tag.target_event_hex) AS target_event_hex
+        FROM _nip85_new_events AS ne
+        INNER JOIN LATERAL (
+            SELECT t.tag ->> 1 AS target_event_hex
+            FROM jsonb_array_elements(ne.tags) WITH ORDINALITY AS t(tag, ord)
+            WHERE t.tag ->> 0 = 'e'
+            ORDER BY ord
+            LIMIT 1
+        ) AS e_tag ON TRUE
+        WHERE ne.kind = 6
+          AND ne.tags IS NOT NULL
+    ),
+    fallback_targets AS (
+        SELECT DISTINCT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            LOWER(substring(tv FROM 3)) AS target_event_hex
+        FROM _nip85_new_events AS ne,
+             unnest(ne.tagvalues) AS tv
+        WHERE ne.kind = 6
+          AND ne.tags IS NULL
+          AND tv LIKE 'e:%'
     ),
     delta AS (
         SELECT ENCODE(e.pubkey, 'hex') AS target_pubkey, COUNT(*) AS cnt
-        FROM repost_targets rt
-        INNER JOIN event e ON e.id = DECODE(rt.target_event_hex, 'hex')
+        FROM (
+            SELECT source_event_id, target_event_hex
+            FROM exact_targets
+            WHERE target_event_hex ~ '^[0-9a-f]{64}$'
+            UNION ALL
+            SELECT source_event_id, target_event_hex
+            FROM fallback_targets
+            WHERE target_event_hex ~ '^[0-9a-f]{64}$'
+        ) AS rt
+        INNER JOIN event AS e ON e.id = DECODE(rt.target_event_hex, 'hex')
         GROUP BY e.pubkey
     )
     INSERT INTO nip85_pubkey_stats (pubkey, repost_count_recd)
     SELECT target_pubkey, cnt FROM delta
     ON CONFLICT (pubkey) DO UPDATE SET
         repost_count_recd = nip85_pubkey_stats.repost_count_recd + EXCLUDED.repost_count_recd;
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
 
-    -- 8a. Zaps received (kind=9735, tag p=recipient, bolt11-verified amount)
+    -- 8a. Zaps received (kind=9735, tags-required, bolt11-verified amount)
     WITH zap_data AS (
         SELECT
-            substring(tv FROM 3) AS recipient_pubkey,
-            (amount_tag.tag ->> 1)::BIGINT AS claimed_amount,
-            bolt11_amount_msats(bolt11_tag.tag ->> 1) AS bolt11_amount
-        FROM _nip85_new_events ne,
-             unnest(ne.tagvalues) AS tv,
-             LATERAL (SELECT tag FROM jsonb_array_elements(ne.tags) AS t(tag) WHERE t.tag ->> 0 = 'amount' LIMIT 1) AS amount_tag,
-             LATERAL (SELECT tag FROM jsonb_array_elements(ne.tags) AS t(tag) WHERE t.tag ->> 0 = 'bolt11' AND length(t.tag ->> 1) > 0 LIMIT 1) AS bolt11_tag
+            LOWER(p_tag.target_pubkey) AS recipient_pubkey,
+            amount_data.claimed_amount,
+            bolt11_data.bolt11_amount
+        FROM _nip85_new_events AS ne
+        INNER JOIN LATERAL (
+            SELECT t.tag ->> 1 AS target_pubkey
+            FROM jsonb_array_elements(ne.tags) WITH ORDINALITY AS t(tag, ord)
+            WHERE t.tag ->> 0 = 'p'
+            ORDER BY ord
+            LIMIT 1
+        ) AS p_tag ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT CASE
+                WHEN (t.tag ->> 1) ~ '^[0-9]{1,19}$'
+                 AND (length(t.tag ->> 1) < 19 OR (t.tag ->> 1) <= '9223372036854775807')
+                    THEN (t.tag ->> 1)::BIGINT
+                ELSE NULL
+            END AS claimed_amount
+            FROM jsonb_array_elements(ne.tags) AS t(tag)
+            WHERE t.tag ->> 0 = 'amount'
+            LIMIT 1
+        ) AS amount_data ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT bolt11_amount_msats(t.tag ->> 1) AS bolt11_amount
+            FROM jsonb_array_elements(ne.tags) AS t(tag)
+            WHERE t.tag ->> 0 = 'bolt11'
+              AND length(t.tag ->> 1) > 0
+            LIMIT 1
+        ) AS bolt11_data ON TRUE
         WHERE ne.kind = 9735
-          AND tv LIKE 'p:%'
+          AND ne.tags IS NOT NULL
     ),
     recd_delta AS (
         SELECT recipient_pubkey AS pubkey, COUNT(*) AS cnt, COALESCE(SUM(claimed_amount), 0) AS amt
         FROM zap_data
-        WHERE bolt11_amount IS NOT NULL AND claimed_amount = bolt11_amount
+        WHERE recipient_pubkey ~ '^[0-9a-f]{64}$'
+          AND bolt11_amount IS NOT NULL
+          AND claimed_amount = bolt11_amount
         GROUP BY recipient_pubkey
     )
     INSERT INTO nip85_pubkey_stats (pubkey, zap_count_recd, zap_amount_recd)
@@ -943,17 +1170,36 @@ BEGIN
     ON CONFLICT (pubkey) DO UPDATE SET
         zap_count_recd  = nip85_pubkey_stats.zap_count_recd + EXCLUDED.zap_count_recd,
         zap_amount_recd = nip85_pubkey_stats.zap_amount_recd + EXCLUDED.zap_amount_recd;
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
 
-    -- 8b. Zaps sent (kind=9735, group by sender, bolt11-verified amount)
+    -- 8b. Zaps sent (kind=9735, tags-required, bolt11-verified amount)
     WITH zap_data AS (
         SELECT
             ENCODE(ne.pubkey, 'hex') AS sender_pubkey,
-            (amount_tag.tag ->> 1)::BIGINT AS claimed_amount,
-            bolt11_amount_msats(bolt11_tag.tag ->> 1) AS bolt11_amount
-        FROM _nip85_new_events ne,
-             LATERAL (SELECT tag FROM jsonb_array_elements(ne.tags) AS t(tag) WHERE t.tag ->> 0 = 'amount' LIMIT 1) AS amount_tag,
-             LATERAL (SELECT tag FROM jsonb_array_elements(ne.tags) AS t(tag) WHERE t.tag ->> 0 = 'bolt11' AND length(t.tag ->> 1) > 0 LIMIT 1) AS bolt11_tag
+            amount_data.claimed_amount,
+            bolt11_data.bolt11_amount
+        FROM _nip85_new_events AS ne
+        LEFT JOIN LATERAL (
+            SELECT CASE
+                WHEN (t.tag ->> 1) ~ '^[0-9]{1,19}$'
+                 AND (length(t.tag ->> 1) < 19 OR (t.tag ->> 1) <= '9223372036854775807')
+                    THEN (t.tag ->> 1)::BIGINT
+                ELSE NULL
+            END AS claimed_amount
+            FROM jsonb_array_elements(ne.tags) AS t(tag)
+            WHERE t.tag ->> 0 = 'amount'
+            LIMIT 1
+        ) AS amount_data ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT bolt11_amount_msats(t.tag ->> 1) AS bolt11_amount
+            FROM jsonb_array_elements(ne.tags) AS t(tag)
+            WHERE t.tag ->> 0 = 'bolt11'
+              AND length(t.tag ->> 1) > 0
+            LIMIT 1
+        ) AS bolt11_data ON TRUE
         WHERE ne.kind = 9735
+          AND ne.tags IS NOT NULL
     ),
     sent_delta AS (
         SELECT sender_pubkey AS pubkey, COUNT(*) AS cnt, COALESCE(SUM(claimed_amount), 0) AS amt
@@ -966,6 +1212,8 @@ BEGIN
     ON CONFLICT (pubkey) DO UPDATE SET
         zap_count_sent  = nip85_pubkey_stats.zap_count_sent + EXCLUDED.zap_count_sent,
         zap_amount_sent = nip85_pubkey_stats.zap_amount_sent + EXCLUDED.zap_amount_sent;
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
 
     -- 9. Topic counts (tag 't' from all events by author)
     WITH topic_delta AS (
@@ -989,10 +1237,20 @@ BEGIN
             FROM (
                 SELECT key, SUM(val) AS val
                 FROM (
-                    SELECT key, (val)::BIGINT AS val
+                    SELECT key, CASE
+                        WHEN val ~ '^[0-9]{1,19}$'
+                         AND (length(val) < 19 OR val <= '9223372036854775807')
+                            THEN val::BIGINT
+                        ELSE 0
+                    END AS val
                     FROM jsonb_each_text(nip85_pubkey_stats.topic_counts) AS t(key, val)
                     UNION ALL
-                    SELECT key, (val)::BIGINT AS val
+                    SELECT key, CASE
+                        WHEN val ~ '^[0-9]{1,19}$'
+                         AND (length(val) < 19 OR val <= '9223372036854775807')
+                            THEN val::BIGINT
+                        ELSE 0
+                    END AS val
                     FROM jsonb_each_text(EXCLUDED.topic_counts) AS t(key, val)
                 ) AS combined
                 GROUP BY key
@@ -1042,89 +1300,232 @@ BEGIN
           WHERE older.event_id = er.event_id
             AND older.seen_at <= p_after
       );
+    CREATE INDEX idx__nip85_new_events_eng_kind ON _nip85_new_events_eng (kind);
 
-    -- 1. Comments (kind=1 with tag e=target)
-    WITH delta AS (
-        SELECT substring(tv FROM 3) AS target_event, COUNT(*) AS cnt
-        FROM _nip85_new_events_eng, unnest(tagvalues) AS tv
-        WHERE kind = 1 AND tv LIKE 'e:%'
-        GROUP BY substring(tv FROM 3)
+    -- 1. Comments (reply marker if tags exist, else DISTINCT fallback via tagvalues)
+    WITH exact_targets AS (
+        SELECT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            LOWER(COALESCE(reply_tag.target_event, last_e_tag.target_event)) AS target_event
+        FROM _nip85_new_events_eng AS ne
+        LEFT JOIN LATERAL (
+            SELECT t.tag ->> 1 AS target_event
+            FROM jsonb_array_elements(ne.tags) WITH ORDINALITY AS t(tag, ord)
+            WHERE t.tag ->> 0 = 'e'
+              AND COALESCE(t.tag ->> 3, '') = 'reply'
+            ORDER BY ord
+            LIMIT 1
+        ) AS reply_tag ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT t.tag ->> 1 AS target_event
+            FROM jsonb_array_elements(ne.tags) WITH ORDINALITY AS t(tag, ord)
+            WHERE t.tag ->> 0 = 'e'
+            ORDER BY ord DESC
+            LIMIT 1
+        ) AS last_e_tag ON TRUE
+        WHERE ne.kind = 1
+          AND ne.tags IS NOT NULL
+          AND COALESCE(reply_tag.target_event, last_e_tag.target_event) IS NOT NULL
+    ),
+    fallback_targets AS (
+        SELECT DISTINCT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            LOWER(substring(tv FROM 3)) AS target_event
+        FROM _nip85_new_events_eng AS ne,
+             unnest(ne.tagvalues) AS tv
+        WHERE ne.kind = 1
+          AND ne.tags IS NULL
+          AND tv LIKE 'e:%'
+    ),
+    delta AS (
+        SELECT target_event, COUNT(*) AS cnt
+        FROM (
+            SELECT source_event_id, target_event
+            FROM exact_targets
+            WHERE target_event ~ '^[0-9a-f]{64}$'
+            UNION ALL
+            SELECT source_event_id, target_event
+            FROM fallback_targets
+            WHERE target_event ~ '^[0-9a-f]{64}$'
+        ) AS targets
+        GROUP BY target_event
     )
     INSERT INTO nip85_event_stats (event_id, author_pubkey, comment_count)
     SELECT d.target_event, COALESCE(ENCODE(e.pubkey, 'hex'), ''), d.cnt
-    FROM delta d LEFT JOIN event e ON e.id = DECODE(d.target_event, 'hex')
+    FROM delta AS d
+    LEFT JOIN event AS e ON e.id = DECODE(d.target_event, 'hex')
     ON CONFLICT (event_id) DO UPDATE SET
         comment_count = nip85_event_stats.comment_count + EXCLUDED.comment_count;
     GET DIAGNOSTICS v_partial = ROW_COUNT;
     v_rows := v_rows + v_partial;
 
-    -- 2. Quotes (any kind with tag q=target)
-    WITH delta AS (
-        SELECT substring(tv FROM 3) AS target_event, COUNT(*) AS cnt
-        FROM _nip85_new_events_eng, unnest(tagvalues) AS tv
+    -- 2. Quotes (DISTINCT fallback via tagvalues)
+    WITH targets AS (
+        SELECT DISTINCT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            LOWER(substring(tv FROM 3)) AS target_event
+        FROM _nip85_new_events_eng AS ne,
+             unnest(ne.tagvalues) AS tv
         WHERE tv LIKE 'q:%'
-        GROUP BY substring(tv FROM 3)
+          AND LOWER(substring(tv FROM 3)) ~ '^[0-9a-f]{64}$'
+    ),
+    delta AS (
+        SELECT target_event, COUNT(*) AS cnt
+        FROM targets
+        GROUP BY target_event
     )
     INSERT INTO nip85_event_stats (event_id, author_pubkey, quote_count)
     SELECT d.target_event, COALESCE(ENCODE(e.pubkey, 'hex'), ''), d.cnt
-    FROM delta d LEFT JOIN event e ON e.id = DECODE(d.target_event, 'hex')
+    FROM delta AS d
+    LEFT JOIN event AS e ON e.id = DECODE(d.target_event, 'hex')
     ON CONFLICT (event_id) DO UPDATE SET
         quote_count = nip85_event_stats.quote_count + EXCLUDED.quote_count;
     GET DIAGNOSTICS v_partial = ROW_COUNT;
     v_rows := v_rows + v_partial;
 
-    -- 3. Reposts (kind=6 with tag e=target)
-    WITH delta AS (
-        SELECT substring(tv FROM 3) AS target_event, COUNT(*) AS cnt
-        FROM _nip85_new_events_eng, unnest(tagvalues) AS tv
-        WHERE kind = 6 AND tv LIKE 'e:%'
-        GROUP BY substring(tv FROM 3)
+    -- 3. Reposts (first e from tags when present, else DISTINCT fallback)
+    WITH exact_targets AS (
+        SELECT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            LOWER(e_tag.target_event) AS target_event
+        FROM _nip85_new_events_eng AS ne
+        INNER JOIN LATERAL (
+            SELECT t.tag ->> 1 AS target_event
+            FROM jsonb_array_elements(ne.tags) WITH ORDINALITY AS t(tag, ord)
+            WHERE t.tag ->> 0 = 'e'
+            ORDER BY ord
+            LIMIT 1
+        ) AS e_tag ON TRUE
+        WHERE ne.kind = 6
+          AND ne.tags IS NOT NULL
+    ),
+    fallback_targets AS (
+        SELECT DISTINCT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            LOWER(substring(tv FROM 3)) AS target_event
+        FROM _nip85_new_events_eng AS ne,
+             unnest(ne.tagvalues) AS tv
+        WHERE ne.kind = 6
+          AND ne.tags IS NULL
+          AND tv LIKE 'e:%'
+    ),
+    delta AS (
+        SELECT target_event, COUNT(*) AS cnt
+        FROM (
+            SELECT source_event_id, target_event
+            FROM exact_targets
+            WHERE target_event ~ '^[0-9a-f]{64}$'
+            UNION ALL
+            SELECT source_event_id, target_event
+            FROM fallback_targets
+            WHERE target_event ~ '^[0-9a-f]{64}$'
+        ) AS targets
+        GROUP BY target_event
     )
     INSERT INTO nip85_event_stats (event_id, author_pubkey, repost_count)
     SELECT d.target_event, COALESCE(ENCODE(e.pubkey, 'hex'), ''), d.cnt
-    FROM delta d LEFT JOIN event e ON e.id = DECODE(d.target_event, 'hex')
+    FROM delta AS d
+    LEFT JOIN event AS e ON e.id = DECODE(d.target_event, 'hex')
     ON CONFLICT (event_id) DO UPDATE SET
         repost_count = nip85_event_stats.repost_count + EXCLUDED.repost_count;
     GET DIAGNOSTICS v_partial = ROW_COUNT;
     v_rows := v_rows + v_partial;
 
-    -- 4. Reactions (kind=7 with tag e=target)
-    WITH delta AS (
-        SELECT substring(tv FROM 3) AS target_event, COUNT(*) AS cnt
-        FROM _nip85_new_events_eng, unnest(tagvalues) AS tv
-        WHERE kind = 7 AND tv LIKE 'e:%'
-        GROUP BY substring(tv FROM 3)
+    -- 4. Reactions (last e from tags when present, else DISTINCT fallback)
+    WITH exact_targets AS (
+        SELECT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            LOWER(e_tag.target_event) AS target_event
+        FROM _nip85_new_events_eng AS ne
+        INNER JOIN LATERAL (
+            SELECT t.tag ->> 1 AS target_event
+            FROM jsonb_array_elements(ne.tags) WITH ORDINALITY AS t(tag, ord)
+            WHERE t.tag ->> 0 = 'e'
+            ORDER BY ord DESC
+            LIMIT 1
+        ) AS e_tag ON TRUE
+        WHERE ne.kind = 7
+          AND ne.tags IS NOT NULL
+    ),
+    fallback_targets AS (
+        SELECT DISTINCT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            LOWER(substring(tv FROM 3)) AS target_event
+        FROM _nip85_new_events_eng AS ne,
+             unnest(ne.tagvalues) AS tv
+        WHERE ne.kind = 7
+          AND ne.tags IS NULL
+          AND tv LIKE 'e:%'
+    ),
+    delta AS (
+        SELECT target_event, COUNT(*) AS cnt
+        FROM (
+            SELECT source_event_id, target_event
+            FROM exact_targets
+            WHERE target_event ~ '^[0-9a-f]{64}$'
+            UNION ALL
+            SELECT source_event_id, target_event
+            FROM fallback_targets
+            WHERE target_event ~ '^[0-9a-f]{64}$'
+        ) AS targets
+        GROUP BY target_event
     )
     INSERT INTO nip85_event_stats (event_id, author_pubkey, reaction_count)
     SELECT d.target_event, COALESCE(ENCODE(e.pubkey, 'hex'), ''), d.cnt
-    FROM delta d LEFT JOIN event e ON e.id = DECODE(d.target_event, 'hex')
+    FROM delta AS d
+    LEFT JOIN event AS e ON e.id = DECODE(d.target_event, 'hex')
     ON CONFLICT (event_id) DO UPDATE SET
         reaction_count = nip85_event_stats.reaction_count + EXCLUDED.reaction_count;
     GET DIAGNOSTICS v_partial = ROW_COUNT;
     v_rows := v_rows + v_partial;
 
-    -- 5. Zaps on events (kind=9735 with tag e=target, bolt11-verified)
+    -- 5. Zaps on events (kind=9735, tags-required, last e target, bolt11-verified)
     WITH zap_data AS (
         SELECT
-            substring(tv FROM 3) AS target_event,
-            (amount_tag.tag ->> 1)::BIGINT AS claimed_amount,
-            bolt11_amount_msats(bolt11_tag.tag ->> 1) AS bolt11_amount
-        FROM _nip85_new_events_eng ne,
-             unnest(ne.tagvalues) AS tv,
-             LATERAL (SELECT tag FROM jsonb_array_elements(ne.tags) AS t(tag) WHERE t.tag ->> 0 = 'amount' LIMIT 1) AS amount_tag,
-             LATERAL (SELECT tag FROM jsonb_array_elements(ne.tags) AS t(tag) WHERE t.tag ->> 0 = 'bolt11' AND length(t.tag ->> 1) > 0 LIMIT 1) AS bolt11_tag
+            LOWER(e_tag.target_event) AS target_event,
+            amount_data.claimed_amount,
+            bolt11_data.bolt11_amount
+        FROM _nip85_new_events_eng AS ne
+        INNER JOIN LATERAL (
+            SELECT t.tag ->> 1 AS target_event
+            FROM jsonb_array_elements(ne.tags) WITH ORDINALITY AS t(tag, ord)
+            WHERE t.tag ->> 0 = 'e'
+            ORDER BY ord DESC
+            LIMIT 1
+        ) AS e_tag ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT CASE
+                WHEN (t.tag ->> 1) ~ '^[0-9]{1,19}$'
+                 AND (length(t.tag ->> 1) < 19 OR (t.tag ->> 1) <= '9223372036854775807')
+                    THEN (t.tag ->> 1)::BIGINT
+                ELSE NULL
+            END AS claimed_amount
+            FROM jsonb_array_elements(ne.tags) AS t(tag)
+            WHERE t.tag ->> 0 = 'amount'
+            LIMIT 1
+        ) AS amount_data ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT bolt11_amount_msats(t.tag ->> 1) AS bolt11_amount
+            FROM jsonb_array_elements(ne.tags) AS t(tag)
+            WHERE t.tag ->> 0 = 'bolt11'
+              AND length(t.tag ->> 1) > 0
+            LIMIT 1
+        ) AS bolt11_data ON TRUE
         WHERE ne.kind = 9735
-          AND tv LIKE 'e:%'
+          AND ne.tags IS NOT NULL
     ),
     delta AS (
         SELECT target_event, COUNT(*) AS cnt, COALESCE(SUM(claimed_amount), 0) AS amt
         FROM zap_data
-        WHERE bolt11_amount IS NOT NULL AND claimed_amount = bolt11_amount
+        WHERE target_event ~ '^[0-9a-f]{64}$'
+          AND bolt11_amount IS NOT NULL
+          AND claimed_amount = bolt11_amount
         GROUP BY target_event
     )
     INSERT INTO nip85_event_stats (event_id, author_pubkey, zap_count, zap_amount)
     SELECT d.target_event, COALESCE(ENCODE(e.pubkey, 'hex'), ''), d.cnt, d.amt
-    FROM delta d LEFT JOIN event e ON e.id = DECODE(d.target_event, 'hex')
+    FROM delta AS d
+    LEFT JOIN event AS e ON e.id = DECODE(d.target_event, 'hex')
     ON CONFLICT (event_id) DO UPDATE SET
         zap_count  = nip85_event_stats.zap_count + EXCLUDED.zap_count,
         zap_amount = nip85_event_stats.zap_amount + EXCLUDED.zap_amount;
@@ -1175,12 +1576,14 @@ BEGIN
     WHERE ps.pubkey = fc.followed_pubkey;
 
     -- Zero out pubkeys no longer followed by anyone
-    UPDATE nip85_pubkey_stats SET follower_count = 0
-    WHERE follower_count > 0
-      AND pubkey NOT IN (
-          SELECT DISTINCT substring(tv FROM 3)
-          FROM events_replaceable_latest, unnest(tagvalues) AS tv
-          WHERE kind = 3 AND tv LIKE 'p:%'
+    UPDATE nip85_pubkey_stats ps SET follower_count = 0
+    WHERE ps.follower_count > 0
+      AND NOT EXISTS (
+          SELECT 1
+          FROM events_replaceable_latest AS erl,
+               unnest(erl.tagvalues) AS tv
+          WHERE erl.kind = 3
+            AND tv = 'p:' || ps.pubkey
       );
 
     -- Compute following counts (how many p-tags in each pubkey's own kind=3)
@@ -1197,12 +1600,13 @@ BEGIN
     FROM following_counts fc
     WHERE ps.pubkey = fc.pubkey;
 
-    UPDATE nip85_pubkey_stats SET following_count = 0
-    WHERE following_count > 0
-      AND pubkey NOT IN (
-          SELECT ENCODE(pubkey, 'hex')
-          FROM events_replaceable_latest
-          WHERE kind = 3
+    UPDATE nip85_pubkey_stats ps SET following_count = 0
+    WHERE ps.following_count > 0
+      AND NOT EXISTS (
+          SELECT 1
+          FROM events_replaceable_latest AS erl
+          WHERE erl.kind = 3
+            AND ENCODE(erl.pubkey, 'hex') = ps.pubkey
       );
 END;
 $$;
