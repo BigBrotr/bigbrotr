@@ -22,13 +22,16 @@ import argparse
 import asyncio
 import sys
 import time
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from bigbrotr.core.brotr import Brotr
+from bigbrotr.core.yaml import load_yaml
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.refresher.configs import DEFAULT_MATVIEWS, DEFAULT_SUMMARIES
@@ -38,6 +41,10 @@ from bigbrotr.services.refresher.queries import (
     refresh_rolling_windows,
     refresh_summary,
 )
+
+
+if TYPE_CHECKING:
+    from argparse import Namespace
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -73,6 +80,31 @@ def _deployment_brotr_config(deployment: str) -> Path:
     return PROJECT_ROOT / "deployments" / deployment / "config" / "brotr.yaml"
 
 
+def _runtime_config(
+    *,
+    deployment: str,
+    host: str | None = None,
+    port: int | None = None,
+    database: str | None = None,
+    user: str | None = None,
+) -> dict:
+    """Load deployment config and optionally override DB connection fields."""
+    config = deepcopy(load_yaml(str(_deployment_brotr_config(deployment))))
+    pool = config.setdefault("pool", {})
+    db = pool.setdefault("database", {})
+
+    if host is not None:
+        db["host"] = host
+    if port is not None:
+        db["port"] = port
+    if database is not None:
+        db["database"] = database
+    if user is not None:
+        db["user"] = user
+
+    return config
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments for the rebuild tool."""
     parser = argparse.ArgumentParser(
@@ -98,6 +130,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--yes",
         action="store_true",
         help="Confirm execution for a live rebuild.",
+    )
+    parser.add_argument(
+        "--host",
+        help="Override database host from deployment config (useful outside Docker).",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        help="Override database port from deployment config.",
+    )
+    parser.add_argument(
+        "--database",
+        help="Override database name from deployment config.",
+    )
+    parser.add_argument(
+        "--user",
+        help="Override database user from deployment config.",
     )
     args = parser.parse_args(argv)
     if not args.dry_run and not args.yes:
@@ -157,14 +206,18 @@ async def rebuild_analytics(
     return result
 
 
-async def _run_from_deployment(
-    *,
-    deployment: str,
-    until: int | None,
-) -> RebuildResult:
-    brotr = Brotr.from_yaml(str(_deployment_brotr_config(deployment)))
+async def _run_from_args(args: Namespace) -> RebuildResult:
+    brotr = Brotr.from_dict(
+        _runtime_config(
+            deployment=args.deployment,
+            host=args.host,
+            port=args.port,
+            database=args.database,
+            user=args.user,
+        )
+    )
     async with brotr:
-        return await rebuild_analytics(brotr, until=until)
+        return await rebuild_analytics(brotr, until=args.until)
 
 
 def _print_dry_run(deployment: str, until: int | None) -> None:
@@ -197,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
         _print_dry_run(args.deployment, args.until)
         return 0
 
-    result = asyncio.run(_run_from_deployment(deployment=args.deployment, until=args.until))
+    result = asyncio.run(_run_from_args(args))
 
     print("=== Analytics Rebuild Complete ===\n")
     print(f"Until: {result.until}")

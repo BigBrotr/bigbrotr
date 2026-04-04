@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
+import yaml
 from tools import rebuild_analytics as rebuild
 
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestParseArgs:
@@ -21,6 +27,65 @@ class TestParseArgs:
         assert args.deployment == "bigbrotr"
         assert args.dry_run is True
         assert args.yes is False
+
+    def test_connection_overrides_are_parsed(self) -> None:
+        args = rebuild.parse_args(
+            [
+                "--deployment",
+                "bigbrotr",
+                "--dry-run",
+                "--host",
+                "localhost",
+                "--port",
+                "6543",
+                "--database",
+                "scratch",
+                "--user",
+                "postgres",
+            ]
+        )
+        assert args.host == "localhost"
+        assert args.port == 6543
+        assert args.database == "scratch"
+        assert args.user == "postgres"
+
+
+class TestRuntimeConfig:
+    def test_connection_overrides_merge_on_top_of_deployment_yaml(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ) -> None:
+        config_path = tmp_path / "brotr.yaml"
+        config_path.write_text(
+            yaml.safe_dump(
+                {
+                    "pool": {
+                        "database": {
+                            "host": "pgbouncer",
+                            "database": "bigbrotr",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(rebuild, "_deployment_brotr_config", lambda _deployment: config_path)
+
+        config = rebuild._runtime_config(
+            deployment="bigbrotr",
+            host="localhost",
+            port=6543,
+            database="scratch",
+            user="postgres",
+        )
+
+        assert config["pool"]["database"] == {
+            "host": "localhost",
+            "port": 6543,
+            "database": "scratch",
+            "user": "postgres",
+        }
 
 
 class TestRebuildAnalytics:
