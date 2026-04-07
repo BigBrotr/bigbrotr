@@ -104,20 +104,23 @@ async def _fetch_validated(
     for base in ctx.filters:
         windowed = base.since(since_ts).until(until_ts).limit(limit)
         stream = await ctx.client.stream_events(windowed, ctx.fetch_timeout)
-        while len(events) < limit:
-            try:
-                evt = await asyncio.wait_for(stream.next(), timeout=recv_timeout)
-            except TimeoutError:
-                logger.debug("stream_next_timeout since=%s until=%s", since, until)
-                break
-            if evt is None:
-                break
-            if not windowed.match_event(evt) or not evt.verify():
-                continue
-            eid = evt.id()
-            if eid not in seen_ids:
-                seen_ids.add(eid)
-                events.append(evt)
+        try:
+            while len(events) < limit:
+                try:
+                    evt = await asyncio.wait_for(stream.next(), timeout=recv_timeout)
+                except TimeoutError:
+                    logger.debug("stream_next_timeout since=%s until=%s", since, until)
+                    break
+                if evt is None:
+                    break
+                if not windowed.match_event(evt) or not evt.verify():
+                    continue
+                eid = evt.id()
+                if eid not in seen_ids:
+                    seen_ids.add(eid)
+                    events.append(evt)
+        finally:
+            del stream
         if len(events) >= limit:
             break
 

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.6.1] - 2026-04-07
+
+### Fixed
+
+- **nostr-sdk Rust memory leak**: Client and EventStream FFI objects allocated memory on the Rust side invisible to Python's garbage collector, causing the Synchronizer to reach 27 GB RSS. EventStream references are now explicitly deleted after consumption, clients are shut down (not just disconnected) when discarded, and `gc.collect()` is called after each relay in the Synchronizer to trigger PyO3 destructors
+- **Inconsistent client cleanup across services**: `connect_relay()` error paths and `is_nostr_relay()` used `disconnect()` (closes WebSocket only) instead of `shutdown()` (releases entire Rust Client). NIP-66 RTT `_cleanup()` had the same issue. All now use `shutdown()` when the client is being discarded
+
 ## [6.6.0] - 2026-03-31
 
 ### Added

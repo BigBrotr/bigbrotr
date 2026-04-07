@@ -374,14 +374,14 @@ class TestNip66RttMetadataVerifyWrite:
 class TestNip66RttMetadataCleanup:
     """Test Nip66RttMetadata._cleanup() method."""
 
-    async def test_successful_disconnect(self, mock_nostr_client: MagicMock) -> None:
-        """Cleanup disconnects the client."""
+    async def test_successful_shutdown(self, mock_nostr_client: MagicMock) -> None:
+        """Cleanup shuts down the client to release Rust-side memory."""
         await Nip66RttMetadata._cleanup(mock_nostr_client)
-        mock_nostr_client.disconnect.assert_called_once()
+        mock_nostr_client.shutdown.assert_called_once()
 
-    async def test_disconnect_exception_suppressed(self, mock_nostr_client: MagicMock) -> None:
-        """Exceptions during disconnect are suppressed."""
-        mock_nostr_client.disconnect = AsyncMock(side_effect=Exception("Disconnect error"))
+    async def test_shutdown_exception_suppressed(self, mock_nostr_client: MagicMock) -> None:
+        """Exceptions during shutdown are suppressed."""
+        mock_nostr_client.shutdown = AsyncMock(side_effect=Exception("Shutdown error"))
 
         # Should not raise
         await Nip66RttMetadata._cleanup(mock_nostr_client)
