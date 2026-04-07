@@ -290,7 +290,7 @@ async def connect_relay(
 
         relay_obj = await client.relay(relay_url)
         if not relay_obj.is_connected():
-            await client.disconnect()
+            await client.shutdown()
             raise TimeoutError(f"Connection timeout: {relay.url}")
 
         return client
@@ -306,7 +306,7 @@ async def connect_relay(
         logger.debug("ssl_connected relay=%s", relay.url)
         return client
 
-    await client.disconnect()
+    await client.shutdown()
     error_message = output.failed.get(relay_url, "Unknown error")
     logger.debug("connect_failed relay=%s error=%s", relay.url, error_message)
 
@@ -329,7 +329,7 @@ async def connect_relay(
 
     if relay_url not in output.success:
         error_message = output.failed.get(relay_url, "Unknown error")
-        await client.disconnect()
+        await client.shutdown()
         raise OSError(f"Connection failed (insecure): {relay.url} ({error_message})")
 
     logger.debug("insecure_connected relay=%s", relay.url)
@@ -438,6 +438,7 @@ async def is_nostr_relay(
         finally:
             if client is not None:
                 try:
-                    await asyncio.wait_for(client.disconnect(), timeout=timeout)
+                    await asyncio.wait_for(client.shutdown(), timeout=timeout)
                 except (OSError, RuntimeError, TimeoutError) as e:
-                    logger.debug("client_disconnect_error error=%s", e)
+                    logger.debug("client_shutdown_error error=%s", e)
+                del client

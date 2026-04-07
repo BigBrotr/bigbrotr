@@ -61,6 +61,7 @@ Examples:
 
 from __future__ import annotations
 
+import gc
 import time
 from typing import TYPE_CHECKING, ClassVar
 
@@ -260,8 +261,10 @@ class Synchronizer(
                     self.inc_gauge("relays_seen")
                     try:
                         await client.shutdown()
-                    except Exception as e:  # nostr-sdk FFI can raise arbitrary errors on shutdown
+                    except Exception as e:  # nostr-sdk FFI can raise arbitrary errors
                         self._logger.debug("client_shutdown_error", relay=relay.url, error=str(e))
+                    del client
+                    gc.collect()
         except Exception as e:  # Worker exception boundary — protects TaskGroup
             self._logger.error(
                 "sync_worker_failed",
