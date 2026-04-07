@@ -415,24 +415,24 @@ class TestIsNostrRelayMocked:
             assert call_kwargs["timeout"] == 30.0
 
 
-class TestIsNostrRelayDisconnect:
-    """Tests that is_nostr_relay() properly disconnects after validation."""
+class TestIsNostrRelayShutdown:
+    """Tests that is_nostr_relay() properly shuts down after validation."""
 
-    async def test_disconnect_called_on_success(self) -> None:
-        """Test disconnect is called after successful validation."""
+    async def test_shutdown_called_on_success(self) -> None:
+        """Test shutdown is called after successful validation."""
         relay = Relay("wss://relay.example.com")
 
         with patch("bigbrotr.utils.protocol.connect_relay") as mock_connect:
             mock_client = AsyncMock()
             mock_client.fetch_events = AsyncMock(return_value=[])
-            mock_client.disconnect = AsyncMock()
+            mock_client.shutdown = AsyncMock()
             mock_connect.return_value = mock_client
 
             from bigbrotr.utils.protocol import is_nostr_relay
 
             await is_nostr_relay(relay)
 
-            mock_client.disconnect.assert_called_once()
+            mock_client.shutdown.assert_called_once()
 
 
 # =============================================================================

@@ -268,7 +268,10 @@ class Nip66RttMetadata(BaseNipMetadata):
             logger.debug("rtt_reading relay=%s", relay_url_str)
             start = perf_counter()
             stream = await client.stream_events(read_filter, timeout=timedelta(seconds=timeout))
-            first_event = await stream.next()
+            try:
+                first_event = await stream.next()
+            finally:
+                del stream
 
             if first_event is not None:
                 rtt_read = int((perf_counter() - start) * 1000)
@@ -348,7 +351,10 @@ class Nip66RttMetadata(BaseNipMetadata):
         try:
             verify_filter = Filter().id(event_id).limit(1)
             stream = await client.stream_events(verify_filter, timeout=timedelta(seconds=timeout))
-            verify_event = await stream.next()
+            try:
+                verify_event = await stream.next()
+            finally:
+                del stream
 
             if verify_event is not None:
                 logger.debug("rtt_write_verified relay=%s", relay_url_str)
@@ -365,8 +371,8 @@ class Nip66RttMetadata(BaseNipMetadata):
 
     @staticmethod
     async def _cleanup(client: Client) -> None:
-        """Disconnect the client, suppressing any errors."""
+        """Shut down the client and release Rust-side memory."""
         try:
-            await client.disconnect()
-        except Exception as e:
-            logger.debug("client_disconnect_error error=%s", e)
+            await client.shutdown()
+        except Exception as e:  # nostr-sdk FFI can raise arbitrary errors
+            logger.debug("client_shutdown_error error=%s", e)
