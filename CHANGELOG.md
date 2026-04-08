@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.6.6] - 2026-04-08
+
+### Fixed
+
+- **nostr-sdk Client memory leak**: `Client.shutdown()` does not release the internal event database, active subscriptions, or relay connection state on the Rust side. New `shutdown_client()` helper performs `unsubscribe_all()` + `force_remove_all_relays()` + `database().wipe()` before `shutdown()`. Replaces all 7 direct `shutdown()` calls across protocol, synchronizer, monitor client pool, and NIP-66 RTT. Local benchmark confirms RSS stabilizes with zero growth over 100 iterations
+
 ## [6.6.5] - 2026-04-08
 
 ### Fixed
