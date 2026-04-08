@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.6.7] - 2026-04-08
+
+### Fixed
+
+- **Complete `shutdown_client()` adoption**: DVM `__aexit__` now uses `shutdown_client()` instead of direct `client.shutdown()`. Synchronizer worker removes redundant `client.disconnect()` before `shutdown_client()` — `force_remove_all_relays()` already disconnects
+
 ## [6.6.6] - 2026-04-08
 
 ### Fixed

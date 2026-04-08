@@ -751,7 +751,7 @@ class TestSyncWorker:
         assert len(items) == 2
         assert items[0][0] is evt_a
         assert items[1][0] is evt_b
-        mock_client.disconnect.assert_awaited_once()
+        mock_client.shutdown.assert_awaited_once()
 
     async def test_empty_stream_disconnects_normally(self, mock_synchronizer_brotr: Brotr) -> None:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
@@ -780,7 +780,7 @@ class TestSyncWorker:
             items = [item async for item in sync._synchronize_worker(cursor)]
 
         assert items == []
-        mock_client.disconnect.assert_awaited_once()
+        mock_client.shutdown.assert_awaited_once()
 
     @pytest.mark.parametrize(
         "error",
