@@ -139,10 +139,9 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         _exc_tb: TracebackType | None,
     ) -> None:
         if self._client is not None:
-            try:
-                await self._client.shutdown()
-            except Exception as e:  # nostr-sdk FFI can raise arbitrary errors on shutdown
-                self._logger.debug("client_shutdown_error", error=str(e))
+            from bigbrotr.utils.protocol import shutdown_client  # noqa: PLC0415
+
+            await shutdown_client(self._client)
             self._client = None
             self._logger.info("client_disconnected")
         await super().__aexit__(_exc_type, _exc_val, _exc_tb)

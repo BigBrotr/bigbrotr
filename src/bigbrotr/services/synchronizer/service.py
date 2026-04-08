@@ -253,8 +253,6 @@ class Synchronizer(
                     ):
                         yield event, relay
 
-                    await client.disconnect()
-
                 except (TimeoutError, OSError, NostrSdkError) as e:
                     self._logger.warning("sync_relay_error", relay=relay.url, error=str(e))
                 finally:
