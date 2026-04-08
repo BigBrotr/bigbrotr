@@ -61,6 +61,7 @@ WORKDIR /app
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     libpq5 \
     libsecp256k1-dev \
+    libjemalloc2 \
     tini \
     && rm -rf /var/lib/apt/lists/* \
               /usr/local/lib/python*/site-packages \
@@ -76,6 +77,12 @@ ENV PATH="/app/.venv/bin:$PATH"
 COPY --chown=${DEPLOYMENT}:${DEPLOYMENT} deployments/${DEPLOYMENT}/config/ /app/config/
 
 ENV PYTHONUNBUFFERED=1
+
+# Use jemalloc instead of glibc malloc.  nostr-sdk (Rust/PyO3) allocates
+# memory on the Rust heap invisible to Python's GC.  glibc malloc uses
+# per-thread arenas that never return pages to the OS, causing RSS to grow
+# monotonically.  jemalloc actively returns freed pages via madvise(MADV_DONTNEED).
+ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2
 
 # Default environment variables
 ENV LOG_LEVEL=INFO
