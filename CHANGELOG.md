@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.6.2] - 2026-04-08
+
+### Fixed
+
+- **Event model FFI memory leak**: the `Event` dataclass retained a reference to `nostr_sdk.Event` (Rust FFI / PyO3) for the lifetime of each instance, invisible to Python's garbage collector. With thousands of events flowing through the synchronizer pipeline, Rust-side memory accumulated to 54 GB RSS in production within 11 hours. The v6.6.1 fix addressed `Client` and `EventStream` cleanup but missed `NostrEvent` references inside `Event` wrappers. The model now uses `InitVar` to consume the FFI object during construction and extracts all fields into Python-native types — the Rust reference is never stored on the instance
+- **Event model `__getattr__` delegation removed**: replaced magic delegation to the FFI object with explicit domain fields (`id`, `pubkey`, `created_at`, `kind`, `tags`, `content`, `sig`), consistent with `Relay` and `Metadata` models. `_compute_db_params(self)` now reads from `self` fields instead of the FFI object
+
 ## [6.6.1] - 2026-04-07
 
 ### Fixed
