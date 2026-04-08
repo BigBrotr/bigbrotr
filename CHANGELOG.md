@@ -5,12 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.6.9] - 2026-04-08
+
+### Fixed
+
+- **Restore jemalloc allocator**: local benchmarking confirmed `shutdown_client()` releases Rust-side memory correctly (zero growth on macOS). However, Linux glibc's per-thread arenas never return freed pages to the OS — `shutdown_client` frees the memory, but glibc retains the pages. jemalloc is required on Linux to return freed pages via `madvise(MADV_DONTNEED)`
+
+### Changed
+
+- **Remove `gc.collect()` from synchronizer**: PyO3 objects do not form reference cycles; CPython's reference counting frees them immediately on `del`
+
 ## [6.6.8] - 2026-04-08
 
 ### Changed
 
-- **Remove jemalloc workaround**: `shutdown_client()` (v6.6.6) addresses the nostr-sdk memory leak at the source — jemalloc is no longer needed as an allocator workaround
-- **Remove `gc.collect()` workaround**: PyO3 objects do not form reference cycles, so CPython's reference counting frees them immediately on `del`. Forced GC collection was unnecessary
+- **Remove jemalloc**: incorrectly removed — see v6.6.9
 
 ## [6.6.7] - 2026-04-08
 
