@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.6.5] - 2026-04-08
+
+### Fixed
+
+- **Rust FFI memory fragmentation**: glibc malloc retains per-thread arenas from nostr-sdk Tokio threads and never returns pages to the OS, causing monotonic RSS growth (15 GB in 2 hours). Replaced glibc malloc with jemalloc via `LD_PRELOAD` in the Docker image — jemalloc actively returns freed pages via `madvise(MADV_DONTNEED)`
+
 ## [6.6.4] - 2026-04-08
 
 ### Changed
