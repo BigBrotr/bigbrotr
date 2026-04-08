@@ -372,7 +372,6 @@ class Nip66RttMetadata(BaseNipMetadata):
     @staticmethod
     async def _cleanup(client: Client) -> None:
         """Shut down the client and release Rust-side memory."""
-        try:
-            await client.shutdown()
-        except Exception as e:  # nostr-sdk FFI can raise arbitrary errors
-            logger.debug("client_shutdown_error error=%s", e)
+        from bigbrotr.utils.protocol import shutdown_client  # noqa: PLC0415
+
+        await shutdown_client(client)
