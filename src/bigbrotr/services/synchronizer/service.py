@@ -72,7 +72,7 @@ from bigbrotr.models import EventRelay, Relay
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin, NetworkSemaphoresMixin
 from bigbrotr.services.common.types import SyncCursor
-from bigbrotr.utils.protocol import connect_relay
+from bigbrotr.utils.protocol import connect_relay, shutdown_client
 from bigbrotr.utils.streaming import stream_events
 
 from .configs import SynchronizerConfig
@@ -259,10 +259,7 @@ class Synchronizer(
                     self._logger.warning("sync_relay_error", relay=relay.url, error=str(e))
                 finally:
                     self.inc_gauge("relays_seen")
-                    try:
-                        await client.shutdown()
-                    except Exception as e:  # nostr-sdk FFI can raise arbitrary errors
-                        self._logger.debug("client_shutdown_error", relay=relay.url, error=str(e))
+                    await shutdown_client(client)
                     del client
                     gc.collect()
         except Exception as e:  # Worker exception boundary — protects TaskGroup

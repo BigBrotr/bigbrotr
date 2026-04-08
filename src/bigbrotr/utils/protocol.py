@@ -166,6 +166,24 @@ class _StderrSuppressor:
 _suppress_stderr = _StderrSuppressor()
 
 
+async def shutdown_client(client: Client) -> None:
+    """Fully release a nostr-sdk Client's resources before shutdown.
+
+    ``Client.shutdown()`` alone does not release the internal event
+    database, active subscriptions, or relay connection state on the
+    Rust side, causing monotonic RSS growth.  This helper performs a
+    full cleanup sequence before calling ``shutdown()``.
+    """
+    with contextlib.suppress(Exception):
+        await client.unsubscribe_all()
+    with contextlib.suppress(Exception):
+        await client.force_remove_all_relays()
+    with contextlib.suppress(Exception):
+        await client.database().wipe()
+    with contextlib.suppress(Exception):
+        await client.shutdown()
+
+
 async def create_client(
     keys: Keys | None = None,
     proxy_url: str | None = None,
@@ -290,7 +308,7 @@ async def connect_relay(
 
         relay_obj = await client.relay(relay_url)
         if not relay_obj.is_connected():
-            await client.shutdown()
+            await shutdown_client(client)
             raise TimeoutError(f"Connection timeout: {relay.url}")
 
         return client
@@ -306,7 +324,7 @@ async def connect_relay(
         logger.debug("ssl_connected relay=%s", relay.url)
         return client
 
-    await client.shutdown()
+    await shutdown_client(client)
     error_message = output.failed.get(relay_url, "Unknown error")
     logger.debug("connect_failed relay=%s error=%s", relay.url, error_message)
 
@@ -329,7 +347,7 @@ async def connect_relay(
 
     if relay_url not in output.success:
         error_message = output.failed.get(relay_url, "Unknown error")
-        await client.shutdown()
+        await shutdown_client(client)
         raise OSError(f"Connection failed (insecure): {relay.url} ({error_message})")
 
     logger.debug("insecure_connected relay=%s", relay.url)
@@ -438,7 +456,7 @@ async def is_nostr_relay(
         finally:
             if client is not None:
                 try:
-                    await asyncio.wait_for(client.shutdown(), timeout=timeout)
+                    await asyncio.wait_for(shutdown_client(client), timeout=timeout)
                 except (OSError, RuntimeError, TimeoutError) as e:
                     logger.debug("client_shutdown_error error=%s", e)
                 del client

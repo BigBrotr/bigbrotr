@@ -351,9 +351,11 @@ class Clients:
 
     async def disconnect(self) -> None:
         """Disconnect all clients and reset state."""
+        from bigbrotr.utils.protocol import shutdown_client  # noqa: PLC0415
+
         for client in self._clients.values():
             try:
-                await client.shutdown()
+                await shutdown_client(client)
             except (OSError, RuntimeError, TimeoutError) as e:
                 logger.debug("client_shutdown_error error=%s", e)
         self._clients.clear()
