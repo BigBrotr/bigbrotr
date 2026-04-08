@@ -1,9 +1,10 @@
 """
 Immutable Nostr event wrapper with database serialization.
 
-Wraps ``nostr_sdk.Event`` in a frozen dataclass that transparently delegates
-attribute access to the underlying SDK object while adding database conversion
-via [to_db_params()][bigbrotr.models.event.Event.to_db_params].
+Accepts a ``nostr_sdk.Event`` at construction, eagerly extracts all fields
+into Python-native types, and releases the FFI reference.  The underlying
+``NostrEvent`` is consumed during construction and NOT retained, preventing
+Rust-side memory from accumulating across event processing pipelines.
 
 See Also:
     [bigbrotr.models.event_relay][]: Junction model linking an
@@ -16,8 +17,8 @@ See Also:
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
-from typing import Any, ClassVar, NamedTuple
+from dataclasses import InitVar, dataclass, field
+from typing import ClassVar, NamedTuple
 
 from nostr_sdk import Event as NostrEvent
 
@@ -58,9 +59,11 @@ class EventDbParams(NamedTuple):
 class Event:
     """Immutable Nostr event with database conversion.
 
-    All attribute access is transparently delegated to the inner
-    ``nostr_sdk.Event`` via ``__getattr__``, so SDK methods like
-    ``id()``, ``kind()``, and ``content()`` work directly.
+    Accepts a ``nostr_sdk.Event`` at construction, validates it for
+    database compatibility, extracts all fields into Python-native types,
+    and releases the FFI reference.  The underlying ``NostrEvent`` is NOT
+    retained after construction -- all domain data lives in regular Python
+    fields, consistent with every other model in this package.
 
     Validation is performed eagerly at construction time:
 
@@ -71,33 +74,25 @@ class Event:
       (fail-fast).
 
     Args:
-        _nostr_event: The underlying ``nostr_sdk.Event`` instance.
+        event: The ``nostr_sdk.Event`` to extract data from.
+            Consumed during construction and not retained.
 
     Raises:
         ValueError: If content or tags contain null bytes, or if
             database parameter conversion fails.
 
-    Examples:
-        ```python
-        from nostr_sdk import Event as NostrEvent
-
-        nostr_event = NostrEvent.from_json('{"id": "ab...", ...}')
-        event = Event(nostr_event)
-        event.id()         # Delegates to nostr_sdk.Event
-        event.content()    # Delegates to nostr_sdk.Event
-        params = event.to_db_params()
-        params.kind        # Integer event kind (e.g. 1)
-        ```
-
     Note:
-        Binary fields (``id``, ``pubkey``, ``sig``) are stored as ``bytes``
-        in [EventDbParams][bigbrotr.models.event.EventDbParams] for direct
-        insertion into PostgreSQL BYTEA columns. The hex-to-bytes conversion
-        happens once during ``__post_init__`` and is cached.
+        Domain fields store protocol-native representations: hex strings
+        for ``id``, ``pubkey``, and ``sig``; integer seconds for
+        ``created_at``; integer kind; raw ``content`` string; and an
+        immutable tuple-of-tuples for ``tags``.  Binary conversions
+        (``bytes.fromhex``) and JSON serialization (``json.dumps``)
+        happen once in ``_compute_db_params`` and are cached.
 
-        The ``__getattr__`` delegation means this class does **not** define
-        ``id``, ``kind``, ``content``, etc. as attributes -- they are resolved
-        at runtime from the wrapped ``nostr_sdk.Event``.
+        Equality and hashing are based on the domain fields
+        (``id``, ``pubkey``, ``created_at``, ``kind``).  Fields with
+        ``compare=False`` (``tags``, ``content``, ``sig``) are excluded
+        because ``id`` is already the SHA-256 of the full event content.
 
     See Also:
         [EventDbParams][bigbrotr.models.event.EventDbParams]: Database parameter
@@ -110,68 +105,78 @@ class Event:
             event kinds used across services.
     """
 
-    _nostr_event: NostrEvent
+    event: InitVar[NostrEvent]
+
+    id: str = field(init=False)
+    pubkey: str = field(init=False)
+    created_at: int = field(init=False)
+    kind: int = field(init=False)
+    tags: tuple[tuple[str, ...], ...] = field(init=False, repr=False, compare=False)
+    content: str = field(init=False, repr=False, compare=False)
+    sig: str = field(init=False, repr=False, compare=False)
     _db_params: EventDbParams = field(
         default=None,
         init=False,
         repr=False,
         compare=False,
-        hash=False,  # type: ignore[assignment]  # mypy expects bool literal, field() accepts it at runtime
+        hash=False,  # type: ignore[assignment]
     )
 
     _MAX_TAG_VALUE_LENGTH: ClassVar[int] = 2048
 
-    def __post_init__(self) -> None:
-        """Validate the event for database compatibility on construction."""
-        validate_instance(self._nostr_event, NostrEvent, "_nostr_event")
-        event_id = self._nostr_event.id().to_hex()[:16]
+    def __post_init__(self, event: NostrEvent) -> None:
+        """Validate the event and extract all fields from the FFI object."""
+        validate_instance(event, NostrEvent, "event")
 
-        if "\x00" in self._nostr_event.content():
-            raise ValueError(f"Event {event_id}... content contains null bytes")
+        event_id = event.id().to_hex()
+        object.__setattr__(self, "id", event_id)
+        object.__setattr__(self, "pubkey", event.author().to_hex())
+        object.__setattr__(self, "created_at", event.created_at().as_secs())
+        object.__setattr__(self, "kind", event.kind().as_u16())
+        object.__setattr__(self, "sig", event.signature())
 
-        for tag in self._nostr_event.tags().to_vec():
-            for value in tag.as_vec():
+        content = event.content()
+        if "\x00" in content:
+            raise ValueError(f"Event {event_id[:16]}... content contains null bytes")
+        object.__setattr__(self, "content", content)
+
+        tags_list: list[tuple[str, ...]] = []
+        for tag in event.tags().to_vec():
+            values = tag.as_vec()
+            for value in values:
                 if "\x00" in value:
-                    raise ValueError(f"Event {event_id}... tags contain null bytes")
+                    raise ValueError(f"Event {event_id[:16]}... tags contain null bytes")
                 if len(value) > Event._MAX_TAG_VALUE_LENGTH:
                     raise ValueError(
-                        f"Event {event_id}... tag value exceeds {Event._MAX_TAG_VALUE_LENGTH} "
-                        f"chars ({len(value)})"
+                        f"Event {event_id[:16]}... tag value exceeds "
+                        f"{Event._MAX_TAG_VALUE_LENGTH} chars ({len(value)})"
                     )
+            tags_list.append(tuple(values))
+        object.__setattr__(self, "tags", tuple(tags_list))
 
         object.__setattr__(self, "_db_params", self._compute_db_params())
-
-    def __getattr__(self, name: str) -> Any:
-        """Delegate attribute access to the wrapped NostrEvent."""
-        try:
-            return getattr(self._nostr_event, name)
-        except AttributeError:
-            raise AttributeError(
-                f"'{type(self).__name__}' object has no attribute '{name}'"
-            ) from None
 
     def _compute_db_params(self) -> EventDbParams:
         """Compute positional parameters for the database insert procedure.
 
         Called once during ``__post_init__`` to populate the ``_db_params``
-        cache. All subsequent access goes through
-        [to_db_params()][bigbrotr.models.event.Event.to_db_params].
+        cache.  Domain fields store protocol-native representations (hex
+        strings, tuples); this method performs the one-time conversion to
+        database types (binary bytes, JSON strings).
 
         Returns:
             [EventDbParams][bigbrotr.models.event.EventDbParams] with binary
             id/pubkey/sig, integer timestamps, JSON-encoded tags, and raw
             content string.
         """
-        inner = self._nostr_event
-        tags_list = [list(tag.as_vec()) for tag in inner.tags().to_vec()]
         return EventDbParams(
-            id=bytes.fromhex(inner.id().to_hex()),
-            pubkey=bytes.fromhex(inner.author().to_hex()),
-            created_at=inner.created_at().as_secs(),
-            kind=inner.kind().as_u16(),
-            tags=json.dumps(tags_list),
-            content=inner.content(),
-            sig=bytes.fromhex(inner.signature()),
+            id=bytes.fromhex(self.id),
+            pubkey=bytes.fromhex(self.pubkey),
+            created_at=self.created_at,
+            kind=self.kind,
+            tags=json.dumps([list(t) for t in self.tags]),
+            content=self.content,
+            sig=bytes.fromhex(self.sig),
         )
 
     def to_db_params(self) -> EventDbParams:

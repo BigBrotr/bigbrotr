@@ -76,10 +76,8 @@ def _make_mock_event(created_at_secs: int) -> MagicMock:
     global _mock_event_counter  # noqa: PLW0603
     _mock_event_counter += 1
     event = MagicMock()
-    mock_timestamp = MagicMock()
-    mock_timestamp.as_secs.return_value = created_at_secs
-    event.created_at.return_value = mock_timestamp
-    event.id.return_value.to_hex.return_value = f"{_mock_event_counter:064x}"
+    event.created_at = created_at_secs
+    event.id = f"{_mock_event_counter:064x}"
     return event
 
 

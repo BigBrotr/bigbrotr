@@ -90,15 +90,40 @@ def event(mock_nostr_event):
 
 
 class TestConstruction:
-    """Event construction and initialization."""
+    """Event construction and field extraction."""
 
-    def test_construction_with_nostr_event(self, mock_nostr_event):
+    def test_construction_extracts_id(self, mock_nostr_event):
         event = Event(mock_nostr_event)
-        assert event._nostr_event is mock_nostr_event
+        assert event.id == "a" * 64
 
-    def test_construction_preserves_reference(self, mock_nostr_event):
+    def test_construction_extracts_pubkey(self, mock_nostr_event):
         event = Event(mock_nostr_event)
-        assert event._nostr_event is mock_nostr_event
+        assert event.pubkey == "b" * 64
+
+    def test_construction_extracts_created_at(self, mock_nostr_event):
+        event = Event(mock_nostr_event)
+        assert event.created_at == 1700000000
+
+    def test_construction_extracts_kind(self, mock_nostr_event):
+        event = Event(mock_nostr_event)
+        assert event.kind == 1
+
+    def test_construction_extracts_content(self, mock_nostr_event):
+        event = Event(mock_nostr_event)
+        assert event.content == "Hello, Nostr!"
+
+    def test_construction_extracts_sig(self, mock_nostr_event):
+        event = Event(mock_nostr_event)
+        assert event.sig == "e" * 128
+
+    def test_construction_extracts_tags(self, mock_nostr_event):
+        event = Event(mock_nostr_event)
+        assert event.tags == (("e", "c" * 64), ("p", "d" * 64))
+
+    def test_construction_does_not_retain_ffi_reference(self, mock_nostr_event):
+        """InitVar means _nostr_event is not stored as a field."""
+        event = Event(mock_nostr_event)
+        assert not hasattr(event, "_nostr_event")
 
 
 # =============================================================================
@@ -119,9 +144,8 @@ class TestNullByteValidation:
         with pytest.raises(ValueError, match="tags contain null bytes"):
             Event(mock)
 
-    def test_accepts_content_without_null_byte(self, mock_nostr_event):
-        event = Event(mock_nostr_event)
-        assert event.content() == "Hello, Nostr!"
+    def test_accepts_content_without_null_byte(self, event):
+        assert event.content == "Hello, Nostr!"
 
     def test_error_message_includes_event_id(self):
         mock = _make_mock_nostr_event(content="Bad\x00Content")
@@ -149,15 +173,13 @@ class TestNullByteValidation:
 class TestImmutability:
     """Frozen dataclass behavior."""
 
-    def test_attribute_mutation_blocked(self, mock_nostr_event):
-        event = Event(mock_nostr_event)
+    def test_attribute_mutation_blocked(self, event):
         with pytest.raises(FrozenInstanceError):
-            event._nostr_event = MagicMock()
+            event.id = "new_id"
 
-    def test_attribute_deletion_blocked(self, mock_nostr_event):
-        event = Event(mock_nostr_event)
+    def test_attribute_deletion_blocked(self, event):
         with pytest.raises(FrozenInstanceError):
-            del event._nostr_event
+            del event.id
 
 
 # =============================================================================
@@ -168,76 +190,18 @@ class TestImmutability:
 class TestSlots:
     """__slots__ definition for memory efficiency."""
 
-    def test_has_nostr_event_slot(self):
+    def test_has_slots(self):
         assert hasattr(Event, "__slots__")
-        assert "_nostr_event" in Event.__slots__
+
+    def test_domain_fields_in_slots(self):
+        for field_name in ("id", "pubkey", "created_at", "kind", "tags", "content", "sig"):
+            assert field_name in Event.__slots__
 
     def test_no_instance_dict(self):
         assert "__dict__" not in dir(Event)
 
-
-# =============================================================================
-# Delegation Tests
-# =============================================================================
-
-
-class TestDelegation:
-    """Method delegation to wrapped NostrEvent via __getattr__."""
-
-    def test_id_delegates(self, mock_nostr_event):
-        event = Event(mock_nostr_event)
-        event.id()
-        assert mock_nostr_event.id.call_count >= 1
-
-    def test_author_delegates(self, mock_nostr_event):
-        event = Event(mock_nostr_event)
-        event.author()
-        assert mock_nostr_event.author.call_count >= 1
-
-    def test_created_at_delegates(self, mock_nostr_event):
-        event = Event(mock_nostr_event)
-        event.created_at()
-        assert mock_nostr_event.created_at.call_count >= 1
-
-    def test_kind_delegates(self, mock_nostr_event):
-        event = Event(mock_nostr_event)
-        event.kind()
-        assert mock_nostr_event.kind.call_count >= 1
-
-    def test_tags_delegates(self, mock_nostr_event):
-        event = Event(mock_nostr_event)
-        event.tags()
-        assert mock_nostr_event.tags.call_count >= 1
-
-    def test_content_delegates(self, mock_nostr_event):
-        event = Event(mock_nostr_event)
-        event.content()
-        assert mock_nostr_event.content.call_count >= 1
-
-    def test_signature_delegates(self, mock_nostr_event):
-        event = Event(mock_nostr_event)
-        event.signature()
-        assert mock_nostr_event.signature.call_count >= 1
-
-    def test_verify_delegates(self, mock_nostr_event):
-        event = Event(mock_nostr_event)
-        event.verify()
-        mock_nostr_event.verify.assert_called_once()
-
-    def test_any_method_delegates(self, mock_nostr_event):
-        event = Event(mock_nostr_event)
-        unrestricted = MagicMock()
-        unrestricted.some_future_method.return_value = "result"
-        object.__setattr__(event, "_nostr_event", unrestricted)
-        result = event.some_future_method()
-        assert result == "result"
-        unrestricted.some_future_method.assert_called_once()
-
-    def test_missing_attribute_raises_clear_error(self, mock_nostr_event):
-        event = Event(mock_nostr_event)
-        object.__setattr__(event, "_nostr_event", MagicMock(spec=["id", "kind", "content"]))
-        with pytest.raises(AttributeError, match="'Event' object has no attribute 'nonexistent'"):
-            _ = event.nonexistent
+    def test_no_nostr_event_slot(self):
+        assert "_nostr_event" not in Event.__slots__
 
 
 # =============================================================================
@@ -324,31 +288,31 @@ class TestEdgeCases:
     def test_large_content(self):
         mock = _make_mock_nostr_event(content="x" * 100000)
         event = Event(mock)
-        params = event.to_db_params()
-        assert len(params.content) == 100000
+        assert event.content == "x" * 100000
 
     def test_unicode_content(self):
         mock = _make_mock_nostr_event(content="Hello World")
         event = Event(mock)
-        params = event.to_db_params()
-        assert params.content == "Hello World"
+        assert event.content == "Hello World"
 
     def test_many_tags(self):
         tags = [["t", f"tag{i}"] for i in range(100)]
         mock = _make_mock_nostr_event(tags=tags, content="Test")
         event = Event(mock)
-        params = event.to_db_params()
-        parsed_tags = json.loads(params.tags)
-        assert len(parsed_tags) == 100
-        assert parsed_tags[0] == ["t", "tag0"]
-        assert parsed_tags[99] == ["t", "tag99"]
+        assert len(event.tags) == 100
+        assert event.tags[0] == ("t", "tag0")
+        assert event.tags[99] == ("t", "tag99")
 
     def test_complex_nested_tags(self):
         mock = _make_mock_nostr_event(tags=[["a", "b", "c", "d", "e"]], content="Test")
         event = Event(mock)
-        params = event.to_db_params()
-        parsed_tags = json.loads(params.tags)
-        assert parsed_tags == [["a", "b", "c", "d", "e"]]
+        assert event.tags == (("a", "b", "c", "d", "e"),)
+
+    def test_tags_are_immutable_tuples(self):
+        mock = _make_mock_nostr_event(tags=[["e", "test"]])
+        event = Event(mock)
+        assert isinstance(event.tags, tuple)
+        assert isinstance(event.tags[0], tuple)
 
 
 # =============================================================================
@@ -357,17 +321,44 @@ class TestEdgeCases:
 
 
 class TestEquality:
-    """Equality behavior based on frozen dataclass."""
+    """Equality behavior based on domain fields."""
 
-    def test_same_nostr_event_equal(self, mock_nostr_event):
+    def test_same_data_equal(self, mock_nostr_event):
         event1 = Event(mock_nostr_event)
         event2 = Event(mock_nostr_event)
         assert event1 == event2
 
-    def test_different_nostr_event_not_equal(self, mock_nostr_event, mock_nostr_event_empty_tags):
+    def test_different_data_not_equal(self, mock_nostr_event, mock_nostr_event_empty_tags):
         event1 = Event(mock_nostr_event)
         event2 = Event(mock_nostr_event_empty_tags)
         assert event1 != event2
+
+    def test_hashable(self, mock_nostr_event):
+        event = Event(mock_nostr_event)
+        assert hash(event) == hash(event)
+
+    def test_same_data_same_hash(self, mock_nostr_event):
+        event1 = Event(mock_nostr_event)
+        event2 = Event(mock_nostr_event)
+        assert hash(event1) == hash(event2)
+
+
+# =============================================================================
+# Repr Tests
+# =============================================================================
+
+
+class TestRepr:
+    """String representation."""
+
+    def test_repr_contains_id(self, event):
+        assert "a" * 64 in repr(event)
+
+    def test_repr_contains_kind(self, event):
+        assert "kind=1" in repr(event)
+
+    def test_repr_contains_created_at(self, event):
+        assert "1700000000" in repr(event)
 
 
 # =============================================================================
@@ -379,13 +370,13 @@ class TestTypeValidation:
     """Runtime type validation in __post_init__."""
 
     def test_non_nostr_event_rejected(self):
-        with pytest.raises(TypeError, match="_nostr_event must be an Event"):
+        with pytest.raises(TypeError, match="event must be an Event"):
             Event("not an event")  # type: ignore[arg-type]
 
     def test_none_rejected(self):
-        with pytest.raises(TypeError, match="_nostr_event must be an Event"):
+        with pytest.raises(TypeError, match="event must be an Event"):
             Event(None)  # type: ignore[arg-type]
 
     def test_dict_rejected(self):
-        with pytest.raises(TypeError, match="_nostr_event must be an Event"):
+        with pytest.raises(TypeError, match="event must be an Event"):
             Event({"id": "abc"})  # type: ignore[arg-type]

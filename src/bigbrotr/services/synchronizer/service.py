@@ -180,8 +180,8 @@ class Synchronizer(
             buffer.append(EventRelay(event, relay))
             pending_cursors[relay.url] = SyncCursor(
                 key=relay.url,
-                timestamp=event.created_at().as_secs(),
-                id=event.id().to_hex(),
+                timestamp=event.created_at,
+                id=event.id,
             )
             self.inc_gauge("events_seen")
             if len(buffer) == batch_size:
