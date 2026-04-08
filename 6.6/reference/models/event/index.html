@@ -5223,9 +5223,10 @@
     <div class="doc doc-contents first">
 
         <p>Immutable Nostr event wrapper with database serialization.</p>
-<p>Wraps <code>nostr_sdk.Event</code> in a frozen dataclass that transparently delegates
-attribute access to the underlying SDK object while adding database conversion
-via <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-method&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;to_db_params&lt;/span&gt;" href="#bigbrotr.models.event.Event.to_db_params">to_db_params()</a>.</p>
+<p>Accepts a <code>nostr_sdk.Event</code> at construction, eagerly extracts all fields
+into Python-native types, and releases the FFI reference.  The underlying
+<code>NostrEvent</code> is consumed during construction and NOT retained, preventing
+Rust-side memory from accumulating across event processing pipelines.</p>
 
 
 <details class="see-also" open>
@@ -5401,7 +5402,7 @@ and consumed by the <code>event_insert</code> stored procedure in PostgreSQL.</p
   </span>
 
 <a href="#bigbrotr.models.event.Event" class="headerlink" title="Permanent link">&para;</a></h4>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">Event</span><span class="p">(</span><span class="n">_nostr_event</span><span class="p">:</span> <span class="n"><span title="nostr_sdk.Event">Event</span></span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">Event</span><span class="p">(</span><span class="n">event</span><span class="p">:</span> <span class="n"><span title="dataclasses.InitVar">InitVar</span></span><span class="p">[</span><span class="n"><span title="nostr_sdk.Event">Event</span></span><span class="p">])</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -5409,9 +5410,11 @@ and consumed by the <code>event_insert</code> stored procedure in PostgreSQL.</p
 
 
         <p>Immutable Nostr event with database conversion.</p>
-<p>All attribute access is transparently delegated to the inner
-<code>nostr_sdk.Event</code> via <code>__getattr__</code>, so SDK methods like
-<code>id()</code>, <code>kind()</code>, and <code>content()</code> work directly.</p>
+<p>Accepts a <code>nostr_sdk.Event</code> at construction, validates it for
+database compatibility, extracts all fields into Python-native types,
+and releases the FFI reference.  The underlying <code>NostrEvent</code> is NOT
+retained after construction -- all domain data lives in regular Python
+fields, consistent with every other model in this package.</p>
 <p>Validation is performed eagerly at construction time:</p>
 <ul>
 <li>Content and tag values are checked for null bytes, which
@@ -5425,11 +5428,12 @@ and consumed by the <code>event_insert</code> stored procedure in PostgreSQL.</p
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-            <b><code>_nostr_event</code></b>
-              (<code><span title="nostr_sdk.Event">Event</span></code>)
+            <b><code>event</code></b>
+              (<code><span title="dataclasses.InitVar">InitVar</span>[<span title="nostr_sdk.Event">Event</span>]</code>)
           –
           <div class="doc-md-description">
-            <p>The underlying <code>nostr_sdk.Event</code> instance.</p>
+            <p>The <code>nostr_sdk.Event</code> to extract data from.
+Consumed during construction and not retained.</p>
           </div>
         </li>
     </ul>
@@ -5448,27 +5452,18 @@ database parameter conversion fails.</p>
     </ul>
 
 
-<p><span class="doc-section-title">Examples:</span></p>
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">nostr_sdk</span><span class="w"> </span><span class="kn">import</span> <span class="n">Event</span> <span class="k">as</span> <span class="n">NostrEvent</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">nostr_event</span> <span class="o">=</span> <span class="n">NostrEvent</span><span class="o">.</span><span class="n">from_json</span><span class="p">(</span><span class="s1">&#39;{&quot;id&quot;: &quot;ab...&quot;, ...}&#39;</span><span class="p">)</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">event</span> <span class="o">=</span> <span class="n">Event</span><span class="p">(</span><span class="n">nostr_event</span><span class="p">)</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">event</span><span class="o">.</span><span class="n">id</span><span class="p">()</span>         <span class="c1"># Delegates to nostr_sdk.Event</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">event</span><span class="o">.</span><span class="n">content</span><span class="p">()</span>    <span class="c1"># Delegates to nostr_sdk.Event</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">params</span> <span class="o">=</span> <span class="n">event</span><span class="o">.</span><span class="n">to_db_params</span><span class="p">()</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">params</span><span class="o">.</span><span class="n">kind</span>        <span class="c1"># Integer event kind (e.g. 1)</span>
-</code></pre></div>
-
-
 <details class="note" open>
   <summary>Note</summary>
-  <p>Binary fields (<code>id</code>, <code>pubkey</code>, <code>sig</code>) are stored as <code>bytes</code>
-in <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;EventDbParams&lt;/span&gt;" href="#bigbrotr.models.event.EventDbParams">EventDbParams</a> for direct
-insertion into PostgreSQL BYTEA columns. The hex-to-bytes conversion
-happens once during <code>__post_init__</code> and is cached.</p>
-<p>The <code>__getattr__</code> delegation means this class does <strong>not</strong> define
-<code>id</code>, <code>kind</code>, <code>content</code>, etc. as attributes -- they are resolved
-at runtime from the wrapped <code>nostr_sdk.Event</code>.</p>
+  <p>Domain fields store protocol-native representations: hex strings
+for <code>id</code>, <code>pubkey</code>, and <code>sig</code>; integer seconds for
+<code>created_at</code>; integer kind; raw <code>content</code> string; and an
+immutable tuple-of-tuples for <code>tags</code>.  Binary conversions
+(<code>bytes.fromhex</code>) and JSON serialization (<code>json.dumps</code>)
+happen once in <code>_compute_db_params</code> and are cached.</p>
+<p>Equality and hashing are based on the domain fields
+(<code>id</code>, <code>pubkey</code>, <code>created_at</code>, <code>kind</code>).  Fields with
+<code>compare=False</code> (<code>tags</code>, <code>content</code>, <code>sig</code>) are excluded
+because <code>id</code> is already the SHA-256 of the full event content.</p>
 </details>
 
 <details class="see-also" open>
@@ -5560,31 +5555,31 @@ and tag serialization.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/bigbrotr/models/event.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-177">177</a></span>
-<span class="normal"><a href="#__codelineno-0-178">178</a></span>
-<span class="normal"><a href="#__codelineno-0-179">179</a></span>
-<span class="normal"><a href="#__codelineno-0-180">180</a></span>
-<span class="normal"><a href="#__codelineno-0-181">181</a></span>
-<span class="normal"><a href="#__codelineno-0-182">182</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-182">182</a></span>
 <span class="normal"><a href="#__codelineno-0-183">183</a></span>
 <span class="normal"><a href="#__codelineno-0-184">184</a></span>
 <span class="normal"><a href="#__codelineno-0-185">185</a></span>
 <span class="normal"><a href="#__codelineno-0-186">186</a></span>
 <span class="normal"><a href="#__codelineno-0-187">187</a></span>
 <span class="normal"><a href="#__codelineno-0-188">188</a></span>
-<span class="normal"><a href="#__codelineno-0-189">189</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-177" name="__codelineno-0-177"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_db_params</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">EventDbParams</span><span class="p">:</span>
-<a id="__codelineno-0-178" name="__codelineno-0-178"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return cached positional parameters for the database insert procedure.</span>
-<a id="__codelineno-0-179" name="__codelineno-0-179"></a>
-<a id="__codelineno-0-180" name="__codelineno-0-180"></a><span class="sd">    The result is computed once during construction and cached for the</span>
-<a id="__codelineno-0-181" name="__codelineno-0-181"></a><span class="sd">    lifetime of the (frozen) instance, avoiding repeated hex conversions</span>
-<a id="__codelineno-0-182" name="__codelineno-0-182"></a><span class="sd">    and tag serialization.</span>
-<a id="__codelineno-0-183" name="__codelineno-0-183"></a>
-<a id="__codelineno-0-184" name="__codelineno-0-184"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-185" name="__codelineno-0-185"></a><span class="sd">        [EventDbParams][bigbrotr.models.event.EventDbParams] with binary</span>
-<a id="__codelineno-0-186" name="__codelineno-0-186"></a><span class="sd">        id/pubkey/sig, integer timestamps, JSON-encoded tags, and raw</span>
-<a id="__codelineno-0-187" name="__codelineno-0-187"></a><span class="sd">        content string.</span>
-<a id="__codelineno-0-188" name="__codelineno-0-188"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-189" name="__codelineno-0-189"></a>    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_db_params</span>
+<span class="normal"><a href="#__codelineno-0-189">189</a></span>
+<span class="normal"><a href="#__codelineno-0-190">190</a></span>
+<span class="normal"><a href="#__codelineno-0-191">191</a></span>
+<span class="normal"><a href="#__codelineno-0-192">192</a></span>
+<span class="normal"><a href="#__codelineno-0-193">193</a></span>
+<span class="normal"><a href="#__codelineno-0-194">194</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-182" name="__codelineno-0-182"></a><span class="k">def</span><span class="w"> </span><span class="nf">to_db_params</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">EventDbParams</span><span class="p">:</span>
+<a id="__codelineno-0-183" name="__codelineno-0-183"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return cached positional parameters for the database insert procedure.</span>
+<a id="__codelineno-0-184" name="__codelineno-0-184"></a>
+<a id="__codelineno-0-185" name="__codelineno-0-185"></a><span class="sd">    The result is computed once during construction and cached for the</span>
+<a id="__codelineno-0-186" name="__codelineno-0-186"></a><span class="sd">    lifetime of the (frozen) instance, avoiding repeated hex conversions</span>
+<a id="__codelineno-0-187" name="__codelineno-0-187"></a><span class="sd">    and tag serialization.</span>
+<a id="__codelineno-0-188" name="__codelineno-0-188"></a>
+<a id="__codelineno-0-189" name="__codelineno-0-189"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-190" name="__codelineno-0-190"></a><span class="sd">        [EventDbParams][bigbrotr.models.event.EventDbParams] with binary</span>
+<a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="sd">        id/pubkey/sig, integer timestamps, JSON-encoded tags, and raw</span>
+<a id="__codelineno-0-192" name="__codelineno-0-192"></a><span class="sd">        content string.</span>
+<a id="__codelineno-0-193" name="__codelineno-0-193"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-194" name="__codelineno-0-194"></a>    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_db_params</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
