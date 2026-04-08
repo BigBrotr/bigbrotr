@@ -5,9 +5,13 @@
 # Scraped every 30s by Prometheus via postgres_exporter.
 #
 # Design decisions:
-#   - Row counts use pg_class.reltuples (O(1), ~95% accurate after ANALYZE)
-#   - relay/relay_by_network use COUNT on relay table (small, <10k rows)
-#   - No materialized view dependency: all queries hit base tables or pg_catalog
+#   - All queries auto-discover tables/views from pg_catalog — no hardcoded
+#     table names.  Adding tables, views, or partitions requires zero changes.
+#   - Partitioned parents aggregate stats from child partitions via pg_inherits.
+#     Child partitions are excluded from top-level results.
+#   - Row counts use pg_class.reltuples (O(1), ~95% accurate after ANALYZE).
+#   - relay/relay_by_network use COUNT on relay table (small, <10k rows).
+#   - No materialized view dependency: all queries hit base tables or pg_catalog.
 # ============================================================================
 
 bigbrotr_overview:
@@ -71,17 +75,16 @@ bigbrotr_matview_sizes:
 
 bigbrotr_row_estimates:
   query: |
-    SELECT table_name, GREATEST(approx_rows, 0)::float AS approx_rows
-    FROM (
-      SELECT c.relname AS table_name,
-             CASE WHEN c.relkind = 'p'
-                  THEN COALESCE((SELECT SUM(child.reltuples) FROM pg_inherits i JOIN pg_class child ON child.oid = i.inhrelid WHERE i.inhparent = c.oid), 0)
-                  ELSE c.reltuples
-             END AS approx_rows
-      FROM pg_class c
-      WHERE c.relname IN ('relay', 'event', 'event_relay', 'metadata', 'relay_metadata', 'service_state')
-        AND c.relkind IN ('r', 'p')
-    ) sub
+    SELECT c.relname AS table_name,
+           CASE WHEN c.relkind = 'p'
+                THEN GREATEST(COALESCE((SELECT SUM(child.reltuples) FROM pg_inherits i JOIN pg_class child ON child.oid = i.inhrelid WHERE i.inhparent = c.oid), 0), 0)
+                ELSE GREATEST(c.reltuples, 0)
+           END::float AS approx_rows
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+      AND NOT EXISTS (SELECT 1 FROM pg_inherits WHERE inhrelid = c.oid)
+    ORDER BY approx_rows DESC
   metrics:
     - table_name:
         usage: "LABEL"
@@ -92,15 +95,12 @@ bigbrotr_row_estimates:
 
 bigbrotr_matview_row_estimates:
   query: |
-    SELECT relname AS view_name,
-           GREATEST(reltuples, 0)::float AS approx_rows
-    FROM pg_class
-    WHERE relname IN (
-      'relay_metadata_latest', 'event_stats', 'relay_stats',
-      'kind_counts', 'kind_counts_by_relay', 'pubkey_counts',
-      'pubkey_counts_by_relay', 'network_stats', 'relay_software_counts',
-      'supported_nip_counts', 'event_daily_counts'
-    ) AND relkind = 'm'
+    SELECT c.relname AS view_name,
+           GREATEST(c.reltuples, 0)::float AS approx_rows
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relkind = 'm'
+    ORDER BY approx_rows DESC
   metrics:
     - view_name:
         usage: "LABEL"
@@ -161,7 +161,8 @@ bigbrotr_partition_distribution:
     FROM pg_inherits
     JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
     JOIN pg_class child ON pg_inherits.inhrelid = child.oid
-    WHERE parent.relname IN ('event', 'event_relay')
+    JOIN pg_namespace n ON n.oid = parent.relnamespace
+    WHERE n.nspname = 'public'
   metrics:
     - parent_table:
         usage: "LABEL"
