@@ -5401,11 +5401,11 @@ Supports per-table pricing with bid/payment-required negotiation.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/bigbrotr/services/dvm/service.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-150">150</a></span>
-<span class="normal"><a href="#__codelineno-0-151">151</a></span>
-<span class="normal"><a href="#__codelineno-0-152">152</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-150" name="__codelineno-0-150"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">cleanup</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<a id="__codelineno-0-151" name="__codelineno-0-151"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;No-op: Dvm does not use service state.&quot;&quot;&quot;</span>
-<a id="__codelineno-0-152" name="__codelineno-0-152"></a>    <span class="k">return</span> <span class="mi">0</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-149">149</a></span>
+<span class="normal"><a href="#__codelineno-0-150">150</a></span>
+<span class="normal"><a href="#__codelineno-0-151">151</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-149" name="__codelineno-0-149"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">cleanup</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<a id="__codelineno-0-150" name="__codelineno-0-150"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;No-op: Dvm does not use service state.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-151" name="__codelineno-0-151"></a>    <span class="k">return</span> <span class="mi">0</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -5438,7 +5438,8 @@ manages the dedup set size.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/bigbrotr/services/dvm/service.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-154">154</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-153">153</a></span>
+<span class="normal"><a href="#__codelineno-0-154">154</a></span>
 <span class="normal"><a href="#__codelineno-0-155">155</a></span>
 <span class="normal"><a href="#__codelineno-0-156">156</a></span>
 <span class="normal"><a href="#__codelineno-0-157">157</a></span>
@@ -5472,43 +5473,42 @@ manages the dedup set size.</p>
 <span class="normal"><a href="#__codelineno-0-185">185</a></span>
 <span class="normal"><a href="#__codelineno-0-186">186</a></span>
 <span class="normal"><a href="#__codelineno-0-187">187</a></span>
-<span class="normal"><a href="#__codelineno-0-188">188</a></span>
-<span class="normal"><a href="#__codelineno-0-189">189</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-154" name="__codelineno-0-154"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-155" name="__codelineno-0-155"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Fetch and process NIP-90 job requests for one cycle.</span>
-<a id="__codelineno-0-156" name="__codelineno-0-156"></a>
-<a id="__codelineno-0-157" name="__codelineno-0-157"></a><span class="sd">    Captures the current timestamp before fetching so that events</span>
-<a id="__codelineno-0-158" name="__codelineno-0-158"></a><span class="sd">    arriving during processing are not lost (the dedup set handles</span>
-<a id="__codelineno-0-159" name="__codelineno-0-159"></a><span class="sd">    the overlap window).  After processing, updates metrics and</span>
-<a id="__codelineno-0-160" name="__codelineno-0-160"></a><span class="sd">    manages the dedup set size.</span>
-<a id="__codelineno-0-161" name="__codelineno-0-161"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-162" name="__codelineno-0-162"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-163" name="__codelineno-0-163"></a>        <span class="k">return</span>
-<a id="__codelineno-0-164" name="__codelineno-0-164"></a>
-<a id="__codelineno-0-165" name="__codelineno-0-165"></a>    <span class="c1"># Capture timestamp before fetching so events arriving during</span>
-<a id="__codelineno-0-166" name="__codelineno-0-166"></a>    <span class="c1"># processing are not lost (dedup set handles the overlap)</span>
-<a id="__codelineno-0-167" name="__codelineno-0-167"></a>    <span class="n">fetch_ts</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())</span>
-<a id="__codelineno-0-168" name="__codelineno-0-168"></a>    <span class="n">events</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fetch_job_requests</span><span class="p">()</span>
-<a id="__codelineno-0-169" name="__codelineno-0-169"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">events</span><span class="p">:</span>
-<a id="__codelineno-0-170" name="__codelineno-0-170"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_last_fetch_ts</span> <span class="o">=</span> <span class="n">fetch_ts</span>
-<a id="__codelineno-0-171" name="__codelineno-0-171"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_report_metrics</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-0-172" name="__codelineno-0-172"></a>        <span class="k">return</span>
-<a id="__codelineno-0-173" name="__codelineno-0-173"></a>
-<a id="__codelineno-0-174" name="__codelineno-0-174"></a>    <span class="n">received</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-0-175" name="__codelineno-0-175"></a>    <span class="n">processed</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-0-176" name="__codelineno-0-176"></a>    <span class="n">failed</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-0-177" name="__codelineno-0-177"></a>    <span class="n">payment_required</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-0-178" name="__codelineno-0-178"></a>    <span class="n">pubkey_hex</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">keys</span><span class="o">.</span><span class="n">public_key</span><span class="p">()</span><span class="o">.</span><span class="n">to_hex</span><span class="p">()</span>
-<a id="__codelineno-0-179" name="__codelineno-0-179"></a>
-<a id="__codelineno-0-180" name="__codelineno-0-180"></a>    <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">events</span><span class="p">:</span>
-<a id="__codelineno-0-181" name="__codelineno-0-181"></a>        <span class="n">r</span><span class="p">,</span> <span class="n">p</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">pr</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_process_event</span><span class="p">(</span><span class="n">event</span><span class="p">,</span> <span class="n">pubkey_hex</span><span class="p">)</span>
-<a id="__codelineno-0-182" name="__codelineno-0-182"></a>        <span class="n">received</span> <span class="o">+=</span> <span class="n">r</span>
-<a id="__codelineno-0-183" name="__codelineno-0-183"></a>        <span class="n">processed</span> <span class="o">+=</span> <span class="n">p</span>
-<a id="__codelineno-0-184" name="__codelineno-0-184"></a>        <span class="n">failed</span> <span class="o">+=</span> <span class="n">f</span>
-<a id="__codelineno-0-185" name="__codelineno-0-185"></a>        <span class="n">payment_required</span> <span class="o">+=</span> <span class="n">pr</span>
-<a id="__codelineno-0-186" name="__codelineno-0-186"></a>
-<a id="__codelineno-0-187" name="__codelineno-0-187"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_manage_dedup_set</span><span class="p">()</span>
-<a id="__codelineno-0-188" name="__codelineno-0-188"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_last_fetch_ts</span> <span class="o">=</span> <span class="n">fetch_ts</span>
-<a id="__codelineno-0-189" name="__codelineno-0-189"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_report_metrics</span><span class="p">(</span><span class="n">received</span><span class="p">,</span> <span class="n">processed</span><span class="p">,</span> <span class="n">failed</span><span class="p">,</span> <span class="n">payment_required</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-188">188</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-153" name="__codelineno-0-153"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-154" name="__codelineno-0-154"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Fetch and process NIP-90 job requests for one cycle.</span>
+<a id="__codelineno-0-155" name="__codelineno-0-155"></a>
+<a id="__codelineno-0-156" name="__codelineno-0-156"></a><span class="sd">    Captures the current timestamp before fetching so that events</span>
+<a id="__codelineno-0-157" name="__codelineno-0-157"></a><span class="sd">    arriving during processing are not lost (the dedup set handles</span>
+<a id="__codelineno-0-158" name="__codelineno-0-158"></a><span class="sd">    the overlap window).  After processing, updates metrics and</span>
+<a id="__codelineno-0-159" name="__codelineno-0-159"></a><span class="sd">    manages the dedup set size.</span>
+<a id="__codelineno-0-160" name="__codelineno-0-160"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-161" name="__codelineno-0-161"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-162" name="__codelineno-0-162"></a>        <span class="k">return</span>
+<a id="__codelineno-0-163" name="__codelineno-0-163"></a>
+<a id="__codelineno-0-164" name="__codelineno-0-164"></a>    <span class="c1"># Capture timestamp before fetching so events arriving during</span>
+<a id="__codelineno-0-165" name="__codelineno-0-165"></a>    <span class="c1"># processing are not lost (dedup set handles the overlap)</span>
+<a id="__codelineno-0-166" name="__codelineno-0-166"></a>    <span class="n">fetch_ts</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())</span>
+<a id="__codelineno-0-167" name="__codelineno-0-167"></a>    <span class="n">events</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fetch_job_requests</span><span class="p">()</span>
+<a id="__codelineno-0-168" name="__codelineno-0-168"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">events</span><span class="p">:</span>
+<a id="__codelineno-0-169" name="__codelineno-0-169"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_last_fetch_ts</span> <span class="o">=</span> <span class="n">fetch_ts</span>
+<a id="__codelineno-0-170" name="__codelineno-0-170"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_report_metrics</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-0-171" name="__codelineno-0-171"></a>        <span class="k">return</span>
+<a id="__codelineno-0-172" name="__codelineno-0-172"></a>
+<a id="__codelineno-0-173" name="__codelineno-0-173"></a>    <span class="n">received</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-0-174" name="__codelineno-0-174"></a>    <span class="n">processed</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-0-175" name="__codelineno-0-175"></a>    <span class="n">failed</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-0-176" name="__codelineno-0-176"></a>    <span class="n">payment_required</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-0-177" name="__codelineno-0-177"></a>    <span class="n">pubkey_hex</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">keys</span><span class="o">.</span><span class="n">public_key</span><span class="p">()</span><span class="o">.</span><span class="n">to_hex</span><span class="p">()</span>
+<a id="__codelineno-0-178" name="__codelineno-0-178"></a>
+<a id="__codelineno-0-179" name="__codelineno-0-179"></a>    <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">events</span><span class="p">:</span>
+<a id="__codelineno-0-180" name="__codelineno-0-180"></a>        <span class="n">r</span><span class="p">,</span> <span class="n">p</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">pr</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_process_event</span><span class="p">(</span><span class="n">event</span><span class="p">,</span> <span class="n">pubkey_hex</span><span class="p">)</span>
+<a id="__codelineno-0-181" name="__codelineno-0-181"></a>        <span class="n">received</span> <span class="o">+=</span> <span class="n">r</span>
+<a id="__codelineno-0-182" name="__codelineno-0-182"></a>        <span class="n">processed</span> <span class="o">+=</span> <span class="n">p</span>
+<a id="__codelineno-0-183" name="__codelineno-0-183"></a>        <span class="n">failed</span> <span class="o">+=</span> <span class="n">f</span>
+<a id="__codelineno-0-184" name="__codelineno-0-184"></a>        <span class="n">payment_required</span> <span class="o">+=</span> <span class="n">pr</span>
+<a id="__codelineno-0-185" name="__codelineno-0-185"></a>
+<a id="__codelineno-0-186" name="__codelineno-0-186"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_manage_dedup_set</span><span class="p">()</span>
+<a id="__codelineno-0-187" name="__codelineno-0-187"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_last_fetch_ts</span> <span class="o">=</span> <span class="n">fetch_ts</span>
+<a id="__codelineno-0-188" name="__codelineno-0-188"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_report_metrics</span><span class="p">(</span><span class="n">received</span><span class="p">,</span> <span class="n">processed</span><span class="p">,</span> <span class="n">failed</span><span class="p">,</span> <span class="n">payment_required</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
