@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.6.3] - 2026-04-08
+
+### Fixed
+
+- **Monitoring row estimates always 0 for partitioned tables**: `overview` and `row_estimates` queries read `pg_class.reltuples` from partitioned parent tables (`event`, `event_relay`), which PostgreSQL never auto-analyzes. Now aggregates `SUM(child.reltuples)` from partitions via `pg_inherits`, same pattern already used by `table_sizes` since v6.6.0
+- **Monitoring index usage and dead tuples showed individual partitions**: `index_usage` reported 32 separate partition entries instead of aggregated parent tables. New `dead_tuples` custom query replaces built-in `pg_stat_user_tables_n_dead_tup` with partition-aggregated version. Both use `COALESCE(parent.relname, s.relname)` + `GROUP BY` to merge partition stats under the parent name
+
 ## [6.6.2] - 2026-04-08
 
 ### Fixed

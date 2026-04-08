@@ -14,14 +14,14 @@ lilbrotr_overview:
   query: |
     SELECT
       (SELECT COUNT(*)::float FROM relay) AS relay_count,
-      GREATEST((SELECT reltuples FROM pg_class WHERE relname = 'event'), 0)::float AS event_count_approx
+      GREATEST(COALESCE((SELECT SUM(child.reltuples) FROM pg_inherits i JOIN pg_class child ON child.oid = i.inhrelid WHERE i.inhparent = 'event'::regclass), 0), 0)::float AS event_count_approx
   metrics:
     - relay_count:
         usage: "GAUGE"
         description: "Total relays in database"
     - event_count_approx:
         usage: "GAUGE"
-        description: "Approximate event count (from pg_class.reltuples)"
+        description: "Approximate event count (aggregated from partitions)"
 
 lilbrotr_relay_by_network:
   query: "SELECT network, COUNT(*)::float AS count FROM relay GROUP BY network"
@@ -71,18 +71,24 @@ lilbrotr_matview_sizes:
 
 lilbrotr_row_estimates:
   query: |
-    SELECT relname AS table_name,
-           GREATEST(reltuples, 0)::float AS approx_rows
-    FROM pg_class
-    WHERE relname IN ('relay', 'event', 'event_relay', 'metadata', 'relay_metadata', 'service_state')
-      AND relkind IN ('r', 'p')
+    SELECT table_name, GREATEST(approx_rows, 0)::float AS approx_rows
+    FROM (
+      SELECT c.relname AS table_name,
+             CASE WHEN c.relkind = 'p'
+                  THEN COALESCE((SELECT SUM(child.reltuples) FROM pg_inherits i JOIN pg_class child ON child.oid = i.inhrelid WHERE i.inhparent = c.oid), 0)
+                  ELSE c.reltuples
+             END AS approx_rows
+      FROM pg_class c
+      WHERE c.relname IN ('relay', 'event', 'event_relay', 'metadata', 'relay_metadata', 'service_state')
+        AND c.relkind IN ('r', 'p')
+    ) sub
   metrics:
     - table_name:
         usage: "LABEL"
         description: "Table name"
     - approx_rows:
         usage: "GAUGE"
-        description: "Estimated row count from pg_class.reltuples"
+        description: "Estimated row count (aggregated from partitions for partitioned tables)"
 
 lilbrotr_matview_row_estimates:
   query: |
@@ -105,21 +111,47 @@ lilbrotr_matview_row_estimates:
 
 lilbrotr_index_usage:
   query: |
-    SELECT relname AS table_name,
+    SELECT table_name,
            CASE WHEN (seq_scan + idx_scan) > 0
                 THEN idx_scan::float / (seq_scan + idx_scan)
                 ELSE 1.0
            END AS ratio
-    FROM pg_stat_user_tables
-    WHERE schemaname = 'public'
+    FROM (
+      SELECT COALESCE(parent.relname, s.relname) AS table_name,
+             SUM(s.seq_scan) AS seq_scan,
+             SUM(s.idx_scan) AS idx_scan
+      FROM pg_stat_user_tables s
+      LEFT JOIN pg_inherits i ON i.inhrelid = s.relid
+      LEFT JOIN pg_class parent ON parent.oid = i.inhparent
+      WHERE s.schemaname = 'public'
+      GROUP BY COALESCE(parent.relname, s.relname)
+    ) agg
     ORDER BY (seq_scan + idx_scan) DESC
   metrics:
     - table_name:
         usage: "LABEL"
-        description: "Table name"
+        description: "Table name (partitions aggregated under parent)"
     - ratio:
         usage: "GAUGE"
         description: "Index usage ratio (1.0 = all index scans)"
+
+lilbrotr_dead_tuples:
+  query: |
+    SELECT COALESCE(parent.relname, s.relname) AS table_name,
+           SUM(s.n_dead_tup)::float AS dead_tuples
+    FROM pg_stat_user_tables s
+    LEFT JOIN pg_inherits i ON i.inhrelid = s.relid
+    LEFT JOIN pg_class parent ON parent.oid = i.inhparent
+    WHERE s.schemaname = 'public'
+    GROUP BY COALESCE(parent.relname, s.relname)
+    ORDER BY dead_tuples DESC
+  metrics:
+    - table_name:
+        usage: "LABEL"
+        description: "Table name (partitions aggregated under parent)"
+    - dead_tuples:
+        usage: "GAUGE"
+        description: "Total dead tuples (partitions aggregated)"
 
 lilbrotr_partition_distribution:
   query: |
