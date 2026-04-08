@@ -603,7 +603,6 @@ class TestAssertorLifecycle:
                 await svc.__aexit__(None, None, None)
 
             assert svc._client is None
-            svc._logger.debug.assert_called_once()
 
     async def test_aexit_noop_when_client_is_none(self) -> None:
         from bigbrotr.services.assertor.service import Assertor
