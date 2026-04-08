@@ -1923,8 +1923,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "topk(10, pg_stat_user_tables_n_dead_tup)",
-          "legendFormat": "{{relname}}",
+          "expr": "topk(10, bigbrotr_dead_tuples_dead_tuples)",
+          "legendFormat": "{{table_name}}",
           "instant": true,
           "refId": "A"
         }
