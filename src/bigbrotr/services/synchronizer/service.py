@@ -61,7 +61,6 @@ Examples:
 
 from __future__ import annotations
 
-import gc
 import time
 from typing import TYPE_CHECKING, ClassVar
 
@@ -259,7 +258,6 @@ class Synchronizer(
                     self.inc_gauge("relays_seen")
                     await shutdown_client(client)
                     del client
-                    gc.collect()
         except Exception as e:  # Worker exception boundary — protects TaskGroup
             self._logger.error(
                 "sync_worker_failed",
