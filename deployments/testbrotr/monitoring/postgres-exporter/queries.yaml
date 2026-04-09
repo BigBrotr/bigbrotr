@@ -1,0 +1,143 @@
+# ============================================================================
+# postgres_exporter Custom Queries for TestBrotr
+# ============================================================================
+# These queries expose application-level database metrics as Prometheus gauges.
+# Scraped every 30s by Prometheus via postgres_exporter.
+#
+# Design decisions:
+#   - All queries auto-discover tables/views from pg_catalog — no hardcoded
+#     table names.  Adding tables, views, or partitions requires zero changes.
+#   - Partitioned parents aggregate stats from child partitions via pg_inherits.
+#     Child partitions are excluded from top-level results.
+#   - Row counts use pg_class.reltuples (O(1), ~95% accurate after ANALYZE).
+#   - relay/relay_by_network use COUNT on relay table (small, <10k rows).
+#   - No derived-view dependency: all queries hit base tables or pg_catalog.
+# ============================================================================
+
+testbrotr_overview:
+  query: |
+    SELECT
+      (SELECT COUNT(*)::float FROM relay) AS relay_count,
+      GREATEST(COALESCE((SELECT SUM(child.reltuples) FROM pg_inherits i JOIN pg_class child ON child.oid = i.inhrelid WHERE i.inhparent = 'event'::regclass), 0), 0)::float AS event_count_approx
+  metrics:
+    - relay_count:
+        usage: "GAUGE"
+        description: "Total relays in database"
+    - event_count_approx:
+        usage: "GAUGE"
+        description: "Approximate event count (aggregated from partitions)"
+
+testbrotr_relay_by_network:
+  query: "SELECT network, COUNT(*)::float AS count FROM relay GROUP BY network"
+  metrics:
+    - network:
+        usage: "LABEL"
+        description: "Network type (clearnet, tor, i2p, loki)"
+    - count:
+        usage: "GAUGE"
+        description: "Number of relays per network type"
+
+testbrotr_table_sizes:
+  query: |
+    SELECT c.relname AS table_name,
+           CASE WHEN c.relkind = 'p'
+                THEN COALESCE((SELECT SUM(pg_total_relation_size(i.inhrelid)) FROM pg_inherits i WHERE i.inhparent = c.oid), 0)
+                ELSE pg_total_relation_size(c.oid)
+           END::float AS total_bytes
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+      AND NOT EXISTS (SELECT 1 FROM pg_inherits WHERE inhrelid = c.oid)
+    ORDER BY total_bytes DESC
+  metrics:
+    - table_name:
+        usage: "LABEL"
+        description: "Table name"
+    - total_bytes:
+        usage: "GAUGE"
+        description: "Total size of table including indexes (bytes)"
+
+testbrotr_row_estimates:
+  query: |
+    SELECT c.relname AS table_name,
+           CASE WHEN c.relkind = 'p'
+                THEN GREATEST(COALESCE((SELECT SUM(child.reltuples) FROM pg_inherits i JOIN pg_class child ON child.oid = i.inhrelid WHERE i.inhparent = c.oid), 0), 0)
+                ELSE GREATEST(c.reltuples, 0)
+           END::float AS approx_rows
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+      AND NOT EXISTS (SELECT 1 FROM pg_inherits WHERE inhrelid = c.oid)
+    ORDER BY approx_rows DESC
+  metrics:
+    - table_name:
+        usage: "LABEL"
+        description: "Table name"
+    - approx_rows:
+        usage: "GAUGE"
+        description: "Estimated row count (aggregated from partitions for partitioned tables)"
+
+testbrotr_index_usage:
+  query: |
+    SELECT table_name,
+           CASE WHEN (seq_scan + idx_scan) > 0
+                THEN idx_scan::float / (seq_scan + idx_scan)
+                ELSE 1.0
+           END AS ratio
+    FROM (
+      SELECT COALESCE(parent.relname, s.relname) AS table_name,
+             SUM(s.seq_scan) AS seq_scan,
+             SUM(s.idx_scan) AS idx_scan
+      FROM pg_stat_user_tables s
+      LEFT JOIN pg_inherits i ON i.inhrelid = s.relid
+      LEFT JOIN pg_class parent ON parent.oid = i.inhparent
+      WHERE s.schemaname = 'public'
+      GROUP BY COALESCE(parent.relname, s.relname)
+    ) agg
+    ORDER BY (seq_scan + idx_scan) DESC
+  metrics:
+    - table_name:
+        usage: "LABEL"
+        description: "Table name (partitions aggregated under parent)"
+    - ratio:
+        usage: "GAUGE"
+        description: "Index usage ratio (1.0 = all index scans)"
+
+testbrotr_dead_tuples:
+  query: |
+    SELECT COALESCE(parent.relname, s.relname) AS table_name,
+           SUM(s.n_dead_tup)::float AS dead_tuples
+    FROM pg_stat_user_tables s
+    LEFT JOIN pg_inherits i ON i.inhrelid = s.relid
+    LEFT JOIN pg_class parent ON parent.oid = i.inhparent
+    WHERE s.schemaname = 'public'
+    GROUP BY COALESCE(parent.relname, s.relname)
+    ORDER BY dead_tuples DESC
+  metrics:
+    - table_name:
+        usage: "LABEL"
+        description: "Table name (partitions aggregated under parent)"
+    - dead_tuples:
+        usage: "GAUGE"
+        description: "Total dead tuples (partitions aggregated)"
+
+testbrotr_partition_distribution:
+  query: |
+    SELECT parent.relname AS parent_table,
+           child.relname AS partition_name,
+           GREATEST(child.reltuples, 0)::float AS approx_rows
+    FROM pg_inherits
+    JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
+    JOIN pg_class child ON pg_inherits.inhrelid = child.oid
+    JOIN pg_namespace n ON n.oid = parent.relnamespace
+    WHERE n.nspname = 'public'
+  metrics:
+    - parent_table:
+        usage: "LABEL"
+        description: "Parent partitioned table name"
+    - partition_name:
+        usage: "LABEL"
+        description: "Partition name"
+    - approx_rows:
+        usage: "GAUGE"
+        description: "Estimated row count per partition"

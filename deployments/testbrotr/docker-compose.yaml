@@ -1,0 +1,931 @@
+# ============================================================================
+# TestBrotr Docker Compose Configuration
+# ============================================================================
+# Description: Tiny full-stack deployment for low-resource testing.
+# Components: PostgreSQL, PGBouncer, all BigBrotr services, and monitoring.
+# Note: TestBrotr clones LilBrotr's lightweight event storage and disables
+#       overlay-network proxies by default to keep the stack small.
+# Usage: docker-compose up -d
+#
+# To enable Tor/I2P/Lokinet support:
+#   1. Add or uncomment the proxy service definition
+#   2. Uncomment the corresponding volume in the volumes section
+#   3. Uncomment the depends_on entries in validator/monitor/synchronizer
+#   4. Enable the network in config/*.yaml (set enabled: true)
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # PostgreSQL Database
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:18-alpine@sha256:ef9e5f962db375d64c9e01bf12c41426d63c64b8cdf962daf35b60e74aa95ce5
+    container_name: testbrotr-postgres
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: "1.00"
+
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD}
+      POSTGRES_DB: testbrotr
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      PGDATA: /var/lib/postgresql/data/pgdata
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+      DB_READER_PASSWORD: ${DB_READER_PASSWORD}
+      DB_REFRESHER_PASSWORD: ${DB_REFRESHER_PASSWORD}
+      DB_RANKER_PASSWORD: ${DB_RANKER_PASSWORD}
+
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data                # Persistent data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro          # Init scripts
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+
+    ports:
+      - "127.0.0.1:5434:5432"
+
+    networks:
+      - testbrotr-data-network
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d testbrotr"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+
+  # --------------------------------------------------------------------------
+  # PGBouncer (Connection Pooler)
+  # --------------------------------------------------------------------------
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.25.1-p0@sha256:cf8ba55692e4818e983dc047acf1711f17dd4ab1da7d47bdab8b9b2cc14337dc
+    container_name: testbrotr-pgbouncer
+    restart: unless-stopped
+    mem_limit: 64m
+    cpus: "0.10"
+
+    environment:
+      POSTGRES_DB: testbrotr
+      DB_ADMIN_PASSWORD: ${DB_ADMIN_PASSWORD}
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+      DB_READER_PASSWORD: ${DB_READER_PASSWORD}
+      DB_REFRESHER_PASSWORD: ${DB_REFRESHER_PASSWORD}
+      DB_RANKER_PASSWORD: ${DB_RANKER_PASSWORD}
+
+    entrypoint: ["/custom-entrypoint.sh"]
+
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/entrypoint.sh:/custom-entrypoint.sh:ro
+
+    ports:
+      - "127.0.0.1:6434:5432"
+
+    networks:
+      - testbrotr-data-network
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # --------------------------------------------------------------------------
+  # Overlay proxies are disabled by default to keep TestBrotr tiny.
+  # --------------------------------------------------------------------------
+  # tor:
+  #   image: osminogin/tor-simple:0.4.8.16@sha256:6794c080e9f6530f53be11efceb6cfbcdeceb9154fa652ef589dc8ac12aeeed3
+  #   container_name: testbrotr-tor
+  #   restart: unless-stopped
+  #
+  #   ports:
+  #     - "127.0.0.1:9052:9050"
+  #
+  #   networks:
+  #     - testbrotr-data-network
+  #
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "nc -z 127.0.0.1 9050 || exit 1"]
+  #     interval: 30s
+  #     timeout: 5s
+  #     retries: 3
+  #     start_period: 60s
+  #
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "5m"
+  #       max-file: "2"
+  #
+  # i2p:
+  #   image: geti2p/i2p:2.7.0
+  #   container_name: testbrotr-i2p
+  #   restart: unless-stopped
+  #
+  #   environment:
+  #     JVM_XMX: 512m
+  #
+  #   ports:
+  #     - "127.0.0.1:4445:4444"   # HTTP proxy
+  #     - "127.0.0.1:4448:4447"   # SOCKS5 proxy
+  #     - "127.0.0.1:7658:7657"   # Web console
+  #
+  #   volumes:
+  #     - i2p-data:/i2p/.i2p
+  #
+  #   networks:
+  #     - testbrotr-data-network
+  #
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "nc -z 127.0.0.1 4447 || exit 1"]
+  #     interval: 60s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 120s
+  #
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "5m"
+  #       max-file: "2"
+
+  # --------------------------------------------------------------------------
+  # Lokinet Proxy (SOCKS5) - .loki relay support [DISABLED]
+  # --------------------------------------------------------------------------
+  # Note: Requires Linux host with NET_ADMIN capability
+  #
+  # lokinet:
+  #   image: lokinet/lokinet:latest
+  #   container_name: testbrotr-lokinet
+  #   restart: unless-stopped
+  #
+  #   cap_add:
+  #     - NET_ADMIN
+  #
+  #   ports:
+  #     - "127.0.0.1:1081:1080"   # SOCKS5 proxy
+  #
+  #   volumes:
+  #     - lokinet-data:/var/lib/lokinet
+  #
+  #   networks:
+  #     - testbrotr-data-network
+  #
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "nc -z 127.0.0.1 1080 || exit 1"]
+  #     interval: 30s
+  #     timeout: 5s
+  #     retries: 3
+  #     start_period: 60s
+  #
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "5m"
+  #       max-file: "2"
+
+  # --------------------------------------------------------------------------
+  # TestBrotr Seeder Service
+  # --------------------------------------------------------------------------
+  seeder:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: testbrotr
+    container_name: testbrotr-seeder
+    restart: "no"
+    mem_limit: 128m
+    cpus: "0.20"
+
+    environment:
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+
+    volumes:
+      - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
+      - ./static:/app/static:ro
+
+    networks:
+      - testbrotr-data-network
+      - testbrotr-monitoring-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+    command: ["bigbrotr", "seeder", "--once"]
+
+    healthcheck:
+      disable: true
+
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # --------------------------------------------------------------------------
+  # TestBrotr Finder Service
+  # --------------------------------------------------------------------------
+  finder:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: testbrotr
+    container_name: testbrotr-finder
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: "0.20"
+
+    environment:
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+
+    volumes:
+      - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
+
+    ports:
+      - "127.0.0.1:${FINDER_METRICS_PORT:-9101}:8000"  # Prometheus metrics
+
+    networks:
+      - testbrotr-data-network
+      - testbrotr-monitoring-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+    command: ["bigbrotr", "finder"]
+
+    stop_grace_period: 60s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # --------------------------------------------------------------------------
+  # TestBrotr Validator Service
+  # --------------------------------------------------------------------------
+  validator:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: testbrotr
+    container_name: testbrotr-validator
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: "0.20"
+
+    environment:
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+
+    volumes:
+      - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
+
+    ports:
+      - "127.0.0.1:${VALIDATOR_METRICS_PORT:-9102}:8000"  # Prometheus metrics
+
+    networks:
+      - testbrotr-data-network
+      - testbrotr-monitoring-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      # i2p:
+      #   condition: service_healthy
+      # lokinet:
+      #   condition: service_healthy
+
+    command: ["bigbrotr", "validator"]
+
+    stop_grace_period: 60s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # --------------------------------------------------------------------------
+  # TestBrotr Monitor Service
+  # --------------------------------------------------------------------------
+  monitor:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: testbrotr
+    container_name: testbrotr-monitor
+    restart: unless-stopped
+    mem_limit: 192m
+    cpus: "0.30"
+
+    environment:
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+      NOSTR_PRIVATE_KEY_MONITOR: ${NOSTR_PRIVATE_KEY_MONITOR:-}
+
+    volumes:
+      - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
+      - ./static:/app/static
+
+    ports:
+      - "127.0.0.1:${MONITOR_METRICS_PORT:-9103}:8000"  # Prometheus metrics
+
+    networks:
+      - testbrotr-data-network
+      - testbrotr-monitoring-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      # i2p:
+      #   condition: service_healthy
+      # lokinet:
+      #   condition: service_healthy
+
+    command: ["bigbrotr", "monitor"]
+
+    stop_grace_period: 60s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # --------------------------------------------------------------------------
+  # TestBrotr Synchronizer Service
+  # --------------------------------------------------------------------------
+  synchronizer:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: testbrotr
+    container_name: testbrotr-synchronizer
+    restart: unless-stopped
+    mem_limit: 192m
+    cpus: "0.30"
+
+    environment:
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+      NOSTR_PRIVATE_KEY_SYNCHRONIZER: ${NOSTR_PRIVATE_KEY_SYNCHRONIZER:-}
+
+    volumes:
+      - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
+
+    ports:
+      - "127.0.0.1:${SYNCHRONIZER_METRICS_PORT:-9104}:8000"  # Prometheus metrics
+
+    networks:
+      - testbrotr-data-network
+      - testbrotr-monitoring-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      # i2p:
+      #   condition: service_healthy
+      # lokinet:
+      #   condition: service_healthy
+
+    command: ["bigbrotr", "synchronizer"]
+
+    stop_grace_period: 60s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # --------------------------------------------------------------------------
+  # TestBrotr Refresher Service
+  # --------------------------------------------------------------------------
+  refresher:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: testbrotr
+    container_name: testbrotr-refresher
+    restart: unless-stopped
+    mem_limit: 160m
+    cpus: "0.25"
+
+    environment:
+      DB_REFRESHER_PASSWORD: ${DB_REFRESHER_PASSWORD}
+
+    volumes:
+      - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
+
+    ports:
+      - "127.0.0.1:${REFRESHER_METRICS_PORT:-9105}:8000"  # Prometheus metrics
+
+    networks:
+      - testbrotr-data-network
+      - testbrotr-monitoring-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+    command: ["bigbrotr", "refresher"]
+
+    stop_grace_period: 30s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # --------------------------------------------------------------------------
+  # TestBrotr Ranker Service
+  # --------------------------------------------------------------------------
+  ranker:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: testbrotr
+    container_name: testbrotr-ranker
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: "0.50"
+
+    environment:
+      DB_RANKER_PASSWORD: ${DB_RANKER_PASSWORD}
+
+    volumes:
+      - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
+      - ./data/ranker:/app/data
+
+    ports:
+      - "127.0.0.1:${RANKER_METRICS_PORT:-9109}:8000"  # Prometheus metrics
+
+    networks:
+      - testbrotr-data-network
+      - testbrotr-monitoring-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+    command: ["bigbrotr", "ranker"]
+
+    stop_grace_period: 30s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # --------------------------------------------------------------------------
+  # TestBrotr API Service
+  # --------------------------------------------------------------------------
+  api:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: testbrotr
+    container_name: testbrotr-api
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: "0.20"
+
+    environment:
+      DB_READER_PASSWORD: ${DB_READER_PASSWORD}
+
+    volumes:
+      - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
+
+    ports:
+      - "127.0.0.1:8082:8080"                              # HTTP API
+      - "127.0.0.1:${API_METRICS_PORT:-9106}:8000"         # Prometheus metrics
+
+    networks:
+      - testbrotr-data-network
+      - testbrotr-monitoring-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+    command: ["bigbrotr", "api"]
+
+    stop_grace_period: 30s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # --------------------------------------------------------------------------
+  # TestBrotr DVM Service
+  # --------------------------------------------------------------------------
+  dvm:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: testbrotr
+    container_name: testbrotr-dvm
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: "0.20"
+
+    environment:
+      DB_READER_PASSWORD: ${DB_READER_PASSWORD}
+      NOSTR_PRIVATE_KEY_DVM: ${NOSTR_PRIVATE_KEY_DVM:-}
+
+    volumes:
+      - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
+
+    ports:
+      - "127.0.0.1:${DVM_METRICS_PORT:-9107}:8000"         # Prometheus metrics
+
+    networks:
+      - testbrotr-data-network
+      - testbrotr-monitoring-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+    command: ["bigbrotr", "dvm"]
+
+    stop_grace_period: 30s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # --------------------------------------------------------------------------
+  # TestBrotr Assertor Service (NIP-85 Trusted Assertions)
+  # --------------------------------------------------------------------------
+  assertor:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: testbrotr
+    container_name: testbrotr-assertor
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: "0.20"
+
+    environment:
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+      NOSTR_PRIVATE_KEY_ASSERTOR: ${NOSTR_PRIVATE_KEY_ASSERTOR:-}
+
+    volumes:
+      - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
+
+    ports:
+      - "127.0.0.1:${ASSERTOR_METRICS_PORT:-9108}:8000"     # Prometheus metrics
+
+    networks:
+      - testbrotr-data-network
+      - testbrotr-monitoring-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+    command: ["bigbrotr", "assertor"]
+
+    stop_grace_period: 30s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # --------------------------------------------------------------------------
+  # PostgreSQL Exporter (Database Metrics)
+  # --------------------------------------------------------------------------
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.0@sha256:170643ebfcc377e444914db22244b1a265b3d25740732423fd9c3e1a1d5f86cb
+    container_name: testbrotr-postgres-exporter
+    restart: unless-stopped
+    mem_limit: 64m
+    cpus: "0.10"
+
+    environment:
+      DATA_SOURCE_NAME: "postgresql://reader:${DB_READER_PASSWORD}@postgres:5432/testbrotr?sslmode=disable"
+
+    volumes:
+      - ./monitoring/postgres-exporter/queries.yaml:/etc/postgres-exporter/queries.yaml:ro
+
+    command:
+      - "--extend.query-path=/etc/postgres-exporter/queries.yaml"
+
+    networks:
+      - testbrotr-data-network
+      - testbrotr-monitoring-network
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:9187/metrics || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # --------------------------------------------------------------------------
+  # Prometheus (Metrics Collection)
+  # --------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.51.0@sha256:3305cd2e483c13364c94ae4905368eb425c9fa804f8e523ee47d8bf4de9d87a2
+    container_name: testbrotr-prometheus
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: "0.50"
+
+    volumes:
+      - ./monitoring/prometheus/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+
+    ports:
+      - "127.0.0.1:9092:9090"
+
+    networks:
+      - testbrotr-monitoring-network
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yaml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=2d"
+      - "--web.enable-lifecycle"
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # --------------------------------------------------------------------------
+  # Alertmanager (Alert Routing)
+  # --------------------------------------------------------------------------
+  alertmanager:
+    image: prom/alertmanager:v0.27.0@sha256:45c3a586d4332d710bef92b06e90380c0b1f588968c00100d4b5e4e44c40ca5f
+    container_name: testbrotr-alertmanager
+    restart: unless-stopped
+    mem_limit: 64m
+    cpus: "0.10"
+
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+
+    ports:
+      - "127.0.0.1:9095:9093"
+
+    networks:
+      - testbrotr-monitoring-network
+
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # --------------------------------------------------------------------------
+  # Grafana (Metrics Visualization)
+  # --------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.4.1@sha256:8b10c3744b8fede79af784d967911691d0e2d6e505512d1466ae1dbcaf745033
+    container_name: testbrotr-grafana
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: "0.30"
+
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?GRAFANA_PASSWORD must be set in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+
+    ports:
+      - "127.0.0.1:3002:3000"
+
+    networks:
+      - testbrotr-monitoring-network
+
+    depends_on:
+      prometheus:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+# ----------------------------------------------------------------------------
+# Volumes
+# ----------------------------------------------------------------------------
+volumes:
+  prometheus-data:
+    name: testbrotr-prometheus-data
+  alertmanager-data:
+    name: testbrotr-alertmanager-data
+  grafana-data:
+    name: testbrotr-grafana-data
+  # Uncomment when enabling I2P or Lokinet:
+  # i2p-data:
+  #   name: testbrotr-i2p-data
+  # lokinet-data:
+  #   name: testbrotr-lokinet-data
+
+# ----------------------------------------------------------------------------
+# Networks
+# ----------------------------------------------------------------------------
+networks:
+  testbrotr-data-network:
+    driver: bridge
+    name: testbrotr-data-network
+    enable_ipv6: false
+  testbrotr-monitoring-network:
+    driver: bridge
+    name: testbrotr-monitoring-network
+    enable_ipv6: false
+
+# ============================================================================
+# USAGE
+# ============================================================================
+#
+# 1. Setup:
+#    cp .env.example .env && nano .env  # Set DB passwords, optional Nostr keys, and GRAFANA_PASSWORD
+#
+# 2. Start:
+#    docker-compose up -d
+#
+# 3. Verify:
+#    docker-compose ps
+#    docker-compose exec postgres psql -U admin -d testbrotr -c "\dt"
+#
+# 4. Logs:
+#    docker-compose logs -f [service]
+#
+# 5. Stop:
+#    docker-compose down
+#
+# 6. Reset (WARNING: deletes all data):
+#    docker-compose down && rm -rf data/postgres
+#
+# ============================================================================

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import asyncpg
@@ -33,6 +34,7 @@ from bigbrotr.nips.nip85.data import (
     UserAssertion,
 )
 from bigbrotr.utils.protocol import broadcast_events, create_client
+from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 from .configs import AssertorConfig
 from .queries import (
@@ -170,7 +172,23 @@ class Assertor(BaseService[AssertorConfig]):
         for relay in self._config.publishing.relays:
             await client.add_relay(RelayUrl.parse(relay.url))
             self._logger.info("relay_added", url=relay.url)
-        await client.connect()
+
+        output = await client.try_connect(timedelta(seconds=DEFAULT_TIMEOUT))
+        connected = getattr(output, "success", ())
+        failed = getattr(output, "failed", {})
+        self._logger.info(
+            "client_connected",
+            relays_connected=len(connected),
+            relays_failed=len(failed),
+        )
+        for relay_url, error in failed.items():
+            self._logger.warning("relay_connect_failed", url=str(relay_url), error=str(error))
+        if not connected:
+            from bigbrotr.utils.protocol import shutdown_client  # noqa: PLC0415
+
+            await shutdown_client(client)
+            self._client = None
+            raise TimeoutError("assertor could not connect to any publishing relay")
 
         return self
 

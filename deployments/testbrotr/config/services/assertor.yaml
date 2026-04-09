@@ -1,0 +1,41 @@
+# =============================================================================
+# Assertor Service Configuration (TestBrotr)
+# =============================================================================
+# NIP-85 Trusted Assertions publisher. Reads ranked NIP-85 facts and publishes
+# kinds 30382/30383/30384/30385 to configured relays.
+# Only values that differ from defaults are specified here.
+# =============================================================================
+
+pool:
+  user: writer
+  password_env: DB_WRITER_PASSWORD  # pragma: allowlist secret
+  max_size: 1
+
+algorithm_id: global-pagerank
+keys:
+  keys_env: NOSTR_PRIVATE_KEY_ASSERTOR
+
+interval: 600.0
+
+selection:
+  batch_size: 50
+  min_events: 1
+  top_topics: 3
+  kinds:
+    - 30382
+
+cleanup:
+  remove_stale_checkpoints: true
+
+provider_profile:
+  enabled: true
+  kind0_content:
+    name: TestBrotr Global PageRank
+    about: NIP-85 trusted assertion provider for the global-pagerank algorithm
+    website: https://bigbrotr.com
+    extra_fields:
+      software: testbrotr
+
+metrics:
+  enabled: true
+  host: "0.0.0.0"

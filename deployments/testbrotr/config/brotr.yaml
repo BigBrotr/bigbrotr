@@ -1,0 +1,21 @@
+# =============================================================================
+# Brotr Configuration (TestBrotr)
+# =============================================================================
+# Database connection and operation settings for the TestBrotr implementation.
+# Only values that differ from defaults are specified here.
+# See brotr/config/brotr.yaml for all options and documentation.
+# =============================================================================
+
+pool:
+  database:
+    host: pgbouncer              # Docker service name for connection pooling
+    database: testbrotr           # Implementation-specific database name
+
+batch:
+  max_size: 100
+
+timeouts:
+  query: 30.0
+  batch: 60.0
+  cleanup: 60.0
+  refresh: 120.0

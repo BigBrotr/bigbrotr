@@ -1,0 +1,5 @@
+.env
+data/postgres/
+data/ranker/
+dumps/*
+!dumps/.gitkeep

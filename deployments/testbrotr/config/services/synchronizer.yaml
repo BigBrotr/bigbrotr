@@ -1,0 +1,61 @@
+# =============================================================================
+# Synchronizer Service Configuration (TestBrotr)
+# =============================================================================
+# Fetches Nostr events from relays and stores them with relay associations.
+# Uses asyncio.TaskGroup with semaphore-bounded concurrency.
+# Only values that differ from defaults are specified here.
+# See brotr/config/services/synchronizer.yaml for all options and documentation.
+# =============================================================================
+
+pool:
+  user: writer
+  password_env: DB_WRITER_PASSWORD  # pragma: allowlist secret
+  min_size: 1
+  max_size: 1
+
+interval: 600.0
+
+metrics:
+  enabled: true
+  host: "0.0.0.0"                  # Bind to all interfaces for Docker access
+
+networks:
+  clearnet:
+    max_tasks: 3
+    timeout: 5.0
+  tor:
+    enabled: false                 # Overlay proxies are disabled in TestBrotr
+
+processing:
+  filters:
+    # Tiny archive sample for the data substrate BigBrotr actually derives from:
+    # - 0/3/10000/10002 exercise replaceable current-state, follows, mutes,
+    #   and relay lists.
+    # - 1/6/7/1984/1985/9735 exercise posts, reposts, reactions, reports,
+    #   labels, and zaps.
+    # - 30023 exercises addressable current-state and NIP-85 addressable facts.
+    # NIP-85 30382-30385 are Assertor outputs, not inputs for BigBrotr's own
+    # pipeline, so they are intentionally not archived in this bounded test run.
+    - kinds:
+        - 0
+        - 1
+        - 3
+        - 6
+        - 7
+        - 1984
+        - 1985
+        - 9735
+        - 10000
+        - 10002
+        - 30023
+  # Local bounded test window: 2026-03-27T20:31:15Z.
+  # Regenerate this timestamp when you want a fresher TestBrotr sampling run.
+  since: 1774566675
+  limit: 50
+  batch_size: 100
+  end_lag: 0
+  max_event_size: 131072
+
+timeouts:
+  idle: 10.0
+  max_duration: 60.0

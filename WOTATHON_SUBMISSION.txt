@@ -1,0 +1,222 @@
+BigBrotr - WoTathon Final Submission
+Builder: Vincenzo Imperati
+
+Repository: https://github.com/BigBrotr/bigbrotr
+Submission branch: hackathon/wotathon-submission
+Submission branch URL: https://github.com/BigBrotr/bigbrotr/tree/hackathon/wotathon-submission
+Base PR: https://github.com/BigBrotr/bigbrotr/pull/416
+Demo deployment profile: deployments/testbrotr
+Documentation: https://bigbrotr.github.io/bigbrotr/
+Demo video: submitted separately
+Working demo: submitted separately
+
+
+Elevator Pitch
+
+BigBrotr is an open-source Nostr network observatory and Web of Trust data
+foundation. It discovers relays across clearnet, Tor, I2P, and Lokinet, checks
+relay health, archives WoT-relevant Nostr events, materializes trust facts,
+computes NIP-85 rank snapshots, and publishes trusted assertions. The goal is to
+make trust computation on Nostr reproducible and decentralized: anyone can run
+their own Trust Engine, inspect the raw signals, or consume the derived data
+through REST, Nostr, or database access.
+
+
+Problem
+
+Web of Trust on Nostr needs broad visibility of social and trust signals, but
+those signals are spread across hundreds of independent relays. Each relay sees
+only part of the graph, may go offline, and may not retain old events forever.
+Developers who want accurate trust scores must either build their own archival
+and relay-monitoring infrastructure or accept an incomplete local view.
+
+That creates a bottleneck for Nostr clients, DVMs, trust engines, and research
+projects: the hard part is not only the ranking algorithm, but also the durable,
+queryable, cross-relay data substrate needed to run that algorithm repeatedly.
+
+
+Solution
+
+BigBrotr turns that distributed relay surface into a modular, self-hostable
+pipeline:
+
+1. Seeder and Finder bootstrap and continuously discover relay URLs.
+2. Validator promotes live Nostr relays after WebSocket verification.
+3. Monitor runs NIP-11 and NIP-66 health checks and publishes relay monitoring
+   events.
+4. Synchronizer streams signed Nostr events with cursor-based resumption.
+5. Refresher maintains current-state tables, analytics facts, and NIP-85 facts.
+6. Ranker uses a private DuckDB working store to compute deterministic PageRank
+   snapshots and export NIP-85 rank tables back to PostgreSQL.
+7. Assertor publishes NIP-85 trusted assertion events from the computed facts
+   and ranks.
+8. Api exposes read-only paginated REST access.
+9. Dvm exposes read-only database queries over NIP-90.
+
+The services are loosely coupled through PostgreSQL rather than through a
+central queue or private inter-service API. This keeps each component
+replaceable and makes BigBrotr useful both as a full public observatory and as a
+self-hosted trust-data backend.
+
+
+What Is New During WoTathon
+
+A minimal BigBrotr MVP existed before the hackathon. The submitted branch is a
+substantial rebuild focused on the WoTathon track and NIP-85. Compared with the
+develop branch, PR #416 adds 201 changed files with 37,940 insertions and 7,275
+deletions.
+
+The main hackathon work includes:
+
+- a complete NIP-85 pipeline:
+  events + relay state -> Refresher -> current/analytics/NIP-85 facts -> Ranker
+  -> rank snapshots -> Assertor -> signed trusted assertion events;
+- incremental current-state and analytics tables replacing the older
+  materialized-view-centric refresh model;
+- a typed Refresher service with checkpointable refresh targets;
+- a new Ranker service backed by DuckDB for deterministic PageRank snapshots;
+- a new Assertor service for NIP-85 trusted assertions;
+- a new bigbrotr.nips.nip85 package with models and event-builder helpers;
+- NIP-85 assertion support for users, events, addressable events, and NIP-73
+  identifiers;
+- kind 10040 trusted-provider-list helper support in the NIP/event-builder
+  layer;
+- per-service Nostr key configuration, including an Assertor signing key and
+  ephemeral fallback for development;
+- BigBrotr and LilBrotr Docker deployments updated to the 10-service topology;
+- dedicated Prometheus metrics, alert rules, and Grafana dashboards for the new
+  services;
+- expanded unit and integration coverage for SQL refreshes, NIP-85 facts,
+  Ranker, Assertor, and the end-to-end pipeline.
+
+
+NIP-85 And Interoperability
+
+The submitted branch focuses on NIP-85 as an interoperable trust-publication
+format.
+
+Implemented assertion surfaces:
+
+- kind 30382: user/pubkey trusted assertions;
+- kind 30383: event trusted assertions;
+- kind 30384: addressable-event trusted assertions;
+- kind 30385: NIP-73 identifier trusted assertions.
+
+The project also includes helper/model/builder support for kind 10040 trusted
+provider declarations. BigBrotr's Assertor intentionally does not publish 10040
+as part of its own automated provider flow because those events are user/client
+authorization declarations; the helper layer is present for clients or tools
+that need to generate public or encrypted provider lists.
+
+The submitted Ranker currently implements deterministic PageRank for pubkey
+ranking and derives non-user ranks from refreshed engagement facts. The
+architecture is designed so additional algorithm namespaces, including
+GrapeRank-style approaches, can be added without changing the archival
+substrate or the assertion publisher.
+
+BigBrotr also exposes data through:
+
+- REST API endpoints with pagination, sorting, filtering, schema introspection,
+  and primary-key lookups;
+- a NIP-90 DVM for read-only database queries over Nostr;
+- PostgreSQL tables for self-hosters and trust-engine builders who want direct
+  access to the facts and rank snapshots.
+
+
+Why It Matters
+
+BigBrotr is not only a single trust score service. It is infrastructure for many
+trust services. Nostr clients, relays, DVMs, researchers, and independent trust
+providers can reuse the same open data pipeline instead of rebuilding relay
+discovery, monitoring, archival ingestion, deduplication, incremental refreshes,
+and publishing logic from scratch.
+
+This advances the WoTathon goal of decentralized and portable reputation:
+
+- trust data is derived from open Nostr events and relay observations;
+- the code is open source under the MIT license;
+- the deployment is self-hostable with Docker Compose;
+- the ranking namespace is explicit through algorithm_id;
+- assertions are published back to Nostr as signed NIP-85 events;
+- the architecture supports multiple algorithms and multiple trust providers.
+
+
+Technical Stack
+
+- Python 3.11+
+- PostgreSQL 18
+- DuckDB for private Ranker working state
+- asyncpg, aiohttp, FastAPI, Pydantic v2
+- nostr-sdk for Nostr event handling and signing
+- Docker Compose, PGBouncer, Prometheus, Alertmanager, Grafana
+- strict typing and unit/integration tests
+
+
+How To Run
+
+Clone the submitted branch and start the TestBrotr deployment:
+
+    git clone -b hackathon/wotathon-submission https://github.com/BigBrotr/bigbrotr.git
+    cd bigbrotr/deployments/testbrotr
+    cp .env.example .env
+
+Then set the required database passwords. For stable published identities, set
+NOSTR_PRIVATE_KEY_ASSERTOR, NOSTR_PRIVATE_KEY_DVM, NOSTR_PRIVATE_KEY_MONITOR,
+and NOSTR_PRIVATE_KEY_SYNCHRONIZER. If NOSTR_PRIVATE_KEY_ASSERTOR is omitted,
+the Assertor generates an ephemeral key at config creation, which is useful for
+development but not for a persistent public provider identity.
+
+Start the stack:
+
+    docker compose --env-file .env up -d --build
+
+The deployment starts PostgreSQL, PGBouncer, all BigBrotr services, Prometheus,
+Alertmanager, and Grafana. Local endpoints include:
+
+- REST API: http://localhost:8082
+- Grafana: http://localhost:3002
+- Prometheus: http://localhost:9092
+- Alertmanager: http://localhost:9095
+
+
+Judging Criteria Fit
+
+Functional readiness: the branch includes the full service pipeline from relay
+discovery and event collection through NIP-85 fact refreshes, ranking, and
+trusted assertion publishing, with Docker deployment and monitoring.
+
+Depth and innovation: BigBrotr treats trust computation as an observability and
+data-foundation problem, not only an algorithm problem. The incremental facts
+layer and DuckDB-backed ranker make it practical to recompute trust snapshots
+from a durable cross-relay archive.
+
+Interoperability: BigBrotr publishes NIP-85 trusted assertions, exposes data via
+REST and NIP-90, includes kind 10040 helper support, and keeps algorithm outputs
+namespaced through algorithm_id.
+
+Decentralizing ecosystem impact: clients and trust engines can reuse BigBrotr as
+a building block while still running their own provider identity, ranking
+configuration, or deployment.
+
+Documentation and openness: the project is MIT licensed, includes a detailed
+README, MkDocs documentation, architecture diagrams, Docker Compose deployments,
+service configs, Prometheus/Grafana observability, and expanded tests.
+
+Sustainability: BigBrotr can support a public instance, self-hosted deployments,
+paid DVM/API access, and specialized trust-provider services while keeping the
+core infrastructure open.
+
+
+Current Status
+
+The submission state is the branch:
+
+    hackathon/wotathon-submission
+
+The larger development PR that the hackathon branch is based on is:
+
+    https://github.com/BigBrotr/bigbrotr/pull/416
+
+The hackathon branch includes the TestBrotr deployment profile used for the demo
+and represents the final WoTathon submission state for BigBrotr's NIP-85 trust
+pipeline.

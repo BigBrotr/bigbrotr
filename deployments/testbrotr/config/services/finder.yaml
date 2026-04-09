@@ -1,0 +1,40 @@
+# =============================================================================
+# Finder Service Configuration (TestBrotr)
+# =============================================================================
+# Discovers new relay URLs from stored events and external APIs.
+# Only values that differ from defaults are specified here.
+# See brotr/config/services/finder.yaml for all options and documentation.
+# =============================================================================
+
+pool:
+  user: writer
+  password_env: DB_WRITER_PASSWORD  # pragma: allowlist secret
+  max_size: 1
+
+interval: 600.0
+
+api:
+  enabled: true
+  cooldown: 86400.0
+  request_delay: 0.1
+  max_response_size: 262144
+  sources:
+    - url: https://api.nostr.watch/v1/online
+      timeout: 5.0
+      connect_timeout: 5.0
+      expression: "[*]"
+    - url: https://api.nostr.watch/v1/offline
+      timeout: 5.0
+      connect_timeout: 5.0
+      expression: "[*]"
+
+events:
+  scan_size: 10
+  batch_size: 10
+  parallel_relays: 2
+  max_relay_time: 10.0
+  max_duration: 60.0
+
+metrics:
+  enabled: true
+  host: "0.0.0.0"                  # Bind to all interfaces for Docker access

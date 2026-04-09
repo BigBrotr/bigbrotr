@@ -1,0 +1,10 @@
+wss://relay.damus.io
+wss://nos.lol
+wss://relay.nostr.band
+wss://nostr.wine
+wss://relay.primal.net
+wss://relay.mostr.pub
+wss://nostr.mom
+wss://relay.snort.social
+wss://eden.nostr.land
+wss://offchain.pub

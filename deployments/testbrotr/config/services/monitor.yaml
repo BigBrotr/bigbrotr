@@ -1,0 +1,65 @@
+# =============================================================================
+# Monitor Service Configuration (TestBrotr)
+# =============================================================================
+# Performs NIP-11 and NIP-66 health checks on validated relays.
+# Only values that differ from defaults are specified here.
+# See brotr/config/services/monitor.yaml for all options and documentation.
+# =============================================================================
+
+profile:
+  name: "TestBrotr Monitor"
+  about: "Nostr relay monitoring service"
+
+pool:
+  user: writer
+  password_env: DB_WRITER_PASSWORD  # pragma: allowlist secret
+  max_size: 1
+
+interval: 600.0
+
+metrics:
+  enabled: true
+  host: "0.0.0.0"                  # Bind to all interfaces for Docker access
+
+processing:
+  chunk_size: 10
+  max_relays: 25
+  nip11_info_max_size: 262144
+  retries:
+    nip11_info:
+      max_attempts: 0               # Keep TestBrotr cycles bounded on tiny hosts
+    nip66_rtt:
+      max_attempts: 0
+    nip66_ssl:
+      max_attempts: 0
+    nip66_dns:
+      max_attempts: 0
+    nip66_geo:
+      max_attempts: 0
+    nip66_net:
+      max_attempts: 0
+    nip66_http:
+      max_attempts: 0
+  compute:
+    nip66_geo: false
+    nip66_net: false
+  store:
+    nip66_geo: false
+    nip66_net: false
+
+discovery:
+  include:
+    nip66_geo: false
+    nip66_net: false
+
+announcement:
+  include:
+    nip66_geo: false
+    nip66_net: false
+
+networks:
+  clearnet:
+    max_tasks: 3
+    timeout: 5.0
+  tor:
+    enabled: false                 # Overlay proxies are disabled in TestBrotr

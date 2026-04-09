@@ -1,0 +1,30 @@
+# =============================================================================
+# Validator Service Configuration (TestBrotr)
+# =============================================================================
+# Tests candidate relay URLs via WebSocket before adding them to the
+# relays table. Only values that differ from defaults are specified here.
+# See brotr/config/services/validator.yaml for all options and documentation.
+# =============================================================================
+
+pool:
+  user: writer
+  password_env: DB_WRITER_PASSWORD  # pragma: allowlist secret
+  max_size: 1
+
+interval: 300.0
+
+processing:
+  chunk_size: 10
+  max_candidates: 25
+  interval: 300.0
+
+metrics:
+  enabled: true
+  host: "0.0.0.0"                  # Bind to all interfaces for Docker access
+
+networks:
+  clearnet:
+    max_tasks: 3
+    timeout: 5.0
+  tor:
+    enabled: false                 # Overlay proxies are disabled in TestBrotr
