@@ -221,6 +221,7 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
     event_address = "30023:" + pubkey_a + ":article"
     identifier_a = "isbn:9780140328721"
     identifier_b = "geo:41.9028,12.4964"
+    expected_identifier_subjects = sorted([identifier_a, identifier_b])
 
     await _seed_contact_list(
         brotr=brotr,
@@ -348,7 +349,7 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
     assert all(0 <= int(row["rank"]) <= 100 for row in first_rows)
     assert [row["subject_id"] for row in first_event_rows] == [event_id]
     assert [row["subject_id"] for row in first_addressable_rows] == [event_address]
-    assert [row["subject_id"] for row in first_identifier_rows] == [identifier_a, identifier_b]
+    assert [row["subject_id"] for row in first_identifier_rows] == expected_identifier_subjects
     assert all(float(row["raw_score"]) > 0.0 for row in first_event_rows)
     assert all(float(row["raw_score"]) > 0.0 for row in first_addressable_rows)
     assert all(float(row["raw_score"]) > 0.0 for row in first_identifier_rows)
@@ -500,7 +501,7 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
     assert sum(float(row["raw_score"]) for row in final_rows) == pytest.approx(1.0, abs=1e-9)
     assert [row["subject_id"] for row in final_event_rows] == [event_id]
     assert [row["subject_id"] for row in final_addressable_rows] == [event_address]
-    assert [row["subject_id"] for row in final_identifier_rows] == [identifier_a, identifier_b]
+    assert [row["subject_id"] for row in final_identifier_rows] == expected_identifier_subjects
     assert all(0 <= int(row["rank"]) <= 100 for row in final_event_rows)
     assert all(0 <= int(row["rank"]) <= 100 for row in final_addressable_rows)
     assert all(0 <= int(row["rank"]) <= 100 for row in final_identifier_rows)
