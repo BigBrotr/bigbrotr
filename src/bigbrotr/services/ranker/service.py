@@ -76,8 +76,8 @@ class Ranker(BaseService[RankerConfig]):
         super().__init__(brotr=brotr, config=config)
         self._config: RankerConfig
         self._store = RankerStore(
-            db_path=self._config.db.path,
-            checkpoint_path=self._config.db.checkpoint_path,
+            db_path=self._config.storage.path,
+            checkpoint_path=self._config.storage.checkpoint_path,
         )
 
     async def __aenter__(self) -> Ranker:
@@ -86,8 +86,8 @@ class Ranker(BaseService[RankerConfig]):
         self._logger.info(
             "duckdb_store_ready",
             algorithm_id=self._config.algorithm_id,
-            path=str(self._config.db.path),
-            checkpoint_path=str(self._config.db.checkpoint_path),
+            path=str(self._config.storage.path),
+            checkpoint_path=str(self._config.storage.checkpoint_path),
         )
         return self
 
@@ -223,7 +223,7 @@ class Ranker(BaseService[RankerConfig]):
 
     async def _sync_non_user_stats_stage(self) -> RankRowCounts:
         """Reload non-user fact stages from PostgreSQL into private DuckDB."""
-        batch_size = self._config.export.batch_size
+        batch_size = self._config.facts_stage.batch_size
 
         await asyncio.to_thread(self._store.clear_non_user_stats_stage)
 

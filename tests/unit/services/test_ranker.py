@@ -100,38 +100,68 @@ class TestRankerConfig:
         config = RankerConfig()
 
         assert config.algorithm_id == "global-pagerank-v1"
-        assert config.db.path == Path("/app/data/ranker.duckdb")
-        assert config.db.checkpoint_path == Path("/app/data/ranker.checkpoint.json")
+        assert config.storage.path == Path("/app/data/ranker.duckdb")
+        assert config.storage.checkpoint_path == Path("/app/data/ranker.checkpoint.json")
+        assert config.processing.max_duration is None
         assert config.graph.damping == pytest.approx(0.85)
         assert config.graph.iterations == 20
         assert config.graph.ignore_self_follows is True
         assert config.sync.batch_size == 1000
+        assert config.sync.max_batches is None
+        assert config.sync.max_followers_per_cycle is None
+        assert config.facts_stage.batch_size == 1000
+        assert config.facts_stage.max_event_rows is None
+        assert config.facts_stage.max_addressable_rows is None
+        assert config.facts_stage.max_identifier_rows is None
         assert config.export.batch_size == 1000
+        assert config.export.max_batches_per_subject is None
+        assert config.cleanup.rank_runs_retention == 100
         assert config.interval == 3600.0
 
     def test_custom_nested_values(self, tmp_path: Path) -> None:
         config = RankerConfig.model_validate(
             {
                 "algorithm_id": "custom-ranker-v2",
-                "db": {
+                "storage": {
                     "path": tmp_path / "graph.duckdb",
                     "checkpoint_path": tmp_path / "graph.checkpoint.json",
                 },
+                "processing": {"max_duration": 600.0},
                 "graph": {"damping": 0.9, "iterations": 40, "ignore_self_follows": False},
-                "sync": {"batch_size": 250},
-                "export": {"batch_size": 500},
+                "sync": {
+                    "batch_size": 250,
+                    "max_batches": 3,
+                    "max_followers_per_cycle": 750,
+                },
+                "facts_stage": {
+                    "batch_size": 300,
+                    "max_event_rows": 1000,
+                    "max_addressable_rows": 2000,
+                    "max_identifier_rows": 3000,
+                },
+                "export": {"batch_size": 500, "max_batches_per_subject": 4},
+                "cleanup": {"rank_runs_retention": 25},
                 "interval": 7200.0,
             }
         )
 
         assert config.algorithm_id == "custom-ranker-v2"
-        assert config.db.path == tmp_path / "graph.duckdb"
-        assert config.db.checkpoint_path == tmp_path / "graph.checkpoint.json"
+        assert config.storage.path == tmp_path / "graph.duckdb"
+        assert config.storage.checkpoint_path == tmp_path / "graph.checkpoint.json"
+        assert config.processing.max_duration == 600.0
         assert config.graph.damping == pytest.approx(0.9)
         assert config.graph.iterations == 40
         assert config.graph.ignore_self_follows is False
         assert config.sync.batch_size == 250
+        assert config.sync.max_batches == 3
+        assert config.sync.max_followers_per_cycle == 750
+        assert config.facts_stage.batch_size == 300
+        assert config.facts_stage.max_event_rows == 1000
+        assert config.facts_stage.max_addressable_rows == 2000
+        assert config.facts_stage.max_identifier_rows == 3000
         assert config.export.batch_size == 500
+        assert config.export.max_batches_per_subject == 4
+        assert config.cleanup.rank_runs_retention == 25
         assert config.interval == 7200.0
 
     def test_invalid_algorithm_id_rejected(self) -> None:
@@ -458,7 +488,7 @@ class TestRankerStore:
 def ranker_config(tmp_path: Path) -> RankerConfig:
     return RankerConfig.model_validate(
         {
-            "db": {
+            "storage": {
                 "path": tmp_path / "ranker.duckdb",
                 "checkpoint_path": tmp_path / "ranker.checkpoint.json",
             },
@@ -586,7 +616,7 @@ class TestRankerService:
         async with ranker:
             result = await ranker.rank()
 
-        store = RankerStore(ranker_config.db.path, ranker_config.db.checkpoint_path)
+        store = RankerStore(ranker_config.storage.path, ranker_config.storage.checkpoint_path)
         assert result.changed_followers_synced == 2
         assert result.graph_nodes == 4
         assert result.graph_edges == 3
@@ -639,7 +669,7 @@ class TestRankerService:
         async with ranker:
             await ranker.run()
 
-        store = RankerStore(ranker_config.db.path, ranker_config.db.checkpoint_path)
+        store = RankerStore(ranker_config.storage.path, ranker_config.storage.checkpoint_path)
         assert store.get_graph_stats().node_count == 0
         assert store.get_graph_stats().edge_count == 0
         assert store.load_checkpoint() == GraphSyncCheckpoint()

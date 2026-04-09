@@ -422,12 +422,21 @@ Each target is isolated by default: one failed refresh does not stop the rest of
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `algorithm_id` | string | `global-pagerank-v1` | Namespace written into exported rank snapshots |
-| `db.path` | path | `/app/data/ranker.duckdb` | Private DuckDB database path |
-| `db.checkpoint_path` | path | `/app/data/ranker.checkpoint.json` | Incremental graph sync checkpoint |
+| `storage.path` | path | `/app/data/ranker.duckdb` | Private DuckDB database path |
+| `storage.checkpoint_path` | path | `/app/data/ranker.checkpoint.json` | Incremental graph sync checkpoint |
+| `processing.max_duration` | float or null | `null` | Maximum seconds for one ranker cycle |
 | `graph.damping` | float | `0.85` | PageRank damping factor for pubkey ranking |
 | `graph.iterations` | int | `20` | Deterministic PageRank iteration count |
 | `sync.batch_size` | int | `1000` | Changed followers synced per PostgreSQL batch |
-| `export.batch_size` | int | `1000` | Rows staged/exported per ranking batch |
+| `sync.max_batches` | int or null | `null` | Maximum follow-graph sync batches per cycle |
+| `sync.max_followers_per_cycle` | int or null | `null` | Maximum changed followers synced per cycle |
+| `facts_stage.batch_size` | int | `1000` | Rows fetched per non-user fact staging batch |
+| `facts_stage.max_event_rows` | int or null | `null` | Maximum event fact rows staged per cycle |
+| `facts_stage.max_addressable_rows` | int or null | `null` | Maximum addressable fact rows staged per cycle |
+| `facts_stage.max_identifier_rows` | int or null | `null` | Maximum identifier fact rows staged per cycle |
+| `export.batch_size` | int | `1000` | Rows exported per rank snapshot batch |
+| `export.max_batches_per_subject` | int or null | `null` | Maximum export batches per rank subject per cycle |
+| `cleanup.rank_runs_retention` | int or null | `100` | DuckDB-local rank run records to keep |
 
 !!! tip "API Reference"
     See [`bigbrotr.services.ranker`](../reference/services/ranker/index.md) for the complete Ranker API.

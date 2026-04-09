@@ -773,9 +773,12 @@ metrics:
 
 algorithm_id: global-pagerank-v1
 
-db:
+storage:
   path: /app/data/ranker.duckdb
   checkpoint_path: /app/data/ranker.checkpoint.json
+
+processing:
+  max_duration: null
 
 graph:
   damping: 0.85
@@ -784,9 +787,21 @@ graph:
 
 sync:
   batch_size: 1000
+  max_batches: null
+  max_followers_per_cycle: null
+
+facts_stage:
+  batch_size: 1000
+  max_event_rows: null
+  max_addressable_rows: null
+  max_identifier_rows: null
 
 export:
   batch_size: 1000
+  max_batches_per_subject: null
+
+cleanup:
+  rank_runs_retention: 100
 ```
 
 ### Ranker Reference
@@ -794,13 +809,22 @@ export:
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
 | `algorithm_id` | string | `global-pagerank-v1` | lowercase slug | Stable namespace used in rank snapshots and downstream assertion joins |
-| `db.path` | path | `/app/data/ranker.duckdb` | writable path | Private DuckDB database file for graph state and PageRank working tables |
-| `db.checkpoint_path` | path | `/app/data/ranker.checkpoint.json` | writable path | Incremental PostgreSQL -> DuckDB sync checkpoint |
+| `storage.path` | path | `/app/data/ranker.duckdb` | writable path | Private DuckDB database file for graph state and PageRank working tables |
+| `storage.checkpoint_path` | path | `/app/data/ranker.checkpoint.json` | writable path | Incremental PostgreSQL -> DuckDB sync checkpoint |
+| `processing.max_duration` | float or null | `null` | `1-86400` | Maximum seconds for one ranker cycle |
 | `graph.damping` | float | `0.85` | `0 < x < 1` | PageRank damping factor |
 | `graph.iterations` | int | `20` | `1-10000` | Fixed number of deterministic PageRank iterations |
 | `graph.ignore_self_follows` | bool | `true` | - | Ignore self-follow edges when computing PageRank |
 | `sync.batch_size` | int | `1000` | `1-100000` | Maximum changed followers synced from PostgreSQL per batch |
-| `export.batch_size` | int | `1000` | `1-100000` | Maximum pubkey rank rows exported to PostgreSQL per batch |
+| `sync.max_batches` | int or null | `null` | `>= 1` | Maximum follow-graph sync batches per cycle |
+| `sync.max_followers_per_cycle` | int or null | `null` | `>= 1` | Maximum changed followers synced per cycle |
+| `facts_stage.batch_size` | int | `1000` | `1-100000` | Maximum non-user fact rows fetched per staging batch |
+| `facts_stage.max_event_rows` | int or null | `null` | `>= 1` | Maximum event fact rows staged per cycle |
+| `facts_stage.max_addressable_rows` | int or null | `null` | `>= 1` | Maximum addressable fact rows staged per cycle |
+| `facts_stage.max_identifier_rows` | int or null | `null` | `>= 1` | Maximum identifier fact rows staged per cycle |
+| `export.batch_size` | int | `1000` | `1-100000` | Maximum rank rows exported to PostgreSQL per batch |
+| `export.max_batches_per_subject` | int or null | `null` | `>= 1` | Maximum export batches per rank subject per cycle |
+| `cleanup.rank_runs_retention` | int or null | `100` | `>= 1` | DuckDB-local rank run records to keep |
 | `interval` | float | `3600.0` | `60-604800` | Target seconds between ranker cycles |
 
 ---

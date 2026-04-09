@@ -14,9 +14,30 @@ pool:
 
 algorithm_id: global-pagerank-v1
 
-db:
+storage:
   path: /app/data/ranker.duckdb
   checkpoint_path: /app/data/ranker.checkpoint.json
+
+processing:
+  max_duration: null
+
+sync:
+  batch_size: 1000
+  max_batches: null
+  max_followers_per_cycle: null
+
+facts_stage:
+  batch_size: 1000
+  max_event_rows: null
+  max_addressable_rows: null
+  max_identifier_rows: null
+
+export:
+  batch_size: 1000
+  max_batches_per_subject: null
+
+cleanup:
+  rank_runs_retention: 100
 
 metrics:
   enabled: true

@@ -307,7 +307,7 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
 
     config = RankerConfig.model_validate(
         {
-            "db": {
+            "storage": {
                 "path": tmp_path / "ranker.duckdb",
                 "checkpoint_path": tmp_path / "ranker.checkpoint.json",
             },
@@ -321,7 +321,7 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
     async with service:
         await service.run()
 
-    store = RankerStore(config.db.path, config.db.checkpoint_path)
+    store = RankerStore(config.storage.path, config.storage.checkpoint_path)
     stats = store.get_graph_stats()
     assert stats.node_count == 4
     assert stats.edge_count == 3
