@@ -20,8 +20,10 @@ flowchart LR
         M["Monitor<br/><small>:8003</small>"]
         S["Synchronizer<br/><small>:8004</small>"]
         R["Refresher<br/><small>:8005</small>"]
-        A["Api<br/><small>:8006</small>"]
-        D["Dvm<br/><small>:8007</small>"]
+        K["Ranker<br/><small>:8009</small>"]
+        A["API<br/><small>:8006</small>"]
+        D["DVM<br/><small>:8007</small>"]
+        T["Assertor<br/><small>:8008</small>"]
     end
 
     P["Prometheus<br/><small>:9090</small>"]
@@ -32,8 +34,10 @@ flowchart LR
     M -->|"/metrics"| P
     S -->|"/metrics"| P
     R -->|"/metrics"| P
+    K -->|"/metrics"| P
     A -->|"/metrics"| P
     D -->|"/metrics"| P
+    T -->|"/metrics"| P
     P -->|"datasource"| G
 
 ```
@@ -150,6 +154,11 @@ scrape_configs:
       - targets: ["refresher:8000"]
     scrape_interval: 30s
 
+  - job_name: "ranker"
+    static_configs:
+      - targets: ["ranker:8000"]
+    scrape_interval: 30s
+
   - job_name: "api"
     static_configs:
       - targets: ["api:8000"]
@@ -158,6 +167,11 @@ scrape_configs:
   - job_name: "dvm"
     static_configs:
       - targets: ["dvm:8000"]
+    scrape_interval: 30s
+
+  - job_name: "assertor"
+    static_configs:
+      - targets: ["assertor:8000"]
     scrape_interval: 30s
 
   - job_name: "postgres"
@@ -178,7 +192,9 @@ Prometheus is configured with 30-day data retention. Data is persisted to a name
 
 ## Alerting Rules
 
-Seven alerting rules are defined in `deployments/bigbrotr/monitoring/prometheus/rules/alerts.yml`:
+Alerting rules are defined in `deployments/*/monitoring/prometheus/rules/alerts.yml`.
+They combine shared platform alerts with service-specific rules for the
+scraped service surface:
 
 ### ServiceDown
 
@@ -288,16 +304,47 @@ Fires when the Refresher service has failing current-state, analytics, or period
 | RefresherMetadataWatermarkLagHigh | Metadata watermark lag > 1h | 30 min | warning |
 | RefresherMaxDurationBudgetHit | Cycle cut by `processing.max_duration` | 30 min | warning |
 | RefresherNoSuccessfulCycle | No successful refresher cycle for > 48h | 15 min | critical |
+| FinderNoSuccessfulCycle | No successful finder cycle for > 1h | 15 min | warning |
+| ValidatorNoSuccessfulCycle | No successful validator cycle for > 1h | 15 min | warning |
+| MonitorNoSuccessfulCycle | No successful monitor cycle for > 1h | 15 min | warning |
+| MonitorRelayFailures | Failed relay checks > 0 | 30 min | warning |
+| SynchronizerNoSuccessfulCycle | No successful synchronizer cycle for > 1h | 15 min | warning |
+| ApiNoSuccessfulCycle | No successful API metrics heartbeat for > 10m | 5 min | critical |
+| ApiRequestFailures | API request failures > 0.05/s | 10 min | warning |
+| DvmNoSuccessfulCycle | No successful DVM cycle for > 10m | 5 min | critical |
+| DvmRequestFailures | DVM request failures > 0.05/s | 10 min | warning |
+| RankerNoSuccessfulCycle | No successful ranker cycle for > 2h | 15 min | critical |
+| RankerCheckpointLagHigh | Ranker checkpoint lag > 24h | 30 min | warning |
+| RankerCycleBudgetHit | Ranker cycle cut by a configured budget | 30 min | warning |
+| RankerFailedRunsIncreasing | Ranker failed run count increased | 15 min | warning |
+| AssertorNoSuccessfulCycle | No successful assertor cycle for > 2h | 15 min | critical |
+| AssertorPublishFailures | NIP-85 assertion publish failures > 0 | 15 min | warning |
+| AssertorProviderProfileFailures | Provider profile publish failures > 0 | 15 min | warning |
+| AssertorEligibleSubjectsNotHandled | Eligible subjects but no published/skipped assertions | 30 min | warning |
 
 ---
 
 ## Grafana Dashboards
 
-Grafana is auto-provisioned with a Prometheus datasource and a BigBrotr dashboard. The dashboard provides per-service panels organized in rows.
+Grafana is auto-provisioned with a Prometheus datasource, a deployment overview
+dashboard, and dedicated per-service dashboards for:
+
+- Finder
+- Validator
+- Monitor
+- Synchronizer
+- Refresher
+- Ranker
+- API
+- DVM
+- Assertor
+
+The overview dashboard provides summary rows. Dedicated dashboards provide the
+operational detail for each service.
 
 ### Dashboard Panels
 
-Each service has a row with:
+Each dashboard includes the shared lifecycle panels:
 
 | Panel | Visualization | Query |
 |-------|--------------|-------|
@@ -305,6 +352,20 @@ Each service has a row with:
 | Cycle Duration | Histogram | `cycle_duration_seconds{service="<name>"}` |
 | Error Count (24h) | Stat | `increase(service_counter_total{service="<name>", name=~"errors_.*"}[24h])` |
 | Consecutive Failures | Stat | `service_gauge{service="<name>", name="consecutive_failures"}` |
+
+Service-specific dashboards add focused panels:
+
+| Dashboard | Additional Panels |
+|-----------|-------------------|
+| Finder | source progress, discovery volume, discovery rate |
+| Validator | validation progress and validation totals |
+| Monitor | relay check progress and failed relay checks |
+| Synchronizer | relay sync progress and event/relay processing rate |
+| Refresher | targets by class, target outcomes, watermark lag, per-target durations, rows refreshed |
+| Ranker | graph and sync volume, staged fact rows, exported rank rows, phase durations, checkpoint lag, DuckDB health, cycle cutoffs |
+| API | tables exposed, request counters, request failure rate |
+| DVM | tables exposed, request counters, request failure rate |
+| Assertor | assertion outcomes, provider profile status, per-kind assertion counts, publish phase durations |
 
 ### Thresholds
 
@@ -326,7 +387,16 @@ grafana/provisioning/
 |   +-- prometheus.yaml       # Prometheus datasource (auto-configured)
 +-- dashboards/
     +-- dashboards.yaml       # Dashboard provider configuration
-    +-- bigbrotr.json         # BigBrotr dashboard definition
+    +-- bigbrotr.json         # BigBrotr overview dashboard
+    +-- finder.json           # Finder dashboard
+    +-- validator.json        # Validator dashboard
+    +-- monitor.json          # Monitor dashboard
+    +-- synchronizer.json     # Synchronizer dashboard
+    +-- refresher.json        # Refresher dashboard
+    +-- ranker.json           # Ranker dashboard
+    +-- api.json              # API dashboard
+    +-- dvm.json              # DVM dashboard
+    +-- assertor.json         # Assertor dashboard
 ```
 
 !!! note
@@ -402,7 +472,7 @@ Docker Compose is configured with JSON file logging and size limits:
 
 ```promql
 # Are all services up?
-up{job=~"finder|validator|monitor|synchronizer|refresher|api|dvm"}
+up{job=~"finder|validator|monitor|synchronizer|refresher|ranker|api|dvm|assertor"}
 
 # Time since last successful cycle per service
 time() - service_gauge{name="last_cycle_timestamp"}
@@ -421,17 +491,17 @@ rate(cycle_duration_seconds_sum[5m]) / rate(cycle_duration_seconds_count[5m])
 histogram_quantile(0.99, rate(cycle_duration_seconds_bucket[5m]))
 
 # Error rate per service
-rate(service_counter{name="errors"}[5m])
+rate(service_counter_total{name=~"errors_.*"}[5m])
 ```
 
 ### Throughput
 
 ```promql
 # Successful cycles per hour
-increase(service_counter{name="cycles_success"}[1h])
+increase(service_counter_total{name="cycles_success"}[1h])
 
 # Total errors in past 24h
-increase(service_counter{name="errors"}[24h])
+increase(service_counter_total{name=~"errors_.*"}[24h])
 ```
 
 ---
