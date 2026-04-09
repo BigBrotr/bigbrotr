@@ -72,7 +72,7 @@ deployments/
 | `DB_WRITER_PASSWORD` | Yes | Writer services | Writer role password (seeder, finder, validator, monitor, synchronizer) |
 | `DB_READER_PASSWORD` | Yes | Read-only services | Reader role password (postgres-exporter, Api, Dvm) |
 | `DB_REFRESHER_PASSWORD` | Yes | Refresher | Refresher role password (matview ownership for REFRESH CONCURRENTLY) |
-| `DB_RANKER_PASSWORD` | Yes | Ranker | Ranker role password (read-only access to canonical facts) |
+| `DB_RANKER_PASSWORD` | Yes | Ranker | Ranker role password (read canonical facts, write `nip85_pubkey_ranks`) |
 | `NOSTR_PRIVATE_KEY_MONITOR` | No | Monitor | Service-specific key used for Monitor publishing and NIP-66 write probes. Blank/unset generates one ephemeral key at config creation. |
 | `NOSTR_PRIVATE_KEY_SYNCHRONIZER` | No | Synchronizer | Service-specific key used for NIP-42-authenticated relay reads. Blank/unset generates one ephemeral key at config creation. |
 | `NOSTR_PRIVATE_KEY_DVM` | No | Dvm | Service-specific key used for NIP-89/NIP-90 signing. Blank/unset generates one ephemeral key at config creation. |
@@ -687,6 +687,53 @@ timeouts:
 | `timeouts.relay_i2p` | float | `3600.0` | 60.0-14400.0 | Max time per I2P relay |
 | `timeouts.relay_loki` | float | `3600.0` | 60.0-14400.0 | Max time per Lokinet relay |
 | `timeouts.max_duration` | float | `14400.0` | 60.0-86400.0 | Maximum seconds for the entire sync phase |
+
+---
+
+## Ranker Configuration
+
+Computes deterministic NIP-85 user ranks (kind `30382`) from the canonical
+follow graph, keeps the working state in a private DuckDB file, and
+snapshot-exports final ranks to PostgreSQL.
+
+```yaml
+interval: 3600.0
+
+metrics:
+  enabled: true
+  port: 8009
+
+algorithm_id: global-pagerank-v1
+
+db:
+  path: /app/data/ranker.duckdb
+  checkpoint_path: /app/data/ranker.checkpoint.json
+
+graph:
+  damping: 0.85
+  iterations: 20
+  ignore_self_follows: true
+
+sync:
+  batch_size: 1000
+
+export:
+  batch_size: 1000
+```
+
+### Ranker Reference
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `algorithm_id` | string | `global-pagerank-v1` | lowercase slug | Stable namespace used in rank snapshots and downstream assertion joins |
+| `db.path` | path | `/app/data/ranker.duckdb` | writable path | Private DuckDB database file for graph state and PageRank working tables |
+| `db.checkpoint_path` | path | `/app/data/ranker.checkpoint.json` | writable path | Incremental PostgreSQL -> DuckDB sync checkpoint |
+| `graph.damping` | float | `0.85` | `0 < x < 1` | PageRank damping factor |
+| `graph.iterations` | int | `20` | `1-10000` | Fixed number of deterministic PageRank iterations |
+| `graph.ignore_self_follows` | bool | `true` | - | Ignore self-follow edges when computing PageRank |
+| `sync.batch_size` | int | `1000` | `1-100000` | Maximum changed followers synced from PostgreSQL per batch |
+| `export.batch_size` | int | `1000` | `1-100000` | Maximum pubkey rank rows exported to PostgreSQL per batch |
+| `interval` | float | `3600.0` | `60-604800` | Target seconds between ranker cycles |
 
 ---
 

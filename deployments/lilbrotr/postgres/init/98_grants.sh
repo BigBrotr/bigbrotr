@@ -3,7 +3,7 @@
 # Writer:    full DML + EXECUTE on data tables/functions.
 # Reader:    SELECT-only access for API, DVM, and monitoring.
 # Refresher: SELECT on source tables + DML on derived tables.
-# Ranker:    SELECT on canonical facts tables only.
+# Ranker:    SELECT on canonical facts tables + DML on private rank outputs.
 # Uses ALTER DEFAULT PRIVILEGES so future objects inherit the same grants.
 
 set -euo pipefail
@@ -52,6 +52,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     GRANT SELECT ON nip85_event_stats TO ${RANKER_ROLE};
     GRANT SELECT ON nip85_addressable_stats TO ${RANKER_ROLE};
     GRANT SELECT ON nip85_identifier_stats TO ${RANKER_ROLE};
+    GRANT SELECT, INSERT, UPDATE, DELETE ON nip85_pubkey_ranks TO ${RANKER_ROLE};
 
     -- Current-state tables + analytics tables: DML required for incremental refresh
     GRANT INSERT, UPDATE, DELETE ON daily_counts TO ${REFRESHER_ROLE};

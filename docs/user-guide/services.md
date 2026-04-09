@@ -562,6 +562,7 @@ For complete configuration details including all fields, defaults, constraints, 
 | Monitor | `processing.compute.*`, `discovery.enabled` | Which checks to run and publish |
 | Synchronizer | `filters`, `limit`, `timeouts.max_duration` | Archival throughput and scope |
 | Refresher | `views`, `interval` | Which views to refresh and how often |
+| Ranker | `algorithm_id`, `graph.*`, `export.batch_size` | PageRank namespace, graph behavior, and snapshot export throughput |
 | Assertor | `algorithm_id`, `kinds`, `provider_profile.enabled` | Assertion namespace, publish scope, and provider identity |
 | Api | `tables`, `max_page_size`, `cors_origins` | Which tables to expose and pagination limits |
 | Dvm | `relays`, `tables`, `kind` | Which relays to listen on and tables to serve |

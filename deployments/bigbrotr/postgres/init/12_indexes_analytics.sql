@@ -34,6 +34,10 @@ ON nip85_event_stats USING btree (author_pubkey);
 CREATE INDEX IF NOT EXISTS idx_nip85_addressable_stats_author
 ON nip85_addressable_stats USING btree (author_pubkey);
 
+-- nip85_pubkey_ranks: lookup by algorithm and descending rank for publish/join paths
+CREATE INDEX IF NOT EXISTS idx_nip85_pubkey_ranks_algorithm_rank_subject
+ON nip85_pubkey_ranks USING btree (algorithm_id, rank DESC, subject_id ASC);
+
 
 -- ==========================================================================
 -- TABLE INDEXES: relay_software_counts
