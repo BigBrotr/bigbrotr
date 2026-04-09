@@ -7,8 +7,9 @@ Submission branch URL: https://github.com/BigBrotr/bigbrotr/tree/hackathon/wotat
 Base PR: https://github.com/BigBrotr/bigbrotr/pull/416
 Demo deployment profile: deployments/testbrotr
 Documentation: https://bigbrotr.github.io/bigbrotr/
-Demo video: submitted separately
-Working demo: submitted separately
+Demo walkthrough: demo.md
+Demo video: not submitted; demo.md replaces the video walkthrough
+Working demo: deployments/testbrotr
 
 
 Elevator Pitch
