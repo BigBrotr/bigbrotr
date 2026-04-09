@@ -104,8 +104,10 @@ uv sync
 
 ```bash
 export DB_WRITER_PASSWORD=your_writer_password
-export NOSTR_PRIVATE_KEY=your_hex_key
-export NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1=your_assertor_hex_key
+export NOSTR_PRIVATE_KEY_MONITOR=your_hex_key
+export NOSTR_PRIVATE_KEY_SYNCHRONIZER=your_hex_key
+export NOSTR_PRIVATE_KEY_DVM=your_hex_key
+export NOSTR_PRIVATE_KEY_ASSERTOR=your_assertor_hex_key
 ```
 
 ## 4. Run Services
@@ -161,7 +163,7 @@ PrivateDevices=yes
 WantedBy=multi-user.target
 ```
 
-Create similar files for `validator`, `monitor`, `synchronizer`, `refresher`, `assertor`, `api`, and `dvm`, changing the `Description` and the service name in the `ExecStart` line. Add `NOSTR_PRIVATE_KEY` to the `monitor` and `dvm` units, and `NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1` to the shipped `assertor` unit.
+Create similar files for `validator`, `monitor`, `synchronizer`, `refresher`, `assertor`, `api`, and `dvm`, changing the `Description` and the service name in the `ExecStart` line. Add `NOSTR_PRIVATE_KEY_MONITOR` to the `monitor` unit, `NOSTR_PRIVATE_KEY_SYNCHRONIZER` to the `synchronizer` unit, `NOSTR_PRIVATE_KEY_DVM` to the `dvm` unit, and `NOSTR_PRIVATE_KEY_ASSERTOR` to the `assertor` unit. If you omit any of these, the corresponding service config generates one ephemeral key at startup.
 
 ### Enable and start all services
 

@@ -701,7 +701,7 @@ All configuration uses Pydantic v2 models with:
 - Typed fields with defaults and constraints (`Field(ge=1, le=65535)`)
 - Nested models (e.g., `MonitorConfig.networks.clearnet.timeout`)
 - `model_validator` for cross-field validation (e.g., Monitor keys at config load time)
-- Environment variable injection for secrets (`DB_WRITER_PASSWORD`, `DB_READER_PASSWORD`, `DB_REFRESHER_PASSWORD`, `NOSTR_PRIVATE_KEY`, `NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1`)
+- Environment variable injection for secrets (`DB_WRITER_PASSWORD`, `DB_READER_PASSWORD`, `DB_REFRESHER_PASSWORD`, `NOSTR_PRIVATE_KEY_<SERVICE>`)
 
 ### Environment Variables
 
@@ -711,8 +711,10 @@ All configuration uses Pydantic v2 models with:
 | `DB_WRITER_PASSWORD` | Yes | Writer services (via per-service pool overrides) |
 | `DB_REFRESHER_PASSWORD` | Yes | Refresher (matview ownership for REFRESH CONCURRENTLY) |
 | `DB_READER_PASSWORD` | Yes | Read-only services (postgres-exporter, Api, Dvm) |
-| `NOSTR_PRIVATE_KEY` | For Monitor, Dvm; optional for Synchronizer | Monitor, Dvm, Synchronizer (event signing / optional NIP-42 auth) |
-| `NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1` | For Assertor in the shipped deployments | Assertor (algorithm-scoped NIP-85 signing) |
+| `NOSTR_PRIVATE_KEY_MONITOR` | No | Monitor (publishing and NIP-66 write probes) |
+| `NOSTR_PRIVATE_KEY_SYNCHRONIZER` | No | Synchronizer (NIP-42-authenticated relay reads) |
+| `NOSTR_PRIVATE_KEY_DVM` | No | Dvm (NIP-89/NIP-90 signing) |
+| `NOSTR_PRIVATE_KEY_ASSERTOR` | No | Assertor (NIP-85 signing) |
 | `GRAFANA_PASSWORD` | No | Grafana (admin password) |
 
 ---

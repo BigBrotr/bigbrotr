@@ -36,9 +36,11 @@ DB_WRITER_PASSWORD=your_writer_password        # openssl rand -base64 32
 DB_READER_PASSWORD=your_reader_password        # openssl rand -base64 32
 DB_REFRESHER_PASSWORD=your_refresher_password  # openssl rand -base64 32
 
-# Required -- application secrets
-NOSTR_PRIVATE_KEY=your_hex_private_key           # openssl rand -hex 32
-NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1=your_hex_private_key  # Assertor default
+# Optional -- service-specific Nostr keys for stable identities
+NOSTR_PRIVATE_KEY_MONITOR=your_hex_private_key
+NOSTR_PRIVATE_KEY_SYNCHRONIZER=your_hex_private_key
+NOSTR_PRIVATE_KEY_DVM=your_hex_private_key
+NOSTR_PRIVATE_KEY_ASSERTOR=your_hex_private_key
 GRAFANA_PASSWORD=your_grafana_password     # openssl rand -base64 16
 
 # Optional -- metrics port overrides (host ports, all map to container port 8000)

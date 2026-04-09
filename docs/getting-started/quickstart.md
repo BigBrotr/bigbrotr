@@ -163,14 +163,14 @@ You ran three of BigBrotr's nine independent services:
 The remaining six services handle monitoring, event archiving, analytics, trust assertions, and data access:
 
 - **Monitor** performs NIP-11 and NIP-66 health checks on validated relays and
-  publishes results as kind 10166/30166 Nostr events (requires `NOSTR_PRIVATE_KEY`)
+  publishes results as kind 10166/30166 Nostr events and uses a service key for NIP-66 write probes
 - **Synchronizer** connects to validated relays, subscribes to events, and
-  archives them with cursor-based pagination
+  archives them with cursor-based pagination, using a service key for NIP-42-authenticated reads when needed
 - **Refresher** refreshes 6 summary tables and 6 materialized views that power analytics queries
 - **Assertor** publishes NIP-85 trusted assertion events for users and events with engagement
-  (requires `NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1` in the shipped config)
+  with its own service signing key
 - **Api** exposes the database as a read-only REST API with paginated endpoints
-- **Dvm** serves database queries over the Nostr protocol as a NIP-90 Data Vending Machine
+- **Dvm** serves database queries over the Nostr protocol as a NIP-90 Data Vending Machine using its own service signing key
 
 ## Running All Services
 
@@ -181,21 +181,25 @@ infinite loop with configurable intervals between cycles:
 # In separate terminals (from deployments/bigbrotr/):
 python -m bigbrotr finder
 python -m bigbrotr validator
-python -m bigbrotr monitor       # requires NOSTR_PRIVATE_KEY env var
+python -m bigbrotr monitor
 python -m bigbrotr synchronizer
 python -m bigbrotr refresher
-python -m bigbrotr assertor      # requires NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1
+python -m bigbrotr assertor
 python -m bigbrotr api
-python -m bigbrotr dvm           # requires NOSTR_PRIVATE_KEY env var
+python -m bigbrotr dvm
 ```
 
 !!! warning
-    The shipped deployment uses two signing-key environment variables:
-    `NOSTR_PRIVATE_KEY` for Monitor and Dvm, and
-    `NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1` for the Assertor. Generate them with:
+    The shipped deployment uses per-service signing-key environment variables:
+    `NOSTR_PRIVATE_KEY_MONITOR`, `NOSTR_PRIVATE_KEY_SYNCHRONIZER`,
+    `NOSTR_PRIVATE_KEY_DVM`, and `NOSTR_PRIVATE_KEY_ASSERTOR`.
+    If any are blank or unset, the corresponding service config generates
+    an ephemeral key once at startup. To pin stable identities, set them explicitly:
     ```bash
-    export NOSTR_PRIVATE_KEY=$(openssl rand -hex 32)
-    export NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1=$(openssl rand -hex 32)
+    export NOSTR_PRIVATE_KEY_MONITOR=$(openssl rand -hex 32)
+    export NOSTR_PRIVATE_KEY_SYNCHRONIZER=$(openssl rand -hex 32)
+    export NOSTR_PRIVATE_KEY_DVM=$(openssl rand -hex 32)
+    export NOSTR_PRIVATE_KEY_ASSERTOR=$(openssl rand -hex 32)
     ```
 
 ## Next Steps

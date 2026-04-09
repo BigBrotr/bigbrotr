@@ -20,7 +20,7 @@ flowchart TD
     A["CLI invocation<br/><small>python -m bigbrotr &lt;service&gt;</small>"] --> B["Brotr.from_yaml<br/><small>config/brotr.yaml</small>"]
     B --> C["Service.from_yaml<br/><small>config/services/&lt;service&gt;.yaml</small>"]
     C --> D["Pydantic validation<br/><small>field constraints, cross-field checks</small>"]
-    D --> E["Environment variable resolution<br/><small>DB_*_PASSWORD, NOSTR_PRIVATE_KEY*</small>"]
+    D --> E["Environment variable resolution<br/><small>DB_*_PASSWORD, NOSTR_PRIVATE_KEY_&lt;SERVICE&gt;</small>"]
     E --> F["Service starts<br/><small>validated configuration</small>"]
 
 ```
@@ -70,8 +70,10 @@ deployments/
 | `DB_WRITER_PASSWORD` | Yes | Writer services | Writer role password (seeder, finder, validator, monitor, synchronizer) |
 | `DB_READER_PASSWORD` | Yes | Read-only services | Reader role password (postgres-exporter, Api, Dvm) |
 | `DB_REFRESHER_PASSWORD` | Yes | Refresher | Refresher role password (matview ownership for REFRESH CONCURRENTLY) |
-| `NOSTR_PRIVATE_KEY` | Monitor, Dvm; optional for Synchronizer | Monitor, Dvm, Synchronizer | Generic Nostr private key (64-char hex or `nsec1...` bech32). Required for Monitor and Dvm publishing. Optional for Synchronizer NIP-42 authentication. |
-| `NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1` | Assertor in the shipped deployments | Assertor | Algorithm-scoped NIP-85 signing key used by the default `global-pagerank-v1` assertor identity. You may reuse the generic key, but the shipped Phase 3 config expects this dedicated variable. |
+| `NOSTR_PRIVATE_KEY_MONITOR` | No | Monitor | Service-specific key used for Monitor publishing and NIP-66 write probes. Blank/unset generates one ephemeral key at config creation. |
+| `NOSTR_PRIVATE_KEY_SYNCHRONIZER` | No | Synchronizer | Service-specific key used for NIP-42-authenticated relay reads. Blank/unset generates one ephemeral key at config creation. |
+| `NOSTR_PRIVATE_KEY_DVM` | No | Dvm | Service-specific key used for NIP-89/NIP-90 signing. Blank/unset generates one ephemeral key at config creation. |
+| `NOSTR_PRIVATE_KEY_ASSERTOR` | No | Assertor | Service-specific key used for NIP-85 assertion signing and optional provider profile publishing. Blank/unset generates one ephemeral key at config creation. |
 | `GRAFANA_PASSWORD` | Docker only | Grafana | Grafana admin password |
 
 ### Setting Environment Variables
@@ -81,16 +83,19 @@ deployments/
 ```bash
 cp deployments/bigbrotr/.env.example deployments/bigbrotr/.env
 # Edit and set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD,
-# DB_READER_PASSWORD, NOSTR_PRIVATE_KEY, NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1,
-# GRAFANA_PASSWORD
+# DB_READER_PASSWORD, GRAFANA_PASSWORD, and optionally the per-service
+# Nostr keys NOSTR_PRIVATE_KEY_MONITOR, NOSTR_PRIVATE_KEY_SYNCHRONIZER,
+# NOSTR_PRIVATE_KEY_DVM, NOSTR_PRIVATE_KEY_ASSERTOR
 ```
 
 **Shell**:
 
 ```bash
 export DB_WRITER_PASSWORD=your_writer_password
-export NOSTR_PRIVATE_KEY=your_hex_private_key
-export NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1=your_assertor_hex_private_key
+export NOSTR_PRIVATE_KEY_MONITOR=your_hex_private_key
+export NOSTR_PRIVATE_KEY_SYNCHRONIZER=your_hex_private_key
+export NOSTR_PRIVATE_KEY_DVM=your_hex_private_key
+export NOSTR_PRIVATE_KEY_ASSERTOR=your_assertor_hex_private_key
 ```
 
 **Systemd**:
@@ -98,8 +103,10 @@ export NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1=your_assertor_hex_private_key
 ```ini
 [Service]
 Environment="DB_WRITER_PASSWORD=your_writer_password"
-Environment="NOSTR_PRIVATE_KEY=your_hex_private_key"
-Environment="NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1=your_assertor_hex_private_key"
+Environment="NOSTR_PRIVATE_KEY_MONITOR=your_hex_private_key"
+Environment="NOSTR_PRIVATE_KEY_SYNCHRONIZER=your_hex_private_key"
+Environment="NOSTR_PRIVATE_KEY_DVM=your_hex_private_key"
+Environment="NOSTR_PRIVATE_KEY_ASSERTOR=your_assertor_hex_private_key"
 ```
 
 ---
@@ -481,7 +488,7 @@ metrics:
   enabled: true
   port: 8003
 
-keys: {}                                     # Loaded from NOSTR_PRIVATE_KEY env var
+keys: {}                                     # Loaded from NOSTR_PRIVATE_KEY_MONITOR or generated once
 
 networks:
   clearnet:
@@ -626,7 +633,7 @@ metrics:
   enabled: true
   port: 8004
 
-keys: {}                                     # Loaded from NOSTR_PRIVATE_KEY env var (for NIP-42)
+keys: {}                                     # Loaded from NOSTR_PRIVATE_KEY_SYNCHRONIZER or generated once
 
 networks:
   clearnet:
@@ -692,7 +699,8 @@ metrics:
   port: 8008
 
 algorithm_id: global-pagerank-v1
-keys_env: NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1
+keys:
+  keys_env: NOSTR_PRIVATE_KEY_ASSERTOR
 allow_insecure: false
 
 relays:
@@ -721,16 +729,18 @@ provider_profile:
     extra_fields: {}
 ```
 
-The shipped BigBrotr and LilBrotr deployments set `keys_env` to
-`NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1`. If you want the Assertor to share the
-generic signing identity, override `keys_env: NOSTR_PRIVATE_KEY`.
+The shipped BigBrotr and LilBrotr deployments set `keys.keys_env` to
+`NOSTR_PRIVATE_KEY_ASSERTOR`. If the variable is blank or unset, the config
+generates one ephemeral key once at startup. If you want the Assertor to share
+another service's identity, point `keys.keys_env` at that service's variable or
+set both variables to the same private key value.
 
 ### Assertion Reference
 
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
 | `algorithm_id` | string | `global-pagerank-v1` | lowercase slug | Stable algorithm/service-key namespace used in v2 checkpoint keys |
-| `keys_env` | string | `NOSTR_PRIVATE_KEY` | non-empty | Environment variable from which the signing key is loaded |
+| `keys.keys_env` | string | `NOSTR_PRIVATE_KEY_ASSERTOR` | non-empty | Environment variable from which the signing key is loaded |
 | `relays` | list[string] | 3 public relays | min 1 | Relay URLs used for NIP-85 publishing |
 | `kinds` | list[int] | `[30382, 30383]` | subset of supported kinds | Assertion kinds to publish |
 | `batch_size` | int | `500` | 1-50000 | Maximum eligible subjects fetched per cycle |

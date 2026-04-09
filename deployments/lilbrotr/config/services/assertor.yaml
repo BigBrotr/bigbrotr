@@ -13,7 +13,8 @@ pool:
   max_size: 3
 
 algorithm_id: global-pagerank-v1
-keys_env: NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1
+keys:
+  keys_env: NOSTR_PRIVATE_KEY_ASSERTOR
 
 interval: 3600.0
 

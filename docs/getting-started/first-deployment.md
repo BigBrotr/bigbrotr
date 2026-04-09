@@ -19,7 +19,8 @@ cd bigbrotr/deployments/bigbrotr
 cp .env.example .env
 ```
 
-Generate secure values for each required secret:
+Generate secure values for each required secret. The Nostr keys below are optional,
+but recommended if you want stable service identities across restarts:
 
 ```bash
 # Generate and set all secrets at once
@@ -27,8 +28,10 @@ DB_ADMIN_PASSWORD=$(openssl rand -base64 32)
 DB_WRITER_PASSWORD=$(openssl rand -base64 32)
 DB_READER_PASSWORD=$(openssl rand -base64 32)
 DB_REFRESHER_PASSWORD=$(openssl rand -base64 32)
-NOSTR_PRIVATE_KEY=$(openssl rand -hex 32)
-NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1=$(openssl rand -hex 32)
+NOSTR_PRIVATE_KEY_MONITOR=$(openssl rand -hex 32)
+NOSTR_PRIVATE_KEY_SYNCHRONIZER=$(openssl rand -hex 32)
+NOSTR_PRIVATE_KEY_DVM=$(openssl rand -hex 32)
+NOSTR_PRIVATE_KEY_ASSERTOR=$(openssl rand -hex 32)
 GRAFANA_PASSWORD=$(openssl rand -base64 16)
 
 cat > .env << EOF
@@ -36,15 +39,17 @@ DB_ADMIN_PASSWORD=${DB_ADMIN_PASSWORD}
 DB_WRITER_PASSWORD=${DB_WRITER_PASSWORD}
 DB_READER_PASSWORD=${DB_READER_PASSWORD}
 DB_REFRESHER_PASSWORD=${DB_REFRESHER_PASSWORD}
-NOSTR_PRIVATE_KEY=${NOSTR_PRIVATE_KEY}
-NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1=${NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1}
+NOSTR_PRIVATE_KEY_MONITOR=${NOSTR_PRIVATE_KEY_MONITOR}
+NOSTR_PRIVATE_KEY_SYNCHRONIZER=${NOSTR_PRIVATE_KEY_SYNCHRONIZER}
+NOSTR_PRIVATE_KEY_DVM=${NOSTR_PRIVATE_KEY_DVM}
+NOSTR_PRIVATE_KEY_ASSERTOR=${NOSTR_PRIVATE_KEY_ASSERTOR}
 GRAFANA_PASSWORD=${GRAFANA_PASSWORD}
 EOF
 ```
 
 !!! warning
     Protect your `.env` file -- it contains database credentials and your Nostr
-    private key. Set restrictive permissions:
+    private keys. Set restrictive permissions:
     ```bash
     chmod 600 .env
     ```
