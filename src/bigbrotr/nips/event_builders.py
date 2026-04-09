@@ -27,6 +27,8 @@ from bigbrotr.models.metadata import Metadata, MetadataType
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from bigbrotr.models.relay import Relay
     from bigbrotr.nips.nip11.data import Nip11InfoData
     from bigbrotr.nips.nip11.nip11 import Nip11, Nip11Selection
@@ -68,9 +70,10 @@ def build_profile_event(  # noqa: PLR0913
     website: str | None = None,
     banner: str | None = None,
     lud16: str | None = None,
+    extra_fields: Mapping[str, object] | None = None,
 ) -> EventBuilder:
     """Build a Kind 0 profile metadata event per NIP-01."""
-    profile_data: dict[str, str] = {}
+    profile_data: dict[str, object] = {}
     if name:
         profile_data["name"] = name
     if about:
@@ -85,6 +88,10 @@ def build_profile_event(  # noqa: PLR0913
         profile_data["banner"] = banner
     if lud16:
         profile_data["lud16"] = lud16
+    if extra_fields:
+        for key, value in extra_fields.items():
+            if key and value is not None and key not in profile_data:
+                profile_data[key] = value
     return EventBuilder.metadata(NostrMetadata.from_json(json.dumps(profile_data)))
 
 
