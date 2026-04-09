@@ -23,7 +23,14 @@ from bigbrotr.models.constants import EventKind
 from bigbrotr.utils.keys import KeysConfig
 
 
-_SUPPORTED_KINDS = frozenset({EventKind.NIP85_USER_ASSERTION, EventKind.NIP85_EVENT_ASSERTION})
+_SUPPORTED_KINDS = frozenset(
+    {
+        EventKind.NIP85_USER_ASSERTION,
+        EventKind.NIP85_EVENT_ASSERTION,
+        EventKind.NIP85_ADDRESSABLE_ASSERTION,
+        EventKind.NIP85_IDENTIFIER_ASSERTION,
+    }
+)
 _ALGORITHM_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 _DEFAULT_ALGORITHM_ID = "global-pagerank-v1"
 
@@ -112,7 +119,7 @@ class AssertorConfig(BaseServiceConfig):
     )
 
     kinds: list[int] = Field(
-        default_factory=lambda: [30382, 30383],
+        default_factory=lambda: [30382, 30383, 30384, 30385],
         min_length=1,
         description="NIP-85 assertion kinds to publish (30382=user, 30383=event)",
     )

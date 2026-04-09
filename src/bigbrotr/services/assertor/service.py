@@ -1,7 +1,7 @@
 """Assertor service for BigBrotr.
 
-Reads NIP-85 summary tables and publishes Trusted Assertion events
-(kind 30382 for users, kind 30383 for events). Phase 3 introduces the
+Reads NIP-85 facts and rank snapshots and publishes Trusted Assertion events
+(kinds 30382-30385). Phase 3 introduces the
 algorithm-aware v2 runtime contract:
 
 - change detection keys are versioned as ``v2:<algorithm_id>:<kind>:<subject_id>``
@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import asyncpg
@@ -24,21 +25,34 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import EventKind, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.nips.event_builders import (
+    build_addressable_assertion,
     build_event_assertion,
+    build_identifier_assertion,
     build_profile_event,
     build_user_assertion,
 )
-from bigbrotr.nips.nip85.data import EventAssertion, UserAssertion
+from bigbrotr.nips.nip85.data import (
+    AddressableAssertion,
+    EventAssertion,
+    IdentifierAssertion,
+    UserAssertion,
+)
 from bigbrotr.utils.protocol import broadcast_events, create_client
 
 from .configs import AssertorConfig
-from .queries import fetch_event_rows, fetch_user_rows
+from .queries import (
+    fetch_addressable_rows,
+    fetch_event_rows,
+    fetch_identifier_rows,
+    fetch_user_rows,
+)
 
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
     from types import TracebackType
 
-    from nostr_sdk import Keys
+    from nostr_sdk import EventBuilder, Keys
 
     from bigbrotr.core.brotr import Brotr
 
@@ -46,6 +60,19 @@ if TYPE_CHECKING:
 _LEGACY_CHECKPOINT_PREFIXES = ("user:", "event:")
 _PROFILE_SUBJECT_ID = "provider_profile"
 _V2_CHECKPOINT_PARTS = 4
+
+
+@dataclass(frozen=True, slots=True)
+class _PublishPlan:
+    """One assertion publish flow bound to a specific NIP-85 subject kind."""
+
+    kind: int
+    fetch_rows: Callable[[int], Awaitable[list[dict[str, Any]]]]
+    assertion_from_row: Callable[[dict[str, Any]], Any]
+    subject_getter: Callable[[Any], str]
+    builder_from_assertion: Callable[[Any], EventBuilder]
+    error_event_name: str
+    error_subject_field: str
 
 
 class Assertor(BaseService[AssertorConfig]):
@@ -136,6 +163,18 @@ class Assertor(BaseService[AssertorConfig]):
             skipped += s
             failed += f
 
+        if EventKind.NIP85_ADDRESSABLE_ASSERTION in self._config.kinds:
+            p, s, f = await self._publish_addressable_assertions()
+            published += p
+            skipped += s
+            failed += f
+
+        if EventKind.NIP85_IDENTIFIER_ASSERTION in self._config.kinds:
+            p, s, f = await self._publish_identifier_assertions()
+            published += p
+            skipped += s
+            failed += f
+
         if self._provider_profile_enabled():
             (
                 profile_published,
@@ -166,74 +205,107 @@ class Assertor(BaseService[AssertorConfig]):
 
     async def _publish_user_assertions(self) -> tuple[int, int, int]:
         """Publish kind 30382 user assertions for qualifying pubkeys."""
-        published = 0
-        skipped = 0
-        failed = 0
-        offset = 0
 
-        while True:
+        async def _fetch(offset: int) -> list[dict[str, Any]]:
             rows = await fetch_user_rows(
                 self._brotr,
+                self._config.algorithm_id,
                 self._config.min_events,
                 self._config.batch_size,
                 offset,
             )
-            if not rows:
-                break
-
             for row in rows:
                 row["top_topics_limit"] = self._config.top_topics
-                assertion = UserAssertion.from_db_row(row)
-                state_key = self._state_key(EventKind.NIP85_USER_ASSERTION, assertion.pubkey)
-                self._mark_seen_state_key(state_key)
-                current_hash = assertion.tags_hash()
+            return rows
 
-                if await self._is_unchanged(state_key, current_hash):
-                    skipped += 1
-                    continue
-
-                try:
-                    builder = build_user_assertion(assertion)
-                    sent = await broadcast_events([builder], [self._client])
-                    if sent > 0:
-                        await self._save_hash(state_key, current_hash)
-                        published += 1
-                    else:
-                        failed += 1
-                except (asyncpg.PostgresError, OSError) as exc:
-                    failed += 1
-                    self._logger.error(
-                        "user_assertion_failed",
-                        pubkey=assertion.pubkey,
-                        algorithm_id=self._config.algorithm_id,
-                        error=str(exc),
-                    )
-
-            if len(rows) < self._config.batch_size:
-                break
-            offset += self._config.batch_size
-
-        return published, skipped, failed
+        return await self._publish_assertion_rows(
+            _PublishPlan(
+                kind=EventKind.NIP85_USER_ASSERTION,
+                fetch_rows=_fetch,
+                assertion_from_row=UserAssertion.from_db_row,
+                subject_getter=lambda assertion: assertion.pubkey,
+                builder_from_assertion=build_user_assertion,
+                error_event_name="user_assertion_failed",
+                error_subject_field="pubkey",
+            )
+        )
 
     async def _publish_event_assertions(self) -> tuple[int, int, int]:
         """Publish kind 30383 event assertions for events with engagement."""
+        return await self._publish_assertion_rows(
+            _PublishPlan(
+                kind=EventKind.NIP85_EVENT_ASSERTION,
+                fetch_rows=lambda offset: fetch_event_rows(
+                    self._brotr,
+                    self._config.algorithm_id,
+                    self._config.batch_size,
+                    offset,
+                ),
+                assertion_from_row=EventAssertion.from_db_row,
+                subject_getter=lambda assertion: assertion.event_id,
+                builder_from_assertion=build_event_assertion,
+                error_event_name="event_assertion_failed",
+                error_subject_field="event_id",
+            ),
+        )
+
+    async def _publish_addressable_assertions(self) -> tuple[int, int, int]:
+        """Publish kind 30384 addressable assertions for ranked addressable subjects."""
+        return await self._publish_assertion_rows(
+            _PublishPlan(
+                kind=EventKind.NIP85_ADDRESSABLE_ASSERTION,
+                fetch_rows=lambda offset: fetch_addressable_rows(
+                    self._brotr,
+                    self._config.algorithm_id,
+                    self._config.batch_size,
+                    offset,
+                ),
+                assertion_from_row=AddressableAssertion.from_db_row,
+                subject_getter=lambda assertion: assertion.event_address,
+                builder_from_assertion=build_addressable_assertion,
+                error_event_name="addressable_assertion_failed",
+                error_subject_field="event_address",
+            ),
+        )
+
+    async def _publish_identifier_assertions(self) -> tuple[int, int, int]:
+        """Publish kind 30385 identifier assertions for ranked NIP-73 subjects."""
+        return await self._publish_assertion_rows(
+            _PublishPlan(
+                kind=EventKind.NIP85_IDENTIFIER_ASSERTION,
+                fetch_rows=lambda offset: fetch_identifier_rows(
+                    self._brotr,
+                    self._config.algorithm_id,
+                    self._config.batch_size,
+                    offset,
+                ),
+                assertion_from_row=IdentifierAssertion.from_db_row,
+                subject_getter=lambda assertion: assertion.identifier,
+                builder_from_assertion=build_identifier_assertion,
+                error_event_name="identifier_assertion_failed",
+                error_subject_field="identifier",
+            ),
+        )
+
+    async def _publish_assertion_rows(
+        self,
+        plan: _PublishPlan,
+    ) -> tuple[int, int, int]:
+        """Publish one assertion subject type using the shared v2 change-detection flow."""
         published = 0
         skipped = 0
         failed = 0
         offset = 0
 
         while True:
-            rows = await fetch_event_rows(
-                self._brotr,
-                self._config.batch_size,
-                offset,
-            )
+            rows = await plan.fetch_rows(offset)
             if not rows:
                 break
 
             for row in rows:
-                assertion = EventAssertion.from_db_row(row)
-                state_key = self._state_key(EventKind.NIP85_EVENT_ASSERTION, assertion.event_id)
+                assertion = plan.assertion_from_row(row)
+                subject_id = plan.subject_getter(assertion)
+                state_key = self._state_key(plan.kind, subject_id)
                 self._mark_seen_state_key(state_key)
                 current_hash = assertion.tags_hash()
 
@@ -242,7 +314,7 @@ class Assertor(BaseService[AssertorConfig]):
                     continue
 
                 try:
-                    builder = build_event_assertion(assertion)
+                    builder = plan.builder_from_assertion(assertion)
                     sent = await broadcast_events([builder], [self._client])
                     if sent > 0:
                         await self._save_hash(state_key, current_hash)
@@ -252,10 +324,12 @@ class Assertor(BaseService[AssertorConfig]):
                 except (asyncpg.PostgresError, OSError) as exc:
                     failed += 1
                     self._logger.error(
-                        "event_assertion_failed",
-                        event_id=assertion.event_id,
-                        algorithm_id=self._config.algorithm_id,
-                        error=str(exc),
+                        plan.error_event_name,
+                        **{
+                            plan.error_subject_field: subject_id,
+                            "algorithm_id": self._config.algorithm_id,
+                            "error": str(exc),
+                        },
                     )
 
             if len(rows) < self._config.batch_size:
