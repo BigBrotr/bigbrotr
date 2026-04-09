@@ -365,28 +365,35 @@ flowchart TD
 
 ## Refresher
 
-**Purpose**: Refresh current-state tables, analytics facts, and materialized views that power downstream services.
+**Purpose**: Refresh current-state tables, analytics facts, and periodic reconciliation tasks that power downstream services.
 
 **Mode**: Continuous (`run_forever`)
 
 **Reads**: Base tables (indirectly, via refresh functions)
-**Writes**: current-state tables, analytics tables, and materialized views
+**Writes**: current-state tables, analytics tables, and service checkpoints
 
 ### How It Works
 
-1. Resolve the configured `current_tables` and `analytics_tables` into canonical dependency-safe order
+1. Resolve the configured `current.targets` and `analytics.targets` into canonical dependency-safe order
 2. Incrementally refresh each current-state table from its source watermark range
 3. Incrementally refresh each analytics table from its source watermark range
-4. Run periodic reconciliations (`rolling_windows`, `relay_stats_metadata`, `nip85_followers`) and log per-target timing and success/failure
+4. Run enabled periodic reconciliations (`rolling_windows`, `relay_stats_metadata`, `nip85_followers`) and emit per-target timing, row, watermark-lag, and failure metrics
 
-Each target is isolated: one failed refresh does not stop the rest of the cycle.
+Each target is isolated by default: one failed refresh does not stop the rest of the cycle unless `processing.continue_on_target_error` is disabled.
 
 ### Configuration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `refresh.current_tables` | list[string] | canonical current-state set | Current-state tables to refresh incrementally |
-| `refresh.analytics_tables` | list[string] | canonical analytics set | Analytics tables to refresh incrementally |
+| `current.targets` | list[string] | canonical current-state set | Current-state tables to refresh incrementally |
+| `analytics.targets` | list[string] | canonical analytics set | Analytics tables to refresh incrementally |
+| `periodic.rolling_windows` | bool | `true` | Recompute rolling time-window columns |
+| `periodic.relay_stats_metadata` | bool | `true` | Refresh `relay_stats` metadata fields |
+| `periodic.nip85_followers` | bool | `true` | Recompute NIP-85 follower/following counts |
+| `processing.max_duration` | float or null | `null` | Maximum seconds for one refresh cycle |
+| `processing.max_targets_per_cycle` | int or null | `null` | Maximum targets attempted per cycle |
+| `processing.continue_on_target_error` | bool | `true` | Continue after isolated target failures |
+| `cleanup.enabled` | bool | `true` | Remove stale checkpoints for targets no longer configured |
 
 !!! tip "API Reference"
     See [`bigbrotr.services.refresher`](../reference/services/refresher/index.md) for the complete Refresher API.

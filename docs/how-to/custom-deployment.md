@@ -69,7 +69,7 @@ Service files to customize:
 - `validator.yaml` -- validation interval, network settings
 - `monitor.yaml` -- health check settings, publishing relays
 - `synchronizer.yaml` -- sync interval, concurrency, event filters
-- `refresher.yaml` -- materialized view refresh interval and view list
+- `refresher.yaml` -- current-state, analytics, periodic refresh targets, and cycle budgets
 - `api.yaml` -- REST API host, port, table access policies
 - `dvm.yaml` -- Nostr relays, table policies, NIP-90 kind
 
@@ -82,11 +82,11 @@ Edit `postgres/init/02_tables.sql` to select which schema to use:
 
 === "BigBrotr (full archive)"
 
-    Keep the full event table with all columns (`tags`, `content`, `sig`). This stores complete Nostr events and enables the 6 summary tables and 6 materialized views.
+    Keep the full event table with all columns (`tags`, `content`, `sig`). This stores complete Nostr events and enables the full current-state, analytics, and NIP-85 rank schema.
 
 === "LilBrotr (lightweight)"
 
-    Use the lightweight event table with all 8 columns where `tags`, `content`, and `sig` are nullable and always NULL. This provides approximately 60% disk savings since NULL values do not occupy storage. All 6 summary tables and 6 materialized views are still available.
+    Use the lightweight event table with all 8 columns where `tags`, `content`, and `sig` are nullable and always NULL. This provides approximately 60% disk savings since NULL values do not occupy storage. The current-state, analytics, and NIP-85 rank schema is still available.
 
 ## Step 6: Set Up the Seed File
 
