@@ -128,6 +128,13 @@ async def _refresh_nip85(brotr: Brotr, after: int = 0, until: int = 2000000000) 
         await brotr.fetchval(f"SELECT {table}_refresh($1::BIGINT, $2::BIGINT)", after, until)
 
 
+async def _refresh_contact_graph(brotr: Brotr, after: int = 0, until: int = 2000000000) -> None:
+    """Refresh canonical contact-list facts after refreshing replaceable matviews."""
+    await brotr.refresh_materialized_view("events_replaceable_latest")
+    for table in ["contact_lists_current", "contact_list_edges_current"]:
+        await brotr.fetchval(f"SELECT {table}_refresh($1::BIGINT, $2::BIGINT)", after, until)
+
+
 # ============================================================================
 # Summary tables: cross-tabulations
 # ============================================================================
@@ -1395,6 +1402,138 @@ class TestNip85EventStats:
         assert row["reaction_count"] == 2
 
 
+class TestContactListFacts:
+    async def test_contact_lists_current_tracks_deduplicated_latest_contacts(
+        self, brotr: Brotr
+    ) -> None:
+        follower = "c0" * 32
+        followed1 = "c1" * 32
+        followed2 = "c2" * 32
+        er = _event_relay(
+            "c3" * 32,
+            "wss://contacts.example.com",
+            kind=3,
+            pubkey=follower,
+            seen_at=100,
+            tags=[
+                ["p", followed1],
+                ["p", followed2],
+                ["p", followed1],
+                ["p", "not-a-valid-pubkey"],
+            ],
+        )
+        await brotr.insert_event_relay([er], cascade=True)
+        await _refresh_contact_graph(brotr, after=0, until=200)
+
+        row = await brotr.fetchrow(
+            "SELECT source_event_id, follow_count "
+            "FROM contact_lists_current WHERE follower_pubkey = $1",
+            follower,
+        )
+        edges = await brotr.fetch(
+            "SELECT followed_pubkey FROM contact_list_edges_current "
+            "WHERE follower_pubkey = $1 ORDER BY followed_pubkey",
+            follower,
+        )
+
+        assert row is not None
+        assert row["source_event_id"] == "c3" * 32
+        assert row["follow_count"] == 2
+        assert [edge["followed_pubkey"] for edge in edges] == [followed1, followed2]
+
+    async def test_contact_list_edges_replace_previous_latest_list(self, brotr: Brotr) -> None:
+        follower = "c4" * 32
+        old_friend = "c5" * 32
+        shared_friend = "c6" * 32
+        new_friend = "c7" * 32
+        ers = [
+            _event_relay(
+                "c8" * 32,
+                "wss://contacts.example.com",
+                kind=3,
+                pubkey=follower,
+                created_at=100,
+                seen_at=101,
+                tags=[["p", old_friend], ["p", shared_friend]],
+            ),
+            _event_relay(
+                "c9" * 32,
+                "wss://contacts.example.com",
+                kind=3,
+                pubkey=follower,
+                created_at=200,
+                seen_at=201,
+                tags=[["p", shared_friend], ["p", new_friend]],
+            ),
+        ]
+        await brotr.insert_event_relay([ers[0]], cascade=True)
+        await _refresh_contact_graph(brotr, after=0, until=150)
+
+        await brotr.insert_event_relay([ers[1]], cascade=True)
+        await _refresh_contact_graph(brotr, after=150, until=300)
+
+        row = await brotr.fetchrow(
+            "SELECT source_event_id, follow_count "
+            "FROM contact_lists_current WHERE follower_pubkey = $1",
+            follower,
+        )
+        edges = await brotr.fetch(
+            "SELECT followed_pubkey, source_event_id "
+            "FROM contact_list_edges_current "
+            "WHERE follower_pubkey = $1 ORDER BY followed_pubkey",
+            follower,
+        )
+
+        assert row is not None
+        assert row["source_event_id"] == "c9" * 32
+        assert row["follow_count"] == 2
+        assert [edge["followed_pubkey"] for edge in edges] == [shared_friend, new_friend]
+        assert all(edge["source_event_id"] == "c9" * 32 for edge in edges)
+
+    async def test_empty_latest_contact_list_removes_current_edges(self, brotr: Brotr) -> None:
+        follower = "ca" * 32
+        followed1 = "cb" * 32
+        followed2 = "cc" * 32
+        first = _event_relay(
+            "cd" * 32,
+            "wss://contacts.example.com",
+            kind=3,
+            pubkey=follower,
+            created_at=100,
+            seen_at=101,
+            tags=[["p", followed1], ["p", followed2]],
+        )
+        second = _event_relay(
+            "ce" * 32,
+            "wss://contacts.example.com",
+            kind=3,
+            pubkey=follower,
+            created_at=200,
+            seen_at=201,
+            tags=[],
+        )
+        await brotr.insert_event_relay([first], cascade=True)
+        await _refresh_contact_graph(brotr, after=0, until=150)
+
+        await brotr.insert_event_relay([second], cascade=True)
+        await _refresh_contact_graph(brotr, after=150, until=300)
+
+        row = await brotr.fetchrow(
+            "SELECT source_event_id, follow_count "
+            "FROM contact_lists_current WHERE follower_pubkey = $1",
+            follower,
+        )
+        edges = await brotr.fetch(
+            "SELECT followed_pubkey FROM contact_list_edges_current WHERE follower_pubkey = $1",
+            follower,
+        )
+
+        assert row is not None
+        assert row["source_event_id"] == "ce" * 32
+        assert row["follow_count"] == 0
+        assert edges == []
+
+
 class TestNip85FollowerCount:
     async def test_follower_count_from_contacts(self, brotr: Brotr) -> None:
         followed = "f0" * 32
@@ -1421,8 +1560,7 @@ class TestNip85FollowerCount:
         ]
         await brotr.insert_event_relay(ers, cascade=True)
         await _refresh_nip85(brotr)
-        # Refresh matviews needed for follower count
-        await brotr.refresh_materialized_view("events_replaceable_latest")
+        await _refresh_contact_graph(brotr)
         await brotr.execute("SELECT nip85_follower_count_refresh()")
 
         row = await brotr.fetchrow(
@@ -1449,7 +1587,7 @@ class TestNip85FollowerCount:
         ]
         await brotr.insert_event_relay(ers, cascade=True)
         await _refresh_nip85(brotr)
-        await brotr.refresh_materialized_view("events_replaceable_latest")
+        await _refresh_contact_graph(brotr)
         await brotr.execute("SELECT nip85_follower_count_refresh()")
 
         row = await brotr.fetchrow(

@@ -12,8 +12,10 @@ cost proportional to the ingestion rate rather than the total dataset size.
    ``relay_kind_stats``) — must run before entity tables
 3. Summary entity tables (``pubkey_stats``, ``kind_stats``, ``relay_stats``)
    — derive ``unique_*`` counts from cross-tab row counts
-4. Rolling windows (``events_last_24h/7d/30d``) — periodic, scans last 30 days
-5. Relay metadata (RTT, NIP-11) — periodic
+4. Canonical contact-list facts (``contact_lists_current``,
+   ``contact_list_edges_current``) — current latest kind=3 graph state
+5. Rolling windows (``events_last_24h/7d/30d``) — periodic, scans last 30 days
+6. Relay metadata (RTT, NIP-11) and NIP-85 follower reconciliation — periodic
 
 See Also:
     [RefresherConfig][bigbrotr.services.refresher.RefresherConfig]:
@@ -25,7 +27,7 @@ See Also:
 from __future__ import annotations
 
 import time
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import asyncpg
 
@@ -33,7 +35,12 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 
-from .configs import RefresherConfig
+from .configs import (
+    RefresherConfig,
+    resolve_matview_order,
+    resolve_summary_order,
+    validate_summary_dependencies,
+)
 from .queries import (
     get_max_seen_at,
     refresh_nip85_followers,
@@ -41,6 +48,10 @@ from .queries import (
     refresh_rolling_windows,
     refresh_summary,
 )
+
+
+if TYPE_CHECKING:
+    from bigbrotr.core.brotr import Brotr
 
 
 class Refresher(BaseService[RefresherConfig]):
@@ -57,6 +68,13 @@ class Refresher(BaseService[RefresherConfig]):
 
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.REFRESHER
     CONFIG_CLASS: ClassVar[type[RefresherConfig]] = RefresherConfig
+
+    def __init__(self, brotr: Brotr, config: RefresherConfig | None = None) -> None:
+        super().__init__(brotr=brotr, config=config)
+        self._config: RefresherConfig
+        self._config.refresh.matviews = resolve_matview_order(self._config.refresh.matviews)
+        self._config.refresh.summaries = resolve_summary_order(self._config.refresh.summaries)
+        validate_summary_dependencies(self._config.refresh.summaries)
 
     async def cleanup(self) -> int:
         """Remove stale checkpoints for summary tables no longer in config."""

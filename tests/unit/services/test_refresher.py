@@ -46,7 +46,7 @@ class TestRefreshConfig:
         assert config.matviews == DEFAULT_MATVIEWS
         assert config.summaries == DEFAULT_SUMMARIES
         assert len(config.matviews) == 6
-        assert len(config.summaries) == 8
+        assert len(config.summaries) == 10
 
     def test_default_matviews_dependency_order(self) -> None:
         config = RefreshConfig()
@@ -185,12 +185,45 @@ class TestRefresherInit:
 
     def test_init_with_custom_config(self, mock_refresher_brotr: Brotr) -> None:
         config = RefresherConfig(
-            refresh=RefreshConfig(matviews=["relay_metadata_latest"], summaries=["pubkey_stats"]),
+            refresh=RefreshConfig(
+                matviews=["relay_metadata_latest"],
+                summaries=["pubkey_kind_stats"],
+            ),
         )
         refresher = Refresher(brotr=mock_refresher_brotr, config=config)
 
         assert refresher.config.refresh.matviews == ["relay_metadata_latest"]
-        assert refresher.config.refresh.summaries == ["pubkey_stats"]
+        assert refresher.config.refresh.summaries == ["pubkey_kind_stats"]
+
+    def test_init_reorders_known_objects_canonically(self, mock_refresher_brotr: Brotr) -> None:
+        config = RefresherConfig(
+            refresh=RefreshConfig(
+                matviews=["supported_nip_counts", "relay_metadata_latest"],
+                summaries=["contact_list_edges_current", "contact_lists_current"],
+            ),
+        )
+
+        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
+
+        assert refresher.config.refresh.matviews == [
+            "relay_metadata_latest",
+            "supported_nip_counts",
+        ]
+        assert refresher.config.refresh.summaries == [
+            "contact_lists_current",
+            "contact_list_edges_current",
+        ]
+
+    def test_init_rejects_missing_summary_dependencies(self, mock_refresher_brotr: Brotr) -> None:
+        config = RefresherConfig(
+            refresh=RefreshConfig(
+                matviews=["relay_metadata_latest"],
+                summaries=["contact_list_edges_current"],
+            ),
+        )
+
+        with pytest.raises(ValueError, match="contact_list_edges_current requires"):
+            Refresher(brotr=mock_refresher_brotr, config=config)
 
     def test_config_class_attribute(self) -> None:
         assert Refresher.CONFIG_CLASS is RefresherConfig
@@ -223,7 +256,7 @@ class TestRefresherCleanup:
         current = ServiceState(
             service_name=ServiceName.REFRESHER,
             state_type=ServiceStateType.CHECKPOINT,
-            state_key="pubkey_stats",
+            state_key="pubkey_kind_stats",
             state_value={"timestamp": 200},
         )
         mock_refresher_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
@@ -234,7 +267,7 @@ class TestRefresherCleanup:
         config = RefresherConfig(
             refresh=RefreshConfig(
                 matviews=["relay_metadata_latest"],
-                summaries=["pubkey_stats"],
+                summaries=["pubkey_kind_stats"],
             ),
         )
         refresher = Refresher(brotr=mock_refresher_brotr, config=config)
@@ -257,7 +290,7 @@ class TestRefresherRunMatviews:
         config = RefresherConfig(
             refresh=RefreshConfig(
                 matviews=["relay_metadata_latest", "daily_counts"],
-                summaries=["pubkey_stats"],
+                summaries=["pubkey_kind_stats"],
             ),
         )
         refresher = Refresher(brotr=mock_refresher_brotr, config=config)
@@ -288,7 +321,7 @@ class TestRefresherRunMatviews:
         config = RefresherConfig(
             refresh=RefreshConfig(
                 matviews=["relay_metadata_latest", "daily_counts", "supported_nip_counts"],
-                summaries=["pubkey_stats"],
+                summaries=["pubkey_kind_stats"],
             ),
         )
         refresher = Refresher(brotr=mock_refresher_brotr, config=config)
@@ -311,7 +344,7 @@ class TestRefresherRunSummaries:
         config = RefresherConfig(
             refresh=RefreshConfig(
                 matviews=["relay_metadata_latest"],
-                summaries=["pubkey_stats"],
+                summaries=["pubkey_kind_stats"],
             ),
         )
         refresher = Refresher(brotr=mock_refresher_brotr, config=config)
@@ -324,9 +357,11 @@ class TestRefresherRunSummaries:
         assert all("_refresh" not in str(c) for c in fetchval_calls)
 
     async def test_new_data_triggers_refresh(self, mock_refresher_brotr: Brotr) -> None:
-        # fetchval: EXISTS=True, then row count for each of 8 summaries
+        fetchval_side_effect: list[object] = []
+        for i in range(len(DEFAULT_SUMMARIES)):
+            fetchval_side_effect.extend([True, i + 1])
         mock_refresher_brotr.fetchval = AsyncMock(  # type: ignore[method-assign]
-            side_effect=[True, 5, True, 3, True, 2, True, 10, True, 8, True, 7, True, 4, True, 6]
+            side_effect=fetchval_side_effect
         )
 
         config = RefresherConfig(
@@ -340,7 +375,7 @@ class TestRefresherRunSummaries:
         await refresher.run()
 
         # Should upsert checkpoint for each summary
-        assert mock_refresher_brotr.upsert_service_state.call_count == 8
+        assert mock_refresher_brotr.upsert_service_state.call_count == len(DEFAULT_SUMMARIES)
 
     async def test_summary_failure_continues(self, mock_refresher_brotr: Brotr) -> None:
         mock_refresher_brotr.fetchval = AsyncMock(  # type: ignore[method-assign]
@@ -350,7 +385,7 @@ class TestRefresherRunSummaries:
         config = RefresherConfig(
             refresh=RefreshConfig(
                 matviews=["relay_metadata_latest"],
-                summaries=["pubkey_kind_stats", "pubkey_stats"],
+                summaries=["pubkey_relay_stats", "pubkey_kind_stats"],
             ),
         )
         refresher = Refresher(brotr=mock_refresher_brotr, config=config)
@@ -377,7 +412,7 @@ class TestRefresherRunCounts:
         config = RefresherConfig(
             refresh=RefreshConfig(
                 matviews=["relay_metadata_latest"],
-                summaries=["pubkey_stats"],
+                summaries=["pubkey_kind_stats"],
             ),
         )
         refresher = Refresher(brotr=mock_refresher_brotr, config=config)
@@ -405,7 +440,7 @@ class TestRefresherRunCounts:
         config = RefresherConfig(
             refresh=RefreshConfig(
                 matviews=["relay_metadata_latest"],
-                summaries=["pubkey_stats"],
+                summaries=["pubkey_kind_stats"],
             ),
         )
         refresher = Refresher(brotr=mock_refresher_brotr, config=config)
@@ -429,7 +464,7 @@ class TestRefresherMetrics:
         config = RefresherConfig(
             refresh=RefreshConfig(
                 matviews=["relay_metadata_latest"],
-                summaries=["pubkey_stats"],
+                summaries=["pubkey_kind_stats"],
             ),
         )
         refresher = Refresher(brotr=mock_refresher_brotr, config=config)

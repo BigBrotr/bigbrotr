@@ -562,6 +562,212 @@ COMMENT ON FUNCTION relay_stats_refresh(BIGINT, BIGINT) IS
 
 
 -- **************************************************************************
+-- SUMMARY TABLE REFRESH: Canonical contact-list facts
+-- **************************************************************************
+-- These tables derive current follow-graph facts from latest kind=3 events.
+-- contact_lists_current captures one row per follower's current latest list;
+-- contact_list_edges_current expands that into deduplicated current edges.
+-- **************************************************************************
+
+
+/*
+ * contact_lists_current_refresh(p_after, p_until) -> INTEGER
+ *
+ * Tracks current latest kind=3 contact list events. A follower is impacted only
+ * when their current latest kind=3 event is truly new in the seen_at range.
+ * source_seen_at stores the first seen_at timestamp of that latest event.
+ */
+CREATE OR REPLACE FUNCTION contact_lists_current_refresh(
+    p_after BIGINT,
+    p_until BIGINT
+) RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_rows INTEGER;
+BEGIN
+    WITH changed_latest AS (
+        SELECT
+            erl.id,
+            erl.pubkey,
+            erl.created_at,
+            erl.tags,
+            erl.tagvalues,
+            seen.first_seen_at
+        FROM events_replaceable_latest AS erl
+        INNER JOIN LATERAL (
+            SELECT MIN(er.seen_at) AS first_seen_at
+            FROM event_relay AS er
+            WHERE er.event_id = erl.id
+        ) AS seen ON TRUE
+        WHERE erl.kind = 3
+          AND seen.first_seen_at > p_after
+          AND seen.first_seen_at <= p_until
+          AND NOT EXISTS (
+              SELECT 1
+              FROM event_relay AS older
+              WHERE older.event_id = erl.id
+                AND older.seen_at <= p_after
+          )
+    ),
+    delta AS (
+        SELECT
+            ENCODE(pubkey, 'hex') AS follower_pubkey,
+            ENCODE(id, 'hex') AS source_event_id,
+            created_at AS source_created_at,
+            first_seen_at AS source_seen_at,
+            COALESCE(exact_counts.cnt, fallback_counts.cnt, 0) AS follow_count
+        FROM changed_latest
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)::BIGINT AS cnt
+            FROM (
+                SELECT DISTINCT LOWER(t.tag ->> 1) AS followed_pubkey
+                FROM jsonb_array_elements(tags) AS t(tag)
+                WHERE t.tag ->> 0 = 'p'
+                  AND LOWER(t.tag ->> 1) ~ '^[0-9a-f]{64}$'
+            ) AS dedup
+        ) AS exact_counts ON tags IS NOT NULL
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)::BIGINT AS cnt
+            FROM (
+                SELECT DISTINCT LOWER(substring(t.tv FROM 3)) AS followed_pubkey
+                FROM unnest(tagvalues) WITH ORDINALITY AS t(tv, ord)
+                WHERE t.tv LIKE 'p:%'
+                  AND LOWER(substring(t.tv FROM 3)) ~ '^[0-9a-f]{64}$'
+            ) AS dedup
+        ) AS fallback_counts ON tags IS NULL
+    )
+    INSERT INTO contact_lists_current
+        (follower_pubkey, source_event_id, source_created_at, source_seen_at, follow_count)
+    SELECT
+        follower_pubkey,
+        source_event_id,
+        source_created_at,
+        source_seen_at,
+        follow_count
+    FROM delta
+    ON CONFLICT (follower_pubkey) DO UPDATE SET
+        source_event_id   = EXCLUDED.source_event_id,
+        source_created_at = EXCLUDED.source_created_at,
+        source_seen_at    = EXCLUDED.source_seen_at,
+        follow_count      = EXCLUDED.follow_count;
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    RETURN v_rows;
+END;
+$$;
+
+COMMENT ON FUNCTION contact_lists_current_refresh(BIGINT, BIGINT) IS
+'Incremental refresh of current latest kind=3 contact lists. Stores one row per follower with stable source_seen_at and deduplicated follow_count.';
+
+
+/*
+ * contact_list_edges_current_refresh(p_after, p_until) -> INTEGER
+ *
+ * Replaces all current follow edges for followers whose latest contact list
+ * first became visible in the given seen_at range.
+ */
+CREATE OR REPLACE FUNCTION contact_list_edges_current_refresh(
+    p_after BIGINT,
+    p_until BIGINT
+) RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_rows INTEGER := 0;
+    v_partial INTEGER;
+BEGIN
+    CREATE TEMP TABLE _changed_contact_lists ON COMMIT DROP AS
+    SELECT
+        follower_pubkey,
+        source_event_id,
+        source_created_at,
+        source_seen_at
+    FROM contact_lists_current
+    WHERE source_seen_at > p_after AND source_seen_at <= p_until;
+
+    DELETE FROM contact_list_edges_current
+    WHERE follower_pubkey IN (SELECT follower_pubkey FROM _changed_contact_lists);
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+
+    WITH current_lists AS (
+        SELECT
+            c.follower_pubkey,
+            c.source_event_id,
+            c.source_created_at,
+            c.source_seen_at,
+            erl.tags,
+            erl.tagvalues
+        FROM _changed_contact_lists AS c
+        INNER JOIN events_replaceable_latest AS erl
+            ON ENCODE(erl.id, 'hex') = c.source_event_id
+    ),
+    exact_edges AS (
+        SELECT
+            cl.follower_pubkey,
+            LOWER(t.tag ->> 1) AS followed_pubkey,
+            cl.source_event_id,
+            cl.source_created_at,
+            cl.source_seen_at
+        FROM current_lists AS cl
+        CROSS JOIN LATERAL jsonb_array_elements(cl.tags) AS t(tag)
+        WHERE cl.tags IS NOT NULL
+          AND t.tag ->> 0 = 'p'
+          AND LOWER(t.tag ->> 1) ~ '^[0-9a-f]{64}$'
+    ),
+    fallback_edges AS (
+        SELECT
+            cl.follower_pubkey,
+            LOWER(substring(t.tv FROM 3)) AS followed_pubkey,
+            cl.source_event_id,
+            cl.source_created_at,
+            cl.source_seen_at
+        FROM current_lists AS cl
+        CROSS JOIN LATERAL unnest(cl.tagvalues) WITH ORDINALITY AS t(tv, ord)
+        WHERE cl.tags IS NULL
+          AND t.tv LIKE 'p:%'
+          AND LOWER(substring(t.tv FROM 3)) ~ '^[0-9a-f]{64}$'
+    ),
+    delta AS (
+        SELECT DISTINCT
+            follower_pubkey,
+            followed_pubkey,
+            source_event_id,
+            source_created_at,
+            source_seen_at
+        FROM (
+            SELECT * FROM exact_edges
+            UNION ALL
+            SELECT * FROM fallback_edges
+        ) AS all_edges
+    )
+    INSERT INTO contact_list_edges_current
+        (follower_pubkey, followed_pubkey, source_event_id, source_created_at, source_seen_at)
+    SELECT
+        follower_pubkey,
+        followed_pubkey,
+        source_event_id,
+        source_created_at,
+        source_seen_at
+    FROM delta
+    ON CONFLICT (follower_pubkey, followed_pubkey) DO UPDATE SET
+        source_event_id   = EXCLUDED.source_event_id,
+        source_created_at = EXCLUDED.source_created_at,
+        source_seen_at    = EXCLUDED.source_seen_at;
+
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
+
+    DROP TABLE IF EXISTS _changed_contact_lists;
+    RETURN v_rows;
+END;
+$$;
+
+COMMENT ON FUNCTION contact_list_edges_current_refresh(BIGINT, BIGINT) IS
+'Incremental refresh of deduplicated current follow edges derived from latest kind=3 contact lists.';
+
+
+-- **************************************************************************
 -- PERIODIC REFRESH: Rolling windows and metadata
 -- **************************************************************************
 
@@ -1664,26 +1870,22 @@ COMMENT ON FUNCTION nip85_event_stats_refresh(BIGINT, BIGINT) IS
 /*
  * nip85_follower_count_refresh() -> VOID
  *
- * Recomputes follower_count for all pubkeys from current contact lists
- * (kind 3, replaceable). Reads from events_replaceable_latest which must
- * be refreshed first.
- *
- * Follower count is non-incremental because kind=3 overwrites the full
- * contact list on each update (follow/unfollow cannot be detected as delta).
+ * Recomputes follower_count and following_count for all pubkeys from the
+ * canonical contact-list facts tables. Reads from contact_list_edges_current
+ * and contact_lists_current, which must already be refreshed.
  */
 CREATE OR REPLACE FUNCTION nip85_follower_count_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    -- Compute follower counts from latest contact lists
+    -- Compute follower counts from current deduplicated edges
     WITH follower_counts AS (
         SELECT
-            substring(tv FROM 3) AS followed_pubkey,
-            COUNT(DISTINCT ENCODE(pubkey, 'hex')) AS cnt
-        FROM events_replaceable_latest, unnest(tagvalues) AS tv
-        WHERE kind = 3 AND tv LIKE 'p:%'
-        GROUP BY substring(tv FROM 3)
+            followed_pubkey,
+            COUNT(*) AS cnt
+        FROM contact_list_edges_current
+        GROUP BY followed_pubkey
     )
     UPDATE nip85_pubkey_stats ps SET
         follower_count = fc.cnt
@@ -1695,20 +1897,16 @@ BEGIN
     WHERE ps.follower_count > 0
       AND NOT EXISTS (
           SELECT 1
-          FROM events_replaceable_latest AS erl,
-               unnest(erl.tagvalues) AS tv
-          WHERE erl.kind = 3
-            AND tv = 'p:' || ps.pubkey
+          FROM contact_list_edges_current AS cle
+          WHERE cle.followed_pubkey = ps.pubkey
       );
 
-    -- Compute following counts (how many p-tags in each pubkey's own kind=3)
+    -- Compute following counts from current latest contact lists
     WITH following_counts AS (
         SELECT
-            ENCODE(pubkey, 'hex') AS pubkey,
-            COUNT(*) FILTER (WHERE tv LIKE 'p:%') AS cnt
-        FROM events_replaceable_latest, unnest(tagvalues) AS tv
-        WHERE kind = 3
-        GROUP BY pubkey
+            follower_pubkey AS pubkey,
+            follow_count AS cnt
+        FROM contact_lists_current
     )
     UPDATE nip85_pubkey_stats ps SET
         following_count = fc.cnt
@@ -1719,12 +1917,11 @@ BEGIN
     WHERE ps.following_count > 0
       AND NOT EXISTS (
           SELECT 1
-          FROM events_replaceable_latest AS erl
-          WHERE erl.kind = 3
-            AND ENCODE(erl.pubkey, 'hex') = ps.pubkey
+          FROM contact_lists_current AS cl
+          WHERE cl.follower_pubkey = ps.pubkey
       );
 END;
 $$;
 
 COMMENT ON FUNCTION nip85_follower_count_refresh() IS
-'Recompute NIP-85 follower and following counts from latest contact lists (events_replaceable_latest). Non-incremental.';
+'Recompute NIP-85 follower and following counts from canonical contact-list facts tables (contact_lists_current, contact_list_edges_current).';

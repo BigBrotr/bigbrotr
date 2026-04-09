@@ -32,8 +32,8 @@ DEFAULT_MATVIEWS: list[str] = [
 ]
 
 #: Default summary tables (incremental refresh via stored procedures).
-#: Order: cross-tabs first (entity tables derive unique_* from them),
-#: then NIP-85 tables (same incremental pattern).
+#: Order: cross-tabs first, then entity tables that derive unique_* counts
+#: from them, then canonical contact-list facts, then NIP-85 summary tables.
 DEFAULT_SUMMARIES: list[str] = [
     "pubkey_kind_stats",
     "pubkey_relay_stats",
@@ -41,9 +41,20 @@ DEFAULT_SUMMARIES: list[str] = [
     "pubkey_stats",
     "kind_stats",
     "relay_stats",
+    "contact_lists_current",
+    "contact_list_edges_current",
     "nip85_pubkey_stats",
     "nip85_event_stats",
 ]
+
+_CANONICAL_MATVIEWS: tuple[str, ...] = tuple(DEFAULT_MATVIEWS)
+_CANONICAL_SUMMARIES: tuple[str, ...] = tuple(DEFAULT_SUMMARIES)
+_SUMMARY_DEPENDENCIES: dict[str, frozenset[str]] = {
+    "pubkey_stats": frozenset({"pubkey_kind_stats", "pubkey_relay_stats"}),
+    "kind_stats": frozenset({"pubkey_kind_stats", "relay_kind_stats"}),
+    "relay_stats": frozenset({"pubkey_relay_stats", "relay_kind_stats"}),
+    "contact_list_edges_current": frozenset({"contact_lists_current"}),
+}
 
 
 def _validate_names(v: list[str], label: str) -> list[str]:
@@ -55,6 +66,38 @@ def _validate_names(v: list[str], label: str) -> list[str]:
             f"invalid {label} names (must match [a-z_][a-z0-9_]*): {', '.join(invalid)}"
         )
     return v
+
+
+def _resolve_canonical_order(names: list[str], canonical: tuple[str, ...]) -> list[str]:
+    """Sort known names into canonical order while preserving unknown extras."""
+    selected = set(names)
+    ordered_known = [name for name in canonical if name in selected]
+    ordered_extra = [name for name in names if name not in canonical]
+    return [*ordered_known, *ordered_extra]
+
+
+def resolve_matview_order(matviews: list[str]) -> list[str]:
+    """Return matviews in canonical dependency order."""
+    return _resolve_canonical_order(matviews, _CANONICAL_MATVIEWS)
+
+
+def resolve_summary_order(summaries: list[str]) -> list[str]:
+    """Return summary tables in canonical dependency order."""
+    return _resolve_canonical_order(summaries, _CANONICAL_SUMMARIES)
+
+
+def validate_summary_dependencies(summaries: list[str]) -> None:
+    """Fail fast if a selected summary omits a required upstream dependency."""
+    selected = set(summaries)
+    problems: list[str] = []
+    for summary, required in _SUMMARY_DEPENDENCIES.items():
+        if summary not in selected:
+            continue
+        missing = sorted(required - selected)
+        if missing:
+            problems.append(f"{summary} requires {', '.join(missing)}")
+    if problems:
+        raise ValueError("invalid refresher summary selection: " + "; ".join(problems))
 
 
 class RefreshConfig(BaseModel):

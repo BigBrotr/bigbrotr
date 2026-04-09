@@ -206,13 +206,58 @@ COMMENT ON TABLE relay_stats IS
 -- **************************************************************************
 -- NIP-85 SUMMARY TABLES (incremental refresh)
 -- **************************************************************************
--- Trusted Assertion metrics per NIP-85. Per-pubkey social stats (kind 30382)
--- and per-event engagement stats (kind 30383). Incrementally maintained with
--- the same (p_after, p_until) pattern as the core summary tables.
+-- Trusted Assertion metrics per NIP-85, plus canonical facts derived from
+-- latest kind=3 contact lists. Incrementally maintained with the same
+-- (p_after, p_until) pattern as the core summary tables.
 --
--- follower_count requires periodic reconciliation from events_replaceable_latest
--- (kind 3 is replaceable: contact lists overwrite, not accumulate).
+-- follower_count/following_count are periodically reconciled from the
+-- canonical contact-list facts tables because kind=3 is replaceable.
 -- **************************************************************************
+
+
+-- ==========================================================================
+-- contact_lists_current: Current latest kind=3 contact list per author
+-- ==========================================================================
+-- One row per pubkey whose latest replaceable kind=3 event is currently active.
+-- source_seen_at stores the first seen_at timestamp of the current latest event,
+-- making the row stable across later duplicate observations on other relays.
+-- follow_count is the deduplicated number of valid followed pubkeys in that
+-- current list.
+--
+-- Refresh: contact_lists_current_refresh(p_after, p_until)
+
+CREATE TABLE IF NOT EXISTS contact_lists_current (
+    follower_pubkey TEXT PRIMARY KEY,
+    source_event_id TEXT NOT NULL,
+    source_created_at BIGINT NOT NULL,
+    source_seen_at BIGINT NOT NULL,
+    follow_count BIGINT NOT NULL DEFAULT 0
+);
+
+COMMENT ON TABLE contact_lists_current IS
+'Current latest kind=3 contact list per pubkey. Incrementally refreshed via contact_lists_current_refresh(after, until).';
+
+
+-- ==========================================================================
+-- contact_list_edges_current: Current deduplicated follow graph edges
+-- ==========================================================================
+-- One row per current (follower, followed) edge derived from the latest kind=3
+-- event of that follower. The source_* columns point back to the active contact
+-- list event that produced the edge.
+--
+-- Refresh: contact_list_edges_current_refresh(p_after, p_until)
+
+CREATE TABLE IF NOT EXISTS contact_list_edges_current (
+    follower_pubkey TEXT NOT NULL,
+    followed_pubkey TEXT NOT NULL,
+    source_event_id TEXT NOT NULL,
+    source_created_at BIGINT NOT NULL,
+    source_seen_at BIGINT NOT NULL,
+    PRIMARY KEY (follower_pubkey, followed_pubkey)
+);
+
+COMMENT ON TABLE contact_list_edges_current IS
+'Current deduplicated follow graph edges derived from latest kind=3 contact lists. Incrementally refreshed via contact_list_edges_current_refresh(after, until).';
 
 
 -- ==========================================================================
@@ -222,6 +267,8 @@ COMMENT ON TABLE relay_stats IS
 -- activity_hours is a 24-slot heatmap (one INTEGER per UTC hour).
 -- topic_counts is a JSONB object of topic -> count.
 -- Zap amounts are bolt11-verified (claimed amount must match invoice).
+-- follower_count and following_count are periodically reconciled from the
+-- canonical contact-list facts tables, not accumulated incrementally.
 --
 -- Refresh: nip85_pubkey_stats_refresh(p_after, p_until)
 
@@ -247,7 +294,7 @@ CREATE TABLE IF NOT EXISTS nip85_pubkey_stats (
 );
 
 COMMENT ON TABLE nip85_pubkey_stats IS
-'NIP-85 per-pubkey social metrics. Incrementally refreshed via nip85_pubkey_stats_refresh(after, until). Follower count via nip85_follower_count_refresh().';
+'NIP-85 per-pubkey social metrics. Incrementally refreshed via nip85_pubkey_stats_refresh(after, until). Follower and following counts via nip85_follower_count_refresh().';
 
 
 -- ==========================================================================

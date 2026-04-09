@@ -63,5 +63,5 @@ async def refresh_relay_metadata(brotr: Brotr) -> None:
 
 
 async def refresh_nip85_followers(brotr: Brotr) -> None:
-    """Recompute NIP-85 follower counts from latest contact lists."""
+    """Recompute NIP-85 follower/following counts from canonical contact-list facts."""
     await brotr.execute("SELECT nip85_follower_count_refresh()")

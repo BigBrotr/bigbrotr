@@ -40,6 +40,12 @@ async def _refresh_nip85(brotr: Brotr, after: int = 0, until: int = 2_000_000_00
         await brotr.fetchval(f"SELECT {table}_refresh($1::BIGINT, $2::BIGINT)", after, until)
 
 
+async def _refresh_contact_graph(brotr: Brotr, after: int = 0, until: int = 2_000_000_000) -> None:
+    await brotr.refresh_materialized_view("events_replaceable_latest")
+    for table in ["contact_lists_current", "contact_list_edges_current"]:
+        await brotr.fetchval(f"SELECT {table}_refresh($1::BIGINT, $2::BIGINT)", after, until)
+
+
 class TestLilBrotrAddressableFallback:
     async def test_addressable_d_tag_falls_back_to_tagvalues(self, brotr: Brotr) -> None:
         er = _event_relay(
@@ -274,6 +280,36 @@ class TestLilBrotrNip85Fallback:
         assert int(row["topic_counts"]["bitcoin"]) == 2
         assert int(row["topic_counts"]["nostr"]) == 1
 
+    async def test_contact_graph_facts_use_tagvalues(self, brotr: Brotr) -> None:
+        follower = "bd" * 32
+        followed1 = "be" * 32
+        followed2 = "bf" * 32
+        er = _event_relay(
+            "c0" * 32,
+            "wss://lil-fallback.example.com",
+            kind=3,
+            pubkey=follower,
+            tags=[["p", followed1], ["p", followed2], ["p", followed1]],
+        )
+        await brotr.insert_event_relay([er], cascade=True)
+        await _refresh_contact_graph(brotr)
+
+        row = await brotr.fetchrow(
+            "SELECT source_event_id, follow_count "
+            "FROM contact_lists_current WHERE follower_pubkey = $1",
+            follower,
+        )
+        edges = await brotr.fetch(
+            "SELECT followed_pubkey FROM contact_list_edges_current "
+            "WHERE follower_pubkey = $1 ORDER BY followed_pubkey",
+            follower,
+        )
+
+        assert row is not None
+        assert row["source_event_id"] == "c0" * 32
+        assert row["follow_count"] == 2
+        assert [edge["followed_pubkey"] for edge in edges] == [followed1, followed2]
+
     async def test_follower_and_following_counts_use_tagvalues(self, brotr: Brotr) -> None:
         followed = "ba" * 32
         follower1 = "bb" * 32
@@ -302,7 +338,7 @@ class TestLilBrotrNip85Fallback:
         ]
         await brotr.insert_event_relay(ers, cascade=True)
         await _refresh_nip85(brotr)
-        await brotr.refresh_materialized_view("events_replaceable_latest")
+        await _refresh_contact_graph(brotr)
         await brotr.execute("SELECT nip85_follower_count_refresh()")
 
         followed_row = await brotr.fetchrow(

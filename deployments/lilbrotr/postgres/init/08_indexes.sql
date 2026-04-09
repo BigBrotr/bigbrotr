@@ -126,6 +126,14 @@ ON pubkey_relay_stats USING btree (relay_url);
 CREATE INDEX IF NOT EXISTS idx_relay_kind_stats_kind
 ON relay_kind_stats USING btree (kind);
 
+-- contact_lists_current: change feed for ranker sync and analytics rebuild tools
+CREATE INDEX IF NOT EXISTS idx_contact_lists_current_source_seen_at_follower
+ON contact_lists_current USING btree (source_seen_at ASC, follower_pubkey ASC);
+
+-- contact_list_edges_current: reverse lookup for follower counts / inbound graph traversal
+CREATE INDEX IF NOT EXISTS idx_contact_list_edges_current_followed
+ON contact_list_edges_current USING btree (followed_pubkey);
+
 
 -- ==========================================================================
 -- NIP-85 SUMMARY TABLE INDEXES
