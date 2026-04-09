@@ -110,9 +110,9 @@ Stop all services that write to the database before restoring:
     gunzip -c backup.sql.gz | psql -U admin -d bigbrotr
     ```
 
-### Refresh materialized views
+### Refresh derived analytics state
 
-After restoring, refresh all summary tables and materialized views to ensure they reflect the restored data. The simplest approach is to start the Refresher service, which orchestrates all refreshes in the correct dependency order:
+After restoring, refresh current-state tables, analytics facts, and periodic reconciliation targets to ensure they reflect the restored data. The simplest approach is to start the Refresher service, which orchestrates all refreshes in the correct dependency order:
 
 ```bash
 # Docker
@@ -122,7 +122,7 @@ docker compose start refresher
 python -m bigbrotr refresher --once
 ```
 
-Alternatively, connect to the database and call the individual refresh functions manually (summary table refresh functions require `(after, until)` range parameters; materialized view refresh functions take no arguments).
+Alternatively, connect to the database and call the individual refresh functions manually. Incremental current-state and analytics refresh functions require `(after, until)` range parameters; periodic reconciliation functions take no arguments.
 
 ### Restart services
 

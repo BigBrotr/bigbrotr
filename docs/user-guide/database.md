@@ -1,6 +1,6 @@
 # Database Reference
 
-Complete reference for BigBrotr's PostgreSQL schema, stored functions, materialized views, and indexes.
+Complete reference for BigBrotr's PostgreSQL schema, stored functions, derived tables, reporting views, and indexes.
 
 ---
 
@@ -459,11 +459,11 @@ Per-relay event counts, averaged round-trip times, and NIP-11 info.
 
 ---
 
-## Materialized Views
+## Derived Current-State And Analytics Tables
 
-All deployments (BigBrotr, LilBrotr) share the same 6 materialized views. All views use `REFRESH MATERIALIZED VIEW CONCURRENTLY` which requires a unique index.
+All deployments (BigBrotr, LilBrotr) share the same current-state and analytics tables. The Refresher maintains them incrementally through checkpointed refresh functions rather than `REFRESH MATERIALIZED VIEW CONCURRENTLY`.
 
-### relay_metadata_latest
+### relay_metadata_current
 
 Latest metadata snapshot per relay and check type.
 
@@ -487,7 +487,7 @@ NIP-11 software distribution across relays. Only includes relays that report a s
 | `version` | TEXT | Software version (or "unknown" if not reported) |
 | `relay_count` | BIGINT | Relays running this software |
 
-Depends on `relay_metadata_latest` -- refresh that view first.
+Depends on `relay_metadata_current` -- refresh that table first.
 
 ### supported_nip_counts
 
@@ -498,7 +498,7 @@ NIP support distribution from NIP-11 info. Counts how many relays support each N
 | `nip` | INTEGER | NIP number |
 | `relay_count` | BIGINT | Relays supporting this NIP |
 
-Depends on `relay_metadata_latest` -- refresh that view first.
+Depends on `relay_metadata_current` -- refresh that table first.
 
 ### daily_counts
 
@@ -511,7 +511,7 @@ Daily event aggregation for time-series analysis (UTC).
 | `unique_pubkeys` | BIGINT | Unique authors on this day |
 | `unique_kinds` | BIGINT | Unique event kinds on this day |
 
-### events_replaceable_latest
+### events_replaceable_current
 
 Latest replaceable event per author and kind.
 
@@ -522,11 +522,11 @@ Latest replaceable event per author and kind.
 | `id` | BYTEA | Event hash |
 | `created_at` | BIGINT | Event timestamp |
 
-### events_addressable_latest
+### events_addressable_current
 
 Latest addressable event per author, kind, and d-tag identifier.
 
-BigBrotr extracts `d_tag` from the first `d` tag in the stored JSON tags. LilBrotr uses the same view definition but falls back to the ordered `tagvalues` entry `d:*` when full tags are not persisted.
+BigBrotr extracts `d_tag` from the first `d` tag in the stored JSON tags. LilBrotr uses the same table definition but falls back to the ordered `tagvalues` entry `d:*` when full tags are not persisted.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -540,20 +540,39 @@ BigBrotr extracts `d_tag` from the first `d` tag in the stored JSON tags. LilBro
 
 ## Refresh Functions
 
-The **Refresher** service (`python -m bigbrotr refresher`) orchestrates all refresh functions automatically, executing each individually in dependency order with per-function logging and error isolation.
+The **Refresher** service (`python -m bigbrotr refresher`) orchestrates all refresh functions automatically, executing each configured target in dependency order with per-target logging, checkpoints, metrics, and error isolation.
 
-### Summary Table Refresh Functions
+### Current-State Refresh Functions
 
-Summary table refresh functions accept `(p_after BIGINT, p_until BIGINT)` range parameters and return `INTEGER` (rows affected). The Refresher computes the range from the last refresh timestamp to the current time.
+Current-state refresh functions accept `(p_after BIGINT, p_until BIGINT)` range parameters and return `INTEGER` (rows affected). The Refresher computes the range from each target checkpoint to the next source watermark.
 
 | Function | Target Table | Recommended Schedule |
 |----------|-------------|---------------------|
+| `relay_metadata_current_refresh(after, until)` | relay_metadata_current | Daily |
+| `events_replaceable_current_refresh(after, until)` | events_replaceable_current | Hourly |
+| `events_addressable_current_refresh(after, until)` | events_addressable_current | Hourly |
+| `contact_lists_current_refresh(after, until)` | contact_lists_current | Hourly |
+| `contact_list_edges_current_refresh(after, until)` | contact_list_edges_current | Hourly |
+
+### Analytics Refresh Functions
+
+Analytics refresh functions also accept `(p_after BIGINT, p_until BIGINT)` range parameters and return `INTEGER` (rows affected).
+
+| Function | Target Table | Recommended Schedule |
+|----------|-------------|---------------------|
+| `daily_counts_refresh(after, until)` | daily_counts | Daily |
+| `relay_software_counts_refresh(after, until)` | relay_software_counts | Daily |
+| `supported_nip_counts_refresh(after, until)` | supported_nip_counts | Daily |
 | `pubkey_kind_stats_refresh(after, until)` | pubkey_kind_stats | Hourly |
 | `pubkey_relay_stats_refresh(after, until)` | pubkey_relay_stats | Hourly |
 | `relay_kind_stats_refresh(after, until)` | relay_kind_stats | Hourly |
 | `pubkey_stats_refresh(after, until)` | pubkey_stats | Hourly |
 | `kind_stats_refresh(after, until)` | kind_stats | Hourly |
 | `relay_stats_refresh(after, until)` | relay_stats | Hourly |
+| `nip85_pubkey_stats_refresh(after, until)` | nip85_pubkey_stats | Hourly |
+| `nip85_event_stats_refresh(after, until)` | nip85_event_stats | Hourly |
+| `nip85_addressable_stats_refresh(after, until)` | nip85_addressable_stats | Hourly |
+| `nip85_identifier_stats_refresh(after, until)` | nip85_identifier_stats | Hourly |
 
 ### Periodic Functions
 
@@ -561,22 +580,10 @@ Summary table refresh functions accept `(p_after BIGINT, p_until BIGINT)` range 
 |----------|---------|---------------------|
 | `rolling_windows_refresh()` | Refresh rolling time-window columns in summary tables | Hourly |
 | `relay_stats_metadata_refresh()` | Refresh metadata-derived columns in relay_stats (RTT, NIP-11) | Daily |
-
-### Materialized View Refresh Functions
-
-All return `VOID` with `SECURITY INVOKER`. Each uses `REFRESH MATERIALIZED VIEW CONCURRENTLY`.
-
-| Function | Target View | Recommended Schedule |
-|----------|-------------|---------------------|
-| `relay_metadata_latest_refresh()` | relay_metadata_latest | Daily |
-| `relay_software_counts_refresh()` | relay_software_counts | Daily |
-| `supported_nip_counts_refresh()` | supported_nip_counts | Daily |
-| `daily_counts_refresh()` | daily_counts | Daily |
-| `events_replaceable_latest_refresh()` | events_replaceable_latest | Daily |
-| `events_addressable_latest_refresh()` | events_addressable_latest | Daily |
+| `nip85_follower_count_refresh()` | Recompute NIP-85 follower/following counts | Hourly |
 
 !!! note
-    `relay_software_counts` and `supported_nip_counts` depend on `relay_metadata_latest` -- the Refresher ensures `relay_metadata_latest_refresh()` runs first.
+    `relay_software_counts` and `supported_nip_counts` depend on `relay_metadata_current`; the Refresher config validates that `relay_metadata_current` is included when those analytics targets are enabled.
 
 ---
 
@@ -638,23 +645,23 @@ Summary tables use their primary keys for uniqueness. Additional secondary index
 | PK | pubkey_relay_stats | `pubkey, relay_url` | Composite primary key |
 | Secondary | pubkey_relay_stats | `relay_url` | BTREE |
 
-### Materialized View Indexes
+### Current And Analytics Indexes
 
-All materialized views require at least one unique index for `REFRESH CONCURRENTLY`. These indexes are shared across all deployments.
+Current-state and analytics tables use primary keys for deterministic upserts. Additional secondary indexes support common access paths.
 
-| Index | View | Columns | Unique |
-|-------|------|---------|--------|
-| `idx_relay_metadata_latest_pk` | relay_metadata_latest | `relay_url, metadata_type` | Yes |
-| `idx_relay_metadata_latest_type` | relay_metadata_latest | `metadata_type` | No |
-| `idx_relay_software_counts_composite` | relay_software_counts | `software, version` | Yes |
-| `idx_supported_nip_counts_nip` | supported_nip_counts | `nip` | Yes |
-| `idx_daily_counts_day` | daily_counts | `day` | Yes |
-| `idx_events_replaceable_latest_pk` | events_replaceable_latest | `pubkey, kind` | Yes |
-| `idx_events_addressable_latest_pk` | events_addressable_latest | `pubkey, kind, d_tag` | Yes |
+| Index | Table | Columns | Unique |
+|-------|-------|---------|--------|
+| `idx_relay_metadata_current_type_generated_at` | relay_metadata_current | `metadata_type, generated_at DESC` | No |
+| `idx_events_replaceable_current_id` | events_replaceable_current | `id` | Yes |
+| `idx_events_addressable_current_id` | events_addressable_current | `id` | Yes |
+| `idx_contact_lists_current_source_seen_at_follower` | contact_lists_current | `source_seen_at DESC, follower_pubkey` | No |
+| `idx_contact_list_edges_current_followed` | contact_list_edges_current | `followed_pubkey` | No |
+| `idx_nip85_event_stats_author` | nip85_event_stats | `author_pubkey` | No |
+| `idx_nip85_addressable_stats_author` | nip85_addressable_stats | `author_pubkey` | No |
 
 ### LilBrotr Table Indexes
 
-LilBrotr uses the same table, summary table, and materialized view indexes as BigBrotr (see above). The only schema difference is the event table column nullability.
+LilBrotr uses the same table, current-state, analytics, and rank indexes as BigBrotr (see above). The only schema difference is the event table column nullability.
 
 ---
 
@@ -667,14 +674,19 @@ SQL files execute in alphabetical order via Docker's `/docker-entrypoint-initdb.
 | File | Content |
 |------|---------|
 | `00_extensions.sql` | `btree_gin`, `pg_stat_statements` |
-| `01_functions_utility.sql` | `tags_to_tagvalues()` |
-| `02_tables.sql` | 6 tables with full event schema |
-| `03_functions_crud.sql` | 10 CRUD + 2 cascade functions |
-| `04_functions_cleanup.sql` | 2 cleanup functions |
-| `05_views.sql` | Regular views (reserved) |
-| `06_materialized_views.sql` | 6 summary tables + 6 materialized views |
-| `07_functions_refresh.sql` | 14 refresh functions (8 summary + 6 matview) + 2 periodic |
-| `08_indexes.sql` | Table, summary table, and materialized view indexes |
+| `01_functions_utility.sql` | Tag and event-address utility functions |
+| `02_tables_core.sql` | Core relay, event, metadata, junction, and service-state tables |
+| `03_tables_current.sql` | Current-state tables |
+| `04_tables_analytics.sql` | Analytics and NIP-85 rank tables |
+| `05_functions_crud.sql` | CRUD, cascade, and service-state functions |
+| `06_functions_cleanup.sql` | 2 cleanup functions |
+| `07_views_reporting.sql` | Reporting views |
+| `08_functions_refresh_current.sql` | Current-state refresh functions |
+| `09_functions_refresh_analytics.sql` | Analytics, contact-graph, and periodic refresh functions |
+| `10_indexes_core.sql` | Core table indexes |
+| `11_indexes_current.sql` | Current-state indexes |
+| `12_indexes_analytics.sql` | Analytics and rank indexes |
+| `98_grants.sh` | Role grants |
 | `99_verify.sql` | Verification queries |
 
 ### LilBrotr
@@ -682,14 +694,19 @@ SQL files execute in alphabetical order via Docker's `/docker-entrypoint-initdb.
 | File | Content |
 |------|---------|
 | `00_extensions.sql` | `btree_gin`, `pg_stat_statements` |
-| `01_functions_utility.sql` | `tags_to_tagvalues()` |
-| `02_tables.sql` | 6 tables with lightweight event schema |
-| `03_functions_crud.sql` | 10 CRUD + 2 cascade functions |
-| `04_functions_cleanup.sql` | 2 cleanup functions |
-| `05_views.sql` | Regular views (reserved) |
-| `06_materialized_views.sql` | 6 summary tables + 6 materialized views |
-| `07_functions_refresh.sql` | 14 refresh functions (8 summary + 6 matview) + 2 periodic |
-| `08_indexes.sql` | Table and materialized view indexes |
+| `01_functions_utility.sql` | Tag and event-address utility functions |
+| `02_tables_core.sql` | Core relay, event, metadata, junction, and service-state tables |
+| `03_tables_current.sql` | Current-state tables |
+| `04_tables_analytics.sql` | Analytics and NIP-85 rank tables |
+| `05_functions_crud.sql` | CRUD, cascade, and service-state functions |
+| `06_functions_cleanup.sql` | 2 cleanup functions |
+| `07_views_reporting.sql` | Reporting views |
+| `08_functions_refresh_current.sql` | Current-state refresh functions |
+| `09_functions_refresh_analytics.sql` | Analytics, contact-graph, and periodic refresh functions |
+| `10_indexes_core.sql` | Core table indexes |
+| `11_indexes_current.sql` | Current-state indexes |
+| `12_indexes_analytics.sql` | Analytics and rank indexes |
+| `98_grants.sh` | Role grants |
 | `99_verify.sql` | Verification queries |
 
 ---
@@ -732,13 +749,14 @@ CREATE TABLE event (
 
 | Category | Count | Functions |
 |----------|-------|-----------|
-| Utility | 1 | `tags_to_tagvalues` |
+| Utility | 5 | `tags_to_tagvalues`, event address helpers, and `bolt11_amount_msats` |
 | CRUD (Level 1) | 8 | `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `service_state_upsert`, `service_state_get`, `service_state_delete` |
 | CRUD (Level 2) | 2 | `event_relay_insert_cascade`, `relay_metadata_insert_cascade` |
 | Cleanup | 2 | `orphan_metadata_delete`, `orphan_event_delete` |
-| Summary refresh | 8 | 6 table refresh + `rolling_windows_refresh` + `relay_stats_metadata_refresh` |
-| Matview refresh | 6 | `relay_metadata_latest_refresh`, `relay_software_counts_refresh`, `supported_nip_counts_refresh`, `daily_counts_refresh`, `events_replaceable_latest_refresh`, `events_addressable_latest_refresh` |
-| **Total** | **27** | |
+| Current refresh | 5 | `relay_metadata_current_refresh`, `events_replaceable_current_refresh`, `events_addressable_current_refresh`, `contact_lists_current_refresh`, `contact_list_edges_current_refresh` |
+| Analytics refresh | 13 | `daily_counts_refresh`, metadata analytics, entity stats, and NIP-85 stats refresh functions |
+| Periodic refresh | 3 | `rolling_windows_refresh`, `relay_stats_metadata_refresh`, `nip85_follower_count_refresh` |
+| **Total** | **38** | |
 
 ---
 
@@ -746,8 +764,8 @@ CREATE TABLE event (
 
 | Task | Frequency | Command |
 |------|-----------|---------|
-| Refresh summary tables | Hourly | Run via Refresher service (orchestrates individually) |
-| Refresh materialized views | Daily | Run via Refresher service (orchestrates individually) |
+| Refresh current-state and analytics tables | Hourly/Daily | Run via Refresher service (orchestrates configured targets individually) |
+| Refresh periodic reconciliation targets | Hourly/Daily | Run via Refresher service (orchestrates configured targets individually) |
 | Delete orphan events | Daily | `SELECT orphan_event_delete()` |
 | Delete orphan metadata | Daily | `SELECT orphan_metadata_delete()` |
 | VACUUM ANALYZE | Weekly | `VACUUM ANALYZE event; VACUUM ANALYZE event_relay;` |

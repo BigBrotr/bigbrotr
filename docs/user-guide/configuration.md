@@ -71,7 +71,7 @@ deployments/
 | `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin, PGBouncer | Admin user password for database initialization and PGBouncer auth |
 | `DB_WRITER_PASSWORD` | Yes | Writer services | Writer role password (seeder, finder, validator, monitor, synchronizer) |
 | `DB_READER_PASSWORD` | Yes | Read-only services | Reader role password (postgres-exporter, Api, Dvm) |
-| `DB_REFRESHER_PASSWORD` | Yes | Refresher | Refresher role password (matview ownership for REFRESH CONCURRENTLY) |
+| `DB_REFRESHER_PASSWORD` | Yes | Refresher | Refresher role password for derived-table and analytics refreshes |
 | `DB_RANKER_PASSWORD` | Yes | Ranker | Ranker role password (read canonical facts, write `nip85_pubkey_ranks`) |
 | `NOSTR_PRIVATE_KEY_MONITOR` | No | Monitor | Service-specific key used for Monitor publishing and NIP-66 write probes. Blank/unset generates one ephemeral key at config creation. |
 | `NOSTR_PRIVATE_KEY_SYNCHRONIZER` | No | Synchronizer | Service-specific key used for NIP-42-authenticated relay reads. Blank/unset generates one ephemeral key at config creation. |
@@ -289,7 +289,7 @@ If no `pool:` section is present, the service uses the brotr.yaml defaults.
 | Validator | writer | 1 | 3 | WebSocket testing + promotion |
 | Monitor | writer | 1 | 3 | Health checks + metadata persistence |
 | Synchronizer | writer | 2 | 5 | Highest throughput service |
-| Refresher | refresher | 1 | 3 | Materialized view refresh (needs REFRESH CONCURRENTLY) |
+| Refresher | refresher | 1 | 3 | Derived-table and analytics refreshes |
 | Api | reader | 1 | 3 | Read-only REST API queries |
 | Dvm | reader | 1 | 3 | Read-only Nostr DVM queries |
 
@@ -687,6 +687,73 @@ timeouts:
 | `timeouts.relay_i2p` | float | `3600.0` | 60.0-14400.0 | Max time per I2P relay |
 | `timeouts.relay_loki` | float | `3600.0` | 60.0-14400.0 | Max time per Lokinet relay |
 | `timeouts.max_duration` | float | `14400.0` | 60.0-86400.0 | Maximum seconds for the entire sync phase |
+
+---
+
+## Refresher Configuration
+
+Refreshes current-state tables, analytics facts, and periodic reconciliation
+tasks from explicit, typed target lists.
+
+```yaml
+interval: 86400.0
+
+metrics:
+  enabled: true
+  port: 8005
+
+processing:
+  max_duration: null
+  max_targets_per_cycle: null
+  continue_on_target_error: true
+
+current:
+  targets:
+    - relay_metadata_current
+    - events_replaceable_current
+    - events_addressable_current
+    - contact_lists_current
+    - contact_list_edges_current
+
+analytics:
+  targets:
+    - daily_counts
+    - relay_software_counts
+    - supported_nip_counts
+    - pubkey_kind_stats
+    - pubkey_relay_stats
+    - relay_kind_stats
+    - pubkey_stats
+    - kind_stats
+    - relay_stats
+    - nip85_pubkey_stats
+    - nip85_event_stats
+    - nip85_addressable_stats
+    - nip85_identifier_stats
+
+periodic:
+  rolling_windows: true
+  relay_stats_metadata: true
+  nip85_followers: true
+
+cleanup:
+  enabled: true
+```
+
+### Refresher Reference
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `current.targets` | list[string] | canonical current-state set | enum values | Current-state tables refreshed incrementally |
+| `analytics.targets` | list[string] | canonical analytics set | enum values | Analytics tables refreshed incrementally |
+| `periodic.rolling_windows` | bool | `true` | - | Recompute rolling time-window columns |
+| `periodic.relay_stats_metadata` | bool | `true` | - | Refresh `relay_stats` metadata fields from relay metadata |
+| `periodic.nip85_followers` | bool | `true` | - | Recompute NIP-85 follower and following counts |
+| `processing.max_duration` | float or null | `null` | 1-86400 | Maximum seconds for one refresh cycle |
+| `processing.max_targets_per_cycle` | int or null | `null` | >= 1 | Maximum targets attempted in one cycle |
+| `processing.continue_on_target_error` | bool | `true` | - | Continue after isolated target failures |
+| `cleanup.enabled` | bool | `true` | - | Remove stale checkpoints for targets no longer configured |
+| `interval` | float | `86400.0` | >= 60 | Target seconds between refresh cycles |
 
 ---
 

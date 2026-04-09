@@ -261,17 +261,17 @@ labels:
 
 Fires when the PostgreSQL buffer cache hit ratio drops below 95%. This may indicate insufficient `shared_buffers` or dataset growth exceeding available memory.
 
-### RefresherViewsFailing
+### RefresherTargetsFailing
 
 ```yaml
-alert: RefresherViewsFailing
-expr: service_gauge{service="refresher", name="views_failed"} > 0
+alert: RefresherTargetsFailing
+expr: service_gauge{service="refresher", name="targets_failed"} > 0
 for: 10m
 labels:
   severity: warning
 ```
 
-Fires when the Refresher service has failing materialized view refreshes for more than 10 minutes. Check database health and view definitions.
+Fires when the Refresher service has failing current-state, analytics, or periodic refresh targets for more than 10 minutes. Check database health and refresh definitions.
 
 ### Alert Summary
 
@@ -283,7 +283,11 @@ Fires when the Refresher service has failing materialized view refreshes for mor
 | SlowCycles | p99 cycle duration > 300s | 5 min | warning |
 | DatabaseConnectionsHigh | PG connections > 80 | 5 min | warning |
 | CacheHitRatioLow | Buffer cache hit < 95% | 10 min | warning |
-| RefresherViewsFailing | Failing view refreshes > 0 | 10 min | warning |
+| RefresherTargetsFailing | Failing refresh targets > 0 | 10 min | warning |
+| RefresherEventWatermarkLagHigh | Event watermark lag > 1h | 30 min | warning |
+| RefresherMetadataWatermarkLagHigh | Metadata watermark lag > 1h | 30 min | warning |
+| RefresherMaxDurationBudgetHit | Cycle cut by `processing.max_duration` | 30 min | warning |
+| RefresherNoSuccessfulCycle | No successful refresher cycle for > 48h | 15 min | critical |
 
 ---
 

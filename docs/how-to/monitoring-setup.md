@@ -121,7 +121,7 @@ To add a custom dashboard:
 
 ## 5. Set Up Alerting Rules
 
-BigBrotr includes seven alerting rules in `monitoring/prometheus/rules/alerts.yml`:
+BigBrotr includes service and database alerting rules in `monitoring/prometheus/rules/alerts.yml`:
 
 | Alert | Expression | Duration | Severity |
 |-------|-----------|----------|----------|
@@ -131,12 +131,16 @@ BigBrotr includes seven alerting rules in `monitoring/prometheus/rules/alerts.ym
 | **SlowCycles** | `histogram_quantile(0.99, rate(cycle_duration_seconds_bucket[5m])) > 300` | 5 minutes | warning |
 | **DatabaseConnectionsHigh** | `sum(pg_stat_activity_count{datname="bigbrotr"}) > 80` | 5 minutes | warning |
 | **CacheHitRatioLow** | `pg_stat_database_blks_hit{datname="bigbrotr"} / (...) < 0.95` | 10 minutes | warning |
-| **RefresherViewsFailing** | `service_gauge{service="refresher", name="views_failed"} > 0` | 10 minutes | warning |
+| **RefresherTargetsFailing** | `service_gauge{service="refresher", name="targets_failed"} > 0` | 10 minutes | warning |
+| **RefresherEventWatermarkLagHigh** | `service_gauge{service="refresher", name="watermark_event_relay_lag_seconds"} > 3600` | 30 minutes | warning |
+| **RefresherMetadataWatermarkLagHigh** | `service_gauge{service="refresher", name="watermark_relay_metadata_lag_seconds"} > 3600` | 30 minutes | warning |
+| **RefresherMaxDurationBudgetHit** | `service_gauge{service="refresher", name="cycle_stopped_due_to_max_duration"} > 0` | 30 minutes | warning |
+| **RefresherNoSuccessfulCycle** | `time() - service_gauge{service="refresher", name="last_cycle_timestamp"} > 172800` | 15 minutes | critical |
 
 ### Verify alerts are loaded
 
 1. Open `http://localhost:9090/alerts`
-2. All seven rules should appear under the `bigbrotr` group
+2. The configured rules should appear under the deployment group
 3. Rules in **inactive** state means no alerts are currently firing
 
 ### Configure alert notifications

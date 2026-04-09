@@ -13,3 +13,40 @@ pool:
 metrics:
   enabled: true
   host: "0.0.0.0"                       # Bind to all interfaces for Docker access
+
+processing:
+  max_duration: null                     # Optional cycle time budget in seconds
+  max_targets_per_cycle: null            # Optional cap for partial refresh cycles
+  continue_on_target_error: true
+
+current:
+  targets:
+    - relay_metadata_current
+    - events_replaceable_current
+    - events_addressable_current
+    - contact_lists_current
+    - contact_list_edges_current
+
+analytics:
+  targets:
+    - daily_counts
+    - relay_software_counts
+    - supported_nip_counts
+    - pubkey_kind_stats
+    - pubkey_relay_stats
+    - relay_kind_stats
+    - pubkey_stats
+    - kind_stats
+    - relay_stats
+    - nip85_pubkey_stats
+    - nip85_event_stats
+    - nip85_addressable_stats
+    - nip85_identifier_stats
+
+periodic:
+  rolling_windows: true
+  relay_stats_metadata: true
+  nip85_followers: true
+
+cleanup:
+  enabled: true

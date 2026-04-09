@@ -123,3 +123,63 @@ groups:
             The refresher service has had {{ $value }} current-state or
             analytics refresh failures for more than 10 minutes. Check
             database health and refresh definitions.
+
+      # --------------------------------------------------------------------
+      # RefresherEventWatermarkLagHigh: Event ingestion backlog not refreshed
+      # --------------------------------------------------------------------
+      - alert: RefresherEventWatermarkLagHigh
+        expr: >-
+          service_gauge{service="refresher", name="watermark_event_relay_lag_seconds"} > 3600
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Refresher event watermark lag is {{ $value | printf \"%.0f\" }}s"
+          description: >-
+            The refresher event_relay watermark is more than one hour behind
+            the latest visible event_relay source watermark for over 30 minutes.
+
+      # --------------------------------------------------------------------
+      # RefresherMetadataWatermarkLagHigh: Relay metadata backlog not refreshed
+      # --------------------------------------------------------------------
+      - alert: RefresherMetadataWatermarkLagHigh
+        expr: >-
+          service_gauge{service="refresher", name="watermark_relay_metadata_lag_seconds"} > 3600
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Refresher metadata watermark lag is {{ $value | printf \"%.0f\" }}s"
+          description: >-
+            The refresher relay_metadata watermark is more than one hour
+            behind the latest visible relay metadata source watermark.
+
+      # --------------------------------------------------------------------
+      # RefresherMaxDurationBudgetHit: Cycle repeatedly cut by max_duration
+      # --------------------------------------------------------------------
+      - alert: RefresherMaxDurationBudgetHit
+        expr: >-
+          service_gauge{service="refresher", name="cycle_stopped_due_to_max_duration"} > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Refresher is hitting its max_duration budget"
+          description: >-
+            Refresher cycles have been cut short by the configured
+            processing.max_duration budget for more than 30 minutes.
+
+      # --------------------------------------------------------------------
+      # RefresherNoSuccessfulCycle: No completed cycle within expected window
+      # --------------------------------------------------------------------
+      - alert: RefresherNoSuccessfulCycle
+        expr: >-
+          time() - service_gauge{service="refresher", name="last_cycle_timestamp"} > 172800
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Refresher has not completed a successful cycle recently"
+          description: >-
+            The refresher service has not recorded a successful cycle in over
+            48 hours. Check service status, database health, and target errors.
