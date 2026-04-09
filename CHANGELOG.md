@@ -9,16 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Assertor service**: NIP-85 trusted assertions publisher (kind 30382/30383). Reads engagement metrics from summary tables, publishes only on hash change. Includes CLI registration, deployment configs (docker-compose, Prometheus), and dedicated config validation
-- **NIP-85 data models and event builders**: `UserAssertion` and `EventAssertion` frozen dataclasses with SHA-256 change detection, plus `build_user_assertion()` and `build_event_assertion()` event builder functions
+- **Ranker service**: private DuckDB-backed NIP-85 ranking engine with CLI registration, deployment configs, Prometheus scraping, and snapshot export to PostgreSQL for all four trusted-assertion subject kinds (`30382`, `30383`, `30384`, `30385`)
+- **Assertor full-kinds runtime**: NIP-85 trusted assertions publisher now supports users, events, addressables, and identifiers (`30382-30385`), plus optional algorithm-scoped Kind 0 provider profile publishing
+- **NIP-85 data models and event builders**: `UserAssertion`, `EventAssertion`, `AddressableAssertion`, and `IdentifierAssertion` frozen dataclasses with SHA-256 change detection, plus builder functions for all four assertion kinds
 - **Incremental summary tables**: 6 summary tables (`pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats`) refreshed incrementally via `(after, until]` watermark ranges, replacing expensive full-refresh materialized views for analytics
-- **NIP-85 summary tables**: `nip85_pubkey_stats` and `nip85_event_stats` with dedicated refresh functions including bolt11-verified zap accounting and follower count refresh
-- **Assertor deployment**: docker-compose service definitions (both bigbrotr/lilbrotr), Prometheus scrape jobs, config YAML files, and signature-qualified SQL GRANT statements
+- **Expanded NIP-85 facts layer**: `contact_lists_current`, `contact_list_edges_current`, `nip85_addressable_stats`, `nip85_identifier_stats`, and follower-count refresh logic now complete the facts substrate for downstream ranking and publishing
+- **Deployment smoke coverage**: end-to-end integration coverage now exercises the `refresher -> ranker -> assertor` pipeline and verifies that unchanged assertions are not republished on a second cycle
 
 ### Changed
 
 - **Refresher service redesigned**: three-phase refresh cycle (matviews → summary tables → periodic tasks). Periodic tasks now counted in total/failed metrics. Wall-clock watermark replaces `MAX(seen_at)` to prevent TOCTOU race on same-timestamp rows
 - **Analytics layer**: 11 materialized views replaced with hybrid model (6 incremental summary tables + 6 bounded materialized views). `event_daily_counts` renamed to `daily_counts`
+- **Operational rollout contract**: deployments now include the `ranker` PostgreSQL role/password (`DB_RANKER_PASSWORD`), PGBouncer userlist support, Ranker DuckDB volume mounts, per-service Nostr key environment variables, and algorithm-aware Assertor v2 checkpointing
+- **Documentation topology**: README, docs site, deployment examples, and service diagrams now describe the full 10-service architecture and the complete NIP-85 pipeline (`refresher -> ranker -> assertor`)
 - **CI pipeline**: `docs/**` and `*.md` removed from `paths-ignore` so documentation-only PRs trigger the full CI pipeline including `mkdocs build --strict`
 
 ### Fixed

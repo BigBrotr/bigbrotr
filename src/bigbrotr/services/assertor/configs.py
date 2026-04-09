@@ -121,7 +121,10 @@ class AssertorConfig(BaseServiceConfig):
     kinds: list[int] = Field(
         default_factory=lambda: [30382, 30383, 30384, 30385],
         min_length=1,
-        description="NIP-85 assertion kinds to publish (30382=user, 30383=event)",
+        description=(
+            "NIP-85 assertion kinds to publish "
+            "(30382=user, 30383=event, 30384=addressable, 30385=identifier)"
+        ),
     )
 
     @field_validator("kinds")

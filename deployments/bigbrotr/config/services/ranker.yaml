@@ -2,8 +2,8 @@
 # Ranker Service Configuration (BigBrotr)
 # =============================================================================
 # Private DuckDB-backed NIP-85 ranker. Syncs the canonical follow graph from
-# PostgreSQL, computes deterministic 30382 PageRank scores, and snapshot-exports
-# final ranks back to PostgreSQL.
+# PostgreSQL, computes deterministic 30382/30383/30384/30385 rank snapshots,
+# and exports final ranks back to PostgreSQL.
 # Only values that differ from defaults are specified here.
 # =============================================================================
 

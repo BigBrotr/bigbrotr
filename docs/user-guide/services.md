@@ -1,12 +1,12 @@
 # Services
 
-Deep dive into BigBrotr's nine independent services: how relays are discovered, validated, monitored, how events are archived, how analytics views are refreshed, and how data is exposed via REST API and Nostr.
+Deep dive into BigBrotr's ten independent services: how relays are discovered, validated, monitored, how events are archived, how derived facts are refreshed, how NIP-85 rank snapshots are computed, and how data is exposed via REST API and Nostr.
 
 ---
 
 ## Overview
 
-BigBrotr uses nine independent async services that share a PostgreSQL database. Each service runs as its own process and can be started, stopped, and scaled independently:
+BigBrotr uses ten independent async services that share a PostgreSQL database. Each service runs as its own process and can be started, stopped, and scaled independently:
 
 --8<-- "docs/_snippets/pipeline.md"
 
@@ -29,6 +29,7 @@ flowchart LR
         MO["Monitor"]
         SY["Synchronizer"]
         RE2["Refresher"]
+        RA["Ranker"]
         AS["Assertor"]
         AP["Api"]
         DV["Dvm"]
@@ -41,7 +42,9 @@ flowchart LR
         RM["relay_metadata"]
         EV["event"]
         ER["event_relay"]
-        ST["summary tables"]
+        CT["current tables"]
+        ST["analytics tables"]
+        RK["rank tables"]
         MV["materialized views"]
     end
 
@@ -58,9 +61,14 @@ flowchart LR
     SY -->|"cursors"| SS
     SY -->|"write"| EV
     SY -->|"junctions"| ER
+    RE2 -->|"refresh"| CT
     RE2 -->|"refresh"| ST
     RE2 -->|"refresh"| MV
+    RA -->|"read"| CT
+    RA -->|"read"| ST
+    RA -->|"snapshot export"| RK
     AS -->|"read"| ST
+    AS -->|"read"| RK
     AS -->|"checkpoints"| SS
     AP -->|"read"| RE
     AP -->|"read"| MV
@@ -357,30 +365,65 @@ flowchart TD
 
 ## Refresher
 
-**Purpose**: Refresh materialized views that power analytics queries.
+**Purpose**: Refresh current-state tables, analytics facts, and materialized views that power downstream services.
 
 **Mode**: Continuous (`run_forever`)
 
-**Reads**: Base tables (indirectly, via `REFRESH MATERIALIZED VIEW CONCURRENTLY`)
-**Writes**: 6 summary tables + 6 materialized views
+**Reads**: Base tables (indirectly, via refresh functions)
+**Writes**: current-state tables, analytics tables, and materialized views
 
 ### How It Works
 
-1. Iterate over the configured list of summary tables and materialized views
-2. Refresh each individually via its stored function (e.g., `relay_metadata_latest_refresh()` for matviews, `kind_stats_refresh(after, until)` for summary tables)
-3. Log per-table/view timing and success/failure
-4. A failure on one does not prevent subsequent refreshes
+1. Resolve the configured `current_tables` and `analytics_tables` into canonical dependency-safe order
+2. Incrementally refresh each current-state table from its source watermark range
+3. Incrementally refresh each analytics table from its source watermark range
+4. Run periodic reconciliations (`rolling_windows`, `relay_stats_metadata`, `nip85_followers`) and log per-target timing and success/failure
 
-The Refresher orchestrates refresh in dependency order: summary tables first (incremental, range-based), then `relay_metadata_latest` (because `relay_software_counts` and `supported_nip_counts` depend on it), then all remaining materialized views.
+Each target is isolated: one failed refresh does not stop the rest of the cycle.
 
 ### Configuration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `refresh.views` | list[string] | all 6 summary tables + 6 matviews | Summary tables and materialized views to refresh |
+| `refresh.current_tables` | list[string] | canonical current-state set | Current-state tables to refresh incrementally |
+| `refresh.analytics_tables` | list[string] | canonical analytics set | Analytics tables to refresh incrementally |
 
 !!! tip "API Reference"
     See [`bigbrotr.services.refresher`](../reference/services/refresher/index.md) for the complete Refresher API.
+
+---
+
+## Ranker
+
+**Purpose**: Compute deterministic NIP-85 rank snapshots in a private DuckDB store and export them back to PostgreSQL.
+
+**Mode**: Continuous (`run_forever`)
+
+**Reads**: `contact_lists_current`, `contact_list_edges_current`, `nip85_event_stats`, `nip85_addressable_stats`, `nip85_identifier_stats`
+**Writes**: `nip85_pubkey_ranks`, `nip85_event_ranks`, `nip85_addressable_ranks`, `nip85_identifier_ranks`, private DuckDB graph state + checkpoint file
+
+### How It Works
+
+1. Load the incremental PostgreSQL -> DuckDB graph checkpoint from the private store
+2. Pull changed canonical contact lists and follow edges from PostgreSQL current tables
+3. Apply the graph delta in DuckDB, then reload non-user fact stages (`event`, `addressable`, `identifier`)
+4. Compute deterministic pubkey PageRank (`30382`) plus derived non-user ranks (`30383`, `30384`, `30385`)
+5. Snapshot-export one complete `algorithm_id` rank set back to PostgreSQL for downstream assertion publishing
+
+### Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `algorithm_id` | string | `global-pagerank-v1` | Namespace written into exported rank snapshots |
+| `db.path` | path | `/app/data/ranker.duckdb` | Private DuckDB database path |
+| `db.checkpoint_path` | path | `/app/data/ranker.checkpoint.json` | Incremental graph sync checkpoint |
+| `graph.damping` | float | `0.85` | PageRank damping factor for pubkey ranking |
+| `graph.iterations` | int | `20` | Deterministic PageRank iteration count |
+| `sync.batch_size` | int | `1000` | Changed followers synced per PostgreSQL batch |
+| `export.batch_size` | int | `1000` | Rows staged/exported per ranking batch |
+
+!!! tip "API Reference"
+    See [`bigbrotr.services.ranker`](../reference/services/ranker/index.md) for the complete Ranker API.
 
 ---
 

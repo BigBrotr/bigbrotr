@@ -435,6 +435,6 @@ increase(service_counter{name="errors"}[24h])
 ## Related Documentation
 
 - [Architecture](architecture.md) -- System architecture and module reference
-- [Services](services.md) -- Deep dive into the nine independent services
+- [Services](services.md) -- Deep dive into the ten independent services
 - [Configuration](configuration.md) -- YAML configuration reference (MetricsConfig details)
 - [Database](database.md) -- PostgreSQL schema and stored functions
