@@ -209,6 +209,11 @@ async def _fetch_rank_rows(
     return [dict(row) for row in rows]
 
 
+def _rows_without_computed_at(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop snapshot timestamps when comparing rank content across runs."""
+    return [{key: value for key, value in row.items() if key != "computed_at"} for row in rows]
+
+
 async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PLR0915
     brotr: Brotr,
     tmp_path: Path,
@@ -435,9 +440,27 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
         raw_score, rank = first_rank_map[str(row["subject_id"])]
         assert float(row["raw_score"]) == pytest.approx(raw_score, abs=1e-12)
         assert int(row["rank"]) == rank
-    assert second_event_rows == first_event_rows
-    assert second_addressable_rows == first_addressable_rows
-    assert second_identifier_rows == first_identifier_rows
+    assert _rows_without_computed_at(second_event_rows) == _rows_without_computed_at(
+        first_event_rows
+    )
+    assert _rows_without_computed_at(second_addressable_rows) == _rows_without_computed_at(
+        first_addressable_rows
+    )
+    assert _rows_without_computed_at(second_identifier_rows) == _rows_without_computed_at(
+        first_identifier_rows
+    )
+    assert all(
+        int(second["computed_at"]) >= int(first["computed_at"])
+        for first, second in zip(first_event_rows, second_event_rows, strict=True)
+    )
+    assert all(
+        int(second["computed_at"]) >= int(first["computed_at"])
+        for first, second in zip(first_addressable_rows, second_addressable_rows, strict=True)
+    )
+    assert all(
+        int(second["computed_at"]) >= int(first["computed_at"])
+        for first, second in zip(first_identifier_rows, second_identifier_rows, strict=True)
+    )
 
     await brotr.execute(
         """
