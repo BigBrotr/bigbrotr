@@ -1,4 +1,4 @@
-"""Private DuckDB store for the ranker service."""
+"""Private DuckDB utilities for the ranker service."""
 
 from __future__ import annotations
 

@@ -20,7 +20,7 @@ from bigbrotr.services.ranker.queries import (
     GraphSyncCheckpoint,
     IdentifierStatFact,
 )
-from bigbrotr.services.ranker.store import RankerStore
+from bigbrotr.services.ranker.utils import RankerStore
 
 
 def _reference_pagerank(

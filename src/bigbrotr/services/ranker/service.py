@@ -27,7 +27,7 @@ from .queries import (
     insert_rank_stage_batch,
     merge_rank_stage,
 )
-from .store import RankerStore
+from .utils import RankerStore
 
 
 if TYPE_CHECKING:

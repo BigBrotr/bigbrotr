@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from bigbrotr.services.ranker import Ranker, RankerConfig
-from bigbrotr.services.ranker.store import RankerStore
+from bigbrotr.services.ranker.utils import RankerStore
 
 
 pytestmark = pytest.mark.integration
