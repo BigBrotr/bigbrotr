@@ -188,7 +188,9 @@ cd bigbrotr/deployments/bigbrotr
 
 # Configure secrets
 cp .env.example .env
-# Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD, DB_READER_PASSWORD, NOSTR_PRIVATE_KEY, GRAFANA_PASSWORD
+# Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD,
+# DB_READER_PASSWORD, NOSTR_PRIVATE_KEY, NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1,
+# and GRAFANA_PASSWORD
 
 # Start everything
 docker compose up -d
@@ -379,7 +381,8 @@ JSON mode available for cloud aggregation:
 | `DB_WRITER_PASSWORD` | Yes | Writer role password (Seeder, Finder, Validator, Monitor, Synchronizer) |
 | `DB_REFRESHER_PASSWORD` | Yes | Refresher role password (matview ownership) |
 | `DB_READER_PASSWORD` | Yes | Reader role password (Api, Dvm, postgres-exporter) |
-| `NOSTR_PRIVATE_KEY` | For Monitor, Validator, Synchronizer, Assertor, Dvm | Nostr private key (hex or nsec) for event signing and NIP-42 auth |
+| `NOSTR_PRIVATE_KEY` | For Monitor, Dvm; optional for Synchronizer | Generic Nostr private key (hex or nsec) for event signing and optional NIP-42 auth |
+| `NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1` | For Assertor in the shipped deployments | Algorithm-scoped NIP-85 signing key for the default `global-pagerank-v1` assertor identity |
 | `GRAFANA_PASSWORD` | For Grafana | Grafana admin password |
 
 ### Configuration Files
@@ -394,7 +397,7 @@ deployments/bigbrotr/config/
     ├── monitor.yaml            # Health checks, retry per type, publishing, GeoIP
     ├── synchronizer.yaml       # Networks, filter, time range, per-relay overrides
     ├── refresher.yaml          # View list, refresh interval
-    ├── assertor.yaml           # NIP-85 assertion relays, kinds, batch size
+    ├── assertor.yaml           # NIP-85 algorithm_id, relays, kinds, provider profile
     ├── api.yaml                # Host, port, pagination, CORS
     └── dvm.yaml                # NIP-90 kind, relay list, response format
 ```

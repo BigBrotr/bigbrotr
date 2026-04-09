@@ -168,7 +168,7 @@ The remaining six services handle monitoring, event archiving, analytics, trust 
   archives them with cursor-based pagination
 - **Refresher** refreshes 6 summary tables and 6 materialized views that power analytics queries
 - **Assertor** publishes NIP-85 trusted assertion events for users and events with engagement
-  (requires `NOSTR_PRIVATE_KEY`)
+  (requires `NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1` in the shipped config)
 - **Api** exposes the database as a read-only REST API with paginated endpoints
 - **Dvm** serves database queries over the Nostr protocol as a NIP-90 Data Vending Machine
 
@@ -184,16 +184,18 @@ python -m bigbrotr validator
 python -m bigbrotr monitor       # requires NOSTR_PRIVATE_KEY env var
 python -m bigbrotr synchronizer
 python -m bigbrotr refresher
-python -m bigbrotr assertor      # requires NOSTR_PRIVATE_KEY env var
+python -m bigbrotr assertor      # requires NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1
 python -m bigbrotr api
 python -m bigbrotr dvm           # requires NOSTR_PRIVATE_KEY env var
 ```
 
 !!! warning
-    The Monitor requires a `NOSTR_PRIVATE_KEY` environment variable (hex format, 64
-    characters) to sign and publish Nostr events. Generate one with:
+    The shipped deployment uses two signing-key environment variables:
+    `NOSTR_PRIVATE_KEY` for Monitor and Dvm, and
+    `NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1` for the Assertor. Generate them with:
     ```bash
     export NOSTR_PRIVATE_KEY=$(openssl rand -hex 32)
+    export NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1=$(openssl rand -hex 32)
     ```
 
 ## Next Steps

@@ -615,7 +615,7 @@ services:
 
     environment:
       DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
-      NOSTR_PRIVATE_KEY: ${NOSTR_PRIVATE_KEY}
+      NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1: ${NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1}
 
     volumes:
       - ./config:/app/config:ro
@@ -837,7 +837,7 @@ networks:
 # ============================================================================
 #
 # 1. Setup:
-#    cp .env.example .env && nano .env  # Set all DB passwords, NOSTR_PRIVATE_KEY, GRAFANA_PASSWORD
+#    cp .env.example .env && nano .env  # Set DB passwords, both Nostr keys, and GRAFANA_PASSWORD
 #
 # 2. Start:
 #    docker-compose up -d

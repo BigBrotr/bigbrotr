@@ -377,6 +377,46 @@ The Refresher orchestrates refresh in dependency order: summary tables first (in
 
 ---
 
+## Assertor
+
+**Purpose**: Publish NIP-85 trusted assertions and the optional provider profile for an algorithm-scoped service key.
+
+**Mode**: Continuous (`run_forever`)
+
+**Reads**: `nip85_pubkey_stats`, `nip85_event_stats`, `pubkey_stats`, `service_state`
+**Writes**: `service_state` (v2 checkpoints), published Nostr events (kinds 30382, 30383, optional kind 0)
+
+### How It Works
+
+1. On startup (`__aenter__`), build a Nostr client from the configured signing key, connect to relays, and purge legacy `user:` / `event:` checkpoints
+2. During each `run()` cycle, query eligible user and event facts from the NIP-85 summary tables
+3. Hash each assertion payload and compare it against `service_state` using `v2:<algorithm_id>:<kind>:<subject_id>` checkpoint keys
+4. Publish only changed assertions, optionally publish a Kind 0 provider profile, then persist the new hashes
+5. Remove stale v2 checkpoints for subjects that are no longer eligible in the current algorithm namespace
+
+### Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `algorithm_id` | string | `global-pagerank-v1` | Stable namespace for checkpoint keys and provider identity |
+| `keys_env` | string | `NOSTR_PRIVATE_KEY` | Environment variable that supplies the signing key |
+| `relays` | list[string] | 3 public relays | Relays used for NIP-85 publishing |
+| `kinds` | list[int] | `[30382, 30383]` | Assertion kinds to publish |
+| `batch_size` | int | `500` | Maximum eligible subjects per cycle |
+| `min_events` | int | `1` | Minimum total events required for user assertions |
+| `top_topics` | int | `5` | Maximum topic tags included in user assertions |
+| `provider_profile.enabled` | bool | `false` | Publish a Kind 0 provider profile for the assertor identity |
+
+!!! note "Algorithm-Scoped Keys"
+    The shipped BigBrotr and LilBrotr deployments configure the Assertor with
+    `keys_env: NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1`, so the service can use a
+    dedicated NIP-85 identity per algorithm.
+
+!!! tip "API Reference"
+    See [`bigbrotr.services.assertor`](../reference/services/assertor/index.md) for the complete Assertor API.
+
+---
+
 ## Api
 
 **Purpose**: Expose the BigBrotr database as a read-only REST API via FastAPI.
@@ -512,6 +552,7 @@ For complete configuration details including all fields, defaults, constraints, 
 | Monitor | `processing.compute.*`, `discovery.enabled` | Which checks to run and publish |
 | Synchronizer | `filters`, `limit`, `timeouts.max_duration` | Archival throughput and scope |
 | Refresher | `views`, `interval` | Which views to refresh and how often |
+| Assertor | `algorithm_id`, `kinds`, `provider_profile.enabled` | Assertion namespace, publish scope, and provider identity |
 | Api | `tables`, `max_page_size`, `cors_origins` | Which tables to expose and pagination limits |
 | Dvm | `relays`, `tables`, `kind` | Which relays to listen on and tables to serve |
 
