@@ -11,7 +11,14 @@ import pytest
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.ranker import Ranker, RankerConfig
-from bigbrotr.services.ranker.queries import ContactListFact, FollowEdgeFact, GraphSyncCheckpoint
+from bigbrotr.services.ranker.queries import (
+    AddressableStatFact,
+    ContactListFact,
+    EventStatFact,
+    FollowEdgeFact,
+    GraphSyncCheckpoint,
+    IdentifierStatFact,
+)
 from bigbrotr.services.ranker.store import RankerStore
 
 
@@ -51,6 +58,42 @@ def _normalize_rank(*, raw_score: float, node_count: int) -> int:
     return round(min(25 * math.log10((raw_score / (1.0 / node_count)) + 1.0), 100.0))
 
 
+def _non_user_event_raw(
+    *,
+    comment_count: int,
+    quote_count: int,
+    repost_count: int,
+    reaction_count: int,
+    zap_count: int,
+    zap_amount: int,
+) -> float:
+    return (
+        4.0 * math.log1p(comment_count)
+        + 5.0 * math.log1p(quote_count)
+        + 3.0 * math.log1p(repost_count)
+        + 1.0 * math.log1p(reaction_count)
+        + 3.0 * math.log1p(zap_count)
+        + 2.0 * math.log1p(zap_amount / 1000.0)
+    )
+
+
+def _non_user_identifier_raw(*, comment_count: int, reaction_count: int) -> float:
+    return 4.0 * math.log1p(comment_count) + 1.0 * math.log1p(reaction_count)
+
+
+def _author_multiplier(*, author_rank: int) -> float:
+    return 0.5 + (0.5 * author_rank / 100.0)
+
+
+def _normalize_non_user_rank(*, raw_score: float, all_raw_scores: list[float]) -> int:
+    positive_scores = [score for score in all_raw_scores if score > 0.0]
+    if raw_score <= 0.0 or not positive_scores:
+        return 0
+
+    avg_positive_raw = sum(positive_scores) / len(positive_scores)
+    return round(min(25 * math.log10((raw_score / avg_positive_raw) + 1.0), 100.0))
+
+
 class TestRankerConfig:
     def test_default_values(self) -> None:
         config = RankerConfig()
@@ -66,16 +109,18 @@ class TestRankerConfig:
         assert config.interval == 3600.0
 
     def test_custom_nested_values(self, tmp_path: Path) -> None:
-        config = RankerConfig(
-            algorithm_id="custom-ranker-v2",
-            db={
-                "path": tmp_path / "graph.duckdb",
-                "checkpoint_path": tmp_path / "graph.checkpoint.json",
-            },
-            graph={"damping": 0.9, "iterations": 40, "ignore_self_follows": False},
-            sync={"batch_size": 250},
-            export={"batch_size": 500},
-            interval=7200.0,
+        config = RankerConfig.model_validate(
+            {
+                "algorithm_id": "custom-ranker-v2",
+                "db": {
+                    "path": tmp_path / "graph.duckdb",
+                    "checkpoint_path": tmp_path / "graph.checkpoint.json",
+                },
+                "graph": {"damping": 0.9, "iterations": 40, "ignore_self_follows": False},
+                "sync": {"batch_size": 250},
+                "export": {"batch_size": 500},
+                "interval": 7200.0,
+            }
         )
 
         assert config.algorithm_id == "custom-ranker-v2"
@@ -117,6 +162,9 @@ class TestRankerStore:
             "nip85_event_stats_stage",
             "nip85_addressable_stats_stage",
             "nip85_identifier_stats_stage",
+            "nip85_event_ranks_curr",
+            "nip85_addressable_ranks_curr",
+            "nip85_identifier_ranks_curr",
         }
 
     def test_apply_follow_graph_delta_replaces_edges_and_preserves_nodes(
@@ -269,16 +317,153 @@ class TestRankerStore:
         assert row[3] == 3
         assert row[4] is not None
 
+    def test_compute_non_user_ranks_matches_formulas_and_normalization(
+        self, tmp_path: Path
+    ) -> None:
+        store = RankerStore(
+            db_path=tmp_path / "ranker.duckdb",
+            checkpoint_path=tmp_path / "ranker.checkpoint.json",
+        )
+        store.ensure_initialized()
+
+        authors = [f"{i:064x}" for i in range(1, 11)]
+        pagerank_scores = [0.7, 0.1, 0.05, 0.03, 0.03, 0.03, 0.02, 0.02, 0.01, 0.01]
+
+        with duckdb.connect(str(tmp_path / "ranker.duckdb")) as conn:
+            conn.executemany(
+                "INSERT INTO pubkey_nodes (node_id, pubkey) VALUES (?, ?)",
+                [(index, pubkey) for index, pubkey in enumerate(authors, start=1)],
+            )
+            conn.executemany(
+                "INSERT INTO pagerank_curr (node_id, raw_score) VALUES (?, ?)",
+                [(index, raw_score) for index, raw_score in enumerate(pagerank_scores, start=1)],
+            )
+
+        store.append_event_stats_stage_batch(
+            [
+                EventStatFact("11" * 32, authors[0], 9, 4, 1, 16, 2, 5000),
+                EventStatFact("22" * 32, authors[1], 2, 1, 0, 3, 0, 0),
+            ]
+        )
+        store.append_addressable_stats_stage_batch(
+            [
+                AddressableStatFact("30023:aa:alpha", authors[0], 6, 2, 1, 4, 1, 3000),
+                AddressableStatFact("30023:bb:beta", "ff" * 32, 2, 0, 0, 1, 0, 0),
+            ]
+        )
+        store.append_identifier_stats_stage_batch(
+            [
+                IdentifierStatFact("isbn:9780140328721", 5, 2, ("book", "fiction")),
+                IdentifierStatFact("isbn:9788806229645", 1, 9, ("book",)),
+            ]
+        )
+
+        store.compute_non_user_ranks()
+
+        node_count = len(authors)
+        author_ranks = {
+            authors[index]: _normalize_rank(raw_score=raw_score, node_count=node_count)
+            for index, raw_score in enumerate(pagerank_scores)
+        }
+
+        expected_event_raw_scores = {
+            "11" * 32: _non_user_event_raw(
+                comment_count=9,
+                quote_count=4,
+                repost_count=1,
+                reaction_count=16,
+                zap_count=2,
+                zap_amount=5000,
+            )
+            * _author_multiplier(author_rank=author_ranks[authors[0]]),
+            "22" * 32: _non_user_event_raw(
+                comment_count=2,
+                quote_count=1,
+                repost_count=0,
+                reaction_count=3,
+                zap_count=0,
+                zap_amount=0,
+            )
+            * _author_multiplier(author_rank=author_ranks[authors[1]]),
+        }
+        expected_addressable_raw_scores = {
+            "30023:aa:alpha": _non_user_event_raw(
+                comment_count=6,
+                quote_count=2,
+                repost_count=1,
+                reaction_count=4,
+                zap_count=1,
+                zap_amount=3000,
+            )
+            * _author_multiplier(author_rank=author_ranks[authors[0]]),
+            "30023:bb:beta": _non_user_event_raw(
+                comment_count=2,
+                quote_count=0,
+                repost_count=0,
+                reaction_count=1,
+                zap_count=0,
+                zap_amount=0,
+            )
+            * _author_multiplier(author_rank=0),
+        }
+        expected_identifier_raw_scores = {
+            "isbn:9780140328721": _non_user_identifier_raw(comment_count=5, reaction_count=2),
+            "isbn:9788806229645": _non_user_identifier_raw(comment_count=1, reaction_count=9),
+        }
+
+        event_rows = store.fetch_event_rank_batch(after_subject_id="", limit=10)
+        addressable_rows = store.fetch_addressable_rank_batch(after_subject_id="", limit=10)
+        identifier_rows = store.fetch_identifier_rank_batch(after_subject_id="", limit=10)
+
+        assert [row.subject_id for row in event_rows] == ["11" * 32, "22" * 32]
+        assert [row.subject_id for row in addressable_rows] == [
+            "30023:aa:alpha",
+            "30023:bb:beta",
+        ]
+        assert [row.subject_id for row in identifier_rows] == [
+            "isbn:9780140328721",
+            "isbn:9788806229645",
+        ]
+
+        for row in event_rows:
+            assert row.raw_score == pytest.approx(
+                expected_event_raw_scores[row.subject_id], rel=1e-9, abs=1e-9
+            )
+            assert row.rank == _normalize_non_user_rank(
+                raw_score=row.raw_score,
+                all_raw_scores=list(expected_event_raw_scores.values()),
+            )
+
+        for row in addressable_rows:
+            assert row.raw_score == pytest.approx(
+                expected_addressable_raw_scores[row.subject_id], rel=1e-9, abs=1e-9
+            )
+            assert row.rank == _normalize_non_user_rank(
+                raw_score=row.raw_score,
+                all_raw_scores=list(expected_addressable_raw_scores.values()),
+            )
+
+        for row in identifier_rows:
+            assert row.raw_score == pytest.approx(
+                expected_identifier_raw_scores[row.subject_id], rel=1e-9, abs=1e-9
+            )
+            assert row.rank == _normalize_non_user_rank(
+                raw_score=row.raw_score,
+                all_raw_scores=list(expected_identifier_raw_scores.values()),
+            )
+
 
 @pytest.fixture
 def ranker_config(tmp_path: Path) -> RankerConfig:
-    return RankerConfig(
-        db={
-            "path": tmp_path / "ranker.duckdb",
-            "checkpoint_path": tmp_path / "ranker.checkpoint.json",
-        },
-        metrics={"enabled": False},
-        sync={"batch_size": 2},
+    return RankerConfig.model_validate(
+        {
+            "db": {
+                "path": tmp_path / "ranker.duckdb",
+                "checkpoint_path": tmp_path / "ranker.checkpoint.json",
+            },
+            "metrics": {"enabled": False},
+            "sync": {"batch_size": 2},
+        }
     )
 
 
@@ -336,6 +521,43 @@ class TestRankerService:
             fake_edges,
         )
 
+        async def fake_event_stats(
+            _brotr: Brotr,
+            after_event_id: str,
+            _limit: int,
+        ) -> list[EventStatFact]:
+            if after_event_id:
+                return []
+            return [EventStatFact("11" * 32, "a" * 64, 2, 1, 0, 3, 1, 2000)]
+
+        async def fake_addressable_stats(
+            _brotr: Brotr,
+            after_event_address: str,
+            _limit: int,
+        ) -> list[AddressableStatFact]:
+            if after_event_address:
+                return []
+            return [AddressableStatFact("30023:aa:alpha", "a" * 64, 1, 0, 0, 2, 0, 0)]
+
+        async def fake_identifier_stats(
+            _brotr: Brotr,
+            after_identifier: str,
+            _limit: int,
+        ) -> list[IdentifierStatFact]:
+            if after_identifier:
+                return []
+            return [IdentifierStatFact("isbn:9780140328721", 3, 1, ("book",))]
+
+        monkeypatch.setattr("bigbrotr.services.ranker.service.fetch_event_stats", fake_event_stats)
+        monkeypatch.setattr(
+            "bigbrotr.services.ranker.service.fetch_addressable_stats",
+            fake_addressable_stats,
+        )
+        monkeypatch.setattr(
+            "bigbrotr.services.ranker.service.fetch_identifier_stats",
+            fake_identifier_stats,
+        )
+
         ranker = Ranker(brotr=mock_brotr, config=ranker_config)
         async with ranker:
             await ranker.run()
@@ -345,6 +567,9 @@ class TestRankerService:
         assert store.get_graph_stats().edge_count == 3
         assert store.load_checkpoint() == GraphSyncCheckpoint(20, "d" * 64)
         assert store.fetch_pubkey_rank_batch(after_subject_id="", limit=10)
+        assert store.fetch_event_rank_batch(after_subject_id="", limit=10)
+        assert store.fetch_addressable_rank_batch(after_subject_id="", limit=10)
+        assert store.fetch_identifier_rank_batch(after_subject_id="", limit=10)
 
     @pytest.mark.asyncio
     async def test_run_with_no_changes_keeps_empty_graph(
