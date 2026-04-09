@@ -306,7 +306,11 @@ async def _seed_checkpoint_states(
     )
 
 
-def _make_assertor_config(algorithm_id: str) -> AssertorConfig:
+def _make_assertor_config(
+    algorithm_id: str,
+    *,
+    provider_profile_enabled: bool = True,
+) -> AssertorConfig:
     return AssertorConfig.model_validate(
         {
             "algorithm_id": algorithm_id,
@@ -319,7 +323,7 @@ def _make_assertor_config(algorithm_id: str) -> AssertorConfig:
             },
             "metrics": {"enabled": False},
             "provider_profile": {
-                "enabled": True,
+                "enabled": provider_profile_enabled,
                 "kind0_content": {
                     "name": "BigBrotr Global PageRank v1",
                     "about": "NIP-85 trusted assertion provider",
@@ -541,3 +545,61 @@ class TestAssertorIntegration:
             event_address=event_address,
             identifier=identifier,
         )
+
+        second_published_builders: list[Any] = []
+
+        async def _capture_second_broadcast(builders: list[Any], _clients: list[Any]) -> int:
+            second_published_builders.extend(builders)
+            return 1
+
+        with (
+            patch(
+                "bigbrotr.services.assertor.service.create_client",
+                new=AsyncMock(return_value=_make_mock_client()),
+            ),
+            patch(
+                "bigbrotr.services.assertor.service.broadcast_events",
+                new=AsyncMock(side_effect=_capture_second_broadcast),
+            ),
+        ):
+            async with Assertor(brotr=brotr, config=config) as service:
+                second_result = await service.publish()
+
+        assert second_result.assertions_published == 0
+        assert second_result.assertions_skipped == 4
+        assert second_result.provider_profiles_published == 0
+        assert second_result.provider_profiles_skipped == 1
+        assert second_result.checkpoint_cleanup_removed == 0
+        assert second_published_builders == []
+
+    async def test_assertor_publish_noops_without_subjects_or_provider_profile(
+        self,
+        brotr: Brotr,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("NOSTR_PRIVATE_KEY_ASSERTOR", VALID_HEX_KEY)
+        config = _make_assertor_config(
+            "no-eligible-pagerank-v1",
+            provider_profile_enabled=False,
+        )
+        mock_broadcast = AsyncMock(return_value=1)
+
+        with (
+            patch(
+                "bigbrotr.services.assertor.service.create_client",
+                new=AsyncMock(return_value=_make_mock_client()),
+            ),
+            patch(
+                "bigbrotr.services.assertor.service.broadcast_events",
+                new=mock_broadcast,
+            ),
+        ):
+            async with Assertor(brotr=brotr, config=config) as service:
+                result = await service.publish()
+
+        assert result.assertions_published == 0
+        assert result.assertions_skipped == 0
+        assert result.provider_profiles_published == 0
+        assert result.provider_profiles_skipped == 0
+        assert result.checkpoint_cleanup_removed == 0
+        mock_broadcast.assert_not_awaited()
