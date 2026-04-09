@@ -50,7 +50,7 @@ class TestServiceName:
         assert isinstance(ServiceName.SEEDER, StrEnum)
 
     def test_member_count(self) -> None:
-        assert len(ServiceName) == 9
+        assert len(ServiceName) == 10
 
     def test_members(self) -> None:
         expected = {
@@ -60,6 +60,7 @@ class TestServiceName:
             "MONITOR",
             "SYNCHRONIZER",
             "REFRESHER",
+            "RANKER",
             "API",
             "DVM",
             "ASSERTOR",
@@ -73,6 +74,7 @@ class TestServiceName:
         assert ServiceName.MONITOR.value == "monitor"
         assert ServiceName.SYNCHRONIZER.value == "synchronizer"
         assert ServiceName.REFRESHER.value == "refresher"
+        assert ServiceName.RANKER.value == "ranker"
         assert ServiceName.API.value == "api"
         assert ServiceName.DVM.value == "dvm"
         assert ServiceName.ASSERTOR.value == "assertor"

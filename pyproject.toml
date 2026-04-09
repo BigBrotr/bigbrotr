@@ -62,6 +62,7 @@ dependencies = [
     "cryptography>=46.0.6",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
+    "duckdb>=1.5.1",
 ]
 
 [dependency-groups]
@@ -211,8 +212,10 @@ strict = true
 
 [[tool.mypy.overrides]]
 module = [
+    "duckdb",
     "nostr_sdk.*",
     "aiohttp_socks.*",
+    "duckdb.*",
     "rfc3986.*",
     "geohash2.*",
     "geoip2.*",

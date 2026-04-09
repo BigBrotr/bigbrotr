@@ -1,4 +1,4 @@
-"""Nine independent services plus shared utilities.
+"""Ten independent services plus shared utilities.
 
 Services are the top layer of the diamond DAG, depending on
 [bigbrotr.core][bigbrotr.core], [bigbrotr.nips][bigbrotr.nips],
@@ -19,6 +19,8 @@ Attributes:
         pagination with per-relay state tracking.
     Refresher: Periodic current-state and analytics refresh in dependency order.
         Provides per-target logging, timing, and error isolation.
+    Ranker: Private DuckDB-backed NIP-85 ranking service. Syncs canonical
+        follow-graph facts and later computes/export ranks.
     Api: REST API for read-only database access via FastAPI with
         auto-generated paginated endpoints.
     Dvm: NIP-90 Data Vending Machine exposing database queries via
@@ -72,6 +74,10 @@ from .monitor import (
     Monitor,
     MonitorConfig,
 )
+from .ranker import (
+    Ranker,
+    RankerConfig,
+)
 from .refresher import (
     Refresher,
     RefresherConfig,
@@ -101,6 +107,8 @@ __all__ = [
     "FinderConfig",
     "Monitor",
     "MonitorConfig",
+    "Ranker",
+    "RankerConfig",
     "Refresher",
     "RefresherConfig",
     "Seeder",
