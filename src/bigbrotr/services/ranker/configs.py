@@ -28,23 +28,23 @@ class RankerDbConfig(BaseModel):
 
 
 class RankerGraphConfig(BaseModel):
-    """Graph-ranking parameters reserved for later ranking phases."""
+    """Graph-ranking parameters for the 30382 PageRank computation."""
 
     damping: float = Field(
         default=0.85,
         gt=0.0,
         lt=1.0,
-        description="PageRank damping factor for later ranking phases",
+        description="PageRank damping factor for the 30382 pubkey ranking",
     )
     iterations: int = Field(
         default=20,
         ge=1,
         le=10000,
-        description="Maximum PageRank iterations for later ranking phases",
+        description="Maximum PageRank iterations for the 30382 pubkey ranking",
     )
     ignore_self_follows: bool = Field(
         default=True,
-        description="Ignore self-follow edges when PageRank is introduced",
+        description="Ignore self-follow edges when computing PageRank",
     )
 
 
@@ -60,13 +60,13 @@ class RankerSyncConfig(BaseModel):
 
 
 class RankerExportConfig(BaseModel):
-    """Future PostgreSQL export settings for rank tables."""
+    """PostgreSQL export settings for rank snapshots and staged fact batches."""
 
     batch_size: int = Field(
         default=1000,
         ge=1,
         le=100000,
-        description="Maximum rank rows to export per batch in later phases",
+        description="Maximum rows to read or export per batch during ranking runs",
     )
 
 
@@ -85,7 +85,7 @@ class RankerConfig(BaseServiceConfig):
     )
     graph: RankerGraphConfig = Field(
         default_factory=RankerGraphConfig,
-        description="Graph-ranking settings reserved for later phases",
+        description="Graph-ranking settings for the 30382 PageRank pipeline",
     )
     sync: RankerSyncConfig = Field(
         default_factory=RankerSyncConfig,
@@ -93,7 +93,7 @@ class RankerConfig(BaseServiceConfig):
     )
     export: RankerExportConfig = Field(
         default_factory=RankerExportConfig,
-        description="Future export settings for PostgreSQL rank tables",
+        description="Batch settings for PostgreSQL facts staging and rank export",
     )
     interval: float = Field(
         default=3600.0,

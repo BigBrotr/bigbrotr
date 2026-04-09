@@ -318,6 +318,72 @@ COMMENT ON TABLE nip85_pubkey_ranks IS
 
 
 -- ==========================================================================
+-- nip85_event_ranks: Per-event rank outputs (30383)
+-- ==========================================================================
+-- Snapshot-exported by the ranker after a successful non-user ranking run.
+-- ``subject_id`` is the asserted event id. ``raw_score`` already includes the
+-- author-rank multiplier used by the v1 algorithm.
+--
+-- Refresh: external snapshot export by the ranker service
+
+CREATE TABLE IF NOT EXISTS nip85_event_ranks (
+    algorithm_id TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    raw_score DOUBLE PRECISION NOT NULL,
+    rank INTEGER NOT NULL,
+    computed_at BIGINT NOT NULL,
+    PRIMARY KEY (algorithm_id, subject_id)
+);
+
+COMMENT ON TABLE nip85_event_ranks IS
+'NIP-85 per-event rank outputs (kind 30383). Snapshot-exported by the ranker per algorithm_id after a successful non-user ranking run.';
+
+
+-- ==========================================================================
+-- nip85_addressable_ranks: Per-addressable-event rank outputs (30384)
+-- ==========================================================================
+-- Snapshot-exported by the ranker after a successful non-user ranking run.
+-- ``subject_id`` is the canonical addressable coordinate ``kind:pubkey:d_tag``.
+-- ``raw_score`` already includes the author-rank multiplier used by the v1
+-- algorithm.
+--
+-- Refresh: external snapshot export by the ranker service
+
+CREATE TABLE IF NOT EXISTS nip85_addressable_ranks (
+    algorithm_id TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    raw_score DOUBLE PRECISION NOT NULL,
+    rank INTEGER NOT NULL,
+    computed_at BIGINT NOT NULL,
+    PRIMARY KEY (algorithm_id, subject_id)
+);
+
+COMMENT ON TABLE nip85_addressable_ranks IS
+'NIP-85 per-addressable-event rank outputs (kind 30384). Snapshot-exported by the ranker per algorithm_id after a successful non-user ranking run.';
+
+
+-- ==========================================================================
+-- nip85_identifier_ranks: Per-identifier rank outputs (30385)
+-- ==========================================================================
+-- Snapshot-exported by the ranker after a successful non-user ranking run.
+-- ``subject_id`` is the canonical NIP-73 identifier string.
+--
+-- Refresh: external snapshot export by the ranker service
+
+CREATE TABLE IF NOT EXISTS nip85_identifier_ranks (
+    algorithm_id TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    raw_score DOUBLE PRECISION NOT NULL,
+    rank INTEGER NOT NULL,
+    computed_at BIGINT NOT NULL,
+    PRIMARY KEY (algorithm_id, subject_id)
+);
+
+COMMENT ON TABLE nip85_identifier_ranks IS
+'NIP-85 per-identifier rank outputs (kind 30385). Snapshot-exported by the ranker per algorithm_id after a successful non-user ranking run.';
+
+
+-- ==========================================================================
 -- relay_software_counts: NIP-11 software distribution
 -- ==========================================================================
 -- Count of relays by software name and version from current NIP-11 metadata.
