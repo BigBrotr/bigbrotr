@@ -9,25 +9,30 @@ from bigbrotr.nips.event_builders import (
     build_addressable_assertion,
     build_event_assertion,
     build_identifier_assertion,
+    build_trusted_provider_list,
     build_user_assertion,
 )
 from bigbrotr.nips.nip85.data import (
     AddressableAssertion,
     EventAssertion,
     IdentifierAssertion,
+    TrustedProviderDeclaration,
     UserAssertion,
 )
 
 
-def _extract_tags(builder: Any) -> dict[str, list[str]]:
-    """Build a tag lookup from an EventBuilder (uses nostr_sdk internals)."""
+def _extract_tag_vectors(builder: Any) -> list[list[str]]:
+    """Extract raw tag vectors from an EventBuilder."""
     from nostr_sdk import Keys
 
-    keys = Keys.generate()
-    event = builder.sign_with_keys(keys)
+    event = builder.sign_with_keys(Keys.generate())
+    return [tag.as_vec() for tag in event.tags().to_vec()]
+
+
+def _extract_tags(builder: Any) -> dict[str, list[str]]:
+    """Build a tag lookup from an EventBuilder (uses nostr_sdk internals)."""
     result: dict[str, list[str]] = {}
-    for tag in event.tags().to_vec():
-        vec = tag.as_vec()
+    for vec in _extract_tag_vectors(builder):
         if vec:
             key = vec[0]
             if key not in result:
@@ -247,3 +252,31 @@ class TestBuildIdentifierAssertion:
         a = IdentifierAssertion(identifier="geo:41.9028,12.4964", k_tags=("place",))
         tags = _extract_tags(build_identifier_assertion(a))
         assert "i" not in tags
+
+
+class TestBuildTrustedProviderList:
+    def test_kind_public_tag_and_content(self) -> None:
+        from nostr_sdk import Keys
+
+        provider_pubkey = "4f" * 32
+        relay = "wss://nip85.nostr.band"
+        declaration = TrustedProviderDeclaration(
+            result_kind=EventKind.NIP85_USER_ASSERTION,
+            tag_name="rank",
+            service_pubkey=provider_pubkey,
+            relay_hint=relay,
+        )
+
+        builder = build_trusted_provider_list([declaration], content="encrypted-private-tags")
+        event = builder.sign_with_keys(Keys.generate())
+
+        assert event.kind().as_u16() == EventKind.NIP85_TRUSTED_PROVIDER_LIST
+        assert event.content() == "encrypted-private-tags"
+        assert [f"{EventKind.NIP85_USER_ASSERTION}:rank", provider_pubkey, relay] in [
+            list(tag.as_vec()) for tag in event.tags().to_vec()
+        ]
+
+    def test_private_only_provider_list_can_have_no_public_tags(self) -> None:
+        builder = build_trusted_provider_list([], content="nip44-ciphertext")
+
+        assert _extract_tag_vectors(builder) == []

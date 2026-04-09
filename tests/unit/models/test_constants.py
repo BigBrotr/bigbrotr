@@ -96,13 +96,14 @@ class TestEventKind:
         assert isinstance(EventKind.CONTACTS, IntEnum)
 
     def test_member_count(self) -> None:
-        assert len(EventKind) == 11
+        assert len(EventKind) == 12
 
     def test_members(self) -> None:
         assert EventKind.SET_METADATA == 0
         assert EventKind.RECOMMEND_RELAY == 2
         assert EventKind.CONTACTS == 3
         assert EventKind.RELAY_LIST == 10002
+        assert EventKind.NIP85_TRUSTED_PROVIDER_LIST == 10040
         assert EventKind.NIP66_TEST == 22456
         assert EventKind.MONITOR_ANNOUNCEMENT == 10166
         assert EventKind.RELAY_DISCOVERY == 30166
