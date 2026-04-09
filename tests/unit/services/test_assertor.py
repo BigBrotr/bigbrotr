@@ -20,7 +20,7 @@ VALID_HEX_KEY = (
 
 @pytest.fixture(autouse=True)
 def _set_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("NOSTR_PRIVATE_KEY", VALID_HEX_KEY)
+    monkeypatch.setenv("NOSTR_PRIVATE_KEY_ASSERTOR", VALID_HEX_KEY)
 
 
 def _provider_profile(enabled: bool = False) -> SimpleNamespace:
@@ -47,6 +47,8 @@ class TestAssertorConfig:
     def test_defaults(self) -> None:
         config = AssertorConfig()
         assert config.algorithm_id == "global-pagerank-v1"
+        assert config.keys.keys_env == "NOSTR_PRIVATE_KEY_ASSERTOR"
+        assert config.keys.keys is not None
         assert config.interval == 3600.0
         assert config.batch_size == 500
         assert config.min_events == 1
@@ -592,6 +594,7 @@ class TestAssertorLifecycle:
             svc._brotr.delete_service_state = AsyncMock(return_value=0)
             svc._config = AssertorConfig()
             svc._client = None
+            svc._keys = svc._config.keys.keys
             svc._logger = MagicMock()
             svc._metrics_server = None
 
@@ -655,12 +658,42 @@ class TestAssertorLifecycle:
 
 class TestAssertorPhase3Foundation:
     @patch("bigbrotr.services.assertor.service.create_client", new_callable=AsyncMock)
-    async def test_aenter_warns_when_generic_keys_env_is_used(
+    async def test_aenter_uses_config_keys_to_create_client(
         self,
         mock_create_client: AsyncMock,
     ) -> None:
         from bigbrotr.services.assertor.service import Assertor
 
+        mock_client = AsyncMock()
+        mock_create_client.return_value = mock_client
+        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
+            svc = Assertor.__new__(Assertor)
+            svc._brotr = MagicMock()
+            svc._brotr.get_service_state = AsyncMock(return_value=[])
+            svc._brotr.delete_service_state = AsyncMock(return_value=0)
+            svc._config = AssertorConfig()
+            svc._client = None
+            svc._keys = svc._config.keys.keys
+            svc._logger = MagicMock()
+            svc._metrics_server = None
+
+            with patch.object(type(svc).__bases__[0], "__aenter__", new_callable=AsyncMock):
+                await svc.__aenter__()
+
+            mock_create_client.assert_awaited_once_with(
+                keys=svc._config.keys.keys,
+                allow_insecure=svc._config.allow_insecure,
+            )
+
+    @patch("bigbrotr.services.assertor.service.create_client", new_callable=AsyncMock)
+    async def test_aenter_uses_generated_config_keys_when_env_missing(
+        self,
+        mock_create_client: AsyncMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from bigbrotr.services.assertor.service import Assertor
+
+        monkeypatch.delenv("NOSTR_PRIVATE_KEY_ASSERTOR", raising=False)
         mock_create_client.return_value = AsyncMock()
         with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
             svc = Assertor.__new__(Assertor)
@@ -669,18 +702,14 @@ class TestAssertorPhase3Foundation:
             svc._brotr.delete_service_state = AsyncMock(return_value=0)
             svc._config = AssertorConfig()
             svc._client = None
+            svc._keys = svc._config.keys.keys
             svc._logger = MagicMock()
             svc._metrics_server = None
 
             with patch.object(type(svc).__bases__[0], "__aenter__", new_callable=AsyncMock):
                 await svc.__aenter__()
 
-            svc._logger.warning.assert_any_call(
-                "generic_keys_env_in_use",
-                algorithm_id="global-pagerank-v1",
-                keys_env="NOSTR_PRIVATE_KEY",
-                recommended_keys_env="NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1",
-            )
+            assert svc._keys is svc._config.keys.keys
 
     @patch("bigbrotr.services.assertor.service.create_client", new_callable=AsyncMock)
     async def test_aenter_purges_legacy_checkpoints(
@@ -712,6 +741,7 @@ class TestAssertorPhase3Foundation:
             svc._brotr.delete_service_state = AsyncMock(return_value=2)
             svc._config = AssertorConfig()
             svc._client = None
+            svc._keys = svc._config.keys.keys
             svc._logger = MagicMock()
             svc._metrics_server = None
 

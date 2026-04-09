@@ -380,7 +380,7 @@ class MonitorConfig(BaseServiceConfig):
         default_factory=NetworksConfig, description="Per-network connection settings"
     )
     keys: KeysConfig = Field(
-        default_factory=lambda: KeysConfig.model_validate({}),
+        default_factory=lambda: KeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR"),
         description="Nostr key configuration for event signing",
     )
     processing: ProcessingConfig = Field(

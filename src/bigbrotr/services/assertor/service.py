@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -30,7 +29,6 @@ from bigbrotr.nips.event_builders import (
     build_user_assertion,
 )
 from bigbrotr.nips.nip85.data import EventAssertion, UserAssertion
-from bigbrotr.utils.keys import ENV_PRIVATE_KEY
 from bigbrotr.utils.protocol import broadcast_events, create_client
 
 from .configs import AssertorConfig
@@ -40,12 +38,13 @@ from .queries import fetch_event_rows, fetch_user_rows
 if TYPE_CHECKING:
     from types import TracebackType
 
+    from nostr_sdk import Keys
+
     from bigbrotr.core.brotr import Brotr
 
 
 _LEGACY_CHECKPOINT_PREFIXES = ("user:", "event:")
 _PROFILE_SUBJECT_ID = "provider_profile"
-_GENERIC_ENV_NORMALIZER = re.compile(r"[^A-Z0-9]+")
 _V2_CHECKPOINT_PARTS = 4
 
 
@@ -59,20 +58,20 @@ class Assertor(BaseService[AssertorConfig]):
         super().__init__(brotr=brotr, config=config)
         self._config: AssertorConfig
         self._client: Client | None = None
+        self._keys: Keys = self._config.keys.keys
         self._cycle_seen_state_keys: set[str] = set()
 
     async def __aenter__(self) -> Assertor:
         await super().__aenter__()
-
-        self._log_algorithm_key_contract()
+        keys = self._keys
 
         client = await create_client(
-            keys=self._config.keys,
+            keys=keys,
             allow_insecure=self._config.allow_insecure,
         )
         self._client = client
 
-        pubkey = self._config.keys.public_key().to_hex()
+        pubkey = keys.public_key().to_hex()
         self._logger.info(
             "client_created",
             pubkey=pubkey,
@@ -434,30 +433,6 @@ class Assertor(BaseService[AssertorConfig]):
         except ValueError:
             return None
         return parts[1], kind, parts[3]
-
-    def _recommended_keys_env(self) -> str:
-        """Return the recommended algorithm-specific private-key env var name."""
-        suffix = _GENERIC_ENV_NORMALIZER.sub("_", self._config.algorithm_id.upper()).strip("_")
-        return f"NOSTR_PRIVATE_KEY_{suffix}"
-
-    def _log_algorithm_key_contract(self) -> None:
-        """Warn when the assertor still relies on the generic signing key env var."""
-        recommended = self._recommended_keys_env()
-        if self._config.keys_env == ENV_PRIVATE_KEY:
-            self._logger.warning(
-                "generic_keys_env_in_use",
-                algorithm_id=self._config.algorithm_id,
-                keys_env=self._config.keys_env,
-                recommended_keys_env=recommended,
-            )
-            return
-
-        self._logger.info(
-            "algorithm_keys_env_configured",
-            algorithm_id=self._config.algorithm_id,
-            keys_env=self._config.keys_env,
-            recommended_keys_env=recommended,
-        )
 
     async def _is_unchanged(self, subject: str, current_hash: str) -> bool:
         """Check if the assertion/profile for this subject has the same hash as last published."""

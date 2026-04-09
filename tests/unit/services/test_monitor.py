@@ -75,7 +75,7 @@ VALID_HEX_KEY = (
 
 @pytest.fixture(autouse=True)
 def set_private_key_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("NOSTR_PRIVATE_KEY", VALID_HEX_KEY)
+    monkeypatch.setenv("NOSTR_PRIVATE_KEY_MONITOR", VALID_HEX_KEY)
 
 
 _NO_GEO_NET = MetadataFlags(nip66_geo=False, nip66_net=False)

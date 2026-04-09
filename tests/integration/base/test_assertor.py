@@ -98,7 +98,7 @@ class TestAssertorIntegration:
         brotr: Brotr,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setenv("NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1", VALID_HEX_KEY)
+        monkeypatch.setenv("NOSTR_PRIVATE_KEY_ASSERTOR", VALID_HEX_KEY)
 
         author = "c1" * 32
         replier = "d1" * 32
@@ -171,7 +171,7 @@ class TestAssertorIntegration:
         config = AssertorConfig.model_validate(
             {
                 "algorithm_id": "global-pagerank-v1",
-                "keys_env": "NOSTR_PRIVATE_KEY_GLOBAL_PAGERANK_V1",
+                "keys": {"keys_env": "NOSTR_PRIVATE_KEY_ASSERTOR"},
                 "relays": ["wss://relay.damus.io"],
                 "min_events": 1,
                 "batch_size": 100,

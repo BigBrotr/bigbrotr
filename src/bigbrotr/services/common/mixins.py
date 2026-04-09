@@ -264,7 +264,7 @@ class Clients:
     the same relay is never retried within a cycle.
 
     Args:
-        keys: Signing keys for event publishing.
+        keys: Signing keys for event publishing and authenticated relay access.
         networks: Network configuration for proxy URL resolution and
             per-network connection timeouts.
         allow_insecure: If ``True``, fall back to insecure transport

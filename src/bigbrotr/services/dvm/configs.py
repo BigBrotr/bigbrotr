@@ -23,10 +23,10 @@ from bigbrotr.utils.keys import KeysConfig
 from bigbrotr.utils.parsing import parse_relay_url, safe_parse
 
 
-class DvmConfig(BaseServiceConfig, KeysConfig):
+class DvmConfig(BaseServiceConfig):
     """Configuration for the DVM service.
 
-    Inherits key management from
+    Embeds key management via
     [KeysConfig][bigbrotr.utils.keys.KeysConfig] for Nostr signing.
 
     Attributes:
@@ -38,6 +38,11 @@ class DvmConfig(BaseServiceConfig, KeysConfig):
         announce: Whether to publish a NIP-89 handler announcement at startup.
         fetch_timeout: Timeout in seconds for relay event fetching.
     """
+
+    keys: KeysConfig = Field(
+        default_factory=lambda: KeysConfig(keys_env="NOSTR_PRIVATE_KEY_DVM"),
+        description="Nostr key configuration for the DVM identity",
+    )
 
     name: str = Field(
         default="BigBrotr DVM",

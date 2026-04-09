@@ -69,19 +69,15 @@ class ProviderProfileConfig(BaseModel):
     )
 
 
-class AssertorConfig(BaseServiceConfig, KeysConfig):
+class AssertorConfig(BaseServiceConfig):
     """Configuration for the Assertor service.
 
-    Inherits key management from
+    Embeds key management via
     [KeysConfig][bigbrotr.utils.keys.KeysConfig] for Nostr signing.
-
-    Note:
-        Uses the same ``NOSTR_PRIVATE_KEY`` environment variable as other
-        publishing services (Monitor, DVM) by default. Override ``keys_env``
-        to use a dedicated signing identity per algorithm.
 
     Attributes:
         algorithm_id: Stable identifier of the ranking/assertion algorithm.
+        keys: Nostr key configuration for the assertor identity.
         relays: Relay URLs to publish assertions to.
         kinds: NIP-85 assertion kinds to publish.
         batch_size: Maximum pubkeys/events to process per cycle.
@@ -96,6 +92,10 @@ class AssertorConfig(BaseServiceConfig, KeysConfig):
         min_length=1,
         max_length=128,
         description="Stable identifier for the assertion algorithm/service key namespace",
+    )
+    keys: KeysConfig = Field(
+        default_factory=lambda: KeysConfig(keys_env="NOSTR_PRIVATE_KEY_ASSERTOR"),
+        description="Nostr key configuration for the assertor identity",
     )
 
     relays: Annotated[
