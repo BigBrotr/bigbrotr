@@ -296,6 +296,28 @@ COMMENT ON TABLE nip85_identifier_stats IS
 
 
 -- ==========================================================================
+-- nip85_pubkey_ranks: Per-pubkey rank outputs (30382)
+-- ==========================================================================
+-- Snapshot-exported by the ranker after a successful DuckDB PageRank run.
+-- ``subject_id`` is the asserted pubkey. ``raw_score`` is the unnormalized
+-- PageRank value; ``rank`` is the final 0-100 score for publication.
+--
+-- Refresh: external snapshot export by the ranker service
+
+CREATE TABLE IF NOT EXISTS nip85_pubkey_ranks (
+    algorithm_id TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    raw_score DOUBLE PRECISION NOT NULL,
+    rank INTEGER NOT NULL,
+    computed_at BIGINT NOT NULL,
+    PRIMARY KEY (algorithm_id, subject_id)
+);
+
+COMMENT ON TABLE nip85_pubkey_ranks IS
+'NIP-85 per-pubkey rank outputs (kind 30382). Snapshot-exported by the ranker per algorithm_id after a successful DuckDB PageRank run.';
+
+
+-- ==========================================================================
 -- relay_software_counts: NIP-11 software distribution
 -- ==========================================================================
 -- Count of relays by software name and version from current NIP-11 metadata.

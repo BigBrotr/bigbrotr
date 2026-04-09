@@ -400,7 +400,7 @@ deployments/bigbrotr/config/
     ├── monitor.yaml            # Health checks, retry per type, publishing, GeoIP
     ├── synchronizer.yaml       # Networks, filter, time range, per-relay overrides
     ├── refresher.yaml          # View list, refresh interval
-    ├── ranker.yaml             # DuckDB path, graph sync, algorithm namespace
+    ├── ranker.yaml             # DuckDB path, PageRank, algorithm namespace
     ├── assertor.yaml           # NIP-85 algorithm_id, relays, kinds, provider profile
     ├── api.yaml                # Host, port, pagination, CORS
     └── dvm.yaml                # NIP-90 kind, relay list, response format
@@ -546,7 +546,7 @@ bigbrotr/
 | monitor | bigbrotr (parametric) | Health monitoring + event publishing |
 | synchronizer | bigbrotr (parametric) | Event archiving |
 | refresher | bigbrotr (parametric) | Materialized view refresh |
-| ranker | bigbrotr (parametric) | Private DuckDB-backed NIP-85 graph sync |
+| ranker | bigbrotr (parametric) | Private DuckDB-backed NIP-85 user ranking |
 | api | bigbrotr (parametric) | REST API (FastAPI) |
 | dvm | bigbrotr (parametric) | NIP-90 Data Vending Machine |
 | postgres-exporter | `prometheuscommunity/postgres-exporter:v0.16.0` | PostgreSQL metrics |
