@@ -52,6 +52,20 @@ class RankRowCounts:
         return self.event + self.addressable + self.identifier
 
 
+@dataclass(frozen=True, slots=True)
+class RankCycleResult:
+    """Outcome of one ranker service cycle."""
+
+    rank_run_id: int
+    changed_followers_synced: int
+    graph_nodes: int
+    graph_edges: int
+    non_user_staged: RankRowCounts
+    rank_counts: RankRowCounts
+    checkpoint: GraphSyncCheckpoint
+    duckdb_file_size_bytes: int
+
+
 class Ranker(BaseService[RankerConfig]):
     """Private DuckDB-backed ranker for the NIP-85 ranking pipeline."""
 
@@ -82,6 +96,10 @@ class Ranker(BaseService[RankerConfig]):
         return 0
 
     async def run(self) -> None:
+        """Sync facts, compute 30382/30383/30384/30385 ranks, and export them."""
+        await self.rank()
+
+    async def rank(self) -> RankCycleResult:
         """Sync facts, compute 30382/30383/30384/30385 ranks, and export them."""
         await asyncio.to_thread(self._store.ensure_initialized)
 
@@ -189,6 +207,17 @@ class Ranker(BaseService[RankerConfig]):
             non_user_ranks_written=rank_counts.non_user,
             checkpoint_seen_at=checkpoint.source_seen_at,
             checkpoint_follower_pubkey=checkpoint.follower_pubkey,
+            duckdb_file_size_bytes=duckdb_file_size,
+        )
+
+        return RankCycleResult(
+            rank_run_id=rank_run.run_id,
+            changed_followers_synced=changed_followers_synced,
+            graph_nodes=graph_stats.node_count,
+            graph_edges=graph_stats.edge_count,
+            non_user_staged=non_user_staged,
+            rank_counts=rank_counts,
+            checkpoint=checkpoint,
             duckdb_file_size_bytes=duckdb_file_size,
         )
 

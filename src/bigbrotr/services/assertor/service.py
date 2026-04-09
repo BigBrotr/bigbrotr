@@ -63,6 +63,19 @@ _V2_CHECKPOINT_PARTS = 4
 
 
 @dataclass(frozen=True, slots=True)
+class PublishCycleResult:
+    """Outcome of one assertor publish cycle."""
+
+    assertions_published: int = 0
+    assertions_skipped: int = 0
+    assertions_failed: int = 0
+    provider_profiles_published: int = 0
+    provider_profiles_skipped: int = 0
+    provider_profiles_failed: int = 0
+    checkpoint_cleanup_removed: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class _PublishPlan:
     """One assertion publish flow bound to a specific NIP-85 subject kind."""
 
@@ -139,8 +152,12 @@ class Assertor(BaseService[AssertorConfig]):
 
     async def run(self) -> None:
         """Execute one assertion cycle in algorithm-aware v2 mode."""
+        await self.publish()
+
+    async def publish(self) -> PublishCycleResult:
+        """Publish one algorithm-aware NIP-85 assertion cycle."""
         if self._client is None:
-            return
+            return PublishCycleResult()
 
         self._cycle_seen_state_keys = set()
 
@@ -201,6 +218,16 @@ class Assertor(BaseService[AssertorConfig]):
             provider_profiles_skipped=profile_skipped,
             provider_profiles_failed=profile_failed,
             checkpoints_removed=removed,
+        )
+
+        return PublishCycleResult(
+            assertions_published=published,
+            assertions_skipped=skipped,
+            assertions_failed=failed,
+            provider_profiles_published=profile_published,
+            provider_profiles_skipped=profile_skipped,
+            provider_profiles_failed=profile_failed,
+            checkpoint_cleanup_removed=removed,
         )
 
     async def _publish_user_assertions(self) -> tuple[int, int, int]:
