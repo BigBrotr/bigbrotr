@@ -311,10 +311,12 @@ def _make_assertor_config(algorithm_id: str) -> AssertorConfig:
         {
             "algorithm_id": algorithm_id,
             "keys": {"keys_env": "NOSTR_PRIVATE_KEY_ASSERTOR"},
-            "relays": ["wss://relay.damus.io"],
-            "min_events": 1,
-            "batch_size": 100,
-            "kinds": [30382, 30383, 30384, 30385],
+            "publishing": {"relays": ["wss://relay.damus.io"]},
+            "selection": {
+                "min_events": 1,
+                "batch_size": 100,
+                "kinds": [30382, 30383, 30384, 30385],
+            },
             "metrics": {"enabled": False},
             "provider_profile": {
                 "enabled": True,

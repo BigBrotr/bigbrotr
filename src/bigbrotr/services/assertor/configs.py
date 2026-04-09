@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from typing import Annotated
 
-from pydantic import BaseModel, BeforeValidator, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
@@ -37,6 +37,8 @@ _DEFAULT_ALGORITHM_ID = "global-pagerank-v1"
 
 class ProviderProfileKind0Content(BaseModel):
     """Kind 0 metadata content for the optional NIP-85 provider profile."""
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str = Field(
         default="BigBrotr Trusted Assertions",
@@ -66,6 +68,8 @@ class ProviderProfileKind0Content(BaseModel):
 class ProviderProfileConfig(BaseModel):
     """Optional Kind 0 metadata publishing for the NIP-85 service key."""
 
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = Field(
         default=False,
         description="Enable Kind 0 provider profile publishing for the service key",
@@ -76,47 +80,10 @@ class ProviderProfileConfig(BaseModel):
     )
 
 
-class AssertorConfig(BaseServiceConfig):
-    """Configuration for the Assertor service.
+class AssertorSelectionConfig(BaseModel):
+    """Subject selection and per-kind assertion scope."""
 
-    Embeds key management via
-    [KeysConfig][bigbrotr.utils.keys.KeysConfig] for Nostr signing.
-
-    Attributes:
-        algorithm_id: Stable identifier of the ranking/assertion algorithm.
-        keys: Nostr key configuration for the assertor identity.
-        relays: Relay URLs to publish assertions to.
-        kinds: NIP-85 assertion kinds to publish.
-        batch_size: Maximum pubkeys/events to process per cycle.
-        min_events: Minimum event count for a pubkey to qualify for assertion.
-        top_topics: Number of topic tags to include per user assertion.
-        provider_profile: Optional Kind 0 profile metadata for the service key.
-        allow_insecure: Allow insecure SSL connections to relays.
-    """
-
-    algorithm_id: str = Field(
-        default=_DEFAULT_ALGORITHM_ID,
-        min_length=1,
-        max_length=128,
-        description="Stable identifier for the assertion algorithm/service key namespace",
-    )
-    keys: KeysConfig = Field(
-        default_factory=lambda: KeysConfig(keys_env="NOSTR_PRIVATE_KEY_ASSERTOR"),
-        description="Nostr key configuration for the assertor identity",
-    )
-
-    relays: Annotated[
-        list[Relay],
-        BeforeValidator(lambda v: [Relay(url) if isinstance(url, str) else url for url in v]),
-    ] = Field(
-        default_factory=lambda: [
-            Relay("wss://relay.damus.io"),
-            Relay("wss://nos.lol"),
-            Relay("wss://relay.primal.net"),
-        ],
-        min_length=1,
-        description="Relay URLs to publish assertions to",
-    )
+    model_config = ConfigDict(extra="forbid")
 
     kinds: list[int] = Field(
         default_factory=lambda: [30382, 30383, 30384, 30385],
@@ -125,6 +92,23 @@ class AssertorConfig(BaseServiceConfig):
             "NIP-85 assertion kinds to publish "
             "(30382=user, 30383=event, 30384=addressable, 30385=identifier)"
         ),
+    )
+    batch_size: int = Field(
+        default=500,
+        ge=1,
+        le=50000,
+        description="Maximum subjects to process per cycle",
+    )
+    min_events: int = Field(
+        default=1,
+        ge=0,
+        description="Minimum event count for a pubkey to qualify for user assertion",
+    )
+    top_topics: int = Field(
+        default=5,
+        ge=0,
+        le=50,
+        description="Number of topic tags to include per user assertion",
     )
 
     @field_validator("kinds")
@@ -140,6 +124,85 @@ class AssertorConfig(BaseServiceConfig):
             )
         return v
 
+
+class AssertorPublishingConfig(BaseModel):
+    """Relay publishing settings for assertion events."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    relays: Annotated[
+        list[Relay],
+        BeforeValidator(lambda v: [Relay(url) if isinstance(url, str) else url for url in v]),
+    ] = Field(
+        default_factory=lambda: [
+            Relay("wss://relay.damus.io"),
+            Relay("wss://nos.lol"),
+            Relay("wss://relay.primal.net"),
+        ],
+        min_length=1,
+        description="Relay URLs to publish assertions to",
+    )
+    allow_insecure: bool = Field(
+        default=False,
+        description="Allow insecure SSL connections to relays",
+    )
+
+
+class AssertorCleanupConfig(BaseModel):
+    """Checkpoint cleanup behavior for assertor state."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    remove_legacy_checkpoints: bool = Field(
+        default=True,
+        description="Delete legacy pre-v2 assertor checkpoints during startup",
+    )
+    remove_stale_checkpoints: bool = Field(
+        default=True,
+        description="Delete v2 checkpoints for subjects no longer eligible in a cycle",
+    )
+
+
+class AssertorConfig(BaseServiceConfig):
+    """Configuration for the Assertor service.
+
+    Embeds key management via
+    [KeysConfig][bigbrotr.utils.keys.KeysConfig] for Nostr signing.
+
+    Attributes:
+        algorithm_id: Stable identifier of the ranking/assertion algorithm.
+        keys: Nostr key configuration for the assertor identity.
+        selection: Subject selection and per-kind assertion scope.
+        publishing: Relay publishing settings for assertion events.
+        cleanup: Checkpoint cleanup behavior.
+        provider_profile: Optional Kind 0 profile metadata for the service key.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    algorithm_id: str = Field(
+        default=_DEFAULT_ALGORITHM_ID,
+        min_length=1,
+        max_length=128,
+        description="Stable identifier for the assertion algorithm/service key namespace",
+    )
+    keys: KeysConfig = Field(
+        default_factory=lambda: KeysConfig(keys_env="NOSTR_PRIVATE_KEY_ASSERTOR"),
+        description="Nostr key configuration for the assertor identity",
+    )
+    selection: AssertorSelectionConfig = Field(
+        default_factory=AssertorSelectionConfig,
+        description="Subject selection and per-kind assertion scope",
+    )
+    publishing: AssertorPublishingConfig = Field(
+        default_factory=AssertorPublishingConfig,
+        description="Relay publishing settings for assertion events",
+    )
+    cleanup: AssertorCleanupConfig = Field(
+        default_factory=AssertorCleanupConfig,
+        description="Checkpoint cleanup behavior",
+    )
+
     @field_validator("algorithm_id")
     @classmethod
     def algorithm_id_valid(cls, v: str) -> str:
@@ -150,35 +213,10 @@ class AssertorConfig(BaseServiceConfig):
             )
         return v
 
-    batch_size: int = Field(
-        default=500,
-        ge=1,
-        le=50000,
-        description="Maximum subjects to process per cycle",
-    )
-
-    min_events: int = Field(
-        default=1,
-        ge=0,
-        description="Minimum event count for a pubkey to qualify for user assertion",
-    )
-
-    top_topics: int = Field(
-        default=5,
-        ge=0,
-        le=50,
-        description="Number of topic tags to include per user assertion",
-    )
-
     interval: float = Field(
         default=3600.0,
         ge=60.0,
         description="Target seconds between assertion cycles",
-    )
-
-    allow_insecure: bool = Field(
-        default=False,
-        description="Allow insecure SSL connections to relays",
     )
 
     provider_profile: ProviderProfileConfig = Field(

@@ -107,7 +107,7 @@ class Assertor(BaseService[AssertorConfig]):
 
         client = await create_client(
             keys=keys,
-            allow_insecure=self._config.allow_insecure,
+            allow_insecure=self._config.publishing.allow_insecure,
         )
         self._client = client
 
@@ -118,12 +118,14 @@ class Assertor(BaseService[AssertorConfig]):
             algorithm_id=self._config.algorithm_id,
         )
 
-        for relay in self._config.relays:
+        for relay in self._config.publishing.relays:
             await client.add_relay(RelayUrl.parse(relay.url))
             self._logger.info("relay_added", url=relay.url)
         await client.connect()
 
-        removed = await self._purge_legacy_checkpoints()
+        removed = 0
+        if self._config.cleanup.remove_legacy_checkpoints:
+            removed = await self._purge_legacy_checkpoints()
         self._logger.info(
             "legacy_checkpoint_cleanup_completed",
             removed=removed,
@@ -168,25 +170,25 @@ class Assertor(BaseService[AssertorConfig]):
         profile_skipped = 0
         profile_failed = 0
 
-        if EventKind.NIP85_USER_ASSERTION in self._config.kinds:
+        if EventKind.NIP85_USER_ASSERTION in self._config.selection.kinds:
             p, s, f = await self._publish_user_assertions()
             published += p
             skipped += s
             failed += f
 
-        if EventKind.NIP85_EVENT_ASSERTION in self._config.kinds:
+        if EventKind.NIP85_EVENT_ASSERTION in self._config.selection.kinds:
             p, s, f = await self._publish_event_assertions()
             published += p
             skipped += s
             failed += f
 
-        if EventKind.NIP85_ADDRESSABLE_ASSERTION in self._config.kinds:
+        if EventKind.NIP85_ADDRESSABLE_ASSERTION in self._config.selection.kinds:
             p, s, f = await self._publish_addressable_assertions()
             published += p
             skipped += s
             failed += f
 
-        if EventKind.NIP85_IDENTIFIER_ASSERTION in self._config.kinds:
+        if EventKind.NIP85_IDENTIFIER_ASSERTION in self._config.selection.kinds:
             p, s, f = await self._publish_identifier_assertions()
             published += p
             skipped += s
@@ -199,7 +201,9 @@ class Assertor(BaseService[AssertorConfig]):
                 profile_failed,
             ) = await self._publish_provider_profile()
 
-        removed = await self._delete_stale_v2_checkpoints()
+        removed = 0
+        if self._config.cleanup.remove_stale_checkpoints:
+            removed = await self._delete_stale_v2_checkpoints()
 
         self.set_gauge("assertions_published", published)
         self.set_gauge("assertions_skipped", skipped)
@@ -237,12 +241,12 @@ class Assertor(BaseService[AssertorConfig]):
             rows = await fetch_user_rows(
                 self._brotr,
                 self._config.algorithm_id,
-                self._config.min_events,
-                self._config.batch_size,
+                self._config.selection.min_events,
+                self._config.selection.batch_size,
                 offset,
             )
             for row in rows:
-                row["top_topics_limit"] = self._config.top_topics
+                row["top_topics_limit"] = self._config.selection.top_topics
             return rows
 
         return await self._publish_assertion_rows(
@@ -265,7 +269,7 @@ class Assertor(BaseService[AssertorConfig]):
                 fetch_rows=lambda offset: fetch_event_rows(
                     self._brotr,
                     self._config.algorithm_id,
-                    self._config.batch_size,
+                    self._config.selection.batch_size,
                     offset,
                 ),
                 assertion_from_row=EventAssertion.from_db_row,
@@ -284,7 +288,7 @@ class Assertor(BaseService[AssertorConfig]):
                 fetch_rows=lambda offset: fetch_addressable_rows(
                     self._brotr,
                     self._config.algorithm_id,
-                    self._config.batch_size,
+                    self._config.selection.batch_size,
                     offset,
                 ),
                 assertion_from_row=AddressableAssertion.from_db_row,
@@ -303,7 +307,7 @@ class Assertor(BaseService[AssertorConfig]):
                 fetch_rows=lambda offset: fetch_identifier_rows(
                     self._brotr,
                     self._config.algorithm_id,
-                    self._config.batch_size,
+                    self._config.selection.batch_size,
                     offset,
                 ),
                 assertion_from_row=IdentifierAssertion.from_db_row,
@@ -359,9 +363,9 @@ class Assertor(BaseService[AssertorConfig]):
                         },
                     )
 
-            if len(rows) < self._config.batch_size:
+            if len(rows) < self._config.selection.batch_size:
                 break
-            offset += self._config.batch_size
+            offset += self._config.selection.batch_size
 
         return published, skipped, failed
 
@@ -489,7 +493,7 @@ class Assertor(BaseService[AssertorConfig]):
             ServiceName.ASSERTOR,
             ServiceStateType.CHECKPOINT,
         )
-        configured_kinds = {int(kind) for kind in self._config.kinds}
+        configured_kinds = {int(kind) for kind in self._config.selection.kinds}
         if self._provider_profile_enabled():
             configured_kinds.add(int(EventKind.SET_METADATA))
 

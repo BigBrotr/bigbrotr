@@ -28,17 +28,39 @@ def _provider_profile(enabled: bool = False) -> SimpleNamespace:
 
 
 def _service_config(**overrides: object) -> SimpleNamespace:
-    data: dict[str, object] = {
-        "algorithm_id": "global-pagerank-v1",
-        "provider_profile": _provider_profile(False),
-        "kinds": [
+    selection = SimpleNamespace(
+        kinds=[
             EventKind.NIP85_USER_ASSERTION,
             EventKind.NIP85_EVENT_ASSERTION,
         ],
-        "min_events": 1,
-        "batch_size": 100,
-        "top_topics": 5,
+        min_events=1,
+        batch_size=100,
+        top_topics=5,
+    )
+    publishing = SimpleNamespace(
+        relays=[],
+        allow_insecure=False,
+    )
+    cleanup = SimpleNamespace(
+        remove_legacy_checkpoints=True,
+        remove_stale_checkpoints=True,
+    )
+    data: dict[str, object] = {
+        "algorithm_id": "global-pagerank-v1",
+        "provider_profile": _provider_profile(False),
+        "selection": selection,
+        "publishing": publishing,
+        "cleanup": cleanup,
     }
+    for key in ("kinds", "min_events", "batch_size", "top_topics"):
+        if key in overrides:
+            setattr(selection, key, overrides.pop(key))
+    for key in ("relays", "allow_insecure"):
+        if key in overrides:
+            setattr(publishing, key, overrides.pop(key))
+    for key in ("remove_legacy_checkpoints", "remove_stale_checkpoints"):
+        if key in overrides:
+            setattr(cleanup, key, overrides.pop(key))
     data.update(overrides)
     return SimpleNamespace(**data)
 
@@ -50,12 +72,14 @@ class TestAssertorConfig:
         assert config.keys.keys_env == "NOSTR_PRIVATE_KEY_ASSERTOR"
         assert config.keys.keys is not None
         assert config.interval == 3600.0
-        assert config.batch_size == 500
-        assert config.min_events == 1
-        assert config.top_topics == 5
-        assert len(config.relays) == 3
-        assert config.kinds == [30382, 30383, 30384, 30385]
-        assert config.allow_insecure is False
+        assert config.selection.batch_size == 500
+        assert config.selection.min_events == 1
+        assert config.selection.top_topics == 5
+        assert len(config.publishing.relays) == 3
+        assert config.selection.kinds == [30382, 30383, 30384, 30385]
+        assert config.publishing.allow_insecure is False
+        assert config.cleanup.remove_legacy_checkpoints is True
+        assert config.cleanup.remove_stale_checkpoints is True
         assert config.provider_profile.enabled is False
 
     def test_custom_values(
@@ -63,46 +87,54 @@ class TestAssertorConfig:
     ) -> None:
         config = AssertorConfig(
             algorithm_id="trust-graph-v2",
-            batch_size=100,
-            min_events=10,
-            top_topics=3,
-            kinds=[30382],
+            selection={
+                "batch_size": 100,
+                "min_events": 10,
+                "top_topics": 3,
+                "kinds": [30382],
+            },
+            publishing={"allow_insecure": True, "relays": ["wss://relay.example.com"]},
+            cleanup={"remove_legacy_checkpoints": False, "remove_stale_checkpoints": False},
         )
         assert config.algorithm_id == "trust-graph-v2"
-        assert config.batch_size == 100
-        assert config.min_events == 10
-        assert config.top_topics == 3
-        assert config.kinds == [30382]
+        assert config.selection.batch_size == 100
+        assert config.selection.min_events == 10
+        assert config.selection.top_topics == 3
+        assert config.selection.kinds == [30382]
+        assert config.publishing.allow_insecure is True
+        assert [relay.url for relay in config.publishing.relays] == ["wss://relay.example.com"]
+        assert config.cleanup.remove_legacy_checkpoints is False
+        assert config.cleanup.remove_stale_checkpoints is False
 
     def test_batch_size_validation(
         self,
     ) -> None:
         with pytest.raises(ValidationError):
-            AssertorConfig(batch_size=0)
+            AssertorConfig(selection={"batch_size": 0})
 
     def test_kinds_must_not_be_empty(
         self,
     ) -> None:
         with pytest.raises(ValidationError):
-            AssertorConfig(kinds=[])
+            AssertorConfig(selection={"kinds": []})
 
     def test_relays_must_not_be_empty(
         self,
     ) -> None:
         with pytest.raises(ValidationError):
-            AssertorConfig(relays=[])
+            AssertorConfig(publishing={"relays": []})
 
     def test_unsupported_kind_rejected(self) -> None:
         with pytest.raises(ValidationError, match="unsupported assertion kinds"):
-            AssertorConfig(kinds=[42])
+            AssertorConfig(selection={"kinds": [42]})
 
     def test_mixed_valid_invalid_kinds_rejected(self) -> None:
         with pytest.raises(ValidationError, match="unsupported assertion kinds"):
-            AssertorConfig(kinds=[30382, 99999])
+            AssertorConfig(selection={"kinds": [30382, 99999]})
 
     def test_valid_single_kind(self) -> None:
-        config = AssertorConfig(kinds=[30385])
-        assert config.kinds == [30385]
+        config = AssertorConfig(selection={"kinds": [30385]})
+        assert config.selection.kinds == [30385]
 
     def test_invalid_algorithm_id_rejected(self) -> None:
         with pytest.raises(ValidationError, match="algorithm_id"):
@@ -110,7 +142,7 @@ class TestAssertorConfig:
 
     def test_duplicate_kinds_rejected(self) -> None:
         with pytest.raises(ValidationError, match="duplicate assertion kinds"):
-            AssertorConfig(kinds=[30382, 30382])
+            AssertorConfig(selection={"kinds": [30382, 30382]})
 
 
 class TestAssertorInit:
@@ -384,7 +416,7 @@ class TestAssertorPublishUserFlow:
         mock_fetch.return_value = [self._make_row(pubkey=f"{i:02x}" * 32) for i in range(3)]
         mock_broadcast.return_value = 1
         service = self._make_service(mock_brotr)
-        service._config.batch_size = 100  # 3 < 100 = partial
+        service._config.selection.batch_size = 100  # 3 < 100 = partial
 
         await service._publish_user_assertions()
 
@@ -402,7 +434,7 @@ class TestAssertorPublishUserFlow:
         mock_fetch.side_effect = [batch, []]
         mock_broadcast.return_value = 1
         service = self._make_service(mock_brotr)
-        service._config.batch_size = 100
+        service._config.selection.batch_size = 100
 
         await service._publish_user_assertions()
 
@@ -633,7 +665,7 @@ class TestAssertorCheckpointNamespacing:
 
         from bigbrotr.models.constants import EventKind
 
-        service._config.kinds = [
+        service._config.selection.kinds = [
             EventKind.NIP85_USER_ASSERTION,
             EventKind.NIP85_EVENT_ASSERTION,
         ]
@@ -757,7 +789,7 @@ class TestAssertorPhase3Foundation:
 
             mock_create_client.assert_awaited_once_with(
                 keys=svc._config.keys.keys,
-                allow_insecure=svc._config.allow_insecure,
+                allow_insecure=svc._config.publishing.allow_insecure,
             )
 
     @patch("bigbrotr.services.assertor.service.create_client", new_callable=AsyncMock)
@@ -939,7 +971,7 @@ class TestAssertorCheckpointCleanup:
             )
             svc._brotr.delete_service_state = AsyncMock(return_value=2)
             svc._config = AssertorConfig(
-                kinds=[30382],
+                selection={"kinds": [30382]},
                 provider_profile={
                     "enabled": True,
                     "kind0_content": {
@@ -1088,7 +1120,7 @@ class TestAssertorPublishEventFlow:
         mock_fetch.side_effect = [batch, []]
         mock_broadcast.return_value = 1
         service = self._make_service(mock_brotr)
-        service._config.batch_size = 100
+        service._config.selection.batch_size = 100
 
         await service._publish_event_assertions()
 
