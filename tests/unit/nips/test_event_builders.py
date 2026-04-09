@@ -6,6 +6,7 @@ Covers Kind 0 (NIP-01), Kind 10166, Kind 30166, and all tag builder functions.
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 from nostr_sdk import Keys
@@ -102,6 +103,24 @@ class TestBuildProfileEvent:
         """Test Kind 0 builder with no profile fields set."""
         builder = build_profile_event()
         assert builder is not None
+
+    def test_extra_fields_are_merged_without_overriding_explicit_fields(self) -> None:
+        """Extra metadata should be preserved while explicit parameters win on conflicts."""
+        event = build_profile_event(
+            name="BigBrotr",
+            website="https://bigbrotr.com",
+            extra_fields={
+                "algorithm_id": "global-pagerank-v1",
+                "algorithm_version": "v1",
+                "name": "ignored",
+            },
+        ).sign_with_keys(Keys.generate())
+
+        content = json.loads(event.content())
+        assert content["name"] == "BigBrotr"
+        assert content["website"] == "https://bigbrotr.com"
+        assert content["algorithm_id"] == "global-pagerank-v1"
+        assert content["algorithm_version"] == "v1"
 
 
 # ============================================================================

@@ -20,7 +20,7 @@ flowchart TD
     A["CLI invocation<br/><small>python -m bigbrotr &lt;service&gt;</small>"] --> B["Brotr.from_yaml<br/><small>config/brotr.yaml</small>"]
     B --> C["Service.from_yaml<br/><small>config/services/&lt;service&gt;.yaml</small>"]
     C --> D["Pydantic validation<br/><small>field constraints, cross-field checks</small>"]
-    D --> E["Environment variable resolution<br/><small>DB_ADMIN_PASSWORD, NOSTR_PRIVATE_KEY</small>"]
+    D --> E["Environment variable resolution<br/><small>DB_*_PASSWORD, NOSTR_PRIVATE_KEY_&lt;SERVICE&gt;</small>"]
     E --> F["Service starts<br/><small>validated configuration</small>"]
 
 ```
@@ -40,6 +40,7 @@ deployments/
 |       +-- monitor.yaml
 |       +-- synchronizer.yaml
 |       +-- refresher.yaml
+|       +-- assertor.yaml
 |       +-- api.yaml
 |       +-- dvm.yaml
 +-- lilbrotr/config/
@@ -51,6 +52,7 @@ deployments/
         +-- monitor.yaml
         +-- synchronizer.yaml
         +-- refresher.yaml
+        +-- assertor.yaml
         +-- api.yaml
         +-- dvm.yaml
 ```
@@ -68,7 +70,10 @@ deployments/
 | `DB_WRITER_PASSWORD` | Yes | Writer services | Writer role password (seeder, finder, validator, monitor, synchronizer) |
 | `DB_READER_PASSWORD` | Yes | Read-only services | Reader role password (postgres-exporter, Api, Dvm) |
 | `DB_REFRESHER_PASSWORD` | Yes | Refresher | Refresher role password (matview ownership for REFRESH CONCURRENTLY) |
-| `NOSTR_PRIVATE_KEY` | Monitor, Assertor, Dvm; optional for Synchronizer | Monitor, Assertor, Dvm, Synchronizer | Nostr private key (64-char hex or `nsec1...` bech32). Required for event publishing (NIP-66, NIP-85, NIP-90). Optional for Synchronizer NIP-42 authentication. |
+| `NOSTR_PRIVATE_KEY_MONITOR` | No | Monitor | Service-specific key used for Monitor publishing and NIP-66 write probes. Blank/unset generates one ephemeral key at config creation. |
+| `NOSTR_PRIVATE_KEY_SYNCHRONIZER` | No | Synchronizer | Service-specific key used for NIP-42-authenticated relay reads. Blank/unset generates one ephemeral key at config creation. |
+| `NOSTR_PRIVATE_KEY_DVM` | No | Dvm | Service-specific key used for NIP-89/NIP-90 signing. Blank/unset generates one ephemeral key at config creation. |
+| `NOSTR_PRIVATE_KEY_ASSERTOR` | No | Assertor | Service-specific key used for NIP-85 assertion signing and optional provider profile publishing. Blank/unset generates one ephemeral key at config creation. |
 | `GRAFANA_PASSWORD` | Docker only | Grafana | Grafana admin password |
 
 ### Setting Environment Variables
@@ -77,14 +82,20 @@ deployments/
 
 ```bash
 cp deployments/bigbrotr/.env.example deployments/bigbrotr/.env
-# Edit and set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD, DB_READER_PASSWORD, NOSTR_PRIVATE_KEY, GRAFANA_PASSWORD
+# Edit and set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD,
+# DB_READER_PASSWORD, GRAFANA_PASSWORD, and optionally the per-service
+# Nostr keys NOSTR_PRIVATE_KEY_MONITOR, NOSTR_PRIVATE_KEY_SYNCHRONIZER,
+# NOSTR_PRIVATE_KEY_DVM, NOSTR_PRIVATE_KEY_ASSERTOR
 ```
 
 **Shell**:
 
 ```bash
 export DB_WRITER_PASSWORD=your_writer_password
-export NOSTR_PRIVATE_KEY=your_hex_private_key
+export NOSTR_PRIVATE_KEY_MONITOR=your_hex_private_key
+export NOSTR_PRIVATE_KEY_SYNCHRONIZER=your_hex_private_key
+export NOSTR_PRIVATE_KEY_DVM=your_hex_private_key
+export NOSTR_PRIVATE_KEY_ASSERTOR=your_assertor_hex_private_key
 ```
 
 **Systemd**:
@@ -92,7 +103,10 @@ export NOSTR_PRIVATE_KEY=your_hex_private_key
 ```ini
 [Service]
 Environment="DB_WRITER_PASSWORD=your_writer_password"
-Environment="NOSTR_PRIVATE_KEY=your_hex_private_key"
+Environment="NOSTR_PRIVATE_KEY_MONITOR=your_hex_private_key"
+Environment="NOSTR_PRIVATE_KEY_SYNCHRONIZER=your_hex_private_key"
+Environment="NOSTR_PRIVATE_KEY_DVM=your_hex_private_key"
+Environment="NOSTR_PRIVATE_KEY_ASSERTOR=your_assertor_hex_private_key"
 ```
 
 ---
@@ -103,7 +117,7 @@ Environment="NOSTR_PRIVATE_KEY=your_hex_private_key"
 python -m bigbrotr <service> [options]
 
 positional arguments:
-  service                 seeder | finder | validator | monitor | synchronizer | refresher | api | dvm
+  service                 seeder | finder | validator | monitor | synchronizer | refresher | assertor | api | dvm
 
 options:
   --config PATH           Service config path (overrides default)
@@ -474,7 +488,7 @@ metrics:
   enabled: true
   port: 8003
 
-keys: {}                                     # Loaded from NOSTR_PRIVATE_KEY env var
+keys: {}                                     # Loaded from NOSTR_PRIVATE_KEY_MONITOR or generated once
 
 networks:
   clearnet:
@@ -619,7 +633,7 @@ metrics:
   enabled: true
   port: 8004
 
-keys: {}                                     # Loaded from NOSTR_PRIVATE_KEY env var (for NIP-42)
+keys: {}                                     # Loaded from NOSTR_PRIVATE_KEY_SYNCHRONIZER or generated once
 
 networks:
   clearnet:
@@ -670,6 +684,71 @@ timeouts:
 | `timeouts.relay_i2p` | float | `3600.0` | 60.0-14400.0 | Max time per I2P relay |
 | `timeouts.relay_loki` | float | `3600.0` | 60.0-14400.0 | Max time per Lokinet relay |
 | `timeouts.max_duration` | float | `14400.0` | 60.0-86400.0 | Maximum seconds for the entire sync phase |
+
+---
+
+## Assertor Configuration
+
+Publishes NIP-85 trusted assertion events using algorithm-aware v2 checkpoints.
+
+```yaml
+interval: 3600.0
+
+metrics:
+  enabled: true
+  port: 8008
+
+algorithm_id: global-pagerank-v1
+keys:
+  keys_env: NOSTR_PRIVATE_KEY_ASSERTOR
+allow_insecure: false
+
+relays:
+  - wss://relay.damus.io
+  - wss://nos.lol
+  - wss://relay.primal.net
+
+kinds:
+  - 30382
+  - 30383
+
+batch_size: 500
+min_events: 1
+top_topics: 5
+
+provider_profile:
+  enabled: false
+  kind0_content:
+    name: BigBrotr Trusted Assertions
+    about: NIP-85 trusted assertion provider
+    website: https://bigbrotr.com
+    picture: null
+    nip05: null
+    banner: null
+    lud16: null
+    extra_fields: {}
+```
+
+The shipped BigBrotr and LilBrotr deployments set `keys.keys_env` to
+`NOSTR_PRIVATE_KEY_ASSERTOR`. If the variable is blank or unset, the config
+generates one ephemeral key once at startup. If you want the Assertor to share
+another service's identity, point `keys.keys_env` at that service's variable or
+set both variables to the same private key value.
+
+### Assertion Reference
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `algorithm_id` | string | `global-pagerank-v1` | lowercase slug | Stable algorithm/service-key namespace used in v2 checkpoint keys |
+| `keys.keys_env` | string | `NOSTR_PRIVATE_KEY_ASSERTOR` | non-empty | Environment variable from which the signing key is loaded |
+| `relays` | list[string] | 3 public relays | min 1 | Relay URLs used for NIP-85 publishing |
+| `kinds` | list[int] | `[30382, 30383]` | subset of supported kinds | Assertion kinds to publish |
+| `batch_size` | int | `500` | 1-50000 | Maximum eligible subjects fetched per cycle |
+| `min_events` | int | `1` | >= 0 | Minimum total events required for user assertions |
+| `top_topics` | int | `5` | 0-50 | Maximum number of topic tags per user assertion |
+| `allow_insecure` | bool | `false` | - | Fall back to insecure SSL transport on relay certificate failure |
+| `provider_profile.enabled` | bool | `false` | - | Publish a Kind 0 provider profile for the assertor identity |
+| `provider_profile.kind0_content.*` | object | defaults | - | Metadata fields for the provider profile content |
 
 ---
 

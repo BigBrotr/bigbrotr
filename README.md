@@ -188,7 +188,10 @@ cd bigbrotr/deployments/bigbrotr
 
 # Configure secrets
 cp .env.example .env
-# Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD, DB_READER_PASSWORD, NOSTR_PRIVATE_KEY, GRAFANA_PASSWORD
+# Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD,
+# DB_READER_PASSWORD, GRAFANA_PASSWORD, and optionally the per-service
+# Nostr keys NOSTR_PRIVATE_KEY_MONITOR, NOSTR_PRIVATE_KEY_SYNCHRONIZER,
+# NOSTR_PRIVATE_KEY_DVM, NOSTR_PRIVATE_KEY_ASSERTOR
 
 # Start everything
 docker compose up -d
@@ -379,7 +382,10 @@ JSON mode available for cloud aggregation:
 | `DB_WRITER_PASSWORD` | Yes | Writer role password (Seeder, Finder, Validator, Monitor, Synchronizer) |
 | `DB_REFRESHER_PASSWORD` | Yes | Refresher role password (matview ownership) |
 | `DB_READER_PASSWORD` | Yes | Reader role password (Api, Dvm, postgres-exporter) |
-| `NOSTR_PRIVATE_KEY` | For Monitor, Validator, Synchronizer, Assertor, Dvm | Nostr private key (hex or nsec) for event signing and NIP-42 auth |
+| `NOSTR_PRIVATE_KEY_MONITOR` | No | Monitor signing key for published Nostr events and NIP-66 write probes. Blank/unset generates one ephemeral key at config creation. |
+| `NOSTR_PRIVATE_KEY_SYNCHRONIZER` | No | Synchronizer key for NIP-42-authenticated relay reads. Blank/unset generates one ephemeral key at config creation. |
+| `NOSTR_PRIVATE_KEY_DVM` | No | Dvm signing key for NIP-89/NIP-90 events. Blank/unset generates one ephemeral key at config creation. |
+| `NOSTR_PRIVATE_KEY_ASSERTOR` | No | Assertor signing key for NIP-85 assertions and provider profile events. Blank/unset generates one ephemeral key at config creation. |
 | `GRAFANA_PASSWORD` | For Grafana | Grafana admin password |
 
 ### Configuration Files
@@ -394,7 +400,7 @@ deployments/bigbrotr/config/
     ├── monitor.yaml            # Health checks, retry per type, publishing, GeoIP
     ├── synchronizer.yaml       # Networks, filter, time range, per-relay overrides
     ├── refresher.yaml          # View list, refresh interval
-    ├── assertor.yaml           # NIP-85 assertion relays, kinds, batch size
+    ├── assertor.yaml           # NIP-85 algorithm_id, relays, kinds, provider profile
     ├── api.yaml                # Host, port, pagination, CORS
     └── dvm.yaml                # NIP-90 kind, relay list, response format
 ```

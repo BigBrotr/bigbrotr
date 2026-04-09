@@ -45,7 +45,7 @@ VALID_HEX_KEY = (
 
 @pytest.fixture(autouse=True)
 def _set_private_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("NOSTR_PRIVATE_KEY", VALID_HEX_KEY)
+    monkeypatch.setenv("NOSTR_PRIVATE_KEY_DVM", VALID_HEX_KEY)
 
 
 @pytest.fixture
@@ -143,6 +143,8 @@ def _make_client_with_events(events: list[MagicMock]) -> MagicMock:
 class TestDvmConfig:
     def test_default_values(self) -> None:
         config = DvmConfig(relays=["wss://relay.example.com"])
+        assert config.keys.keys_env == "NOSTR_PRIVATE_KEY_DVM"
+        assert config.keys.keys is not None
         assert config.name == "BigBrotr DVM"
         assert config.about == "Read-only access to BigBrotr relay monitoring data"
         assert config.d_tag == "bigbrotr-dvm"

@@ -104,7 +104,10 @@ uv sync
 
 ```bash
 export DB_WRITER_PASSWORD=your_writer_password
-export NOSTR_PRIVATE_KEY=your_hex_key
+export NOSTR_PRIVATE_KEY_MONITOR=your_hex_key
+export NOSTR_PRIVATE_KEY_SYNCHRONIZER=your_hex_key
+export NOSTR_PRIVATE_KEY_DVM=your_hex_key
+export NOSTR_PRIVATE_KEY_ASSERTOR=your_assertor_hex_key
 ```
 
 ## 4. Run Services
@@ -121,6 +124,7 @@ python -m bigbrotr validator &
 python -m bigbrotr monitor &
 python -m bigbrotr synchronizer &
 python -m bigbrotr refresher &
+python -m bigbrotr assertor &
 python -m bigbrotr api &
 python -m bigbrotr dvm &
 ```
@@ -144,7 +148,6 @@ Group=bigbrotr
 WorkingDirectory=/opt/bigbrotr/deployments/bigbrotr
 Environment="PATH=/opt/bigbrotr/venv/bin"
 Environment="DB_WRITER_PASSWORD=your_writer_password"
-Environment="NOSTR_PRIVATE_KEY=your_hex_key"
 ExecStart=/opt/bigbrotr/venv/bin/python -m bigbrotr finder
 Restart=always
 RestartSec=10
@@ -160,14 +163,14 @@ PrivateDevices=yes
 WantedBy=multi-user.target
 ```
 
-Create similar files for `validator`, `monitor`, `synchronizer`, `refresher`, `api`, and `dvm`, changing the `Description` and the service name in the `ExecStart` line.
+Create similar files for `validator`, `monitor`, `synchronizer`, `refresher`, `assertor`, `api`, and `dvm`, changing the `Description` and the service name in the `ExecStart` line. Add `NOSTR_PRIVATE_KEY_MONITOR` to the `monitor` unit, `NOSTR_PRIVATE_KEY_SYNCHRONIZER` to the `synchronizer` unit, `NOSTR_PRIVATE_KEY_DVM` to the `dvm` unit, and `NOSTR_PRIVATE_KEY_ASSERTOR` to the `assertor` unit. If you omit any of these, the corresponding service config generates one ephemeral key at startup.
 
 ### Enable and start all services
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable bigbrotr-finder bigbrotr-validator bigbrotr-monitor bigbrotr-synchronizer bigbrotr-refresher bigbrotr-api bigbrotr-dvm
-sudo systemctl start bigbrotr-finder bigbrotr-validator bigbrotr-monitor bigbrotr-synchronizer bigbrotr-refresher bigbrotr-api bigbrotr-dvm
+sudo systemctl enable bigbrotr-finder bigbrotr-validator bigbrotr-monitor bigbrotr-synchronizer bigbrotr-refresher bigbrotr-assertor bigbrotr-api bigbrotr-dvm
+sudo systemctl start bigbrotr-finder bigbrotr-validator bigbrotr-monitor bigbrotr-synchronizer bigbrotr-refresher bigbrotr-assertor bigbrotr-api bigbrotr-dvm
 ```
 
 ### Check service status

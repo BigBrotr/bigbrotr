@@ -283,7 +283,9 @@ The Monitor uses two types of `CHECKPOINT` records in `service_state`:
 | `networks` | NetworkConfig | -- | Per-network timeouts and concurrency |
 
 !!! warning
-    The Monitor requires the `NOSTR_PRIVATE_KEY` environment variable for signing published Nostr events and performing NIP-66 write tests.
+    The Monitor uses `NOSTR_PRIVATE_KEY_MONITOR` for signing published Nostr
+    events and performing NIP-66 write tests. If the variable is blank or
+    unset, the config generates one ephemeral key once at startup.
 
 !!! tip "API Reference"
     See [`bigbrotr.services.monitor`](../reference/services/monitor/index.md) for the complete Monitor API.
@@ -343,6 +345,11 @@ flowchart TD
 | `timeouts.max_duration` | float | `14400.0` | Maximum seconds for the entire sync phase |
 | `networks` | NetworksConfig | -- | Per-network timeouts and concurrency |
 
+!!! note "NIP-42 Auth Key"
+    The Synchronizer uses `NOSTR_PRIVATE_KEY_SYNCHRONIZER` when a relay
+    requires authenticated reads via NIP-42. If blank or unset, the config
+    generates one ephemeral key once at startup.
+
 !!! tip "API Reference"
     See [`bigbrotr.services.synchronizer`](../reference/services/synchronizer/index.md) for the complete Synchronizer API.
 
@@ -374,6 +381,47 @@ The Refresher orchestrates refresh in dependency order: summary tables first (in
 
 !!! tip "API Reference"
     See [`bigbrotr.services.refresher`](../reference/services/refresher/index.md) for the complete Refresher API.
+
+---
+
+## Assertor
+
+**Purpose**: Publish NIP-85 trusted assertions and the optional provider profile for an algorithm-scoped service key.
+
+**Mode**: Continuous (`run_forever`)
+
+**Reads**: `nip85_pubkey_stats`, `nip85_event_stats`, `pubkey_stats`, `service_state`
+**Writes**: `service_state` (v2 checkpoints), published Nostr events (kinds 30382, 30383, optional kind 0)
+
+### How It Works
+
+1. On startup (`__aenter__`), build a Nostr client from the configured signing key, connect to relays, and purge legacy `user:` / `event:` checkpoints
+2. During each `run()` cycle, query eligible user and event facts from the NIP-85 summary tables
+3. Hash each assertion payload and compare it against `service_state` using `v2:<algorithm_id>:<kind>:<subject_id>` checkpoint keys
+4. Publish only changed assertions, optionally publish a Kind 0 provider profile, then persist the new hashes
+5. Remove stale v2 checkpoints for subjects that are no longer eligible in the current algorithm namespace
+
+### Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `algorithm_id` | string | `global-pagerank-v1` | Stable namespace for checkpoint keys and provider identity |
+| `keys.keys_env` | string | `NOSTR_PRIVATE_KEY_ASSERTOR` | Environment variable that supplies the signing key |
+| `relays` | list[string] | 3 public relays | Relays used for NIP-85 publishing |
+| `kinds` | list[int] | `[30382, 30383]` | Assertion kinds to publish |
+| `batch_size` | int | `500` | Maximum eligible subjects per cycle |
+| `min_events` | int | `1` | Minimum total events required for user assertions |
+| `top_topics` | int | `5` | Maximum topic tags included in user assertions |
+| `provider_profile.enabled` | bool | `false` | Publish a Kind 0 provider profile for the assertor identity |
+
+!!! note "Assertor Key Lifecycle"
+    The shipped BigBrotr and LilBrotr deployments configure the Assertor with
+    `keys.keys_env: NOSTR_PRIVATE_KEY_ASSERTOR`. If that variable is blank or
+    unset, the config generates one ephemeral key once at startup. To keep a
+    stable NIP-85 identity across restarts, set the variable explicitly.
+
+!!! tip "API Reference"
+    See [`bigbrotr.services.assertor`](../reference/services/assertor/index.md) for the complete Assertor API.
 
 ---
 
@@ -446,7 +494,9 @@ The Dvm supports per-table pricing via `TableConfig.price`. When a job's bid is 
 | `fetch_timeout` | float | `30.0` | Timeout for relay event fetching |
 
 !!! note "Nostr Keys"
-    The Dvm requires a `NOSTR_PRIVATE_KEY` environment variable (secp256k1 hex). See [KeysConfig](../reference/utils/keys.md) for details.
+    The Dvm uses `NOSTR_PRIVATE_KEY_DVM` (secp256k1 hex or `nsec1...`). If the
+    variable is blank or unset, the config generates one ephemeral key once at
+    startup. See [KeysConfig](../reference/utils/keys.md) for details.
 
 !!! tip "API Reference"
     See [`bigbrotr.services.dvm`](../reference/services/dvm/index.md) for the complete Dvm service API.
@@ -512,6 +562,7 @@ For complete configuration details including all fields, defaults, constraints, 
 | Monitor | `processing.compute.*`, `discovery.enabled` | Which checks to run and publish |
 | Synchronizer | `filters`, `limit`, `timeouts.max_duration` | Archival throughput and scope |
 | Refresher | `views`, `interval` | Which views to refresh and how often |
+| Assertor | `algorithm_id`, `kinds`, `provider_profile.enabled` | Assertion namespace, publish scope, and provider identity |
 | Api | `tables`, `max_page_size`, `cors_origins` | Which tables to expose and pagination limits |
 | Dvm | `relays`, `tables`, `kind` | Which relays to listen on and tables to serve |
 

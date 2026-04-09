@@ -112,6 +112,8 @@ from .utils import (
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
+    from nostr_sdk import Keys
+
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
     from bigbrotr.nips.nip11.info import Nip11InfoMetadata
@@ -158,18 +160,19 @@ class Monitor(
 
     def __init__(self, brotr: Brotr, config: MonitorConfig | None = None) -> None:
         config = config or MonitorConfig()
+        resolved_keys = config.keys.keys
         super().__init__(
             brotr=brotr,
             config=config,
             networks=config.networks,
             clients=Clients(
-                keys=config.keys.keys,
+                keys=resolved_keys,
                 networks=config.networks,
                 allow_insecure=config.processing.allow_insecure,
             ),
         )
         self._config: MonitorConfig
-        self._keys = self._config.keys.keys
+        self._keys: Keys = resolved_keys
 
     async def run(self) -> None:
         """Execute one complete monitoring cycle.

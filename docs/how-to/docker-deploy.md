@@ -36,8 +36,11 @@ DB_WRITER_PASSWORD=your_writer_password        # openssl rand -base64 32
 DB_READER_PASSWORD=your_reader_password        # openssl rand -base64 32
 DB_REFRESHER_PASSWORD=your_refresher_password  # openssl rand -base64 32
 
-# Required -- application secrets
-NOSTR_PRIVATE_KEY=your_hex_private_key           # openssl rand -hex 32
+# Optional -- service-specific Nostr keys for stable identities
+NOSTR_PRIVATE_KEY_MONITOR=your_hex_private_key
+NOSTR_PRIVATE_KEY_SYNCHRONIZER=your_hex_private_key
+NOSTR_PRIVATE_KEY_DVM=your_hex_private_key
+NOSTR_PRIVATE_KEY_ASSERTOR=your_hex_private_key
 GRAFANA_PASSWORD=your_grafana_password     # openssl rand -base64 16
 
 # Optional -- metrics port overrides (host ports, all map to container port 8000)
@@ -48,6 +51,7 @@ SYNCHRONIZER_METRICS_PORT=8004
 REFRESHER_METRICS_PORT=8005
 API_METRICS_PORT=8006
 DVM_METRICS_PORT=8007
+ASSERTOR_METRICS_PORT=8008
 ```
 
 !!! danger "Protect your `.env` file"
@@ -59,7 +63,7 @@ DVM_METRICS_PORT=8007
 docker compose up -d
 ```
 
-This starts all containers: PostgreSQL, PGBouncer, Tor, Seeder, Finder, Validator, Monitor, Synchronizer, Refresher, Api, Dvm, Prometheus, Alertmanager, and Grafana.
+This starts all containers: PostgreSQL, PGBouncer, Tor, Seeder, Finder, Validator, Monitor, Synchronizer, Refresher, Assertor, Api, Dvm, Prometheus, Alertmanager, and Grafana.
 
 ### 4. Verify deployment
 
@@ -71,7 +75,7 @@ docker compose ps
 docker compose logs -f seeder
 
 # Follow service logs
-docker compose logs -f finder validator monitor synchronizer refresher api dvm
+docker compose logs -f finder validator monitor synchronizer refresher assertor api dvm
 ```
 
 !!! tip
@@ -89,12 +93,14 @@ graph TD
     Prometheus -->|scrapes /metrics| Refresher["Refresher :8005"]
     Prometheus -->|scrapes /metrics| Api["Api :8006"]
     Prometheus -->|scrapes /metrics| Dvm["Dvm :8007"]
+    Prometheus -->|scrapes /metrics| Assertor["Assertor :8008"]
     Prometheus -->|scrapes /metrics| PGExporter["PG Exporter :9187"]
     Finder --> PGBouncer["PGBouncer :6432"]
     Validator --> PGBouncer
     Monitor --> PGBouncer
     Synchronizer --> PGBouncer
     Refresher --> PGBouncer
+    Assertor --> PGBouncer
     Api --> PGBouncer
     Dvm --> PGBouncer
     PGBouncer --> PostgreSQL["PostgreSQL :5432"]

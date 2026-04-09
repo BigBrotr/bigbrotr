@@ -170,7 +170,7 @@ class SynchronizerConfig(BaseServiceConfig):
         default_factory=NetworksConfig, description="Per-network connection settings"
     )
     keys: KeysConfig = Field(
-        default_factory=lambda: KeysConfig.model_validate({}),
+        default_factory=lambda: KeysConfig(keys_env="NOSTR_PRIVATE_KEY_SYNCHRONIZER"),
         description="Nostr key configuration for NIP-42 authentication",
     )
     processing: ProcessingConfig = Field(
