@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -73,7 +73,24 @@ async def _seed_follow_edge(
     )
 
 
-async def test_ranker_syncs_canonical_follow_graph_incrementally(
+async def _fetch_pubkey_ranks(
+    *,
+    brotr: Brotr,
+    algorithm_id: str,
+) -> list[dict[str, Any]]:
+    rows = await brotr.fetch(
+        """
+        SELECT algorithm_id, subject_id, raw_score, rank, computed_at
+        FROM nip85_pubkey_ranks
+        WHERE algorithm_id = $1
+        ORDER BY subject_id
+        """,
+        algorithm_id,
+    )
+    return [dict(row) for row in rows]
+
+
+async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(
     brotr: Brotr,
     tmp_path: Path,
 ) -> None:
@@ -131,6 +148,7 @@ async def test_ranker_syncs_canonical_follow_graph_incrementally(
             },
             "metrics": {"enabled": False},
             "sync": {"batch_size": 10},
+            "export": {"batch_size": 2},
         }
     )
 
@@ -144,6 +162,44 @@ async def test_ranker_syncs_canonical_follow_graph_incrementally(
     assert stats.edge_count == 3
     assert store.load_checkpoint().source_seen_at == 20
     assert store.load_checkpoint().follower_pubkey == pubkey_d
+
+    first_rows = await _fetch_pubkey_ranks(
+        brotr=brotr,
+        algorithm_id=config.algorithm_id,
+    )
+    assert [row["subject_id"] for row in first_rows] == [pubkey_a, pubkey_b, pubkey_c, pubkey_d]
+    assert sum(float(row["raw_score"]) for row in first_rows) == pytest.approx(1.0, abs=1e-9)
+    assert all(0 <= int(row["rank"]) <= 100 for row in first_rows)
+
+    first_rank_map = {
+        str(row["subject_id"]): (float(row["raw_score"]), int(row["rank"])) for row in first_rows
+    }
+
+    await brotr.execute(
+        """
+        INSERT INTO nip85_pubkey_ranks (algorithm_id, subject_id, raw_score, rank, computed_at)
+        VALUES ($1, $2, $3, $4, $5)
+        """,
+        "other-pagerank-v1",
+        pubkey_b,
+        0.123,
+        17,
+        999,
+    )
+
+    service = Ranker(brotr=brotr, config=config)
+    async with service:
+        await service.run()
+
+    second_rows = await _fetch_pubkey_ranks(
+        brotr=brotr,
+        algorithm_id=config.algorithm_id,
+    )
+    assert [row["subject_id"] for row in second_rows] == [pubkey_a, pubkey_b, pubkey_c, pubkey_d]
+    for row in second_rows:
+        raw_score, rank = first_rank_map[str(row["subject_id"])]
+        assert float(row["raw_score"]) == pytest.approx(raw_score, abs=1e-12)
+        assert int(row["rank"]) == rank
 
     await brotr.execute(
         """
@@ -178,7 +234,28 @@ async def test_ranker_syncs_canonical_follow_graph_incrementally(
         await service.run()
 
     stats = store.get_graph_stats()
-    assert stats.node_count == 4
+    assert stats.node_count == 2
     assert stats.edge_count == 2
     assert store.load_checkpoint().source_seen_at == 30
     assert store.load_checkpoint().follower_pubkey == pubkey_a
+
+    final_rows = await _fetch_pubkey_ranks(
+        brotr=brotr,
+        algorithm_id=config.algorithm_id,
+    )
+    assert [row["subject_id"] for row in final_rows] == [pubkey_a, pubkey_d]
+    assert sum(float(row["raw_score"]) for row in final_rows) == pytest.approx(1.0, abs=1e-9)
+
+    untouched_rows = await _fetch_pubkey_ranks(
+        brotr=brotr,
+        algorithm_id="other-pagerank-v1",
+    )
+    assert untouched_rows == [
+        {
+            "algorithm_id": "other-pagerank-v1",
+            "subject_id": pubkey_b,
+            "raw_score": 0.123,
+            "rank": 17,
+            "computed_at": 999,
+        }
+    ]

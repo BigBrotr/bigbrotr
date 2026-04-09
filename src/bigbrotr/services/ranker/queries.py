@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
+    import asyncpg
+
     from bigbrotr.core.brotr import Brotr
 
 
@@ -40,6 +42,15 @@ class FollowEdgeFact:
     source_seen_at: int
 
 
+@dataclass(frozen=True, slots=True)
+class PubkeyRankExportRow:
+    """One final pubkey rank row to snapshot-export into PostgreSQL."""
+
+    subject_id: str
+    raw_score: float
+    rank: int
+
+
 _CHANGED_CONTACT_LISTS_QUERY = """
 SELECT
     follower_pubkey,
@@ -64,6 +75,50 @@ SELECT
 FROM contact_list_edges_current
 WHERE follower_pubkey = ANY($1::TEXT[])
 ORDER BY follower_pubkey ASC, followed_pubkey ASC
+"""
+
+_CREATE_PUBKEY_RANK_STAGE_QUERY = """
+CREATE TEMP TABLE ranker_pubkey_ranks_stage (
+    subject_id TEXT PRIMARY KEY,
+    raw_score DOUBLE PRECISION NOT NULL,
+    rank INTEGER NOT NULL,
+    computed_at BIGINT NOT NULL
+) ON COMMIT DROP
+"""
+
+_INSERT_PUBKEY_RANK_STAGE_QUERY = """
+INSERT INTO ranker_pubkey_ranks_stage (subject_id, raw_score, rank, computed_at)
+SELECT
+    t.subject_id,
+    t.raw_score,
+    t.rank,
+    $4
+FROM UNNEST($1::TEXT[], $2::DOUBLE PRECISION[], $3::INTEGER[]) AS t(subject_id, raw_score, rank)
+"""
+
+_DELETE_OBSOLETE_PUBKEY_RANKS_QUERY = """
+DELETE FROM nip85_pubkey_ranks AS r
+WHERE r.algorithm_id = $1
+  AND NOT EXISTS (
+      SELECT 1
+      FROM ranker_pubkey_ranks_stage AS s
+      WHERE s.subject_id = r.subject_id
+  )
+"""
+
+_UPSERT_PUBKEY_RANKS_QUERY = """
+INSERT INTO nip85_pubkey_ranks (algorithm_id, subject_id, raw_score, rank, computed_at)
+SELECT
+    $1,
+    s.subject_id,
+    s.raw_score,
+    s.rank,
+    s.computed_at
+FROM ranker_pubkey_ranks_stage AS s
+ON CONFLICT (algorithm_id, subject_id) DO UPDATE SET
+    raw_score = EXCLUDED.raw_score,
+    rank = EXCLUDED.rank,
+    computed_at = EXCLUDED.computed_at
 """
 
 
@@ -110,3 +165,37 @@ async def fetch_follow_edges_for_followers(
         )
         for row in rows
     ]
+
+
+async def create_pubkey_rank_stage(
+    conn: asyncpg.Connection[asyncpg.Record],
+) -> None:
+    """Create the per-transaction temp stage table for pubkey rank export."""
+    await conn.execute(_CREATE_PUBKEY_RANK_STAGE_QUERY)
+
+
+async def insert_pubkey_rank_stage_batch(
+    conn: asyncpg.Connection[asyncpg.Record],
+    rows: list[PubkeyRankExportRow],
+    computed_at: int,
+) -> None:
+    """Insert one pubkey-rank batch into the temp stage table."""
+    if not rows:
+        return
+
+    await conn.execute(
+        _INSERT_PUBKEY_RANK_STAGE_QUERY,
+        [row.subject_id for row in rows],
+        [row.raw_score for row in rows],
+        [row.rank for row in rows],
+        computed_at,
+    )
+
+
+async def merge_pubkey_rank_stage(
+    conn: asyncpg.Connection[asyncpg.Record],
+    algorithm_id: str,
+) -> None:
+    """Replace the PostgreSQL pubkey-rank snapshot for one algorithm."""
+    await conn.execute(_DELETE_OBSOLETE_PUBKEY_RANKS_QUERY, algorithm_id)
+    await conn.execute(_UPSERT_PUBKEY_RANKS_QUERY, algorithm_id)
