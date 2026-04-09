@@ -40,6 +40,7 @@ deployments/
 |       +-- monitor.yaml
 |       +-- synchronizer.yaml
 |       +-- refresher.yaml
+|       +-- ranker.yaml
 |       +-- assertor.yaml
 |       +-- api.yaml
 |       +-- dvm.yaml
@@ -52,6 +53,7 @@ deployments/
         +-- monitor.yaml
         +-- synchronizer.yaml
         +-- refresher.yaml
+        +-- ranker.yaml
         +-- assertor.yaml
         +-- api.yaml
         +-- dvm.yaml
@@ -70,6 +72,7 @@ deployments/
 | `DB_WRITER_PASSWORD` | Yes | Writer services | Writer role password (seeder, finder, validator, monitor, synchronizer) |
 | `DB_READER_PASSWORD` | Yes | Read-only services | Reader role password (postgres-exporter, Api, Dvm) |
 | `DB_REFRESHER_PASSWORD` | Yes | Refresher | Refresher role password (matview ownership for REFRESH CONCURRENTLY) |
+| `DB_RANKER_PASSWORD` | Yes | Ranker | Ranker role password (read-only access to canonical facts) |
 | `NOSTR_PRIVATE_KEY_MONITOR` | No | Monitor | Service-specific key used for Monitor publishing and NIP-66 write probes. Blank/unset generates one ephemeral key at config creation. |
 | `NOSTR_PRIVATE_KEY_SYNCHRONIZER` | No | Synchronizer | Service-specific key used for NIP-42-authenticated relay reads. Blank/unset generates one ephemeral key at config creation. |
 | `NOSTR_PRIVATE_KEY_DVM` | No | Dvm | Service-specific key used for NIP-89/NIP-90 signing. Blank/unset generates one ephemeral key at config creation. |
@@ -83,7 +86,7 @@ deployments/
 ```bash
 cp deployments/bigbrotr/.env.example deployments/bigbrotr/.env
 # Edit and set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD,
-# DB_READER_PASSWORD, GRAFANA_PASSWORD, and optionally the per-service
+# DB_READER_PASSWORD, DB_RANKER_PASSWORD, GRAFANA_PASSWORD, and optionally the per-service
 # Nostr keys NOSTR_PRIVATE_KEY_MONITOR, NOSTR_PRIVATE_KEY_SYNCHRONIZER,
 # NOSTR_PRIVATE_KEY_DVM, NOSTR_PRIVATE_KEY_ASSERTOR
 ```
@@ -117,7 +120,7 @@ Environment="NOSTR_PRIVATE_KEY_ASSERTOR=your_assertor_hex_private_key"
 python -m bigbrotr <service> [options]
 
 positional arguments:
-  service                 seeder | finder | validator | monitor | synchronizer | refresher | assertor | api | dvm
+  service                 seeder | finder | validator | monitor | synchronizer | refresher | ranker | assertor | api | dvm
 
 options:
   --config PATH           Service config path (overrides default)

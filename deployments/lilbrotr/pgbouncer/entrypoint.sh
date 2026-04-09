@@ -1,12 +1,13 @@
 #!/bin/sh
 # Generate PgBouncer userlist from environment variables and start PgBouncer.
-# Userlist includes admin (for pool management) + writer/reader/refresher application roles.
+# Userlist includes admin (for pool management) + writer/reader/refresher/ranker application roles.
 
 set -eu
 
 WRITER_ROLE="writer"
 READER_ROLE="reader"
 REFRESHER_ROLE="refresher"
+RANKER_ROLE="ranker"
 
 mkdir -p /tmp/pgbouncer
 cat > /tmp/pgbouncer/userlist.txt <<EOF
@@ -14,6 +15,7 @@ cat > /tmp/pgbouncer/userlist.txt <<EOF
 "${WRITER_ROLE}" "${DB_WRITER_PASSWORD}"
 "${READER_ROLE}" "${DB_READER_PASSWORD}"
 "${REFRESHER_ROLE}" "${DB_REFRESHER_PASSWORD}"
+"${RANKER_ROLE}" "${DB_RANKER_PASSWORD}"
 EOF
 chmod 600 /tmp/pgbouncer/userlist.txt
 

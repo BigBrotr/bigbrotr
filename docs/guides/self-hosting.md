@@ -59,7 +59,7 @@ This guide assumes a dedicated server with the following (adjust resource alloca
 │  │     ├── bigbrotr-production/{dumps,exports,analysis}           │  │
 │  │     └── lilbrotr-production/  (future)                         │  │
 │  │                                                                │  │
-│  │  Docker Compose → 16 containers (9 services + 7 infra)        │  │
+│  │  Docker Compose → 17 containers (10 services + 7 infra)       │  │
 │  │  cloudflared  → Cloudflare Tunnel (zero open ports)            │  │
 │  │                                                                │  │
 │  │  PostgreSQL accessible on internal network for research        │  │

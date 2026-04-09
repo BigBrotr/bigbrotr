@@ -131,8 +131,10 @@ endpoints should show a green `UP` state:
 | Monitor | `monitor:8000/metrics` |
 | Synchronizer | `synchronizer:8000/metrics` |
 | Refresher | `refresher:8000/metrics` |
+| Ranker | `ranker:8000/metrics` |
 | Api | `api:8000/metrics` |
 | Dvm | `dvm:8000/metrics` |
+| Assertor | `assertor:8000/metrics` |
 
 !!! tip
     If a target shows as `DOWN`, check the service logs:

@@ -1,0 +1,22 @@
+# =============================================================================
+# Ranker Service Configuration (BigBrotr)
+# =============================================================================
+# Private DuckDB-backed NIP-85 ranker skeleton. Syncs the canonical follow
+# graph from PostgreSQL into a persistent local DuckDB store.
+# Only values that differ from defaults are specified here.
+# =============================================================================
+
+pool:
+  user: ranker
+  password_env: DB_RANKER_PASSWORD  # pragma: allowlist secret
+  max_size: 2
+
+algorithm_id: global-pagerank-v1
+
+db:
+  path: /app/data/ranker.duckdb
+  checkpoint_path: /app/data/ranker.checkpoint.json
+
+metrics:
+  enabled: true
+  host: "0.0.0.0"

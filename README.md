@@ -189,7 +189,7 @@ cd bigbrotr/deployments/bigbrotr
 # Configure secrets
 cp .env.example .env
 # Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD,
-# DB_READER_PASSWORD, GRAFANA_PASSWORD, and optionally the per-service
+# DB_READER_PASSWORD, DB_RANKER_PASSWORD, GRAFANA_PASSWORD, and optionally the per-service
 # Nostr keys NOSTR_PRIVATE_KEY_MONITOR, NOSTR_PRIVATE_KEY_SYNCHRONIZER,
 # NOSTR_PRIVATE_KEY_DVM, NOSTR_PRIVATE_KEY_ASSERTOR
 
@@ -200,7 +200,7 @@ docker compose up -d
 docker compose logs -f seeder
 ```
 
-This starts PostgreSQL 18, PGBouncer, Tor proxy, all 9 services, Prometheus, Alertmanager, and Grafana.
+This starts PostgreSQL 18, PGBouncer, Tor proxy, all 10 services, Prometheus, Alertmanager, and Grafana.
 
 | Endpoint | URL |
 |----------|-----|
@@ -239,7 +239,7 @@ cd deployments/bigbrotr && docker compose up -d
 
 ### LilBrotr (Lightweight)
 
-Same nine services and schema, but tags, content, and sig columns are nullable and never populated — approximately 60% disk savings while retaining all metadata and relay health data.
+Same ten services and schema, but tags, content, and sig columns are nullable and never populated — approximately 60% disk savings while retaining all metadata and relay health data.
 
 ```bash
 cd deployments/lilbrotr && docker compose up -d
@@ -400,6 +400,7 @@ deployments/bigbrotr/config/
     ├── monitor.yaml            # Health checks, retry per type, publishing, GeoIP
     ├── synchronizer.yaml       # Networks, filter, time range, per-relay overrides
     ├── refresher.yaml          # View list, refresh interval
+    ├── ranker.yaml             # DuckDB path, graph sync, algorithm namespace
     ├── assertor.yaml           # NIP-85 algorithm_id, relays, kinds, provider profile
     ├── api.yaml                # Host, port, pagination, CORS
     └── dvm.yaml                # NIP-90 kind, relay list, response format
@@ -506,17 +507,18 @@ bigbrotr/
 │       ├── monitor/                 # Health check orchestration + publishing
 │       ├── synchronizer/            # Event collection (cursor-based)
 │       ├── refresher/               # Materialized view refresh
-│       ├── assertor/               # NIP-85 trusted assertions
+│       ├── ranker/                  # Private DuckDB-backed NIP-85 ranking
+│       ├── assertor/                # NIP-85 trusted assertions
 │       ├── api/                     # REST API (FastAPI, read-only)
 │       ├── dvm/                     # NIP-90 Data Vending Machine
 │       └── common/                  # Shared queries, configs, mixins
 ├── deployments/
 │   ├── Dockerfile                   # Single parametric (ARG DEPLOYMENT)
 │   ├── bigbrotr/                    # Full archive deployment
-│   │   ├── config/                  # YAML configs (brotr + 9 services)
+│   │   ├── config/                  # YAML configs (brotr + 10 services)
 │   │   ├── postgres/init/           # SQL schema (10 files, 24 functions)
 │   │   ├── monitoring/              # Prometheus + Alertmanager + Grafana
-│   │   └── docker-compose.yaml      # 15 containers, 2 networks
+│   │   └── docker-compose.yaml      # 16 containers, 2 networks
 │   └── lilbrotr/                    # Lightweight deployment
 ├── tests/
 │   ├── fixtures/relays.py           # Shared relay fixtures
@@ -544,6 +546,7 @@ bigbrotr/
 | monitor | bigbrotr (parametric) | Health monitoring + event publishing |
 | synchronizer | bigbrotr (parametric) | Event archiving |
 | refresher | bigbrotr (parametric) | Materialized view refresh |
+| ranker | bigbrotr (parametric) | Private DuckDB-backed NIP-85 graph sync |
 | api | bigbrotr (parametric) | REST API (FastAPI) |
 | dvm | bigbrotr (parametric) | NIP-90 Data Vending Machine |
 | postgres-exporter | `prometheuscommunity/postgres-exporter:v0.16.0` | PostgreSQL metrics |

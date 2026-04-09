@@ -45,6 +45,11 @@ scrape_configs:
       - targets: ["refresher:8000"]
     scrape_interval: 30s
 
+  - job_name: "ranker"
+    static_configs:
+      - targets: ["ranker:8000"]
+    scrape_interval: 30s
+
   - job_name: "api"
     static_configs:
       - targets: ["api:8000"]
