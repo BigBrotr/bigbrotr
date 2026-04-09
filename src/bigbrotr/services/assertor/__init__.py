@@ -14,7 +14,7 @@ from .configs import (
     ProviderProfileConfig,
     ProviderProfileKind0Content,
 )
-from .service import Assertor, PublishCycleResult
+from .service import Assertor, PublishCycleResult, PublishKindResult
 
 
 __all__ = [
@@ -26,4 +26,5 @@ __all__ = [
     "ProviderProfileConfig",
     "ProviderProfileKind0Content",
     "PublishCycleResult",
+    "PublishKindResult",
 ]

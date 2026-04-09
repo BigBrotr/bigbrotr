@@ -194,7 +194,11 @@ class TestAssertorRun:
         service.publish.assert_awaited_once_with()
 
     async def test_publish_returns_user_assertion_counts(self, mock_brotr: MagicMock) -> None:
-        from bigbrotr.services.assertor.service import Assertor, PublishCycleResult
+        from bigbrotr.services.assertor.service import (
+            Assertor,
+            PublishCycleResult,
+            PublishKindResult,
+        )
 
         with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
             service = Assertor.__new__(Assertor)
@@ -211,13 +215,22 @@ class TestAssertorRun:
 
             service._publish_user_assertions.assert_awaited_once()
             assert result == PublishCycleResult(
-                assertions_published=5,
-                assertions_skipped=2,
-                assertions_failed=1,
+                user=PublishKindResult(
+                    eligible=8,
+                    published=5,
+                    skipped=2,
+                    failed=1,
+                    duration_seconds=result.user.duration_seconds,
+                )
             )
+            assert result.assertions_published == 5
+            assert result.assertions_skipped == 2
+            assert result.assertions_failed == 1
             service.set_gauge.assert_any_call("assertions_published", 5)
             service.set_gauge.assert_any_call("assertions_skipped", 2)
             service.set_gauge.assert_any_call("assertions_failed", 1)
+            service.set_gauge.assert_any_call("user_assertions_eligible", 8)
+            service.set_gauge.assert_any_call("user_assertions_published", 5)
 
     async def test_is_unchanged_no_state(self, mock_brotr: MagicMock) -> None:
         from bigbrotr.services.assertor.service import Assertor
