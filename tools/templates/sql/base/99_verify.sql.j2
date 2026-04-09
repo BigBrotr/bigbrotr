@@ -36,11 +36,12 @@ BEGIN
     RAISE NOTICE '  pubkey_kind_stats, pubkey_relay_stats, relay_kind_stats';
     RAISE NOTICE '  pubkey_stats, kind_stats, relay_stats';
     RAISE NOTICE '';
-    RAISE NOTICE 'NIP-85 Summary Tables (2):';
+    RAISE NOTICE 'NIP-85 Summary Tables (4):';
     RAISE NOTICE '  nip85_pubkey_stats, nip85_event_stats';
+    RAISE NOTICE '  nip85_addressable_stats, nip85_identifier_stats';
     RAISE NOTICE '';
     RAISE NOTICE 'Utility Functions:';
-    RAISE NOTICE '  tags_to_tagvalues, bolt11_amount_msats';
+    RAISE NOTICE '  tags_to_tagvalues, event_d_tag, normalize_event_address, event_address, bolt11_amount_msats';
     RAISE NOTICE '';
     RAISE NOTICE 'CRUD Functions (Base):';
     RAISE NOTICE '  relay_insert, event_insert, metadata_insert';
@@ -65,8 +66,9 @@ BEGIN
     RAISE NOTICE '  pubkey_stats_refresh, kind_stats_refresh, relay_stats_refresh';
     RAISE NOTICE '  rolling_windows_refresh, relay_stats_metadata_refresh';
     RAISE NOTICE '';
-    RAISE NOTICE 'NIP-85 Refresh Functions (3):';
+    RAISE NOTICE 'NIP-85 Refresh Functions (5):';
     RAISE NOTICE '  nip85_pubkey_stats_refresh, nip85_event_stats_refresh';
+    RAISE NOTICE '  nip85_addressable_stats_refresh, nip85_identifier_stats_refresh';
     RAISE NOTICE '  nip85_follower_count_refresh';
     RAISE NOTICE '';
     RAISE NOTICE 'Reporting Views (0):';

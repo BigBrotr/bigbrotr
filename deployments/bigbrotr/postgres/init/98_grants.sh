@@ -61,12 +61,18 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     -- NIP-85 tables: DML for writer, SELECT for reader (via ALL TABLES grants above)
     GRANT INSERT, UPDATE, DELETE ON nip85_pubkey_stats TO ${WRITER_ROLE};
     GRANT INSERT, UPDATE, DELETE ON nip85_event_stats TO ${WRITER_ROLE};
+    GRANT INSERT, UPDATE, DELETE ON nip85_addressable_stats TO ${WRITER_ROLE};
+    GRANT INSERT, UPDATE, DELETE ON nip85_identifier_stats TO ${WRITER_ROLE};
     GRANT INSERT, UPDATE, DELETE ON nip85_pubkey_stats TO ${REFRESHER_ROLE};
     GRANT INSERT, UPDATE, DELETE ON nip85_event_stats TO ${REFRESHER_ROLE};
+    GRANT INSERT, UPDATE, DELETE ON nip85_addressable_stats TO ${REFRESHER_ROLE};
+    GRANT INSERT, UPDATE, DELETE ON nip85_identifier_stats TO ${REFRESHER_ROLE};
 
     -- NIP-85 functions (signature-qualified for PostgreSQL correctness)
     GRANT EXECUTE ON FUNCTION nip85_pubkey_stats_refresh(BIGINT, BIGINT) TO ${WRITER_ROLE};
     GRANT EXECUTE ON FUNCTION nip85_event_stats_refresh(BIGINT, BIGINT) TO ${WRITER_ROLE};
+    GRANT EXECUTE ON FUNCTION nip85_addressable_stats_refresh(BIGINT, BIGINT) TO ${WRITER_ROLE};
+    GRANT EXECUTE ON FUNCTION nip85_identifier_stats_refresh(BIGINT, BIGINT) TO ${WRITER_ROLE};
     GRANT EXECUTE ON FUNCTION nip85_follower_count_refresh() TO ${WRITER_ROLE};
     GRANT EXECUTE ON FUNCTION bolt11_amount_msats(TEXT) TO ${WRITER_ROLE};
     GRANT EXECUTE ON FUNCTION daily_counts_refresh(BIGINT, BIGINT) TO ${REFRESHER_ROLE};
@@ -79,6 +85,8 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     GRANT EXECUTE ON FUNCTION contact_list_edges_current_refresh(BIGINT, BIGINT) TO ${REFRESHER_ROLE};
     GRANT EXECUTE ON FUNCTION nip85_pubkey_stats_refresh(BIGINT, BIGINT) TO ${REFRESHER_ROLE};
     GRANT EXECUTE ON FUNCTION nip85_event_stats_refresh(BIGINT, BIGINT) TO ${REFRESHER_ROLE};
+    GRANT EXECUTE ON FUNCTION nip85_addressable_stats_refresh(BIGINT, BIGINT) TO ${REFRESHER_ROLE};
+    GRANT EXECUTE ON FUNCTION nip85_identifier_stats_refresh(BIGINT, BIGINT) TO ${REFRESHER_ROLE};
     GRANT EXECUTE ON FUNCTION nip85_follower_count_refresh() TO ${REFRESHER_ROLE};
     GRANT EXECUTE ON FUNCTION bolt11_amount_msats(TEXT) TO ${REFRESHER_ROLE};
 

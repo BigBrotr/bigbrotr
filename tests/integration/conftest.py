@@ -62,7 +62,8 @@ _TABLES = (
     "contact_lists_current, contact_list_edges_current, "
     "pubkey_kind_stats, pubkey_relay_stats, relay_kind_stats, "
     "pubkey_stats, kind_stats, relay_stats, "
-    "nip85_pubkey_stats, nip85_event_stats"
+    "nip85_pubkey_stats, nip85_event_stats, "
+    "nip85_addressable_stats, nip85_identifier_stats"
 )
 
 _current_deployment: str | None = None

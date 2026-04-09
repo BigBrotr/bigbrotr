@@ -51,6 +51,10 @@ tables:
     enabled: true
   nip85_event_stats:
     enabled: true
+  nip85_addressable_stats:
+    enabled: true
+  nip85_identifier_stats:
+    enabled: true
 
 metrics:
   enabled: true

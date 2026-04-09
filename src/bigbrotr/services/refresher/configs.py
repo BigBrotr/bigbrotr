@@ -43,6 +43,8 @@ DEFAULT_ANALYTICS_TABLES: list[str] = [
     "relay_stats",
     "nip85_pubkey_stats",
     "nip85_event_stats",
+    "nip85_addressable_stats",
+    "nip85_identifier_stats",
 ]
 
 _CANONICAL_CURRENT_TABLES: tuple[str, ...] = tuple(DEFAULT_CURRENT_TABLES)

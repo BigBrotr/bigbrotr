@@ -30,6 +30,10 @@ ON relay_kind_stats USING btree (kind);
 CREATE INDEX IF NOT EXISTS idx_nip85_event_stats_author
 ON nip85_event_stats USING btree (author_pubkey);
 
+-- nip85_addressable_stats: lookup by author for "all engagement on my addressable events"
+CREATE INDEX IF NOT EXISTS idx_nip85_addressable_stats_author
+ON nip85_addressable_stats USING btree (author_pubkey);
+
 
 -- ==========================================================================
 -- TABLE INDEXES: relay_software_counts

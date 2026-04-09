@@ -35,8 +35,17 @@ def _event_relay(
     return EventRelay(event=Event(mock), relay=relay, seen_at=seen_at or created_at + 1)
 
 
+def _event_address(kind: int, pubkey: str, d_tag: str) -> str:
+    return f"{kind}:{pubkey.lower()}:{d_tag}"
+
+
 async def _refresh_nip85(brotr: Brotr, after: int = 0, until: int = 2_000_000_000) -> None:
-    for table in ["nip85_pubkey_stats", "nip85_event_stats"]:
+    for table in [
+        "nip85_pubkey_stats",
+        "nip85_event_stats",
+        "nip85_addressable_stats",
+        "nip85_identifier_stats",
+    ]:
         await brotr.fetchval(f"SELECT {table}_refresh($1::BIGINT, $2::BIGINT)", after, until)
 
 
@@ -361,6 +370,94 @@ class TestLilBrotrNip85Fallback:
         assert followed_row["follower_count"] == 2
         assert follower_row is not None
         assert follower_row["following_count"] == 1
+
+
+class TestLilBrotrAddressableAndIdentifierFacts:
+    async def test_addressable_comment_uses_last_a_tagvalue(self, brotr: Brotr) -> None:
+        first_address = _event_address(30023, "10" * 32, "first")
+        last_address = _event_address(30023, "11" * 32, "last")
+        er = _event_relay(
+            "c1" * 32,
+            "wss://lil-fallback.example.com",
+            kind=1,
+            pubkey="12" * 32,
+            tags=[["a", first_address], ["a", last_address]],
+        )
+        await brotr.insert_event_relay([er], cascade=True)
+        await _refresh_nip85(brotr)
+
+        first_row = await brotr.fetchrow(
+            "SELECT comment_count FROM nip85_addressable_stats WHERE event_address = $1",
+            first_address,
+        )
+        last_row = await brotr.fetchrow(
+            "SELECT comment_count FROM nip85_addressable_stats WHERE event_address = $1",
+            last_address,
+        )
+        assert first_row is None or first_row["comment_count"] == 0
+        assert last_row is not None
+        assert last_row["comment_count"] == 1
+
+    async def test_addressable_reaction_falls_back_from_event_id(self, brotr: Brotr) -> None:
+        author = "13" * 32
+        target_event = "c2" * 32
+        target_address = _event_address(30023, author, "mapped")
+        ers = [
+            _event_relay(
+                target_event,
+                "wss://lil-fallback.example.com",
+                kind=30023,
+                pubkey=author,
+                tags=[["d", "mapped"]],
+            ),
+            _event_relay(
+                "c3" * 32,
+                "wss://lil-fallback.example.com",
+                kind=7,
+                pubkey="14" * 32,
+                tags=[["e", target_event]],
+            ),
+        ]
+        await brotr.insert_event_relay(ers, cascade=True)
+        await _refresh_nip85(brotr)
+
+        row = await brotr.fetchrow(
+            "SELECT reaction_count FROM nip85_addressable_stats WHERE event_address = $1",
+            target_address,
+        )
+        assert row is not None
+        assert row["reaction_count"] == 1
+
+    async def test_identifier_stats_use_i_and_k_tagvalues(self, brotr: Brotr) -> None:
+        identifier = "geo:41.9028,12.4964"
+        ers = [
+            _event_relay(
+                "c4" * 32,
+                "wss://lil-fallback.example.com",
+                kind=1,
+                pubkey="15" * 32,
+                tags=[["i", identifier], ["k", "place"], ["k", "city"]],
+            ),
+            _event_relay(
+                "c5" * 32,
+                "wss://lil-fallback.example.com",
+                kind=7,
+                pubkey="16" * 32,
+                tags=[["i", identifier], ["k", "city"]],
+            ),
+        ]
+        await brotr.insert_event_relay(ers, cascade=True)
+        await _refresh_nip85(brotr)
+
+        row = await brotr.fetchrow(
+            "SELECT comment_count, reaction_count, k_tags "
+            "FROM nip85_identifier_stats WHERE identifier = $1",
+            identifier,
+        )
+        assert row is not None
+        assert row["comment_count"] == 1
+        assert row["reaction_count"] == 1
+        assert row["k_tags"] == ["city", "place"]
 
 
 class TestLilBrotrZapsBestEffort:

@@ -63,7 +63,9 @@ TRUNCATE_SQL = (
     "kind_stats, "
     "relay_stats, "
     "nip85_pubkey_stats, "
-    "nip85_event_stats"
+    "nip85_event_stats, "
+    "nip85_addressable_stats, "
+    "nip85_identifier_stats"
 )
 
 
