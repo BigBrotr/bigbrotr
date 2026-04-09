@@ -761,6 +761,8 @@ relays:
 kinds:
   - 30382
   - 30383
+  - 30384
+  - 30385
 
 batch_size: 500
 min_events: 1
@@ -792,7 +794,7 @@ set both variables to the same private key value.
 | `algorithm_id` | string | `global-pagerank-v1` | lowercase slug | Stable algorithm/service-key namespace used in v2 checkpoint keys |
 | `keys.keys_env` | string | `NOSTR_PRIVATE_KEY_ASSERTOR` | non-empty | Environment variable from which the signing key is loaded |
 | `relays` | list[string] | 3 public relays | min 1 | Relay URLs used for NIP-85 publishing |
-| `kinds` | list[int] | `[30382, 30383]` | subset of supported kinds | Assertion kinds to publish |
+| `kinds` | list[int] | `[30382, 30383, 30384, 30385]` | subset of supported kinds | Assertion kinds to publish |
 | `batch_size` | int | `500` | 1-50000 | Maximum eligible subjects fetched per cycle |
 | `min_events` | int | `1` | >= 0 | Minimum total events required for user assertions |
 | `top_topics` | int | `5` | 0-50 | Maximum number of topic tags per user assertion |

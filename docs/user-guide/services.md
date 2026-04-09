@@ -390,13 +390,13 @@ The Refresher orchestrates refresh in dependency order: summary tables first (in
 
 **Mode**: Continuous (`run_forever`)
 
-**Reads**: `nip85_pubkey_stats`, `nip85_event_stats`, `pubkey_stats`, `service_state`
-**Writes**: `service_state` (v2 checkpoints), published Nostr events (kinds 30382, 30383, optional kind 0)
+**Reads**: `nip85_pubkey_stats`, `nip85_event_stats`, `nip85_addressable_stats`, `nip85_identifier_stats`, `nip85_pubkey_ranks`, `nip85_event_ranks`, `nip85_addressable_ranks`, `nip85_identifier_ranks`, `pubkey_stats`, `service_state`
+**Writes**: `service_state` (v2 checkpoints), published Nostr events (kinds 30382-30385, optional kind 0)
 
 ### How It Works
 
 1. On startup (`__aenter__`), build a Nostr client from the configured signing key, connect to relays, and purge legacy `user:` / `event:` checkpoints
-2. During each `run()` cycle, query eligible user and event facts from the NIP-85 summary tables
+2. During each `run()` cycle, query eligible user, event, addressable, and identifier facts joined with the current algorithm's rank snapshots
 3. Hash each assertion payload and compare it against `service_state` using `v2:<algorithm_id>:<kind>:<subject_id>` checkpoint keys
 4. Publish only changed assertions, optionally publish a Kind 0 provider profile, then persist the new hashes
 5. Remove stale v2 checkpoints for subjects that are no longer eligible in the current algorithm namespace
@@ -408,7 +408,7 @@ The Refresher orchestrates refresh in dependency order: summary tables first (in
 | `algorithm_id` | string | `global-pagerank-v1` | Stable namespace for checkpoint keys and provider identity |
 | `keys.keys_env` | string | `NOSTR_PRIVATE_KEY_ASSERTOR` | Environment variable that supplies the signing key |
 | `relays` | list[string] | 3 public relays | Relays used for NIP-85 publishing |
-| `kinds` | list[int] | `[30382, 30383]` | Assertion kinds to publish |
+| `kinds` | list[int] | `[30382, 30383, 30384, 30385]` | Assertion kinds to publish |
 | `batch_size` | int | `500` | Maximum eligible subjects per cycle |
 | `min_events` | int | `1` | Minimum total events required for user assertions |
 | `top_topics` | int | `5` | Maximum topic tags included in user assertions |

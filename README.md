@@ -62,7 +62,7 @@ Nine **independent** async services share a PostgreSQL database. Each runs on it
 | **Monitor** | Runs NIP-11 + 6 NIP-66 health checks, publishes kind 10166/30166 events | HTTP, WS, DNS, SSL, GeoIP |
 | **Synchronizer** | Connects to relays, streams and archives signed events with cursor-based resumption | WebSocket |
 | **Refresher** | Refreshes 6 summary tables and 6 materialized views in dependency order | None |
-| **Assertor** | Publishes NIP-85 trusted assertion events for users and events with engagement | WebSocket (Nostr) |
+| **Assertor** | Publishes NIP-85 trusted assertion events for users, events, addressables, and identifiers | WebSocket (Nostr) |
 | **Api** | Read-only REST API with auto-generated paginated endpoints | HTTP (FastAPI) |
 | **Dvm** | NIP-90 Data Vending Machine for database queries over Nostr | WebSocket (Nostr) |
 
