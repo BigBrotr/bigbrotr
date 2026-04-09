@@ -228,14 +228,16 @@ def _make_refresher_config() -> RefresherConfig:
     return RefresherConfig.model_validate(
         {
             "metrics": {"enabled": False},
-            "refresh": {
-                "current_tables": [
+            "current": {
+                "targets": [
                     "events_replaceable_current",
                     "events_addressable_current",
                     "contact_lists_current",
                     "contact_list_edges_current",
                 ],
-                "analytics_tables": [
+            },
+            "analytics": {
+                "targets": [
                     "pubkey_kind_stats",
                     "pubkey_relay_stats",
                     "relay_kind_stats",
