@@ -29,8 +29,15 @@ from bigbrotr.services.refresher.configs import (
 )
 from bigbrotr.services.refresher.queries import (
     WatermarkSource,
+    get_event_relay_watermark,
     get_incremental_target_spec,
+    get_max_generated_at,
+    get_max_seen_at,
     get_periodic_target_spec,
+    get_relay_metadata_watermark,
+    refresh_nip85_followers,
+    refresh_relay_metadata,
+    refresh_rolling_windows,
 )
 
 
@@ -219,6 +226,44 @@ class TestRefreshQueryRegistry:
         assert get_periodic_target_spec(PeriodicRefreshTarget.NIP85_FOLLOWERS).sql_function == (
             "nip85_follower_count_refresh"
         )
+
+    async def test_watermark_queries_return_database_values(self) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetchval = AsyncMock(side_effect=[123, 456])
+
+        assert await get_event_relay_watermark(brotr) == 123
+        assert await get_relay_metadata_watermark(brotr) == 456
+
+    async def test_incremental_watermarks_hold_checkpoint_without_new_rows(self) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetchval = AsyncMock(return_value=False)
+
+        assert await get_max_seen_at(brotr, 100) == 100
+        assert await get_max_generated_at(brotr, 200) == 200
+
+    async def test_incremental_watermarks_advance_to_wall_clock_when_rows_exist(self) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetchval = AsyncMock(return_value=True)
+
+        with patch("bigbrotr.services.refresher.queries.time.time", return_value=999):
+            assert await get_max_seen_at(brotr, 100) == 999
+            assert await get_max_generated_at(brotr, 200) == 999
+
+    async def test_periodic_compatibility_wrappers_call_typed_targets(self) -> None:
+        brotr = MagicMock(spec=Brotr)
+        with patch(
+            "bigbrotr.services.refresher.queries.refresh_periodic_target",
+            AsyncMock(),
+        ) as mock_refresh:
+            await refresh_rolling_windows(brotr)
+            await refresh_relay_metadata(brotr)
+            await refresh_nip85_followers(brotr)
+
+        assert mock_refresh.await_args_list == [
+            call(brotr, PeriodicRefreshTarget.ROLLING_WINDOWS),
+            call(brotr, PeriodicRefreshTarget.RELAY_STATS_METADATA),
+            call(brotr, PeriodicRefreshTarget.NIP85_FOLLOWERS),
+        ]
 
 
 class TestRefresherInit:
@@ -481,6 +526,69 @@ class TestRefresherRun:
             await refresher.refresh()
 
         assert mock_refresh.await_count == 1
+
+    async def test_fail_fast_mode_raises_after_periodic_target_failure(
+        self, mock_refresher_brotr: Brotr
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(
+                periodic=True,
+                processing={"continue_on_target_error": False},
+            ),
+        )
+
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.refresh_periodic_target",
+                AsyncMock(side_effect=asyncpg.PostgresError("boom")),
+            ) as mock_periodic,
+            pytest.raises(RuntimeError, match="rolling_windows"),
+        ):
+            await refresher.refresh()
+
+        assert mock_periodic.await_count == 1
+
+    async def test_max_targets_per_cycle_stops_between_periodic_targets(
+        self, mock_refresher_brotr: Brotr
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(
+                periodic=True,
+                processing={"max_targets_per_cycle": 1},
+            ),
+        )
+
+        with patch(
+            "bigbrotr.services.refresher.service.refresh_periodic_target",
+            AsyncMock(),
+        ) as mock_periodic:
+            result = await refresher.refresh()
+
+        assert result.targets_total == 3
+        assert result.targets_attempted == 1
+        assert result.targets_skipped == 2
+        assert result.cutoff_reason == "max_targets_per_cycle"
+        assert mock_periodic.await_count == 1
+
+    async def test_periodic_failures_continue_when_configured(
+        self, mock_refresher_brotr: Brotr
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(periodic=True),
+        )
+
+        with patch(
+            "bigbrotr.services.refresher.service.refresh_periodic_target",
+            AsyncMock(side_effect=[asyncpg.PostgresError("boom"), None, None]),
+        ) as mock_periodic:
+            result = await refresher.refresh()
+
+        assert mock_periodic.await_count == 3
+        assert result.targets_failed == 1
+        assert result.targets_refreshed == 2
 
     async def test_max_targets_per_cycle_stops_before_later_targets(
         self, mock_refresher_brotr: Brotr

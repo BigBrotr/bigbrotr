@@ -200,6 +200,31 @@ class TestAssertorRun:
         service.set_gauge.assert_any_call("user_assertions_eligible", 8)
         service.set_gauge.assert_any_call("user_assertions_published", 5)
 
+    async def test_publish_skips_stale_cleanup_when_disabled(self, mock_brotr: MagicMock) -> None:
+        service = _assertor_harness(
+            mock_brotr,
+            config=AssertorConfig(
+                selection={"kinds": [EventKind.NIP85_USER_ASSERTION]},
+                cleanup={"remove_stale_checkpoints": False},
+                metrics={"enabled": False},
+            ),
+        )
+        service._publish_user_assertions = AsyncMock(return_value=(0, 0, 0))
+        service._delete_stale_v2_checkpoints = AsyncMock(return_value=99)
+
+        result = await service.publish()
+
+        assert result.checkpoint_cleanup_removed == 0
+        service._delete_stale_v2_checkpoints.assert_not_awaited()
+
+    def test_mark_seen_state_key_initializes_missing_set(self, mock_brotr: MagicMock) -> None:
+        service = _assertor_harness(mock_brotr)
+        del service._cycle_seen_state_keys
+
+        service._mark_seen_state_key("v2:global-pagerank-v1:30382:" + ("aa" * 32))
+
+        assert service._cycle_seen_state_keys == {"v2:global-pagerank-v1:30382:" + ("aa" * 32)}
+
     async def test_is_unchanged_no_state(self, mock_brotr: MagicMock) -> None:
         service = _assertor_harness(mock_brotr)
         mock_brotr.get_service_state = AsyncMock(return_value=[])
@@ -691,6 +716,32 @@ class TestAssertorLifecycle:
             mock_client.connect.assert_awaited_once()
             assert result is svc
 
+    @patch("bigbrotr.services.assertor.service.create_client", new_callable=AsyncMock)
+    async def test_aenter_skips_legacy_cleanup_when_disabled(
+        self,
+        mock_create_client: AsyncMock,
+    ) -> None:
+        from bigbrotr.services.assertor.service import Assertor
+
+        mock_create_client.return_value = AsyncMock()
+        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
+            svc = Assertor.__new__(Assertor)
+            svc._brotr = MagicMock()
+            svc._brotr.get_service_state = AsyncMock(return_value=[])
+            svc._brotr.delete_service_state = AsyncMock(return_value=0)
+            svc._config = AssertorConfig(
+                cleanup={"remove_legacy_checkpoints": False},
+            )
+            svc._client = None
+            svc._keys = svc._config.keys.keys
+            svc._logger = MagicMock()
+            svc._metrics_server = None
+
+            with patch.object(type(svc).__bases__[0], "__aenter__", new_callable=AsyncMock):
+                await svc.__aenter__()
+
+            svc._brotr.get_service_state.assert_not_awaited()
+
     async def test_aexit_shuts_down_client(self) -> None:
         from bigbrotr.services.assertor.service import Assertor
 
@@ -856,6 +907,12 @@ class TestAssertorUtils:
         assert is_legacy_checkpoint_key("event:" + ("bb" * 32)) is True
         assert is_legacy_checkpoint_key("v2:global-pagerank-v1:30382:" + ("aa" * 32)) is False
 
+    def test_parse_v2_checkpoint_key_rejects_invalid_keys(self) -> None:
+        from bigbrotr.services.assertor.utils import parse_v2_checkpoint_key
+
+        assert parse_v2_checkpoint_key("user:" + ("aa" * 32)) is None
+        assert parse_v2_checkpoint_key("v2:global-pagerank-v1:not-a-kind:subject") is None
+
     def test_content_hash_is_stable_for_json_key_order(self) -> None:
         from bigbrotr.services.assertor.utils import content_hash
 
@@ -962,6 +1019,36 @@ class TestAssertorProviderProfile:
         assert failed == 0
         mock_broadcast.assert_not_awaited()
 
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    async def test_provider_profile_publish_failure_when_no_relays_accept(
+        self,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        mock_broadcast.return_value = 0
+        service = self._make_service(mock_brotr)
+
+        published, skipped, failed = await service._publish_provider_profile()
+
+        assert (published, skipped, failed) == (0, 0, 1)
+        mock_brotr.upsert_service_state.assert_not_awaited()
+        service._logger.warning.assert_called_once()
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    async def test_provider_profile_publish_error_counts_as_failed(
+        self,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        mock_broadcast.side_effect = OSError("relay disconnected")
+        service = self._make_service(mock_brotr)
+
+        published, skipped, failed = await service._publish_provider_profile()
+
+        assert (published, skipped, failed) == (0, 0, 1)
+        mock_brotr.upsert_service_state.assert_not_awaited()
+        service._logger.error.assert_called_once()
+
 
 class TestAssertorCheckpointCleanup:
     async def test_delete_stale_v2_checkpoints_removes_only_current_algorithm_stale_keys(
@@ -974,6 +1061,7 @@ class TestAssertorCheckpointCleanup:
         disabled_kind_key = "v2:global-pagerank-v1:30383:" + ("cc" * 32)
         other_algorithm_key = "v2:other-algo:30382:" + ("dd" * 32)
         profile_key = "v2:global-pagerank-v1:0:provider_profile"
+        non_v2_key = "user:" + ("ee" * 32)
 
         def _state(key: str) -> MagicMock:
             state = MagicMock()
@@ -992,6 +1080,7 @@ class TestAssertorCheckpointCleanup:
                     _state(disabled_kind_key),
                     _state(other_algorithm_key),
                     _state(profile_key),
+                    _state(non_v2_key),
                 ]
             )
             svc._brotr.delete_service_state = AsyncMock(return_value=2)

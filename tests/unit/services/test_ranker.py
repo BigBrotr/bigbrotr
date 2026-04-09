@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -519,6 +520,27 @@ class TestRankerStore:
         assert store.count_rank_runs() == 2
         assert store.count_rank_runs(status="failed") == 0
         assert store.delete_rank_runs_older_than_retention(None) == 0
+
+    def test_store_empty_edge_cases_are_noops(self, tmp_path: Path) -> None:
+        store = RankerStore(
+            db_path=tmp_path / "ranker.duckdb",
+            checkpoint_path=tmp_path / "ranker.checkpoint.json",
+        )
+
+        assert store.load_checkpoint() == GraphSyncCheckpoint()
+        assert store.duckdb_file_size_bytes() == 0
+
+        checkpoint = GraphSyncCheckpoint(source_seen_at=42, follower_pubkey="a" * 64)
+        store.apply_follow_graph_delta(changed_lists=[], edges=[], checkpoint=checkpoint)
+        assert store.load_checkpoint() == checkpoint
+
+        store.append_event_stats_stage_batch([])
+        store.append_addressable_stats_stage_batch([])
+        store.append_identifier_stats_stage_batch([])
+
+        with duckdb.connect(str(tmp_path / "ranker.duckdb")) as conn:
+            assert store._ensure_node_ids(conn, []) == {}
+            store._delete_followers(conn, [])
 
     def test_compute_non_user_ranks_matches_formulas_and_normalization(
         self, tmp_path: Path
@@ -1135,3 +1157,369 @@ class TestRankerService:
         assert result.rank_run_id is None
         assert result.changed_followers_synced == 0
         assert result.rank_counts == RankRowCounts()
+
+    def test_budget_helper_methods_report_duration_and_sync_cutoffs(
+        self,
+        mock_brotr: Brotr,
+        tmp_path: Path,
+    ) -> None:
+        ranker = Ranker(
+            brotr=mock_brotr,
+            config=RankerConfig.model_validate(
+                {
+                    "storage": {
+                        "path": tmp_path / "ranker.duckdb",
+                        "checkpoint_path": tmp_path / "ranker.checkpoint.json",
+                    },
+                    "metrics": {"enabled": False},
+                    "processing": {"max_duration": 1.0},
+                    "sync": {"max_followers_per_cycle": 1},
+                }
+            ),
+        )
+
+        assert ranker._cycle_cutoff_reason(time.monotonic() - 2.0) == "max_duration"
+        assert (
+            ranker._sync_cutoff_reason(
+                cycle_start=time.monotonic(),
+                batches_processed=0,
+                followers_synced=1,
+            )
+            == "sync_max_followers_per_cycle"
+        )
+        assert Ranker._next_limited_batch_size(batch_size=10, rows_processed=5, max_rows=5) == 0
+
+    @pytest.mark.asyncio
+    async def test_stage_helpers_stop_on_duration_cutoff(
+        self,
+        mock_brotr: Brotr,
+        ranker_config: RankerConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        ranker = Ranker(brotr=mock_brotr, config=ranker_config)
+        monkeypatch.setattr(ranker, "_cycle_cutoff_reason", lambda _cycle_start: "max_duration")
+
+        assert await ranker._stage_event_stats(time.monotonic()) == (0, "max_duration")
+        assert await ranker._stage_addressable_stats(time.monotonic()) == (0, "max_duration")
+        assert await ranker._stage_identifier_stats(time.monotonic()) == (0, "max_duration")
+
+    @pytest.mark.asyncio
+    async def test_non_user_stage_returns_addressable_budget_cutoff(
+        self,
+        mock_brotr: Brotr,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        ranker = Ranker(
+            brotr=mock_brotr,
+            config=RankerConfig.model_validate(
+                {
+                    "storage": {
+                        "path": tmp_path / "ranker.duckdb",
+                        "checkpoint_path": tmp_path / "ranker.checkpoint.json",
+                    },
+                    "metrics": {"enabled": False},
+                    "facts_stage": {
+                        "batch_size": 1,
+                        "max_addressable_rows": 1,
+                    },
+                }
+            ),
+        )
+
+        monkeypatch.setattr(
+            "bigbrotr.services.ranker.service.fetch_event_stats",
+            AsyncMock(return_value=[]),
+        )
+        monkeypatch.setattr(
+            "bigbrotr.services.ranker.service.fetch_addressable_stats",
+            AsyncMock(
+                side_effect=[
+                    [AddressableStatFact("30023:aa:first", "a" * 64, 1, 0, 0, 0, 0, 0)],
+                    [AddressableStatFact("30023:aa:second", "a" * 64, 1, 0, 0, 0, 0, 0)],
+                ]
+            ),
+        )
+        monkeypatch.setattr(
+            "bigbrotr.services.ranker.service.fetch_identifier_stats",
+            AsyncMock(side_effect=AssertionError("identifier staging should not run")),
+        )
+
+        result = await ranker._sync_non_user_stats_stage(time.monotonic())
+
+        assert result.counts == RankRowCounts(addressable=1)
+        assert result.cutoff_reason == "facts_stage_addressable_rows"
+
+    @pytest.mark.asyncio
+    async def test_addressable_and_identifier_stage_exact_budget_detects_more_rows(
+        self,
+        mock_brotr: Brotr,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        ranker = Ranker(
+            brotr=mock_brotr,
+            config=RankerConfig.model_validate(
+                {
+                    "storage": {
+                        "path": tmp_path / "ranker.duckdb",
+                        "checkpoint_path": tmp_path / "ranker.checkpoint.json",
+                    },
+                    "metrics": {"enabled": False},
+                    "facts_stage": {
+                        "batch_size": 1,
+                        "max_addressable_rows": 1,
+                        "max_identifier_rows": 1,
+                    },
+                }
+            ),
+        )
+
+        monkeypatch.setattr(
+            "bigbrotr.services.ranker.service.fetch_addressable_stats",
+            AsyncMock(
+                side_effect=[
+                    [AddressableStatFact("30023:aa:first", "a" * 64, 1, 0, 0, 0, 0, 0)],
+                    [AddressableStatFact("30023:aa:second", "a" * 64, 1, 0, 0, 0, 0, 0)],
+                ]
+            ),
+        )
+        monkeypatch.setattr(
+            "bigbrotr.services.ranker.service.fetch_identifier_stats",
+            AsyncMock(
+                side_effect=[
+                    [IdentifierStatFact("isbn:first", 1, 0, ("book",))],
+                    [IdentifierStatFact("isbn:second", 1, 0, ("book",))],
+                ]
+            ),
+        )
+
+        addressable_rows, addressable_cutoff = await ranker._stage_addressable_stats(
+            time.monotonic()
+        )
+        identifier_rows, identifier_cutoff = await ranker._stage_identifier_stats(time.monotonic())
+
+        assert (addressable_rows, addressable_cutoff) == (1, "facts_stage_addressable_rows")
+        assert (identifier_rows, identifier_cutoff) == (1, "facts_stage_identifier_rows")
+
+    @pytest.mark.asyncio
+    async def test_populate_rank_stage_stops_on_duration_cutoff(
+        self,
+        mock_brotr: Brotr,
+        ranker_config: RankerConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        ranker = Ranker(brotr=mock_brotr, config=ranker_config)
+        monkeypatch.setattr(ranker, "_cycle_cutoff_reason", lambda _cycle_start: "max_duration")
+        fetch_batch = MagicMock()
+
+        result = await ranker._populate_rank_stage(
+            MagicMock(),
+            subject_type="pubkey",
+            fetch_batch=fetch_batch,
+            cycle_start=time.monotonic(),
+            computed_at=123,
+        )
+
+        assert result.rows == 0
+        assert result.cutoff_reason == "max_duration"
+        fetch_batch.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_duration_budget_after_staging_stops_before_compute(
+        self,
+        mock_brotr: Brotr,
+        ranker_config: RankerConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from bigbrotr.services.ranker.service import _GraphSyncResult, _StageResult
+
+        ranker = Ranker(brotr=mock_brotr, config=ranker_config)
+        monkeypatch.setattr(
+            ranker,
+            "_sync_follow_graph",
+            AsyncMock(return_value=_GraphSyncResult(checkpoint=GraphSyncCheckpoint())),
+        )
+        monkeypatch.setattr(
+            ranker,
+            "_sync_non_user_stats_stage",
+            AsyncMock(return_value=_StageResult(counts=RankRowCounts())),
+        )
+        monkeypatch.setattr(ranker, "_cycle_cutoff_reason", MagicMock(return_value="max_duration"))
+        monkeypatch.setattr(ranker._store, "compute_pubkey_pagerank", MagicMock())
+
+        result = await ranker.rank()
+
+        assert result.cutoff_reason == "max_duration"
+        assert result.rank_run_id is None
+        ranker._store.compute_pubkey_pagerank.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_duration_budget_after_compute_marks_run_cutoff(
+        self,
+        mock_brotr: Brotr,
+        ranker_config: RankerConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from bigbrotr.services.ranker.service import _GraphSyncResult, _StageResult
+        from bigbrotr.services.ranker.utils import GraphStats
+
+        ranker = Ranker(brotr=mock_brotr, config=ranker_config)
+        monkeypatch.setattr(
+            ranker,
+            "_sync_follow_graph",
+            AsyncMock(return_value=_GraphSyncResult(checkpoint=GraphSyncCheckpoint())),
+        )
+        monkeypatch.setattr(
+            ranker,
+            "_sync_non_user_stats_stage",
+            AsyncMock(return_value=_StageResult(counts=RankRowCounts())),
+        )
+        monkeypatch.setattr(
+            ranker,
+            "_cycle_cutoff_reason",
+            MagicMock(side_effect=[None, "max_duration"]),
+        )
+        monkeypatch.setattr(
+            ranker._store,
+            "get_graph_stats_for_ranking",
+            MagicMock(return_value=GraphStats(node_count=1, edge_count=0)),
+        )
+        monkeypatch.setattr(
+            ranker._store,
+            "start_rank_run",
+            MagicMock(return_value=MagicMock(run_id=7)),
+        )
+        monkeypatch.setattr(ranker._store, "compute_pubkey_pagerank", MagicMock())
+        monkeypatch.setattr(ranker._store, "compute_non_user_ranks", MagicMock())
+        monkeypatch.setattr(ranker._store, "finish_rank_run", MagicMock())
+
+        result = await ranker.rank()
+
+        assert result.cutoff_reason == "max_duration"
+        assert result.rank_run_id == 7
+        ranker._store.finish_rank_run.assert_called_once_with(7, status="cutoff")
+
+    @pytest.mark.asyncio
+    async def test_compute_failure_marks_run_failed(
+        self,
+        mock_brotr: Brotr,
+        ranker_config: RankerConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from bigbrotr.services.ranker.service import _GraphSyncResult, _StageResult
+        from bigbrotr.services.ranker.utils import GraphStats
+
+        ranker = Ranker(brotr=mock_brotr, config=ranker_config)
+        ranker.set_gauge = MagicMock()
+        monkeypatch.setattr(
+            ranker,
+            "_sync_follow_graph",
+            AsyncMock(return_value=_GraphSyncResult(checkpoint=GraphSyncCheckpoint())),
+        )
+        monkeypatch.setattr(
+            ranker,
+            "_sync_non_user_stats_stage",
+            AsyncMock(return_value=_StageResult(counts=RankRowCounts())),
+        )
+        monkeypatch.setattr(ranker, "_cycle_cutoff_reason", MagicMock(return_value=None))
+        monkeypatch.setattr(
+            ranker._store,
+            "get_graph_stats_for_ranking",
+            MagicMock(return_value=GraphStats(node_count=1, edge_count=0)),
+        )
+        monkeypatch.setattr(
+            ranker._store,
+            "start_rank_run",
+            MagicMock(return_value=MagicMock(run_id=9)),
+        )
+        monkeypatch.setattr(
+            ranker._store,
+            "compute_pubkey_pagerank",
+            MagicMock(side_effect=RuntimeError("pagerank failed")),
+        )
+        monkeypatch.setattr(ranker._store, "finish_rank_run", MagicMock())
+        monkeypatch.setattr(ranker._store, "count_rank_runs", MagicMock(return_value=1))
+
+        with pytest.raises(RuntimeError, match="pagerank failed"):
+            await ranker.rank()
+
+        ranker._store.finish_rank_run.assert_called_once_with(9, status="failed")
+        ranker.set_gauge.assert_any_call("rank_runs_failed_total", 1)
+
+    @pytest.mark.parametrize(
+        ("cutoff_subject", "expected_reason"),
+        [
+            ("event", "export_event_max_batches"),
+            ("addressable", "export_addressable_max_batches"),
+            ("identifier", "export_identifier_max_batches"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_export_rank_snapshots_reports_later_subject_cutoffs(
+        self,
+        mock_brotr: Brotr,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        cutoff_subject: str,
+        expected_reason: str,
+    ) -> None:
+        class FakeStore:
+            def __init__(self, subject: str) -> None:
+                self.subject = subject
+
+            def _rows(
+                self, subject: str, *, after_subject_id: str, limit: int
+            ) -> list[RankExportRow]:
+                if subject != self.subject:
+                    return []
+                suffix = "01" if not after_subject_id else "02"
+                return [RankExportRow(suffix * 32, 0.5, 50)][:limit]
+
+            def fetch_pubkey_rank_batch(
+                self, *, after_subject_id: str, limit: int
+            ) -> list[RankExportRow]:
+                return self._rows("pubkey", after_subject_id=after_subject_id, limit=limit)
+
+            def fetch_event_rank_batch(
+                self, *, after_subject_id: str, limit: int
+            ) -> list[RankExportRow]:
+                return self._rows("event", after_subject_id=after_subject_id, limit=limit)
+
+            def fetch_addressable_rank_batch(
+                self, *, after_subject_id: str, limit: int
+            ) -> list[RankExportRow]:
+                return self._rows("addressable", after_subject_id=after_subject_id, limit=limit)
+
+            def fetch_identifier_rank_batch(
+                self, *, after_subject_id: str, limit: int
+            ) -> list[RankExportRow]:
+                return self._rows("identifier", after_subject_id=after_subject_id, limit=limit)
+
+        ranker = Ranker(
+            brotr=mock_brotr,
+            config=RankerConfig.model_validate(
+                {
+                    "storage": {
+                        "path": tmp_path / "ranker.duckdb",
+                        "checkpoint_path": tmp_path / "ranker.checkpoint.json",
+                    },
+                    "metrics": {"enabled": False},
+                    "export": {"batch_size": 1, "max_batches_per_subject": 1},
+                }
+            ),
+        )
+        ranker._store = FakeStore(cutoff_subject)  # type: ignore[assignment]
+
+        with patch(
+            "bigbrotr.services.ranker.service.insert_rank_stage_batch",
+            AsyncMock(),
+        ) as mock_insert:
+            result = await ranker._export_rank_snapshots(
+                cycle_start=time.monotonic(),
+                computed_at=123,
+            )
+
+        assert result.cutoff_reason == expected_reason
+        assert result.counts == RankRowCounts()
+        mock_insert.assert_awaited_once()
