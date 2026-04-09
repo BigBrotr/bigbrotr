@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
@@ -11,6 +10,7 @@ from pydantic import ValidationError
 
 from bigbrotr.models.constants import EventKind, ServiceName
 from bigbrotr.services.assertor.configs import AssertorConfig
+from bigbrotr.services.assertor.service import Assertor
 
 
 VALID_HEX_KEY = (
@@ -23,46 +23,21 @@ def _set_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NOSTR_PRIVATE_KEY_ASSERTOR", VALID_HEX_KEY)
 
 
-def _provider_profile(enabled: bool = False) -> SimpleNamespace:
-    return SimpleNamespace(enabled=enabled)
-
-
-def _service_config(**overrides: object) -> SimpleNamespace:
-    selection = SimpleNamespace(
-        kinds=[
-            EventKind.NIP85_USER_ASSERTION,
-            EventKind.NIP85_EVENT_ASSERTION,
-        ],
-        min_events=1,
-        batch_size=100,
-        top_topics=5,
+def _assertor_harness(
+    mock_brotr: MagicMock,
+    *,
+    config: AssertorConfig | None = None,
+    connected: bool = True,
+) -> Assertor:
+    service = Assertor(
+        brotr=mock_brotr,
+        config=config or AssertorConfig(metrics={"enabled": False}),
     )
-    publishing = SimpleNamespace(
-        relays=[],
-        allow_insecure=False,
-    )
-    cleanup = SimpleNamespace(
-        remove_legacy_checkpoints=True,
-        remove_stale_checkpoints=True,
-    )
-    data: dict[str, object] = {
-        "algorithm_id": "global-pagerank-v1",
-        "provider_profile": _provider_profile(False),
-        "selection": selection,
-        "publishing": publishing,
-        "cleanup": cleanup,
-    }
-    for key in ("kinds", "min_events", "batch_size", "top_topics"):
-        if key in overrides:
-            setattr(selection, key, overrides.pop(key))
-    for key in ("relays", "allow_insecure"):
-        if key in overrides:
-            setattr(publishing, key, overrides.pop(key))
-    for key in ("remove_legacy_checkpoints", "remove_stale_checkpoints"):
-        if key in overrides:
-            setattr(cleanup, key, overrides.pop(key))
-    data.update(overrides)
-    return SimpleNamespace(**data)
+    service._client = MagicMock() if connected else None
+    service._logger = MagicMock()
+    service.set_gauge = MagicMock()
+    service._cycle_seen_state_keys = set()
+    return service
 
 
 class TestAssertorConfig:
@@ -169,17 +144,12 @@ class TestAssertorRun:
         return brotr
 
     async def test_publish_no_client_returns_early(self, mock_brotr: MagicMock) -> None:
-        from bigbrotr.services.assertor.service import Assertor, PublishCycleResult
+        from bigbrotr.services.assertor.service import PublishCycleResult
 
-        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
-            service = Assertor.__new__(Assertor)
-            service._client = None
-            service._config = _service_config()
-            service._logger = MagicMock()
-            service.set_gauge = MagicMock()
-            result = await service.publish()
-            assert result == PublishCycleResult()
-            service.set_gauge.assert_not_called()
+        service = _assertor_harness(mock_brotr, connected=False)
+        result = await service.publish()
+        assert result == PublishCycleResult()
+        service.set_gauge.assert_not_called()
 
     async def test_run_delegates_to_publish(self, mock_brotr: MagicMock) -> None:
         from bigbrotr.services.assertor.service import Assertor, PublishCycleResult
@@ -195,97 +165,79 @@ class TestAssertorRun:
 
     async def test_publish_returns_user_assertion_counts(self, mock_brotr: MagicMock) -> None:
         from bigbrotr.services.assertor.service import (
-            Assertor,
             PublishCycleResult,
             PublishKindResult,
         )
 
-        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
-            service = Assertor.__new__(Assertor)
-            service._client = MagicMock()
-            service._config = _service_config(kinds=[EventKind.NIP85_USER_ASSERTION])
-            service._brotr = mock_brotr
-            service._logger = MagicMock()
-            service.set_gauge = MagicMock()
+        service = _assertor_harness(
+            mock_brotr,
+            config=AssertorConfig(
+                selection={"kinds": [EventKind.NIP85_USER_ASSERTION]},
+                metrics={"enabled": False},
+            ),
+        )
+        service._publish_user_assertions = AsyncMock(return_value=(5, 2, 1))
+        service._publish_event_assertions = AsyncMock(return_value=(0, 0, 0))
 
-            service._publish_user_assertions = AsyncMock(return_value=(5, 2, 1))
-            service._publish_event_assertions = AsyncMock(return_value=(0, 0, 0))
+        result = await service.publish()
 
-            result = await service.publish()
-
-            service._publish_user_assertions.assert_awaited_once()
-            assert result == PublishCycleResult(
-                user=PublishKindResult(
-                    eligible=8,
-                    published=5,
-                    skipped=2,
-                    failed=1,
-                    duration_seconds=result.user.duration_seconds,
-                )
+        service._publish_user_assertions.assert_awaited_once()
+        assert result == PublishCycleResult(
+            user=PublishKindResult(
+                eligible=8,
+                published=5,
+                skipped=2,
+                failed=1,
+                duration_seconds=result.user.duration_seconds,
             )
-            assert result.assertions_published == 5
-            assert result.assertions_skipped == 2
-            assert result.assertions_failed == 1
-            service.set_gauge.assert_any_call("assertions_published", 5)
-            service.set_gauge.assert_any_call("assertions_skipped", 2)
-            service.set_gauge.assert_any_call("assertions_failed", 1)
-            service.set_gauge.assert_any_call("user_assertions_eligible", 8)
-            service.set_gauge.assert_any_call("user_assertions_published", 5)
+        )
+        assert result.assertions_published == 5
+        assert result.assertions_skipped == 2
+        assert result.assertions_failed == 1
+        service.set_gauge.assert_any_call("assertions_published", 5)
+        service.set_gauge.assert_any_call("assertions_skipped", 2)
+        service.set_gauge.assert_any_call("assertions_failed", 1)
+        service.set_gauge.assert_any_call("user_assertions_eligible", 8)
+        service.set_gauge.assert_any_call("user_assertions_published", 5)
 
     async def test_is_unchanged_no_state(self, mock_brotr: MagicMock) -> None:
-        from bigbrotr.services.assertor.service import Assertor
+        service = _assertor_harness(mock_brotr)
+        mock_brotr.get_service_state = AsyncMock(return_value=[])
 
-        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
-            service = Assertor.__new__(Assertor)
-            service._brotr = mock_brotr
-            mock_brotr.get_service_state = AsyncMock(return_value=[])
-
-            result = await service._is_unchanged("test_pubkey", "abc123")
-            assert result is False
+        result = await service._is_unchanged("test_pubkey", "abc123")
+        assert result is False
 
     async def test_is_unchanged_same_hash(self, mock_brotr: MagicMock) -> None:
-        from bigbrotr.services.assertor.service import Assertor
+        service = _assertor_harness(mock_brotr)
 
-        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
-            service = Assertor.__new__(Assertor)
-            service._brotr = mock_brotr
+        state = MagicMock()
+        state.state_value = {"hash": "abc123", "timestamp": 1234}
+        mock_brotr.get_service_state = AsyncMock(return_value=[state])
 
-            state = MagicMock()
-            state.state_value = {"hash": "abc123", "timestamp": 1234}
-            mock_brotr.get_service_state = AsyncMock(return_value=[state])
-
-            result = await service._is_unchanged("test_pubkey", "abc123")
-            assert result is True
+        result = await service._is_unchanged("test_pubkey", "abc123")
+        assert result is True
 
     async def test_is_unchanged_different_hash(self, mock_brotr: MagicMock) -> None:
-        from bigbrotr.services.assertor.service import Assertor
+        service = _assertor_harness(mock_brotr)
 
-        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
-            service = Assertor.__new__(Assertor)
-            service._brotr = mock_brotr
+        state = MagicMock()
+        state.state_value = {"hash": "old_hash", "timestamp": 1234}
+        mock_brotr.get_service_state = AsyncMock(return_value=[state])
 
-            state = MagicMock()
-            state.state_value = {"hash": "old_hash", "timestamp": 1234}
-            mock_brotr.get_service_state = AsyncMock(return_value=[state])
-
-            result = await service._is_unchanged("test_pubkey", "new_hash")
-            assert result is False
+        result = await service._is_unchanged("test_pubkey", "new_hash")
+        assert result is False
 
     async def test_save_hash_calls_upsert(self, mock_brotr: MagicMock) -> None:
-        from bigbrotr.services.assertor.service import Assertor
+        service = _assertor_harness(mock_brotr)
 
-        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
-            service = Assertor.__new__(Assertor)
-            service._brotr = mock_brotr
+        await service._save_hash("test_subject", "abc123")
 
-            await service._save_hash("test_subject", "abc123")
-
-            mock_brotr.upsert_service_state.assert_awaited_once()
-            call_args = mock_brotr.upsert_service_state.call_args[0][0]
-            assert len(call_args) == 1
-            assert call_args[0].service_name == ServiceName.ASSERTOR
-            assert call_args[0].state_key == "test_subject"
-            assert call_args[0].state_value["hash"] == "abc123"
+        mock_brotr.upsert_service_state.assert_awaited_once()
+        call_args = mock_brotr.upsert_service_state.call_args[0][0]
+        assert len(call_args) == 1
+        assert call_args[0].service_name == ServiceName.ASSERTOR
+        assert call_args[0].state_key == "test_subject"
+        assert call_args[0].state_value["hash"] == "abc123"
 
 
 class TestAssertorPublishUserFlow:
@@ -300,15 +252,20 @@ class TestAssertorPublishUserFlow:
         return brotr
 
     def _make_service(self, mock_brotr: MagicMock) -> MagicMock:
-        from bigbrotr.services.assertor.service import Assertor
-
-        service = Assertor.__new__(Assertor)
-        service._brotr = mock_brotr
-        service._client = MagicMock()
-        service._config = _service_config()
-        service._logger = MagicMock()
-        service.set_gauge = MagicMock()
-        return service
+        return _assertor_harness(
+            mock_brotr,
+            config=AssertorConfig(
+                selection={
+                    "kinds": [
+                        EventKind.NIP85_USER_ASSERTION,
+                        EventKind.NIP85_EVENT_ASSERTION,
+                    ],
+                    "batch_size": 100,
+                    "top_topics": 5,
+                },
+                metrics={"enabled": False},
+            ),
+        )
 
     def _make_row(self, pubkey: str = "aa" * 32, post_count: int = 10) -> dict:
         return {
@@ -484,15 +441,22 @@ class TestAssertorCheckpointNamespacing:
         return brotr
 
     def _make_service(self, mock_brotr: MagicMock) -> MagicMock:
-        from bigbrotr.services.assertor.service import Assertor
-
-        service = Assertor.__new__(Assertor)
-        service._brotr = mock_brotr
-        service._client = MagicMock()
-        service._config = _service_config()
-        service._logger = MagicMock()
-        service.set_gauge = MagicMock()
-        return service
+        return _assertor_harness(
+            mock_brotr,
+            config=AssertorConfig(
+                selection={
+                    "kinds": [
+                        EventKind.NIP85_USER_ASSERTION,
+                        EventKind.NIP85_EVENT_ASSERTION,
+                        EventKind.NIP85_ADDRESSABLE_ASSERTION,
+                        EventKind.NIP85_IDENTIFIER_ASSERTION,
+                    ],
+                    "batch_size": 100,
+                    "top_topics": 5,
+                },
+                metrics={"enabled": False},
+            ),
+        )
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_user_rows", new_callable=AsyncMock)
@@ -937,26 +901,21 @@ class TestAssertorProviderProfile:
         return brotr
 
     def _make_service(self, mock_brotr: MagicMock) -> MagicMock:
-        from bigbrotr.services.assertor.service import Assertor
-
-        service = Assertor.__new__(Assertor)
-        service._brotr = mock_brotr
-        service._client = MagicMock()
-        service._config = AssertorConfig(
-            provider_profile={
-                "enabled": True,
-                "kind0_content": {
-                    "name": "BigBrotr Global PageRank v1",
-                    "about": "NIP-85 trusted assertion provider",
-                    "website": "https://bigbrotr.com",
-                    "extra_fields": {"algorithm_version": "v1"},
+        return _assertor_harness(
+            mock_brotr,
+            config=AssertorConfig(
+                provider_profile={
+                    "enabled": True,
+                    "kind0_content": {
+                        "name": "BigBrotr Global PageRank v1",
+                        "about": "NIP-85 trusted assertion provider",
+                        "website": "https://bigbrotr.com",
+                        "extra_fields": {"algorithm_version": "v1"},
+                    },
                 },
-            }
+                metrics={"enabled": False},
+            ),
         )
-        service._logger = MagicMock()
-        service.set_gauge = MagicMock()
-        service._cycle_seen_state_keys = set()
-        return service
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     async def test_publishes_provider_profile_when_content_changes(
@@ -1072,14 +1031,20 @@ class TestAssertorPublishEventFlow:
         return brotr
 
     def _make_service(self, mock_brotr: MagicMock) -> MagicMock:
-        from bigbrotr.services.assertor.service import Assertor
-
-        service = Assertor.__new__(Assertor)
-        service._brotr = mock_brotr
-        service._client = MagicMock()
-        service._config = _service_config()
-        service._logger = MagicMock()
-        return service
+        return _assertor_harness(
+            mock_brotr,
+            config=AssertorConfig(
+                selection={
+                    "kinds": [
+                        EventKind.NIP85_USER_ASSERTION,
+                        EventKind.NIP85_EVENT_ASSERTION,
+                    ],
+                    "batch_size": 100,
+                    "top_topics": 5,
+                },
+                metrics={"enabled": False},
+            ),
+        )
 
     def _make_event_row(self, event_id: str = "ee" * 32) -> dict:
         return {
@@ -1237,20 +1202,19 @@ class TestAssertorPublishAddressableAndIdentifierFlow:
         return brotr
 
     def _make_service(self, mock_brotr: MagicMock) -> MagicMock:
-        from bigbrotr.services.assertor.service import Assertor
-
-        service = Assertor.__new__(Assertor)
-        service._brotr = mock_brotr
-        service._client = MagicMock()
-        service._config = _service_config(
-            kinds=[
-                EventKind.NIP85_ADDRESSABLE_ASSERTION,
-                EventKind.NIP85_IDENTIFIER_ASSERTION,
-            ]
+        return _assertor_harness(
+            mock_brotr,
+            config=AssertorConfig(
+                selection={
+                    "kinds": [
+                        EventKind.NIP85_ADDRESSABLE_ASSERTION,
+                        EventKind.NIP85_IDENTIFIER_ASSERTION,
+                    ],
+                    "batch_size": 100,
+                },
+                metrics={"enabled": False},
+            ),
         )
-        service._logger = MagicMock()
-        service.set_gauge = MagicMock()
-        return service
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_addressable_rows", new_callable=AsyncMock)
@@ -1390,85 +1354,82 @@ class TestAssertorQueries:
 
 class TestAssertorRunEventBranch:
     async def test_run_event_assertions_only(self) -> None:
-        from bigbrotr.services.assertor.service import Assertor
+        brotr = MagicMock()
+        brotr.get_service_state = AsyncMock(return_value=[])
+        brotr.delete_service_state = AsyncMock(return_value=0)
+        service = _assertor_harness(
+            brotr,
+            config=AssertorConfig(
+                selection={"kinds": [EventKind.NIP85_EVENT_ASSERTION]},
+                metrics={"enabled": False},
+            ),
+        )
 
-        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
-            service = Assertor.__new__(Assertor)
-            service._client = MagicMock()
-            service._config = _service_config(kinds=[EventKind.NIP85_EVENT_ASSERTION])
-            service._brotr = MagicMock()
-            service._brotr.get_service_state = AsyncMock(return_value=[])
-            service._brotr.delete_service_state = AsyncMock(return_value=0)
-            service._logger = MagicMock()
-            service.set_gauge = MagicMock()
+        service._publish_user_assertions = AsyncMock(return_value=(0, 0, 0))
+        service._publish_event_assertions = AsyncMock(return_value=(3, 1, 0))
 
-            service._publish_user_assertions = AsyncMock(return_value=(0, 0, 0))
-            service._publish_event_assertions = AsyncMock(return_value=(3, 1, 0))
+        await service.run()
 
-            await service.run()
-
-            service._publish_user_assertions.assert_not_awaited()
-            service._publish_event_assertions.assert_awaited_once()
-            service.set_gauge.assert_any_call("assertions_published", 3)
+        service._publish_user_assertions.assert_not_awaited()
+        service._publish_event_assertions.assert_awaited_once()
+        service.set_gauge.assert_any_call("assertions_published", 3)
 
     async def test_run_both_kinds(self) -> None:
-        from bigbrotr.services.assertor.service import Assertor
+        brotr = MagicMock()
+        brotr.get_service_state = AsyncMock(return_value=[])
+        brotr.delete_service_state = AsyncMock(return_value=0)
+        service = _assertor_harness(
+            brotr,
+            config=AssertorConfig(
+                selection={
+                    "kinds": [
+                        EventKind.NIP85_USER_ASSERTION,
+                        EventKind.NIP85_EVENT_ASSERTION,
+                    ]
+                },
+                metrics={"enabled": False},
+            ),
+        )
 
-        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
-            service = Assertor.__new__(Assertor)
-            service._client = MagicMock()
-            service._config = _service_config(
-                kinds=[
-                    EventKind.NIP85_USER_ASSERTION,
-                    EventKind.NIP85_EVENT_ASSERTION,
-                ]
-            )
-            service._brotr = MagicMock()
-            service._brotr.get_service_state = AsyncMock(return_value=[])
-            service._brotr.delete_service_state = AsyncMock(return_value=0)
-            service._logger = MagicMock()
-            service.set_gauge = MagicMock()
+        service._publish_user_assertions = AsyncMock(return_value=(2, 0, 0))
+        service._publish_event_assertions = AsyncMock(return_value=(1, 0, 0))
+        service._publish_addressable_assertions = AsyncMock(return_value=(0, 0, 0))
+        service._publish_identifier_assertions = AsyncMock(return_value=(0, 0, 0))
 
-            service._publish_user_assertions = AsyncMock(return_value=(2, 0, 0))
-            service._publish_event_assertions = AsyncMock(return_value=(1, 0, 0))
-            service._publish_addressable_assertions = AsyncMock(return_value=(0, 0, 0))
-            service._publish_identifier_assertions = AsyncMock(return_value=(0, 0, 0))
+        await service.run()
 
-            await service.run()
-
-            service._publish_user_assertions.assert_awaited_once()
-            service._publish_event_assertions.assert_awaited_once()
-            service.set_gauge.assert_any_call("assertions_published", 3)
+        service._publish_user_assertions.assert_awaited_once()
+        service._publish_event_assertions.assert_awaited_once()
+        service.set_gauge.assert_any_call("assertions_published", 3)
 
     async def test_run_addressable_and_identifier_kinds(self) -> None:
-        from bigbrotr.services.assertor.service import Assertor
+        brotr = MagicMock()
+        brotr.get_service_state = AsyncMock(return_value=[])
+        brotr.delete_service_state = AsyncMock(return_value=0)
+        service = _assertor_harness(
+            brotr,
+            config=AssertorConfig(
+                selection={
+                    "kinds": [
+                        EventKind.NIP85_ADDRESSABLE_ASSERTION,
+                        EventKind.NIP85_IDENTIFIER_ASSERTION,
+                    ]
+                },
+                metrics={"enabled": False},
+            ),
+        )
 
-        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
-            service = Assertor.__new__(Assertor)
-            service._client = MagicMock()
-            service._config = _service_config(
-                kinds=[
-                    EventKind.NIP85_ADDRESSABLE_ASSERTION,
-                    EventKind.NIP85_IDENTIFIER_ASSERTION,
-                ]
-            )
-            service._brotr = MagicMock()
-            service._brotr.get_service_state = AsyncMock(return_value=[])
-            service._brotr.delete_service_state = AsyncMock(return_value=0)
-            service._logger = MagicMock()
-            service.set_gauge = MagicMock()
+        service._publish_user_assertions = AsyncMock(return_value=(0, 0, 0))
+        service._publish_event_assertions = AsyncMock(return_value=(0, 0, 0))
+        service._publish_addressable_assertions = AsyncMock(return_value=(4, 1, 0))
+        service._publish_identifier_assertions = AsyncMock(return_value=(2, 0, 1))
 
-            service._publish_user_assertions = AsyncMock(return_value=(0, 0, 0))
-            service._publish_event_assertions = AsyncMock(return_value=(0, 0, 0))
-            service._publish_addressable_assertions = AsyncMock(return_value=(4, 1, 0))
-            service._publish_identifier_assertions = AsyncMock(return_value=(2, 0, 1))
+        await service.run()
 
-            await service.run()
-
-            service._publish_user_assertions.assert_not_awaited()
-            service._publish_event_assertions.assert_not_awaited()
-            service._publish_addressable_assertions.assert_awaited_once()
-            service._publish_identifier_assertions.assert_awaited_once()
-            service.set_gauge.assert_any_call("assertions_published", 6)
-            service.set_gauge.assert_any_call("assertions_skipped", 1)
-            service.set_gauge.assert_any_call("assertions_failed", 1)
+        service._publish_user_assertions.assert_not_awaited()
+        service._publish_event_assertions.assert_not_awaited()
+        service._publish_addressable_assertions.assert_awaited_once()
+        service._publish_identifier_assertions.assert_awaited_once()
+        service.set_gauge.assert_any_call("assertions_published", 6)
+        service.set_gauge.assert_any_call("assertions_skipped", 1)
+        service.set_gauge.assert_any_call("assertions_failed", 1)
