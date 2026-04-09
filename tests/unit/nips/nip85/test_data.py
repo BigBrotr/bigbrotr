@@ -5,11 +5,24 @@ from __future__ import annotations
 import pytest
 
 from bigbrotr.nips.nip85.data import (
+    AddressableAssertion,
     EventAssertion,
+    IdentifierAssertion,
+    TrustedProviderDeclaration,
     UserAssertion,
     _heatmap_window_end,
     _heatmap_window_start,
 )
+
+
+def test_public_package_exports_all_nip85_models() -> None:
+    import bigbrotr.nips.nip85 as public_nip85
+
+    assert public_nip85.AddressableAssertion is AddressableAssertion
+    assert public_nip85.EventAssertion is EventAssertion
+    assert public_nip85.IdentifierAssertion is IdentifierAssertion
+    assert public_nip85.TrustedProviderDeclaration is TrustedProviderDeclaration
+    assert public_nip85.UserAssertion is UserAssertion
 
 
 class TestUserAssertionProperties:
@@ -173,6 +186,62 @@ class TestEventAssertionFromDbRow:
         assert a.comment_count == 10
         assert a.zap_amount_msats == 100000
         assert a.zap_amount_sats == 100
+
+
+class TestAddressableAssertionProperties:
+    def test_from_db_row_and_zap_amount_sats(self) -> None:
+        row = {
+            "event_address": "30023:" + ("aa" * 32) + ":article",
+            "author_pubkey": "bb" * 32,
+            "rank": 84,
+            "comment_count": 10,
+            "quote_count": 3,
+            "repost_count": 5,
+            "reaction_count": 20,
+            "zap_count": 2,
+            "zap_amount": 100000,
+        }
+
+        a = AddressableAssertion.from_db_row(row)
+
+        assert a.event_address == "30023:" + ("aa" * 32) + ":article"
+        assert a.author_pubkey == "bb" * 32
+        assert a.rank == 84
+        assert a.zap_amount_sats == 100
+
+
+class TestIdentifierAssertionProperties:
+    def test_from_db_row_preserves_k_tags(self) -> None:
+        row = {
+            "identifier": "isbn:9780140328721",
+            "rank": 73,
+            "comment_count": 3,
+            "reaction_count": 4,
+            "k_tags": ["book", "isbn"],
+        }
+
+        a = IdentifierAssertion.from_db_row(row)
+
+        assert a.identifier == "isbn:9780140328721"
+        assert a.rank == 73
+        assert a.k_tags == ("book", "isbn")
+
+
+class TestTrustedProviderDeclaration:
+    def test_tag_shape_matches_kind_10040_spec(self) -> None:
+        declaration = TrustedProviderDeclaration(
+            result_kind=30382,
+            tag_name="rank",
+            service_pubkey="4f" * 32,
+            relay_hint="wss://nip85.nostr.band",
+        )
+
+        assert declaration.kind_tag == "30382:rank"
+        assert declaration.as_tag() == [
+            "30382:rank",
+            "4f" * 32,
+            "wss://nip85.nostr.band",
+        ]
 
 
 class TestHeatmapHelpers:

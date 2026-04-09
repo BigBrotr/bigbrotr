@@ -879,9 +879,9 @@ provider_profile:
 
 The shipped BigBrotr and LilBrotr deployments set `keys.keys_env` to
 `NOSTR_PRIVATE_KEY_ASSERTOR`. If the variable is blank or unset, the config
-generates one ephemeral key once at startup. If you want the Assertor to share
-another service's identity, point `keys.keys_env` at that service's variable or
-set both variables to the same private key value.
+generates one ephemeral key once at startup. To keep a stable NIP-85 identity
+across restarts, set the variable explicitly. Per NIP-85, use a distinct
+service key for each distinct algorithm or personalized point of view.
 
 ### Assertion Reference
 

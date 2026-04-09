@@ -121,6 +121,8 @@ class EventKind(IntEnum):
         RECOMMEND_RELAY: Kind 2 -- legacy relay recommendation (NIP-01, deprecated).
         CONTACTS: Kind 3 -- contact list with relay hints (NIP-02).
         RELAY_LIST: Kind 10002 -- NIP-65 relay list metadata.
+        NIP85_TRUSTED_PROVIDER_LIST: Kind 10040 -- NIP-85 trusted service
+            provider declarations.
         NIP66_TEST: Kind 22456 -- ephemeral NIP-66 relay test event.
         MONITOR_ANNOUNCEMENT: Kind 10166 -- NIP-66 monitor announcement
             (replaceable, published by the
@@ -145,6 +147,7 @@ class EventKind(IntEnum):
     RECOMMEND_RELAY = 2
     CONTACTS = 3
     RELAY_LIST = 10_002
+    NIP85_TRUSTED_PROVIDER_LIST = 10_040
     NIP66_TEST = 22_456
     MONITOR_ANNOUNCEMENT = 10_166
     RELAY_DISCOVERY = 30_166

@@ -1,11 +1,12 @@
 """NIP-85 Trusted Assertion data models.
 
-Frozen dataclasses representing all four trusted-assertion subject types:
-per-pubkey social metrics (kind 30382), per-event engagement metrics
-(kind 30383), per-addressable engagement metrics (kind 30384), and per-NIP-73
-identifier engagement metrics (kind 30385). Each model converts from database
-row format (millisats, heatmap arrays, JSONB topics) to NIP-85 tag format
-(sats, active_hours start/end, top-N topics).
+Frozen dataclasses representing NIP-85 trusted-provider declarations (kind
+10040) and all four trusted-assertion subject types: per-pubkey social metrics
+(kind 30382), per-event engagement metrics (kind 30383), per-addressable
+engagement metrics (kind 30384), and per-NIP-73 identifier engagement metrics
+(kind 30385). Assertion models convert from database row format (millisats,
+heatmap arrays, JSONB topics) to NIP-85 tag format (sats, active_hours
+start/end, top-N topics).
 
 See Also:
     [bigbrotr.nips.event_builders][]: Consumes these models to build
@@ -306,6 +307,25 @@ class IdentifierAssertion:
             reaction_count=int(row.get("reaction_count", 0)),
             k_tags=tuple(str(tag) for tag in raw_k_tags),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedProviderDeclaration:
+    """One NIP-85 kind 10040 trusted service provider declaration tag."""
+
+    result_kind: int
+    tag_name: str
+    service_pubkey: str
+    relay_hint: str
+
+    @property
+    def kind_tag(self) -> str:
+        """Return the NIP-85 ``<kind:tag>`` declaration selector."""
+        return f"{int(self.result_kind)}:{self.tag_name}"
+
+    def as_tag(self) -> list[str]:
+        """Return the kind 10040 tag vector for this provider declaration."""
+        return [self.kind_tag, self.service_pubkey, self.relay_hint]
 
 
 def _heatmap_window_start(hours: tuple[int, ...]) -> int:

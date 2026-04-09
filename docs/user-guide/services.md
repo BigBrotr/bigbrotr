@@ -478,7 +478,15 @@ Each target is isolated by default: one failed refresh does not stop the rest of
     The shipped BigBrotr and LilBrotr deployments configure the Assertor with
     `keys.keys_env: NOSTR_PRIVATE_KEY_ASSERTOR`. If that variable is blank or
     unset, the config generates one ephemeral key once at startup. To keep a
-    stable NIP-85 identity across restarts, set the variable explicitly.
+    stable NIP-85 identity across restarts, set the variable explicitly. Per
+    NIP-85, use a distinct service key for each distinct algorithm or
+    personalized point of view.
+
+!!! note "Trusted Provider Declarations"
+    NIP-85 kind `10040` events declare a user's trusted providers. Those are
+    user/client authorization events, so the Assertor does not publish them as
+    part of its provider flow. The NIP helper layer exposes a dedicated builder
+    for projects that need to create public or NIP-44 encrypted provider lists.
 
 !!! tip "API Reference"
     See [`bigbrotr.services.assertor`](../reference/services/assertor/index.md) for the complete Assertor API.

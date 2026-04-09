@@ -3,7 +3,8 @@
 Standalone functions for constructing Nostr events from typed NIP data
 models. Used by the Monitor service for publishing profile (Kind 0),
 monitor announcement (Kind 10166), and relay discovery (Kind 30166) events,
-and by the Assertor service for NIP-85 trusted assertions (Kind 30382-30385).
+and for NIP-85 trusted provider lists (Kind 10040) plus trusted assertions
+(Kind 30382-30385).
 
 See Also:
     [bigbrotr.nips.nip66.data][bigbrotr.nips.nip66.data]: Typed data models
@@ -27,7 +28,7 @@ from bigbrotr.models.metadata import Metadata, MetadataType
 
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from bigbrotr.models.relay import Relay
     from bigbrotr.nips.nip11.data import Nip11InfoData
@@ -46,6 +47,7 @@ if TYPE_CHECKING:
         AddressableAssertion,
         EventAssertion,
         IdentifierAssertion,
+        TrustedProviderDeclaration,
         UserAssertion,
     )
 
@@ -104,6 +106,21 @@ def build_relay_list_event(relays: list[Relay]) -> EventBuilder:
     """Build a Kind 10002 relay list metadata event per NIP-65."""
     tags = [Tag.parse(["r", relay.url, "write"]) for relay in relays]
     return EventBuilder(Kind(EventKind.RELAY_LIST), "").tags(tags)
+
+
+def build_trusted_provider_list(
+    declarations: Sequence[TrustedProviderDeclaration],
+    *,
+    content: str = "",
+) -> EventBuilder:
+    """Build a Kind 10040 NIP-85 trusted service provider list event.
+
+    ``content`` may carry a caller-provided NIP-44 encrypted JSON tag list for
+    private declarations. Public declarations are emitted as ``<kind:tag>``,
+    service pubkey, and relay hint tag vectors.
+    """
+    tags = [Tag.parse(declaration.as_tag()) for declaration in declarations]
+    return EventBuilder(Kind(EventKind.NIP85_TRUSTED_PROVIDER_LIST), content).tags(tags)
 
 
 def build_monitor_announcement(  # noqa: PLR0913
@@ -526,5 +543,6 @@ __all__ = [
     "build_profile_event",
     "build_relay_discovery",
     "build_relay_list_event",
+    "build_trusted_provider_list",
     "build_user_assertion",
 ]
