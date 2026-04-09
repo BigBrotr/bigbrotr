@@ -4,7 +4,7 @@
  * Post-initialization verification script. Prints a summary of all created
  * database objects to confirm successful schema setup.
  *
- * Dependencies: All previous initialization files (00-08)
+ * Dependencies: All previous initialization files (00-12)
  */
 
 DO $$
@@ -14,7 +14,7 @@ BEGIN
     RAISE NOTICE '============================================================================';
     RAISE NOTICE '';
     RAISE NOTICE 'Roles:';
-    RAISE NOTICE '  writer (DML + EXECUTE), reader (SELECT + EXECUTE + pg_monitor), refresher (matview owner)';
+    RAISE NOTICE '  writer (DML + EXECUTE), reader (SELECT + EXECUTE + pg_monitor), refresher (derived-state maintainer)';
     RAISE NOTICE '';
     RAISE NOTICE 'Extensions:';
     RAISE NOTICE '  btree_gin, pg_stat_statements';
@@ -22,7 +22,14 @@ BEGIN
     RAISE NOTICE 'Tables:';
     RAISE NOTICE '  relay, event (HASH x), event_relay (HASH x), metadata, relay_metadata, service_state';
     RAISE NOTICE '';
-    RAISE NOTICE 'Summary Tables (6):';
+    RAISE NOTICE 'Current Tables (5):';
+    RAISE NOTICE '  relay_metadata_current';
+    RAISE NOTICE '  events_replaceable_current, events_addressable_current';
+    RAISE NOTICE '  contact_lists_current, contact_list_edges_current';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Analytics Summary Tables (9):';
+    RAISE NOTICE '  daily_counts';
+    RAISE NOTICE '  relay_software_counts, supported_nip_counts';
     RAISE NOTICE '  pubkey_kind_stats, pubkey_relay_stats, relay_kind_stats';
     RAISE NOTICE '  pubkey_stats, kind_stats, relay_stats';
     RAISE NOTICE '';
@@ -43,7 +50,14 @@ BEGIN
     RAISE NOTICE 'Cleanup Functions:';
     RAISE NOTICE '  orphan_metadata_delete, orphan_event_delete';
     RAISE NOTICE '';
-    RAISE NOTICE 'Summary Refresh Functions (8):';
+    RAISE NOTICE 'Current Refresh Functions (5):';
+    RAISE NOTICE '  relay_metadata_current_refresh';
+    RAISE NOTICE '  events_replaceable_current_refresh, events_addressable_current_refresh';
+    RAISE NOTICE '  contact_lists_current_refresh, contact_list_edges_current_refresh';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Analytics Summary Refresh Functions (11):';
+    RAISE NOTICE '  daily_counts_refresh';
+    RAISE NOTICE '  relay_software_counts_refresh, supported_nip_counts_refresh';
     RAISE NOTICE '  pubkey_kind_stats_refresh, pubkey_relay_stats_refresh, relay_kind_stats_refresh';
     RAISE NOTICE '  pubkey_stats_refresh, kind_stats_refresh, relay_stats_refresh';
     RAISE NOTICE '  rolling_windows_refresh, relay_stats_metadata_refresh';
@@ -52,17 +66,11 @@ BEGIN
     RAISE NOTICE '  nip85_pubkey_stats_refresh, nip85_event_stats_refresh';
     RAISE NOTICE '  nip85_follower_count_refresh';
     RAISE NOTICE '';
-    RAISE NOTICE 'Materialized Views (6):';
-    RAISE NOTICE '  relay_metadata_latest';
-    RAISE NOTICE '  relay_software_counts, supported_nip_counts';
-    RAISE NOTICE '  daily_counts';
-    RAISE NOTICE '  events_replaceable_latest, events_addressable_latest';
+    RAISE NOTICE 'Reporting Views (0):';
+    RAISE NOTICE '  (none)';
     RAISE NOTICE '';
-    RAISE NOTICE 'Matview Refresh Functions (6):';
-    RAISE NOTICE '  relay_metadata_latest_refresh';
-    RAISE NOTICE '  relay_software_counts_refresh, supported_nip_counts_refresh';
-    RAISE NOTICE '  daily_counts_refresh';
-    RAISE NOTICE '  events_replaceable_latest_refresh, events_addressable_latest_refresh';
+    RAISE NOTICE 'View Refresh Functions (0):';
+    RAISE NOTICE '  (none)';
     RAISE NOTICE '';
     RAISE NOTICE 'Note: Event table tags, content, and sig are nullable (always NULL).';
     RAISE NOTICE '      Ordered tagvalues is still computed at insert time and used for filtering plus analytics fallback.';

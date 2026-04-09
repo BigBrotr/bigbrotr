@@ -1,16 +1,12 @@
 /*
-{% block header_comment %}
- * Brotr - 04_functions_cleanup.sql
+ * Brotr - 06_functions_cleanup.sql
  *
  * Cleanup functions that remove orphaned records to maintain data integrity.
  * These should be run periodically or after bulk deletions from parent tables.
  *
- * Dependencies: 02_tables.sql
-{% endblock %}
+ * Dependencies: 02_tables_core.sql
  */
 
-
-{% block cleanup_functions %}
 /*
  * orphan_metadata_delete(p_batch_size) -> INTEGER
  *
@@ -96,5 +92,3 @@ $$;
 
 COMMENT ON FUNCTION orphan_event_delete(INTEGER) IS
 'Delete events without any relay association in batches to limit lock duration';
-{% endblock %}
-{% block extra_cleanup_functions %}{% endblock %}

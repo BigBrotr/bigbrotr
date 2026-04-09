@@ -2,24 +2,26 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import asyncpg
 import pytest
 
 from bigbrotr.core.brotr import Brotr, BrotrConfig
+from bigbrotr.models.constants import ServiceName
+from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.refresher import RefreshConfig, Refresher, RefresherConfig
-from bigbrotr.services.refresher.configs import DEFAULT_MATVIEWS, DEFAULT_SUMMARIES
-
-
-# ============================================================================
-# Fixtures
-# ============================================================================
+from bigbrotr.services.refresher.configs import (
+    DEFAULT_ANALYTICS_TABLES,
+    DEFAULT_CURRENT_TABLES,
+    resolve_analytics_table_order,
+    resolve_current_table_order,
+    validate_refresh_dependencies,
+)
 
 
 @pytest.fixture
 def mock_refresher_brotr(mock_brotr: Brotr) -> Brotr:
-    mock_brotr.refresh_materialized_view = AsyncMock()  # type: ignore[method-assign]
     mock_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
     mock_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
     mock_brotr.delete_service_state = AsyncMock(return_value=0)  # type: ignore[method-assign]
@@ -34,65 +36,25 @@ def mock_refresher_brotr(mock_brotr: Brotr) -> Brotr:
     return mock_brotr
 
 
-# ============================================================================
-# Configs — RefreshConfig
-# ============================================================================
-
-
 class TestRefreshConfig:
     def test_default_values(self) -> None:
         config = RefreshConfig()
 
-        assert config.matviews == DEFAULT_MATVIEWS
-        assert config.summaries == DEFAULT_SUMMARIES
-        assert len(config.matviews) == 6
-        assert len(config.summaries) == 8
+        assert config.current_tables == DEFAULT_CURRENT_TABLES
+        assert config.analytics_tables == DEFAULT_ANALYTICS_TABLES
 
-    def test_default_matviews_dependency_order(self) -> None:
-        config = RefreshConfig()
-        matviews = config.matviews
+    def test_default_lists_are_independent_copies(self) -> None:
+        config1 = RefreshConfig()
+        config2 = RefreshConfig()
 
-        # relay_metadata_latest must come before dependent views
-        rml_idx = matviews.index("relay_metadata_latest")
-        rsc_idx = matviews.index("relay_software_counts")
-        snc_idx = matviews.index("supported_nip_counts")
-        assert rml_idx < rsc_idx
-        assert rml_idx < snc_idx
+        assert config1.current_tables is not config2.current_tables
+        assert config1.analytics_tables is not config2.analytics_tables
 
-    def test_default_summaries_dependency_order(self) -> None:
-        config = RefreshConfig()
-        summaries = config.summaries
+    def test_empty_lists_are_allowed(self) -> None:
+        config = RefreshConfig(current_tables=[], analytics_tables=[])
 
-        # Cross-tabs must come before entity tables
-        pks_idx = summaries.index("pubkey_kind_stats")
-        prs_idx = summaries.index("pubkey_relay_stats")
-        rks_idx = summaries.index("relay_kind_stats")
-        ps_idx = summaries.index("pubkey_stats")
-        ks_idx = summaries.index("kind_stats")
-        rs_idx = summaries.index("relay_stats")
-
-        assert pks_idx < ps_idx
-        assert pks_idx < ks_idx
-        assert prs_idx < ps_idx
-        assert prs_idx < rs_idx
-        assert rks_idx < ks_idx
-        assert rks_idx < rs_idx
-
-    def test_custom_matviews(self) -> None:
-        config = RefreshConfig(matviews=["relay_metadata_latest"])
-        assert config.matviews == ["relay_metadata_latest"]
-
-    def test_custom_summaries(self) -> None:
-        config = RefreshConfig(summaries=["pubkey_stats"])
-        assert config.summaries == ["pubkey_stats"]
-
-    def test_empty_matviews_rejected(self) -> None:
-        with pytest.raises(ValueError, match="matviews list must not be empty"):
-            RefreshConfig(matviews=[])
-
-    def test_empty_summaries_rejected(self) -> None:
-        with pytest.raises(ValueError, match="summaries list must not be empty"):
-            RefreshConfig(summaries=[])
+        assert config.current_tables == []
+        assert config.analytics_tables == []
 
     @pytest.mark.parametrize(
         "name",
@@ -100,14 +62,15 @@ class TestRefreshConfig:
             "relay_stats",
             "daily_counts",
             "a",
-            "_private_view",
-            "view123",
+            "_private_table",
+            "table123",
         ],
     )
-    def test_valid_names_accepted(self, name: str) -> None:
-        config = RefreshConfig(matviews=[name], summaries=[name])
-        assert config.matviews == [name]
-        assert config.summaries == [name]
+    def test_valid_names_are_accepted(self, name: str) -> None:
+        config = RefreshConfig(current_tables=[name], analytics_tables=[name])
+
+        assert config.current_tables == [name]
+        assert config.analytics_tables == [name]
 
     @pytest.mark.parametrize(
         "name",
@@ -120,57 +83,95 @@ class TestRefreshConfig:
             "semi;colon",
         ],
     )
-    def test_invalid_names_rejected(self, name: str) -> None:
+    def test_invalid_names_are_rejected(self, name: str) -> None:
         with pytest.raises(ValueError, match="invalid"):
-            RefreshConfig(matviews=[name])
+            RefreshConfig(current_tables=[name])
+
         with pytest.raises(ValueError, match="invalid"):
-            RefreshConfig(summaries=[name])
+            RefreshConfig(analytics_tables=[name])
 
-    def test_default_lists_are_independent_copies(self) -> None:
-        config1 = RefreshConfig()
-        config2 = RefreshConfig()
-        assert config1.matviews is not config2.matviews
-        assert config1.summaries is not config2.summaries
+    def test_current_table_order_resolution_is_canonical(self) -> None:
+        ordered = resolve_current_table_order(
+            [
+                "contact_list_edges_current",
+                "events_replaceable_current",
+                "relay_metadata_current",
+                "contact_lists_current",
+            ]
+        )
 
+        assert ordered == [
+            "relay_metadata_current",
+            "events_replaceable_current",
+            "contact_lists_current",
+            "contact_list_edges_current",
+        ]
 
-# ============================================================================
-# Configs — RefresherConfig
-# ============================================================================
+    def test_analytics_table_order_resolution_is_canonical(self) -> None:
+        ordered = resolve_analytics_table_order(
+            [
+                "relay_stats",
+                "pubkey_relay_stats",
+                "pubkey_stats",
+                "daily_counts",
+                "pubkey_kind_stats",
+            ]
+        )
+
+        assert ordered == [
+            "daily_counts",
+            "pubkey_kind_stats",
+            "pubkey_relay_stats",
+            "pubkey_stats",
+            "relay_stats",
+        ]
+
+    def test_dependency_validation_accepts_complete_selection(self) -> None:
+        validate_refresh_dependencies(
+            current_tables=["events_replaceable_current", "contact_lists_current"],
+            analytics_tables=["relay_metadata_current", "relay_software_counts"],
+        )
+
+    def test_dependency_validation_rejects_missing_upstream(self) -> None:
+        with pytest.raises(ValueError, match="contact_list_edges_current requires"):
+            validate_refresh_dependencies(
+                current_tables=["contact_list_edges_current"],
+                analytics_tables=[],
+            )
 
 
 class TestRefresherConfig:
     def test_default_values(self) -> None:
         config = RefresherConfig()
 
-        assert config.refresh.matviews == DEFAULT_MATVIEWS
-        assert config.refresh.summaries == DEFAULT_SUMMARIES
+        assert config.refresh.current_tables == DEFAULT_CURRENT_TABLES
+        assert config.refresh.analytics_tables == DEFAULT_ANALYTICS_TABLES
         assert config.interval == 86400.0
         assert config.max_consecutive_failures == 5
 
     def test_custom_nested_config(self) -> None:
         config = RefresherConfig(
-            refresh=RefreshConfig(matviews=["relay_metadata_latest"], summaries=["pubkey_stats"]),
+            refresh=RefreshConfig(
+                current_tables=["events_replaceable_current"],
+                analytics_tables=["pubkey_stats"],
+            ),
         )
-        assert config.refresh.matviews == ["relay_metadata_latest"]
-        assert config.refresh.summaries == ["pubkey_stats"]
+
+        assert config.refresh.current_tables == ["events_replaceable_current"]
+        assert config.refresh.analytics_tables == ["pubkey_stats"]
 
     def test_from_dict_nested(self) -> None:
-        data = {
-            "refresh": {
-                "matviews": ["relay_metadata_latest"],
-                "summaries": ["pubkey_stats", "kind_stats"],
+        config = RefresherConfig(
+            refresh={
+                "current_tables": ["events_replaceable_current"],
+                "analytics_tables": ["pubkey_stats", "kind_stats"],
             },
-            "interval": 1800.0,
-        }
-        config = RefresherConfig(**data)
-        assert config.refresh.matviews == ["relay_metadata_latest"]
-        assert config.refresh.summaries == ["pubkey_stats", "kind_stats"]
+            interval=1800.0,
+        )
+
+        assert config.refresh.current_tables == ["events_replaceable_current"]
+        assert config.refresh.analytics_tables == ["pubkey_stats", "kind_stats"]
         assert config.interval == 1800.0
-
-
-# ============================================================================
-# Service — Init
-# ============================================================================
 
 
 class TestRefresherInit:
@@ -179,41 +180,101 @@ class TestRefresherInit:
 
         assert refresher._brotr is mock_refresher_brotr
         assert refresher.SERVICE_NAME == "refresher"
-        assert refresher.config.refresh.matviews == DEFAULT_MATVIEWS
-        assert refresher.config.refresh.summaries == DEFAULT_SUMMARIES
+        assert refresher.config.refresh.current_tables == DEFAULT_CURRENT_TABLES
+        assert refresher.config.refresh.analytics_tables == DEFAULT_ANALYTICS_TABLES
         assert refresher._logger is not None
 
     def test_init_with_custom_config(self, mock_refresher_brotr: Brotr) -> None:
         config = RefresherConfig(
-            refresh=RefreshConfig(matviews=["relay_metadata_latest"], summaries=["pubkey_stats"]),
+            refresh=RefreshConfig(
+                current_tables=["events_replaceable_current"],
+                analytics_tables=["daily_counts", "pubkey_kind_stats"],
+            ),
         )
         refresher = Refresher(brotr=mock_refresher_brotr, config=config)
 
-        assert refresher.config.refresh.matviews == ["relay_metadata_latest"]
-        assert refresher.config.refresh.summaries == ["pubkey_stats"]
+        assert refresher.config.refresh.current_tables == ["events_replaceable_current"]
+        assert refresher.config.refresh.analytics_tables == ["daily_counts", "pubkey_kind_stats"]
+
+    def test_init_reorders_known_tables_canonically(self, mock_refresher_brotr: Brotr) -> None:
+        config = RefresherConfig(
+            refresh=RefreshConfig(
+                current_tables=[
+                    "contact_list_edges_current",
+                    "events_replaceable_current",
+                    "contact_lists_current",
+                ],
+                analytics_tables=[
+                    "relay_stats",
+                    "pubkey_relay_stats",
+                    "pubkey_kind_stats",
+                    "relay_kind_stats",
+                    "daily_counts",
+                    "pubkey_stats",
+                ],
+            ),
+        )
+
+        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
+
+        assert refresher.config.refresh.current_tables == [
+            "events_replaceable_current",
+            "contact_lists_current",
+            "contact_list_edges_current",
+        ]
+        assert refresher.config.refresh.analytics_tables == [
+            "daily_counts",
+            "pubkey_kind_stats",
+            "pubkey_relay_stats",
+            "relay_kind_stats",
+            "pubkey_stats",
+            "relay_stats",
+        ]
+
+    def test_init_rejects_missing_current_dependency(self, mock_refresher_brotr: Brotr) -> None:
+        config = RefresherConfig(
+            refresh=RefreshConfig(
+                current_tables=["contact_list_edges_current"],
+                analytics_tables=[],
+            ),
+        )
+
+        with pytest.raises(ValueError, match="contact_list_edges_current requires"):
+            Refresher(brotr=mock_refresher_brotr, config=config)
+
+    def test_init_rejects_missing_analytics_dependency(self, mock_refresher_brotr: Brotr) -> None:
+        config = RefresherConfig(
+            refresh=RefreshConfig(
+                current_tables=[],
+                analytics_tables=["supported_nip_counts"],
+            ),
+        )
+
+        with pytest.raises(ValueError, match="supported_nip_counts requires"):
+            Refresher(brotr=mock_refresher_brotr, config=config)
 
     def test_config_class_attribute(self) -> None:
         assert Refresher.CONFIG_CLASS is RefresherConfig
 
 
-# ============================================================================
-# Service — cleanup
-# ============================================================================
-
-
 class TestRefresherCleanup:
     async def test_cleanup_no_stale(self, mock_refresher_brotr: Brotr) -> None:
         mock_refresher_brotr.get_service_state = AsyncMock(return_value=[])  # type: ignore[method-assign]
-        refresher = Refresher(brotr=mock_refresher_brotr)
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=RefresherConfig(
+                refresh=RefreshConfig(
+                    current_tables=["events_replaceable_current"],
+                    analytics_tables=[],
+                )
+            ),
+        )
 
         result = await refresher.cleanup()
 
         assert result == 0
 
     async def test_cleanup_removes_stale_checkpoints(self, mock_refresher_brotr: Brotr) -> None:
-        from bigbrotr.models.constants import ServiceName
-        from bigbrotr.models.service_state import ServiceState, ServiceStateType
-
         stale = ServiceState(
             service_name=ServiceName.REFRESHER,
             state_type=ServiceStateType.CHECKPOINT,
@@ -223,7 +284,7 @@ class TestRefresherCleanup:
         current = ServiceState(
             service_name=ServiceName.REFRESHER,
             state_type=ServiceStateType.CHECKPOINT,
-            state_key="pubkey_stats",
+            state_key="pubkey_kind_stats",
             state_value={"timestamp": 200},
         )
         mock_refresher_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
@@ -231,214 +292,186 @@ class TestRefresherCleanup:
         )
         mock_refresher_brotr.delete_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
 
-        config = RefresherConfig(
-            refresh=RefreshConfig(
-                matviews=["relay_metadata_latest"],
-                summaries=["pubkey_stats"],
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=RefresherConfig(
+                refresh=RefreshConfig(
+                    current_tables=[],
+                    analytics_tables=["pubkey_kind_stats"],
+                )
             ),
         )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
 
         result = await refresher.cleanup()
 
         assert result == 1
         mock_refresher_brotr.delete_service_state.assert_called_once()
-        call_kwargs = mock_refresher_brotr.delete_service_state.call_args[1]
+        call_kwargs = mock_refresher_brotr.delete_service_state.call_args.kwargs
         assert call_kwargs["state_keys"] == ["old_removed_table"]
 
 
-# ============================================================================
-# Service — run (matviews)
-# ============================================================================
-
-
-class TestRefresherRunMatviews:
-    async def test_refreshes_matviews(self, mock_refresher_brotr: Brotr) -> None:
-        config = RefresherConfig(
-            refresh=RefreshConfig(
-                matviews=["relay_metadata_latest", "daily_counts"],
-                summaries=["pubkey_stats"],
-            ),
-        )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
-
-        await refresher.run()
-
-        assert mock_refresher_brotr.refresh_materialized_view.call_count == 2
-        calls = [
-            call[0][0] for call in mock_refresher_brotr.refresh_materialized_view.call_args_list
-        ]
-        assert calls == ["relay_metadata_latest", "daily_counts"]
-
-    @pytest.mark.parametrize(
-        "error",
-        [
-            asyncpg.PostgresError("db_error"),
-            OSError("connection_reset"),
-        ],
-        ids=["postgres_error", "os_error"],
-    )
-    async def test_continues_on_matview_failure(
-        self, mock_refresher_brotr: Brotr, error: Exception
+class TestRefresherRun:
+    async def test_uses_relay_metadata_watermark_for_metadata_tables(
+        self, mock_refresher_brotr: Brotr
     ) -> None:
-        mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=[None, error, None]
-        )
-
-        config = RefresherConfig(
-            refresh=RefreshConfig(
-                matviews=["relay_metadata_latest", "daily_counts", "supported_nip_counts"],
-                summaries=["pubkey_stats"],
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=RefresherConfig(
+                refresh=RefreshConfig(
+                    current_tables=["relay_metadata_current"],
+                    analytics_tables=[],
+                )
             ),
         )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
 
-        await refresher.run()
-
-        assert mock_refresher_brotr.refresh_materialized_view.call_count == 3
-
-
-# ============================================================================
-# Service — run (summaries)
-# ============================================================================
-
-
-class TestRefresherRunSummaries:
-    async def test_no_new_data_skips_refresh(self, mock_refresher_brotr: Brotr) -> None:
-        # EXISTS returns False -> no new data
-        mock_refresher_brotr.fetchval = AsyncMock(return_value=False)  # type: ignore[method-assign]
-
-        config = RefresherConfig(
-            refresh=RefreshConfig(
-                matviews=["relay_metadata_latest"],
-                summaries=["pubkey_stats"],
-            ),
-        )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
-
-        await refresher.run()
-
-        # Should not call any summary refresh (no new data)
-        fetchval_calls = mock_refresher_brotr.fetchval.call_args_list
-        # Only get_max_seen_at EXISTS check is called, not the refresh function
-        assert all("_refresh" not in str(c) for c in fetchval_calls)
-
-    async def test_new_data_triggers_refresh(self, mock_refresher_brotr: Brotr) -> None:
-        # fetchval: EXISTS=True, then row count for each of 8 summaries
-        mock_refresher_brotr.fetchval = AsyncMock(  # type: ignore[method-assign]
-            side_effect=[True, 5, True, 3, True, 2, True, 10, True, 8, True, 7, True, 4, True, 6]
-        )
-
-        config = RefresherConfig(
-            refresh=RefreshConfig(
-                matviews=["relay_metadata_latest"],
-                summaries=DEFAULT_SUMMARIES,
-            ),
-        )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
-
-        await refresher.run()
-
-        # Should upsert checkpoint for each summary
-        assert mock_refresher_brotr.upsert_service_state.call_count == 8
-
-    async def test_summary_failure_continues(self, mock_refresher_brotr: Brotr) -> None:
-        mock_refresher_brotr.fetchval = AsyncMock(  # type: ignore[method-assign]
-            side_effect=[True, asyncpg.PostgresError("error"), True, 5]
-        )
-
-        config = RefresherConfig(
-            refresh=RefreshConfig(
-                matviews=["relay_metadata_latest"],
-                summaries=["pubkey_kind_stats", "pubkey_stats"],
-            ),
-        )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
-
-        with patch.object(refresher._logger, "error") as mock_error:
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.get_max_generated_at",
+                AsyncMock(return_value=5),
+            ) as mock_generated,
+            patch(
+                "bigbrotr.services.refresher.service.get_max_seen_at", AsyncMock(return_value=5)
+            ) as mock_seen,
+            patch("bigbrotr.services.refresher.service.refresh_summary", AsyncMock(return_value=1)),
+            patch("bigbrotr.services.refresher.service.refresh_rolling_windows", AsyncMock()),
+            patch("bigbrotr.services.refresher.service.refresh_relay_metadata", AsyncMock()),
+            patch("bigbrotr.services.refresher.service.refresh_nip85_followers", AsyncMock()),
+        ):
             await refresher.run()
 
-            error_calls = [
-                c for c in mock_error.call_args_list if c[0][0] == "summary_refresh_failed"
-            ]
-            assert len(error_calls) == 1
+        mock_generated.assert_awaited_once_with(mock_refresher_brotr, 0)
+        mock_seen.assert_not_called()
 
-
-# ============================================================================
-# Service — run (completion counts)
-# ============================================================================
-
-
-class TestRefresherRunCounts:
-    async def test_refresh_completed_counts(self, mock_refresher_brotr: Brotr) -> None:
-        # 1 matview success, 1 summary with new data (EXISTS=True, row count=5)
-        mock_refresher_brotr.fetchval = AsyncMock(side_effect=[True, 5])  # type: ignore[method-assign]
-
-        config = RefresherConfig(
-            refresh=RefreshConfig(
-                matviews=["relay_metadata_latest"],
-                summaries=["pubkey_stats"],
+    async def test_no_new_data_skips_incremental_refresh(self, mock_refresher_brotr: Brotr) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=RefresherConfig(
+                refresh=RefreshConfig(
+                    current_tables=[],
+                    analytics_tables=["pubkey_kind_stats"],
+                )
             ),
         )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
 
-        with patch.object(refresher._logger, "info") as mock_log:
+        with (
+            patch("bigbrotr.services.refresher.service.get_max_seen_at", AsyncMock(return_value=0)),
+            patch(
+                "bigbrotr.services.refresher.service.refresh_summary", AsyncMock()
+            ) as mock_refresh,
+            patch("bigbrotr.services.refresher.service.refresh_rolling_windows", AsyncMock()),
+            patch("bigbrotr.services.refresher.service.refresh_relay_metadata", AsyncMock()),
+            patch("bigbrotr.services.refresher.service.refresh_nip85_followers", AsyncMock()),
+        ):
             await refresher.run()
 
-            cycle_calls = [c for c in mock_log.call_args_list if c[0][0] == "refresh_completed"]
-            assert len(cycle_calls) == 1
-            # 1 matview + 1 summary + 3 periodic = 5 refreshed
-            assert cycle_calls[0][1]["refreshed"] == 5
-            assert cycle_calls[0][1]["failed"] == 0
+        mock_refresh.assert_not_awaited()
+        mock_refresher_brotr.upsert_service_state.assert_not_awaited()
 
-    async def test_all_fail(self, mock_refresher_brotr: Brotr) -> None:
-        mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=asyncpg.PostgresError("error")
-        )
-        mock_refresher_brotr.fetchval = AsyncMock(  # type: ignore[method-assign]
-            side_effect=asyncpg.PostgresError("error")
-        )
-        mock_refresher_brotr.execute = AsyncMock(  # type: ignore[method-assign]
-            side_effect=asyncpg.PostgresError("error")
-        )
-
-        config = RefresherConfig(
-            refresh=RefreshConfig(
-                matviews=["relay_metadata_latest"],
-                summaries=["pubkey_stats"],
+    async def test_new_data_triggers_current_and_analytics_refresh(
+        self, mock_refresher_brotr: Brotr
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=RefresherConfig(
+                refresh=RefreshConfig(
+                    current_tables=["events_replaceable_current"],
+                    analytics_tables=["pubkey_kind_stats"],
+                )
             ),
         )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
 
-        with patch.object(refresher._logger, "info") as mock_log:
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.get_max_seen_at",
+                AsyncMock(side_effect=[11, 22]),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.refresh_summary", AsyncMock(side_effect=[7, 9])
+            ) as mock_refresh,
+            patch("bigbrotr.services.refresher.service.refresh_rolling_windows", AsyncMock()),
+            patch("bigbrotr.services.refresher.service.refresh_relay_metadata", AsyncMock()),
+            patch("bigbrotr.services.refresher.service.refresh_nip85_followers", AsyncMock()),
+            patch.object(refresher._logger, "info") as mock_info,
+        ):
             await refresher.run()
 
-            cycle_calls = [c for c in mock_log.call_args_list if c[0][0] == "refresh_completed"]
-            assert cycle_calls[0][1]["refreshed"] == 0
-            # 1 matview + 1 summary + 3 periodic = 5 failed
-            assert cycle_calls[0][1]["failed"] == 5
+        assert mock_refresh.await_args_list == [
+            call(mock_refresher_brotr, "events_replaceable_current", 0, 11),
+            call(mock_refresher_brotr, "pubkey_kind_stats", 0, 22),
+        ]
+        assert mock_refresher_brotr.upsert_service_state.await_count == 2
 
+        refresh_completed = [
+            call for call in mock_info.call_args_list if call.args[0] == "refresh_completed"
+        ]
+        assert len(refresh_completed) == 1
+        assert refresh_completed[0].kwargs["refreshed"] == 5
+        assert refresh_completed[0].kwargs["failed"] == 0
 
-# ============================================================================
-# Metrics
-# ============================================================================
+    async def test_refresh_failures_continue_to_later_targets(
+        self, mock_refresher_brotr: Brotr
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=RefresherConfig(
+                refresh=RefreshConfig(
+                    current_tables=["events_replaceable_current"],
+                    analytics_tables=["pubkey_kind_stats"],
+                )
+            ),
+        )
+
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.get_max_seen_at",
+                AsyncMock(side_effect=[11, 22]),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.refresh_summary",
+                AsyncMock(side_effect=[asyncpg.PostgresError("boom"), 9]),
+            ),
+            patch("bigbrotr.services.refresher.service.refresh_rolling_windows", AsyncMock()),
+            patch("bigbrotr.services.refresher.service.refresh_relay_metadata", AsyncMock()),
+            patch("bigbrotr.services.refresher.service.refresh_nip85_followers", AsyncMock()),
+            patch.object(refresher._logger, "error") as mock_error,
+            patch.object(refresher._logger, "info") as mock_info,
+        ):
+            await refresher.run()
+
+        error_events = [call.args[0] for call in mock_error.call_args_list]
+        assert "current_refresh_failed" in error_events
+
+        refresh_completed = [
+            call for call in mock_info.call_args_list if call.args[0] == "refresh_completed"
+        ]
+        assert len(refresh_completed) == 1
+        assert refresh_completed[0].kwargs["refreshed"] == 4
+        assert refresh_completed[0].kwargs["failed"] == 1
 
 
 class TestRefresherMetrics:
     async def test_gauges_reset_at_start(self, mock_refresher_brotr: Brotr) -> None:
-        config = RefresherConfig(
-            refresh=RefreshConfig(
-                matviews=["relay_metadata_latest"],
-                summaries=["pubkey_stats"],
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=RefresherConfig(
+                refresh=RefreshConfig(
+                    current_tables=[],
+                    analytics_tables=["pubkey_kind_stats"],
+                )
             ),
         )
-        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
 
-        with patch.object(refresher, "set_gauge") as mock_gauge:
+        with (
+            patch("bigbrotr.services.refresher.service.get_max_seen_at", AsyncMock(return_value=0)),
+            patch("bigbrotr.services.refresher.service.refresh_summary", AsyncMock()),
+            patch("bigbrotr.services.refresher.service.refresh_rolling_windows", AsyncMock()),
+            patch("bigbrotr.services.refresher.service.refresh_relay_metadata", AsyncMock()),
+            patch("bigbrotr.services.refresher.service.refresh_nip85_followers", AsyncMock()),
+            patch.object(refresher, "set_gauge") as mock_gauge,
+        ):
             await refresher.run()
 
-            first_three = mock_gauge.call_args_list[:3]
-            # 1 matview + 1 summary + 3 periodic tasks = 5
-            assert first_three[0] == (("views_total", 5),)
-            assert first_three[1] == (("views_refreshed", 0),)
-            assert first_three[2] == (("views_failed", 0),)
+        first_three = mock_gauge.call_args_list[:3]
+        assert first_three[0] == call("targets_total", 4)
+        assert first_three[1] == call("targets_refreshed", 0)
+        assert first_three[2] == call("targets_failed", 0)

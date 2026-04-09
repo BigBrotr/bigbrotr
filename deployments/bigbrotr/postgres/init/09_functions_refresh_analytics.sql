@@ -1,42 +1,14 @@
 /*
-{% block header_comment %}
- * Brotr - 07_functions_refresh.sql
+ * Brotr - 09_functions_refresh_analytics.sql
  *
- * Refresh functions for the analytics layer.
+ * Refresh functions for analytics tables and periodic reconciliations.
  *
- * Materialized views use REFRESH MATERIALIZED VIEW CONCURRENTLY (requires
- * unique indexes from 08_indexes.sql).
+ * Analytics tables use pure incremental SQL functions that receive a
+ * caller-managed watermark range. The Python refresher service owns
+ * dependency order, checkpointing, and periodic reconciliations.
  *
- * Summary tables use pure incremental functions that receive a
- * (p_after, p_until) range of event_relay.seen_at timestamps from the
- * caller. The caller (Python refresher service) manages checkpoints and
- * orchestrates the refresh cycle.
- *
- * Dependencies: 06_materialized_views.sql
-{% endblock %}
+ * Dependencies: 03_tables_current.sql, 04_tables_analytics.sql
  */
-
-
-{% block base_refresh_functions %}
-/*
- * relay_metadata_latest_refresh() -> VOID
- *
- * Refreshes the relay_metadata_latest view concurrently.
- * Schedule: Daily via cron or application scheduler.
- */
-CREATE OR REPLACE FUNCTION relay_metadata_latest_refresh()
-RETURNS VOID
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY relay_metadata_latest;
-END;
-$$;
-
-COMMENT ON FUNCTION relay_metadata_latest_refresh() IS
-'Refresh relay_metadata_latest concurrently. Schedule daily.';
-{% endblock %}
-{% block extra_refresh_functions %}
 
 
 -- **************************************************************************
@@ -567,6 +539,201 @@ COMMENT ON FUNCTION relay_stats_refresh(BIGINT, BIGINT) IS
 
 
 -- **************************************************************************
+-- SUMMARY TABLE REFRESH: Canonical contact-list facts
+-- **************************************************************************
+-- These tables derive current follow-graph facts from current kind=3 events.
+-- contact_lists_current captures one row per follower's current latest list;
+-- contact_list_edges_current expands that into deduplicated current edges.
+-- **************************************************************************
+
+
+/*
+ * contact_lists_current_refresh(p_after, p_until) -> INTEGER
+ *
+ * Tracks current latest kind=3 contact list events from
+ * events_replaceable_current. A follower is impacted only when their current
+ * winning kind=3 event first became visible in the given seen_at range.
+ */
+CREATE OR REPLACE FUNCTION contact_lists_current_refresh(
+    p_after BIGINT,
+    p_until BIGINT
+) RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_rows INTEGER;
+BEGIN
+    WITH changed_current AS (
+        SELECT
+            erc.id,
+            erc.pubkey,
+            erc.created_at,
+            erc.tags,
+            erc.tagvalues,
+            erc.first_seen_at
+        FROM events_replaceable_current AS erc
+        WHERE erc.kind = 3
+          AND erc.first_seen_at > p_after
+          AND erc.first_seen_at <= p_until
+    ),
+    delta AS (
+        SELECT
+            ENCODE(pubkey, 'hex') AS follower_pubkey,
+            ENCODE(id, 'hex') AS source_event_id,
+            created_at AS source_created_at,
+            first_seen_at AS source_seen_at,
+            COALESCE(exact_counts.cnt, fallback_counts.cnt, 0) AS follow_count
+        FROM changed_current
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)::BIGINT AS cnt
+            FROM (
+                SELECT DISTINCT LOWER(t.tag ->> 1) AS followed_pubkey
+                FROM jsonb_array_elements(tags) AS t(tag)
+                WHERE t.tag ->> 0 = 'p'
+                  AND LOWER(t.tag ->> 1) ~ '^[0-9a-f]{64}$'
+            ) AS dedup
+        ) AS exact_counts ON tags IS NOT NULL
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)::BIGINT AS cnt
+            FROM (
+                SELECT DISTINCT LOWER(substring(t.tv FROM 3)) AS followed_pubkey
+                FROM unnest(tagvalues) WITH ORDINALITY AS t(tv, ord)
+                WHERE t.tv LIKE 'p:%'
+                  AND LOWER(substring(t.tv FROM 3)) ~ '^[0-9a-f]{64}$'
+            ) AS dedup
+        ) AS fallback_counts ON tags IS NULL
+    )
+    INSERT INTO contact_lists_current
+        (follower_pubkey, source_event_id, source_created_at, source_seen_at, follow_count)
+    SELECT
+        follower_pubkey,
+        source_event_id,
+        source_created_at,
+        source_seen_at,
+        follow_count
+    FROM delta
+    ON CONFLICT (follower_pubkey) DO UPDATE SET
+        source_event_id   = EXCLUDED.source_event_id,
+        source_created_at = EXCLUDED.source_created_at,
+        source_seen_at    = EXCLUDED.source_seen_at,
+        follow_count      = EXCLUDED.follow_count;
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    RETURN v_rows;
+END;
+$$;
+
+COMMENT ON FUNCTION contact_lists_current_refresh(BIGINT, BIGINT) IS
+'Incremental refresh of current latest kind=3 contact lists from events_replaceable_current. Stores one row per follower with stable source_seen_at and deduplicated follow_count.';
+
+
+/*
+ * contact_list_edges_current_refresh(p_after, p_until) -> INTEGER
+ *
+ * Replaces all current follow edges for followers whose latest contact list
+ * first became visible in the given seen_at range.
+ */
+CREATE OR REPLACE FUNCTION contact_list_edges_current_refresh(
+    p_after BIGINT,
+    p_until BIGINT
+) RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_rows INTEGER := 0;
+    v_partial INTEGER;
+BEGIN
+    CREATE TEMP TABLE _changed_contact_lists ON COMMIT DROP AS
+    SELECT
+        follower_pubkey,
+        source_event_id,
+        source_created_at,
+        source_seen_at
+    FROM contact_lists_current
+    WHERE source_seen_at > p_after AND source_seen_at <= p_until;
+
+    DELETE FROM contact_list_edges_current
+    WHERE follower_pubkey IN (SELECT follower_pubkey FROM _changed_contact_lists);
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+
+    WITH current_lists AS (
+        SELECT
+            c.follower_pubkey,
+            c.source_event_id,
+            c.source_created_at,
+            c.source_seen_at,
+            erc.tags,
+            erc.tagvalues
+        FROM _changed_contact_lists AS c
+        INNER JOIN events_replaceable_current AS erc
+            ON ENCODE(erc.id, 'hex') = c.source_event_id
+    ),
+    exact_edges AS (
+        SELECT
+            cl.follower_pubkey,
+            LOWER(t.tag ->> 1) AS followed_pubkey,
+            cl.source_event_id,
+            cl.source_created_at,
+            cl.source_seen_at
+        FROM current_lists AS cl
+        CROSS JOIN LATERAL jsonb_array_elements(cl.tags) AS t(tag)
+        WHERE cl.tags IS NOT NULL
+          AND t.tag ->> 0 = 'p'
+          AND LOWER(t.tag ->> 1) ~ '^[0-9a-f]{64}$'
+    ),
+    fallback_edges AS (
+        SELECT
+            cl.follower_pubkey,
+            LOWER(substring(t.tv FROM 3)) AS followed_pubkey,
+            cl.source_event_id,
+            cl.source_created_at,
+            cl.source_seen_at
+        FROM current_lists AS cl
+        CROSS JOIN LATERAL unnest(cl.tagvalues) WITH ORDINALITY AS t(tv, ord)
+        WHERE cl.tags IS NULL
+          AND t.tv LIKE 'p:%'
+          AND LOWER(substring(t.tv FROM 3)) ~ '^[0-9a-f]{64}$'
+    ),
+    delta AS (
+        SELECT DISTINCT
+            follower_pubkey,
+            followed_pubkey,
+            source_event_id,
+            source_created_at,
+            source_seen_at
+        FROM (
+            SELECT * FROM exact_edges
+            UNION ALL
+            SELECT * FROM fallback_edges
+        ) AS all_edges
+    )
+    INSERT INTO contact_list_edges_current
+        (follower_pubkey, followed_pubkey, source_event_id, source_created_at, source_seen_at)
+    SELECT
+        follower_pubkey,
+        followed_pubkey,
+        source_event_id,
+        source_created_at,
+        source_seen_at
+    FROM delta
+    ON CONFLICT (follower_pubkey, followed_pubkey) DO UPDATE SET
+        source_event_id   = EXCLUDED.source_event_id,
+        source_created_at = EXCLUDED.source_created_at,
+        source_seen_at    = EXCLUDED.source_seen_at;
+
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
+
+    DROP TABLE IF EXISTS _changed_contact_lists;
+    RETURN v_rows;
+END;
+$$;
+
+COMMENT ON FUNCTION contact_list_edges_current_refresh(BIGINT, BIGINT) IS
+'Incremental refresh of deduplicated current follow edges derived from current kind=3 contact lists.';
+
+
+-- **************************************************************************
 -- PERIODIC REFRESH: Rolling windows and metadata
 -- **************************************************************************
 
@@ -740,15 +907,14 @@ BEGIN
     FROM rtt_agg rtt
     WHERE rs.relay_url = rtt.relay_url;
 
-    -- Update NIP-11 info from relay_metadata_latest
+    -- Update NIP-11 info from current relay metadata
     UPDATE relay_stats rs SET
-        nip11_name     = m.data -> 'data' ->> 'name',
-        nip11_software = m.data -> 'data' ->> 'software',
-        nip11_version  = m.data -> 'data' ->> 'version'
-    FROM relay_metadata_latest rml
-    INNER JOIN metadata m ON rml.metadata_id = m.id AND rml.metadata_type = m.type
-    WHERE rml.metadata_type = 'nip11_info'
-      AND rs.relay_url = rml.relay_url;
+        nip11_name     = rmc.data -> 'data' ->> 'name',
+        nip11_software = rmc.data -> 'data' ->> 'software',
+        nip11_version  = rmc.data -> 'data' ->> 'version'
+    FROM relay_metadata_current AS rmc
+    WHERE rmc.metadata_type = 'nip11_info'
+      AND rs.relay_url = rmc.relay_url;
 END;
 $$;
 
@@ -757,92 +923,172 @@ COMMENT ON FUNCTION relay_stats_metadata_refresh() IS
 
 
 -- **************************************************************************
--- MATERIALIZED VIEW REFRESH (bounded views, full refresh)
+-- BOUNDED DERIVED TABLE REFRESH (relay metadata analytics)
 -- **************************************************************************
 
 
 /*
- * relay_software_counts_refresh() -> VOID
+ * relay_software_counts_refresh(p_after, p_until) -> INTEGER
  *
- * Depends on relay_metadata_latest being refreshed first.
+ * Recomputes software distribution from relay_metadata_current only when the
+ * relay metadata watermark advances.
  */
-CREATE OR REPLACE FUNCTION relay_software_counts_refresh()
-RETURNS VOID
+CREATE OR REPLACE FUNCTION relay_software_counts_refresh(
+    p_after BIGINT,
+    p_until BIGINT
+) RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    v_rows INTEGER;
 BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY relay_software_counts;
+    IF NOT EXISTS (
+        SELECT 1
+        FROM relay_metadata_current
+        WHERE metadata_type = 'nip11_info'
+          AND generated_at > p_after
+          AND generated_at <= p_until
+    ) THEN
+        RETURN 0;
+    END IF;
+
+    DELETE FROM relay_software_counts;
+
+    INSERT INTO relay_software_counts (software, version, relay_count)
+    SELECT
+        data -> 'data' ->> 'software' AS software,
+        COALESCE(data -> 'data' ->> 'version', 'unknown') AS version,
+        COUNT(*) AS relay_count
+    FROM relay_metadata_current
+    WHERE metadata_type = 'nip11_info'
+      AND data -> 'data' ->> 'software' IS NOT NULL
+    GROUP BY data -> 'data' ->> 'software', COALESCE(data -> 'data' ->> 'version', 'unknown');
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    RETURN v_rows;
 END;
 $$;
 
-COMMENT ON FUNCTION relay_software_counts_refresh() IS
-'Refresh relay_software_counts concurrently. Refresh relay_metadata_latest first.';
+COMMENT ON FUNCTION relay_software_counts_refresh(BIGINT, BIGINT) IS
+'Refresh relay_software_counts from relay_metadata_current when current NIP-11 metadata changes.';
 
 
 /*
- * supported_nip_counts_refresh() -> VOID
+ * supported_nip_counts_refresh(p_after, p_until) -> INTEGER
  *
- * Depends on relay_metadata_latest being refreshed first.
+ * Recomputes supported NIP distribution from relay_metadata_current only when
+ * the relay metadata watermark advances.
  */
-CREATE OR REPLACE FUNCTION supported_nip_counts_refresh()
-RETURNS VOID
+CREATE OR REPLACE FUNCTION supported_nip_counts_refresh(
+    p_after BIGINT,
+    p_until BIGINT
+) RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    v_rows INTEGER;
 BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY supported_nip_counts;
+    IF NOT EXISTS (
+        SELECT 1
+        FROM relay_metadata_current
+        WHERE metadata_type = 'nip11_info'
+          AND generated_at > p_after
+          AND generated_at <= p_until
+    ) THEN
+        RETURN 0;
+    END IF;
+
+    DELETE FROM supported_nip_counts;
+
+    INSERT INTO supported_nip_counts (nip, relay_count)
+    SELECT
+        nip_text::INTEGER AS nip,
+        COUNT(*) AS relay_count
+    FROM relay_metadata_current
+    CROSS JOIN LATERAL jsonb_array_elements_text(data -> 'data' -> 'supported_nips') AS nip_text
+    WHERE metadata_type = 'nip11_info'
+      AND data -> 'data' ? 'supported_nips'
+      AND jsonb_typeof(data -> 'data' -> 'supported_nips') = 'array'
+      AND nip_text ~ '^\d+$'
+    GROUP BY nip_text::INTEGER;
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    RETURN v_rows;
 END;
 $$;
 
-COMMENT ON FUNCTION supported_nip_counts_refresh() IS
-'Refresh supported_nip_counts concurrently. Refresh relay_metadata_latest first.';
+COMMENT ON FUNCTION supported_nip_counts_refresh(BIGINT, BIGINT) IS
+'Refresh supported_nip_counts from relay_metadata_current when current NIP-11 metadata changes.';
 
 
 /*
- * daily_counts_refresh() -> VOID
+ * daily_counts_refresh(p_after, p_until) -> INTEGER
+ *
+ * Recomputes only the UTC days impacted by truly new events in the delta
+ * window. This keeps the table exact for unique_pubkeys/unique_kinds while
+ * avoiding a full-table rebuild.
  */
-CREATE OR REPLACE FUNCTION daily_counts_refresh()
-RETURNS VOID
+CREATE OR REPLACE FUNCTION daily_counts_refresh(
+    p_after BIGINT,
+    p_until BIGINT
+) RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    v_rows INTEGER;
 BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY daily_counts;
+    WITH new_events AS (
+        SELECT DISTINCT
+            e.id,
+            e.pubkey,
+            e.kind,
+            e.created_at
+        FROM event_relay AS er
+        INNER JOIN event AS e ON er.event_id = e.id
+        WHERE er.seen_at > p_after
+          AND er.seen_at <= p_until
+          AND NOT EXISTS (
+              SELECT 1
+              FROM event_relay AS older
+              WHERE older.event_id = er.event_id
+                AND older.seen_at <= p_after
+          )
+    ),
+    impacted_days AS (
+        SELECT DISTINCT
+            '1970-01-01'::DATE + (created_at / 86400)::INTEGER AS day
+        FROM new_events
+    ),
+    recomputed AS (
+        SELECT
+            '1970-01-01'::DATE + (e.created_at / 86400)::INTEGER AS day,
+            COUNT(*) AS event_count,
+            COUNT(DISTINCT e.pubkey) AS unique_pubkeys,
+            COUNT(DISTINCT e.kind) AS unique_kinds
+        FROM event AS e
+        INNER JOIN impacted_days AS d
+            ON d.day = '1970-01-01'::DATE + (e.created_at / 86400)::INTEGER
+        GROUP BY '1970-01-01'::DATE + (e.created_at / 86400)::INTEGER
+    )
+    INSERT INTO daily_counts (day, event_count, unique_pubkeys, unique_kinds)
+    SELECT
+        day,
+        event_count,
+        unique_pubkeys,
+        unique_kinds
+    FROM recomputed
+    ON CONFLICT (day) DO UPDATE SET
+        event_count    = EXCLUDED.event_count,
+        unique_pubkeys = EXCLUDED.unique_pubkeys,
+        unique_kinds   = EXCLUDED.unique_kinds;
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    RETURN v_rows;
 END;
 $$;
 
-COMMENT ON FUNCTION daily_counts_refresh() IS
-'Refresh daily_counts concurrently.';
-
-
-/*
- * events_replaceable_latest_refresh() -> VOID
- */
-CREATE OR REPLACE FUNCTION events_replaceable_latest_refresh()
-RETURNS VOID
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY events_replaceable_latest;
-END;
-$$;
-
-COMMENT ON FUNCTION events_replaceable_latest_refresh() IS
-'Refresh events_replaceable_latest concurrently.';
-
-
-/*
- * events_addressable_latest_refresh() -> VOID
- */
-CREATE OR REPLACE FUNCTION events_addressable_latest_refresh()
-RETURNS VOID
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY events_addressable_latest;
-END;
-$$;
-
-COMMENT ON FUNCTION events_addressable_latest_refresh() IS
-'Refresh events_addressable_latest concurrently.';
+COMMENT ON FUNCTION daily_counts_refresh(BIGINT, BIGINT) IS
+'Incremental refresh of daily_counts by recomputing only UTC days touched by truly new events.';
 
 
 -- **************************************************************************
@@ -1669,26 +1915,22 @@ COMMENT ON FUNCTION nip85_event_stats_refresh(BIGINT, BIGINT) IS
 /*
  * nip85_follower_count_refresh() -> VOID
  *
- * Recomputes follower_count for all pubkeys from current contact lists
- * (kind 3, replaceable). Reads from events_replaceable_latest which must
- * be refreshed first.
- *
- * Follower count is non-incremental because kind=3 overwrites the full
- * contact list on each update (follow/unfollow cannot be detected as delta).
+ * Recomputes follower_count and following_count for all pubkeys from the
+ * canonical contact-list facts tables. Reads from contact_list_edges_current
+ * and contact_lists_current, which must already be refreshed.
  */
 CREATE OR REPLACE FUNCTION nip85_follower_count_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    -- Compute follower counts from latest contact lists
+    -- Compute follower counts from current deduplicated edges
     WITH follower_counts AS (
         SELECT
-            substring(tv FROM 3) AS followed_pubkey,
-            COUNT(DISTINCT ENCODE(pubkey, 'hex')) AS cnt
-        FROM events_replaceable_latest, unnest(tagvalues) AS tv
-        WHERE kind = 3 AND tv LIKE 'p:%'
-        GROUP BY substring(tv FROM 3)
+            followed_pubkey,
+            COUNT(*) AS cnt
+        FROM contact_list_edges_current
+        GROUP BY followed_pubkey
     )
     UPDATE nip85_pubkey_stats ps SET
         follower_count = fc.cnt
@@ -1700,20 +1942,16 @@ BEGIN
     WHERE ps.follower_count > 0
       AND NOT EXISTS (
           SELECT 1
-          FROM events_replaceable_latest AS erl,
-               unnest(erl.tagvalues) AS tv
-          WHERE erl.kind = 3
-            AND tv = 'p:' || ps.pubkey
+          FROM contact_list_edges_current AS cle
+          WHERE cle.followed_pubkey = ps.pubkey
       );
 
-    -- Compute following counts (how many p-tags in each pubkey's own kind=3)
+    -- Compute following counts from current latest contact lists
     WITH following_counts AS (
         SELECT
-            ENCODE(pubkey, 'hex') AS pubkey,
-            COUNT(*) FILTER (WHERE tv LIKE 'p:%') AS cnt
-        FROM events_replaceable_latest, unnest(tagvalues) AS tv
-        WHERE kind = 3
-        GROUP BY pubkey
+            follower_pubkey AS pubkey,
+            follow_count AS cnt
+        FROM contact_lists_current
     )
     UPDATE nip85_pubkey_stats ps SET
         following_count = fc.cnt
@@ -1724,13 +1962,11 @@ BEGIN
     WHERE ps.following_count > 0
       AND NOT EXISTS (
           SELECT 1
-          FROM events_replaceable_latest AS erl
-          WHERE erl.kind = 3
-            AND ENCODE(erl.pubkey, 'hex') = ps.pubkey
+          FROM contact_lists_current AS cl
+          WHERE cl.follower_pubkey = ps.pubkey
       );
 END;
 $$;
 
 COMMENT ON FUNCTION nip85_follower_count_refresh() IS
-'Recompute NIP-85 follower and following counts from latest contact lists (events_replaceable_latest). Non-incremental.';
-{% endblock %}
+'Recompute NIP-85 follower and following counts from canonical contact-list facts tables (contact_lists_current, contact_list_edges_current).';

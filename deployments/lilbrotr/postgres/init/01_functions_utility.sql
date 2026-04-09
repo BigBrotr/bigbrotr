@@ -2,7 +2,7 @@
  * Brotr - 01_functions_utility.sql
  *
  * Utility functions that must be created before tables, because they are
- * called by CRUD functions in 03_functions_crud.sql.
+ * called by CRUD functions in 05_functions_crud.sql.
  *
  * Dependencies: 00_extensions.sql
  */

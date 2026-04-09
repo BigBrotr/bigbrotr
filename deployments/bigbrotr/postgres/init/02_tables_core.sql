@@ -1,5 +1,5 @@
 /*
- * Brotr - 02_tables.sql
+ * Brotr - 02_tables_core.sql
  *
  * Core database tables for Nostr relay archiving and monitoring.
  * The event table is the primary customization point: only the id column
@@ -30,23 +30,38 @@ COMMENT ON COLUMN relay.discovered_at IS 'Unix timestamp when first discovered a
 
 
 -- ==========================================================================
--- event: Nostr event storage (lightweight)
+-- event: Nostr event storage (CUSTOMIZABLE)
 -- ==========================================================================
--- Same columns as the full schema but tags, content, and sig are nullable
--- and always NULL (not populated by event_insert()), yielding ~60% disk
--- savings. Tagvalues is computed at insert time via tags_to_tagvalues() and
--- remains the compatibility layer that lets LilBrotr share most analytics
--- logic with BigBrotr without storing full tag JSON.
+-- Only the id column (BYTEA PRIMARY KEY) is mandatory for the event_relay
+-- foreign key. All other columns are optional. Customize the event_insert()
+-- function in 05_functions_crud.sql to match your chosen schema.
+--
+-- Storage modes:
+--
+--   Minimal (tracking event IDs per relay only):
+--     CREATE TABLE event (id BYTEA PRIMARY KEY);
+--
+--   Lightweight (metadata + tag filtering, ~60% disk savings):
+--     CREATE TABLE event (
+--         id BYTEA PRIMARY KEY,
+--         pubkey BYTEA NOT NULL,
+--         created_at BIGINT NOT NULL,
+--         kind INTEGER NOT NULL,
+--         tagvalues TEXT[]
+--     );
+--
+--   Full (complete event reconstruction, used below):
+--     Includes all NIP-01 fields with tagvalues computed at insert time.
 
 CREATE TABLE IF NOT EXISTS event (
     id BYTEA NOT NULL,
     pubkey BYTEA NOT NULL,
     created_at BIGINT NOT NULL,
     kind INTEGER NOT NULL,
-    tags JSONB,
-    tagvalues TEXT [] NOT NULL,
-    content TEXT,
-    sig BYTEA,
+    tags JSONB NOT NULL,
+    tagvalues TEXT [] NOT NULL,    -- Computed at insert time by event_insert()
+    content TEXT NOT NULL,
+    sig BYTEA NOT NULL,
     PRIMARY KEY (id)
 ) PARTITION BY HASH (id);
 
@@ -83,15 +98,18 @@ CREATE TABLE IF NOT EXISTS event_p14 PARTITION OF event
 CREATE TABLE IF NOT EXISTS event_p15 PARTITION OF event
     FOR VALUES WITH (MODULUS 16, REMAINDER 15);
 
-COMMENT ON TABLE event IS 'Nostr events (tags/content/sig nullable, always NULL)';
+ALTER TABLE event ALTER COLUMN content SET COMPRESSION lz4;
+ALTER TABLE event ALTER COLUMN tags SET COMPRESSION lz4;
+
+COMMENT ON TABLE event IS 'Complete Nostr events with computed tag values for efficient querying';
 COMMENT ON COLUMN event.id IS 'SHA-256 event hash (32 bytes, stored as bytea from hex)';
 COMMENT ON COLUMN event.pubkey IS 'Author public key (32 bytes, stored as bytea from hex)';
 COMMENT ON COLUMN event.created_at IS 'Unix timestamp of event creation';
 COMMENT ON COLUMN event.kind IS 'Event kind per NIP-01 (0=metadata, 1=text note, 3=contacts, etc.)';
-COMMENT ON COLUMN event.tags IS 'JSONB tag array (nullable, always NULL)';
-COMMENT ON COLUMN event.tagvalues IS 'Ordered single-char tag values computed at insert time by event_insert() for GIN indexing and analytics fallback';
-COMMENT ON COLUMN event.content IS 'Event content (nullable, always NULL)';
-COMMENT ON COLUMN event.sig IS 'Schnorr signature (nullable, always NULL)';
+COMMENT ON COLUMN event.tags IS 'JSONB array of [key, value, ...] tag arrays per NIP-01';
+COMMENT ON COLUMN event.tagvalues IS 'Single-char tag values computed at insert time by event_insert() for GIN indexing';
+COMMENT ON COLUMN event.content IS 'Event content (plaintext or encrypted depending on kind)';
+COMMENT ON COLUMN event.sig IS 'Schnorr signature (64 bytes, stored as bytea from hex)';
 
 
 -- ==========================================================================

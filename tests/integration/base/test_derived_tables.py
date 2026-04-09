@@ -1,4 +1,4 @@
-"""Integration tests for materialized views and summary tables."""
+"""Integration tests for current-state and analytics tables."""
 
 from __future__ import annotations
 
@@ -27,20 +27,29 @@ def _rm(
     return RelayMetadata(relay=relay, metadata=metadata, generated_at=generated_at)
 
 
-class TestRelayMetadataLatest:
+async def _refresh_metadata_current(
+    brotr: Brotr, after: int = 0, until: int = 2_000_000_000
+) -> None:
+    """Refresh relay metadata current-state facts with the given range."""
+    await brotr.fetchval(
+        "SELECT relay_metadata_current_refresh($1::BIGINT, $2::BIGINT)", after, until
+    )
+
+
+class TestRelayMetadataCurrent:
     async def test_empty_view(self, brotr: Brotr) -> None:
-        await brotr.refresh_materialized_view("relay_metadata_latest")
-        rows = await brotr.fetch("SELECT * FROM relay_metadata_latest")
+        await _refresh_metadata_current(brotr)
+        rows = await brotr.fetch("SELECT * FROM relay_metadata_current")
         assert len(rows) == 0
 
     async def test_returns_latest_snapshot_by_generated_at(self, brotr: Brotr) -> None:
         rm_old = _rm("wss://latest1.example.com", {"name": "Old"}, generated_at=1700000001)
         rm_new = _rm("wss://latest1.example.com", {"name": "New"}, generated_at=1700000002)
         await brotr.insert_relay_metadata([rm_old, rm_new], cascade=True)
-        await brotr.refresh_materialized_view("relay_metadata_latest")
+        await _refresh_metadata_current(brotr)
 
         row = await brotr.fetchrow(
-            "SELECT * FROM relay_metadata_latest WHERE relay_url = $1 AND metadata_type = $2",
+            "SELECT * FROM relay_metadata_current WHERE relay_url = $1 AND metadata_type = $2",
             "wss://latest1.example.com",
             "nip11_info",
         )
@@ -56,10 +65,10 @@ class TestRelayMetadataLatest:
             MetadataType.NIP66_SSL,
         )
         await brotr.insert_relay_metadata([rm_info, rm_ssl], cascade=True)
-        await brotr.refresh_materialized_view("relay_metadata_latest")
+        await _refresh_metadata_current(brotr)
 
         rows = await brotr.fetch(
-            "SELECT metadata_type FROM relay_metadata_latest "
+            "SELECT metadata_type FROM relay_metadata_current "
             "WHERE relay_url = $1 ORDER BY metadata_type",
             "wss://multi-t.example.com",
         )
@@ -68,7 +77,7 @@ class TestRelayMetadataLatest:
 
 
 # ============================================================================
-# Helpers for summary tables and statistical matviews
+# Helpers for current-state and analytics tables
 # ============================================================================
 
 
@@ -125,6 +134,21 @@ async def _refresh_summaries(brotr: Brotr, after: int = 0, until: int = 20000000
 async def _refresh_nip85(brotr: Brotr, after: int = 0, until: int = 2000000000) -> None:
     """Refresh NIP-85 summary tables with the given range."""
     for table in ["nip85_pubkey_stats", "nip85_event_stats"]:
+        await brotr.fetchval(f"SELECT {table}_refresh($1::BIGINT, $2::BIGINT)", after, until)
+
+
+async def _refresh_current_events(brotr: Brotr, after: int = 0, until: int = 2000000000) -> None:
+    """Refresh current-state replaceable/addressable tables with the given range."""
+    for table in ["events_replaceable_current", "events_addressable_current"]:
+        await brotr.fetchval(f"SELECT {table}_refresh($1::BIGINT, $2::BIGINT)", after, until)
+
+
+async def _refresh_contact_graph(brotr: Brotr, after: int = 0, until: int = 2000000000) -> None:
+    """Refresh canonical contact-list facts after refreshing replaceable current state."""
+    await brotr.fetchval(
+        "SELECT events_replaceable_current_refresh($1::BIGINT, $2::BIGINT)", after, until
+    )
+    for table in ["contact_lists_current", "contact_list_edges_current"]:
         await brotr.fetchval(f"SELECT {table}_refresh($1::BIGINT, $2::BIGINT)", after, until)
 
 
@@ -476,7 +500,7 @@ class TestRelayStats:
             {"name": "Test", "software": "strfry", "version": "2.0"},
         )
         await brotr.insert_relay_metadata([rm], cascade=True)
-        await brotr.refresh_materialized_view("relay_metadata_latest")
+        await _refresh_metadata_current(brotr)
         await brotr.execute("SELECT relay_stats_metadata_refresh()")
 
         row = await brotr.fetchrow(
@@ -645,8 +669,10 @@ class TestRelaySoftwareCounts:
             rm = _nip11_metadata(url, {"software": sw, "version": ver})
             await brotr.insert_relay_metadata([rm], cascade=True)
 
-        await brotr.refresh_materialized_view("relay_metadata_latest")
-        await brotr.refresh_materialized_view("relay_software_counts")
+        await _refresh_metadata_current(brotr)
+        await brotr.fetchval(
+            "SELECT relay_software_counts_refresh($1::BIGINT, $2::BIGINT)", 0, 2_000_000_000
+        )
 
         rows = await brotr.fetch(
             "SELECT software, relay_count FROM relay_software_counts ORDER BY relay_count DESC"
@@ -670,8 +696,10 @@ class TestSupportedNipCounts:
             rm = _nip11_metadata(url, {"supported_nips": nips}, generated_at=1700000001 + i)
             await brotr.insert_relay_metadata([rm], cascade=True)
 
-        await brotr.refresh_materialized_view("relay_metadata_latest")
-        await brotr.refresh_materialized_view("supported_nip_counts")
+        await _refresh_metadata_current(brotr)
+        await brotr.fetchval(
+            "SELECT supported_nip_counts_refresh($1::BIGINT, $2::BIGINT)", 0, 2_000_000_000
+        )
 
         rows = await brotr.fetch("SELECT nip, relay_count FROM supported_nip_counts ORDER BY nip")
         nips = {row["nip"]: row["relay_count"] for row in rows}
@@ -693,7 +721,9 @@ class TestEventDailyCounts:
             for i in range(3)
         ]
         await brotr.insert_event_relay(ers, cascade=True)
-        await brotr.refresh_materialized_view("daily_counts")
+        await brotr.fetchval(
+            "SELECT daily_counts_refresh($1::BIGINT, $2::BIGINT)", 0, 2_000_000_000
+        )
 
         rows = await brotr.fetch("SELECT day, event_count FROM daily_counts ORDER BY day")
         assert len(rows) == 3
@@ -701,11 +731,11 @@ class TestEventDailyCounts:
             assert row["event_count"] == 1
 
 
-# -- events_replaceable_latest --
+# -- events_replaceable_current --
 
 
-class TestEventsReplaceableLatest:
-    async def test_latest_profile_per_pubkey(self, brotr: Brotr) -> None:
+class TestEventsReplaceableCurrent:
+    async def test_current_profile_per_pubkey(self, brotr: Brotr) -> None:
         pubkey = "aa" * 32
         ers = [
             _event_relay(
@@ -716,10 +746,12 @@ class TestEventsReplaceableLatest:
             ),
         ]
         await brotr.insert_event_relay(ers, cascade=True)
-        await brotr.refresh_materialized_view("events_replaceable_latest")
+        await brotr.fetchval(
+            "SELECT events_replaceable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
+        )
 
         rows = await brotr.fetch(
-            "SELECT created_at FROM events_replaceable_latest WHERE kind = 0 AND pubkey = $1",
+            "SELECT created_at FROM events_replaceable_current WHERE kind = 0 AND pubkey = $1",
             bytes.fromhex(pubkey),
         )
         assert len(rows) == 1
@@ -727,22 +759,24 @@ class TestEventsReplaceableLatest:
 
     async def test_excludes_non_replaceable_kinds(self, brotr: Brotr) -> None:
         ers = [
-            _event_relay("f0" * 32, "wss://repl.example.com", kind=1),
-            _event_relay("f1" * 32, "wss://repl.example.com", kind=20000),
-            _event_relay("f2" * 32, "wss://repl.example.com", kind=30000),
+            _event_relay("f0" * 32, "wss://repl.example.com", kind=1, created_at=1000),
+            _event_relay("f1" * 32, "wss://repl.example.com", kind=20000, created_at=1001),
+            _event_relay("f2" * 32, "wss://repl.example.com", kind=30000, created_at=1002),
         ]
         await brotr.insert_event_relay(ers, cascade=True)
-        await brotr.refresh_materialized_view("events_replaceable_latest")
+        await brotr.fetchval(
+            "SELECT events_replaceable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
+        )
 
-        rows = await brotr.fetch("SELECT * FROM events_replaceable_latest")
+        rows = await brotr.fetch("SELECT * FROM events_replaceable_current")
         assert len(rows) == 0
 
 
-# -- events_addressable_latest --
+# -- events_addressable_current --
 
 
-class TestEventsAddressableLatest:
-    async def test_latest_per_pubkey_kind_dtag(self, brotr: Brotr) -> None:
+class TestEventsAddressableCurrent:
+    async def test_current_per_pubkey_kind_dtag(self, brotr: Brotr) -> None:
         pubkey = "aa" * 32
         d_tags = [["d", "my-article"]]
         ers = [
@@ -764,10 +798,12 @@ class TestEventsAddressableLatest:
             ),
         ]
         await brotr.insert_event_relay(ers, cascade=True)
-        await brotr.refresh_materialized_view("events_addressable_latest")
+        await brotr.fetchval(
+            "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
+        )
 
         rows = await brotr.fetch(
-            "SELECT created_at, d_tag FROM events_addressable_latest"
+            "SELECT created_at, d_tag FROM events_addressable_current"
             " WHERE kind = 30023 AND pubkey = $1",
             bytes.fromhex(pubkey),
         )
@@ -776,11 +812,19 @@ class TestEventsAddressableLatest:
         assert rows[0]["d_tag"] == "my-article"
 
     async def test_event_without_dtag_uses_empty_string(self, brotr: Brotr) -> None:
-        er = _event_relay("d0" * 32, "wss://addr2.example.com", kind=30078, pubkey="dd" * 32)
+        er = _event_relay(
+            "d0" * 32,
+            "wss://addr2.example.com",
+            kind=30078,
+            pubkey="dd" * 32,
+            created_at=1000,
+        )
         await brotr.insert_event_relay([er], cascade=True)
-        await brotr.refresh_materialized_view("events_addressable_latest")
+        await brotr.fetchval(
+            "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
+        )
 
-        rows = await brotr.fetch("SELECT d_tag FROM events_addressable_latest WHERE kind = 30078")
+        rows = await brotr.fetch("SELECT d_tag FROM events_addressable_current WHERE kind = 30078")
         assert len(rows) == 1
         assert rows[0]["d_tag"] == ""
 
@@ -790,13 +834,16 @@ class TestEventsAddressableLatest:
             "wss://addr2.example.com",
             kind=30023,
             pubkey="de" * 32,
+            created_at=1000,
             tags=[["d", "first"], ["d", "second"]],
         )
         await brotr.insert_event_relay([er], cascade=True)
-        await brotr.refresh_materialized_view("events_addressable_latest")
+        await brotr.fetchval(
+            "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
+        )
 
         row = await brotr.fetchrow(
-            "SELECT d_tag FROM events_addressable_latest WHERE id = $1",
+            "SELECT d_tag FROM events_addressable_current WHERE id = $1",
             bytes.fromhex("d1" * 32),
         )
         assert row is not None
@@ -804,13 +851,15 @@ class TestEventsAddressableLatest:
 
     async def test_excludes_non_addressable_kinds(self, brotr: Brotr) -> None:
         ers = [
-            _event_relay("c0" * 32, "wss://addr.example.com", kind=1),
-            _event_relay("c1" * 32, "wss://addr.example.com", kind=0),
+            _event_relay("c0" * 32, "wss://addr.example.com", kind=1, created_at=1000),
+            _event_relay("c1" * 32, "wss://addr.example.com", kind=0, created_at=1001),
         ]
         await brotr.insert_event_relay(ers, cascade=True)
-        await brotr.refresh_materialized_view("events_addressable_latest")
+        await brotr.fetchval(
+            "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
+        )
 
-        rows = await brotr.fetch("SELECT * FROM events_addressable_latest")
+        rows = await brotr.fetch("SELECT * FROM events_addressable_current")
         assert len(rows) == 0
 
 
@@ -1395,6 +1444,138 @@ class TestNip85EventStats:
         assert row["reaction_count"] == 2
 
 
+class TestContactListFacts:
+    async def test_contact_lists_current_tracks_deduplicated_latest_contacts(
+        self, brotr: Brotr
+    ) -> None:
+        follower = "c0" * 32
+        followed1 = "c1" * 32
+        followed2 = "c2" * 32
+        er = _event_relay(
+            "c3" * 32,
+            "wss://contacts.example.com",
+            kind=3,
+            pubkey=follower,
+            seen_at=100,
+            tags=[
+                ["p", followed1],
+                ["p", followed2],
+                ["p", followed1],
+                ["p", "not-a-valid-pubkey"],
+            ],
+        )
+        await brotr.insert_event_relay([er], cascade=True)
+        await _refresh_contact_graph(brotr, after=0, until=200)
+
+        row = await brotr.fetchrow(
+            "SELECT source_event_id, follow_count "
+            "FROM contact_lists_current WHERE follower_pubkey = $1",
+            follower,
+        )
+        edges = await brotr.fetch(
+            "SELECT followed_pubkey FROM contact_list_edges_current "
+            "WHERE follower_pubkey = $1 ORDER BY followed_pubkey",
+            follower,
+        )
+
+        assert row is not None
+        assert row["source_event_id"] == "c3" * 32
+        assert row["follow_count"] == 2
+        assert [edge["followed_pubkey"] for edge in edges] == [followed1, followed2]
+
+    async def test_contact_list_edges_replace_previous_latest_list(self, brotr: Brotr) -> None:
+        follower = "c4" * 32
+        old_friend = "c5" * 32
+        shared_friend = "c6" * 32
+        new_friend = "c7" * 32
+        ers = [
+            _event_relay(
+                "c8" * 32,
+                "wss://contacts.example.com",
+                kind=3,
+                pubkey=follower,
+                created_at=100,
+                seen_at=101,
+                tags=[["p", old_friend], ["p", shared_friend]],
+            ),
+            _event_relay(
+                "c9" * 32,
+                "wss://contacts.example.com",
+                kind=3,
+                pubkey=follower,
+                created_at=200,
+                seen_at=201,
+                tags=[["p", shared_friend], ["p", new_friend]],
+            ),
+        ]
+        await brotr.insert_event_relay([ers[0]], cascade=True)
+        await _refresh_contact_graph(brotr, after=0, until=150)
+
+        await brotr.insert_event_relay([ers[1]], cascade=True)
+        await _refresh_contact_graph(brotr, after=150, until=300)
+
+        row = await brotr.fetchrow(
+            "SELECT source_event_id, follow_count "
+            "FROM contact_lists_current WHERE follower_pubkey = $1",
+            follower,
+        )
+        edges = await brotr.fetch(
+            "SELECT followed_pubkey, source_event_id "
+            "FROM contact_list_edges_current "
+            "WHERE follower_pubkey = $1 ORDER BY followed_pubkey",
+            follower,
+        )
+
+        assert row is not None
+        assert row["source_event_id"] == "c9" * 32
+        assert row["follow_count"] == 2
+        assert [edge["followed_pubkey"] for edge in edges] == [shared_friend, new_friend]
+        assert all(edge["source_event_id"] == "c9" * 32 for edge in edges)
+
+    async def test_empty_latest_contact_list_removes_current_edges(self, brotr: Brotr) -> None:
+        follower = "ca" * 32
+        followed1 = "cb" * 32
+        followed2 = "cc" * 32
+        first = _event_relay(
+            "cd" * 32,
+            "wss://contacts.example.com",
+            kind=3,
+            pubkey=follower,
+            created_at=100,
+            seen_at=101,
+            tags=[["p", followed1], ["p", followed2]],
+        )
+        second = _event_relay(
+            "ce" * 32,
+            "wss://contacts.example.com",
+            kind=3,
+            pubkey=follower,
+            created_at=200,
+            seen_at=201,
+            tags=[],
+        )
+        await brotr.insert_event_relay([first], cascade=True)
+        await _refresh_contact_graph(brotr, after=0, until=150)
+
+        await brotr.insert_event_relay([second], cascade=True)
+        await _refresh_contact_graph(brotr, after=150, until=300)
+
+        row = await brotr.fetchrow(
+            "SELECT source_event_id, follow_count "
+            "FROM contact_lists_current WHERE follower_pubkey = $1",
+            follower,
+        )
+        edges = await brotr.fetch(
+            "SELECT followed_pubkey FROM contact_list_edges_current WHERE follower_pubkey = $1",
+            follower,
+        )
+
+        assert row is not None
+        assert row["source_event_id"] == "ce" * 32
+        assert row["follow_count"] == 0
+        assert edges == []
+
+
 class TestNip85FollowerCount:
     async def test_follower_count_from_contacts(self, brotr: Brotr) -> None:
         followed = "f0" * 32
@@ -1421,8 +1602,7 @@ class TestNip85FollowerCount:
         ]
         await brotr.insert_event_relay(ers, cascade=True)
         await _refresh_nip85(brotr)
-        # Refresh matviews needed for follower count
-        await brotr.refresh_materialized_view("events_replaceable_latest")
+        await _refresh_contact_graph(brotr)
         await brotr.execute("SELECT nip85_follower_count_refresh()")
 
         row = await brotr.fetchrow(
@@ -1449,7 +1629,7 @@ class TestNip85FollowerCount:
         ]
         await brotr.insert_event_relay(ers, cascade=True)
         await _refresh_nip85(brotr)
-        await brotr.refresh_materialized_view("events_replaceable_latest")
+        await _refresh_contact_graph(brotr)
         await brotr.execute("SELECT nip85_follower_count_refresh()")
 
         row = await brotr.fetchrow(

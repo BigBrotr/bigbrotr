@@ -25,7 +25,7 @@ tables:
     enabled: true
   relay_metadata:
     enabled: true
-  relay_metadata_latest:
+  relay_metadata_current:
     enabled: true
   pubkey_stats:
     enabled: true
@@ -45,9 +45,9 @@ tables:
     enabled: true
   daily_counts:
     enabled: true
-  events_replaceable_latest:
+  events_replaceable_current:
     enabled: true
-  events_addressable_latest:
+  events_addressable_current:
     enabled: true
   nip85_pubkey_stats:
     enabled: true

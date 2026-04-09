@@ -1,47 +1,17 @@
 /*
-{% block header_comment %}
- * Brotr - 06_materialized_views.sql
+ * Brotr - 04_tables_analytics.sql
  *
- * Analytics layer: materialized views (bounded, full refresh) and summary
- * tables (incremental refresh via stored procedures in 07_functions_refresh).
+ * Analytics layer: derived tables and reporting abstractions built on
+ * top of the core and current-state schema.
  *
- * Materialized views are used for bounded result sets where full refresh is
- * cheap. Summary tables are used for large aggregates where incremental
- * refresh is essential for performance at scale.
+ * Derived analytics tables are regular tables maintained by the
+ * refresh functions in 09_functions_refresh_analytics.sql.
  *
  * NIP-85 summary tables provide per-pubkey social metrics and per-event
  * engagement metrics for Trusted Assertions (kind 30382/30383).
  *
- * Dependencies: 02_tables.sql
-{% endblock %}
+ * Dependencies: 02_tables_core.sql, 03_tables_current.sql
  */
-
-
-{% block base_materialized_views %}
--- ==========================================================================
--- relay_metadata_latest: Most recent metadata per relay and check type
--- ==========================================================================
--- Returns one row per (relay_url, metadata_type) combination, containing
--- the latest snapshot. Uses DISTINCT ON with descending generated_at to
--- efficiently select the most recent record per group.
---
--- Refresh: relay_metadata_latest_refresh()
-
-CREATE MATERIALIZED VIEW IF NOT EXISTS relay_metadata_latest AS
-SELECT DISTINCT ON (rm.relay_url, rm.metadata_type)
-    rm.relay_url,
-    rm.metadata_type,
-    rm.generated_at,
-    rm.metadata_id,
-    m.data
-FROM relay_metadata AS rm
-INNER JOIN metadata AS m ON rm.metadata_id = m.id AND rm.metadata_type = m.type
-ORDER BY rm.relay_url ASC, rm.metadata_type ASC, rm.generated_at DESC;
-
-COMMENT ON MATERIALIZED VIEW relay_metadata_latest IS
-'Latest metadata per relay and check type. Refresh via relay_metadata_latest_refresh().';
-{% endblock %}
-{% block extra_materialized_views %}
 
 
 -- **************************************************************************
@@ -209,14 +179,14 @@ COMMENT ON TABLE relay_stats IS
 
 
 -- **************************************************************************
--- NIP-85 SUMMARY TABLES (incremental refresh)
+-- ANALYTICS SUMMARY TABLES (incremental refresh)
 -- **************************************************************************
--- Trusted Assertion metrics per NIP-85. Per-pubkey social stats (kind 30382)
--- and per-event engagement stats (kind 30383). Incrementally maintained with
--- the same (p_after, p_until) pattern as the core summary tables.
+-- Trusted Assertion metrics per NIP-85, plus canonical facts derived from
+-- current kind=3 contact-list tables. Incrementally maintained with the same
+-- (p_after, p_until) pattern as the core analytics summary tables.
 --
--- follower_count requires periodic reconciliation from events_replaceable_latest
--- (kind 3 is replaceable: contact lists overwrite, not accumulate).
+-- follower_count/following_count are periodically reconciled from the
+-- canonical contact-list facts tables because kind=3 is replaceable.
 -- **************************************************************************
 
 
@@ -227,6 +197,8 @@ COMMENT ON TABLE relay_stats IS
 -- activity_hours is a 24-slot heatmap (one INTEGER per UTC hour).
 -- topic_counts is a JSONB object of topic -> count.
 -- Zap amounts are bolt11-verified (claimed amount must match invoice).
+-- follower_count and following_count are periodically reconciled from the
+-- canonical contact-list facts tables, not accumulated incrementally.
 --
 -- Refresh: nip85_pubkey_stats_refresh(p_after, p_until)
 
@@ -252,7 +224,7 @@ CREATE TABLE IF NOT EXISTS nip85_pubkey_stats (
 );
 
 COMMENT ON TABLE nip85_pubkey_stats IS
-'NIP-85 per-pubkey social metrics. Incrementally refreshed via nip85_pubkey_stats_refresh(after, until). Follower count via nip85_follower_count_refresh().';
+'NIP-85 per-pubkey social metrics. Incrementally refreshed via nip85_pubkey_stats_refresh(after, until). Follower and following counts via nip85_follower_count_refresh().';
 
 
 -- ==========================================================================
@@ -279,59 +251,45 @@ COMMENT ON TABLE nip85_event_stats IS
 'NIP-85 per-event engagement metrics. Incrementally refreshed via nip85_event_stats_refresh(after, until).';
 
 
--- **************************************************************************
--- MATERIALIZED VIEWS (bounded output, full refresh)
--- **************************************************************************
-
-
 -- ==========================================================================
 -- relay_software_counts: NIP-11 software distribution
 -- ==========================================================================
--- Count of relays by software name and version from NIP-11 info metadata.
--- Only includes relays that report a software field in their NIP-11 response.
+-- Count of relays by software name and version from current NIP-11 metadata.
+-- Recomputed from relay_metadata_current when the metadata watermark advances.
 --
--- Depends on: relay_metadata_latest (refresh relay_metadata_latest first)
--- Refresh: relay_software_counts_refresh()
+-- Refresh: relay_software_counts_refresh(p_after, p_until)
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS relay_software_counts AS
-SELECT
-    data -> 'data' ->> 'software' AS software,
-    COALESCE(data -> 'data' ->> 'version', 'unknown') AS version,
-    COUNT(*) AS relay_count
-FROM relay_metadata_latest
-WHERE metadata_type = 'nip11_info'
-    AND data -> 'data' ->> 'software' IS NOT NULL
-GROUP BY data -> 'data' ->> 'software', COALESCE(data -> 'data' ->> 'version', 'unknown')
-ORDER BY relay_count DESC;
+CREATE TABLE IF NOT EXISTS relay_software_counts (
+    software TEXT NOT NULL,
+    version TEXT NOT NULL,
+    relay_count BIGINT NOT NULL,
+    PRIMARY KEY (software, version)
+);
 
-COMMENT ON MATERIALIZED VIEW relay_software_counts IS
-'NIP-11 software distribution across relays. Refresh relay_metadata_latest first. Refresh via relay_software_counts_refresh().';
+COMMENT ON TABLE relay_software_counts IS
+'NIP-11 software distribution across relays. Refreshed from relay_metadata_current via relay_software_counts_refresh(after, until).';
 
 
 -- ==========================================================================
 -- supported_nip_counts: NIP support distribution from NIP-11
 -- ==========================================================================
--- Count of relays supporting each NIP number, extracted from the
--- supported_nips array in NIP-11 info metadata.
+-- Count of relays supporting each NIP number, derived from the current NIP-11
+-- snapshot of each relay.
 --
--- Depends on: relay_metadata_latest (refresh relay_metadata_latest first)
--- Refresh: supported_nip_counts_refresh()
+-- Refresh: supported_nip_counts_refresh(p_after, p_until)
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS supported_nip_counts AS
-SELECT
-    nip_text::INTEGER AS nip,
-    COUNT(*) AS relay_count
-FROM relay_metadata_latest
-CROSS JOIN LATERAL jsonb_array_elements_text(data -> 'data' -> 'supported_nips') AS nip_text
-WHERE metadata_type = 'nip11_info'
-    AND data -> 'data' ? 'supported_nips'
-    AND jsonb_typeof(data -> 'data' -> 'supported_nips') = 'array'
-    AND nip_text ~ '^\d+$'
-GROUP BY nip_text::INTEGER
-ORDER BY relay_count DESC;
+CREATE TABLE IF NOT EXISTS supported_nip_counts (
+    nip INTEGER PRIMARY KEY,
+    relay_count BIGINT NOT NULL
+);
 
-COMMENT ON MATERIALIZED VIEW supported_nip_counts IS
-'NIP support distribution across relays from NIP-11 info. Refresh relay_metadata_latest first. Refresh via supported_nip_counts_refresh().';
+COMMENT ON TABLE supported_nip_counts IS
+'NIP support distribution across relays from current NIP-11 metadata. Refreshed via supported_nip_counts_refresh(after, until).';
+
+
+-- **************************************************************************
+-- ANALYTICS TABLES (incremental refresh)
+-- **************************************************************************
 
 
 -- ==========================================================================
@@ -343,109 +301,14 @@ COMMENT ON MATERIALIZED VIEW supported_nip_counts IS
 -- Uses integer arithmetic (created_at / 86400) instead of
 -- to_timestamp() + timezone conversion for faster grouping.
 --
--- Refresh: daily_counts_refresh()
+-- Refresh: daily_counts_refresh(p_after, p_until)
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS daily_counts AS
-SELECT
-    '1970-01-01'::DATE + (created_at / 86400)::INTEGER AS day,
-    COUNT(*) AS event_count,
-    COUNT(DISTINCT pubkey) AS unique_pubkeys,
-    COUNT(DISTINCT kind) AS unique_kinds
-FROM event
-GROUP BY created_at / 86400
-ORDER BY day DESC;
+CREATE TABLE IF NOT EXISTS daily_counts (
+    day DATE PRIMARY KEY,
+    event_count BIGINT NOT NULL,
+    unique_pubkeys BIGINT NOT NULL,
+    unique_kinds BIGINT NOT NULL
+);
 
-COMMENT ON MATERIALIZED VIEW daily_counts IS
-'Daily event counts for time-series analysis (UTC). Refresh via daily_counts_refresh().';
-
-
--- ==========================================================================
--- events_replaceable_latest: Latest replaceable event per pubkey and kind
--- ==========================================================================
--- NIP-01 replaceable events (kind 0, 3, 10000-19999) have "at most one per
--- pubkey" semantics: only the event with the highest created_at is current.
--- This view materializes that latest snapshot for efficient lookups of
--- profiles (kind 0), contact lists (kind 3), relay lists (kind 10002), etc.
---
--- All event columns are included so consumers can read the full event
--- without joining back to the event table.
---
--- Refresh: events_replaceable_latest_refresh()
-
-CREATE MATERIALIZED VIEW IF NOT EXISTS events_replaceable_latest AS
-SELECT DISTINCT ON (pubkey, kind)
-    id,
-    pubkey,
-    created_at,
-    kind,
-    tags,
-    tagvalues,
-    content,
-    sig
-FROM event
-WHERE kind = 0
-    OR kind = 3
-    OR (kind >= 10000 AND kind <= 19999)
-ORDER BY pubkey, kind, created_at DESC;
-
-COMMENT ON MATERIALIZED VIEW events_replaceable_latest IS
-'Latest replaceable event per (pubkey, kind). Covers kind 0, 3, 10000-19999. Refresh via events_replaceable_latest_refresh().';
-
-
--- ==========================================================================
--- events_addressable_latest: Latest addressable event per pubkey, kind, d-tag
--- ==========================================================================
--- NIP-01 addressable events (kind 30000-39999) have "at most one per
--- pubkey + kind + d-tag" semantics. The d-tag is extracted from the first
--- `d` tag when full JSON tags are available. In LilBrotr, where `tags` are
--- not persisted, the view falls back to ordered `tagvalues` entries (`d:*`).
--- Events without any d-tag use '' as the default, per NIP-01 specification.
---
--- Uses LEFT JOIN LATERAL extraction in both exact and fallback modes so that
--- events without an explicit d-tag are still included (with d_tag = '').
---
--- All event columns are included so consumers can read the full event
--- without joining back to the event table.
---
--- Refresh: events_addressable_latest_refresh()
-
-CREATE MATERIALIZED VIEW IF NOT EXISTS events_addressable_latest AS
-SELECT DISTINCT ON (
-    e.pubkey,
-    e.kind,
-    COALESCE(d_exact.val, d_fallback.val, '')
-)
-    e.id,
-    e.pubkey,
-    e.created_at,
-    e.kind,
-    e.tags,
-    e.tagvalues,
-    e.content,
-    e.sig,
-    COALESCE(d_exact.val, d_fallback.val, '') AS d_tag
-FROM event AS e
-LEFT JOIN LATERAL (
-    SELECT t.tag ->> 1 AS val
-    FROM jsonb_array_elements(e.tags) WITH ORDINALITY AS t(tag, ord)
-    WHERE t.tag ->> 0 = 'd'
-    ORDER BY ord
-    LIMIT 1
-) AS d_exact ON TRUE
-LEFT JOIN LATERAL (
-    SELECT substring(t.tv FROM 3) AS val
-    FROM unnest(e.tagvalues) WITH ORDINALITY AS t(tv, ord)
-    WHERE t.tv LIKE 'd:%'
-    ORDER BY ord
-    LIMIT 1
-) AS d_fallback ON TRUE
-WHERE e.kind >= 30000 AND e.kind <= 39999
-ORDER BY
-    e.pubkey,
-    e.kind,
-    COALESCE(d_exact.val, d_fallback.val, ''),
-    e.created_at DESC;
-
-COMMENT ON MATERIALIZED VIEW events_addressable_latest IS
-'Latest addressable event per (pubkey, kind, d_tag). Covers kind 30000-39999. Refresh via events_addressable_latest_refresh().';
-{% endblock %}
+COMMENT ON TABLE daily_counts IS
+'Daily event counts for time-series analysis (UTC). Incrementally refreshed via daily_counts_refresh(after, until).';

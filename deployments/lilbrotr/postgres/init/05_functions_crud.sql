@@ -1,6 +1,5 @@
 /*
-{% block header_comment %}
- * Brotr - 03_functions_crud.sql
+ * Brotr - 05_functions_crud.sql
  *
  * CRUD stored functions for bulk data operations. Organized in two levels:
  *
@@ -17,9 +16,8 @@
  * All parameters must be accepted even if not stored. To customize event
  * storage, modify only the INSERT statement inside event_insert().
  *
- * Dependencies: 02_tables.sql
+ * Dependencies: 02_tables_core.sql
  * Customization: event_insert() INSERT statement (see events_insert_comment block)
-{% endblock %}
  */
 
 
@@ -66,7 +64,6 @@ COMMENT ON FUNCTION relay_insert(TEXT [], TEXT [], BIGINT []) IS
 
 
 /*
-{% block events_insert_comment %}
  * event_insert(BYTEA[], BYTEA[], BIGINT[], INTEGER[], JSONB[], TEXT[], BYTEA[]) -> INTEGER
  *
  * Bulk-inserts Nostr events. The function signature is fixed for interface
@@ -91,10 +88,8 @@ COMMENT ON FUNCTION relay_insert(TEXT [], TEXT [], BIGINT []) IS
  *     FROM unnest(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags, ...)
  *
  * Returns: Number of newly inserted rows
-{% endblock %}
  */
 CREATE OR REPLACE FUNCTION event_insert(
-{% block events_insert_params %}
     p_event_ids BYTEA [],
     p_pubkeys BYTEA [],
     p_created_ats BIGINT [],
@@ -102,7 +97,6 @@ CREATE OR REPLACE FUNCTION event_insert(
     p_tags JSONB [],
     p_content_values TEXT [],
     p_sigs BYTEA []
-{% endblock %}
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -110,20 +104,12 @@ AS $$
 DECLARE
     v_row_count INTEGER;
 BEGIN
-{% block events_insert_body %}
-    INSERT INTO event (id, pubkey, created_at, kind, tags, tagvalues, content, sig)
-    SELECT id, pubkey, created_at, kind, tags, tags_to_tagvalues(tags), content, sig
-    FROM unnest(
-        p_event_ids,
-        p_pubkeys,
-        p_created_ats,
-        p_kinds,
-        p_tags,
-        p_content_values,
-        p_sigs
-    ) AS t(id, pubkey, created_at, kind, tags, content, sig)
+    -- Store essential fields + compute tagvalues; tags/content/sig remain NULL
+    INSERT INTO event (id, pubkey, created_at, kind, tagvalues)
+    SELECT id, pubkey, created_at, kind, tags_to_tagvalues(tags)
+    FROM unnest(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags)
+        AS t(id, pubkey, created_at, kind, tags)
     ON CONFLICT (id) DO NOTHING;
-{% endblock %}
 
     GET DIAGNOSTICS v_row_count = ROW_COUNT;
     RETURN v_row_count;
@@ -131,9 +117,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION event_insert(BYTEA [], BYTEA [], BIGINT [], INTEGER [], JSONB [], TEXT [], BYTEA []) IS
-{% block events_insert_description %}
-'Bulk insert events with tagvalues computed at insert time, returns number of rows inserted';
-{% endblock %}
+'Bulk insert lightweight events with ordered tagvalues computed at insert time for filtering and analytics fallback, returns number of rows inserted';
 
 
 /*
@@ -266,7 +250,6 @@ COMMENT ON FUNCTION relay_metadata_insert(TEXT [], BYTEA [], TEXT [], BIGINT [])
 -- ==========================================================================
 
 
-{% block events_relays_insert_cascade %}
 /*
  * event_relay_insert_cascade(...) -> INTEGER
  *
@@ -318,7 +301,6 @@ COMMENT ON FUNCTION event_relay_insert_cascade(
     TEXT [], TEXT [], BIGINT [], BIGINT []
 ) IS
 'Atomically insert events with relays and junctions, returns junction row count';
-{% endblock %}
 
 
 /*
@@ -370,7 +352,6 @@ COMMENT ON FUNCTION relay_metadata_insert_cascade(TEXT [], TEXT [], BIGINT [], B
 'Atomically insert relay metadata with relays and junctions, returns junction row count';
 
 
-{% block service_data_functions %}
 -- ==========================================================================
 -- SERVICE STATE FUNCTIONS
 -- ==========================================================================
@@ -511,4 +492,3 @@ $$;
 
 COMMENT ON FUNCTION service_state_delete(TEXT [], TEXT [], TEXT []) IS
 'Bulk delete service state records, returns number of rows deleted';
-{% endblock %}

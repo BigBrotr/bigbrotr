@@ -1,7 +1,7 @@
 # =============================================================================
 # Refresher Service Configuration (BigBrotr)
 # =============================================================================
-# Periodically refreshes materialized views in dependency order.
+# Periodically refreshes incremental current-state and analytics tables.
 # Only values that differ from defaults are specified here.
 # =============================================================================
 

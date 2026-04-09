@@ -2162,13 +2162,13 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "lilbrotr_matview_row_estimates_approx_rows",
-          "legendFormat": "{{view_name}}",
+          "expr": "lilbrotr_row_estimates_approx_rows{table_name=~\".*_(current|stats|counts)$|^daily_counts$\"}",
+          "legendFormat": "{{table_name}}",
           "instant": true,
           "refId": "A"
         }
       ],
-      "title": "Matview Row Estimates",
+      "title": "Derived Table Row Estimates",
       "type": "bargauge",
       "transformations": [
         {
@@ -2308,13 +2308,13 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "lilbrotr_matview_sizes_total_bytes",
-          "legendFormat": "{{view_name}}",
+          "expr": "lilbrotr_table_sizes_total_bytes{table_name=~\".*_(current|stats|counts)$|^daily_counts$\"}",
+          "legendFormat": "{{table_name}}",
           "instant": true,
           "refId": "A"
         }
       ],
-      "title": "Matview Sizes",
+      "title": "Derived Table Sizes",
       "type": "bargauge",
       "transformations": [
         {
@@ -3825,12 +3825,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"refresher\", name=\"views_total\"}",
+          "expr": "service_gauge{service=\"refresher\", name=\"targets_total\"}",
           "instant": true,
           "refId": "A"
         }
       ],
-      "title": "Views Total",
+      "title": "Targets Total",
       "type": "stat"
     },
     {
@@ -3895,7 +3895,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"refresher\", name=\"views_refreshed\"}",
+          "expr": "service_gauge{service=\"refresher\", name=\"targets_refreshed\"}",
           "instant": true,
           "refId": "A"
         }
@@ -3965,7 +3965,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"refresher\", name=\"views_failed\"}",
+          "expr": "service_gauge{service=\"refresher\", name=\"targets_failed\"}",
           "instant": true,
           "refId": "A"
         }
@@ -4031,8 +4031,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"refresher\", name=\"duration_relay_metadata_latest\"}",
-          "legendFormat": "relay_metadata_latest",
+          "expr": "service_gauge{service=\"refresher\", name=\"duration_relay_metadata_current\"}",
+          "legendFormat": "relay_metadata_current",
           "instant": true,
           "refId": "A"
         },

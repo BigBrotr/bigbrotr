@@ -1,7 +1,5 @@
-{% set partitions = partitions | default(16) %}
 /*
-{% block header_comment %}
- * Brotr - 02_tables.sql
+ * Brotr - 02_tables_core.sql
  *
  * Core database tables for Nostr relay archiving and monitoring.
  * The event table is the primary customization point: only the id column
@@ -9,7 +7,6 @@
  *
  * Dependencies: None (tags_to_tagvalues is used by CRUD functions, not table definitions)
  * Customization: event table columns (see storage modes in events_table block)
-{% endblock %}
  */
 
 
@@ -32,61 +29,69 @@ COMMENT ON COLUMN relay.network IS 'Network type: clearnet, tor, i2p, or loki';
 COMMENT ON COLUMN relay.discovered_at IS 'Unix timestamp when first discovered and validated';
 
 
-{% block events_table %}
 -- ==========================================================================
--- event: Nostr event storage (CUSTOMIZABLE)
+-- event: Nostr event storage (lightweight)
 -- ==========================================================================
--- Only the id column (BYTEA PRIMARY KEY) is mandatory for the event_relay
--- foreign key. All other columns are optional. Customize the event_insert()
--- function in 03_functions_crud.sql to match your chosen schema.
---
--- Storage modes:
---
---   Minimal (tracking event IDs per relay only):
---     CREATE TABLE event (id BYTEA PRIMARY KEY);
---
---   Lightweight (metadata + tag filtering, ~60% disk savings):
---     CREATE TABLE event (
---         id BYTEA PRIMARY KEY,
---         pubkey BYTEA NOT NULL,
---         created_at BIGINT NOT NULL,
---         kind INTEGER NOT NULL,
---         tagvalues TEXT[]
---     );
---
---   Full (complete event reconstruction, used below):
---     Includes all NIP-01 fields with tagvalues computed at insert time.
+-- Same columns as the full schema but tags, content, and sig are nullable
+-- and always NULL (not populated by event_insert()), yielding ~60% disk
+-- savings. Tagvalues is computed at insert time via tags_to_tagvalues() and
+-- remains the compatibility layer that lets LilBrotr share most analytics
+-- logic with BigBrotr without storing full tag JSON.
 
 CREATE TABLE IF NOT EXISTS event (
     id BYTEA NOT NULL,
     pubkey BYTEA NOT NULL,
     created_at BIGINT NOT NULL,
     kind INTEGER NOT NULL,
-    tags JSONB NOT NULL,
-    tagvalues TEXT [] NOT NULL,    -- Computed at insert time by event_insert()
-    content TEXT NOT NULL,
-    sig BYTEA NOT NULL,
+    tags JSONB,
+    tagvalues TEXT [] NOT NULL,
+    content TEXT,
+    sig BYTEA,
     PRIMARY KEY (id)
 ) PARTITION BY HASH (id);
 
-{% for i in range(partitions) %}
-CREATE TABLE IF NOT EXISTS event_p{{ i }} PARTITION OF event
-    FOR VALUES WITH (MODULUS {{ partitions }}, REMAINDER {{ i }});
-{% endfor %}
+CREATE TABLE IF NOT EXISTS event_p0 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 0);
+CREATE TABLE IF NOT EXISTS event_p1 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 1);
+CREATE TABLE IF NOT EXISTS event_p2 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 2);
+CREATE TABLE IF NOT EXISTS event_p3 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 3);
+CREATE TABLE IF NOT EXISTS event_p4 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 4);
+CREATE TABLE IF NOT EXISTS event_p5 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 5);
+CREATE TABLE IF NOT EXISTS event_p6 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 6);
+CREATE TABLE IF NOT EXISTS event_p7 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 7);
+CREATE TABLE IF NOT EXISTS event_p8 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 8);
+CREATE TABLE IF NOT EXISTS event_p9 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 9);
+CREATE TABLE IF NOT EXISTS event_p10 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 10);
+CREATE TABLE IF NOT EXISTS event_p11 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 11);
+CREATE TABLE IF NOT EXISTS event_p12 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 12);
+CREATE TABLE IF NOT EXISTS event_p13 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 13);
+CREATE TABLE IF NOT EXISTS event_p14 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 14);
+CREATE TABLE IF NOT EXISTS event_p15 PARTITION OF event
+    FOR VALUES WITH (MODULUS 16, REMAINDER 15);
 
-ALTER TABLE event ALTER COLUMN content SET COMPRESSION lz4;
-ALTER TABLE event ALTER COLUMN tags SET COMPRESSION lz4;
-
-COMMENT ON TABLE event IS 'Complete Nostr events with computed tag values for efficient querying';
+COMMENT ON TABLE event IS 'Nostr events (tags/content/sig nullable, always NULL)';
 COMMENT ON COLUMN event.id IS 'SHA-256 event hash (32 bytes, stored as bytea from hex)';
 COMMENT ON COLUMN event.pubkey IS 'Author public key (32 bytes, stored as bytea from hex)';
 COMMENT ON COLUMN event.created_at IS 'Unix timestamp of event creation';
 COMMENT ON COLUMN event.kind IS 'Event kind per NIP-01 (0=metadata, 1=text note, 3=contacts, etc.)';
-COMMENT ON COLUMN event.tags IS 'JSONB array of [key, value, ...] tag arrays per NIP-01';
-COMMENT ON COLUMN event.tagvalues IS 'Single-char tag values computed at insert time by event_insert() for GIN indexing';
-COMMENT ON COLUMN event.content IS 'Event content (plaintext or encrypted depending on kind)';
-COMMENT ON COLUMN event.sig IS 'Schnorr signature (64 bytes, stored as bytea from hex)';
-{% endblock %}
+COMMENT ON COLUMN event.tags IS 'JSONB tag array (nullable, always NULL)';
+COMMENT ON COLUMN event.tagvalues IS 'Ordered single-char tag values computed at insert time by event_insert() for GIN indexing and analytics fallback';
+COMMENT ON COLUMN event.content IS 'Event content (nullable, always NULL)';
+COMMENT ON COLUMN event.sig IS 'Schnorr signature (nullable, always NULL)';
 
 
 -- ==========================================================================
@@ -105,18 +110,119 @@ CREATE TABLE IF NOT EXISTS event_relay (
     FOREIGN KEY (relay_url) REFERENCES relay (url) ON DELETE CASCADE
 ) PARTITION BY HASH (event_id);
 
-{% for i in range(partitions) %}
-CREATE TABLE IF NOT EXISTS event_relay_p{{ i }} PARTITION OF event_relay
-    FOR VALUES WITH (MODULUS {{ partitions }}, REMAINDER {{ i }});
-{% endfor %}
+CREATE TABLE IF NOT EXISTS event_relay_p0 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 0);
+CREATE TABLE IF NOT EXISTS event_relay_p1 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 1);
+CREATE TABLE IF NOT EXISTS event_relay_p2 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 2);
+CREATE TABLE IF NOT EXISTS event_relay_p3 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 3);
+CREATE TABLE IF NOT EXISTS event_relay_p4 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 4);
+CREATE TABLE IF NOT EXISTS event_relay_p5 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 5);
+CREATE TABLE IF NOT EXISTS event_relay_p6 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 6);
+CREATE TABLE IF NOT EXISTS event_relay_p7 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 7);
+CREATE TABLE IF NOT EXISTS event_relay_p8 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 8);
+CREATE TABLE IF NOT EXISTS event_relay_p9 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 9);
+CREATE TABLE IF NOT EXISTS event_relay_p10 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 10);
+CREATE TABLE IF NOT EXISTS event_relay_p11 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 11);
+CREATE TABLE IF NOT EXISTS event_relay_p12 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 12);
+CREATE TABLE IF NOT EXISTS event_relay_p13 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 13);
+CREATE TABLE IF NOT EXISTS event_relay_p14 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 14);
+CREATE TABLE IF NOT EXISTS event_relay_p15 PARTITION OF event_relay
+    FOR VALUES WITH (MODULUS 16, REMAINDER 15);
 
-{% for i in range(partitions) %}
-ALTER TABLE event_relay_p{{ i }} SET (
+ALTER TABLE event_relay_p0 SET (
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 10000,
     autovacuum_analyze_scale_factor = 0.01
 );
-{% endfor %}
+ALTER TABLE event_relay_p1 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p2 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p3 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p4 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p5 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p6 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p7 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p8 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p9 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p10 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p11 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p12 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p13 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p14 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
+ALTER TABLE event_relay_p15 SET (
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 10000,
+    autovacuum_analyze_scale_factor = 0.01
+);
 
 COMMENT ON TABLE event_relay IS 'Tracks which events appear on which relays, with first-seen timestamps';
 COMMENT ON COLUMN event_relay.event_id IS 'Foreign key to event.id';
@@ -154,10 +260,8 @@ COMMENT ON COLUMN metadata.data IS 'Complete JSON document (NIP-11 relay info or
 -- Links relays to metadata documents over time, creating a history of health
 -- check results. Each row represents one metadata snapshot for one relay at
 -- one point in time. The metadata_type column distinguishes between different
-{% block relay_metadata_check_types_comment %}
 -- check types: nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net,
 -- nip66_dns, nip66_http.
-{% endblock %}
 
 CREATE TABLE IF NOT EXISTS relay_metadata (
     relay_url TEXT NOT NULL,

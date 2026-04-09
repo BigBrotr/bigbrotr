@@ -1,7 +1,9 @@
 """Database queries for the refresher service.
 
 Summary table refresh queries. Each function wraps a stored procedure call
-that processes a (after, until] range of ``event_relay.seen_at`` timestamps.
+that processes a source-specific watermark range. Most summaries use
+``event_relay.seen_at``; relay metadata current-state uses
+``relay_metadata.generated_at``.
 
 See Also:
     [Refresher][bigbrotr.services.refresher.Refresher]: Service that
@@ -39,6 +41,17 @@ async def get_max_seen_at(brotr: Brotr, after: int) -> int:
     return int(time.time())
 
 
+async def get_max_generated_at(brotr: Brotr, after: int) -> int:
+    """Return wall-clock timestamp if newer ``relay_metadata`` rows exist."""
+    exists = await brotr.fetchval(
+        "SELECT EXISTS(SELECT 1 FROM relay_metadata WHERE generated_at > $1)",
+        after,
+    )
+    if not exists:
+        return after
+    return int(time.time())
+
+
 async def refresh_summary(brotr: Brotr, table: str, after: int, until: int) -> int:
     """Call ``{table}_refresh(after, until)`` and return rows affected.
 
@@ -63,5 +76,5 @@ async def refresh_relay_metadata(brotr: Brotr) -> None:
 
 
 async def refresh_nip85_followers(brotr: Brotr) -> None:
-    """Recompute NIP-85 follower counts from latest contact lists."""
+    """Recompute NIP-85 follower/following counts from canonical contact-list facts."""
     await brotr.execute("SELECT nip85_follower_count_refresh()")
