@@ -11,31 +11,25 @@ if TYPE_CHECKING:
     from .configs import ProviderProfileKind0Content
 
 
-LEGACY_CHECKPOINT_PREFIXES: Final[tuple[str, ...]] = ("user:", "event:")
+CHECKPOINT_PARTS: Final[int] = 3
 PROVIDER_PROFILE_SUBJECT_ID: Final[str] = "provider_profile"
-V2_CHECKPOINT_PARTS: Final[int] = 4
 
 
 def build_state_key(*, algorithm_id: str, kind: int, subject_id: str) -> str:
-    """Build the v2 checkpoint key for one algorithm/kind/subject tuple."""
-    return f"v2:{algorithm_id}:{int(kind)}:{subject_id}"
+    """Build the canonical checkpoint key for one algorithm/kind/subject tuple."""
+    return f"{algorithm_id}:{int(kind)}:{subject_id}"
 
 
-def parse_v2_checkpoint_key(state_key: str) -> tuple[str, int, str] | None:
-    """Parse ``v2:<algorithm_id>:<kind>:<subject_id>`` checkpoint keys."""
-    parts = state_key.split(":", 3)
-    if len(parts) != V2_CHECKPOINT_PARTS or parts[0] != "v2":
+def parse_state_key(state_key: str) -> tuple[str, int, str] | None:
+    """Parse ``<algorithm_id>:<kind>:<subject_id>`` checkpoint keys."""
+    parts = state_key.split(":", 2)
+    if len(parts) != CHECKPOINT_PARTS:
         return None
     try:
-        kind = int(parts[2])
+        kind = int(parts[1])
     except ValueError:
         return None
-    return parts[1], kind, parts[3]
-
-
-def is_legacy_checkpoint_key(state_key: str) -> bool:
-    """Return whether a checkpoint key belongs to the pre-v2 assertor contract."""
-    return state_key.startswith(LEGACY_CHECKPOINT_PREFIXES)
+    return parts[0], kind, parts[2]
 
 
 def content_hash(content: dict[str, Any]) -> str:

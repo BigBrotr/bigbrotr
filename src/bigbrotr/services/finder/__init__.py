@@ -1,6 +1,6 @@
 """Finder service package.
 
-Re-exports all public symbols for backwards-compatible imports::
+Re-exports the public package symbols::
 
     from bigbrotr.services.finder import Finder, FinderConfig
 """

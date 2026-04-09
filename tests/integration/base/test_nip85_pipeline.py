@@ -278,7 +278,7 @@ def _make_assertor_config(algorithm_id: str) -> AssertorConfig:
             "provider_profile": {
                 "enabled": True,
                 "kind0_content": {
-                    "name": "BigBrotr Global PageRank v1",
+                    "name": "BigBrotr Global PageRank",
                     "about": "NIP-85 trusted assertion provider",
                     "website": "https://bigbrotr.com",
                 },
@@ -470,7 +470,7 @@ class TestNip85PipelineSmoke:
     ) -> None:
         monkeypatch.setenv("NOSTR_PRIVATE_KEY_ASSERTOR", VALID_HEX_KEY)
 
-        algorithm_id = "global-pagerank-v1"
+        algorithm_id = "global-pagerank"
         relay_url = "wss://pipeline.example.com"
         author = "a1" * 32
         follower_b = "b2" * 32
@@ -562,9 +562,9 @@ class TestNip85PipelineSmoke:
         )
         state_keys = {row.state_key for row in state_rows}
         assert {
-            f"v2:{algorithm_id}:0:provider_profile",
-            f"v2:{algorithm_id}:30382:{author}",
-            f"v2:{algorithm_id}:30383:{root_event_id}",
-            f"v2:{algorithm_id}:30384:{event_address}",
-            f"v2:{algorithm_id}:30385:{identifier}",
+            f"{algorithm_id}:0:provider_profile",
+            f"{algorithm_id}:30382:{author}",
+            f"{algorithm_id}:30383:{root_event_id}",
+            f"{algorithm_id}:30384:{event_address}",
+            f"{algorithm_id}:30385:{identifier}",
         }.issubset(state_keys)

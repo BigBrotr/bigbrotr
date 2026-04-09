@@ -11,7 +11,7 @@ from bigbrotr.core.base_service import BaseServiceConfig
 
 
 _ALGORITHM_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
-_DEFAULT_ALGORITHM_ID = "global-pagerank-v1"
+_DEFAULT_ALGORITHM_ID = "global-pagerank"
 
 
 class RankerStorageConfig(BaseModel):

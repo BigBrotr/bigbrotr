@@ -35,9 +35,6 @@ from bigbrotr.services.refresher.queries import (
     get_max_seen_at,
     get_periodic_target_spec,
     get_relay_metadata_watermark,
-    refresh_nip85_followers,
-    refresh_relay_metadata,
-    refresh_rolling_windows,
 )
 
 
@@ -248,22 +245,6 @@ class TestRefreshQueryRegistry:
         with patch("bigbrotr.services.refresher.queries.time.time", return_value=999):
             assert await get_max_seen_at(brotr, 100) == 999
             assert await get_max_generated_at(brotr, 200) == 999
-
-    async def test_periodic_compatibility_wrappers_call_typed_targets(self) -> None:
-        brotr = MagicMock(spec=Brotr)
-        with patch(
-            "bigbrotr.services.refresher.queries.refresh_periodic_target",
-            AsyncMock(),
-        ) as mock_refresh:
-            await refresh_rolling_windows(brotr)
-            await refresh_relay_metadata(brotr)
-            await refresh_nip85_followers(brotr)
-
-        assert mock_refresh.await_args_list == [
-            call(brotr, PeriodicRefreshTarget.ROLLING_WINDOWS),
-            call(brotr, PeriodicRefreshTarget.RELAY_STATS_METADATA),
-            call(brotr, PeriodicRefreshTarget.NIP85_FOLLOWERS),
-        ]
 
 
 class TestRefresherInit:
