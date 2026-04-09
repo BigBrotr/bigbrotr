@@ -61,14 +61,15 @@ Nine **independent** async services share a PostgreSQL database. Each runs on it
 | **Validator** | Tests candidates via WebSocket handshake, promotes valid relays | WebSocket |
 | **Monitor** | Runs NIP-11 + 6 NIP-66 health checks, publishes kind 10166/30166 events | HTTP, WS, DNS, SSL, GeoIP |
 | **Synchronizer** | Connects to relays, streams and archives signed events with cursor-based resumption | WebSocket |
-| **Refresher** | Refreshes 6 summary tables and 6 materialized views in dependency order | None |
+| **Refresher** | Refreshes current-state tables, analytics facts, and periodic reconciliations | None |
+| **Ranker** | Computes deterministic NIP-85 rank snapshots in private DuckDB and exports them | PostgreSQL + DuckDB |
 | **Assertor** | Publishes NIP-85 trusted assertion events for users, events, addressables, and identifiers | WebSocket (Nostr) |
 | **Api** | Read-only REST API with auto-generated paginated endpoints | HTTP (FastAPI) |
 | **Dvm** | NIP-90 Data Vending Machine for database queries over Nostr | WebSocket (Nostr) |
 
-All continuous services default to a 5-minute cycle interval (`interval=300.0`), configurable per deployment.
+Cycle intervals are service-specific and configurable per deployment. Discovery and ingestion services default to short cadences, while `refresher`, `ranker`, and `assertor` default to longer intervals.
 
-Services are **loosely coupled through the database**: Seeder and Finder populate candidates, Validator promotes them to relays, Monitor and Synchronizer operate on validated relays, Refresher materializes analytics. Stopping one does not break the others.
+Services are **loosely coupled through the database**: Seeder and Finder populate candidates, Validator promotes them to relays, Monitor and Synchronizer operate on validated relays, Refresher derives canonical facts, Ranker exports snapshots, and Assertor publishes from those snapshots. Stopping one does not break the others.
 
 ---
 
@@ -382,6 +383,7 @@ JSON mode available for cloud aggregation:
 | `DB_WRITER_PASSWORD` | Yes | Writer role password (Seeder, Finder, Validator, Monitor, Synchronizer) |
 | `DB_REFRESHER_PASSWORD` | Yes | Refresher role password (matview ownership) |
 | `DB_READER_PASSWORD` | Yes | Reader role password (Api, Dvm, postgres-exporter) |
+| `DB_RANKER_PASSWORD` | Yes | Ranker role password (canonical graph reads, NIP-85 rank snapshot writes) |
 | `NOSTR_PRIVATE_KEY_MONITOR` | No | Monitor signing key for published Nostr events and NIP-66 write probes. Blank/unset generates one ephemeral key at config creation. |
 | `NOSTR_PRIVATE_KEY_SYNCHRONIZER` | No | Synchronizer key for NIP-42-authenticated relay reads. Blank/unset generates one ephemeral key at config creation. |
 | `NOSTR_PRIVATE_KEY_DVM` | No | Dvm signing key for NIP-89/NIP-90 events. Blank/unset generates one ephemeral key at config creation. |
@@ -546,7 +548,7 @@ bigbrotr/
 | monitor | bigbrotr (parametric) | Health monitoring + event publishing |
 | synchronizer | bigbrotr (parametric) | Event archiving |
 | refresher | bigbrotr (parametric) | Materialized view refresh |
-| ranker | bigbrotr (parametric) | Private DuckDB-backed NIP-85 user ranking |
+| ranker | bigbrotr (parametric) | Private DuckDB-backed NIP-85 rank computation + snapshot export |
 | api | bigbrotr (parametric) | REST API (FastAPI) |
 | dvm | bigbrotr (parametric) | NIP-90 Data Vending Machine |
 | postgres-exporter | `prometheuscommunity/postgres-exporter:v0.16.0` | PostgreSQL metrics |

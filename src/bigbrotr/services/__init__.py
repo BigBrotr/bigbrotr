@@ -25,8 +25,8 @@ Attributes:
         auto-generated paginated endpoints.
     Dvm: NIP-90 Data Vending Machine exposing database queries via
         the Nostr protocol with per-table pricing.
-    Assertor: NIP-85 Trusted Assertions publisher. Reads engagement
-        metrics from summary tables and publishes kind 30382/30383 events.
+    Assertor: NIP-85 Trusted Assertions publisher. Reads facts and rank
+        snapshots and publishes kind 30382/30383/30384/30385 events.
 
 Note:
     All services follow the same lifecycle pattern: instantiate with a

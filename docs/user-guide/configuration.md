@@ -692,9 +692,10 @@ timeouts:
 
 ## Ranker Configuration
 
-Computes deterministic NIP-85 user ranks (kind `30382`) from the canonical
-follow graph, keeps the working state in a private DuckDB file, and
-snapshot-exports final ranks to PostgreSQL.
+Computes deterministic NIP-85 rank snapshots from the canonical follow graph
+and refreshed engagement facts. Pubkey ranks (`30382`) come from PageRank,
+while event, addressable, and identifier ranks (`30383`, `30384`, `30385`)
+are derived and snapshot-exported to PostgreSQL.
 
 ```yaml
 interval: 3600.0
@@ -919,6 +920,6 @@ processing:
 ## Related Documentation
 
 - [Architecture](architecture.md) -- System architecture and module reference
-- [Services](services.md) -- Deep dive into the nine independent services
+- [Services](services.md) -- Deep dive into the ten independent services
 - [Database](database.md) -- Database schema and stored procedures
 - [Monitoring](monitoring.md) -- Prometheus metrics, alerting, and Grafana dashboards

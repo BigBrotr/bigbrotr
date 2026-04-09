@@ -2,7 +2,7 @@
 
 **Modular Nostr network observatory.**
 
-BigBrotr discovers relays across clearnet, Tor, I2P, and Lokinet, validates their connectivity, runs NIP-11 and NIP-66 health checks, archives events, materializes analytics views, and exposes everything through a REST API and a NIP-90 Data Vending Machine. Nine independent async services share a PostgreSQL 18 backend, each deployable and scalable on its own. Built on Python 3.11+ with strict typing and asyncio.
+BigBrotr discovers relays across clearnet, Tor, I2P, and Lokinet, validates their connectivity, runs NIP-11 and NIP-66 health checks, archives events, materializes analytics facts, computes NIP-85 rank snapshots, publishes trusted assertions, and exposes everything through a REST API and a NIP-90 Data Vending Machine. Ten independent async services share a PostgreSQL 18 backend, while the Ranker keeps a private DuckDB working store. Built on Python 3.11+ with strict typing and asyncio.
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![PostgreSQL 18](https://img.shields.io/badge/PostgreSQL-18-blue.svg)](https://www.postgresql.org/)
@@ -13,7 +13,7 @@ BigBrotr discovers relays across clearnet, Tor, I2P, and Lokinet, validates thei
 
 ## How It Works
 
-Nine independent async services share a PostgreSQL database, each with a distinct role in the discovery-monitoring-archiving pipeline:
+Ten independent async services share a PostgreSQL database, each with a distinct role in the discovery-monitoring-archiving-ranking-publish pipeline:
 
 --8<-- "docs/_snippets/pipeline.md"
 

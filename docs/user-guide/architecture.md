@@ -755,7 +755,7 @@ tests/
 
 ## Related Documentation
 
-- [Services](services.md) -- Deep dive into the nine independent services and data flow
+- [Services](services.md) -- Deep dive into the ten independent services and data flow
 - [Configuration](configuration.md) -- Complete YAML configuration reference
 - [Database](database.md) -- PostgreSQL schema, stored functions, and indexes
 - [Monitoring](monitoring.md) -- Prometheus metrics, alerting, and Grafana dashboards

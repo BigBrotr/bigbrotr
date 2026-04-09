@@ -152,7 +152,7 @@ SELECT key, state_type, count(*) FROM service_state GROUP BY key, state_type;
 
 ## What Just Happened?
 
-You ran three of BigBrotr's nine independent services:
+You ran three of BigBrotr's ten independent services:
 
 --8<-- "docs/_snippets/pipeline.md"
 
@@ -160,13 +160,14 @@ You ran three of BigBrotr's nine independent services:
 2. **Finder** discovered additional relay URLs from events and external APIs
 3. **Validator** tested every candidate via WebSocket and promoted live relays
 
-The remaining six services handle monitoring, event archiving, analytics, trust assertions, and data access:
+The remaining seven services handle monitoring, event archiving, analytics, ranking, trust assertions, and data access:
 
 - **Monitor** performs NIP-11 and NIP-66 health checks on validated relays and
   publishes results as kind 10166/30166 Nostr events and uses a service key for NIP-66 write probes
 - **Synchronizer** connects to validated relays, subscribes to events, and
   archives them with cursor-based pagination, using a service key for NIP-42-authenticated reads when needed
-- **Refresher** refreshes 6 summary tables and 6 materialized views that power analytics queries
+- **Refresher** refreshes current-state tables, analytics facts, and materialized views that power downstream queries
+- **Ranker** keeps a private DuckDB graph store, computes NIP-85 ranks, and snapshot-exports them back to PostgreSQL
 - **Assertor** publishes NIP-85 trusted assertion events for users, events, addressables, and identifiers
   with its own service signing key
 - **Api** exposes the database as a read-only REST API with paginated endpoints
