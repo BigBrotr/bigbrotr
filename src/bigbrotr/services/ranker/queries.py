@@ -106,6 +106,11 @@ ORDER BY source_seen_at ASC, follower_pubkey ASC
 LIMIT $3
 """
 
+_CONTACT_LIST_SOURCE_WATERMARK_QUERY = """
+SELECT COALESCE(MAX(source_seen_at), 0)
+FROM contact_lists_current
+"""
+
 _FOLLOW_EDGES_QUERY = """
 SELECT
     follower_pubkey,
@@ -424,6 +429,12 @@ async def fetch_follow_edges_for_followers(
         )
         for row in rows
     ]
+
+
+async def get_contact_list_source_watermark(brotr: Brotr) -> int:
+    """Return the latest visible ``contact_lists_current.source_seen_at`` watermark."""
+    result = await brotr.fetchval(_CONTACT_LIST_SOURCE_WATERMARK_QUERY)
+    return int(result) if result else 0
 
 
 async def fetch_event_stats(

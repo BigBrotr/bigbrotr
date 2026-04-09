@@ -1,4 +1,4 @@
-"""Private DuckDB store for the ranker service."""
+"""Private DuckDB utilities for the ranker service."""
 
 from __future__ import annotations
 
@@ -235,6 +235,52 @@ class RankerStore:
                 """,
                 [int(time.time()), status, run_id],
             )
+
+    def count_rank_runs(self, *, status: str | None = None) -> int:
+        """Count local rank run records, optionally filtered by status."""
+        self.ensure_initialized()
+
+        with duckdb.connect(str(self._db_path)) as conn:
+            if status is None:
+                row = conn.execute("SELECT COUNT(*) FROM rank_runs").fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM rank_runs WHERE status = ?",
+                    [status],
+                ).fetchone()
+
+        return int(row[0]) if row is not None else 0
+
+    def delete_rank_runs_older_than_retention(self, retention: int | None) -> int:
+        """Delete old local rank-run records beyond the configured retention."""
+        if retention is None:
+            return 0
+
+        self.ensure_initialized()
+
+        with duckdb.connect(str(self._db_path)) as conn:
+            before_row = conn.execute("SELECT COUNT(*) FROM rank_runs").fetchone()
+            before = int(before_row[0]) if before_row is not None else 0
+            conn.execute(
+                """
+                DELETE FROM rank_runs
+                WHERE run_id IN (
+                    SELECT run_id
+                    FROM (
+                        SELECT
+                            run_id,
+                            ROW_NUMBER() OVER (ORDER BY run_id DESC) AS row_num
+                        FROM rank_runs
+                    )
+                    WHERE row_num > ?
+                )
+                """,
+                [retention],
+            )
+            after_row = conn.execute("SELECT COUNT(*) FROM rank_runs").fetchone()
+            after = int(after_row[0]) if after_row is not None else 0
+
+        return before - after
 
     def compute_pubkey_pagerank(
         self,

@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from bigbrotr.services.ranker import Ranker, RankerConfig
-from bigbrotr.services.ranker.store import RankerStore
+from bigbrotr.services.ranker.queries import GraphSyncCheckpoint
+from bigbrotr.services.ranker.utils import RankerStore
 
 
 pytestmark = pytest.mark.integration
@@ -307,7 +308,7 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
 
     config = RankerConfig.model_validate(
         {
-            "db": {
+            "storage": {
                 "path": tmp_path / "ranker.duckdb",
                 "checkpoint_path": tmp_path / "ranker.checkpoint.json",
             },
@@ -321,7 +322,7 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
     async with service:
         await service.run()
 
-    store = RankerStore(config.db.path, config.db.checkpoint_path)
+    store = RankerStore(config.storage.path, config.storage.checkpoint_path)
     stats = store.get_graph_stats()
     assert stats.node_count == 4
     assert stats.edge_count == 3
@@ -585,3 +586,94 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
             "computed_at": 999,
         }
     ]
+
+
+async def test_ranker_sync_budget_resumes_from_checkpoint(
+    brotr: Brotr,
+    tmp_path: Path,
+) -> None:
+    pubkey_a = "a" * 64
+    pubkey_b = "b" * 64
+
+    await _seed_contact_list(
+        brotr=brotr,
+        follower_pubkey=pubkey_a,
+        source_event_id="evt-a-1",
+        source_created_at=100,
+        source_seen_at=10,
+        follow_count=1,
+    )
+    await _seed_contact_list(
+        brotr=brotr,
+        follower_pubkey=pubkey_b,
+        source_event_id="evt-b-1",
+        source_created_at=200,
+        source_seen_at=20,
+        follow_count=1,
+    )
+    await _seed_follow_edge(
+        brotr=brotr,
+        follower_pubkey=pubkey_a,
+        followed_pubkey=pubkey_b,
+        source_event_id="evt-a-1",
+        source_created_at=100,
+        source_seen_at=10,
+    )
+    await _seed_follow_edge(
+        brotr=brotr,
+        follower_pubkey=pubkey_b,
+        followed_pubkey=pubkey_a,
+        source_event_id="evt-b-1",
+        source_created_at=200,
+        source_seen_at=20,
+    )
+
+    config = RankerConfig.model_validate(
+        {
+            "algorithm_id": "bounded-pagerank-v1",
+            "storage": {
+                "path": tmp_path / "ranker.duckdb",
+                "checkpoint_path": tmp_path / "ranker.checkpoint.json",
+            },
+            "metrics": {"enabled": False},
+            "sync": {"batch_size": 1, "max_batches": 1},
+        }
+    )
+
+    service = Ranker(brotr=brotr, config=config)
+    async with service:
+        first_result = await service.rank()
+    store = RankerStore(config.storage.path, config.storage.checkpoint_path)
+    assert first_result.cutoff_reason == "sync_max_batches"
+    assert first_result.rank_run_id is None
+    assert first_result.changed_followers_synced == 1
+    assert store.load_checkpoint() == GraphSyncCheckpoint(10, pubkey_a)
+    assert (
+        await _fetch_rank_rows(
+            brotr=brotr,
+            table_name="nip85_pubkey_ranks",
+            algorithm_id=config.algorithm_id,
+        )
+        == []
+    )
+
+    service = Ranker(brotr=brotr, config=config)
+    async with service:
+        second_result = await service.rank()
+    assert second_result.cutoff_reason == "sync_max_batches"
+    assert second_result.rank_run_id is None
+    assert second_result.changed_followers_synced == 1
+    assert store.load_checkpoint() == GraphSyncCheckpoint(20, pubkey_b)
+
+    service = Ranker(brotr=brotr, config=config)
+    async with service:
+        final_result = await service.rank()
+    final_rows = await _fetch_rank_rows(
+        brotr=brotr,
+        table_name="nip85_pubkey_ranks",
+        algorithm_id=config.algorithm_id,
+    )
+    assert final_result.cutoff_reason is None
+    assert final_result.rank_run_id == 1
+    assert [row["subject_id"] for row in final_rows] == [pubkey_a, pubkey_b]
+    assert sum(float(row["raw_score"]) for row in final_rows) == pytest.approx(1.0, abs=1e-9)
