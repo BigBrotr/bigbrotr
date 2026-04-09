@@ -1,4 +1,7 @@
 {% extends "base/03_functions_crud.sql.j2" %}
+{% block events_insert_description %}
+'Bulk insert lightweight events with ordered tagvalues computed at insert time for filtering and analytics fallback, returns number of rows inserted';
+{% endblock %}
 {% block events_insert_body %}
     -- Store essential fields + compute tagvalues; tags/content/sig remain NULL
     INSERT INTO event (id, pubkey, created_at, kind, tagvalues)

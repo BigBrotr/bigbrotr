@@ -784,6 +784,24 @@ class TestEventsAddressableLatest:
         assert len(rows) == 1
         assert rows[0]["d_tag"] == ""
 
+    async def test_first_dtag_wins_when_multiple_d_tags_present(self, brotr: Brotr) -> None:
+        er = _event_relay(
+            "d1" * 32,
+            "wss://addr2.example.com",
+            kind=30023,
+            pubkey="de" * 32,
+            tags=[["d", "first"], ["d", "second"]],
+        )
+        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.refresh_materialized_view("events_addressable_latest")
+
+        row = await brotr.fetchrow(
+            "SELECT d_tag FROM events_addressable_latest WHERE id = $1",
+            bytes.fromhex("d1" * 32),
+        )
+        assert row is not None
+        assert row["d_tag"] == "first"
+
     async def test_excludes_non_addressable_kinds(self, brotr: Brotr) -> None:
         ers = [
             _event_relay("c0" * 32, "wss://addr.example.com", kind=1),
@@ -805,6 +823,29 @@ class TestBolt11AmountMsats:
     async def test_supports_mainnet_and_case_insensitive_prefix(self, brotr: Brotr) -> None:
         assert await brotr.fetchval("SELECT bolt11_amount_msats($1)", "lnbc21000n1qqq") == 2_100_000
         assert await brotr.fetchval("SELECT bolt11_amount_msats($1)", "LNBC21000N1qqq") == 2_100_000
+
+    async def test_supports_testnet_signet_and_regtest_prefixes(self, brotr: Brotr) -> None:
+        assert await brotr.fetchval("SELECT bolt11_amount_msats($1)", "lntb21000n1qqq") == 2_100_000
+        assert (
+            await brotr.fetchval("SELECT bolt11_amount_msats($1)", "lntbs21000n1qqq") == 2_100_000
+        )
+        assert (
+            await brotr.fetchval("SELECT bolt11_amount_msats($1)", "lnbcrt21000n1qqq") == 2_100_000
+        )
+
+    async def test_returns_null_for_any_amount_or_malformed_values(self, brotr: Brotr) -> None:
+        assert await brotr.fetchval("SELECT bolt11_amount_msats($1)", "lnbc1qqq") is None
+        assert await brotr.fetchval("SELECT bolt11_amount_msats($1)", "not-a-bolt11") is None
+        assert await brotr.fetchval("SELECT bolt11_amount_msats($1)", "lnxx21000n1qqq") is None
+
+    async def test_returns_null_for_overflow_amounts(self, brotr: Brotr) -> None:
+        assert (
+            await brotr.fetchval(
+                "SELECT bolt11_amount_msats($1)",
+                "lnbc9999999999999999999999999999999991qqq",
+            )
+            is None
+        )
 
 
 class TestNip85PubkeyStats:
@@ -860,6 +901,31 @@ class TestNip85PubkeyStats:
         assert target_row is not None
         assert target_row["reaction_count_recd"] == 1
 
+    async def test_reaction_received_uses_first_p_when_tags_present(self, brotr: Brotr) -> None:
+        first_target = "c3" * 32
+        second_target = "c4" * 32
+        er = _event_relay(
+            "b20" * 32,
+            "wss://n85.example.com",
+            kind=7,
+            pubkey="c2" * 32,
+            tags=[["p", first_target], ["p", second_target]],
+        )
+        await brotr.insert_event_relay([er], cascade=True)
+        await _refresh_nip85(brotr)
+
+        first_row = await brotr.fetchrow(
+            "SELECT reaction_count_recd FROM nip85_pubkey_stats WHERE pubkey = $1",
+            first_target,
+        )
+        second_row = await brotr.fetchrow(
+            "SELECT reaction_count_recd FROM nip85_pubkey_stats WHERE pubkey = $1",
+            second_target,
+        )
+        assert first_row is not None
+        assert first_row["reaction_count_recd"] == 1
+        assert second_row is None or second_row["reaction_count_recd"] == 0
+
     async def test_report_counts(self, brotr: Brotr) -> None:
         reporter = "c4" * 32
         reported = "c5" * 32
@@ -888,6 +954,31 @@ class TestNip85PubkeyStats:
         )
         assert row_recd is not None
         assert row_recd["report_count_recd"] == 1
+
+    async def test_report_received_uses_first_p_when_tags_present(self, brotr: Brotr) -> None:
+        first_target = "c5" * 32
+        second_target = "c6" * 32
+        er = _event_relay(
+            "b21" * 32,
+            "wss://n85.example.com",
+            kind=1984,
+            pubkey="c4" * 32,
+            tags=[["p", first_target], ["p", second_target]],
+        )
+        await brotr.insert_event_relay([er], cascade=True)
+        await _refresh_nip85(brotr)
+
+        first_row = await brotr.fetchrow(
+            "SELECT report_count_recd FROM nip85_pubkey_stats WHERE pubkey = $1",
+            first_target,
+        )
+        second_row = await brotr.fetchrow(
+            "SELECT report_count_recd FROM nip85_pubkey_stats WHERE pubkey = $1",
+            second_target,
+        )
+        assert first_row is not None
+        assert first_row["report_count_recd"] == 1
+        assert second_row is None or second_row["report_count_recd"] == 0
 
     async def test_repost_counts(self, brotr: Brotr) -> None:
         reposter = "c6" * 32
@@ -1119,6 +1210,37 @@ class TestNip85EventStats:
         assert root_row is None or root_row["comment_count"] == 0
         assert reply_row is not None
         assert reply_row["comment_count"] == 1
+
+    async def test_comment_uses_last_e_without_reply_marker_when_tags_present(
+        self, brotr: Brotr
+    ) -> None:
+        first_target = "10" * 32
+        last_target = "11" * 32
+        ers = [
+            _event_relay(first_target, "wss://n85e.example.com", kind=1, pubkey="d2" * 32),
+            _event_relay(last_target, "wss://n85e.example.com", kind=1, pubkey="d3" * 32),
+            _event_relay(
+                "12" * 32,
+                "wss://n85e.example.com",
+                kind=1,
+                pubkey="d4" * 32,
+                tags=[["e", first_target], ["e", last_target]],
+            ),
+        ]
+        await brotr.insert_event_relay(ers, cascade=True)
+        await _refresh_nip85(brotr)
+
+        first_row = await brotr.fetchrow(
+            "SELECT comment_count FROM nip85_event_stats WHERE event_id = $1",
+            first_target,
+        )
+        last_row = await brotr.fetchrow(
+            "SELECT comment_count FROM nip85_event_stats WHERE event_id = $1",
+            last_target,
+        )
+        assert first_row is None or first_row["comment_count"] == 0
+        assert last_row is not None
+        assert last_row["comment_count"] == 1
 
     async def test_reaction_count(self, brotr: Brotr) -> None:
         target_event = "e2" * 32

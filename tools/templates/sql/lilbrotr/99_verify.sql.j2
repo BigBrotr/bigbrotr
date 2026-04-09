@@ -66,7 +66,9 @@ BEGIN
     RAISE NOTICE '  events_replaceable_latest_refresh, events_addressable_latest_refresh';
     RAISE NOTICE '';
     RAISE NOTICE 'Note: Event table tags, content, and sig are nullable (always NULL).';
-    RAISE NOTICE '      Tagvalues is computed at insert time. ~60%% disk savings vs full storage.';
+    RAISE NOTICE '      Ordered tagvalues is still computed at insert time and used for filtering plus analytics fallback.';
+    RAISE NOTICE '      LilBrotr aims for exact parity when metrics are derivable from tagvalues, and best-effort otherwise.';
+    RAISE NOTICE '      ~60%% disk savings vs full storage.';
     RAISE NOTICE '============================================================================';
 END $$;
 {% endblock %}

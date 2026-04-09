@@ -863,7 +863,8 @@ COMMENT ON FUNCTION events_addressable_latest_refresh() IS
  * - kind=7: reaction_count_sent (author), reaction_count_recd (tag p target)
  * - kind=6: repost_count_recd (original event author via lookup)
  * - kind=1984: report_count_sent (author), report_count_recd (tag p target)
- * - kind=9735: zap counts/amounts (bolt11-verified, tag p for recipient)
+ * - kind=9735: zap counts/amounts (bolt11-verified when tags exist; count-only
+ *   fallback from tagvalues when full tags are not stored)
  * - tag 't': topic_counts accumulation
  * - created_at hour: activity_hours heatmap
  */
@@ -962,7 +963,7 @@ BEGIN
     GET DIAGNOSTICS v_partial = ROW_COUNT;
     v_rows := v_rows + v_partial;
 
-    -- 4. Reactions received (kind=7, first p from tags when present, else DISTINCT fallback)
+    -- 4. Reactions received (kind=7, first p from tags when present, else ordered fallback)
     WITH exact_targets AS (
         SELECT
             ENCODE(ne.id, 'hex') AS source_event_id,
@@ -979,14 +980,19 @@ BEGIN
           AND ne.tags IS NOT NULL
     ),
     fallback_targets AS (
-        SELECT DISTINCT
+        SELECT
             ENCODE(ne.id, 'hex') AS source_event_id,
-            LOWER(substring(tv FROM 3)) AS target_pubkey
-        FROM _nip85_new_events AS ne,
-             unnest(ne.tagvalues) AS tv
+            LOWER(substring(p_tag.tv FROM 3)) AS target_pubkey
+        FROM _nip85_new_events AS ne
+        INNER JOIN LATERAL (
+            SELECT tv
+            FROM unnest(ne.tagvalues) WITH ORDINALITY AS t(tv, ord)
+            WHERE tv LIKE 'p:%'
+            ORDER BY ord
+            LIMIT 1
+        ) AS p_tag ON TRUE
         WHERE ne.kind = 7
           AND ne.tags IS NULL
-          AND tv LIKE 'p:%'
     ),
     delta AS (
         SELECT target_pubkey, COUNT(*) AS cnt
@@ -1021,7 +1027,7 @@ BEGIN
     GET DIAGNOSTICS v_partial = ROW_COUNT;
     v_rows := v_rows + v_partial;
 
-    -- 6. Reports received (kind=1984, first p from tags when present, else DISTINCT fallback)
+    -- 6. Reports received (kind=1984, first p from tags when present, else ordered fallback)
     WITH exact_targets AS (
         SELECT
             ENCODE(ne.id, 'hex') AS source_event_id,
@@ -1038,14 +1044,19 @@ BEGIN
           AND ne.tags IS NOT NULL
     ),
     fallback_targets AS (
-        SELECT DISTINCT
+        SELECT
             ENCODE(ne.id, 'hex') AS source_event_id,
-            LOWER(substring(tv FROM 3)) AS target_pubkey
-        FROM _nip85_new_events AS ne,
-             unnest(ne.tagvalues) AS tv
+            LOWER(substring(p_tag.tv FROM 3)) AS target_pubkey
+        FROM _nip85_new_events AS ne
+        INNER JOIN LATERAL (
+            SELECT tv
+            FROM unnest(ne.tagvalues) WITH ORDINALITY AS t(tv, ord)
+            WHERE tv LIKE 'p:%'
+            ORDER BY ord
+            LIMIT 1
+        ) AS p_tag ON TRUE
         WHERE ne.kind = 1984
           AND ne.tags IS NULL
-          AND tv LIKE 'p:%'
     ),
     delta AS (
         SELECT target_pubkey, COUNT(*) AS cnt
@@ -1080,7 +1091,7 @@ BEGIN
     GET DIAGNOSTICS v_partial = ROW_COUNT;
     v_rows := v_rows + v_partial;
 
-    -- 7b. Reposts received (kind=6, first e from tags when present, else DISTINCT fallback)
+    -- 7b. Reposts received (kind=6, first e from tags when present, else ordered fallback)
     WITH exact_targets AS (
         SELECT
             ENCODE(ne.id, 'hex') AS source_event_id,
@@ -1097,14 +1108,19 @@ BEGIN
           AND ne.tags IS NOT NULL
     ),
     fallback_targets AS (
-        SELECT DISTINCT
+        SELECT
             ENCODE(ne.id, 'hex') AS source_event_id,
-            LOWER(substring(tv FROM 3)) AS target_event_hex
-        FROM _nip85_new_events AS ne,
-             unnest(ne.tagvalues) AS tv
+            LOWER(substring(e_tag.tv FROM 3)) AS target_event_hex
+        FROM _nip85_new_events AS ne
+        INNER JOIN LATERAL (
+            SELECT tv
+            FROM unnest(ne.tagvalues) WITH ORDINALITY AS t(tv, ord)
+            WHERE tv LIKE 'e:%'
+            ORDER BY ord
+            LIMIT 1
+        ) AS e_tag ON TRUE
         WHERE ne.kind = 6
           AND ne.tags IS NULL
-          AND tv LIKE 'e:%'
     ),
     delta AS (
         SELECT ENCODE(e.pubkey, 'hex') AS target_pubkey, COUNT(*) AS cnt
@@ -1220,6 +1236,59 @@ BEGIN
     GET DIAGNOSTICS v_partial = ROW_COUNT;
     v_rows := v_rows + v_partial;
 
+    -- 8c. Zaps received fallback (kind=9735, tagvalues-only, count-only)
+    WITH fallback_data AS (
+        SELECT
+            LOWER(substring(p_tag.tv FROM 3)) AS recipient_pubkey
+        FROM _nip85_new_events AS ne
+        INNER JOIN LATERAL (
+            SELECT tv
+            FROM unnest(ne.tagvalues) WITH ORDINALITY AS t(tv, ord)
+            WHERE tv LIKE 'p:%'
+            ORDER BY ord
+            LIMIT 1
+        ) AS p_tag ON TRUE
+        WHERE ne.kind = 9735
+          AND ne.tags IS NULL
+    ),
+    recd_delta AS (
+        SELECT recipient_pubkey AS pubkey, COUNT(*) AS cnt
+        FROM fallback_data
+        WHERE recipient_pubkey ~ '^[0-9a-f]{64}$'
+        GROUP BY recipient_pubkey
+    )
+    INSERT INTO nip85_pubkey_stats (pubkey, zap_count_recd)
+    SELECT pubkey, cnt FROM recd_delta
+    ON CONFLICT (pubkey) DO UPDATE SET
+        zap_count_recd = nip85_pubkey_stats.zap_count_recd + EXCLUDED.zap_count_recd;
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
+
+    -- 8d. Zaps sent fallback (kind=9735, tagvalues-only, count-only)
+    WITH fallback_data AS (
+        SELECT
+            ENCODE(ne.pubkey, 'hex') AS sender_pubkey
+        FROM _nip85_new_events AS ne
+        WHERE ne.kind = 9735
+          AND ne.tags IS NULL
+          AND EXISTS (
+              SELECT 1
+              FROM unnest(ne.tagvalues) AS tv
+              WHERE tv LIKE 'p:%'
+          )
+    ),
+    sent_delta AS (
+        SELECT sender_pubkey AS pubkey, COUNT(*) AS cnt
+        FROM fallback_data
+        GROUP BY sender_pubkey
+    )
+    INSERT INTO nip85_pubkey_stats (pubkey, zap_count_sent)
+    SELECT pubkey, cnt FROM sent_delta
+    ON CONFLICT (pubkey) DO UPDATE SET
+        zap_count_sent = nip85_pubkey_stats.zap_count_sent + EXCLUDED.zap_count_sent;
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
+
     -- 9. Topic counts (tag 't' from all events by author)
     WITH topic_delta AS (
         SELECT
@@ -1271,7 +1340,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION nip85_pubkey_stats_refresh(BIGINT, BIGINT) IS
-'Incremental refresh of NIP-85 per-pubkey social metrics. Bolt11-verified zap amounts.';
+'Incremental refresh of NIP-85 per-pubkey social metrics. Uses exact tags when available and ordered tagvalues fallback when full tags are not stored.';
 
 
 /*
@@ -1283,7 +1352,8 @@ COMMENT ON FUNCTION nip85_pubkey_stats_refresh(BIGINT, BIGINT) IS
  * - any kind with tag q: quote_count on target event
  * - kind=6 with tag e: repost_count on target event
  * - kind=7 with tag e: reaction_count on target event
- * - kind=9735 with tag e: zap_count/zap_amount on target event (bolt11-verified)
+ * - kind=9735 with tag e: zap_count/zap_amount on target event (bolt11-verified
+ *   when tags exist; count-only fallback from tagvalues when full tags are not stored)
  */
 CREATE OR REPLACE FUNCTION nip85_event_stats_refresh(
     p_after BIGINT,
@@ -1307,7 +1377,7 @@ BEGIN
       );
     CREATE INDEX idx__nip85_new_events_eng_kind ON _nip85_new_events_eng (kind);
 
-    -- 1. Comments (reply marker if tags exist, else DISTINCT fallback via tagvalues)
+    -- 1. Comments (reply marker if tags exist, else last e fallback via tagvalues)
     WITH exact_targets AS (
         SELECT
             ENCODE(ne.id, 'hex') AS source_event_id,
@@ -1333,14 +1403,19 @@ BEGIN
           AND COALESCE(reply_tag.target_event, last_e_tag.target_event) IS NOT NULL
     ),
     fallback_targets AS (
-        SELECT DISTINCT
+        SELECT
             ENCODE(ne.id, 'hex') AS source_event_id,
-            LOWER(substring(tv FROM 3)) AS target_event
-        FROM _nip85_new_events_eng AS ne,
-             unnest(ne.tagvalues) AS tv
+            LOWER(substring(e_tag.tv FROM 3)) AS target_event
+        FROM _nip85_new_events_eng AS ne
+        INNER JOIN LATERAL (
+            SELECT tv
+            FROM unnest(ne.tagvalues) WITH ORDINALITY AS t(tv, ord)
+            WHERE tv LIKE 'e:%'
+            ORDER BY ord DESC
+            LIMIT 1
+        ) AS e_tag ON TRUE
         WHERE ne.kind = 1
           AND ne.tags IS NULL
-          AND tv LIKE 'e:%'
     ),
     delta AS (
         SELECT target_event, COUNT(*) AS cnt
@@ -1388,7 +1463,7 @@ BEGIN
     GET DIAGNOSTICS v_partial = ROW_COUNT;
     v_rows := v_rows + v_partial;
 
-    -- 3. Reposts (first e from tags when present, else DISTINCT fallback)
+    -- 3. Reposts (first e from tags when present, else ordered fallback)
     WITH exact_targets AS (
         SELECT
             ENCODE(ne.id, 'hex') AS source_event_id,
@@ -1405,14 +1480,19 @@ BEGIN
           AND ne.tags IS NOT NULL
     ),
     fallback_targets AS (
-        SELECT DISTINCT
+        SELECT
             ENCODE(ne.id, 'hex') AS source_event_id,
-            LOWER(substring(tv FROM 3)) AS target_event
-        FROM _nip85_new_events_eng AS ne,
-             unnest(ne.tagvalues) AS tv
+            LOWER(substring(e_tag.tv FROM 3)) AS target_event
+        FROM _nip85_new_events_eng AS ne
+        INNER JOIN LATERAL (
+            SELECT tv
+            FROM unnest(ne.tagvalues) WITH ORDINALITY AS t(tv, ord)
+            WHERE tv LIKE 'e:%'
+            ORDER BY ord
+            LIMIT 1
+        ) AS e_tag ON TRUE
         WHERE ne.kind = 6
           AND ne.tags IS NULL
-          AND tv LIKE 'e:%'
     ),
     delta AS (
         SELECT target_event, COUNT(*) AS cnt
@@ -1436,7 +1516,7 @@ BEGIN
     GET DIAGNOSTICS v_partial = ROW_COUNT;
     v_rows := v_rows + v_partial;
 
-    -- 4. Reactions (last e from tags when present, else DISTINCT fallback)
+    -- 4. Reactions (last e from tags when present, else ordered fallback)
     WITH exact_targets AS (
         SELECT
             ENCODE(ne.id, 'hex') AS source_event_id,
@@ -1453,14 +1533,19 @@ BEGIN
           AND ne.tags IS NOT NULL
     ),
     fallback_targets AS (
-        SELECT DISTINCT
+        SELECT
             ENCODE(ne.id, 'hex') AS source_event_id,
-            LOWER(substring(tv FROM 3)) AS target_event
-        FROM _nip85_new_events_eng AS ne,
-             unnest(ne.tagvalues) AS tv
+            LOWER(substring(e_tag.tv FROM 3)) AS target_event
+        FROM _nip85_new_events_eng AS ne
+        INNER JOIN LATERAL (
+            SELECT tv
+            FROM unnest(ne.tagvalues) WITH ORDINALITY AS t(tv, ord)
+            WHERE tv LIKE 'e:%'
+            ORDER BY ord DESC
+            LIMIT 1
+        ) AS e_tag ON TRUE
         WHERE ne.kind = 7
           AND ne.tags IS NULL
-          AND tv LIKE 'e:%'
     ),
     delta AS (
         SELECT target_event, COUNT(*) AS cnt
@@ -1537,13 +1622,43 @@ BEGIN
     GET DIAGNOSTICS v_partial = ROW_COUNT;
     v_rows := v_rows + v_partial;
 
+    -- 6. Zaps on events fallback (kind=9735, tagvalues-only, last e target, count-only)
+    WITH fallback_data AS (
+        SELECT
+            LOWER(substring(e_tag.tv FROM 3)) AS target_event
+        FROM _nip85_new_events_eng AS ne
+        INNER JOIN LATERAL (
+            SELECT tv
+            FROM unnest(ne.tagvalues) WITH ORDINALITY AS t(tv, ord)
+            WHERE tv LIKE 'e:%'
+            ORDER BY ord DESC
+            LIMIT 1
+        ) AS e_tag ON TRUE
+        WHERE ne.kind = 9735
+          AND ne.tags IS NULL
+    ),
+    delta AS (
+        SELECT target_event, COUNT(*) AS cnt
+        FROM fallback_data
+        WHERE target_event ~ '^[0-9a-f]{64}$'
+        GROUP BY target_event
+    )
+    INSERT INTO nip85_event_stats (event_id, author_pubkey, zap_count)
+    SELECT d.target_event, COALESCE(ENCODE(e.pubkey, 'hex'), ''), d.cnt
+    FROM delta AS d
+    LEFT JOIN event AS e ON e.id = DECODE(d.target_event, 'hex')
+    ON CONFLICT (event_id) DO UPDATE SET
+        zap_count = nip85_event_stats.zap_count + EXCLUDED.zap_count;
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
+
     DROP TABLE IF EXISTS _nip85_new_events_eng;
     RETURN v_rows;
 END;
 $$;
 
 COMMENT ON FUNCTION nip85_event_stats_refresh(BIGINT, BIGINT) IS
-'Incremental refresh of NIP-85 per-event engagement metrics. Bolt11-verified zap amounts.';
+'Incremental refresh of NIP-85 per-event engagement metrics. Uses exact tags when available and ordered tagvalues fallback when full tags are not stored.';
 
 
 -- **************************************************************************

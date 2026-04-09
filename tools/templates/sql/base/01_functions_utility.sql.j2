@@ -19,6 +19,11 @@
  *
  * Each value is prefixed with its tag key and a colon separator, enabling
  * GIN queries that discriminate between tag types (e.g., "e:abc" vs "p:abc").
+ * The original tag order is preserved in the resulting array so downstream
+ * analytics can reconstruct "first"/"last" semantics for single-char tags.
+ *
+ * Only the first tag value (tag[1]) is retained. Additional tag fields such
+ * as relay hints or markers are intentionally discarded.
  *
 {% block tagvalues_usage_comment %}
  * Called by event_insert() to compute tagvalues at insert time. The result
@@ -36,4 +41,11 @@ RETURNS TEXT []
 LANGUAGE SQL
 IMMUTABLE
 RETURNS NULL ON NULL INPUT
-AS 'SELECT COALESCE(array_agg((t->>0) || '':'' || (t->>1)), ''{}''::TEXT[]) FROM (SELECT jsonb_array_elements($1) AS t)s WHERE length(t->>0) = 1;';
+AS $$
+    SELECT COALESCE(
+        array_agg((t.tag ->> 0) || ':' || (t.tag ->> 1) ORDER BY t.ord),
+        '{}'::TEXT[]
+    )
+    FROM jsonb_array_elements($1) WITH ORDINALITY AS t(tag, ord)
+    WHERE length(t.tag ->> 0) = 1
+$$;

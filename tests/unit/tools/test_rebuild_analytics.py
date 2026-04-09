@@ -179,3 +179,42 @@ class TestRebuildAnalytics:
 
         assert result.assertor_checkpoints_deleted == 0
         brotr.delete_service_state.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_fail_fast_when_summary_refresh_raises(self) -> None:
+        brotr = MagicMock()
+        brotr.refresh_materialized_view = AsyncMock()
+        brotr.execute = AsyncMock()
+        brotr.upsert_service_state = AsyncMock()
+        brotr.get_service_state = AsyncMock()
+        brotr.delete_service_state = AsyncMock()
+
+        refresh_summary = AsyncMock(side_effect=[1, RuntimeError("boom")])
+        refresh_rolling_windows = AsyncMock()
+        refresh_relay_metadata = AsyncMock()
+        refresh_nip85_followers = AsyncMock()
+
+        original_refresh_summary = rebuild.refresh_summary
+        original_refresh_rolling_windows = rebuild.refresh_rolling_windows
+        original_refresh_relay_metadata = rebuild.refresh_relay_metadata
+        original_refresh_nip85_followers = rebuild.refresh_nip85_followers
+        rebuild.refresh_summary = refresh_summary
+        rebuild.refresh_rolling_windows = refresh_rolling_windows
+        rebuild.refresh_relay_metadata = refresh_relay_metadata
+        rebuild.refresh_nip85_followers = refresh_nip85_followers
+        try:
+            with pytest.raises(RuntimeError, match="boom"):
+                await rebuild.rebuild_analytics(brotr, until=1234)
+        finally:
+            rebuild.refresh_summary = original_refresh_summary
+            rebuild.refresh_rolling_windows = original_refresh_rolling_windows
+            rebuild.refresh_relay_metadata = original_refresh_relay_metadata
+            rebuild.refresh_nip85_followers = original_refresh_nip85_followers
+
+        brotr.refresh_materialized_view.assert_has_awaits([call(view) for view in rebuild.MATVIEWS])
+        brotr.execute.assert_awaited_once_with(rebuild.TRUNCATE_SQL)
+        refresh_rolling_windows.assert_not_awaited()
+        refresh_relay_metadata.assert_not_awaited()
+        refresh_nip85_followers.assert_not_awaited()
+        brotr.upsert_service_state.assert_not_awaited()
+        brotr.delete_service_state.assert_not_awaited()

@@ -351,15 +351,22 @@ def main() -> None:
 
     if not args.dry_run and (result.relays.renormalized or result.relays.invalid):
         print("\n--- Phase 5: Analytics rebuild ---\n")
-        asyncio.run(
-            _run_rebuild(
-                host=args.host,
-                port=args.port,
-                database=args.database,
-                user=args.user,
-                password=password,
+        try:
+            asyncio.run(
+                _run_rebuild(
+                    host=args.host,
+                    port=args.port,
+                    database=args.database,
+                    user=args.user,
+                    password=password,
+                )
             )
-        )
+        except Exception:
+            print(
+                "  Analytics rebuild failed; analytics may now be stale or unreliable "
+                "until tools/rebuild_analytics.py succeeds."
+            )
+            raise
         print("  Analytics rebuild completed successfully.")
 
     print(f"\n{'=' * 40}")

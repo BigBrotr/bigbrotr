@@ -117,7 +117,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION event_insert(BYTEA [], BYTEA [], BIGINT [], INTEGER [], JSONB [], TEXT [], BYTEA []) IS
-'Bulk insert events with tagvalues computed at insert time, returns number of rows inserted';
+'Bulk insert lightweight events with ordered tagvalues computed at insert time for filtering and analytics fallback, returns number of rows inserted';
 
 
 /*

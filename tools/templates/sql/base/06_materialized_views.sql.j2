@@ -396,12 +396,13 @@ COMMENT ON MATERIALIZED VIEW events_replaceable_latest IS
 -- events_addressable_latest: Latest addressable event per pubkey, kind, d-tag
 -- ==========================================================================
 -- NIP-01 addressable events (kind 30000-39999) have "at most one per
--- pubkey + kind + d-tag" semantics. The d-tag is extracted from the tags
--- JSONB array (first element where tag[0] = 'd'). Events without a d-tag
--- element use '' as the default, per NIP-01 specification.
+-- pubkey + kind + d-tag" semantics. The d-tag is extracted from the first
+-- `d` tag when full JSON tags are available. In LilBrotr, where `tags` are
+-- not persisted, the view falls back to ordered `tagvalues` entries (`d:*`).
+-- Events without any d-tag use '' as the default, per NIP-01 specification.
 --
--- Uses a LEFT JOIN LATERAL to extract the d-tag so that events without an
--- explicit d-tag are still included (with d_tag = '').
+-- Uses LEFT JOIN LATERAL extraction in both exact and fallback modes so that
+-- events without an explicit d-tag are still included (with d_tag = '').
 --
 -- All event columns are included so consumers can read the full event
 -- without joining back to the event table.
@@ -409,7 +410,11 @@ COMMENT ON MATERIALIZED VIEW events_replaceable_latest IS
 -- Refresh: events_addressable_latest_refresh()
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS events_addressable_latest AS
-SELECT DISTINCT ON (e.pubkey, e.kind, d_tag)
+SELECT DISTINCT ON (
+    e.pubkey,
+    e.kind,
+    COALESCE(d_exact.val, d_fallback.val, '')
+)
     e.id,
     e.pubkey,
     e.created_at,
@@ -418,16 +423,28 @@ SELECT DISTINCT ON (e.pubkey, e.kind, d_tag)
     e.tagvalues,
     e.content,
     e.sig,
-    COALESCE(d.val, '') AS d_tag
+    COALESCE(d_exact.val, d_fallback.val, '') AS d_tag
 FROM event AS e
 LEFT JOIN LATERAL (
-    SELECT elem ->> 1 AS val
-    FROM jsonb_array_elements(e.tags) AS elem
-    WHERE elem ->> 0 = 'd'
+    SELECT t.tag ->> 1 AS val
+    FROM jsonb_array_elements(e.tags) WITH ORDINALITY AS t(tag, ord)
+    WHERE t.tag ->> 0 = 'd'
+    ORDER BY ord
     LIMIT 1
-) AS d ON TRUE
+) AS d_exact ON TRUE
+LEFT JOIN LATERAL (
+    SELECT substring(t.tv FROM 3) AS val
+    FROM unnest(e.tagvalues) WITH ORDINALITY AS t(tv, ord)
+    WHERE t.tv LIKE 'd:%'
+    ORDER BY ord
+    LIMIT 1
+) AS d_fallback ON TRUE
 WHERE e.kind >= 30000 AND e.kind <= 39999
-ORDER BY e.pubkey, e.kind, d_tag, e.created_at DESC;
+ORDER BY
+    e.pubkey,
+    e.kind,
+    COALESCE(d_exact.val, d_fallback.val, ''),
+    e.created_at DESC;
 
 COMMENT ON MATERIALIZED VIEW events_addressable_latest IS
 'Latest addressable event per (pubkey, kind, d_tag). Covers kind 30000-39999. Refresh via events_addressable_latest_refresh().';

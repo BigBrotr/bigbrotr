@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 from tools import migrate_relay_urls as migrate_tool
 
 
@@ -65,3 +66,36 @@ def test_main_skips_rebuild_for_dry_run(monkeypatch) -> None:
 
     assert migrate_tool.main() is None
     assert calls == ["migrate"]
+
+
+def test_main_reports_rebuild_failure(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_password")
+    monkeypatch.setattr(
+        migrate_tool.argparse.ArgumentParser,
+        "parse_args",
+        lambda _self: SimpleNamespace(
+            host="localhost",
+            port=5432,
+            database="bigbrotr",
+            user="admin",
+            dry_run=False,
+        ),
+    )
+
+    def fake_run(coro):
+        name = coro.cr_code.co_name
+        coro.close()
+        if name == "migrate":
+            return migrate_tool.MigrationResult(
+                relays=migrate_tool.PhaseStats(total=1, renormalized=1),
+            )
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(migrate_tool.asyncio, "run", fake_run)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        migrate_tool.main()
+
+    captured = capsys.readouterr()
+    assert "Analytics rebuild failed" in captured.out
+    assert "analytics may now be stale or unreliable" in captured.out

@@ -133,7 +133,10 @@ Lightweight variant with all 8 columns but tags, content, and sig are nullable a
 | `sig` | BYTEA | Nullable, always NULL | Not stored in lightweight mode |
 
 !!! note
-    In LilBrotr, `tags`, `content`, and `sig` columns exist but are always NULL. The `tagvalues` column is computed by `event_insert()` from the `tags` parameter, which is then discarded. NULL values do not occupy storage, providing approximately 60% disk savings.
+    In LilBrotr, `tags`, `content`, and `sig` columns exist but are always NULL. The `tagvalues` column is computed by `event_insert()` from the incoming tags before the JSON is discarded. `tagvalues` preserves the original order of single-character tags and stores only each tag's first value (`tag[1]`), which allows most analytics logic to stay shared with BigBrotr. NULL values do not occupy storage, providing approximately 60% disk savings.
+
+!!! note
+    BigBrotr and LilBrotr intentionally share the same analytics schema and refresh logic wherever a metric can be reconstructed from `id`, `pubkey`, `created_at`, `kind`, `event_relay.seen_at`, and `tagvalues`. When a metric depends on tag fields that are not stored in LilBrotr (for example reply markers or multi-character tags such as `amount` and `bolt11`), LilBrotr uses a best-effort fallback instead of adding new persisted columns.
 
 ### event_relay
 
@@ -523,6 +526,8 @@ Latest replaceable event per author and kind.
 
 Latest addressable event per author, kind, and d-tag identifier.
 
+BigBrotr extracts `d_tag` from the first `d` tag in the stored JSON tags. LilBrotr uses the same view definition but falls back to the ordered `tagvalues` entry `d:*` when full tags are not persisted.
+
 | Column | Type | Description |
 |--------|------|-------------|
 | `pubkey` | BYTEA | Author public key |
@@ -706,7 +711,7 @@ CREATE TABLE event (
 );
 ```
 
-**LilBrotr** (lightweight): all 8 columns present but tags, content, sig are nullable and always NULL for ~60% disk savings. Tagvalues computed at insert time by `event_insert()`.
+**LilBrotr** (lightweight): all 8 columns present but tags, content, sig are nullable and always NULL for ~60% disk savings. `tagvalues` is still computed at insert time by `event_insert()` and remains the compatibility layer that keeps most analytics behavior aligned with BigBrotr.
 
 ```sql
 CREATE TABLE event (

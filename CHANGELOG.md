@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Catalog error boundary**: `asyncpg.PostgresError` (not just `DataError`) now caught and converted to `CatalogError` in both `query()` and `get_by_pk()`
 - **DVM error boundary**: `asyncpg.PostgresError` added to `_process_event()` exception handling to prevent query-level DB errors from crashing the service cycle
 - **Topic counts merge logic**: JSONB upsert now uses `UNION ALL + SUM` to preserve existing topic keys; previously dropped historical topics absent from the new batch. Values stored as native JSONB numbers (not text strings) to prevent lexicographic sorting
+- **BigBrotr/LilBrotr analytics parity**: ordered `tagvalues` are now treated as a real fallback substrate rather than an unordered set. Shared SQL logic now reconstructs `first p`, `first e`, `last e`, and addressable `d_tag` consistently across both deployments. LilBrotr keeps exact parity wherever metrics are derivable from `tagvalues`, and uses documented best-effort fallback for data that depends on non-persisted tag fields such as `amount` and `bolt11`
 - **Documentation topology**: service count, env var tables, architecture diagrams, test counts, and release target aligned across all 10+ documentation surfaces (README, PROJECT\_SPECIFICATION, docs site, quickstart, configuration, architecture guides)
 - **Self-hosting guide**: broken TOC anchors fixed, page added to mkdocs.yml navigation
 

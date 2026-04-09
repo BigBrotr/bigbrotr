@@ -192,9 +192,9 @@ processing:
 
 **BigBrotr** stores complete Nostr events including `tags` (JSON), `content`, and `sig`. It provides 6 summary tables and 6 materialized views for analytics and uses more disk space.
 
-**LilBrotr** has all 8 event columns but keeps `tags`, `content`, and `sig` as NULL (they are nullable columns that are never populated). The `tagvalues` column is computed at insert time. Since NULL values do not occupy storage, this results in approximately 60% disk savings. All 6 summary tables and 6 materialized views are available in both variants.
+**LilBrotr** has all 8 event columns but keeps `tags`, `content`, and `sig` as NULL (they are nullable columns that are never populated). The `tagvalues` column is still computed at insert time and preserves the order of single-character tags, which lets LilBrotr share almost all analytics logic with BigBrotr while using much less disk. Since NULL values do not occupy storage, this results in approximately 60% disk savings. All 6 summary tables and 6 materialized views are available in both variants.
 
-Both use the same services and codebase. The only difference is the SQL schema.
+Both use the same services and codebase. The intended contract is exact parity whenever a metric can be reconstructed from `tagvalues`; only metrics that require missing tag metadata fall back to best-effort behavior in LilBrotr. Today the clearest example is NIP-85 zaps: LilBrotr can count zap events from `p`/`e` tagvalues, but cannot reconstruct verified zap amounts because `amount` and `bolt11` are not stored.
 
 ### Do I need to run all nine services?
 
