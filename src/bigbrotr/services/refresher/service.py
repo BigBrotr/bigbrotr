@@ -19,6 +19,7 @@ separate materialized-view refresh phases.
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 import asyncpg
@@ -45,6 +46,15 @@ from .queries import (
 
 if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
+
+
+@dataclass(frozen=True, slots=True)
+class RefreshCycleResult:
+    """Outcome of one refresher service cycle."""
+
+    targets_total: int = 0
+    targets_refreshed: int = 0
+    targets_failed: int = 0
 
 
 class Refresher(BaseService[RefresherConfig]):
@@ -94,6 +104,10 @@ class Refresher(BaseService[RefresherConfig]):
 
     async def run(self) -> None:
         """Execute one refresh cycle."""
+        await self.refresh()
+
+    async def refresh(self) -> RefreshCycleResult:
+        """Refresh configured current-state, analytics, and periodic targets."""
         current_tables = self._config.refresh.current_tables
         analytics_tables = self._config.refresh.analytics_tables
         periodic_tasks = [
@@ -154,6 +168,12 @@ class Refresher(BaseService[RefresherConfig]):
         self.set_gauge("targets_refreshed", refreshed)
         self.set_gauge("targets_failed", failed)
         self._logger.info("refresh_completed", refreshed=refreshed, failed=failed)
+
+        return RefreshCycleResult(
+            targets_total=total,
+            targets_refreshed=refreshed,
+            targets_failed=failed,
+        )
 
     async def _refresh_incremental_table(self, table: str) -> int:
         """Incrementally refresh one current-state or analytics table."""

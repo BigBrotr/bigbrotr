@@ -6,10 +6,12 @@ Re-exports all public symbols for backwards-compatible imports::
 """
 
 from .configs import RankerConfig
-from .service import Ranker
+from .service import RankCycleResult, Ranker, RankRowCounts
 
 
 __all__ = [
+    "RankCycleResult",
+    "RankRowCounts",
     "Ranker",
     "RankerConfig",
 ]

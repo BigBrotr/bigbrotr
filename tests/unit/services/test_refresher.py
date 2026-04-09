@@ -10,7 +10,12 @@ import pytest
 from bigbrotr.core.brotr import Brotr, BrotrConfig
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.services.refresher import RefreshConfig, Refresher, RefresherConfig
+from bigbrotr.services.refresher import (
+    RefreshConfig,
+    RefreshCycleResult,
+    Refresher,
+    RefresherConfig,
+)
 from bigbrotr.services.refresher.configs import (
     DEFAULT_ANALYTICS_TABLES,
     DEFAULT_CURRENT_TABLES,
@@ -311,6 +316,26 @@ class TestRefresherCleanup:
 
 
 class TestRefresherRun:
+    async def test_run_delegates_to_refresh(self, mock_refresher_brotr: Brotr) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=RefresherConfig(
+                refresh=RefreshConfig(
+                    current_tables=[],
+                    analytics_tables=[],
+                )
+            ),
+        )
+
+        with patch.object(
+            refresher,
+            "refresh",
+            AsyncMock(return_value=RefreshCycleResult()),
+        ) as mock_refresh:
+            await refresher.run()
+
+        mock_refresh.assert_awaited_once_with()
+
     async def test_uses_relay_metadata_watermark_for_metadata_tables(
         self, mock_refresher_brotr: Brotr
     ) -> None:
@@ -393,13 +418,18 @@ class TestRefresherRun:
             patch("bigbrotr.services.refresher.service.refresh_nip85_followers", AsyncMock()),
             patch.object(refresher._logger, "info") as mock_info,
         ):
-            await refresher.run()
+            result = await refresher.refresh()
 
         assert mock_refresh.await_args_list == [
             call(mock_refresher_brotr, "events_replaceable_current", 0, 11),
             call(mock_refresher_brotr, "pubkey_kind_stats", 0, 22),
         ]
         assert mock_refresher_brotr.upsert_service_state.await_count == 2
+        assert result == RefreshCycleResult(
+            targets_total=5,
+            targets_refreshed=5,
+            targets_failed=0,
+        )
 
         refresh_completed = [
             call for call in mock_info.call_args_list if call.args[0] == "refresh_completed"

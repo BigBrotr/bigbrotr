@@ -7,7 +7,7 @@ See Also:
 """
 
 from .configs import AssertorConfig
-from .service import Assertor
+from .service import Assertor, PublishCycleResult
 
 
-__all__ = ["Assertor", "AssertorConfig"]
+__all__ = ["Assertor", "AssertorConfig", "PublishCycleResult"]

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import duckdb
 import pytest
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.ranker import Ranker, RankerConfig
+from bigbrotr.services.ranker import RankCycleResult, Ranker, RankerConfig, RankRowCounts
 from bigbrotr.services.ranker.queries import (
     AddressableStatFact,
     ContactListFact,
@@ -476,6 +477,29 @@ class TestRankerService:
         assert ranker.config.algorithm_id == "global-pagerank-v1"
 
     @pytest.mark.asyncio
+    async def test_run_delegates_to_rank(
+        self,
+        mock_brotr: Brotr,
+        ranker_config: RankerConfig,
+    ) -> None:
+        ranker = Ranker(brotr=mock_brotr, config=ranker_config)
+        cycle_result = RankCycleResult(
+            rank_run_id=1,
+            changed_followers_synced=0,
+            graph_nodes=0,
+            graph_edges=0,
+            non_user_staged=RankRowCounts(),
+            rank_counts=RankRowCounts(),
+            checkpoint=GraphSyncCheckpoint(),
+            duckdb_file_size_bytes=0,
+        )
+
+        with patch.object(ranker, "rank", AsyncMock(return_value=cycle_result)) as mock_rank:
+            await ranker.run()
+
+        mock_rank.assert_awaited_once_with()
+
+    @pytest.mark.asyncio
     async def test_run_syncs_changed_followers(
         self,
         mock_brotr: Brotr,
@@ -560,9 +584,21 @@ class TestRankerService:
 
         ranker = Ranker(brotr=mock_brotr, config=ranker_config)
         async with ranker:
-            await ranker.run()
+            result = await ranker.rank()
 
         store = RankerStore(ranker_config.db.path, ranker_config.db.checkpoint_path)
+        assert result.changed_followers_synced == 2
+        assert result.graph_nodes == 4
+        assert result.graph_edges == 3
+        assert result.non_user_staged == RankRowCounts(event=1, addressable=1, identifier=1)
+        assert result.rank_counts == RankRowCounts(
+            pubkey=4,
+            event=1,
+            addressable=1,
+            identifier=1,
+        )
+        assert result.checkpoint == GraphSyncCheckpoint(20, "d" * 64)
+        assert result.duckdb_file_size_bytes > 0
         assert store.get_graph_stats().node_count == 4
         assert store.get_graph_stats().edge_count == 3
         assert store.load_checkpoint() == GraphSyncCheckpoint(20, "d" * 64)

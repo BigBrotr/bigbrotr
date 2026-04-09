@@ -136,8 +136,8 @@ class TestAssertorRun:
         brotr.execute = AsyncMock()
         return brotr
 
-    async def test_run_no_client_returns_early(self, mock_brotr: MagicMock) -> None:
-        from bigbrotr.services.assertor.service import Assertor
+    async def test_publish_no_client_returns_early(self, mock_brotr: MagicMock) -> None:
+        from bigbrotr.services.assertor.service import Assertor, PublishCycleResult
 
         with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
             service = Assertor.__new__(Assertor)
@@ -145,11 +145,24 @@ class TestAssertorRun:
             service._config = _service_config()
             service._logger = MagicMock()
             service.set_gauge = MagicMock()
-            await service.run()
+            result = await service.publish()
+            assert result == PublishCycleResult()
             service.set_gauge.assert_not_called()
 
-    async def test_run_publishes_user_assertions(self, mock_brotr: MagicMock) -> None:
-        from bigbrotr.services.assertor.service import Assertor
+    async def test_run_delegates_to_publish(self, mock_brotr: MagicMock) -> None:
+        from bigbrotr.services.assertor.service import Assertor, PublishCycleResult
+
+        service = Assertor.__new__(Assertor)
+        service.publish = AsyncMock(  # type: ignore[method-assign]
+            return_value=PublishCycleResult(),
+        )
+
+        await service.run()
+
+        service.publish.assert_awaited_once_with()
+
+    async def test_publish_returns_user_assertion_counts(self, mock_brotr: MagicMock) -> None:
+        from bigbrotr.services.assertor.service import Assertor, PublishCycleResult
 
         with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
             service = Assertor.__new__(Assertor)
@@ -162,9 +175,14 @@ class TestAssertorRun:
             service._publish_user_assertions = AsyncMock(return_value=(5, 2, 1))
             service._publish_event_assertions = AsyncMock(return_value=(0, 0, 0))
 
-            await service.run()
+            result = await service.publish()
 
             service._publish_user_assertions.assert_awaited_once()
+            assert result == PublishCycleResult(
+                assertions_published=5,
+                assertions_skipped=2,
+                assertions_failed=1,
+            )
             service.set_gauge.assert_any_call("assertions_published", 5)
             service.set_gauge.assert_any_call("assertions_skipped", 2)
             service.set_gauge.assert_any_call("assertions_failed", 1)

@@ -6,11 +6,12 @@ Re-exports all public symbols for backwards-compatible imports::
 """
 
 from .configs import RefreshConfig, RefresherConfig
-from .service import Refresher
+from .service import RefreshCycleResult, Refresher
 
 
 __all__ = [
     "RefreshConfig",
+    "RefreshCycleResult",
     "Refresher",
     "RefresherConfig",
 ]
