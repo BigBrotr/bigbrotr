@@ -64,7 +64,8 @@ _TABLES = (
     "pubkey_stats, kind_stats, relay_stats, "
     "nip85_pubkey_stats, nip85_event_stats, "
     "nip85_addressable_stats, nip85_identifier_stats, "
-    "nip85_pubkey_ranks"
+    "nip85_pubkey_ranks, nip85_event_ranks, "
+    "nip85_addressable_ranks, nip85_identifier_ranks"
 )
 
 _current_deployment: str | None = None

@@ -37,8 +37,9 @@ BEGIN
     RAISE NOTICE '  nip85_pubkey_stats, nip85_event_stats';
     RAISE NOTICE '  nip85_addressable_stats, nip85_identifier_stats';
     RAISE NOTICE '';
-    RAISE NOTICE 'NIP-85 Rank Tables (1):';
-    RAISE NOTICE '  nip85_pubkey_ranks';
+    RAISE NOTICE 'NIP-85 Rank Tables (4):';
+    RAISE NOTICE '  nip85_pubkey_ranks, nip85_event_ranks';
+    RAISE NOTICE '  nip85_addressable_ranks, nip85_identifier_ranks';
     RAISE NOTICE '';
     RAISE NOTICE 'Utility Functions:';
     RAISE NOTICE '  tags_to_tagvalues, event_d_tag, normalize_event_address, event_address, bolt11_amount_msats';

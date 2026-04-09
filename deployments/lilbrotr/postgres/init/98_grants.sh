@@ -53,6 +53,9 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     GRANT SELECT ON nip85_addressable_stats TO ${RANKER_ROLE};
     GRANT SELECT ON nip85_identifier_stats TO ${RANKER_ROLE};
     GRANT SELECT, INSERT, UPDATE, DELETE ON nip85_pubkey_ranks TO ${RANKER_ROLE};
+    GRANT SELECT, INSERT, UPDATE, DELETE ON nip85_event_ranks TO ${RANKER_ROLE};
+    GRANT SELECT, INSERT, UPDATE, DELETE ON nip85_addressable_ranks TO ${RANKER_ROLE};
+    GRANT SELECT, INSERT, UPDATE, DELETE ON nip85_identifier_ranks TO ${RANKER_ROLE};
 
     -- Current-state tables + analytics tables: DML required for incremental refresh
     GRANT INSERT, UPDATE, DELETE ON daily_counts TO ${REFRESHER_ROLE};
