@@ -859,15 +859,59 @@ class TestAssertorPhase3Foundation:
             assert delete_call == [legacy_user.state_key, legacy_event.state_key]
 
     def test_parse_v2_checkpoint_key_preserves_subject_colons(self) -> None:
-        from bigbrotr.services.assertor.service import Assertor
+        from bigbrotr.services.assertor.utils import parse_v2_checkpoint_key
 
-        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
-            svc = Assertor.__new__(Assertor)
-            svc._config = _service_config()
+        assert parse_v2_checkpoint_key(
+            "v2:global-pagerank-v1:30384:30023:" + ("aa" * 32) + ":article"
+        ) == ("global-pagerank-v1", 30384, "30023:" + ("aa" * 32) + ":article")
 
-            assert svc._parse_v2_checkpoint_key(
-                "v2:global-pagerank-v1:30384:30023:" + ("aa" * 32) + ":article"
-            ) == ("global-pagerank-v1", 30384, "30023:" + ("aa" * 32) + ":article")
+
+class TestAssertorUtils:
+    def test_state_key_and_legacy_key_helpers(self) -> None:
+        from bigbrotr.services.assertor.utils import build_state_key, is_legacy_checkpoint_key
+
+        assert build_state_key(
+            algorithm_id="global-pagerank-v1",
+            kind=30382,
+            subject_id="aa" * 32,
+        ) == "v2:global-pagerank-v1:30382:" + ("aa" * 32)
+        assert is_legacy_checkpoint_key("user:" + ("aa" * 32)) is True
+        assert is_legacy_checkpoint_key("event:" + ("bb" * 32)) is True
+        assert is_legacy_checkpoint_key("v2:global-pagerank-v1:30382:" + ("aa" * 32)) is False
+
+    def test_content_hash_is_stable_for_json_key_order(self) -> None:
+        from bigbrotr.services.assertor.utils import content_hash
+
+        assert content_hash({"b": 2, "a": 1}) == content_hash({"a": 1, "b": 2})
+
+    def test_provider_profile_content_merges_extra_fields_without_overrides(self) -> None:
+        from bigbrotr.services.assertor.configs import ProviderProfileKind0Content
+        from bigbrotr.services.assertor.utils import provider_profile_content
+
+        content = provider_profile_content(
+            algorithm_id="global-pagerank-v1",
+            kind0_content=ProviderProfileKind0Content(
+                name="Provider",
+                about="NIP-85 provider",
+                website="https://bigbrotr.com",
+                picture="https://bigbrotr.com/avatar.png",
+                extra_fields={
+                    "name": "ignored",
+                    "algorithm_id": "ignored",
+                    "software": "bigbrotr",
+                    "hidden": None,
+                },
+            ),
+        )
+
+        assert content == {
+            "name": "Provider",
+            "about": "NIP-85 provider",
+            "website": "https://bigbrotr.com",
+            "algorithm_id": "global-pagerank-v1",
+            "picture": "https://bigbrotr.com/avatar.png",
+            "software": "bigbrotr",
+        }
 
 
 class TestAssertorProviderProfile:
@@ -926,8 +970,17 @@ class TestAssertorProviderProfile:
         mock_brotr: MagicMock,
     ) -> None:
         service = self._make_service(mock_brotr)
+        from bigbrotr.services.assertor.utils import content_hash, provider_profile_content
+
         state = MagicMock()
-        state.state_value = {"hash": service._content_hash(service._provider_profile_content())}
+        state.state_value = {
+            "hash": content_hash(
+                provider_profile_content(
+                    algorithm_id=service._config.algorithm_id,
+                    kind0_content=service._config.provider_profile.kind0_content,
+                )
+            )
+        }
         mock_brotr.get_service_state = AsyncMock(return_value=[state])
 
         published, skipped, failed = await service._publish_provider_profile()

@@ -12,8 +12,6 @@ algorithm-aware v2 runtime contract:
 
 from __future__ import annotations
 
-import hashlib
-import json
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -46,6 +44,14 @@ from .queries import (
     fetch_identifier_rows,
     fetch_user_rows,
 )
+from .utils import (
+    PROVIDER_PROFILE_SUBJECT_ID,
+    build_state_key,
+    content_hash,
+    is_legacy_checkpoint_key,
+    parse_v2_checkpoint_key,
+    provider_profile_content,
+)
 
 
 if TYPE_CHECKING:
@@ -55,11 +61,6 @@ if TYPE_CHECKING:
     from nostr_sdk import EventBuilder, Keys
 
     from bigbrotr.core.brotr import Brotr
-
-
-_LEGACY_CHECKPOINT_PREFIXES = ("user:", "event:")
-_PROFILE_SUBJECT_ID = "provider_profile"
-_V2_CHECKPOINT_PARTS = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -336,7 +337,11 @@ class Assertor(BaseService[AssertorConfig]):
             for row in rows:
                 assertion = plan.assertion_from_row(row)
                 subject_id = plan.subject_getter(assertion)
-                state_key = self._state_key(plan.kind, subject_id)
+                state_key = build_state_key(
+                    algorithm_id=self._config.algorithm_id,
+                    kind=plan.kind,
+                    subject_id=subject_id,
+                )
                 self._mark_seen_state_key(state_key)
                 current_hash = assertion.tags_hash()
 
@@ -371,22 +376,33 @@ class Assertor(BaseService[AssertorConfig]):
 
     async def _publish_provider_profile(self) -> tuple[int, int, int]:
         """Publish the optional Kind 0 provider profile when its content changes."""
-        state_key = self._state_key(EventKind.SET_METADATA, _PROFILE_SUBJECT_ID)
+        state_key = build_state_key(
+            algorithm_id=self._config.algorithm_id,
+            kind=EventKind.SET_METADATA,
+            subject_id=PROVIDER_PROFILE_SUBJECT_ID,
+        )
         self._mark_seen_state_key(state_key)
 
-        content = self._provider_profile_content()
-        current_hash = self._content_hash(content)
+        kind0 = self._config.provider_profile.kind0_content
+        content = provider_profile_content(
+            algorithm_id=self._config.algorithm_id,
+            kind0_content=kind0,
+        )
+        current_hash = content_hash(content)
         if await self._is_unchanged(state_key, current_hash):
             return 0, 1, 0
 
-        kind0 = self._config.provider_profile.kind0_content
+        base_profile_fields = {
+            "name",
+            "about",
+            "website",
+            "picture",
+            "nip05",
+            "banner",
+            "lud16",
+        }
         extra_fields = {
-            "algorithm_id": self._config.algorithm_id,
-            **{
-                key: value
-                for key, value in kind0.extra_fields.items()
-                if value is not None and key != "algorithm_id"
-            },
+            key: value for key, value in content.items() if key not in base_profile_fields
         }
 
         try:
@@ -424,40 +440,6 @@ class Assertor(BaseService[AssertorConfig]):
             )
             return 0, 0, 1
 
-    def _provider_profile_content(self) -> dict[str, Any]:
-        """Return the effective Kind 0 content for the provider profile."""
-        cfg = self._config.provider_profile.kind0_content
-        content: dict[str, Any] = {
-            "name": cfg.name,
-            "about": cfg.about,
-            "website": cfg.website,
-            "algorithm_id": self._config.algorithm_id,
-        }
-
-        optional_fields = {
-            "picture": cfg.picture,
-            "nip05": cfg.nip05,
-            "banner": cfg.banner,
-            "lud16": cfg.lud16,
-        }
-        content.update({key: value for key, value in optional_fields.items() if value is not None})
-
-        for key, value in cfg.extra_fields.items():
-            if key and value is not None and key not in content:
-                content[key] = value
-
-        return content
-
-    def _content_hash(self, content: dict[str, Any]) -> str:
-        """Compute a stable SHA-256 hash for JSON profile content."""
-        return hashlib.sha256(
-            json.dumps(content, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
-
-    def _state_key(self, kind: int, subject_id: str) -> str:
-        """Build the v2 checkpoint key for one algorithm/kind/subject tuple."""
-        return f"v2:{self._config.algorithm_id}:{int(kind)}:{subject_id}"
-
     def _mark_seen_state_key(self, state_key: str) -> None:
         """Track checkpoints that were still eligible in the current cycle."""
         if not hasattr(self, "_cycle_seen_state_keys"):
@@ -475,9 +457,7 @@ class Assertor(BaseService[AssertorConfig]):
             ServiceName.ASSERTOR,
             ServiceStateType.CHECKPOINT,
         )
-        stale = [
-            state for state in states if state.state_key.startswith(_LEGACY_CHECKPOINT_PREFIXES)
-        ]
+        stale = [state for state in states if is_legacy_checkpoint_key(state.state_key)]
         if not stale:
             return 0
 
@@ -499,7 +479,7 @@ class Assertor(BaseService[AssertorConfig]):
 
         stale: list[ServiceState] = []
         for state in states:
-            parsed = self._parse_v2_checkpoint_key(state.state_key)
+            parsed = parse_v2_checkpoint_key(state.state_key)
             if parsed is None:
                 continue
 
@@ -523,21 +503,6 @@ class Assertor(BaseService[AssertorConfig]):
             algorithm_id=self._config.algorithm_id,
         )
         return deleted
-
-    def _parse_v2_checkpoint_key(self, state_key: str) -> tuple[str, int, str] | None:
-        """Parse ``v2:<algorithm_id>:<kind>:<subject_id>`` keys.
-
-        ``subject_id`` may itself contain ``:`` characters, so parsing stops after
-        the first three separators.
-        """
-        parts = state_key.split(":", 3)
-        if len(parts) != _V2_CHECKPOINT_PARTS or parts[0] != "v2":
-            return None
-        try:
-            kind = int(parts[2])
-        except ValueError:
-            return None
-        return parts[1], kind, parts[3]
 
     async def _is_unchanged(self, subject: str, current_hash: str) -> bool:
         """Check if the assertion/profile for this subject has the same hash as last published."""
