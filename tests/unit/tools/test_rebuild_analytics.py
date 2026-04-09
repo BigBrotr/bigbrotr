@@ -24,6 +24,7 @@ class TestParseArgs:
 
     def test_dry_run_does_not_require_yes(self) -> None:
         args = rebuild.parse_args(["--deployment", "bigbrotr", "--dry-run"])
+
         assert args.deployment == "bigbrotr"
         assert args.dry_run is True
         assert args.yes is False
@@ -44,6 +45,7 @@ class TestParseArgs:
                 "postgres",
             ]
         )
+
         assert args.host == "localhost"
         assert args.port == 6543
         assert args.database == "scratch"
@@ -92,9 +94,10 @@ class TestRebuildAnalytics:
     @pytest.mark.asyncio
     async def test_rebuild_orders_calls_and_resets_state(self) -> None:
         brotr = MagicMock()
-        brotr.refresh_materialized_view = AsyncMock()
         brotr.execute = AsyncMock()
-        brotr.upsert_service_state = AsyncMock(return_value=len(rebuild.SUMMARY_TABLES))
+        brotr.upsert_service_state = AsyncMock(
+            return_value=len(rebuild.CURRENT_TABLES) + len(rebuild.ANALYTICS_TABLES)
+        )
         brotr.get_service_state = AsyncMock(
             return_value=[
                 ServiceState(
@@ -107,7 +110,9 @@ class TestRebuildAnalytics:
         )
         brotr.delete_service_state = AsyncMock(return_value=1)
 
-        refresh_summary = AsyncMock(side_effect=range(1, len(rebuild.SUMMARY_TABLES) + 1))
+        refresh_summary = AsyncMock(
+            side_effect=range(1, len(rebuild.CURRENT_TABLES) + len(rebuild.ANALYTICS_TABLES) + 1)
+        )
         refresh_rolling_windows = AsyncMock()
         refresh_relay_metadata = AsyncMock()
         refresh_nip85_followers = AsyncMock()
@@ -129,35 +134,44 @@ class TestRebuildAnalytics:
             rebuild.refresh_nip85_followers = original_refresh_nip85_followers
 
         assert result.until == 1234
-        assert result.matviews_refreshed == rebuild.MATVIEWS
+        assert list(result.current_tables_refreshed) == rebuild.CURRENT_TABLES
+        assert list(result.analytics_tables_refreshed) == rebuild.ANALYTICS_TABLES
         assert result.periodic_tasks == [
             "rolling_windows",
             "relay_stats_metadata",
             "nip85_followers",
         ]
-        assert result.refresher_checkpoints_upserted == len(rebuild.SUMMARY_TABLES)
+        assert result.refresher_checkpoints_upserted == (
+            len(rebuild.CURRENT_TABLES) + len(rebuild.ANALYTICS_TABLES)
+        )
         assert result.assertor_checkpoints_deleted == 1
 
-        brotr.refresh_materialized_view.assert_has_awaits([call(view) for view in rebuild.MATVIEWS])
         brotr.execute.assert_awaited_once_with(rebuild.TRUNCATE_SQL)
         refresh_summary.assert_has_awaits(
-            [call(brotr, table, 0, 1234) for table in rebuild.SUMMARY_TABLES]
+            [
+                *[call(brotr, table, 0, 1234) for table in rebuild.CURRENT_TABLES],
+                *[call(brotr, table, 0, 1234) for table in rebuild.ANALYTICS_TABLES],
+            ]
         )
         refresh_rolling_windows.assert_awaited_once_with(brotr)
         refresh_relay_metadata.assert_awaited_once_with(brotr)
         refresh_nip85_followers.assert_awaited_once_with(brotr)
         brotr.upsert_service_state.assert_awaited_once()
         checkpoint_rows = brotr.upsert_service_state.call_args.args[0]
-        assert [row.state_key for row in checkpoint_rows] == rebuild.SUMMARY_TABLES
+        assert [row.state_key for row in checkpoint_rows] == [
+            *rebuild.CURRENT_TABLES,
+            *rebuild.ANALYTICS_TABLES,
+        ]
         assert all(row.state_value["timestamp"] == 1234 for row in checkpoint_rows)
         brotr.delete_service_state.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_skips_assertor_delete_when_no_checkpoints(self) -> None:
         brotr = MagicMock()
-        brotr.refresh_materialized_view = AsyncMock()
         brotr.execute = AsyncMock()
-        brotr.upsert_service_state = AsyncMock(return_value=len(rebuild.SUMMARY_TABLES))
+        brotr.upsert_service_state = AsyncMock(
+            return_value=len(rebuild.CURRENT_TABLES) + len(rebuild.ANALYTICS_TABLES)
+        )
         brotr.get_service_state = AsyncMock(return_value=[])
         brotr.delete_service_state = AsyncMock()
 
@@ -181,9 +195,8 @@ class TestRebuildAnalytics:
         brotr.delete_service_state.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_fail_fast_when_summary_refresh_raises(self) -> None:
+    async def test_fail_fast_when_refresh_raises(self) -> None:
         brotr = MagicMock()
-        brotr.refresh_materialized_view = AsyncMock()
         brotr.execute = AsyncMock()
         brotr.upsert_service_state = AsyncMock()
         brotr.get_service_state = AsyncMock()
@@ -211,7 +224,6 @@ class TestRebuildAnalytics:
             rebuild.refresh_relay_metadata = original_refresh_relay_metadata
             rebuild.refresh_nip85_followers = original_refresh_nip85_followers
 
-        brotr.refresh_materialized_view.assert_has_awaits([call(view) for view in rebuild.MATVIEWS])
         brotr.execute.assert_awaited_once_with(rebuild.TRUNCATE_SQL)
         refresh_rolling_windows.assert_not_awaited()
         refresh_relay_metadata.assert_not_awaited()

@@ -1,22 +1,15 @@
 /*
-{% block header_comment %}
- * Brotr - 08_indexes.sql
+ * Brotr - 10_indexes_core.sql
  *
- * Performance indexes for tables, current-state tables, and summary tables.
+ * Performance indexes for core persisted tables.
  *
- * Primary keys in 06 create the baseline unique indexes; this file adds the
- * secondary indexes needed for common read and refresh patterns.
- *
- * Dependencies: 02_tables.sql, 06_materialized_views.sql
-{% endblock %}
+ * Dependencies: 02_tables_core.sql
  */
-
 
 -- ==========================================================================
 -- TABLE INDEXES: event
 -- ==========================================================================
 
-{% block event_indexes %}
 -- Global timeline with tie-breaking: ORDER BY created_at DESC, id DESC
 -- Primary read pattern for event consumption. Covers single-column
 -- created_at lookups via leftmost prefix (replaces standalone index).
@@ -45,13 +38,10 @@ ON event USING btree (pubkey, kind, created_at DESC);
 -- Requires the btree_gin extension for GIN support on text arrays
 CREATE INDEX IF NOT EXISTS idx_event_tagvalues
 ON event USING gin (tagvalues);
-{% endblock %}
-
 
 -- ==========================================================================
 -- TABLE INDEXES: event_relay
 -- ==========================================================================
-{% block event_relay_indexes %}
 -- The composite primary key (event_id, relay_url) already provides an
 -- efficient B-tree index on event_id as the leftmost column, so no
 -- separate event_id index is needed.
@@ -67,10 +57,7 @@ ON event_relay USING btree (seen_at DESC);
 -- Also covers relay_url-only lookups via leftmost prefix.
 CREATE INDEX IF NOT EXISTS idx_event_relay_relay_url_seen_at_event_id
 ON event_relay USING btree (relay_url, seen_at ASC, event_id ASC);
-{% endblock %}
 
-
-{% block shared_table_indexes %}
 -- ==========================================================================
 -- TABLE INDEXES: relay_metadata
 -- ==========================================================================
@@ -101,83 +88,3 @@ ON relay_metadata USING btree (relay_url, metadata_type, generated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_service_state_candidate_network
 ON service_state USING btree ((state_value ->> 'network'))
 WHERE service_name = 'validator' AND state_type = 'checkpoint';
-{% endblock %}
-
-
-{% block base_matview_indexes %}
--- ==========================================================================
--- CURRENT TABLE INDEXES: relay_metadata_current
--- ==========================================================================
-
--- Filter current snapshots by check type and refresh window.
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_current_type_generated_at
-ON relay_metadata_current USING btree (metadata_type, generated_at ASC);
-{% endblock %}
-{% block extra_matview_indexes %}
-
-
--- ==========================================================================
--- SUMMARY TABLE INDEXES (secondary — PKs are defined in 06)
--- ==========================================================================
-
--- pubkey_kind_stats: lookup by kind for kind_stats unique_pubkeys derivation
-CREATE INDEX IF NOT EXISTS idx_pubkey_kind_stats_kind
-ON pubkey_kind_stats USING btree (kind);
-
--- pubkey_relay_stats: lookup by relay for relay_stats unique_pubkeys derivation
-CREATE INDEX IF NOT EXISTS idx_pubkey_relay_stats_relay
-ON pubkey_relay_stats USING btree (relay_url);
-
--- relay_kind_stats: lookup by kind for kind_stats unique_relays derivation
-CREATE INDEX IF NOT EXISTS idx_relay_kind_stats_kind
-ON relay_kind_stats USING btree (kind);
-
--- contact_lists_current: change feed for ranker sync and analytics rebuild tools
-CREATE INDEX IF NOT EXISTS idx_contact_lists_current_source_seen_at_follower
-ON contact_lists_current USING btree (source_seen_at ASC, follower_pubkey ASC);
-
--- contact_list_edges_current: reverse lookup for follower counts / inbound graph traversal
-CREATE INDEX IF NOT EXISTS idx_contact_list_edges_current_followed
-ON contact_list_edges_current USING btree (followed_pubkey);
-
--- events_replaceable_current: current-state lookups by kind and sync window
-CREATE UNIQUE INDEX IF NOT EXISTS idx_events_replaceable_current_id
-ON events_replaceable_current USING btree (id);
-
-CREATE INDEX IF NOT EXISTS idx_events_replaceable_current_kind
-ON events_replaceable_current USING btree (kind);
-
-CREATE INDEX IF NOT EXISTS idx_events_replaceable_current_kind_first_seen_at
-ON events_replaceable_current USING btree (kind, first_seen_at ASC);
-
--- events_addressable_current: current-state lookups by kind and sync window
-CREATE UNIQUE INDEX IF NOT EXISTS idx_events_addressable_current_id
-ON events_addressable_current USING btree (id);
-
-CREATE INDEX IF NOT EXISTS idx_events_addressable_current_kind
-ON events_addressable_current USING btree (kind);
-
-CREATE INDEX IF NOT EXISTS idx_events_addressable_current_kind_first_seen_at
-ON events_addressable_current USING btree (kind, first_seen_at ASC);
-
-
--- ==========================================================================
--- NIP-85 SUMMARY TABLE INDEXES
--- ==========================================================================
-
--- nip85_event_stats: lookup by author for "all engagement on my events"
-CREATE INDEX IF NOT EXISTS idx_nip85_event_stats_author
-ON nip85_event_stats USING btree (author_pubkey);
-
-
--- ==========================================================================
--- TABLE INDEXES: relay_software_counts
--- ==========================================================================
--- Primary key on (software, version) already covers the main access path.
-
-
--- ==========================================================================
--- TABLE INDEXES: supported_nip_counts
--- ==========================================================================
--- Primary key on (nip) already covers the main access path.
-{% endblock %}

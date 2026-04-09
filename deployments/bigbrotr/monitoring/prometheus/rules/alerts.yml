@@ -109,17 +109,17 @@ groups:
             below the 95% threshold. Consider increasing shared_buffers.
 
       # --------------------------------------------------------------------
-      # RefresherViewsFailing: Materialized view refreshes failing
+      # RefresherTargetsFailing: Current-state or analytics refreshes failing
       # --------------------------------------------------------------------
-      - alert: RefresherViewsFailing
+      - alert: RefresherTargetsFailing
         expr: >-
-          service_gauge{service="refresher", name="views_failed"} > 0
+          service_gauge{service="refresher", name="targets_failed"} > 0
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "Refresher has {{ $value }} failing views"
+          summary: "Refresher has {{ $value }} failing targets"
           description: >-
-            The refresher service has had {{ $value }} view refresh failures
-            for more than 10 minutes. Check database health and view
-            definitions.
+            The refresher service has had {{ $value }} current-state or
+            analytics refresh failures for more than 10 minutes. Check
+            database health and refresh definitions.

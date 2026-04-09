@@ -1,5 +1,5 @@
 /*
- * Brotr - 03_functions_crud.sql
+ * Brotr - 05_functions_crud.sql
  *
  * CRUD stored functions for bulk data operations. Organized in two levels:
  *
@@ -16,7 +16,7 @@
  * All parameters must be accepted even if not stored. To customize event
  * storage, modify only the INSERT statement inside event_insert().
  *
- * Dependencies: 02_tables.sql
+ * Dependencies: 02_tables_core.sql
  * Customization: event_insert() INSERT statement (see events_insert_comment block)
  */
 

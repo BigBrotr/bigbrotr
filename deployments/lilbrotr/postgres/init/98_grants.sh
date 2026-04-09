@@ -2,7 +2,7 @@
 # Grant permissions to application roles.
 # Writer:    full DML + EXECUTE on data tables/functions.
 # Reader:    SELECT-only access for API, DVM, and monitoring.
-# Refresher: SELECT on base tables + ownership of remaining materialized views.
+# Refresher: SELECT on source tables + DML on derived tables.
 # Uses ALTER DEFAULT PRIVILEGES so future objects inherit the same grants.
 
 set -euo pipefail
@@ -32,8 +32,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA public
         GRANT EXECUTE ON FUNCTIONS TO ${READER_ROLE};
 
-    -- Refresher: SELECT on base tables + EXECUTE on refresh functions
-    -- Ownership of remaining materialized views is required for REFRESH CONCURRENTLY
+    -- Refresher: SELECT on source tables + EXECUTE on refresh functions
     GRANT USAGE ON SCHEMA public TO ${REFRESHER_ROLE};
     GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${REFRESHER_ROLE};
     GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${REFRESHER_ROLE};
@@ -43,8 +42,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA public
         GRANT EXECUTE ON FUNCTIONS TO ${REFRESHER_ROLE};
 
-    -- Materialized views: ownership required for REFRESH CONCURRENTLY
-    -- Current tables + summary tables: DML required for incremental refresh
+    -- Current-state tables + analytics tables: DML required for incremental refresh
     GRANT INSERT, UPDATE, DELETE ON daily_counts TO ${REFRESHER_ROLE};
     GRANT INSERT, UPDATE, DELETE ON relay_metadata_current TO ${REFRESHER_ROLE};
     GRANT INSERT, UPDATE, DELETE ON relay_software_counts TO ${REFRESHER_ROLE};

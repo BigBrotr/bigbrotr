@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
-"""One-shot analytics rebuild for current/summary tables and related checkpoints.
+"""One-shot rebuild for current-state and analytics tables.
 
 The rebuild is intended for destructive maintenance windows or after fixing
-logic bugs in derived analytics. It:
+logic bugs in derived state. It:
 
-1. Refreshes any remaining bounded materialized views in dependency order
-2. Truncates incremental current/summary tables
-3. Replays incremental refresh from ``after=0`` to ``until``
-4. Runs periodic reconciliation functions
-5. Aligns refresher checkpoints
-6. Clears assertor checkpoints so corrected assertions can be republished
-
-By default the CLI loads deployment-specific admin DB config from
-``deployments/<deployment>/config/brotr.yaml`` and therefore expects
-``DB_ADMIN_PASSWORD`` in the environment.
+1. Truncates current-state and analytics tables
+2. Replays incremental refresh from ``after=0`` to ``until``
+3. Runs periodic reconciliation functions
+4. Aligns refresher checkpoints
+5. Clears assertor checkpoints so corrected assertions can be republished
 """
 
 from __future__ import annotations
@@ -34,7 +29,7 @@ from bigbrotr.core.brotr import Brotr
 from bigbrotr.core.yaml import load_yaml
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.services.refresher.configs import DEFAULT_MATVIEWS, DEFAULT_SUMMARIES
+from bigbrotr.services.refresher.configs import DEFAULT_ANALYTICS_TABLES, DEFAULT_CURRENT_TABLES
 from bigbrotr.services.refresher.queries import (
     refresh_nip85_followers,
     refresh_relay_metadata,
@@ -49,24 +44,24 @@ if TYPE_CHECKING:
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SUPPORTED_DEPLOYMENTS = ("bigbrotr", "lilbrotr")
-SUMMARY_TABLES = list(DEFAULT_SUMMARIES)
-MATVIEWS = list(DEFAULT_MATVIEWS)
+CURRENT_TABLES = list(DEFAULT_CURRENT_TABLES)
+ANALYTICS_TABLES = list(DEFAULT_ANALYTICS_TABLES)
 TRUNCATE_SQL = (
     "TRUNCATE "
-    "daily_counts, "
     "relay_metadata_current, "
-    "relay_software_counts, "
-    "supported_nip_counts, "
     "events_replaceable_current, "
     "events_addressable_current, "
+    "contact_lists_current, "
+    "contact_list_edges_current, "
+    "daily_counts, "
+    "relay_software_counts, "
+    "supported_nip_counts, "
     "pubkey_kind_stats, "
     "pubkey_relay_stats, "
     "relay_kind_stats, "
     "pubkey_stats, "
     "kind_stats, "
     "relay_stats, "
-    "contact_lists_current, "
-    "contact_list_edges_current, "
     "nip85_pubkey_stats, "
     "nip85_event_stats"
 )
@@ -77,8 +72,8 @@ class RebuildResult:
     """Execution summary for one rebuild run."""
 
     until: int
-    matviews_refreshed: list[str] = field(default_factory=list)
-    summaries_refreshed: dict[str, int] = field(default_factory=dict)
+    current_tables_refreshed: dict[str, int] = field(default_factory=dict)
+    analytics_tables_refreshed: dict[str, int] = field(default_factory=dict)
     periodic_tasks: list[str] = field(default_factory=list)
     refresher_checkpoints_upserted: int = 0
     assertor_checkpoints_deleted: int = 0
@@ -116,7 +111,7 @@ def _runtime_config(
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments for the rebuild tool."""
     parser = argparse.ArgumentParser(
-        description="Rebuild analytics summary tables and reset dependent checkpoints.",
+        description="Rebuild current-state and analytics tables, then reset dependent checkpoints.",
     )
     parser.add_argument(
         "--deployment",
@@ -167,19 +162,19 @@ async def rebuild_analytics(
     *,
     until: int | None = None,
 ) -> RebuildResult:
-    """Rebuild analytics end-to-end on an already connected ``Brotr`` instance."""
+    """Rebuild current-state and analytics tables on a connected ``Brotr`` instance."""
     watermark = until if until is not None else int(time.time())
     result = RebuildResult(until=watermark)
 
-    for view in MATVIEWS:
-        await brotr.refresh_materialized_view(view)
-        result.matviews_refreshed.append(view)
-
     await brotr.execute(TRUNCATE_SQL)
 
-    for table in SUMMARY_TABLES:
+    for table in CURRENT_TABLES:
         rows = await refresh_summary(brotr, table, 0, watermark)
-        result.summaries_refreshed[table] = rows
+        result.current_tables_refreshed[table] = rows
+
+    for table in ANALYTICS_TABLES:
+        rows = await refresh_summary(brotr, table, 0, watermark)
+        result.analytics_tables_refreshed[table] = rows
 
     await refresh_rolling_windows(brotr)
     result.periodic_tasks.append("rolling_windows")
@@ -188,6 +183,7 @@ async def rebuild_analytics(
     await refresh_nip85_followers(brotr)
     result.periodic_tasks.append("nip85_followers")
 
+    all_tables = [*CURRENT_TABLES, *ANALYTICS_TABLES]
     result.refresher_checkpoints_upserted = await brotr.upsert_service_state(
         [
             ServiceState(
@@ -196,7 +192,7 @@ async def rebuild_analytics(
                 state_key=table,
                 state_value={"timestamp": watermark},
             )
-            for table in SUMMARY_TABLES
+            for table in all_tables
         ]
     )
 
@@ -233,24 +229,21 @@ def _print_dry_run(deployment: str, until: int | None) -> None:
     print("=== Analytics Rebuild (DRY RUN) ===\n")
     print(f"Deployment: {deployment}")
     print(f"Until:      {watermark}")
-    print("\nPhase 1 — Materialized views")
-    if MATVIEWS:
-        for view in MATVIEWS:
-            print(f"  - {view}")
-    else:
-        print("  - (none)")
-    print("\nPhase 2 — Truncate summary tables")
-    for table in SUMMARY_TABLES:
+    print("\nPhase 1 — Truncate derived tables")
+    for table in [*CURRENT_TABLES, *ANALYTICS_TABLES]:
         print(f"  - {table}")
-    print("\nPhase 3 — Incremental replay")
-    for table in SUMMARY_TABLES:
+    print("\nPhase 2 — Current-state replay")
+    for table in CURRENT_TABLES:
+        print(f"  - {table}_refresh(0, {watermark})")
+    print("\nPhase 3 — Analytics replay")
+    for table in ANALYTICS_TABLES:
         print(f"  - {table}_refresh(0, {watermark})")
     print("\nPhase 4 — Periodic reconciliation")
     print("  - rolling_windows_refresh()")
     print("  - relay_stats_metadata_refresh()")
     print("  - nip85_follower_count_refresh()")
     print("\nPhase 5 — Checkpoints")
-    print("  - Upsert refresher checkpoints for all summary tables")
+    print("  - Upsert refresher checkpoints for all current-state and analytics tables")
     print("  - Delete all assertor checkpoint hashes")
 
 
@@ -265,11 +258,11 @@ def main(argv: list[str] | None = None) -> int:
 
     print("=== Analytics Rebuild Complete ===\n")
     print(f"Until: {result.until}")
-    print("\nMaterialized views refreshed:")
-    for view in result.matviews_refreshed:
-        print(f"  - {view}")
-    print("\nSummary rows affected:")
-    for table, rows in result.summaries_refreshed.items():
+    print("\nCurrent-state rows affected:")
+    for table, rows in result.current_tables_refreshed.items():
+        print(f"  - {table}: {rows}")
+    print("\nAnalytics rows affected:")
+    for table, rows in result.analytics_tables_refreshed.items():
         print(f"  - {table}: {rows}")
     print("\nPeriodic tasks:")
     for task in result.periodic_tasks:

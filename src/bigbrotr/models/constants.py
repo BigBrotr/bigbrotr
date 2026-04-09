@@ -80,7 +80,7 @@ class ServiceName(StrEnum):
             ([Monitor][bigbrotr.services.monitor.Monitor]).
         SYNCHRONIZER: Cursor-based event collection service
             ([Synchronizer][bigbrotr.services.synchronizer.Synchronizer]).
-        REFRESHER: Periodic materialized view refresh service
+        REFRESHER: Periodic current-state and analytics refresh service
             ([Refresher][bigbrotr.services.refresher.Refresher]).
         API: REST API for read-only database access
             ([Api][bigbrotr.services.api.Api]).

@@ -17,8 +17,8 @@ Attributes:
         semaphore concurrency. Publishes kind 10166/30166 Nostr events.
     Synchronizer: Continuous event collection from relays using cursor-based
         pagination with per-relay state tracking.
-    Refresher: Periodic materialized view refresh in dependency order.
-        Provides per-view logging, timing, and error isolation.
+    Refresher: Periodic current-state and analytics refresh in dependency order.
+        Provides per-target logging, timing, and error isolation.
     Api: REST API for read-only database access via FastAPI with
         auto-generated paginated endpoints.
     Dvm: NIP-90 Data Vending Machine exposing database queries via

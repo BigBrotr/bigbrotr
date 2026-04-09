@@ -3,7 +3,7 @@ High-level database interface built on stored procedures.
 
 Provides typed wrappers around PostgreSQL stored procedures for all data
 operations: relay management, event ingestion, metadata storage, service
-state persistence, and materialized view maintenance.
+state persistence, and derived-state refresh procedures.
 
 Bulk inserts use array parameters to perform the entire batch in a single
 database round-trip. All insert methods accept only validated dataclass
@@ -87,8 +87,8 @@ class TimeoutsConfig(BaseModel):
         from the server-side ``statement_timeout`` configured in
         [ServerSettingsConfig][bigbrotr.core.pool.ServerSettingsConfig]. The
         ``refresh`` timeout defaults to ``None`` (infinite) because
-        ``REFRESH MATERIALIZED VIEW CONCURRENTLY`` can take minutes on
-        large tables.
+        long-running refresh procedures may process large derived tables
+        or reporting views.
 
     See Also:
         [BrotrConfig][bigbrotr.core.brotr.BrotrConfig]: Parent configuration
@@ -107,7 +107,8 @@ class TimeoutsConfig(BaseModel):
         default=90.0, le=3600.0, description="Cleanup procedure timeout (seconds, None=infinite)"
     )
     refresh: float | None = Field(
-        default=None, description="Materialized view refresh timeout (seconds, None=infinite)"
+        default=None,
+        description="Long-running refresh procedure timeout (seconds, None=infinite)",
     )
 
     @field_validator("query", "batch", "cleanup", "refresh", mode="after")
@@ -905,34 +906,29 @@ class Brotr:
         )
         return deleted
 
-    async def refresh_materialized_view(self, view_name: str) -> None:
-        """Refresh a materialized view concurrently (non-blocking).
+    async def run_refresh_procedure(self, target_name: str) -> None:
+        """Run a long-running ``{target_name}_refresh`` stored procedure.
 
-        Calls a stored procedure named ``{view_name}_refresh`` which
-        performs ``REFRESH MATERIALIZED VIEW CONCURRENTLY``. The view
-        name is validated by
-        ``_call_procedure()``
-        against a strict SQL identifier regex to prevent injection.
+        This helper is intentionally generic: some refresh procedures maintain
+        current-state tables, some maintain analytics tables, and others may
+        refresh bounded reporting views in custom deployments.
 
         Args:
-            view_name: Name of the materialized view to refresh
-                (e.g. ``"custom_reporting_view"``, ``"bounded_report_cache"``).
+            target_name: Logical target whose stored procedure is named
+                ``{target_name}_refresh``.
 
         Raises:
-            ValueError: If the view name is not a valid SQL identifier.
-
-        Note:
-            The timeout for refresh operations defaults to ``None``
-            (infinite) via
-            [TimeoutsConfig.refresh][bigbrotr.core.brotr.TimeoutsConfig]
-            because ``REFRESH MATERIALIZED VIEW CONCURRENTLY`` can take
-            several minutes on large tables with complex indexes.
+            ValueError: If ``target_name`` is not a valid SQL identifier.
         """
         await self._call_procedure(
-            f"{view_name}_refresh",
+            f"{target_name}_refresh",
             timeout=self._config.timeouts.refresh,
         )
-        self._logger.debug("matview_refreshed", view=view_name)
+        self._logger.debug("refresh_procedure_completed", target=target_name)
+
+    async def refresh_materialized_view(self, view_name: str) -> None:
+        """Compatibility alias for view-specific refresh procedures."""
+        await self.run_refresh_procedure(view_name)
 
     async def connect(self) -> None:
         """Connect the underlying pool. Idempotent."""

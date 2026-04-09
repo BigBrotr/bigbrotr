@@ -4,7 +4,7 @@
  * Post-initialization verification script. Prints a summary of all created
  * database objects to confirm successful schema setup.
  *
- * Dependencies: All previous initialization files (00-08)
+ * Dependencies: All previous initialization files (00-12)
  */
 
 DO $$
@@ -66,10 +66,10 @@ BEGIN
     RAISE NOTICE '  nip85_pubkey_stats_refresh, nip85_event_stats_refresh';
     RAISE NOTICE '  nip85_follower_count_refresh';
     RAISE NOTICE '';
-    RAISE NOTICE 'Materialized Views (0):';
+    RAISE NOTICE 'Reporting Views (0):';
     RAISE NOTICE '  (none)';
     RAISE NOTICE '';
-    RAISE NOTICE 'Matview Refresh Functions (0):';
+    RAISE NOTICE 'View Refresh Functions (0):';
     RAISE NOTICE '  (none)';
     RAISE NOTICE '';
     RAISE NOTICE '============================================================================';

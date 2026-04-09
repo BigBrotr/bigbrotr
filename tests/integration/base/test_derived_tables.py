@@ -1,4 +1,4 @@
-"""Integration tests for materialized views and summary tables."""
+"""Integration tests for current-state and analytics tables."""
 
 from __future__ import annotations
 
@@ -77,7 +77,7 @@ class TestRelayMetadataCurrent:
 
 
 # ============================================================================
-# Helpers for summary tables and statistical matviews
+# Helpers for current-state and analytics tables
 # ============================================================================
 
 
