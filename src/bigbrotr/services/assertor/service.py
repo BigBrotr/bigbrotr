@@ -1,13 +1,10 @@
 """Assertor service for BigBrotr.
 
 Reads NIP-85 facts and rank snapshots and publishes Trusted Assertion events
-(kinds 30382-30385). Phase 3 introduces the
-algorithm-aware v2 runtime contract:
-
-- change detection keys are versioned as ``v2:<algorithm_id>:<kind>:<subject_id>``
-- legacy ``user:`` / ``event:`` checkpoints are purged automatically
-- provider profile publishing for the service key is optional and content-based
-- stale v2 checkpoints are removed when subjects are no longer eligible
+(kinds 30382-30385). Change detection uses canonical
+``<algorithm_id>:<kind>:<subject_id>`` checkpoint keys, provider profile
+publishing is optional and content-based, and stale checkpoints are removed
+when subjects are no longer eligible.
 """
 
 from __future__ import annotations
@@ -48,8 +45,7 @@ from .utils import (
     PROVIDER_PROFILE_SUBJECT_ID,
     build_state_key,
     content_hash,
-    is_legacy_checkpoint_key,
-    parse_v2_checkpoint_key,
+    parse_state_key,
     provider_profile_content,
 )
 
@@ -176,15 +172,6 @@ class Assertor(BaseService[AssertorConfig]):
             self._logger.info("relay_added", url=relay.url)
         await client.connect()
 
-        removed = 0
-        if self._config.cleanup.remove_legacy_checkpoints:
-            removed = await self._purge_legacy_checkpoints()
-        self._logger.info(
-            "legacy_checkpoint_cleanup_completed",
-            removed=removed,
-            algorithm_id=self._config.algorithm_id,
-        )
-
         return self
 
     async def __aexit__(
@@ -206,7 +193,7 @@ class Assertor(BaseService[AssertorConfig]):
         return 0
 
     async def run(self) -> None:
-        """Execute one assertion cycle in algorithm-aware v2 mode."""
+        """Execute one assertion cycle."""
         await self.publish()
 
     async def publish(self) -> PublishCycleResult:
@@ -240,7 +227,7 @@ class Assertor(BaseService[AssertorConfig]):
         cleanup_start = time.monotonic()
         removed = 0
         if self._config.cleanup.remove_stale_checkpoints:
-            removed = await self._delete_stale_v2_checkpoints()
+            removed = await self._delete_stale_checkpoints()
         cleanup_duration = time.monotonic() - cleanup_start
 
         result = PublishCycleResult(
@@ -409,7 +396,7 @@ class Assertor(BaseService[AssertorConfig]):
         self,
         plan: _PublishPlan,
     ) -> tuple[int, int, int]:
-        """Publish one assertion subject type using the shared v2 change-detection flow."""
+        """Publish one assertion subject type using the shared change-detection flow."""
         published = 0
         skipped = 0
         failed = 0
@@ -537,24 +524,8 @@ class Assertor(BaseService[AssertorConfig]):
         enabled = getattr(getattr(self._config, "provider_profile", None), "enabled", False)
         return enabled if isinstance(enabled, bool) else False
 
-    async def _purge_legacy_checkpoints(self) -> int:
-        """Delete legacy pre-v2 assertor checkpoints once at service startup."""
-        states = await self._brotr.get_service_state(
-            ServiceName.ASSERTOR,
-            ServiceStateType.CHECKPOINT,
-        )
-        stale = [state for state in states if is_legacy_checkpoint_key(state.state_key)]
-        if not stale:
-            return 0
-
-        return await self._brotr.delete_service_state(
-            service_names=[state.service_name for state in stale],
-            state_types=[state.state_type for state in stale],
-            state_keys=[state.state_key for state in stale],
-        )
-
-    async def _delete_stale_v2_checkpoints(self) -> int:
-        """Delete current-algorithm v2 checkpoints whose subjects are no longer eligible."""
+    async def _delete_stale_checkpoints(self) -> int:
+        """Delete non-canonical or current-algorithm checkpoints that are no longer eligible."""
         states = await self._brotr.get_service_state(
             ServiceName.ASSERTOR,
             ServiceStateType.CHECKPOINT,
@@ -565,8 +536,9 @@ class Assertor(BaseService[AssertorConfig]):
 
         stale: list[ServiceState] = []
         for state in states:
-            parsed = parse_v2_checkpoint_key(state.state_key)
+            parsed = parse_state_key(state.state_key)
             if parsed is None:
+                stale.append(state)
                 continue
 
             algorithm_id, kind, _subject_id = parsed

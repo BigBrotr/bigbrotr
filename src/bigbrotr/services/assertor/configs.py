@@ -32,7 +32,7 @@ _SUPPORTED_KINDS = frozenset(
     }
 )
 _ALGORITHM_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
-_DEFAULT_ALGORITHM_ID = "global-pagerank-v1"
+_DEFAULT_ALGORITHM_ID = "global-pagerank"
 
 
 class ProviderProfileKind0Content(BaseModel):
@@ -153,13 +153,9 @@ class AssertorCleanupConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    remove_legacy_checkpoints: bool = Field(
-        default=True,
-        description="Delete legacy pre-v2 assertor checkpoints during startup",
-    )
     remove_stale_checkpoints: bool = Field(
         default=True,
-        description="Delete v2 checkpoints for subjects no longer eligible in a cycle",
+        description="Delete stale or non-canonical checkpoints after each cycle",
     )
 
 

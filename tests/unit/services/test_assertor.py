@@ -43,7 +43,7 @@ def _assertor_harness(
 class TestAssertorConfig:
     def test_defaults(self) -> None:
         config = AssertorConfig()
-        assert config.algorithm_id == "global-pagerank-v1"
+        assert config.algorithm_id == "global-pagerank"
         assert config.keys.keys_env == "NOSTR_PRIVATE_KEY_ASSERTOR"
         assert config.keys.keys is not None
         assert config.interval == 3600.0
@@ -53,7 +53,6 @@ class TestAssertorConfig:
         assert len(config.publishing.relays) == 3
         assert config.selection.kinds == [30382, 30383, 30384, 30385]
         assert config.publishing.allow_insecure is False
-        assert config.cleanup.remove_legacy_checkpoints is True
         assert config.cleanup.remove_stale_checkpoints is True
         assert config.provider_profile.enabled is False
 
@@ -61,7 +60,7 @@ class TestAssertorConfig:
         self,
     ) -> None:
         config = AssertorConfig(
-            algorithm_id="trust-graph-v2",
+            algorithm_id="trust-graph",
             selection={
                 "batch_size": 100,
                 "min_events": 10,
@@ -69,16 +68,15 @@ class TestAssertorConfig:
                 "kinds": [30382],
             },
             publishing={"allow_insecure": True, "relays": ["wss://relay.example.com"]},
-            cleanup={"remove_legacy_checkpoints": False, "remove_stale_checkpoints": False},
+            cleanup={"remove_stale_checkpoints": False},
         )
-        assert config.algorithm_id == "trust-graph-v2"
+        assert config.algorithm_id == "trust-graph"
         assert config.selection.batch_size == 100
         assert config.selection.min_events == 10
         assert config.selection.top_topics == 3
         assert config.selection.kinds == [30382]
         assert config.publishing.allow_insecure is True
         assert [relay.url for relay in config.publishing.relays] == ["wss://relay.example.com"]
-        assert config.cleanup.remove_legacy_checkpoints is False
         assert config.cleanup.remove_stale_checkpoints is False
 
     def test_batch_size_validation(
@@ -113,7 +111,7 @@ class TestAssertorConfig:
 
     def test_invalid_algorithm_id_rejected(self) -> None:
         with pytest.raises(ValidationError, match="algorithm_id"):
-            AssertorConfig(algorithm_id="Global PageRank V1")
+            AssertorConfig(algorithm_id="Global PageRank")
 
     def test_duplicate_kinds_rejected(self) -> None:
         with pytest.raises(ValidationError, match="duplicate assertion kinds"):
@@ -210,20 +208,20 @@ class TestAssertorRun:
             ),
         )
         service._publish_user_assertions = AsyncMock(return_value=(0, 0, 0))
-        service._delete_stale_v2_checkpoints = AsyncMock(return_value=99)
+        service._delete_stale_checkpoints = AsyncMock(return_value=99)
 
         result = await service.publish()
 
         assert result.checkpoint_cleanup_removed == 0
-        service._delete_stale_v2_checkpoints.assert_not_awaited()
+        service._delete_stale_checkpoints.assert_not_awaited()
 
     def test_mark_seen_state_key_initializes_missing_set(self, mock_brotr: MagicMock) -> None:
         service = _assertor_harness(mock_brotr)
         del service._cycle_seen_state_keys
 
-        service._mark_seen_state_key("v2:global-pagerank-v1:30382:" + ("aa" * 32))
+        service._mark_seen_state_key("global-pagerank:30382:" + ("aa" * 32))
 
-        assert service._cycle_seen_state_keys == {"v2:global-pagerank-v1:30382:" + ("aa" * 32)}
+        assert service._cycle_seen_state_keys == {"global-pagerank:30382:" + ("aa" * 32)}
 
     async def test_is_unchanged_no_state(self, mock_brotr: MagicMock) -> None:
         service = _assertor_harness(mock_brotr)
@@ -455,7 +453,7 @@ class TestAssertorPublishUserFlow:
 
 
 class TestAssertorCheckpointNamespacing:
-    """Verify checkpoint keys use the algorithm-aware v2 namespace."""
+    """Verify checkpoint keys use the algorithm-aware namespace."""
 
     @pytest.fixture
     def mock_brotr(self) -> MagicMock:
@@ -485,7 +483,7 @@ class TestAssertorCheckpointNamespacing:
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_user_rows", new_callable=AsyncMock)
-    async def test_user_assertion_uses_v2_kind_key(
+    async def test_user_assertion_uses_canonical_kind_key(
         self,
         mock_fetch: AsyncMock,
         mock_broadcast: AsyncMock,
@@ -522,14 +520,14 @@ class TestAssertorCheckpointNamespacing:
 
         mock_brotr.get_service_state.assert_awaited()
         key_arg = mock_brotr.get_service_state.call_args[0][2]
-        assert key_arg == f"v2:global-pagerank-v1:30382:{pubkey}"
+        assert key_arg == f"global-pagerank:30382:{pubkey}"
 
         upsert_call = mock_brotr.upsert_service_state.call_args[0][0]
-        assert upsert_call[0].state_key == f"v2:global-pagerank-v1:30382:{pubkey}"
+        assert upsert_call[0].state_key == f"global-pagerank:30382:{pubkey}"
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_event_rows", new_callable=AsyncMock)
-    async def test_event_assertion_uses_v2_kind_key(
+    async def test_event_assertion_uses_canonical_kind_key(
         self,
         mock_fetch: AsyncMock,
         mock_broadcast: AsyncMock,
@@ -554,14 +552,14 @@ class TestAssertorCheckpointNamespacing:
         await service._publish_event_assertions()
 
         key_arg = mock_brotr.get_service_state.call_args[0][2]
-        assert key_arg == f"v2:global-pagerank-v1:30383:{event_id}"
+        assert key_arg == f"global-pagerank:30383:{event_id}"
 
         upsert_call = mock_brotr.upsert_service_state.call_args[0][0]
-        assert upsert_call[0].state_key == f"v2:global-pagerank-v1:30383:{event_id}"
+        assert upsert_call[0].state_key == f"global-pagerank:30383:{event_id}"
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_addressable_rows", new_callable=AsyncMock)
-    async def test_addressable_assertion_uses_v2_kind_key(
+    async def test_addressable_assertion_uses_canonical_kind_key(
         self,
         mock_fetch: AsyncMock,
         mock_broadcast: AsyncMock,
@@ -587,11 +585,11 @@ class TestAssertorCheckpointNamespacing:
         await service._publish_addressable_assertions()
 
         key_arg = mock_brotr.get_service_state.call_args[0][2]
-        assert key_arg == f"v2:global-pagerank-v1:30384:{event_address}"
+        assert key_arg == f"global-pagerank:30384:{event_address}"
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_identifier_rows", new_callable=AsyncMock)
-    async def test_identifier_assertion_uses_v2_kind_key(
+    async def test_identifier_assertion_uses_canonical_kind_key(
         self,
         mock_fetch: AsyncMock,
         mock_broadcast: AsyncMock,
@@ -613,7 +611,7 @@ class TestAssertorCheckpointNamespacing:
         await service._publish_identifier_assertions()
 
         key_arg = mock_brotr.get_service_state.call_args[0][2]
-        assert key_arg == f"v2:global-pagerank-v1:30385:{identifier}"
+        assert key_arg == f"global-pagerank:30385:{identifier}"
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_event_rows", new_callable=AsyncMock)
@@ -676,9 +674,9 @@ class TestAssertorCheckpointNamespacing:
         saved_keys = [
             call[0][0][0].state_key for call in mock_brotr.upsert_service_state.call_args_list
         ]
-        assert f"v2:global-pagerank-v1:30382:{hex_id}" in saved_keys
-        assert f"v2:global-pagerank-v1:30383:{hex_id}" in saved_keys
-        assert f"v2:global-pagerank-v1:30382:{hex_id}" != f"v2:global-pagerank-v1:30383:{hex_id}"
+        assert f"global-pagerank:30382:{hex_id}" in saved_keys
+        assert f"global-pagerank:30383:{hex_id}" in saved_keys
+        assert f"global-pagerank:30382:{hex_id}" != f"global-pagerank:30383:{hex_id}"
 
 
 # ============================================================================
@@ -715,32 +713,6 @@ class TestAssertorLifecycle:
             assert svc._client is mock_client
             mock_client.connect.assert_awaited_once()
             assert result is svc
-
-    @patch("bigbrotr.services.assertor.service.create_client", new_callable=AsyncMock)
-    async def test_aenter_skips_legacy_cleanup_when_disabled(
-        self,
-        mock_create_client: AsyncMock,
-    ) -> None:
-        from bigbrotr.services.assertor.service import Assertor
-
-        mock_create_client.return_value = AsyncMock()
-        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
-            svc = Assertor.__new__(Assertor)
-            svc._brotr = MagicMock()
-            svc._brotr.get_service_state = AsyncMock(return_value=[])
-            svc._brotr.delete_service_state = AsyncMock(return_value=0)
-            svc._config = AssertorConfig(
-                cleanup={"remove_legacy_checkpoints": False},
-            )
-            svc._client = None
-            svc._keys = svc._config.keys.keys
-            svc._logger = MagicMock()
-            svc._metrics_server = None
-
-            with patch.object(type(svc).__bases__[0], "__aenter__", new_callable=AsyncMock):
-                await svc.__aenter__()
-
-            svc._brotr.get_service_state.assert_not_awaited()
 
     async def test_aexit_shuts_down_client(self) -> None:
         from bigbrotr.services.assertor.service import Assertor
@@ -791,7 +763,7 @@ class TestAssertorLifecycle:
             assert await svc.cleanup() == 0
 
 
-class TestAssertorPhase3Foundation:
+class TestAssertorKeyLifecycle:
     @patch("bigbrotr.services.assertor.service.create_client", new_callable=AsyncMock)
     async def test_aenter_uses_config_keys_to_create_client(
         self,
@@ -846,72 +818,31 @@ class TestAssertorPhase3Foundation:
 
             assert svc._keys is svc._config.keys.keys
 
-    @patch("bigbrotr.services.assertor.service.create_client", new_callable=AsyncMock)
-    async def test_aenter_purges_legacy_checkpoints(
-        self,
-        mock_create_client: AsyncMock,
-    ) -> None:
-        from bigbrotr.services.assertor.service import Assertor
+    def test_parse_state_key_preserves_subject_colons(self) -> None:
+        from bigbrotr.services.assertor.utils import parse_state_key
 
-        legacy_user = MagicMock()
-        legacy_user.service_name = ServiceName.ASSERTOR
-        legacy_user.state_type = "checkpoint"
-        legacy_user.state_key = "user:" + ("aa" * 32)
-        legacy_event = MagicMock()
-        legacy_event.service_name = ServiceName.ASSERTOR
-        legacy_event.state_type = "checkpoint"
-        legacy_event.state_key = "event:" + ("bb" * 32)
-        v2_state = MagicMock()
-        v2_state.service_name = ServiceName.ASSERTOR
-        v2_state.state_type = "checkpoint"
-        v2_state.state_key = "v2:global-pagerank-v1:30382:" + ("cc" * 32)
-
-        mock_create_client.return_value = AsyncMock()
-        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
-            svc = Assertor.__new__(Assertor)
-            svc._brotr = MagicMock()
-            svc._brotr.get_service_state = AsyncMock(
-                return_value=[legacy_user, legacy_event, v2_state]
-            )
-            svc._brotr.delete_service_state = AsyncMock(return_value=2)
-            svc._config = AssertorConfig()
-            svc._client = None
-            svc._keys = svc._config.keys.keys
-            svc._logger = MagicMock()
-            svc._metrics_server = None
-
-            with patch.object(type(svc).__bases__[0], "__aenter__", new_callable=AsyncMock):
-                await svc.__aenter__()
-
-            delete_call = svc._brotr.delete_service_state.call_args.kwargs["state_keys"]
-            assert delete_call == [legacy_user.state_key, legacy_event.state_key]
-
-    def test_parse_v2_checkpoint_key_preserves_subject_colons(self) -> None:
-        from bigbrotr.services.assertor.utils import parse_v2_checkpoint_key
-
-        assert parse_v2_checkpoint_key(
-            "v2:global-pagerank-v1:30384:30023:" + ("aa" * 32) + ":article"
-        ) == ("global-pagerank-v1", 30384, "30023:" + ("aa" * 32) + ":article")
+        assert parse_state_key("global-pagerank:30384:30023:" + ("aa" * 32) + ":article") == (
+            "global-pagerank",
+            30384,
+            "30023:" + ("aa" * 32) + ":article",
+        )
 
 
 class TestAssertorUtils:
-    def test_state_key_and_legacy_key_helpers(self) -> None:
-        from bigbrotr.services.assertor.utils import build_state_key, is_legacy_checkpoint_key
+    def test_state_key_helpers(self) -> None:
+        from bigbrotr.services.assertor.utils import build_state_key
 
         assert build_state_key(
-            algorithm_id="global-pagerank-v1",
+            algorithm_id="global-pagerank",
             kind=30382,
             subject_id="aa" * 32,
-        ) == "v2:global-pagerank-v1:30382:" + ("aa" * 32)
-        assert is_legacy_checkpoint_key("user:" + ("aa" * 32)) is True
-        assert is_legacy_checkpoint_key("event:" + ("bb" * 32)) is True
-        assert is_legacy_checkpoint_key("v2:global-pagerank-v1:30382:" + ("aa" * 32)) is False
+        ) == "global-pagerank:30382:" + ("aa" * 32)
 
-    def test_parse_v2_checkpoint_key_rejects_invalid_keys(self) -> None:
-        from bigbrotr.services.assertor.utils import parse_v2_checkpoint_key
+    def test_parse_state_key_rejects_invalid_keys(self) -> None:
+        from bigbrotr.services.assertor.utils import parse_state_key
 
-        assert parse_v2_checkpoint_key("user:" + ("aa" * 32)) is None
-        assert parse_v2_checkpoint_key("v2:global-pagerank-v1:not-a-kind:subject") is None
+        assert parse_state_key("user:" + ("aa" * 32)) is None
+        assert parse_state_key("global-pagerank:not-a-kind:subject") is None
 
     def test_content_hash_is_stable_for_json_key_order(self) -> None:
         from bigbrotr.services.assertor.utils import content_hash
@@ -923,7 +854,7 @@ class TestAssertorUtils:
         from bigbrotr.services.assertor.utils import provider_profile_content
 
         content = provider_profile_content(
-            algorithm_id="global-pagerank-v1",
+            algorithm_id="global-pagerank",
             kind0_content=ProviderProfileKind0Content(
                 name="Provider",
                 about="NIP-85 provider",
@@ -942,7 +873,7 @@ class TestAssertorUtils:
             "name": "Provider",
             "about": "NIP-85 provider",
             "website": "https://bigbrotr.com",
-            "algorithm_id": "global-pagerank-v1",
+            "algorithm_id": "global-pagerank",
             "picture": "https://bigbrotr.com/avatar.png",
             "software": "bigbrotr",
         }
@@ -964,10 +895,9 @@ class TestAssertorProviderProfile:
                 provider_profile={
                     "enabled": True,
                     "kind0_content": {
-                        "name": "BigBrotr Global PageRank v1",
+                        "name": "BigBrotr Global PageRank",
                         "about": "NIP-85 trusted assertion provider",
                         "website": "https://bigbrotr.com",
-                        "extra_fields": {"algorithm_version": "v1"},
                     },
                 },
                 metrics={"enabled": False},
@@ -989,8 +919,8 @@ class TestAssertorProviderProfile:
         assert skipped == 0
         assert failed == 0
         saved_state = mock_brotr.upsert_service_state.call_args[0][0][0]
-        assert saved_state.state_key == "v2:global-pagerank-v1:0:provider_profile"
-        assert "v2:global-pagerank-v1:0:provider_profile" in service._cycle_seen_state_keys
+        assert saved_state.state_key == "global-pagerank:0:provider_profile"
+        assert "global-pagerank:0:provider_profile" in service._cycle_seen_state_keys
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     async def test_skips_unchanged_provider_profile(
@@ -1051,17 +981,17 @@ class TestAssertorProviderProfile:
 
 
 class TestAssertorCheckpointCleanup:
-    async def test_delete_stale_v2_checkpoints_removes_only_current_algorithm_stale_keys(
+    async def test_delete_stale_checkpoints_removes_only_current_algorithm_stale_keys(
         self,
     ) -> None:
         from bigbrotr.services.assertor.service import Assertor
 
-        keep_key = "v2:global-pagerank-v1:30382:" + ("aa" * 32)
-        stale_key = "v2:global-pagerank-v1:30382:" + ("bb" * 32)
-        disabled_kind_key = "v2:global-pagerank-v1:30383:" + ("cc" * 32)
-        other_algorithm_key = "v2:other-algo:30382:" + ("dd" * 32)
-        profile_key = "v2:global-pagerank-v1:0:provider_profile"
-        non_v2_key = "user:" + ("ee" * 32)
+        keep_key = "global-pagerank:30382:" + ("aa" * 32)
+        stale_key = "global-pagerank:30382:" + ("bb" * 32)
+        disabled_kind_key = "global-pagerank:30383:" + ("cc" * 32)
+        other_algorithm_key = "other-algo:30382:" + ("dd" * 32)
+        profile_key = "global-pagerank:0:provider_profile"
+        noncanonical_key = "user:" + ("ee" * 32)
 
         def _state(key: str) -> MagicMock:
             state = MagicMock()
@@ -1080,16 +1010,16 @@ class TestAssertorCheckpointCleanup:
                     _state(disabled_kind_key),
                     _state(other_algorithm_key),
                     _state(profile_key),
-                    _state(non_v2_key),
+                    _state(noncanonical_key),
                 ]
             )
-            svc._brotr.delete_service_state = AsyncMock(return_value=2)
+            svc._brotr.delete_service_state = AsyncMock(return_value=3)
             svc._config = AssertorConfig(
                 selection={"kinds": [30382]},
                 provider_profile={
                     "enabled": True,
                     "kind0_content": {
-                        "name": "BigBrotr Global PageRank v1",
+                        "name": "BigBrotr Global PageRank",
                         "about": "NIP-85 trusted assertion provider",
                         "website": "https://bigbrotr.com",
                     },
@@ -1098,11 +1028,11 @@ class TestAssertorCheckpointCleanup:
             svc._logger = MagicMock()
             svc._cycle_seen_state_keys = {keep_key, profile_key}
 
-            removed = await svc._delete_stale_v2_checkpoints()
+            removed = await svc._delete_stale_checkpoints()
 
-            assert removed == 2
+            assert removed == 3
             deleted_keys = svc._brotr.delete_service_state.call_args.kwargs["state_keys"]
-            assert deleted_keys == [stale_key, disabled_kind_key]
+            assert deleted_keys == [stale_key, disabled_kind_key, noncanonical_key]
 
 
 # ============================================================================
@@ -1336,7 +1266,7 @@ class TestAssertorPublishAddressableAndIdentifierFlow:
         assert failed == 0
         mock_broadcast.assert_awaited_once()
         saved_key = mock_brotr.upsert_service_state.call_args[0][0][0].state_key
-        assert saved_key.startswith("v2:global-pagerank-v1:30384:")
+        assert saved_key.startswith("global-pagerank:30384:")
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_identifier_rows", new_callable=AsyncMock)
@@ -1365,7 +1295,7 @@ class TestAssertorPublishAddressableAndIdentifierFlow:
         assert failed == 0
         mock_broadcast.assert_awaited_once()
         saved_key = mock_brotr.upsert_service_state.call_args[0][0][0].state_key
-        assert saved_key == "v2:global-pagerank-v1:30385:isbn:9780140328721"
+        assert saved_key == "global-pagerank:30385:isbn:9780140328721"
 
 
 # ============================================================================
@@ -1382,7 +1312,7 @@ class TestAssertorQueries:
 
         rows = await fetch_user_rows(
             mock_brotr,
-            algorithm_id="global-pagerank-v1",
+            algorithm_id="global-pagerank",
             min_events=1,
             limit=10,
             offset=0,
@@ -1398,7 +1328,7 @@ class TestAssertorQueries:
 
         rows = await fetch_event_rows(
             mock_brotr,
-            algorithm_id="global-pagerank-v1",
+            algorithm_id="global-pagerank",
             limit=10,
             offset=0,
         )
@@ -1413,7 +1343,7 @@ class TestAssertorQueries:
 
         rows = await fetch_addressable_rows(
             mock_brotr,
-            algorithm_id="global-pagerank-v1",
+            algorithm_id="global-pagerank",
             limit=10,
             offset=0,
         )
@@ -1428,7 +1358,7 @@ class TestAssertorQueries:
 
         rows = await fetch_identifier_rows(
             mock_brotr,
-            algorithm_id="global-pagerank-v1",
+            algorithm_id="global-pagerank",
             limit=10,
             offset=0,
         )

@@ -110,8 +110,8 @@ class TestBuildProfileEvent:
             name="BigBrotr",
             website="https://bigbrotr.com",
             extra_fields={
-                "algorithm_id": "global-pagerank-v1",
-                "algorithm_version": "v1",
+                "algorithm_id": "global-pagerank",
+                "model_family": "pagerank",
                 "name": "ignored",
             },
         ).sign_with_keys(Keys.generate())
@@ -119,8 +119,8 @@ class TestBuildProfileEvent:
         content = json.loads(event.content())
         assert content["name"] == "BigBrotr"
         assert content["website"] == "https://bigbrotr.com"
-        assert content["algorithm_id"] == "global-pagerank-v1"
-        assert content["algorithm_version"] == "v1"
+        assert content["algorithm_id"] == "global-pagerank"
+        assert content["model_family"] == "pagerank"
 
 
 # ============================================================================

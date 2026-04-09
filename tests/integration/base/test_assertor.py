@@ -277,8 +277,8 @@ async def _seed_full_kind_assertor_data(
 async def _seed_checkpoint_states(
     *,
     brotr: Brotr,
-    legacy_user_key: str,
-    legacy_event_key: str,
+    noncanonical_user_key: str,
+    noncanonical_event_key: str,
     stale_user_key: str,
     stale_event_key: str,
     stale_addressable_key: str,
@@ -287,8 +287,16 @@ async def _seed_checkpoint_states(
 ) -> None:
     await brotr.upsert_service_state(
         [
-            _checkpoint_state(state_key=legacy_user_key, hash_value="legacy-user", timestamp=1),
-            _checkpoint_state(state_key=legacy_event_key, hash_value="legacy-event", timestamp=2),
+            _checkpoint_state(
+                state_key=noncanonical_user_key,
+                hash_value="noncanonical-user",
+                timestamp=1,
+            ),
+            _checkpoint_state(
+                state_key=noncanonical_event_key,
+                hash_value="noncanonical-event",
+                timestamp=2,
+            ),
             _checkpoint_state(state_key=stale_user_key, hash_value="stale-user", timestamp=3),
             _checkpoint_state(state_key=stale_event_key, hash_value="stale-event", timestamp=4),
             _checkpoint_state(
@@ -325,10 +333,9 @@ def _make_assertor_config(
             "provider_profile": {
                 "enabled": provider_profile_enabled,
                 "kind0_content": {
-                    "name": "BigBrotr Global PageRank v1",
+                    "name": "BigBrotr Global PageRank",
                     "about": "NIP-85 trusted assertion provider",
                     "website": "https://bigbrotr.com",
-                    "extra_fields": {"algorithm_version": "v1"},
                 },
             },
         }
@@ -344,26 +351,6 @@ def _make_mock_client() -> MagicMock:
     client.shutdown = AsyncMock()
     client.database = MagicMock(return_value=SimpleNamespace(wipe=AsyncMock()))
     return client
-
-
-def _assert_keys_after_enter(
-    keys_after_enter: set[str],
-    *,
-    legacy_user_key: str,
-    legacy_event_key: str,
-    stale_user_key: str,
-    stale_event_key: str,
-    stale_addressable_key: str,
-    stale_identifier_key: str,
-    other_algorithm_key: str,
-) -> None:
-    assert legacy_user_key not in keys_after_enter
-    assert legacy_event_key not in keys_after_enter
-    assert stale_user_key in keys_after_enter
-    assert stale_event_key in keys_after_enter
-    assert stale_addressable_key in keys_after_enter
-    assert stale_identifier_key in keys_after_enter
-    assert other_algorithm_key in keys_after_enter
 
 
 def _assert_final_checkpoint_state(
@@ -430,14 +417,14 @@ def _assert_published_event_payloads(
 
 
 class TestAssertorIntegration:
-    async def test_assertor_v2_run_purges_legacy_and_publishes_all_kinds(
+    async def test_assertor_run_publishes_all_kinds_and_prunes_stale_state(
         self,
         brotr: Brotr,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setenv("NOSTR_PRIVATE_KEY_ASSERTOR", VALID_HEX_KEY)
 
-        algorithm_id = "global-pagerank-v1"
+        algorithm_id = "global-pagerank"
         author = "c1" * 32
         replier = "d1" * 32
         root_event_id = "a0" * 32
@@ -458,18 +445,18 @@ class TestAssertorIntegration:
             relay_url=relay_url,
         )
 
-        legacy_user_key = f"user:{author}"
-        legacy_event_key = f"event:{root_event_id}"
-        stale_user_key = f"v2:{algorithm_id}:30382:{'ef' * 32}"
-        stale_event_key = f"v2:{algorithm_id}:30383:{'fe' * 32}"
-        stale_addressable_key = f"v2:{algorithm_id}:30384:30023:{'ab' * 32}:stale"
-        stale_identifier_key = f"v2:{algorithm_id}:30385:isbn:stale"
-        other_algorithm_key = f"v2:other-algo:30382:{'ab' * 32}"
+        noncanonical_user_key = f"user:{author}"
+        noncanonical_event_key = f"event:{root_event_id}"
+        stale_user_key = f"{algorithm_id}:30382:{'ef' * 32}"
+        stale_event_key = f"{algorithm_id}:30383:{'fe' * 32}"
+        stale_addressable_key = f"{algorithm_id}:30384:30023:{'ab' * 32}:stale"
+        stale_identifier_key = f"{algorithm_id}:30385:isbn:stale"
+        other_algorithm_key = f"other-algo:30382:{'ab' * 32}"
 
         await _seed_checkpoint_states(
             brotr=brotr,
-            legacy_user_key=legacy_user_key,
-            legacy_event_key=legacy_event_key,
+            noncanonical_user_key=noncanonical_user_key,
+            noncanonical_event_key=noncanonical_event_key,
             stale_user_key=stale_user_key,
             stale_event_key=stale_event_key,
             stale_addressable_key=stale_addressable_key,
@@ -497,21 +484,6 @@ class TestAssertorIntegration:
             ),
         ):
             async with Assertor(brotr=brotr, config=config) as service:
-                rows_after_enter = await brotr.get_service_state(
-                    ServiceName.ASSERTOR,
-                    ServiceStateType.CHECKPOINT,
-                )
-                _assert_keys_after_enter(
-                    {row.state_key for row in rows_after_enter},
-                    legacy_user_key=legacy_user_key,
-                    legacy_event_key=legacy_event_key,
-                    stale_user_key=stale_user_key,
-                    stale_event_key=stale_event_key,
-                    stale_addressable_key=stale_addressable_key,
-                    stale_identifier_key=stale_identifier_key,
-                    other_algorithm_key=other_algorithm_key,
-                )
-
                 await service.run()
 
         rows_after_run = await brotr.get_service_state(
@@ -520,11 +492,11 @@ class TestAssertorIntegration:
         )
         state_by_key = {row.state_key: row for row in rows_after_run}
 
-        user_key = f"v2:{algorithm_id}:30382:{author}"
-        event_key = f"v2:{algorithm_id}:30383:{root_event_id}"
-        addressable_key = f"v2:{algorithm_id}:30384:{event_address}"
-        identifier_key = f"v2:{algorithm_id}:30385:{identifier}"
-        profile_key = f"v2:{algorithm_id}:0:provider_profile"
+        user_key = f"{algorithm_id}:30382:{author}"
+        event_key = f"{algorithm_id}:30383:{root_event_id}"
+        addressable_key = f"{algorithm_id}:30384:{event_address}"
+        identifier_key = f"{algorithm_id}:30385:{identifier}"
+        profile_key = f"{algorithm_id}:0:provider_profile"
 
         _assert_final_checkpoint_state(
             state_by_key,
@@ -579,7 +551,7 @@ class TestAssertorIntegration:
     ) -> None:
         monkeypatch.setenv("NOSTR_PRIVATE_KEY_ASSERTOR", VALID_HEX_KEY)
         config = _make_assertor_config(
-            "no-eligible-pagerank-v1",
+            "no-eligible-pagerank",
             provider_profile_enabled=False,
         )
         mock_broadcast = AsyncMock(return_value=1)

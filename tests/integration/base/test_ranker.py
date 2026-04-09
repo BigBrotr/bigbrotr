@@ -372,7 +372,7 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
         INSERT INTO nip85_pubkey_ranks (algorithm_id, subject_id, raw_score, rank, computed_at)
         VALUES ($1, $2, $3, $4, $5)
         """,
-        "other-pagerank-v1",
+        "other-pagerank",
         pubkey_b,
         0.123,
         17,
@@ -383,7 +383,7 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
         INSERT INTO nip85_event_ranks (algorithm_id, subject_id, raw_score, rank, computed_at)
         VALUES ($1, $2, $3, $4, $5)
         """,
-        "other-pagerank-v1",
+        "other-pagerank",
         event_id,
         0.456,
         23,
@@ -394,7 +394,7 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
         INSERT INTO nip85_addressable_ranks (algorithm_id, subject_id, raw_score, rank, computed_at)
         VALUES ($1, $2, $3, $4, $5)
         """,
-        "other-pagerank-v1",
+        "other-pagerank",
         event_address,
         0.789,
         31,
@@ -405,7 +405,7 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
         INSERT INTO nip85_identifier_ranks (algorithm_id, subject_id, raw_score, rank, computed_at)
         VALUES ($1, $2, $3, $4, $5)
         """,
-        "other-pagerank-v1",
+        "other-pagerank",
         identifier_a,
         0.222,
         19,
@@ -533,26 +533,26 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
     untouched_rows = await _fetch_rank_rows(
         brotr=brotr,
         table_name="nip85_pubkey_ranks",
-        algorithm_id="other-pagerank-v1",
+        algorithm_id="other-pagerank",
     )
     untouched_event_rows = await _fetch_rank_rows(
         brotr=brotr,
         table_name="nip85_event_ranks",
-        algorithm_id="other-pagerank-v1",
+        algorithm_id="other-pagerank",
     )
     untouched_addressable_rows = await _fetch_rank_rows(
         brotr=brotr,
         table_name="nip85_addressable_ranks",
-        algorithm_id="other-pagerank-v1",
+        algorithm_id="other-pagerank",
     )
     untouched_identifier_rows = await _fetch_rank_rows(
         brotr=brotr,
         table_name="nip85_identifier_ranks",
-        algorithm_id="other-pagerank-v1",
+        algorithm_id="other-pagerank",
     )
     assert untouched_rows == [
         {
-            "algorithm_id": "other-pagerank-v1",
+            "algorithm_id": "other-pagerank",
             "subject_id": pubkey_b,
             "raw_score": 0.123,
             "rank": 17,
@@ -561,7 +561,7 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
     ]
     assert untouched_event_rows == [
         {
-            "algorithm_id": "other-pagerank-v1",
+            "algorithm_id": "other-pagerank",
             "subject_id": event_id,
             "raw_score": 0.456,
             "rank": 23,
@@ -570,7 +570,7 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
     ]
     assert untouched_addressable_rows == [
         {
-            "algorithm_id": "other-pagerank-v1",
+            "algorithm_id": "other-pagerank",
             "subject_id": event_address,
             "raw_score": 0.789,
             "rank": 31,
@@ -579,7 +579,7 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
     ]
     assert untouched_identifier_rows == [
         {
-            "algorithm_id": "other-pagerank-v1",
+            "algorithm_id": "other-pagerank",
             "subject_id": identifier_a,
             "raw_score": 0.222,
             "rank": 19,
@@ -630,7 +630,7 @@ async def test_ranker_sync_budget_resumes_from_checkpoint(
 
     config = RankerConfig.model_validate(
         {
-            "algorithm_id": "bounded-pagerank-v1",
+            "algorithm_id": "bounded-pagerank",
             "storage": {
                 "path": tmp_path / "ranker.duckdb",
                 "checkpoint_path": tmp_path / "ranker.checkpoint.json",

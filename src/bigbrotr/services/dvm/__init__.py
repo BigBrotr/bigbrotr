@@ -1,6 +1,6 @@
 """NIP-90 Data Vending Machine service for Nostr-based database queries.
 
-Re-exports all public symbols for backwards-compatible imports::
+Re-exports the public package symbols::
 
     from bigbrotr.services.dvm import Dvm, DvmConfig
 

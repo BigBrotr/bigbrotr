@@ -1,6 +1,6 @@
 """Seeder service package.
 
-Re-exports all public symbols for backwards-compatible imports::
+Re-exports the public package symbols::
 
     from bigbrotr.services.seeder import Seeder, SeederConfig, SeedConfig
 """

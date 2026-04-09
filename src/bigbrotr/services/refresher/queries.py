@@ -177,18 +177,3 @@ async def refresh_periodic_target(brotr: Brotr, target: PeriodicRefreshTarget) -
     """Execute the registered SQL refresh function for one periodic target."""
     spec = get_periodic_target_spec(target)
     await brotr.execute(f"SELECT {spec.sql_function}()")
-
-
-async def refresh_rolling_windows(brotr: Brotr) -> None:
-    """Recompute rolling time-window columns for all entity summary tables."""
-    await refresh_periodic_target(brotr, PeriodicRefreshTarget.ROLLING_WINDOWS)
-
-
-async def refresh_relay_metadata(brotr: Brotr) -> None:
-    """Update RTT, NIP-11, network, and discovered_at in relay_stats."""
-    await refresh_periodic_target(brotr, PeriodicRefreshTarget.RELAY_STATS_METADATA)
-
-
-async def refresh_nip85_followers(brotr: Brotr) -> None:
-    """Recompute NIP-85 follower/following counts from canonical contact-list facts."""
-    await refresh_periodic_target(brotr, PeriodicRefreshTarget.NIP85_FOLLOWERS)

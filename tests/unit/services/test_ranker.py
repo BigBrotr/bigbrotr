@@ -240,11 +240,11 @@ class TestRankerQueries:
         )
 
         conn.execute.reset_mock()
-        await merge_rank_stage(conn, "event", "global-pagerank-v1")
+        await merge_rank_stage(conn, "event", "global-pagerank")
         assert conn.execute.await_count == 2
         assert [await_call.args[1] for await_call in conn.execute.await_args_list] == [
-            "global-pagerank-v1",
-            "global-pagerank-v1",
+            "global-pagerank",
+            "global-pagerank",
         ]
 
 
@@ -252,7 +252,7 @@ class TestRankerConfig:
     def test_default_values(self) -> None:
         config = RankerConfig()
 
-        assert config.algorithm_id == "global-pagerank-v1"
+        assert config.algorithm_id == "global-pagerank"
         assert config.storage.path == Path("/app/data/ranker.duckdb")
         assert config.storage.checkpoint_path == Path("/app/data/ranker.checkpoint.json")
         assert config.processing.max_duration is None
@@ -274,7 +274,7 @@ class TestRankerConfig:
     def test_custom_nested_values(self, tmp_path: Path) -> None:
         config = RankerConfig.model_validate(
             {
-                "algorithm_id": "custom-ranker-v2",
+                "algorithm_id": "custom-ranker",
                 "storage": {
                     "path": tmp_path / "graph.duckdb",
                     "checkpoint_path": tmp_path / "graph.checkpoint.json",
@@ -298,7 +298,7 @@ class TestRankerConfig:
             }
         )
 
-        assert config.algorithm_id == "custom-ranker-v2"
+        assert config.algorithm_id == "custom-ranker"
         assert config.storage.path == tmp_path / "graph.duckdb"
         assert config.storage.checkpoint_path == tmp_path / "graph.checkpoint.json"
         assert config.processing.max_duration == 600.0
@@ -319,7 +319,7 @@ class TestRankerConfig:
 
     def test_invalid_algorithm_id_rejected(self) -> None:
         with pytest.raises(ValueError, match="algorithm_id must match"):
-            RankerConfig(algorithm_id="Global PageRank V1")
+            RankerConfig(algorithm_id="Global PageRank")
 
 
 class TestRankerStore:
@@ -478,7 +478,7 @@ class TestRankerStore:
             checkpoint_path=tmp_path / "ranker.checkpoint.json",
         )
         run = store.start_rank_run(
-            algorithm_id="global-pagerank-v1",
+            algorithm_id="global-pagerank",
             node_count=4,
             edge_count=3,
         )
@@ -495,7 +495,7 @@ class TestRankerStore:
             ).fetchone()
 
         assert row is not None
-        assert row[0] == "global-pagerank-v1"
+        assert row[0] == "global-pagerank"
         assert row[1] == "success"
         assert row[2] == 4
         assert row[3] == 3
@@ -508,7 +508,7 @@ class TestRankerStore:
         )
         for index in range(5):
             run = store.start_rank_run(
-                algorithm_id="global-pagerank-v1",
+                algorithm_id="global-pagerank",
                 node_count=index,
                 edge_count=index,
             )
@@ -698,7 +698,7 @@ class TestRankerService:
 
         assert ranker.SERVICE_NAME == ServiceName.RANKER
         assert ranker.CONFIG_CLASS is RankerConfig
-        assert ranker.config.algorithm_id == "global-pagerank-v1"
+        assert ranker.config.algorithm_id == "global-pagerank"
 
     @pytest.mark.asyncio
     async def test_run_delegates_to_rank(

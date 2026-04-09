@@ -2,8 +2,7 @@
 # Assertor Service Configuration (LilBrotr)
 # =============================================================================
 # NIP-85 Trusted Assertions publisher. Reads ranked NIP-85 facts and publishes
-# kinds 30382/30383/30384/30385 to configured relays in
-# algorithm-aware v2 mode.
+# kinds 30382/30383/30384/30385 to configured relays.
 # Only values that differ from defaults are specified here.
 # =============================================================================
 
@@ -12,7 +11,7 @@ pool:
   password_env: DB_WRITER_PASSWORD
   max_size: 3
 
-algorithm_id: global-pagerank-v1
+algorithm_id: global-pagerank
 keys:
   keys_env: NOSTR_PRIVATE_KEY_ASSERTOR
 
@@ -29,18 +28,16 @@ selection:
     - 30385
 
 cleanup:
-  remove_legacy_checkpoints: true
   remove_stale_checkpoints: true
 
 provider_profile:
   enabled: true
   kind0_content:
-    name: LilBrotr Global PageRank v1
-    about: NIP-85 trusted assertion provider for the global-pagerank-v1 algorithm
+    name: LilBrotr Global PageRank
+    about: NIP-85 trusted assertion provider for the global-pagerank algorithm
     website: https://bigbrotr.com
     extra_fields:
       software: lilbrotr
-      algorithm_version: v1
 
 metrics:
   enabled: true
