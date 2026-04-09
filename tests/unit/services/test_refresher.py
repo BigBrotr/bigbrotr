@@ -45,8 +45,8 @@ class TestRefreshConfig:
 
         assert config.matviews == DEFAULT_MATVIEWS
         assert config.summaries == DEFAULT_SUMMARIES
-        assert len(config.matviews) == 6
-        assert len(config.summaries) == 10
+        assert len(config.matviews) == 4
+        assert len(config.summaries) == 12
 
     def test_default_matviews_dependency_order(self) -> None:
         config = RefreshConfig()
@@ -199,7 +199,11 @@ class TestRefresherInit:
         config = RefresherConfig(
             refresh=RefreshConfig(
                 matviews=["supported_nip_counts", "relay_metadata_latest"],
-                summaries=["contact_list_edges_current", "contact_lists_current"],
+                summaries=[
+                    "contact_list_edges_current",
+                    "events_replaceable_current",
+                    "contact_lists_current",
+                ],
             ),
         )
 
@@ -210,6 +214,7 @@ class TestRefresherInit:
             "supported_nip_counts",
         ]
         assert refresher.config.refresh.summaries == [
+            "events_replaceable_current",
             "contact_lists_current",
             "contact_list_edges_current",
         ]
@@ -223,6 +228,19 @@ class TestRefresherInit:
         )
 
         with pytest.raises(ValueError, match="contact_list_edges_current requires"):
+            Refresher(brotr=mock_refresher_brotr, config=config)
+
+    def test_init_rejects_contact_lists_without_replaceable_current(
+        self, mock_refresher_brotr: Brotr
+    ) -> None:
+        config = RefresherConfig(
+            refresh=RefreshConfig(
+                matviews=["relay_metadata_latest"],
+                summaries=["contact_lists_current"],
+            ),
+        )
+
+        with pytest.raises(ValueError, match="contact_lists_current requires"):
             Refresher(brotr=mock_refresher_brotr, config=config)
 
     def test_config_class_attribute(self) -> None:

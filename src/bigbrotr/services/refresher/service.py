@@ -1,21 +1,23 @@
 """Refresher service for BigBrotr.
 
-Periodically refreshes materialized views (bounded, full refresh) and
-summary tables (incremental, delta-only). The incremental refresh processes
-only new ``event_relay`` rows since the last checkpoint, making the refresh
-cost proportional to the ingestion rate rather than the total dataset size.
+Periodically refreshes bounded materialized views (full refresh) plus
+incremental current-state and analytics tables. The incremental refresh
+processes only new ``event_relay`` rows since the last checkpoint, making the
+refresh cost proportional to the ingestion rate rather than the total dataset
+size.
 
 **Refresh cycle order:**
 
-1. Materialized views (``REFRESH MATERIALIZED VIEW CONCURRENTLY``)
-2. Summary cross-tabs (``pubkey_kind_stats``, ``pubkey_relay_stats``,
+1. Bounded materialized views (``REFRESH MATERIALIZED VIEW CONCURRENTLY``)
+2. Current-state tables (replaceable/addressable snapshots)
+3. Summary cross-tabs (``pubkey_kind_stats``, ``pubkey_relay_stats``,
    ``relay_kind_stats``) — must run before entity tables
-3. Summary entity tables (``pubkey_stats``, ``kind_stats``, ``relay_stats``)
+4. Summary entity tables (``pubkey_stats``, ``kind_stats``, ``relay_stats``)
    — derive ``unique_*`` counts from cross-tab row counts
-4. Canonical contact-list facts (``contact_lists_current``,
-   ``contact_list_edges_current``) — current latest kind=3 graph state
-5. Rolling windows (``events_last_24h/7d/30d``) — periodic, scans last 30 days
-6. Relay metadata (RTT, NIP-11) and NIP-85 follower reconciliation — periodic
+5. Canonical contact-list facts (``contact_lists_current``,
+   ``contact_list_edges_current``)
+6. Rolling windows (``events_last_24h/7d/30d``) — periodic, scans last 30 days
+7. Relay metadata (RTT, NIP-11) and NIP-85 follower reconciliation — periodic
 
 See Also:
     [RefresherConfig][bigbrotr.services.refresher.RefresherConfig]:
@@ -57,9 +59,10 @@ if TYPE_CHECKING:
 class Refresher(BaseService[RefresherConfig]):
     """Materialized view and summary table refresh service.
 
-    Refreshes materialized views via ``REFRESH CONCURRENTLY`` and summary
-    tables via incremental stored procedures. Checkpoints are persisted in
-    ``service_state`` so the service can resume after restarts.
+    Refreshes bounded reporting views via ``REFRESH CONCURRENTLY`` and all
+    incremental current-state / analytics tables via stored procedures.
+    Checkpoints are persisted in ``service_state`` so the service can resume
+    after restarts.
 
     See Also:
         [RefresherConfig][bigbrotr.services.refresher.RefresherConfig]:

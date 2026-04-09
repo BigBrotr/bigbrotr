@@ -41,7 +41,9 @@ async def _refresh_nip85(brotr: Brotr, after: int = 0, until: int = 2_000_000_00
 
 
 async def _refresh_contact_graph(brotr: Brotr, after: int = 0, until: int = 2_000_000_000) -> None:
-    await brotr.refresh_materialized_view("events_replaceable_latest")
+    await brotr.fetchval(
+        "SELECT events_replaceable_current_refresh($1::BIGINT, $2::BIGINT)", after, until
+    )
     for table in ["contact_lists_current", "contact_list_edges_current"]:
         await brotr.fetchval(f"SELECT {table}_refresh($1::BIGINT, $2::BIGINT)", after, until)
 
@@ -53,13 +55,16 @@ class TestLilBrotrAddressableFallback:
             "wss://lil-fallback.example.com",
             kind=30023,
             pubkey="11" * 32,
+            created_at=1000,
             tags=[["d", "my-article"]],
         )
         await brotr.insert_event_relay([er], cascade=True)
-        await brotr.refresh_materialized_view("events_addressable_latest")
+        await brotr.fetchval(
+            "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5_000
+        )
 
         row = await brotr.fetchrow(
-            "SELECT d_tag FROM events_addressable_latest WHERE id = $1",
+            "SELECT d_tag FROM events_addressable_current WHERE id = $1",
             bytes.fromhex("a1" * 32),
         )
         assert row is not None
@@ -71,13 +76,16 @@ class TestLilBrotrAddressableFallback:
             "wss://lil-fallback.example.com",
             kind=30023,
             pubkey="12" * 32,
+            created_at=1000,
             tags=[["d", "first"], ["d", "second"]],
         )
         await brotr.insert_event_relay([er], cascade=True)
-        await brotr.refresh_materialized_view("events_addressable_latest")
+        await brotr.fetchval(
+            "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5_000
+        )
 
         row = await brotr.fetchrow(
-            "SELECT d_tag FROM events_addressable_latest WHERE id = $1",
+            "SELECT d_tag FROM events_addressable_current WHERE id = $1",
             bytes.fromhex("a2" * 32),
         )
         assert row is not None

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""One-shot analytics rebuild for summary tables and related checkpoints.
+"""One-shot analytics rebuild for current/summary tables and related checkpoints.
 
 The rebuild is intended for destructive maintenance windows or after fixing
 logic bugs in incremental analytics. It:
 
 1. Refreshes bounded materialized views in dependency order
-2. Truncates summary tables
-3. Replays incremental summary refresh from ``after=0`` to ``until``
+2. Truncates incremental current/summary tables
+3. Replays incremental refresh from ``after=0`` to ``until``
 4. Runs periodic reconciliation functions
 5. Aligns refresher checkpoints
 6. Clears assertor checkpoints so corrected assertions can be republished
@@ -53,6 +53,8 @@ SUMMARY_TABLES = list(DEFAULT_SUMMARIES)
 MATVIEWS = list(DEFAULT_MATVIEWS)
 TRUNCATE_SQL = (
     "TRUNCATE "
+    "events_replaceable_current, "
+    "events_addressable_current, "
     "pubkey_kind_stats, "
     "pubkey_relay_stats, "
     "relay_kind_stats, "

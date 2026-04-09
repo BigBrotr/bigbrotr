@@ -3,12 +3,12 @@
  *
  * Refresh functions for the analytics layer.
  *
- * Materialized views use REFRESH MATERIALIZED VIEW CONCURRENTLY (requires
- * unique indexes from 08_indexes.sql).
+ * Materialized views use REFRESH MATERIALIZED VIEW CONCURRENTLY only for the
+ * few bounded reporting relations that still justify full refresh.
  *
- * Summary tables use pure incremental functions that receive a
- * (p_after, p_until) range of event_relay.seen_at timestamps from the
- * caller. The caller (Python refresher service) manages checkpoints and
+ * Current tables and summary tables use pure incremental functions that
+ * receive a (p_after, p_until) range of event_relay.seen_at timestamps from
+ * the caller. The caller (Python refresher service) manages checkpoints and
  * orchestrates the refresh cycle.
  *
  * Dependencies: 06_materialized_views.sql
@@ -83,6 +83,234 @@ $$;
 
 COMMENT ON FUNCTION bolt11_amount_msats(TEXT) IS
 'Extract payment amount in millisatoshis from a BOLT11 invoice prefix. Returns NULL for any-amount invoices.';
+
+
+-- **************************************************************************
+-- CURRENT TABLE REFRESH: latest/current state derived from append-only event data
+-- **************************************************************************
+-- These functions maintain non-additive "winner takes latest" facts.
+-- They process only truly new events in the given seen_at range and update
+-- current rows only when the candidate event outranks the stored winner.
+-- **************************************************************************
+
+
+/*
+ * events_replaceable_current_refresh(p_after, p_until) -> INTEGER
+ *
+ * Maintains the current replaceable event per (pubkey, kind) for kinds
+ * 0, 3, and 10000-19999. The winner is ordered by created_at DESC, id DESC.
+ */
+CREATE OR REPLACE FUNCTION events_replaceable_current_refresh(
+    p_after BIGINT,
+    p_until BIGINT
+) RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_rows INTEGER;
+BEGIN
+    WITH new_events AS (
+        SELECT DISTINCT
+            e.id,
+            e.pubkey,
+            e.created_at,
+            e.kind,
+            e.tags,
+            e.tagvalues,
+            e.content,
+            e.sig
+        FROM event_relay AS er
+        INNER JOIN event AS e ON er.event_id = e.id
+        WHERE er.seen_at > p_after
+          AND er.seen_at <= p_until
+          AND (
+              e.kind = 0
+              OR e.kind = 3
+              OR (e.kind >= 10000 AND e.kind <= 19999)
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM event_relay AS older
+              WHERE older.event_id = er.event_id
+                AND older.seen_at <= p_after
+          )
+    ),
+    delta AS (
+        SELECT DISTINCT ON (e.pubkey, e.kind)
+            e.pubkey,
+            e.kind,
+            e.id,
+            e.created_at,
+            seen.first_seen_at,
+            e.tags,
+            e.tagvalues,
+            e.content,
+            e.sig
+        FROM new_events AS e
+        INNER JOIN LATERAL (
+            SELECT MIN(er.seen_at) AS first_seen_at
+            FROM event_relay AS er
+            WHERE er.event_id = e.id
+        ) AS seen ON TRUE
+        ORDER BY e.pubkey, e.kind, e.created_at DESC, e.id DESC
+    )
+    INSERT INTO events_replaceable_current
+        (pubkey, kind, id, created_at, first_seen_at, tags, tagvalues, content, sig)
+    SELECT
+        pubkey,
+        kind,
+        id,
+        created_at,
+        first_seen_at,
+        tags,
+        tagvalues,
+        content,
+        sig
+    FROM delta
+    ON CONFLICT (pubkey, kind) DO UPDATE SET
+        id            = EXCLUDED.id,
+        created_at    = EXCLUDED.created_at,
+        first_seen_at = EXCLUDED.first_seen_at,
+        tags          = EXCLUDED.tags,
+        tagvalues     = EXCLUDED.tagvalues,
+        content       = EXCLUDED.content,
+        sig           = EXCLUDED.sig
+    WHERE EXCLUDED.created_at > events_replaceable_current.created_at
+       OR (
+           EXCLUDED.created_at = events_replaceable_current.created_at
+           AND ENCODE(EXCLUDED.id, 'hex') > ENCODE(events_replaceable_current.id, 'hex')
+       );
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    RETURN v_rows;
+END;
+$$;
+
+COMMENT ON FUNCTION events_replaceable_current_refresh(BIGINT, BIGINT) IS
+'Incremental refresh of current replaceable events for truly new kinds 0, 3, and 10000-19999.';
+
+
+/*
+ * events_addressable_current_refresh(p_after, p_until) -> INTEGER
+ *
+ * Maintains the current addressable event per (pubkey, kind, d_tag) for
+ * kinds 30000-39999. The winner is ordered by created_at DESC, id DESC.
+ */
+CREATE OR REPLACE FUNCTION events_addressable_current_refresh(
+    p_after BIGINT,
+    p_until BIGINT
+) RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_rows INTEGER;
+BEGIN
+    WITH new_events AS (
+        SELECT DISTINCT
+            e.id,
+            e.pubkey,
+            e.created_at,
+            e.kind,
+            e.tags,
+            e.tagvalues,
+            e.content,
+            e.sig
+        FROM event_relay AS er
+        INNER JOIN event AS e ON er.event_id = e.id
+        WHERE er.seen_at > p_after
+          AND er.seen_at <= p_until
+          AND e.kind >= 30000
+          AND e.kind <= 39999
+          AND NOT EXISTS (
+              SELECT 1
+              FROM event_relay AS older
+              WHERE older.event_id = er.event_id
+                AND older.seen_at <= p_after
+          )
+    ),
+    extracted AS (
+        SELECT
+            e.id,
+            e.pubkey,
+            e.created_at,
+            e.kind,
+            e.tags,
+            e.tagvalues,
+            e.content,
+            e.sig,
+            seen.first_seen_at,
+            COALESCE(d_exact.val, d_fallback.val, '') AS d_tag
+        FROM new_events AS e
+        INNER JOIN LATERAL (
+            SELECT MIN(er.seen_at) AS first_seen_at
+            FROM event_relay AS er
+            WHERE er.event_id = e.id
+        ) AS seen ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT t.tag ->> 1 AS val
+            FROM jsonb_array_elements(e.tags) WITH ORDINALITY AS t(tag, ord)
+            WHERE t.tag ->> 0 = 'd'
+            ORDER BY ord
+            LIMIT 1
+        ) AS d_exact ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT substring(t.tv FROM 3) AS val
+            FROM unnest(e.tagvalues) WITH ORDINALITY AS t(tv, ord)
+            WHERE t.tv LIKE 'd:%'
+            ORDER BY ord
+            LIMIT 1
+        ) AS d_fallback ON TRUE
+    ),
+    delta AS (
+        SELECT DISTINCT ON (e.pubkey, e.kind, e.d_tag)
+            e.pubkey,
+            e.kind,
+            e.d_tag,
+            e.id,
+            e.created_at,
+            e.first_seen_at,
+            e.tags,
+            e.tagvalues,
+            e.content,
+            e.sig
+        FROM extracted AS e
+        ORDER BY e.pubkey, e.kind, e.d_tag, e.created_at DESC, e.id DESC
+    )
+    INSERT INTO events_addressable_current
+        (pubkey, kind, d_tag, id, created_at, first_seen_at, tags, tagvalues, content, sig)
+    SELECT
+        pubkey,
+        kind,
+        d_tag,
+        id,
+        created_at,
+        first_seen_at,
+        tags,
+        tagvalues,
+        content,
+        sig
+    FROM delta
+    ON CONFLICT (pubkey, kind, d_tag) DO UPDATE SET
+        id            = EXCLUDED.id,
+        created_at    = EXCLUDED.created_at,
+        first_seen_at = EXCLUDED.first_seen_at,
+        tags          = EXCLUDED.tags,
+        tagvalues     = EXCLUDED.tagvalues,
+        content       = EXCLUDED.content,
+        sig           = EXCLUDED.sig
+    WHERE EXCLUDED.created_at > events_addressable_current.created_at
+       OR (
+           EXCLUDED.created_at = events_addressable_current.created_at
+           AND ENCODE(EXCLUDED.id, 'hex') > ENCODE(events_addressable_current.id, 'hex')
+       );
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    RETURN v_rows;
+END;
+$$;
+
+COMMENT ON FUNCTION events_addressable_current_refresh(BIGINT, BIGINT) IS
+'Incremental refresh of current addressable events for truly new kinds 30000-39999.';
 
 
 -- **************************************************************************
@@ -564,7 +792,7 @@ COMMENT ON FUNCTION relay_stats_refresh(BIGINT, BIGINT) IS
 -- **************************************************************************
 -- SUMMARY TABLE REFRESH: Canonical contact-list facts
 -- **************************************************************************
--- These tables derive current follow-graph facts from latest kind=3 events.
+-- These tables derive current follow-graph facts from current kind=3 events.
 -- contact_lists_current captures one row per follower's current latest list;
 -- contact_list_edges_current expands that into deduplicated current edges.
 -- **************************************************************************
@@ -573,9 +801,9 @@ COMMENT ON FUNCTION relay_stats_refresh(BIGINT, BIGINT) IS
 /*
  * contact_lists_current_refresh(p_after, p_until) -> INTEGER
  *
- * Tracks current latest kind=3 contact list events. A follower is impacted only
- * when their current latest kind=3 event is truly new in the seen_at range.
- * source_seen_at stores the first seen_at timestamp of that latest event.
+ * Tracks current latest kind=3 contact list events from
+ * events_replaceable_current. A follower is impacted only when their current
+ * winning kind=3 event first became visible in the given seen_at range.
  */
 CREATE OR REPLACE FUNCTION contact_lists_current_refresh(
     p_after BIGINT,
@@ -586,29 +814,18 @@ AS $$
 DECLARE
     v_rows INTEGER;
 BEGIN
-    WITH changed_latest AS (
+    WITH changed_current AS (
         SELECT
-            erl.id,
-            erl.pubkey,
-            erl.created_at,
-            erl.tags,
-            erl.tagvalues,
-            seen.first_seen_at
-        FROM events_replaceable_latest AS erl
-        INNER JOIN LATERAL (
-            SELECT MIN(er.seen_at) AS first_seen_at
-            FROM event_relay AS er
-            WHERE er.event_id = erl.id
-        ) AS seen ON TRUE
-        WHERE erl.kind = 3
-          AND seen.first_seen_at > p_after
-          AND seen.first_seen_at <= p_until
-          AND NOT EXISTS (
-              SELECT 1
-              FROM event_relay AS older
-              WHERE older.event_id = erl.id
-                AND older.seen_at <= p_after
-          )
+            erc.id,
+            erc.pubkey,
+            erc.created_at,
+            erc.tags,
+            erc.tagvalues,
+            erc.first_seen_at
+        FROM events_replaceable_current AS erc
+        WHERE erc.kind = 3
+          AND erc.first_seen_at > p_after
+          AND erc.first_seen_at <= p_until
     ),
     delta AS (
         SELECT
@@ -617,7 +834,7 @@ BEGIN
             created_at AS source_created_at,
             first_seen_at AS source_seen_at,
             COALESCE(exact_counts.cnt, fallback_counts.cnt, 0) AS follow_count
-        FROM changed_latest
+        FROM changed_current
         LEFT JOIN LATERAL (
             SELECT COUNT(*)::BIGINT AS cnt
             FROM (
@@ -658,7 +875,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION contact_lists_current_refresh(BIGINT, BIGINT) IS
-'Incremental refresh of current latest kind=3 contact lists. Stores one row per follower with stable source_seen_at and deduplicated follow_count.';
+'Incremental refresh of current latest kind=3 contact lists from events_replaceable_current. Stores one row per follower with stable source_seen_at and deduplicated follow_count.';
 
 
 /*
@@ -696,11 +913,11 @@ BEGIN
             c.source_event_id,
             c.source_created_at,
             c.source_seen_at,
-            erl.tags,
-            erl.tagvalues
+            erc.tags,
+            erc.tagvalues
         FROM _changed_contact_lists AS c
-        INNER JOIN events_replaceable_latest AS erl
-            ON ENCODE(erl.id, 'hex') = c.source_event_id
+        INNER JOIN events_replaceable_current AS erc
+            ON ENCODE(erc.id, 'hex') = c.source_event_id
     ),
     exact_edges AS (
         SELECT
@@ -764,7 +981,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION contact_list_edges_current_refresh(BIGINT, BIGINT) IS
-'Incremental refresh of deduplicated current follow edges derived from latest kind=3 contact lists.';
+'Incremental refresh of deduplicated current follow edges derived from current kind=3 contact lists.';
 
 
 -- **************************************************************************
@@ -958,7 +1175,7 @@ COMMENT ON FUNCTION relay_stats_metadata_refresh() IS
 
 
 -- **************************************************************************
--- MATERIALIZED VIEW REFRESH (bounded views, full refresh)
+-- MATERIALIZED VIEW REFRESH (bounded reporting views, full refresh)
 -- **************************************************************************
 
 
@@ -1012,38 +1229,6 @@ $$;
 
 COMMENT ON FUNCTION daily_counts_refresh() IS
 'Refresh daily_counts concurrently.';
-
-
-/*
- * events_replaceable_latest_refresh() -> VOID
- */
-CREATE OR REPLACE FUNCTION events_replaceable_latest_refresh()
-RETURNS VOID
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY events_replaceable_latest;
-END;
-$$;
-
-COMMENT ON FUNCTION events_replaceable_latest_refresh() IS
-'Refresh events_replaceable_latest concurrently.';
-
-
-/*
- * events_addressable_latest_refresh() -> VOID
- */
-CREATE OR REPLACE FUNCTION events_addressable_latest_refresh()
-RETURNS VOID
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY events_addressable_latest;
-END;
-$$;
-
-COMMENT ON FUNCTION events_addressable_latest_refresh() IS
-'Refresh events_addressable_latest concurrently.';
 
 
 -- **************************************************************************

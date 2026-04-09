@@ -25,16 +25,17 @@ _VIEW_NAME_PATTERN = re.compile(r"^[a-z_][a-z0-9_]*$")
 DEFAULT_MATVIEWS: list[str] = [
     "relay_metadata_latest",
     "daily_counts",
-    "events_replaceable_latest",
-    "events_addressable_latest",
     "relay_software_counts",
     "supported_nip_counts",
 ]
 
-#: Default summary tables (incremental refresh via stored procedures).
-#: Order: cross-tabs first, then entity tables that derive unique_* counts
-#: from them, then canonical contact-list facts, then NIP-85 summary tables.
+#: Default incremental tables (current-state + analytics refresh functions).
+#: Order: current-state facts first, then cross-tabs, then entity tables that
+#: derive unique_* counts from them, then canonical contact-list facts, then
+#: NIP-85 summary tables.
 DEFAULT_SUMMARIES: list[str] = [
+    "events_replaceable_current",
+    "events_addressable_current",
     "pubkey_kind_stats",
     "pubkey_relay_stats",
     "relay_kind_stats",
@@ -53,6 +54,7 @@ _SUMMARY_DEPENDENCIES: dict[str, frozenset[str]] = {
     "pubkey_stats": frozenset({"pubkey_kind_stats", "pubkey_relay_stats"}),
     "kind_stats": frozenset({"pubkey_kind_stats", "relay_kind_stats"}),
     "relay_stats": frozenset({"pubkey_relay_stats", "relay_kind_stats"}),
+    "contact_lists_current": frozenset({"events_replaceable_current"}),
     "contact_list_edges_current": frozenset({"contact_lists_current"}),
 }
 

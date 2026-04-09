@@ -128,9 +128,17 @@ async def _refresh_nip85(brotr: Brotr, after: int = 0, until: int = 2000000000) 
         await brotr.fetchval(f"SELECT {table}_refresh($1::BIGINT, $2::BIGINT)", after, until)
 
 
+async def _refresh_current_events(brotr: Brotr, after: int = 0, until: int = 2000000000) -> None:
+    """Refresh current-state replaceable/addressable tables with the given range."""
+    for table in ["events_replaceable_current", "events_addressable_current"]:
+        await brotr.fetchval(f"SELECT {table}_refresh($1::BIGINT, $2::BIGINT)", after, until)
+
+
 async def _refresh_contact_graph(brotr: Brotr, after: int = 0, until: int = 2000000000) -> None:
-    """Refresh canonical contact-list facts after refreshing replaceable matviews."""
-    await brotr.refresh_materialized_view("events_replaceable_latest")
+    """Refresh canonical contact-list facts after refreshing replaceable current state."""
+    await brotr.fetchval(
+        "SELECT events_replaceable_current_refresh($1::BIGINT, $2::BIGINT)", after, until
+    )
     for table in ["contact_lists_current", "contact_list_edges_current"]:
         await brotr.fetchval(f"SELECT {table}_refresh($1::BIGINT, $2::BIGINT)", after, until)
 
@@ -708,11 +716,11 @@ class TestEventDailyCounts:
             assert row["event_count"] == 1
 
 
-# -- events_replaceable_latest --
+# -- events_replaceable_current --
 
 
-class TestEventsReplaceableLatest:
-    async def test_latest_profile_per_pubkey(self, brotr: Brotr) -> None:
+class TestEventsReplaceableCurrent:
+    async def test_current_profile_per_pubkey(self, brotr: Brotr) -> None:
         pubkey = "aa" * 32
         ers = [
             _event_relay(
@@ -723,10 +731,12 @@ class TestEventsReplaceableLatest:
             ),
         ]
         await brotr.insert_event_relay(ers, cascade=True)
-        await brotr.refresh_materialized_view("events_replaceable_latest")
+        await brotr.fetchval(
+            "SELECT events_replaceable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
+        )
 
         rows = await brotr.fetch(
-            "SELECT created_at FROM events_replaceable_latest WHERE kind = 0 AND pubkey = $1",
+            "SELECT created_at FROM events_replaceable_current WHERE kind = 0 AND pubkey = $1",
             bytes.fromhex(pubkey),
         )
         assert len(rows) == 1
@@ -734,22 +744,24 @@ class TestEventsReplaceableLatest:
 
     async def test_excludes_non_replaceable_kinds(self, brotr: Brotr) -> None:
         ers = [
-            _event_relay("f0" * 32, "wss://repl.example.com", kind=1),
-            _event_relay("f1" * 32, "wss://repl.example.com", kind=20000),
-            _event_relay("f2" * 32, "wss://repl.example.com", kind=30000),
+            _event_relay("f0" * 32, "wss://repl.example.com", kind=1, created_at=1000),
+            _event_relay("f1" * 32, "wss://repl.example.com", kind=20000, created_at=1001),
+            _event_relay("f2" * 32, "wss://repl.example.com", kind=30000, created_at=1002),
         ]
         await brotr.insert_event_relay(ers, cascade=True)
-        await brotr.refresh_materialized_view("events_replaceable_latest")
+        await brotr.fetchval(
+            "SELECT events_replaceable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
+        )
 
-        rows = await brotr.fetch("SELECT * FROM events_replaceable_latest")
+        rows = await brotr.fetch("SELECT * FROM events_replaceable_current")
         assert len(rows) == 0
 
 
-# -- events_addressable_latest --
+# -- events_addressable_current --
 
 
-class TestEventsAddressableLatest:
-    async def test_latest_per_pubkey_kind_dtag(self, brotr: Brotr) -> None:
+class TestEventsAddressableCurrent:
+    async def test_current_per_pubkey_kind_dtag(self, brotr: Brotr) -> None:
         pubkey = "aa" * 32
         d_tags = [["d", "my-article"]]
         ers = [
@@ -771,10 +783,12 @@ class TestEventsAddressableLatest:
             ),
         ]
         await brotr.insert_event_relay(ers, cascade=True)
-        await brotr.refresh_materialized_view("events_addressable_latest")
+        await brotr.fetchval(
+            "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
+        )
 
         rows = await brotr.fetch(
-            "SELECT created_at, d_tag FROM events_addressable_latest"
+            "SELECT created_at, d_tag FROM events_addressable_current"
             " WHERE kind = 30023 AND pubkey = $1",
             bytes.fromhex(pubkey),
         )
@@ -783,11 +797,19 @@ class TestEventsAddressableLatest:
         assert rows[0]["d_tag"] == "my-article"
 
     async def test_event_without_dtag_uses_empty_string(self, brotr: Brotr) -> None:
-        er = _event_relay("d0" * 32, "wss://addr2.example.com", kind=30078, pubkey="dd" * 32)
+        er = _event_relay(
+            "d0" * 32,
+            "wss://addr2.example.com",
+            kind=30078,
+            pubkey="dd" * 32,
+            created_at=1000,
+        )
         await brotr.insert_event_relay([er], cascade=True)
-        await brotr.refresh_materialized_view("events_addressable_latest")
+        await brotr.fetchval(
+            "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
+        )
 
-        rows = await brotr.fetch("SELECT d_tag FROM events_addressable_latest WHERE kind = 30078")
+        rows = await brotr.fetch("SELECT d_tag FROM events_addressable_current WHERE kind = 30078")
         assert len(rows) == 1
         assert rows[0]["d_tag"] == ""
 
@@ -797,13 +819,16 @@ class TestEventsAddressableLatest:
             "wss://addr2.example.com",
             kind=30023,
             pubkey="de" * 32,
+            created_at=1000,
             tags=[["d", "first"], ["d", "second"]],
         )
         await brotr.insert_event_relay([er], cascade=True)
-        await brotr.refresh_materialized_view("events_addressable_latest")
+        await brotr.fetchval(
+            "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
+        )
 
         row = await brotr.fetchrow(
-            "SELECT d_tag FROM events_addressable_latest WHERE id = $1",
+            "SELECT d_tag FROM events_addressable_current WHERE id = $1",
             bytes.fromhex("d1" * 32),
         )
         assert row is not None
@@ -811,13 +836,15 @@ class TestEventsAddressableLatest:
 
     async def test_excludes_non_addressable_kinds(self, brotr: Brotr) -> None:
         ers = [
-            _event_relay("c0" * 32, "wss://addr.example.com", kind=1),
-            _event_relay("c1" * 32, "wss://addr.example.com", kind=0),
+            _event_relay("c0" * 32, "wss://addr.example.com", kind=1, created_at=1000),
+            _event_relay("c1" * 32, "wss://addr.example.com", kind=0, created_at=1001),
         ]
         await brotr.insert_event_relay(ers, cascade=True)
-        await brotr.refresh_materialized_view("events_addressable_latest")
+        await brotr.fetchval(
+            "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
+        )
 
-        rows = await brotr.fetch("SELECT * FROM events_addressable_latest")
+        rows = await brotr.fetch("SELECT * FROM events_addressable_current")
         assert len(rows) == 0
 
 

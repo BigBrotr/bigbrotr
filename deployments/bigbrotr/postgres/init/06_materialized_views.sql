@@ -1,12 +1,13 @@
 /*
  * Brotr - 06_materialized_views.sql
  *
- * Analytics layer: materialized views (bounded, full refresh) and summary
- * tables (incremental refresh via stored procedures in 07_functions_refresh).
+ * Analytics layer: materialized views (bounded, full refresh), current-state
+ * tables, and summary tables (incremental refresh via stored procedures in
+ * 07_functions_refresh).
  *
- * Materialized views are used for bounded result sets where full refresh is
- * cheap. Summary tables are used for large aggregates where incremental
- * refresh is essential for performance at scale.
+ * Materialized views are used only for bounded result sets where full refresh
+ * is still cheap. Current-state and summary tables are used where incremental
+ * maintenance is essential for performance at scale.
  *
  * NIP-85 summary tables provide per-pubkey social metrics and per-event
  * engagement metrics for Trusted Assertions (kind 30382/30383).
@@ -204,23 +205,85 @@ COMMENT ON TABLE relay_stats IS
 
 
 -- **************************************************************************
--- NIP-85 SUMMARY TABLES (incremental refresh)
+-- CURRENT TABLES (incremental refresh)
 -- **************************************************************************
--- Trusted Assertion metrics per NIP-85, plus canonical facts derived from
--- latest kind=3 contact lists. Incrementally maintained with the same
--- (p_after, p_until) pattern as the core summary tables.
+-- These are regular tables maintained by stored procedures that track
+-- current/latest state rather than additive aggregates.
 --
--- follower_count/following_count are periodically reconciled from the
--- canonical contact-list facts tables because kind=3 is replaceable.
+-- They are facts tables, not reporting views: each row represents the current
+-- winner for a logical key such as (pubkey, kind) or (pubkey, kind, d_tag).
 -- **************************************************************************
+
+
+-- ==========================================================================
+-- events_replaceable_current: Current replaceable event per pubkey and kind
+-- ==========================================================================
+-- NIP-01 replaceable events (kind 0, 3, 10000-19999) have "at most one per
+-- pubkey" semantics. This table stores the current winner per (pubkey, kind)
+-- incrementally, using event.created_at as the primary ordering and id as a
+-- deterministic tiebreaker. first_seen_at captures the first observation time
+-- of the current winning event.
+--
+-- tags/content/sig remain nullable here so LilBrotr can share the same schema.
+--
+-- Refresh: events_replaceable_current_refresh(p_after, p_until)
+
+CREATE TABLE IF NOT EXISTS events_replaceable_current (
+    pubkey BYTEA NOT NULL,
+    kind INTEGER NOT NULL,
+    id BYTEA NOT NULL,
+    created_at BIGINT NOT NULL,
+    first_seen_at BIGINT NOT NULL,
+    tags JSONB,
+    tagvalues TEXT[] NOT NULL,
+    content TEXT,
+    sig BYTEA,
+    PRIMARY KEY (pubkey, kind)
+);
+
+COMMENT ON TABLE events_replaceable_current IS
+'Current replaceable event per (pubkey, kind). Incrementally refreshed via events_replaceable_current_refresh(after, until).';
+
+
+-- ==========================================================================
+-- events_addressable_current: Current addressable event per pubkey, kind, d-tag
+-- ==========================================================================
+-- NIP-01 addressable events (kind 30000-39999) have "at most one per
+-- pubkey + kind + d-tag" semantics. The d-tag is extracted from the first
+-- `d` tag when full JSON tags are available. In LilBrotr, where `tags` are
+-- not persisted, the table falls back to ordered `tagvalues` entries (`d:*`).
+-- Events without any d-tag use '' as the default, per NIP-01 specification.
+--
+-- first_seen_at captures the first observation time of the current winning
+-- event for each (pubkey, kind, d_tag) key.
+--
+-- Refresh: events_addressable_current_refresh(p_after, p_until)
+
+CREATE TABLE IF NOT EXISTS events_addressable_current (
+    pubkey BYTEA NOT NULL,
+    kind INTEGER NOT NULL,
+    d_tag TEXT NOT NULL,
+    id BYTEA NOT NULL,
+    created_at BIGINT NOT NULL,
+    first_seen_at BIGINT NOT NULL,
+    tags JSONB,
+    tagvalues TEXT[] NOT NULL,
+    content TEXT,
+    sig BYTEA,
+    PRIMARY KEY (pubkey, kind, d_tag)
+);
+
+COMMENT ON TABLE events_addressable_current IS
+'Current addressable event per (pubkey, kind, d_tag). Incrementally refreshed via events_addressable_current_refresh(after, until).';
 
 
 -- ==========================================================================
 -- contact_lists_current: Current latest kind=3 contact list per author
 -- ==========================================================================
 -- One row per pubkey whose latest replaceable kind=3 event is currently active.
--- source_seen_at stores the first seen_at timestamp of the current latest event,
--- making the row stable across later duplicate observations on other relays.
+-- source_seen_at stores the first seen_at timestamp of the current latest
+-- replaceable event, making the row stable across later duplicate observations
+-- on other relays.
 -- follow_count is the deduplicated number of valid followed pubkeys in that
 -- current list.
 --
@@ -258,6 +321,18 @@ CREATE TABLE IF NOT EXISTS contact_list_edges_current (
 
 COMMENT ON TABLE contact_list_edges_current IS
 'Current deduplicated follow graph edges derived from latest kind=3 contact lists. Incrementally refreshed via contact_list_edges_current_refresh(after, until).';
+
+
+-- **************************************************************************
+-- ANALYTICS SUMMARY TABLES (incremental refresh)
+-- **************************************************************************
+-- Trusted Assertion metrics per NIP-85, plus canonical facts derived from
+-- current kind=3 contact-list tables. Incrementally maintained with the same
+-- (p_after, p_until) pattern as the core analytics summary tables.
+--
+-- follower_count/following_count are periodically reconciled from the
+-- canonical contact-list facts tables because kind=3 is replaceable.
+-- **************************************************************************
 
 
 -- ==========================================================================
@@ -399,94 +474,3 @@ ORDER BY day DESC;
 
 COMMENT ON MATERIALIZED VIEW daily_counts IS
 'Daily event counts for time-series analysis (UTC). Refresh via daily_counts_refresh().';
-
-
--- ==========================================================================
--- events_replaceable_latest: Latest replaceable event per pubkey and kind
--- ==========================================================================
--- NIP-01 replaceable events (kind 0, 3, 10000-19999) have "at most one per
--- pubkey" semantics: only the event with the highest created_at is current.
--- This view materializes that latest snapshot for efficient lookups of
--- profiles (kind 0), contact lists (kind 3), relay lists (kind 10002), etc.
---
--- All event columns are included so consumers can read the full event
--- without joining back to the event table.
---
--- Refresh: events_replaceable_latest_refresh()
-
-CREATE MATERIALIZED VIEW IF NOT EXISTS events_replaceable_latest AS
-SELECT DISTINCT ON (pubkey, kind)
-    id,
-    pubkey,
-    created_at,
-    kind,
-    tags,
-    tagvalues,
-    content,
-    sig
-FROM event
-WHERE kind = 0
-    OR kind = 3
-    OR (kind >= 10000 AND kind <= 19999)
-ORDER BY pubkey, kind, created_at DESC;
-
-COMMENT ON MATERIALIZED VIEW events_replaceable_latest IS
-'Latest replaceable event per (pubkey, kind). Covers kind 0, 3, 10000-19999. Refresh via events_replaceable_latest_refresh().';
-
-
--- ==========================================================================
--- events_addressable_latest: Latest addressable event per pubkey, kind, d-tag
--- ==========================================================================
--- NIP-01 addressable events (kind 30000-39999) have "at most one per
--- pubkey + kind + d-tag" semantics. The d-tag is extracted from the first
--- `d` tag when full JSON tags are available. In LilBrotr, where `tags` are
--- not persisted, the view falls back to ordered `tagvalues` entries (`d:*`).
--- Events without any d-tag use '' as the default, per NIP-01 specification.
---
--- Uses LEFT JOIN LATERAL extraction in both exact and fallback modes so that
--- events without an explicit d-tag are still included (with d_tag = '').
---
--- All event columns are included so consumers can read the full event
--- without joining back to the event table.
---
--- Refresh: events_addressable_latest_refresh()
-
-CREATE MATERIALIZED VIEW IF NOT EXISTS events_addressable_latest AS
-SELECT DISTINCT ON (
-    e.pubkey,
-    e.kind,
-    COALESCE(d_exact.val, d_fallback.val, '')
-)
-    e.id,
-    e.pubkey,
-    e.created_at,
-    e.kind,
-    e.tags,
-    e.tagvalues,
-    e.content,
-    e.sig,
-    COALESCE(d_exact.val, d_fallback.val, '') AS d_tag
-FROM event AS e
-LEFT JOIN LATERAL (
-    SELECT t.tag ->> 1 AS val
-    FROM jsonb_array_elements(e.tags) WITH ORDINALITY AS t(tag, ord)
-    WHERE t.tag ->> 0 = 'd'
-    ORDER BY ord
-    LIMIT 1
-) AS d_exact ON TRUE
-LEFT JOIN LATERAL (
-    SELECT substring(t.tv FROM 3) AS val
-    FROM unnest(e.tagvalues) WITH ORDINALITY AS t(tv, ord)
-    WHERE t.tv LIKE 'd:%'
-    ORDER BY ord
-    LIMIT 1
-) AS d_fallback ON TRUE
-WHERE e.kind >= 30000 AND e.kind <= 39999
-ORDER BY
-    e.pubkey,
-    e.kind,
-    COALESCE(d_exact.val, d_fallback.val, ''),
-    e.created_at DESC;
-
-COMMENT ON MATERIALIZED VIEW events_addressable_latest IS
-'Latest addressable event per (pubkey, kind, d_tag). Covers kind 30000-39999. Refresh via events_addressable_latest_refresh().';

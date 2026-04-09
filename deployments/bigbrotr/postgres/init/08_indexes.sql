@@ -134,6 +134,26 @@ ON contact_lists_current USING btree (source_seen_at ASC, follower_pubkey ASC);
 CREATE INDEX IF NOT EXISTS idx_contact_list_edges_current_followed
 ON contact_list_edges_current USING btree (followed_pubkey);
 
+-- events_replaceable_current: current-state lookups by kind and sync window
+CREATE UNIQUE INDEX IF NOT EXISTS idx_events_replaceable_current_id
+ON events_replaceable_current USING btree (id);
+
+CREATE INDEX IF NOT EXISTS idx_events_replaceable_current_kind
+ON events_replaceable_current USING btree (kind);
+
+CREATE INDEX IF NOT EXISTS idx_events_replaceable_current_kind_first_seen_at
+ON events_replaceable_current USING btree (kind, first_seen_at ASC);
+
+-- events_addressable_current: current-state lookups by kind and sync window
+CREATE UNIQUE INDEX IF NOT EXISTS idx_events_addressable_current_id
+ON events_addressable_current USING btree (id);
+
+CREATE INDEX IF NOT EXISTS idx_events_addressable_current_kind
+ON events_addressable_current USING btree (kind);
+
+CREATE INDEX IF NOT EXISTS idx_events_addressable_current_kind_first_seen_at
+ON events_addressable_current USING btree (kind, first_seen_at ASC);
+
 
 -- ==========================================================================
 -- NIP-85 SUMMARY TABLE INDEXES
@@ -169,29 +189,3 @@ ON supported_nip_counts USING btree (nip);
 -- Required for REFRESH CONCURRENTLY
 CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_counts_day
 ON daily_counts USING btree (day);
-
-
--- ==========================================================================
--- MATERIALIZED VIEW INDEXES: events_replaceable_latest
--- ==========================================================================
-
--- Required for REFRESH CONCURRENTLY
-CREATE UNIQUE INDEX IF NOT EXISTS idx_events_replaceable_latest_pk
-ON events_replaceable_latest USING btree (pubkey, kind);
-
--- Filter by kind: WHERE kind = 0 (profiles), kind = 3 (contacts), etc.
-CREATE INDEX IF NOT EXISTS idx_events_replaceable_latest_kind
-ON events_replaceable_latest USING btree (kind);
-
-
--- ==========================================================================
--- MATERIALIZED VIEW INDEXES: events_addressable_latest
--- ==========================================================================
-
--- Required for REFRESH CONCURRENTLY
-CREATE UNIQUE INDEX IF NOT EXISTS idx_events_addressable_latest_pk
-ON events_addressable_latest USING btree (pubkey, kind, d_tag);
-
--- Filter by kind: WHERE kind = 30023 (articles), kind = 30078 (app data), etc.
-CREATE INDEX IF NOT EXISTS idx_events_addressable_latest_kind
-ON events_addressable_latest USING btree (kind);

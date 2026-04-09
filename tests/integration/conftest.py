@@ -57,6 +57,8 @@ def pg_dsn(pg_container: PostgresContainer) -> dict[str, str | int]:
 
 _TABLES = (
     "relay, event, event_relay, metadata, relay_metadata, service_state, "
+    "events_replaceable_current, events_addressable_current, "
+    "contact_lists_current, contact_list_edges_current, "
     "pubkey_kind_stats, pubkey_relay_stats, relay_kind_stats, "
     "pubkey_stats, kind_stats, relay_stats, "
     "nip85_pubkey_stats, nip85_event_stats"

@@ -43,9 +43,9 @@ tables:
     enabled: true
   daily_counts:
     enabled: true
-  events_replaceable_latest:
+  events_replaceable_current:
     enabled: true
-  events_addressable_latest:
+  events_addressable_current:
     enabled: true
   nip85_pubkey_stats:
     enabled: true
