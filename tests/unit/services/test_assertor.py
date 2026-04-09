@@ -54,7 +54,7 @@ class TestAssertorConfig:
         assert config.min_events == 1
         assert config.top_topics == 5
         assert len(config.relays) == 3
-        assert config.kinds == [30382, 30383]
+        assert config.kinds == [30382, 30383, 30384, 30385]
         assert config.allow_insecure is False
         assert config.provider_profile.enabled is False
 
@@ -101,8 +101,8 @@ class TestAssertorConfig:
             AssertorConfig(kinds=[30382, 99999])
 
     def test_valid_single_kind(self) -> None:
-        config = AssertorConfig(kinds=[30382])
-        assert config.kinds == [30382]
+        config = AssertorConfig(kinds=[30385])
+        assert config.kinds == [30385]
 
     def test_invalid_algorithm_id_rejected(self) -> None:
         with pytest.raises(ValidationError, match="algorithm_id"):
@@ -250,6 +250,7 @@ class TestAssertorPublishUserFlow:
     def _make_row(self, pubkey: str = "aa" * 32, post_count: int = 10) -> dict:
         return {
             "pubkey": pubkey,
+            "rank": 42,
             "post_count": post_count,
             "reply_count": 0,
             "reaction_count_recd": 0,
@@ -505,6 +506,62 @@ class TestAssertorCheckpointNamespacing:
 
         upsert_call = mock_brotr.upsert_service_state.call_args[0][0]
         assert upsert_call[0].state_key == f"v2:global-pagerank-v1:30383:{event_id}"
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_addressable_rows", new_callable=AsyncMock)
+    async def test_addressable_assertion_uses_v2_kind_key(
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        event_address = "30023:" + ("aa" * 32) + ":article"
+        mock_fetch.return_value = [
+            {
+                "event_address": event_address,
+                "author_pubkey": "bb" * 32,
+                "rank": 61,
+                "comment_count": 1,
+                "quote_count": 0,
+                "repost_count": 0,
+                "reaction_count": 2,
+                "zap_count": 0,
+                "zap_amount": 0,
+            }
+        ]
+        mock_broadcast.return_value = 1
+        service = self._make_service(mock_brotr)
+
+        await service._publish_addressable_assertions()
+
+        key_arg = mock_brotr.get_service_state.call_args[0][2]
+        assert key_arg == f"v2:global-pagerank-v1:30384:{event_address}"
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_identifier_rows", new_callable=AsyncMock)
+    async def test_identifier_assertion_uses_v2_kind_key(
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        identifier = "isbn:9780140328721"
+        mock_fetch.return_value = [
+            {
+                "identifier": identifier,
+                "rank": 73,
+                "comment_count": 2,
+                "reaction_count": 5,
+                "k_tags": ["book"],
+            }
+        ]
+        mock_broadcast.return_value = 1
+        service = self._make_service(mock_brotr)
+
+        await service._publish_identifier_assertions()
+
+        key_arg = mock_brotr.get_service_state.call_args[0][2]
+        assert key_arg == f"v2:global-pagerank-v1:30385:{identifier}"
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_event_rows", new_callable=AsyncMock)
@@ -912,6 +969,7 @@ class TestAssertorPublishEventFlow:
         return {
             "event_id": event_id,
             "author_pubkey": "ff" * 32,
+            "rank": 88,
             "comment_count": 5,
             "quote_count": 2,
             "repost_count": 1,
@@ -1053,6 +1111,94 @@ class TestAssertorPublishEventFlow:
         assert failed == 1
 
 
+class TestAssertorPublishAddressableAndIdentifierFlow:
+    @pytest.fixture
+    def mock_brotr(self) -> MagicMock:
+        brotr = MagicMock()
+        brotr.get_service_state = AsyncMock(return_value=[])
+        brotr.upsert_service_state = AsyncMock()
+        brotr.fetch = AsyncMock(return_value=[])
+        return brotr
+
+    def _make_service(self, mock_brotr: MagicMock) -> MagicMock:
+        from bigbrotr.services.assertor.service import Assertor
+
+        service = Assertor.__new__(Assertor)
+        service._brotr = mock_brotr
+        service._client = MagicMock()
+        service._config = _service_config(
+            kinds=[
+                EventKind.NIP85_ADDRESSABLE_ASSERTION,
+                EventKind.NIP85_IDENTIFIER_ASSERTION,
+            ]
+        )
+        service._logger = MagicMock()
+        service.set_gauge = MagicMock()
+        return service
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_addressable_rows", new_callable=AsyncMock)
+    async def test_publishes_new_addressable_assertion(
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        mock_fetch.return_value = [
+            {
+                "event_address": "30023:" + ("aa" * 32) + ":article",
+                "author_pubkey": "bb" * 32,
+                "rank": 81,
+                "comment_count": 5,
+                "quote_count": 1,
+                "repost_count": 2,
+                "reaction_count": 3,
+                "zap_count": 1,
+                "zap_amount": 21000,
+            }
+        ]
+        mock_broadcast.return_value = 1
+        service = self._make_service(mock_brotr)
+
+        published, skipped, failed = await service._publish_addressable_assertions()
+
+        assert published == 1
+        assert skipped == 0
+        assert failed == 0
+        mock_broadcast.assert_awaited_once()
+        saved_key = mock_brotr.upsert_service_state.call_args[0][0][0].state_key
+        assert saved_key.startswith("v2:global-pagerank-v1:30384:")
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_identifier_rows", new_callable=AsyncMock)
+    async def test_publishes_new_identifier_assertion(
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        mock_fetch.return_value = [
+            {
+                "identifier": "isbn:9780140328721",
+                "rank": 66,
+                "comment_count": 4,
+                "reaction_count": 7,
+                "k_tags": ["book", "isbn"],
+            }
+        ]
+        mock_broadcast.return_value = 1
+        service = self._make_service(mock_brotr)
+
+        published, skipped, failed = await service._publish_identifier_assertions()
+
+        assert published == 1
+        assert skipped == 0
+        assert failed == 0
+        mock_broadcast.assert_awaited_once()
+        saved_key = mock_brotr.upsert_service_state.call_args[0][0][0].state_key
+        assert saved_key == "v2:global-pagerank-v1:30385:isbn:9780140328721"
+
+
 # ============================================================================
 # Query function tests
 # ============================================================================
@@ -1063,12 +1209,15 @@ class TestAssertorQueries:
         from bigbrotr.services.assertor.queries import fetch_user_rows
 
         mock_brotr = MagicMock()
-        mock_row = MagicMock()
-        mock_row.__iter__ = MagicMock(return_value=iter([("pubkey", "aa" * 32)]))
-        mock_row.items = MagicMock(return_value=[("pubkey", "aa" * 32)])
         mock_brotr.fetch = AsyncMock(return_value=[{"pubkey": "aa" * 32}])
 
-        rows = await fetch_user_rows(mock_brotr, min_events=1, limit=10, offset=0)
+        rows = await fetch_user_rows(
+            mock_brotr,
+            algorithm_id="global-pagerank-v1",
+            min_events=1,
+            limit=10,
+            offset=0,
+        )
         assert len(rows) == 1
         mock_brotr.fetch.assert_awaited_once()
 
@@ -1078,7 +1227,42 @@ class TestAssertorQueries:
         mock_brotr = MagicMock()
         mock_brotr.fetch = AsyncMock(return_value=[{"event_id": "bb" * 32}])
 
-        rows = await fetch_event_rows(mock_brotr, limit=10, offset=0)
+        rows = await fetch_event_rows(
+            mock_brotr,
+            algorithm_id="global-pagerank-v1",
+            limit=10,
+            offset=0,
+        )
+        assert len(rows) == 1
+        mock_brotr.fetch.assert_awaited_once()
+
+    async def test_fetch_addressable_rows(self) -> None:
+        from bigbrotr.services.assertor.queries import fetch_addressable_rows
+
+        mock_brotr = MagicMock()
+        mock_brotr.fetch = AsyncMock(return_value=[{"event_address": "30023:" + ("aa" * 32)}])
+
+        rows = await fetch_addressable_rows(
+            mock_brotr,
+            algorithm_id="global-pagerank-v1",
+            limit=10,
+            offset=0,
+        )
+        assert len(rows) == 1
+        mock_brotr.fetch.assert_awaited_once()
+
+    async def test_fetch_identifier_rows(self) -> None:
+        from bigbrotr.services.assertor.queries import fetch_identifier_rows
+
+        mock_brotr = MagicMock()
+        mock_brotr.fetch = AsyncMock(return_value=[{"identifier": "isbn:9780140328721"}])
+
+        rows = await fetch_identifier_rows(
+            mock_brotr,
+            algorithm_id="global-pagerank-v1",
+            limit=10,
+            offset=0,
+        )
         assert len(rows) == 1
         mock_brotr.fetch.assert_awaited_once()
 
@@ -1131,9 +1315,44 @@ class TestAssertorRunEventBranch:
 
             service._publish_user_assertions = AsyncMock(return_value=(2, 0, 0))
             service._publish_event_assertions = AsyncMock(return_value=(1, 0, 0))
+            service._publish_addressable_assertions = AsyncMock(return_value=(0, 0, 0))
+            service._publish_identifier_assertions = AsyncMock(return_value=(0, 0, 0))
 
             await service.run()
 
             service._publish_user_assertions.assert_awaited_once()
             service._publish_event_assertions.assert_awaited_once()
             service.set_gauge.assert_any_call("assertions_published", 3)
+
+    async def test_run_addressable_and_identifier_kinds(self) -> None:
+        from bigbrotr.services.assertor.service import Assertor
+
+        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
+            service = Assertor.__new__(Assertor)
+            service._client = MagicMock()
+            service._config = _service_config(
+                kinds=[
+                    EventKind.NIP85_ADDRESSABLE_ASSERTION,
+                    EventKind.NIP85_IDENTIFIER_ASSERTION,
+                ]
+            )
+            service._brotr = MagicMock()
+            service._brotr.get_service_state = AsyncMock(return_value=[])
+            service._brotr.delete_service_state = AsyncMock(return_value=0)
+            service._logger = MagicMock()
+            service.set_gauge = MagicMock()
+
+            service._publish_user_assertions = AsyncMock(return_value=(0, 0, 0))
+            service._publish_event_assertions = AsyncMock(return_value=(0, 0, 0))
+            service._publish_addressable_assertions = AsyncMock(return_value=(4, 1, 0))
+            service._publish_identifier_assertions = AsyncMock(return_value=(2, 0, 1))
+
+            await service.run()
+
+            service._publish_user_assertions.assert_not_awaited()
+            service._publish_event_assertions.assert_not_awaited()
+            service._publish_addressable_assertions.assert_awaited_once()
+            service._publish_identifier_assertions.assert_awaited_once()
+            service.set_gauge.assert_any_call("assertions_published", 6)
+            service.set_gauge.assert_any_call("assertions_skipped", 1)
+            service.set_gauge.assert_any_call("assertions_failed", 1)

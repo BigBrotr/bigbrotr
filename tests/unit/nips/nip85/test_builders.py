@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from bigbrotr.models.constants import EventKind
-from bigbrotr.nips.event_builders import build_event_assertion, build_user_assertion
-from bigbrotr.nips.nip85.data import EventAssertion, UserAssertion
+from bigbrotr.nips.event_builders import (
+    build_addressable_assertion,
+    build_event_assertion,
+    build_identifier_assertion,
+    build_user_assertion,
+)
+from bigbrotr.nips.nip85.data import (
+    AddressableAssertion,
+    EventAssertion,
+    IdentifierAssertion,
+    UserAssertion,
+)
 
 
-def _extract_tags(builder: object) -> dict[str, list[str]]:
+def _extract_tags(builder: Any) -> dict[str, list[str]]:
     """Build a tag lookup from an EventBuilder (uses nostr_sdk internals)."""
     from nostr_sdk import Keys
 
@@ -75,6 +87,7 @@ class TestBuildUserAssertion:
     def test_all_nip85_tags_present(self) -> None:
         a = UserAssertion(
             pubkey="aa" * 32,
+            rank=89,
             post_count=100,
             reply_count=20,
             reaction_count_recd=50,
@@ -85,6 +98,7 @@ class TestBuildUserAssertion:
         expected_keys = {
             "d",
             "p",
+            "rank",
             "followers",
             "post_cnt",
             "reply_cnt",
@@ -131,6 +145,11 @@ class TestBuildEventAssertion:
         tags = _extract_tags(build_event_assertion(a))
         assert event_id in tags["e"]
 
+    def test_rank_tag_included(self) -> None:
+        a = EventAssertion(event_id="ff" * 32, rank=91)
+        tags = _extract_tags(build_event_assertion(a))
+        assert tags["rank"] == ["91"]
+
     def test_zap_amount_in_sats(self) -> None:
         a = EventAssertion(event_id="ee" * 32, zap_amount_msats=42000)
         tags = _extract_tags(build_event_assertion(a))
@@ -150,6 +169,7 @@ class TestBuildEventAssertion:
         expected_keys = {
             "d",
             "e",
+            "rank",
             "comment_cnt",
             "quote_cnt",
             "repost_cnt",
@@ -158,3 +178,72 @@ class TestBuildEventAssertion:
             "zap_amount",
         }
         assert expected_keys.issubset(set(tags.keys()))
+
+
+class TestBuildAddressableAssertion:
+    def test_kind(self) -> None:
+        a = AddressableAssertion(event_address="30023:" + ("aa" * 32) + ":article")
+        from nostr_sdk import Keys
+
+        event = build_addressable_assertion(a).sign_with_keys(Keys.generate())
+        assert event.kind().as_u16() == EventKind.NIP85_ADDRESSABLE_ASSERTION
+
+    def test_d_and_a_tags_use_event_address(self) -> None:
+        event_address = "30023:" + ("ff" * 32) + ":article"
+        a = AddressableAssertion(event_address=event_address, rank=77)
+        tags = _extract_tags(build_addressable_assertion(a))
+        assert tags["d"] == [event_address]
+        assert tags["a"] == [event_address]
+        assert tags["rank"] == ["77"]
+
+    def test_all_nip85_tags_present(self) -> None:
+        a = AddressableAssertion(
+            event_address="30023:" + ("aa" * 32) + ":alpha",
+            rank=88,
+            comment_count=10,
+            quote_count=3,
+            repost_count=5,
+            reaction_count=20,
+            zap_count=2,
+            zap_amount_msats=100000,
+        )
+        tags = _extract_tags(build_addressable_assertion(a))
+        expected_keys = {
+            "d",
+            "a",
+            "rank",
+            "comment_cnt",
+            "quote_cnt",
+            "repost_cnt",
+            "reaction_cnt",
+            "zap_cnt",
+            "zap_amount",
+        }
+        assert expected_keys.issubset(set(tags.keys()))
+
+
+class TestBuildIdentifierAssertion:
+    def test_kind(self) -> None:
+        a = IdentifierAssertion(identifier="isbn:9780140328721")
+        from nostr_sdk import Keys
+
+        event = build_identifier_assertion(a).sign_with_keys(Keys.generate())
+        assert event.kind().as_u16() == EventKind.NIP85_IDENTIFIER_ASSERTION
+
+    def test_d_tag_and_k_tags_included(self) -> None:
+        a = IdentifierAssertion(
+            identifier="isbn:9780140328721",
+            rank=55,
+            comment_count=3,
+            reaction_count=4,
+            k_tags=("book", "isbn"),
+        )
+        tags = _extract_tags(build_identifier_assertion(a))
+        assert tags["d"] == ["isbn:9780140328721"]
+        assert tags["rank"] == ["55"]
+        assert sorted(tags["k"]) == ["book", "isbn"]
+
+    def test_i_tag_is_not_added_by_default(self) -> None:
+        a = IdentifierAssertion(identifier="geo:41.9028,12.4964", k_tags=("place",))
+        tags = _extract_tags(build_identifier_assertion(a))
+        assert "i" not in tags

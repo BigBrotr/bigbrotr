@@ -1,8 +1,8 @@
 # =============================================================================
 # Assertor Service Configuration (BigBrotr)
 # =============================================================================
-# NIP-85 Trusted Assertions publisher. Reads engagement metrics from summary
-# tables and publishes kind 30382/30383 events to configured relays in
+# NIP-85 Trusted Assertions publisher. Reads ranked NIP-85 facts and publishes
+# kinds 30382/30383/30384/30385 to configured relays in
 # algorithm-aware v2 mode.
 # Only values that differ from defaults are specified here.
 # =============================================================================
@@ -25,6 +25,8 @@ top_topics: 5
 kinds:
   - 30382
   - 30383
+  - 30384
+  - 30385
 
 provider_profile:
   enabled: true

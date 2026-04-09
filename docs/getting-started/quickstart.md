@@ -167,7 +167,7 @@ The remaining six services handle monitoring, event archiving, analytics, trust 
 - **Synchronizer** connects to validated relays, subscribes to events, and
   archives them with cursor-based pagination, using a service key for NIP-42-authenticated reads when needed
 - **Refresher** refreshes 6 summary tables and 6 materialized views that power analytics queries
-- **Assertor** publishes NIP-85 trusted assertion events for users and events with engagement
+- **Assertor** publishes NIP-85 trusted assertion events for users, events, addressables, and identifiers
   with its own service signing key
 - **Api** exposes the database as a read-only REST API with paginated endpoints
 - **Dvm** serves database queries over the Nostr protocol as a NIP-90 Data Vending Machine using its own service signing key

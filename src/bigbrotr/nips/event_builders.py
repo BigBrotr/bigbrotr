@@ -42,7 +42,12 @@ if TYPE_CHECKING:
     )
     from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs
     from bigbrotr.nips.nip66.nip66 import Nip66, Nip66Selection
-    from bigbrotr.nips.nip85.data import EventAssertion, UserAssertion
+    from bigbrotr.nips.nip85.data import (
+        AddressableAssertion,
+        EventAssertion,
+        IdentifierAssertion,
+        UserAssertion,
+    )
 
 
 _ISO_639_1_LENGTH = 2
@@ -419,6 +424,7 @@ def build_user_assertion(assertion: UserAssertion) -> EventBuilder:
     tags: list[Tag] = [
         Tag.identifier(assertion.pubkey),
         Tag.parse(["p", assertion.pubkey]),
+        Tag.parse(["rank", str(assertion.rank)]),
         Tag.parse(["followers", str(assertion.follower_count)]),
         Tag.parse(["post_cnt", str(assertion.post_count)]),
         Tag.parse(["reply_cnt", str(assertion.reply_count)]),
@@ -458,6 +464,7 @@ def build_event_assertion(assertion: EventAssertion) -> EventBuilder:
     tags: list[Tag] = [
         Tag.identifier(assertion.event_id),
         Tag.parse(["e", assertion.event_id]),
+        Tag.parse(["rank", str(assertion.rank)]),
         Tag.parse(["comment_cnt", str(assertion.comment_count)]),
         Tag.parse(["quote_cnt", str(assertion.quote_count)]),
         Tag.parse(["repost_cnt", str(assertion.repost_count)]),
@@ -467,6 +474,36 @@ def build_event_assertion(assertion: EventAssertion) -> EventBuilder:
     ]
 
     return EventBuilder(Kind(EventKind.NIP85_EVENT_ASSERTION), "").tags(tags)
+
+
+def build_addressable_assertion(assertion: AddressableAssertion) -> EventBuilder:
+    """Build a Kind 30384 NIP-85 addressable trusted assertion event."""
+    tags: list[Tag] = [
+        Tag.identifier(assertion.event_address),
+        Tag.parse(["a", assertion.event_address]),
+        Tag.parse(["rank", str(assertion.rank)]),
+        Tag.parse(["comment_cnt", str(assertion.comment_count)]),
+        Tag.parse(["quote_cnt", str(assertion.quote_count)]),
+        Tag.parse(["repost_cnt", str(assertion.repost_count)]),
+        Tag.parse(["reaction_cnt", str(assertion.reaction_count)]),
+        Tag.parse(["zap_cnt", str(assertion.zap_count)]),
+        Tag.parse(["zap_amount", str(assertion.zap_amount_sats)]),
+    ]
+
+    return EventBuilder(Kind(EventKind.NIP85_ADDRESSABLE_ASSERTION), "").tags(tags)
+
+
+def build_identifier_assertion(assertion: IdentifierAssertion) -> EventBuilder:
+    """Build a Kind 30385 NIP-85 identifier trusted assertion event."""
+    tags: list[Tag] = [
+        Tag.identifier(assertion.identifier),
+        Tag.parse(["rank", str(assertion.rank)]),
+        Tag.parse(["comment_cnt", str(assertion.comment_count)]),
+        Tag.parse(["reaction_cnt", str(assertion.reaction_count)]),
+    ]
+    tags.extend(Tag.parse(["k", tag]) for tag in assertion.k_tags)
+
+    return EventBuilder(Kind(EventKind.NIP85_IDENTIFIER_ASSERTION), "").tags(tags)
 
 
 __all__ = [
@@ -482,7 +519,9 @@ __all__ = [
     "add_rtt_tags",
     "add_ssl_tags",
     "add_type_tags",
+    "build_addressable_assertion",
     "build_event_assertion",
+    "build_identifier_assertion",
     "build_monitor_announcement",
     "build_profile_event",
     "build_relay_discovery",
