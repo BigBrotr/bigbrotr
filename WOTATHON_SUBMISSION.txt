@@ -8,7 +8,7 @@ Base PR: https://github.com/BigBrotr/bigbrotr/pull/416
 Demo deployment profile: deployments/testbrotr
 Documentation: https://bigbrotr.github.io/bigbrotr/
 Demo walkthrough: demo.md
-Demo video: not submitted; demo.md replaces the video walkthrough
+Demo video: https://drive.google.com/drive/folders/1apKN1P-el4wMJMZLDylt6EC8EAwNVjRV?usp=sharing
 Working demo: deployments/testbrotr
 Production status: the core BigBrotr observatory is a production project; the
 NIP-85 work in this submission branch/PR is in test and stabilization before

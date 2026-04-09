@@ -1,8 +1,11 @@
 # BigBrotr WoTathon Demo
 
 This file is the reproducible demo walkthrough for the WoTathon submission.
-It replaces the video walkthrough and shows how to run the submitted
+It complements the demo video and shows how to run the submitted
 `hackathon/wotathon-submission` branch with the bundled TestBrotr deployment.
+
+Demo video folder:
+<https://drive.google.com/drive/folders/1apKN1P-el4wMJMZLDylt6EC8EAwNVjRV?usp=sharing>
 
 ## Demo Goal
 
