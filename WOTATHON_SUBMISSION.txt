@@ -10,6 +10,9 @@ Documentation: https://bigbrotr.github.io/bigbrotr/
 Demo walkthrough: demo.md
 Demo video: not submitted; demo.md replaces the video walkthrough
 Working demo: deployments/testbrotr
+Production status: the core BigBrotr observatory is a production project; the
+NIP-85 work in this submission branch/PR is in test and stabilization before
+being merged into the production branch.
 
 
 Elevator Pitch
@@ -62,13 +65,30 @@ self-hosted trust-data backend.
 
 What Is New During WoTathon
 
-A minimal BigBrotr MVP existed before the hackathon. The submitted branch is a
-substantial rebuild focused on the WoTathon track and NIP-85. Compared with the
-develop branch, PR #416 adds 201 changed files with 37,940 insertions and 7,275
-deletions.
+The WoTathon work is effectively the build-out of BigBrotr as a real project:
+the production observatory, the deployment topology, the documentation, the
+service architecture, and the NIP-85 branch all come from the hackathon period.
+A very small early starting point existed before the hackathon, but the
+submitted work is the point where BigBrotr became a practical, production-run
+Nostr observatory.
+
+There are two states to distinguish:
+
+- the core BigBrotr observatory and public deployment are production-oriented;
+- the NIP-85 work in this submission branch and PR #416 is the test/staging
+  branch for the new trust pipeline and is being stabilized before merge.
+
+Compared with the develop branch, PR #416 adds 201 changed files with 37,940
+insertions and 7,275 deletions. The separate
+`hackathon/wotathon-submission` branch adds the reproducible TestBrotr demo
+deployment and the final submission files on top of that NIP-85 branch.
 
 The main hackathon work includes:
 
+- the productionization of BigBrotr as a full Nostr observatory project, not
+  only a one-off prototype;
+- a complete Docker-deployed service topology for discovery, validation,
+  monitoring, archival ingestion, data access, and observability;
 - a complete NIP-85 pipeline:
   events + relay state -> Refresher -> current/analytics/NIP-85 facts -> Ranker
   -> rank snapshots -> Assertor -> signed trusted assertion events;
@@ -85,6 +105,7 @@ The main hackathon work includes:
 - per-service Nostr key configuration, including an Assertor signing key and
   ephemeral fallback for development;
 - BigBrotr and LilBrotr Docker deployments updated to the 10-service topology;
+- a TestBrotr demo deployment profile for bounded local evaluation;
 - dedicated Prometheus metrics, alert rules, and Grafana dashboards for the new
   services;
 - expanded unit and integration coverage for SQL refreshes, NIP-85 facts,
@@ -93,8 +114,9 @@ The main hackathon work includes:
 
 NIP-85 And Interoperability
 
-The submitted branch focuses on NIP-85 as an interoperable trust-publication
-format.
+The NIP-85 branch focuses on NIP-85 as an interoperable trust-publication
+format. This is the part of the project currently in test and stabilization
+before it is merged into the production branch.
 
 Implemented assertion surfaces:
 
@@ -214,10 +236,15 @@ The submission state is the branch:
 
     hackathon/wotathon-submission
 
-The larger development PR that the hackathon branch is based on is:
+This branch contains the final WoTathon submission package: the NIP-85 test
+branch code, the TestBrotr reproducible demo deployment, demo.md, and this
+submission text.
+
+The larger NIP-85 development PR that the hackathon branch is based on is:
 
     https://github.com/BigBrotr/bigbrotr/pull/416
 
-The hackathon branch includes the TestBrotr deployment profile used for the demo
-and represents the final WoTathon submission state for BigBrotr's NIP-85 trust
-pipeline.
+The core BigBrotr observatory is production-oriented. The NIP-85 branch/PR is
+not described as fully merged production code yet: it is the tested, working
+submission branch for the NIP-85 trust pipeline, currently being stabilized for
+merge into the production branch.
