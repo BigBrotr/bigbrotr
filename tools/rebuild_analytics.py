@@ -29,12 +29,16 @@ from bigbrotr.core.brotr import Brotr
 from bigbrotr.core.yaml import load_yaml
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.services.refresher.configs import DEFAULT_ANALYTICS_TABLES, DEFAULT_CURRENT_TABLES
+from bigbrotr.services.refresher.configs import (
+    DEFAULT_ANALYTICS_TARGETS,
+    DEFAULT_CURRENT_TARGETS,
+    DEFAULT_PERIODIC_TARGETS,
+)
 from bigbrotr.services.refresher.queries import (
-    refresh_nip85_followers,
-    refresh_relay_metadata,
-    refresh_rolling_windows,
-    refresh_summary,
+    get_incremental_target_spec,
+    get_periodic_target_spec,
+    refresh_incremental_target,
+    refresh_periodic_target,
 )
 
 
@@ -44,29 +48,12 @@ if TYPE_CHECKING:
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SUPPORTED_DEPLOYMENTS = ("bigbrotr", "lilbrotr")
-CURRENT_TABLES = list(DEFAULT_CURRENT_TABLES)
-ANALYTICS_TABLES = list(DEFAULT_ANALYTICS_TABLES)
-TRUNCATE_SQL = (
-    "TRUNCATE "
-    "relay_metadata_current, "
-    "events_replaceable_current, "
-    "events_addressable_current, "
-    "contact_lists_current, "
-    "contact_list_edges_current, "
-    "daily_counts, "
-    "relay_software_counts, "
-    "supported_nip_counts, "
-    "pubkey_kind_stats, "
-    "pubkey_relay_stats, "
-    "relay_kind_stats, "
-    "pubkey_stats, "
-    "kind_stats, "
-    "relay_stats, "
-    "nip85_pubkey_stats, "
-    "nip85_event_stats, "
-    "nip85_addressable_stats, "
-    "nip85_identifier_stats"
-)
+CURRENT_TARGETS = list(DEFAULT_CURRENT_TARGETS)
+ANALYTICS_TARGETS = list(DEFAULT_ANALYTICS_TARGETS)
+PERIODIC_TARGETS = list(DEFAULT_PERIODIC_TARGETS)
+CURRENT_TABLES = [target.value for target in DEFAULT_CURRENT_TARGETS]
+ANALYTICS_TABLES = [target.value for target in DEFAULT_ANALYTICS_TARGETS]
+TRUNCATE_SQL = "TRUNCATE " + ", ".join([*CURRENT_TABLES, *ANALYTICS_TABLES])
 
 
 @dataclass(slots=True)
@@ -170,20 +157,17 @@ async def rebuild_analytics(
 
     await brotr.execute(TRUNCATE_SQL)
 
-    for table in CURRENT_TABLES:
-        rows = await refresh_summary(brotr, table, 0, watermark)
-        result.current_tables_refreshed[table] = rows
+    for target in CURRENT_TARGETS:
+        rows = await refresh_incremental_target(brotr, target, 0, watermark)
+        result.current_tables_refreshed[target.value] = rows
 
-    for table in ANALYTICS_TABLES:
-        rows = await refresh_summary(brotr, table, 0, watermark)
-        result.analytics_tables_refreshed[table] = rows
+    for target in ANALYTICS_TARGETS:
+        rows = await refresh_incremental_target(brotr, target, 0, watermark)
+        result.analytics_tables_refreshed[target.value] = rows
 
-    await refresh_rolling_windows(brotr)
-    result.periodic_tasks.append("rolling_windows")
-    await refresh_relay_metadata(brotr)
-    result.periodic_tasks.append("relay_stats_metadata")
-    await refresh_nip85_followers(brotr)
-    result.periodic_tasks.append("nip85_followers")
+    for target in PERIODIC_TARGETS:
+        await refresh_periodic_target(brotr, target)
+        result.periodic_tasks.append(target.value)
 
     all_tables = [*CURRENT_TABLES, *ANALYTICS_TABLES]
     result.refresher_checkpoints_upserted = await brotr.upsert_service_state(
@@ -235,15 +219,17 @@ def _print_dry_run(deployment: str, until: int | None) -> None:
     for table in [*CURRENT_TABLES, *ANALYTICS_TABLES]:
         print(f"  - {table}")
     print("\nPhase 2 — Current-state replay")
-    for table in CURRENT_TABLES:
-        print(f"  - {table}_refresh(0, {watermark})")
+    for target in CURRENT_TARGETS:
+        spec = get_incremental_target_spec(target)
+        print(f"  - {spec.sql_function}(0, {watermark})")
     print("\nPhase 3 — Analytics replay")
-    for table in ANALYTICS_TABLES:
-        print(f"  - {table}_refresh(0, {watermark})")
+    for target in ANALYTICS_TARGETS:
+        spec = get_incremental_target_spec(target)
+        print(f"  - {spec.sql_function}(0, {watermark})")
     print("\nPhase 4 — Periodic reconciliation")
-    print("  - rolling_windows_refresh()")
-    print("  - relay_stats_metadata_refresh()")
-    print("  - nip85_follower_count_refresh()")
+    for target in PERIODIC_TARGETS:
+        spec = get_periodic_target_spec(target)
+        print(f"  - {spec.sql_function}()")
     print("\nPhase 5 — Checkpoints")
     print("  - Upsert refresher checkpoints for all current-state and analytics tables")
     print("  - Delete all assertor checkpoint hashes")

@@ -110,52 +110,40 @@ class TestRebuildAnalytics:
         )
         brotr.delete_service_state = AsyncMock(return_value=1)
 
-        refresh_summary = AsyncMock(
-            side_effect=range(1, len(rebuild.CURRENT_TABLES) + len(rebuild.ANALYTICS_TABLES) + 1)
+        refresh_incremental_target = AsyncMock(
+            side_effect=range(1, len(rebuild.CURRENT_TARGETS) + len(rebuild.ANALYTICS_TARGETS) + 1)
         )
-        refresh_rolling_windows = AsyncMock()
-        refresh_relay_metadata = AsyncMock()
-        refresh_nip85_followers = AsyncMock()
+        refresh_periodic_target = AsyncMock()
 
-        original_refresh_summary = rebuild.refresh_summary
-        original_refresh_rolling_windows = rebuild.refresh_rolling_windows
-        original_refresh_relay_metadata = rebuild.refresh_relay_metadata
-        original_refresh_nip85_followers = rebuild.refresh_nip85_followers
-        rebuild.refresh_summary = refresh_summary
-        rebuild.refresh_rolling_windows = refresh_rolling_windows
-        rebuild.refresh_relay_metadata = refresh_relay_metadata
-        rebuild.refresh_nip85_followers = refresh_nip85_followers
+        original_refresh_incremental_target = rebuild.refresh_incremental_target
+        original_refresh_periodic_target = rebuild.refresh_periodic_target
+        rebuild.refresh_incremental_target = refresh_incremental_target
+        rebuild.refresh_periodic_target = refresh_periodic_target
         try:
             result = await rebuild.rebuild_analytics(brotr, until=1234)
         finally:
-            rebuild.refresh_summary = original_refresh_summary
-            rebuild.refresh_rolling_windows = original_refresh_rolling_windows
-            rebuild.refresh_relay_metadata = original_refresh_relay_metadata
-            rebuild.refresh_nip85_followers = original_refresh_nip85_followers
+            rebuild.refresh_incremental_target = original_refresh_incremental_target
+            rebuild.refresh_periodic_target = original_refresh_periodic_target
 
         assert result.until == 1234
         assert list(result.current_tables_refreshed) == rebuild.CURRENT_TABLES
         assert list(result.analytics_tables_refreshed) == rebuild.ANALYTICS_TABLES
-        assert result.periodic_tasks == [
-            "rolling_windows",
-            "relay_stats_metadata",
-            "nip85_followers",
-        ]
+        assert result.periodic_tasks == [target.value for target in rebuild.PERIODIC_TARGETS]
         assert result.refresher_checkpoints_upserted == (
             len(rebuild.CURRENT_TABLES) + len(rebuild.ANALYTICS_TABLES)
         )
         assert result.assertor_checkpoints_deleted == 1
 
         brotr.execute.assert_awaited_once_with(rebuild.TRUNCATE_SQL)
-        refresh_summary.assert_has_awaits(
+        refresh_incremental_target.assert_has_awaits(
             [
-                *[call(brotr, table, 0, 1234) for table in rebuild.CURRENT_TABLES],
-                *[call(brotr, table, 0, 1234) for table in rebuild.ANALYTICS_TABLES],
+                *[call(brotr, target, 0, 1234) for target in rebuild.CURRENT_TARGETS],
+                *[call(brotr, target, 0, 1234) for target in rebuild.ANALYTICS_TARGETS],
             ]
         )
-        refresh_rolling_windows.assert_awaited_once_with(brotr)
-        refresh_relay_metadata.assert_awaited_once_with(brotr)
-        refresh_nip85_followers.assert_awaited_once_with(brotr)
+        refresh_periodic_target.assert_has_awaits(
+            [call(brotr, target) for target in rebuild.PERIODIC_TARGETS]
+        )
         brotr.upsert_service_state.assert_awaited_once()
         checkpoint_rows = brotr.upsert_service_state.call_args.args[0]
         assert [row.state_key for row in checkpoint_rows] == [
@@ -175,21 +163,15 @@ class TestRebuildAnalytics:
         brotr.get_service_state = AsyncMock(return_value=[])
         brotr.delete_service_state = AsyncMock()
 
-        original_refresh_summary = rebuild.refresh_summary
-        original_refresh_rolling_windows = rebuild.refresh_rolling_windows
-        original_refresh_relay_metadata = rebuild.refresh_relay_metadata
-        original_refresh_nip85_followers = rebuild.refresh_nip85_followers
-        rebuild.refresh_summary = AsyncMock(return_value=0)
-        rebuild.refresh_rolling_windows = AsyncMock()
-        rebuild.refresh_relay_metadata = AsyncMock()
-        rebuild.refresh_nip85_followers = AsyncMock()
+        original_refresh_incremental_target = rebuild.refresh_incremental_target
+        original_refresh_periodic_target = rebuild.refresh_periodic_target
+        rebuild.refresh_incremental_target = AsyncMock(return_value=0)
+        rebuild.refresh_periodic_target = AsyncMock()
         try:
             result = await rebuild.rebuild_analytics(brotr, until=4321)
         finally:
-            rebuild.refresh_summary = original_refresh_summary
-            rebuild.refresh_rolling_windows = original_refresh_rolling_windows
-            rebuild.refresh_relay_metadata = original_refresh_relay_metadata
-            rebuild.refresh_nip85_followers = original_refresh_nip85_followers
+            rebuild.refresh_incremental_target = original_refresh_incremental_target
+            rebuild.refresh_periodic_target = original_refresh_periodic_target
 
         assert result.assertor_checkpoints_deleted == 0
         brotr.delete_service_state.assert_not_awaited()
@@ -202,31 +184,21 @@ class TestRebuildAnalytics:
         brotr.get_service_state = AsyncMock()
         brotr.delete_service_state = AsyncMock()
 
-        refresh_summary = AsyncMock(side_effect=[1, RuntimeError("boom")])
-        refresh_rolling_windows = AsyncMock()
-        refresh_relay_metadata = AsyncMock()
-        refresh_nip85_followers = AsyncMock()
+        refresh_incremental_target = AsyncMock(side_effect=[1, RuntimeError("boom")])
+        refresh_periodic_target = AsyncMock()
 
-        original_refresh_summary = rebuild.refresh_summary
-        original_refresh_rolling_windows = rebuild.refresh_rolling_windows
-        original_refresh_relay_metadata = rebuild.refresh_relay_metadata
-        original_refresh_nip85_followers = rebuild.refresh_nip85_followers
-        rebuild.refresh_summary = refresh_summary
-        rebuild.refresh_rolling_windows = refresh_rolling_windows
-        rebuild.refresh_relay_metadata = refresh_relay_metadata
-        rebuild.refresh_nip85_followers = refresh_nip85_followers
+        original_refresh_incremental_target = rebuild.refresh_incremental_target
+        original_refresh_periodic_target = rebuild.refresh_periodic_target
+        rebuild.refresh_incremental_target = refresh_incremental_target
+        rebuild.refresh_periodic_target = refresh_periodic_target
         try:
             with pytest.raises(RuntimeError, match="boom"):
                 await rebuild.rebuild_analytics(brotr, until=1234)
         finally:
-            rebuild.refresh_summary = original_refresh_summary
-            rebuild.refresh_rolling_windows = original_refresh_rolling_windows
-            rebuild.refresh_relay_metadata = original_refresh_relay_metadata
-            rebuild.refresh_nip85_followers = original_refresh_nip85_followers
+            rebuild.refresh_incremental_target = original_refresh_incremental_target
+            rebuild.refresh_periodic_target = original_refresh_periodic_target
 
         brotr.execute.assert_awaited_once_with(rebuild.TRUNCATE_SQL)
-        refresh_rolling_windows.assert_not_awaited()
-        refresh_relay_metadata.assert_not_awaited()
-        refresh_nip85_followers.assert_not_awaited()
+        refresh_periodic_target.assert_not_awaited()
         brotr.upsert_service_state.assert_not_awaited()
         brotr.delete_service_state.assert_not_awaited()
