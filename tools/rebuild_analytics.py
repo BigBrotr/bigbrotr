@@ -2,9 +2,9 @@
 """One-shot analytics rebuild for current/summary tables and related checkpoints.
 
 The rebuild is intended for destructive maintenance windows or after fixing
-logic bugs in incremental analytics. It:
+logic bugs in derived analytics. It:
 
-1. Refreshes bounded materialized views in dependency order
+1. Refreshes any remaining bounded materialized views in dependency order
 2. Truncates incremental current/summary tables
 3. Replays incremental refresh from ``after=0`` to ``until``
 4. Runs periodic reconciliation functions
@@ -53,6 +53,10 @@ SUMMARY_TABLES = list(DEFAULT_SUMMARIES)
 MATVIEWS = list(DEFAULT_MATVIEWS)
 TRUNCATE_SQL = (
     "TRUNCATE "
+    "daily_counts, "
+    "relay_metadata_current, "
+    "relay_software_counts, "
+    "supported_nip_counts, "
     "events_replaceable_current, "
     "events_addressable_current, "
     "pubkey_kind_stats, "
@@ -230,8 +234,11 @@ def _print_dry_run(deployment: str, until: int | None) -> None:
     print(f"Deployment: {deployment}")
     print(f"Until:      {watermark}")
     print("\nPhase 1 — Materialized views")
-    for view in MATVIEWS:
-        print(f"  - {view}")
+    if MATVIEWS:
+        for view in MATVIEWS:
+            print(f"  - {view}")
+    else:
+        print("  - (none)")
     print("\nPhase 2 — Truncate summary tables")
     for table in SUMMARY_TABLES:
         print(f"  - {table}")

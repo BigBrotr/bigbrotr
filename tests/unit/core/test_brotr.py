@@ -789,7 +789,7 @@ class TestRefreshMatview:
     async def test_valid_view_names(self, mock_brotr: Brotr) -> None:
         """Test refreshing valid materialized view names."""
         valid_names = [
-            "relay_metadata_latest",
+            "custom_reporting_view",
             "events_statistics",
             "relays_statistics",
         ]

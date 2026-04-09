@@ -20,20 +20,19 @@ from bigbrotr.core.base_service import BaseServiceConfig
 _VIEW_NAME_PATTERN = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 #: Default materialized views (bounded output, full REFRESH CONCURRENTLY).
-#: Order: relay_metadata_latest first (base dependency for software/NIP views),
-#: then independent views, then views depending on relay_metadata_latest.
-DEFAULT_MATVIEWS: list[str] = [
-    "relay_metadata_latest",
-    "daily_counts",
-    "relay_software_counts",
-    "supported_nip_counts",
-]
+#: The current architecture keeps operational derived state in incremental
+#: tables, so the default bounded matview set is empty.
+DEFAULT_MATVIEWS: list[str] = []
 
 #: Default incremental tables (current-state + analytics refresh functions).
 #: Order: current-state facts first, then cross-tabs, then entity tables that
 #: derive unique_* counts from them, then canonical contact-list facts, then
 #: NIP-85 summary tables.
 DEFAULT_SUMMARIES: list[str] = [
+    "daily_counts",
+    "relay_metadata_current",
+    "relay_software_counts",
+    "supported_nip_counts",
     "events_replaceable_current",
     "events_addressable_current",
     "pubkey_kind_stats",
@@ -51,6 +50,8 @@ DEFAULT_SUMMARIES: list[str] = [
 _CANONICAL_MATVIEWS: tuple[str, ...] = tuple(DEFAULT_MATVIEWS)
 _CANONICAL_SUMMARIES: tuple[str, ...] = tuple(DEFAULT_SUMMARIES)
 _SUMMARY_DEPENDENCIES: dict[str, frozenset[str]] = {
+    "relay_software_counts": frozenset({"relay_metadata_current"}),
+    "supported_nip_counts": frozenset({"relay_metadata_current"}),
     "pubkey_stats": frozenset({"pubkey_kind_stats", "pubkey_relay_stats"}),
     "kind_stats": frozenset({"pubkey_kind_stats", "relay_kind_stats"}),
     "relay_stats": frozenset({"pubkey_relay_stats", "relay_kind_stats"}),
@@ -60,7 +61,7 @@ _SUMMARY_DEPENDENCIES: dict[str, frozenset[str]] = {
 
 
 def _validate_names(v: list[str], label: str) -> list[str]:
-    if not v:
+    if not v and label != "matviews":
         raise ValueError(f"{label} list must not be empty")
     invalid = [name for name in v if not _VIEW_NAME_PATTERN.match(name)]
     if invalid:
@@ -116,7 +117,9 @@ class RefreshConfig(BaseModel):
 
     matviews: list[str] = Field(
         default_factory=lambda: list(DEFAULT_MATVIEWS),
-        description="Ordered list of matview names to refresh (full REFRESH CONCURRENTLY).",
+        description=(
+            "Ordered list of bounded reporting matviews to refresh (full REFRESH CONCURRENTLY)."
+        ),
     )
 
     summaries: list[str] = Field(

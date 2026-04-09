@@ -45,23 +45,25 @@ class TestRefreshConfig:
 
         assert config.matviews == DEFAULT_MATVIEWS
         assert config.summaries == DEFAULT_SUMMARIES
-        assert len(config.matviews) == 4
-        assert len(config.summaries) == 12
+        assert len(config.matviews) == 0
+        assert len(config.summaries) == 16
 
-    def test_default_matviews_dependency_order(self) -> None:
+    def test_default_matviews_are_empty(self) -> None:
         config = RefreshConfig()
-        matviews = config.matviews
-
-        # relay_metadata_latest must come before dependent views
-        rml_idx = matviews.index("relay_metadata_latest")
-        rsc_idx = matviews.index("relay_software_counts")
-        snc_idx = matviews.index("supported_nip_counts")
-        assert rml_idx < rsc_idx
-        assert rml_idx < snc_idx
+        assert config.matviews == []
 
     def test_default_summaries_dependency_order(self) -> None:
         config = RefreshConfig()
         summaries = config.summaries
+
+        daily_idx = summaries.index("daily_counts")
+        rmc_idx = summaries.index("relay_metadata_current")
+        rsc_idx = summaries.index("relay_software_counts")
+        snc_idx = summaries.index("supported_nip_counts")
+
+        assert daily_idx < rmc_idx
+        assert rmc_idx < rsc_idx
+        assert rmc_idx < snc_idx
 
         # Cross-tabs must come before entity tables
         pks_idx = summaries.index("pubkey_kind_stats")
@@ -79,16 +81,16 @@ class TestRefreshConfig:
         assert rks_idx < rs_idx
 
     def test_custom_matviews(self) -> None:
-        config = RefreshConfig(matviews=["relay_metadata_latest"])
-        assert config.matviews == ["relay_metadata_latest"]
+        config = RefreshConfig(matviews=["daily_counts"])
+        assert config.matviews == ["daily_counts"]
 
     def test_custom_summaries(self) -> None:
         config = RefreshConfig(summaries=["pubkey_stats"])
         assert config.summaries == ["pubkey_stats"]
 
-    def test_empty_matviews_rejected(self) -> None:
-        with pytest.raises(ValueError, match="matviews list must not be empty"):
-            RefreshConfig(matviews=[])
+    def test_empty_matviews_are_allowed(self) -> None:
+        config = RefreshConfig(matviews=[])
+        assert config.matviews == []
 
     def test_empty_summaries_rejected(self) -> None:
         with pytest.raises(ValueError, match="summaries list must not be empty"):
@@ -149,21 +151,21 @@ class TestRefresherConfig:
 
     def test_custom_nested_config(self) -> None:
         config = RefresherConfig(
-            refresh=RefreshConfig(matviews=["relay_metadata_latest"], summaries=["pubkey_stats"]),
+            refresh=RefreshConfig(matviews=[], summaries=["pubkey_stats"]),
         )
-        assert config.refresh.matviews == ["relay_metadata_latest"]
+        assert config.refresh.matviews == []
         assert config.refresh.summaries == ["pubkey_stats"]
 
     def test_from_dict_nested(self) -> None:
         data = {
             "refresh": {
-                "matviews": ["relay_metadata_latest"],
+                "matviews": [],
                 "summaries": ["pubkey_stats", "kind_stats"],
             },
             "interval": 1800.0,
         }
         config = RefresherConfig(**data)
-        assert config.refresh.matviews == ["relay_metadata_latest"]
+        assert config.refresh.matviews == []
         assert config.refresh.summaries == ["pubkey_stats", "kind_stats"]
         assert config.interval == 1800.0
 
@@ -186,34 +188,41 @@ class TestRefresherInit:
     def test_init_with_custom_config(self, mock_refresher_brotr: Brotr) -> None:
         config = RefresherConfig(
             refresh=RefreshConfig(
-                matviews=["relay_metadata_latest"],
-                summaries=["pubkey_kind_stats"],
+                matviews=[],
+                summaries=["daily_counts", "relay_metadata_current", "pubkey_kind_stats"],
             ),
         )
         refresher = Refresher(brotr=mock_refresher_brotr, config=config)
 
-        assert refresher.config.refresh.matviews == ["relay_metadata_latest"]
-        assert refresher.config.refresh.summaries == ["pubkey_kind_stats"]
+        assert refresher.config.refresh.matviews == []
+        assert refresher.config.refresh.summaries == [
+            "daily_counts",
+            "relay_metadata_current",
+            "pubkey_kind_stats",
+        ]
 
     def test_init_reorders_known_objects_canonically(self, mock_refresher_brotr: Brotr) -> None:
         config = RefresherConfig(
             refresh=RefreshConfig(
-                matviews=["supported_nip_counts", "relay_metadata_latest"],
+                matviews=[],
                 summaries=[
+                    "supported_nip_counts",
+                    "relay_metadata_current",
                     "contact_list_edges_current",
                     "events_replaceable_current",
                     "contact_lists_current",
+                    "daily_counts",
                 ],
             ),
         )
 
         refresher = Refresher(brotr=mock_refresher_brotr, config=config)
 
-        assert refresher.config.refresh.matviews == [
-            "relay_metadata_latest",
-            "supported_nip_counts",
-        ]
+        assert refresher.config.refresh.matviews == []
         assert refresher.config.refresh.summaries == [
+            "daily_counts",
+            "relay_metadata_current",
+            "supported_nip_counts",
             "events_replaceable_current",
             "contact_lists_current",
             "contact_list_edges_current",
@@ -222,7 +231,7 @@ class TestRefresherInit:
     def test_init_rejects_missing_summary_dependencies(self, mock_refresher_brotr: Brotr) -> None:
         config = RefresherConfig(
             refresh=RefreshConfig(
-                matviews=["relay_metadata_latest"],
+                matviews=[],
                 summaries=["contact_list_edges_current"],
             ),
         )
@@ -235,7 +244,7 @@ class TestRefresherInit:
     ) -> None:
         config = RefresherConfig(
             refresh=RefreshConfig(
-                matviews=["relay_metadata_latest"],
+                matviews=[],
                 summaries=["contact_lists_current"],
             ),
         )
@@ -284,7 +293,7 @@ class TestRefresherCleanup:
 
         config = RefresherConfig(
             refresh=RefreshConfig(
-                matviews=["relay_metadata_latest"],
+                matviews=[],
                 summaries=["pubkey_kind_stats"],
             ),
         )
@@ -304,10 +313,12 @@ class TestRefresherCleanup:
 
 
 class TestRefresherRunMatviews:
-    async def test_refreshes_matviews(self, mock_refresher_brotr: Brotr) -> None:
+    async def test_skips_matview_phase_when_no_matviews_are_configured(
+        self, mock_refresher_brotr: Brotr
+    ) -> None:
         config = RefresherConfig(
             refresh=RefreshConfig(
-                matviews=["relay_metadata_latest", "daily_counts"],
+                matviews=[],
                 summaries=["pubkey_kind_stats"],
             ),
         )
@@ -315,11 +326,7 @@ class TestRefresherRunMatviews:
 
         await refresher.run()
 
-        assert mock_refresher_brotr.refresh_materialized_view.call_count == 2
-        calls = [
-            call[0][0] for call in mock_refresher_brotr.refresh_materialized_view.call_args_list
-        ]
-        assert calls == ["relay_metadata_latest", "daily_counts"]
+        assert mock_refresher_brotr.refresh_materialized_view.call_count == 0
 
     @pytest.mark.parametrize(
         "error",
@@ -329,16 +336,16 @@ class TestRefresherRunMatviews:
         ],
         ids=["postgres_error", "os_error"],
     )
-    async def test_continues_on_matview_failure(
+    async def test_empty_matview_phase_never_invokes_refresh(
         self, mock_refresher_brotr: Brotr, error: Exception
     ) -> None:
         mock_refresher_brotr.refresh_materialized_view = AsyncMock(  # type: ignore[method-assign]
-            side_effect=[None, error, None]
+            side_effect=[error]
         )
 
         config = RefresherConfig(
             refresh=RefreshConfig(
-                matviews=["relay_metadata_latest", "daily_counts", "supported_nip_counts"],
+                matviews=[],
                 summaries=["pubkey_kind_stats"],
             ),
         )
@@ -346,7 +353,7 @@ class TestRefresherRunMatviews:
 
         await refresher.run()
 
-        assert mock_refresher_brotr.refresh_materialized_view.call_count == 3
+        assert mock_refresher_brotr.refresh_materialized_view.call_count == 0
 
 
 # ============================================================================
@@ -355,13 +362,31 @@ class TestRefresherRunMatviews:
 
 
 class TestRefresherRunSummaries:
+    async def test_metadata_summaries_use_relay_metadata_watermark(
+        self, mock_refresher_brotr: Brotr
+    ) -> None:
+        mock_refresher_brotr.fetchval = AsyncMock(return_value=False)  # type: ignore[method-assign]
+
+        config = RefresherConfig(
+            refresh=RefreshConfig(
+                matviews=[],
+                summaries=["relay_metadata_current"],
+            ),
+        )
+        refresher = Refresher(brotr=mock_refresher_brotr, config=config)
+
+        await refresher.run()
+
+        sql = mock_refresher_brotr.fetchval.call_args_list[0][0][0]
+        assert "FROM relay_metadata" in sql
+
     async def test_no_new_data_skips_refresh(self, mock_refresher_brotr: Brotr) -> None:
         # EXISTS returns False -> no new data
         mock_refresher_brotr.fetchval = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
         config = RefresherConfig(
             refresh=RefreshConfig(
-                matviews=["relay_metadata_latest"],
+                matviews=[],
                 summaries=["pubkey_kind_stats"],
             ),
         )
@@ -384,7 +409,7 @@ class TestRefresherRunSummaries:
 
         config = RefresherConfig(
             refresh=RefreshConfig(
-                matviews=["relay_metadata_latest"],
+                matviews=[],
                 summaries=DEFAULT_SUMMARIES,
             ),
         )
@@ -402,7 +427,7 @@ class TestRefresherRunSummaries:
 
         config = RefresherConfig(
             refresh=RefreshConfig(
-                matviews=["relay_metadata_latest"],
+                matviews=[],
                 summaries=["pubkey_relay_stats", "pubkey_kind_stats"],
             ),
         )
@@ -424,12 +449,12 @@ class TestRefresherRunSummaries:
 
 class TestRefresherRunCounts:
     async def test_refresh_completed_counts(self, mock_refresher_brotr: Brotr) -> None:
-        # 1 matview success, 1 summary with new data (EXISTS=True, row count=5)
+        # 0 matviews, 1 summary with new data (EXISTS=True, row count=5)
         mock_refresher_brotr.fetchval = AsyncMock(side_effect=[True, 5])  # type: ignore[method-assign]
 
         config = RefresherConfig(
             refresh=RefreshConfig(
-                matviews=["relay_metadata_latest"],
+                matviews=[],
                 summaries=["pubkey_kind_stats"],
             ),
         )
@@ -440,8 +465,8 @@ class TestRefresherRunCounts:
 
             cycle_calls = [c for c in mock_log.call_args_list if c[0][0] == "refresh_completed"]
             assert len(cycle_calls) == 1
-            # 1 matview + 1 summary + 3 periodic = 5 refreshed
-            assert cycle_calls[0][1]["refreshed"] == 5
+            # 0 matviews + 1 summary + 3 periodic = 4 refreshed
+            assert cycle_calls[0][1]["refreshed"] == 4
             assert cycle_calls[0][1]["failed"] == 0
 
     async def test_all_fail(self, mock_refresher_brotr: Brotr) -> None:
@@ -457,7 +482,7 @@ class TestRefresherRunCounts:
 
         config = RefresherConfig(
             refresh=RefreshConfig(
-                matviews=["relay_metadata_latest"],
+                matviews=[],
                 summaries=["pubkey_kind_stats"],
             ),
         )
@@ -468,8 +493,8 @@ class TestRefresherRunCounts:
 
             cycle_calls = [c for c in mock_log.call_args_list if c[0][0] == "refresh_completed"]
             assert cycle_calls[0][1]["refreshed"] == 0
-            # 1 matview + 1 summary + 3 periodic = 5 failed
-            assert cycle_calls[0][1]["failed"] == 5
+            # 0 matviews + 1 summary + 3 periodic = 4 failed
+            assert cycle_calls[0][1]["failed"] == 4
 
 
 # ============================================================================
@@ -481,7 +506,7 @@ class TestRefresherMetrics:
     async def test_gauges_reset_at_start(self, mock_refresher_brotr: Brotr) -> None:
         config = RefresherConfig(
             refresh=RefreshConfig(
-                matviews=["relay_metadata_latest"],
+                matviews=[],
                 summaries=["pubkey_kind_stats"],
             ),
         )
@@ -491,7 +516,7 @@ class TestRefresherMetrics:
             await refresher.run()
 
             first_three = mock_gauge.call_args_list[:3]
-            # 1 matview + 1 summary + 3 periodic tasks = 5
-            assert first_three[0] == (("views_total", 5),)
+            # 0 matviews + 1 summary + 3 periodic tasks = 4
+            assert first_three[0] == (("views_total", 4),)
             assert first_three[1] == (("views_refreshed", 0),)
             assert first_three[2] == (("views_failed", 0),)

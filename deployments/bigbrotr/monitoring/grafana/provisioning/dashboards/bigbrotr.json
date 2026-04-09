@@ -4031,8 +4031,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"refresher\", name=\"duration_relay_metadata_latest\"}",
-          "legendFormat": "relay_metadata_latest",
+          "expr": "service_gauge{service=\"refresher\", name=\"duration_relay_metadata_current\"}",
+          "legendFormat": "relay_metadata_current",
           "instant": true,
           "refId": "A"
         },

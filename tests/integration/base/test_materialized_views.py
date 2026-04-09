@@ -27,20 +27,29 @@ def _rm(
     return RelayMetadata(relay=relay, metadata=metadata, generated_at=generated_at)
 
 
-class TestRelayMetadataLatest:
+async def _refresh_metadata_current(
+    brotr: Brotr, after: int = 0, until: int = 2_000_000_000
+) -> None:
+    """Refresh relay metadata current-state facts with the given range."""
+    await brotr.fetchval(
+        "SELECT relay_metadata_current_refresh($1::BIGINT, $2::BIGINT)", after, until
+    )
+
+
+class TestRelayMetadataCurrent:
     async def test_empty_view(self, brotr: Brotr) -> None:
-        await brotr.refresh_materialized_view("relay_metadata_latest")
-        rows = await brotr.fetch("SELECT * FROM relay_metadata_latest")
+        await _refresh_metadata_current(brotr)
+        rows = await brotr.fetch("SELECT * FROM relay_metadata_current")
         assert len(rows) == 0
 
     async def test_returns_latest_snapshot_by_generated_at(self, brotr: Brotr) -> None:
         rm_old = _rm("wss://latest1.example.com", {"name": "Old"}, generated_at=1700000001)
         rm_new = _rm("wss://latest1.example.com", {"name": "New"}, generated_at=1700000002)
         await brotr.insert_relay_metadata([rm_old, rm_new], cascade=True)
-        await brotr.refresh_materialized_view("relay_metadata_latest")
+        await _refresh_metadata_current(brotr)
 
         row = await brotr.fetchrow(
-            "SELECT * FROM relay_metadata_latest WHERE relay_url = $1 AND metadata_type = $2",
+            "SELECT * FROM relay_metadata_current WHERE relay_url = $1 AND metadata_type = $2",
             "wss://latest1.example.com",
             "nip11_info",
         )
@@ -56,10 +65,10 @@ class TestRelayMetadataLatest:
             MetadataType.NIP66_SSL,
         )
         await brotr.insert_relay_metadata([rm_info, rm_ssl], cascade=True)
-        await brotr.refresh_materialized_view("relay_metadata_latest")
+        await _refresh_metadata_current(brotr)
 
         rows = await brotr.fetch(
-            "SELECT metadata_type FROM relay_metadata_latest "
+            "SELECT metadata_type FROM relay_metadata_current "
             "WHERE relay_url = $1 ORDER BY metadata_type",
             "wss://multi-t.example.com",
         )
@@ -491,7 +500,7 @@ class TestRelayStats:
             {"name": "Test", "software": "strfry", "version": "2.0"},
         )
         await brotr.insert_relay_metadata([rm], cascade=True)
-        await brotr.refresh_materialized_view("relay_metadata_latest")
+        await _refresh_metadata_current(brotr)
         await brotr.execute("SELECT relay_stats_metadata_refresh()")
 
         row = await brotr.fetchrow(
@@ -660,8 +669,10 @@ class TestRelaySoftwareCounts:
             rm = _nip11_metadata(url, {"software": sw, "version": ver})
             await brotr.insert_relay_metadata([rm], cascade=True)
 
-        await brotr.refresh_materialized_view("relay_metadata_latest")
-        await brotr.refresh_materialized_view("relay_software_counts")
+        await _refresh_metadata_current(brotr)
+        await brotr.fetchval(
+            "SELECT relay_software_counts_refresh($1::BIGINT, $2::BIGINT)", 0, 2_000_000_000
+        )
 
         rows = await brotr.fetch(
             "SELECT software, relay_count FROM relay_software_counts ORDER BY relay_count DESC"
@@ -685,8 +696,10 @@ class TestSupportedNipCounts:
             rm = _nip11_metadata(url, {"supported_nips": nips}, generated_at=1700000001 + i)
             await brotr.insert_relay_metadata([rm], cascade=True)
 
-        await brotr.refresh_materialized_view("relay_metadata_latest")
-        await brotr.refresh_materialized_view("supported_nip_counts")
+        await _refresh_metadata_current(brotr)
+        await brotr.fetchval(
+            "SELECT supported_nip_counts_refresh($1::BIGINT, $2::BIGINT)", 0, 2_000_000_000
+        )
 
         rows = await brotr.fetch("SELECT nip, relay_count FROM supported_nip_counts ORDER BY nip")
         nips = {row["nip"]: row["relay_count"] for row in rows}
@@ -708,7 +721,9 @@ class TestEventDailyCounts:
             for i in range(3)
         ]
         await brotr.insert_event_relay(ers, cascade=True)
-        await brotr.refresh_materialized_view("daily_counts")
+        await brotr.fetchval(
+            "SELECT daily_counts_refresh($1::BIGINT, $2::BIGINT)", 0, 2_000_000_000
+        )
 
         rows = await brotr.fetch("SELECT day, event_count FROM daily_counts ORDER BY day")
         assert len(rows) == 3

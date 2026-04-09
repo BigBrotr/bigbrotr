@@ -17,25 +17,7 @@
  */
 
 
-{% block base_refresh_functions %}
-/*
- * relay_metadata_latest_refresh() -> VOID
- *
- * Refreshes the relay_metadata_latest view concurrently.
- * Schedule: Daily via cron or application scheduler.
- */
-CREATE OR REPLACE FUNCTION relay_metadata_latest_refresh()
-RETURNS VOID
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY relay_metadata_latest;
-END;
-$$;
-
-COMMENT ON FUNCTION relay_metadata_latest_refresh() IS
-'Refresh relay_metadata_latest concurrently. Schedule daily.';
-{% endblock %}
+{% block base_refresh_functions %}{% endblock %}
 {% block extra_refresh_functions %}
 
 
@@ -97,6 +79,73 @@ COMMENT ON FUNCTION bolt11_amount_msats(TEXT) IS
 -- They process only truly new events in the given seen_at range and update
 -- current rows only when the candidate event outranks the stored winner.
 -- **************************************************************************
+
+
+/*
+ * relay_metadata_current_refresh(p_after, p_until) -> INTEGER
+ *
+ * Maintains the current metadata row per (relay_url, metadata_type) using
+ * generated_at DESC, metadata_id DESC as the winner ordering.
+ */
+CREATE OR REPLACE FUNCTION relay_metadata_current_refresh(
+    p_after BIGINT,
+    p_until BIGINT
+) RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_rows INTEGER;
+BEGIN
+    WITH new_rows AS (
+        SELECT DISTINCT
+            rm.relay_url,
+            rm.metadata_type,
+            rm.generated_at,
+            rm.metadata_id,
+            m.data
+        FROM relay_metadata AS rm
+        INNER JOIN metadata AS m
+            ON rm.metadata_id = m.id AND rm.metadata_type = m.type
+        WHERE rm.generated_at > p_after
+          AND rm.generated_at <= p_until
+    ),
+    delta AS (
+        SELECT DISTINCT ON (relay_url, metadata_type)
+            relay_url,
+            metadata_type,
+            generated_at,
+            metadata_id,
+            data
+        FROM new_rows
+        ORDER BY relay_url, metadata_type, generated_at DESC, metadata_id DESC
+    )
+    INSERT INTO relay_metadata_current
+        (relay_url, metadata_type, generated_at, metadata_id, data)
+    SELECT
+        relay_url,
+        metadata_type,
+        generated_at,
+        metadata_id,
+        data
+    FROM delta
+    ON CONFLICT (relay_url, metadata_type) DO UPDATE SET
+        generated_at = EXCLUDED.generated_at,
+        metadata_id  = EXCLUDED.metadata_id,
+        data         = EXCLUDED.data
+    WHERE EXCLUDED.generated_at > relay_metadata_current.generated_at
+       OR (
+           EXCLUDED.generated_at = relay_metadata_current.generated_at
+           AND ENCODE(EXCLUDED.metadata_id, 'hex')
+               > ENCODE(relay_metadata_current.metadata_id, 'hex')
+       );
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    RETURN v_rows;
+END;
+$$;
+
+COMMENT ON FUNCTION relay_metadata_current_refresh(BIGINT, BIGINT) IS
+'Incremental refresh of current relay metadata snapshots keyed by (relay_url, metadata_type).';
 
 
 /*
@@ -1163,15 +1212,14 @@ BEGIN
     FROM rtt_agg rtt
     WHERE rs.relay_url = rtt.relay_url;
 
-    -- Update NIP-11 info from relay_metadata_latest
+    -- Update NIP-11 info from current relay metadata
     UPDATE relay_stats rs SET
-        nip11_name     = m.data -> 'data' ->> 'name',
-        nip11_software = m.data -> 'data' ->> 'software',
-        nip11_version  = m.data -> 'data' ->> 'version'
-    FROM relay_metadata_latest rml
-    INNER JOIN metadata m ON rml.metadata_id = m.id AND rml.metadata_type = m.type
-    WHERE rml.metadata_type = 'nip11_info'
-      AND rs.relay_url = rml.relay_url;
+        nip11_name     = rmc.data -> 'data' ->> 'name',
+        nip11_software = rmc.data -> 'data' ->> 'software',
+        nip11_version  = rmc.data -> 'data' ->> 'version'
+    FROM relay_metadata_current AS rmc
+    WHERE rmc.metadata_type = 'nip11_info'
+      AND rs.relay_url = rmc.relay_url;
 END;
 $$;
 
@@ -1180,60 +1228,172 @@ COMMENT ON FUNCTION relay_stats_metadata_refresh() IS
 
 
 -- **************************************************************************
--- MATERIALIZED VIEW REFRESH (bounded reporting views, full refresh)
+-- BOUNDED DERIVED TABLE REFRESH (relay metadata analytics)
 -- **************************************************************************
 
 
 /*
- * relay_software_counts_refresh() -> VOID
+ * relay_software_counts_refresh(p_after, p_until) -> INTEGER
  *
- * Depends on relay_metadata_latest being refreshed first.
+ * Recomputes software distribution from relay_metadata_current only when the
+ * relay metadata watermark advances.
  */
-CREATE OR REPLACE FUNCTION relay_software_counts_refresh()
-RETURNS VOID
+CREATE OR REPLACE FUNCTION relay_software_counts_refresh(
+    p_after BIGINT,
+    p_until BIGINT
+) RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    v_rows INTEGER;
 BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY relay_software_counts;
+    IF NOT EXISTS (
+        SELECT 1
+        FROM relay_metadata_current
+        WHERE metadata_type = 'nip11_info'
+          AND generated_at > p_after
+          AND generated_at <= p_until
+    ) THEN
+        RETURN 0;
+    END IF;
+
+    DELETE FROM relay_software_counts;
+
+    INSERT INTO relay_software_counts (software, version, relay_count)
+    SELECT
+        data -> 'data' ->> 'software' AS software,
+        COALESCE(data -> 'data' ->> 'version', 'unknown') AS version,
+        COUNT(*) AS relay_count
+    FROM relay_metadata_current
+    WHERE metadata_type = 'nip11_info'
+      AND data -> 'data' ->> 'software' IS NOT NULL
+    GROUP BY data -> 'data' ->> 'software', COALESCE(data -> 'data' ->> 'version', 'unknown');
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    RETURN v_rows;
 END;
 $$;
 
-COMMENT ON FUNCTION relay_software_counts_refresh() IS
-'Refresh relay_software_counts concurrently. Refresh relay_metadata_latest first.';
+COMMENT ON FUNCTION relay_software_counts_refresh(BIGINT, BIGINT) IS
+'Refresh relay_software_counts from relay_metadata_current when current NIP-11 metadata changes.';
 
 
 /*
- * supported_nip_counts_refresh() -> VOID
+ * supported_nip_counts_refresh(p_after, p_until) -> INTEGER
  *
- * Depends on relay_metadata_latest being refreshed first.
+ * Recomputes supported NIP distribution from relay_metadata_current only when
+ * the relay metadata watermark advances.
  */
-CREATE OR REPLACE FUNCTION supported_nip_counts_refresh()
-RETURNS VOID
+CREATE OR REPLACE FUNCTION supported_nip_counts_refresh(
+    p_after BIGINT,
+    p_until BIGINT
+) RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    v_rows INTEGER;
 BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY supported_nip_counts;
+    IF NOT EXISTS (
+        SELECT 1
+        FROM relay_metadata_current
+        WHERE metadata_type = 'nip11_info'
+          AND generated_at > p_after
+          AND generated_at <= p_until
+    ) THEN
+        RETURN 0;
+    END IF;
+
+    DELETE FROM supported_nip_counts;
+
+    INSERT INTO supported_nip_counts (nip, relay_count)
+    SELECT
+        nip_text::INTEGER AS nip,
+        COUNT(*) AS relay_count
+    FROM relay_metadata_current
+    CROSS JOIN LATERAL jsonb_array_elements_text(data -> 'data' -> 'supported_nips') AS nip_text
+    WHERE metadata_type = 'nip11_info'
+      AND data -> 'data' ? 'supported_nips'
+      AND jsonb_typeof(data -> 'data' -> 'supported_nips') = 'array'
+      AND nip_text ~ '^\d+$'
+    GROUP BY nip_text::INTEGER;
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    RETURN v_rows;
 END;
 $$;
 
-COMMENT ON FUNCTION supported_nip_counts_refresh() IS
-'Refresh supported_nip_counts concurrently. Refresh relay_metadata_latest first.';
+COMMENT ON FUNCTION supported_nip_counts_refresh(BIGINT, BIGINT) IS
+'Refresh supported_nip_counts from relay_metadata_current when current NIP-11 metadata changes.';
 
 
 /*
- * daily_counts_refresh() -> VOID
+ * daily_counts_refresh(p_after, p_until) -> INTEGER
+ *
+ * Recomputes only the UTC days impacted by truly new events in the delta
+ * window. This keeps the table exact for unique_pubkeys/unique_kinds while
+ * avoiding a full-table rebuild.
  */
-CREATE OR REPLACE FUNCTION daily_counts_refresh()
-RETURNS VOID
+CREATE OR REPLACE FUNCTION daily_counts_refresh(
+    p_after BIGINT,
+    p_until BIGINT
+) RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    v_rows INTEGER;
 BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY daily_counts;
+    WITH new_events AS (
+        SELECT DISTINCT
+            e.id,
+            e.pubkey,
+            e.kind,
+            e.created_at
+        FROM event_relay AS er
+        INNER JOIN event AS e ON er.event_id = e.id
+        WHERE er.seen_at > p_after
+          AND er.seen_at <= p_until
+          AND NOT EXISTS (
+              SELECT 1
+              FROM event_relay AS older
+              WHERE older.event_id = er.event_id
+                AND older.seen_at <= p_after
+          )
+    ),
+    impacted_days AS (
+        SELECT DISTINCT
+            '1970-01-01'::DATE + (created_at / 86400)::INTEGER AS day
+        FROM new_events
+    ),
+    recomputed AS (
+        SELECT
+            '1970-01-01'::DATE + (e.created_at / 86400)::INTEGER AS day,
+            COUNT(*) AS event_count,
+            COUNT(DISTINCT e.pubkey) AS unique_pubkeys,
+            COUNT(DISTINCT e.kind) AS unique_kinds
+        FROM event AS e
+        INNER JOIN impacted_days AS d
+            ON d.day = '1970-01-01'::DATE + (e.created_at / 86400)::INTEGER
+        GROUP BY '1970-01-01'::DATE + (e.created_at / 86400)::INTEGER
+    )
+    INSERT INTO daily_counts (day, event_count, unique_pubkeys, unique_kinds)
+    SELECT
+        day,
+        event_count,
+        unique_pubkeys,
+        unique_kinds
+    FROM recomputed
+    ON CONFLICT (day) DO UPDATE SET
+        event_count    = EXCLUDED.event_count,
+        unique_pubkeys = EXCLUDED.unique_pubkeys,
+        unique_kinds   = EXCLUDED.unique_kinds;
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    RETURN v_rows;
 END;
 $$;
 
-COMMENT ON FUNCTION daily_counts_refresh() IS
-'Refresh daily_counts concurrently.';
+COMMENT ON FUNCTION daily_counts_refresh(BIGINT, BIGINT) IS
+'Incremental refresh of daily_counts by recomputing only UTC days touched by truly new events.';
 
 
 -- **************************************************************************

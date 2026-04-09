@@ -2,13 +2,12 @@
 {% block header_comment %}
  * Brotr - 06_materialized_views.sql
  *
- * Analytics layer: materialized views (bounded, full refresh), current-state
- * tables, and summary tables (incremental refresh via stored procedures in
- * 07_functions_refresh).
+ * Analytics layer: current-state tables, summary tables, and the small number
+ * of bounded reporting relations that still use full refresh.
  *
- * Materialized views are used only for bounded result sets where full refresh
- * is still cheap. Current-state and summary tables are used where incremental
- * maintenance is essential for performance at scale.
+ * Current-state and summary tables are regular tables maintained by stored
+ * procedures in 07_functions_refresh. Materialized views are reserved only for
+ * bounded reporting outputs where a full refresh is still acceptable.
  *
  * NIP-85 summary tables provide per-pubkey social metrics and per-event
  * engagement metrics for Trusted Assertions (kind 30382/30383).
@@ -18,30 +17,7 @@
  */
 
 
-{% block base_materialized_views %}
--- ==========================================================================
--- relay_metadata_latest: Most recent metadata per relay and check type
--- ==========================================================================
--- Returns one row per (relay_url, metadata_type) combination, containing
--- the latest snapshot. Uses DISTINCT ON with descending generated_at to
--- efficiently select the most recent record per group.
---
--- Refresh: relay_metadata_latest_refresh()
-
-CREATE MATERIALIZED VIEW IF NOT EXISTS relay_metadata_latest AS
-SELECT DISTINCT ON (rm.relay_url, rm.metadata_type)
-    rm.relay_url,
-    rm.metadata_type,
-    rm.generated_at,
-    rm.metadata_id,
-    m.data
-FROM relay_metadata AS rm
-INNER JOIN metadata AS m ON rm.metadata_id = m.id AND rm.metadata_type = m.type
-ORDER BY rm.relay_url ASC, rm.metadata_type ASC, rm.generated_at DESC;
-
-COMMENT ON MATERIALIZED VIEW relay_metadata_latest IS
-'Latest metadata per relay and check type. Refresh via relay_metadata_latest_refresh().';
-{% endblock %}
+{% block base_materialized_views %}{% endblock %}
 {% block extra_materialized_views %}
 
 
@@ -218,6 +194,30 @@ COMMENT ON TABLE relay_stats IS
 -- They are facts tables, not reporting views: each row represents the current
 -- winner for a logical key such as (pubkey, kind) or (pubkey, kind, d_tag).
 -- **************************************************************************
+
+
+-- ==========================================================================
+-- relay_metadata_current: Current metadata per relay and check type
+-- ==========================================================================
+-- One row per (relay_url, metadata_type), containing the most recent metadata
+-- snapshot selected by generated_at DESC, metadata_id DESC.
+--
+-- The row stores both metadata_id and the denormalized JSON payload so the
+-- current-state table is self-contained for readers and downstream refreshes.
+--
+-- Refresh: relay_metadata_current_refresh(p_after, p_until)
+
+CREATE TABLE IF NOT EXISTS relay_metadata_current (
+    relay_url TEXT NOT NULL,
+    metadata_type TEXT NOT NULL,
+    generated_at BIGINT NOT NULL,
+    metadata_id BYTEA NOT NULL,
+    data JSONB NOT NULL,
+    PRIMARY KEY (relay_url, metadata_type)
+);
+
+COMMENT ON TABLE relay_metadata_current IS
+'Current metadata snapshot per (relay_url, metadata_type). Incrementally refreshed via relay_metadata_current_refresh(after, until).';
 
 
 -- ==========================================================================
@@ -401,59 +401,45 @@ COMMENT ON TABLE nip85_event_stats IS
 'NIP-85 per-event engagement metrics. Incrementally refreshed via nip85_event_stats_refresh(after, until).';
 
 
--- **************************************************************************
--- MATERIALIZED VIEWS (bounded output, full refresh)
--- **************************************************************************
-
-
 -- ==========================================================================
 -- relay_software_counts: NIP-11 software distribution
 -- ==========================================================================
--- Count of relays by software name and version from NIP-11 info metadata.
--- Only includes relays that report a software field in their NIP-11 response.
+-- Count of relays by software name and version from current NIP-11 metadata.
+-- Recomputed from relay_metadata_current when the metadata watermark advances.
 --
--- Depends on: relay_metadata_latest (refresh relay_metadata_latest first)
--- Refresh: relay_software_counts_refresh()
+-- Refresh: relay_software_counts_refresh(p_after, p_until)
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS relay_software_counts AS
-SELECT
-    data -> 'data' ->> 'software' AS software,
-    COALESCE(data -> 'data' ->> 'version', 'unknown') AS version,
-    COUNT(*) AS relay_count
-FROM relay_metadata_latest
-WHERE metadata_type = 'nip11_info'
-    AND data -> 'data' ->> 'software' IS NOT NULL
-GROUP BY data -> 'data' ->> 'software', COALESCE(data -> 'data' ->> 'version', 'unknown')
-ORDER BY relay_count DESC;
+CREATE TABLE IF NOT EXISTS relay_software_counts (
+    software TEXT NOT NULL,
+    version TEXT NOT NULL,
+    relay_count BIGINT NOT NULL,
+    PRIMARY KEY (software, version)
+);
 
-COMMENT ON MATERIALIZED VIEW relay_software_counts IS
-'NIP-11 software distribution across relays. Refresh relay_metadata_latest first. Refresh via relay_software_counts_refresh().';
+COMMENT ON TABLE relay_software_counts IS
+'NIP-11 software distribution across relays. Refreshed from relay_metadata_current via relay_software_counts_refresh(after, until).';
 
 
 -- ==========================================================================
 -- supported_nip_counts: NIP support distribution from NIP-11
 -- ==========================================================================
--- Count of relays supporting each NIP number, extracted from the
--- supported_nips array in NIP-11 info metadata.
+-- Count of relays supporting each NIP number, derived from the current NIP-11
+-- snapshot of each relay.
 --
--- Depends on: relay_metadata_latest (refresh relay_metadata_latest first)
--- Refresh: supported_nip_counts_refresh()
+-- Refresh: supported_nip_counts_refresh(p_after, p_until)
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS supported_nip_counts AS
-SELECT
-    nip_text::INTEGER AS nip,
-    COUNT(*) AS relay_count
-FROM relay_metadata_latest
-CROSS JOIN LATERAL jsonb_array_elements_text(data -> 'data' -> 'supported_nips') AS nip_text
-WHERE metadata_type = 'nip11_info'
-    AND data -> 'data' ? 'supported_nips'
-    AND jsonb_typeof(data -> 'data' -> 'supported_nips') = 'array'
-    AND nip_text ~ '^\d+$'
-GROUP BY nip_text::INTEGER
-ORDER BY relay_count DESC;
+CREATE TABLE IF NOT EXISTS supported_nip_counts (
+    nip INTEGER PRIMARY KEY,
+    relay_count BIGINT NOT NULL
+);
 
-COMMENT ON MATERIALIZED VIEW supported_nip_counts IS
-'NIP support distribution across relays from NIP-11 info. Refresh relay_metadata_latest first. Refresh via supported_nip_counts_refresh().';
+COMMENT ON TABLE supported_nip_counts IS
+'NIP support distribution across relays from current NIP-11 metadata. Refreshed via supported_nip_counts_refresh(after, until).';
+
+
+-- **************************************************************************
+-- MATERIALIZED VIEWS (bounded output, full refresh)
+-- **************************************************************************
 
 
 -- ==========================================================================
@@ -465,18 +451,15 @@ COMMENT ON MATERIALIZED VIEW supported_nip_counts IS
 -- Uses integer arithmetic (created_at / 86400) instead of
 -- to_timestamp() + timezone conversion for faster grouping.
 --
--- Refresh: daily_counts_refresh()
+-- Refresh: daily_counts_refresh(p_after, p_until)
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS daily_counts AS
-SELECT
-    '1970-01-01'::DATE + (created_at / 86400)::INTEGER AS day,
-    COUNT(*) AS event_count,
-    COUNT(DISTINCT pubkey) AS unique_pubkeys,
-    COUNT(DISTINCT kind) AS unique_kinds
-FROM event
-GROUP BY created_at / 86400
-ORDER BY day DESC;
+CREATE TABLE IF NOT EXISTS daily_counts (
+    day DATE PRIMARY KEY,
+    event_count BIGINT NOT NULL,
+    unique_pubkeys BIGINT NOT NULL,
+    unique_kinds BIGINT NOT NULL
+);
 
-COMMENT ON MATERIALIZED VIEW daily_counts IS
-'Daily event counts for time-series analysis (UTC). Refresh via daily_counts_refresh().';
+COMMENT ON TABLE daily_counts IS
+'Daily event counts for time-series analysis (UTC). Incrementally refreshed via daily_counts_refresh(after, until).';
 {% endblock %}

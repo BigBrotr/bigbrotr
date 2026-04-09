@@ -2,11 +2,10 @@
 {% block header_comment %}
  * Brotr - 08_indexes.sql
  *
- * Performance indexes for tables, summary tables, and materialized views.
- * Every materialized view requires a UNIQUE index for
- * REFRESH MATERIALIZED VIEW CONCURRENTLY to work.
- * Summary tables have PRIMARY KEYs (defined in 06) but may need
- * secondary indexes for common query patterns.
+ * Performance indexes for tables, current-state tables, and summary tables.
+ *
+ * Primary keys in 06 create the baseline unique indexes; this file adds the
+ * secondary indexes needed for common read and refresh patterns.
  *
  * Dependencies: 02_tables.sql, 06_materialized_views.sql
 {% endblock %}
@@ -85,7 +84,7 @@ ON relay_metadata USING btree (generated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_metadata_id_type
 ON relay_metadata USING btree (metadata_id, metadata_type);
 
--- Latest metadata per relay and type (powers relay_metadata_latest view):
+-- Latest metadata per relay and type (powers relay_metadata_current refresh):
 -- WHERE relay_url = ? AND metadata_type = ? ORDER BY generated_at DESC
 -- Also covers (relay_url) and (relay_url, metadata_type) via leftmost prefix
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_relay_url_metadata_type_generated_at
@@ -107,16 +106,12 @@ WHERE service_name = 'validator' AND state_type = 'checkpoint';
 
 {% block base_matview_indexes %}
 -- ==========================================================================
--- MATERIALIZED VIEW INDEXES: relay_metadata_latest
+-- CURRENT TABLE INDEXES: relay_metadata_current
 -- ==========================================================================
 
--- Required for REFRESH CONCURRENTLY (unique index on natural key)
-CREATE UNIQUE INDEX IF NOT EXISTS idx_relay_metadata_latest_pk
-ON relay_metadata_latest USING btree (relay_url, metadata_type);
-
--- Filter by check type: WHERE metadata_type = 'nip11_info'
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_latest_type
-ON relay_metadata_latest USING btree (metadata_type);
+-- Filter current snapshots by check type and refresh window.
+CREATE INDEX IF NOT EXISTS idx_relay_metadata_current_type_generated_at
+ON relay_metadata_current USING btree (metadata_type, generated_at ASC);
 {% endblock %}
 {% block extra_matview_indexes %}
 
@@ -176,28 +171,13 @@ ON nip85_event_stats USING btree (author_pubkey);
 
 
 -- ==========================================================================
--- MATERIALIZED VIEW INDEXES: relay_software_counts
+-- TABLE INDEXES: relay_software_counts
 -- ==========================================================================
-
--- Required for REFRESH CONCURRENTLY
-CREATE UNIQUE INDEX IF NOT EXISTS idx_relay_software_counts_composite
-ON relay_software_counts USING btree (software, version);
+-- Primary key on (software, version) already covers the main access path.
 
 
 -- ==========================================================================
--- MATERIALIZED VIEW INDEXES: supported_nip_counts
+-- TABLE INDEXES: supported_nip_counts
 -- ==========================================================================
-
--- Required for REFRESH CONCURRENTLY
-CREATE UNIQUE INDEX IF NOT EXISTS idx_supported_nip_counts_nip
-ON supported_nip_counts USING btree (nip);
-
-
--- ==========================================================================
--- MATERIALIZED VIEW INDEXES: daily_counts
--- ==========================================================================
-
--- Required for REFRESH CONCURRENTLY
-CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_counts_day
-ON daily_counts USING btree (day);
+-- Primary key on (nip) already covers the main access path.
 {% endblock %}

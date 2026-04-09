@@ -2,22 +2,23 @@
 
 Periodically refreshes bounded materialized views (full refresh) plus
 incremental current-state and analytics tables. The incremental refresh
-processes only new ``event_relay`` rows since the last checkpoint, making the
-refresh cost proportional to the ingestion rate rather than the total dataset
-size.
+processes only new source rows since the last checkpoint, using either
+``event_relay.seen_at`` or ``relay_metadata.generated_at`` depending on the
+derived table, making refresh cost proportional to change volume.
 
 **Refresh cycle order:**
 
-1. Bounded materialized views (``REFRESH MATERIALIZED VIEW CONCURRENTLY``)
-2. Current-state tables (replaceable/addressable snapshots)
-3. Summary cross-tabs (``pubkey_kind_stats``, ``pubkey_relay_stats``,
+1. Bounded materialized views (optional; the default set is currently empty)
+2. Current-state tables (relay metadata, replaceable/addressable snapshots)
+3. Metadata-derived and daily analytics tables
+4. Summary cross-tabs (``pubkey_kind_stats``, ``pubkey_relay_stats``,
    ``relay_kind_stats``) — must run before entity tables
-4. Summary entity tables (``pubkey_stats``, ``kind_stats``, ``relay_stats``)
+5. Summary entity tables (``pubkey_stats``, ``kind_stats``, ``relay_stats``)
    — derive ``unique_*`` counts from cross-tab row counts
-5. Canonical contact-list facts (``contact_lists_current``,
+6. Canonical contact-list facts (``contact_lists_current``,
    ``contact_list_edges_current``)
-6. Rolling windows (``events_last_24h/7d/30d``) — periodic, scans last 30 days
-7. Relay metadata (RTT, NIP-11) and NIP-85 follower reconciliation — periodic
+7. Rolling windows (``events_last_24h/7d/30d``) — periodic, scans last 30 days
+8. Relay metadata enrichments and NIP-85 follower reconciliation — periodic
 
 See Also:
     [RefresherConfig][bigbrotr.services.refresher.RefresherConfig]:
@@ -44,6 +45,7 @@ from .configs import (
     validate_summary_dependencies,
 )
 from .queries import (
+    get_max_generated_at,
     get_max_seen_at,
     refresh_nip85_followers,
     refresh_relay_metadata,
@@ -59,8 +61,8 @@ if TYPE_CHECKING:
 class Refresher(BaseService[RefresherConfig]):
     """Materialized view and summary table refresh service.
 
-    Refreshes bounded reporting views via ``REFRESH CONCURRENTLY`` and all
-    incremental current-state / analytics tables via stored procedures.
+    Refreshes the optional bounded reporting views via ``REFRESH CONCURRENTLY``
+    and all incremental current-state / analytics tables via stored procedures.
     Checkpoints are persisted in ``service_state`` so the service can resume
     after restarts.
 
@@ -78,6 +80,12 @@ class Refresher(BaseService[RefresherConfig]):
         self._config.refresh.matviews = resolve_matview_order(self._config.refresh.matviews)
         self._config.refresh.summaries = resolve_summary_order(self._config.refresh.summaries)
         validate_summary_dependencies(self._config.refresh.summaries)
+
+    def _summary_watermark_source(self, table: str) -> str:
+        """Return the watermark source used by one incremental table."""
+        if table in {"relay_metadata_current", "relay_software_counts", "supported_nip_counts"}:
+            return "relay_metadata"
+        return "event_relay"
 
     async def cleanup(self) -> int:
         """Remove stale checkpoints for summary tables no longer in config."""
@@ -170,8 +178,12 @@ class Refresher(BaseService[RefresherConfig]):
         )
         after = int(states[0].state_value["timestamp"]) if states else 0
 
-        # Find new watermark
-        until = await get_max_seen_at(self._brotr, after)
+        # Find new watermark from the appropriate append-only source
+        source = self._summary_watermark_source(table)
+        if source == "relay_metadata":
+            until = await get_max_generated_at(self._brotr, after)
+        else:
+            until = await get_max_seen_at(self._brotr, after)
         if until == after:
             return 0
 
