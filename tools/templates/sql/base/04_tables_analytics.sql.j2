@@ -252,6 +252,50 @@ COMMENT ON TABLE nip85_event_stats IS
 
 
 -- ==========================================================================
+-- nip85_addressable_stats: Per-addressable-event engagement metrics (30384)
+-- ==========================================================================
+-- Tracks comments, quotes, reposts, reactions, and zaps aggregated by the
+-- canonical addressable event coordinate ``kind:pubkey:d_tag`` across all
+-- versions of that addressable event.
+--
+-- Refresh: nip85_addressable_stats_refresh(p_after, p_until)
+
+CREATE TABLE IF NOT EXISTS nip85_addressable_stats (
+    event_address TEXT PRIMARY KEY,
+    author_pubkey TEXT NOT NULL,
+    comment_count BIGINT NOT NULL DEFAULT 0,
+    quote_count BIGINT NOT NULL DEFAULT 0,
+    repost_count BIGINT NOT NULL DEFAULT 0,
+    reaction_count BIGINT NOT NULL DEFAULT 0,
+    zap_count BIGINT NOT NULL DEFAULT 0,
+    zap_amount BIGINT NOT NULL DEFAULT 0
+);
+
+COMMENT ON TABLE nip85_addressable_stats IS
+'NIP-85 per-addressable-event engagement metrics. Incrementally refreshed via nip85_addressable_stats_refresh(after, until).';
+
+
+-- ==========================================================================
+-- nip85_identifier_stats: Per-identifier engagement metrics (30385)
+-- ==========================================================================
+-- Tracks comments and reactions for NIP-73 identifiers (``i`` tags).
+-- ``k_tags`` stores the deduplicated sorted set of accompanying NIP-73 ``k``
+-- tags observed on source events so downstream publishers can re-emit them.
+--
+-- Refresh: nip85_identifier_stats_refresh(p_after, p_until)
+
+CREATE TABLE IF NOT EXISTS nip85_identifier_stats (
+    identifier TEXT PRIMARY KEY,
+    comment_count BIGINT NOT NULL DEFAULT 0,
+    reaction_count BIGINT NOT NULL DEFAULT 0,
+    k_tags TEXT[] NOT NULL DEFAULT '{}'::TEXT[]
+);
+
+COMMENT ON TABLE nip85_identifier_stats IS
+'NIP-85 per-identifier engagement metrics. Incrementally refreshed via nip85_identifier_stats_refresh(after, until).';
+
+
+-- ==========================================================================
 -- relay_software_counts: NIP-11 software distribution
 -- ==========================================================================
 -- Count of relays by software name and version from current NIP-11 metadata.

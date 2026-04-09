@@ -118,6 +118,10 @@ def _nip66_metadata(
     return RelayMetadata(relay=relay, metadata=metadata, generated_at=generated_at)
 
 
+def _event_address(kind: int, pubkey: str, d_tag: str) -> str:
+    return f"{kind}:{pubkey.lower()}:{d_tag}"
+
+
 async def _refresh_summaries(brotr: Brotr, after: int = 0, until: int = 2000000000) -> None:
     """Refresh all summary tables with the given range."""
     for table in [
@@ -133,7 +137,12 @@ async def _refresh_summaries(brotr: Brotr, after: int = 0, until: int = 20000000
 
 async def _refresh_nip85(brotr: Brotr, after: int = 0, until: int = 2000000000) -> None:
     """Refresh NIP-85 summary tables with the given range."""
-    for table in ["nip85_pubkey_stats", "nip85_event_stats"]:
+    for table in [
+        "nip85_pubkey_stats",
+        "nip85_event_stats",
+        "nip85_addressable_stats",
+        "nip85_identifier_stats",
+    ]:
         await brotr.fetchval(f"SELECT {table}_refresh($1::BIGINT, $2::BIGINT)", after, until)
 
 
@@ -1442,6 +1451,163 @@ class TestNip85EventStats:
         )
         assert row is not None
         assert row["reaction_count"] == 2
+
+
+class TestNip85AddressableStats:
+    async def test_comment_count_prefers_reply_a_and_aggregates_by_address(
+        self, brotr: Brotr
+    ) -> None:
+        author = "e1" * 32
+        target_address = _event_address(30023, author, "article")
+        target_event_id = "f1" * 32
+        ers = [
+            _event_relay(
+                target_event_id,
+                "wss://n85a.example.com",
+                kind=30023,
+                pubkey=author,
+                tags=[["d", "article"]],
+            ),
+            _event_relay(
+                "f2" * 32,
+                "wss://n85a.example.com",
+                kind=1,
+                pubkey="e2" * 32,
+                tags=[["e", target_event_id], ["a", target_address, "", "reply"]],
+            ),
+        ]
+        await brotr.insert_event_relay(ers, cascade=True)
+        await _refresh_nip85(brotr)
+
+        row = await brotr.fetchrow(
+            "SELECT author_pubkey, comment_count FROM nip85_addressable_stats WHERE event_address = $1",
+            target_address,
+        )
+        assert row is not None
+        assert row["author_pubkey"] == author
+        assert row["comment_count"] == 1
+
+    async def test_reaction_count_falls_back_from_event_id_to_target_address(
+        self, brotr: Brotr
+    ) -> None:
+        author = "e3" * 32
+        target_event_id = "f3" * 32
+        target_address = _event_address(30023, author, "reaction-target")
+        ers = [
+            _event_relay(
+                target_event_id,
+                "wss://n85a.example.com",
+                kind=30023,
+                pubkey=author,
+                tags=[["d", "reaction-target"]],
+            ),
+            _event_relay(
+                "f4" * 32,
+                "wss://n85a.example.com",
+                kind=7,
+                pubkey="e4" * 32,
+                tags=[["e", target_event_id]],
+            ),
+        ]
+        await brotr.insert_event_relay(ers, cascade=True)
+        await _refresh_nip85(brotr)
+
+        row = await brotr.fetchrow(
+            "SELECT reaction_count FROM nip85_addressable_stats WHERE event_address = $1",
+            target_address,
+        )
+        assert row is not None
+        assert row["reaction_count"] == 1
+
+    async def test_quote_count_supports_q_event_id_mapping(self, brotr: Brotr) -> None:
+        author = "e5" * 32
+        target_event_id = "f5" * 32
+        target_address = _event_address(30023, author, "quote-target")
+        ers = [
+            _event_relay(
+                target_event_id,
+                "wss://n85a.example.com",
+                kind=30023,
+                pubkey=author,
+                tags=[["d", "quote-target"]],
+            ),
+            _event_relay(
+                "f6" * 32,
+                "wss://n85a.example.com",
+                kind=1,
+                pubkey="e6" * 32,
+                tags=[["q", target_event_id]],
+            ),
+        ]
+        await brotr.insert_event_relay(ers, cascade=True)
+        await _refresh_nip85(brotr)
+
+        row = await brotr.fetchrow(
+            "SELECT quote_count FROM nip85_addressable_stats WHERE event_address = $1",
+            target_address,
+        )
+        assert row is not None
+        assert row["quote_count"] == 1
+
+    async def test_zap_count_and_amount_use_verified_amounts(self, brotr: Brotr) -> None:
+        author = "e7" * 32
+        target_address = _event_address(30023, author, "zap-target")
+        ers = [
+            _event_relay(
+                "f7" * 32,
+                "wss://n85a.example.com",
+                kind=9735,
+                pubkey="e8" * 32,
+                tags=[
+                    ["a", target_address],
+                    ["amount", "2100000"],
+                    ["bolt11", "lnbc21000n1qqq"],
+                ],
+            ),
+        ]
+        await brotr.insert_event_relay(ers, cascade=True)
+        await _refresh_nip85(brotr)
+
+        row = await brotr.fetchrow(
+            "SELECT zap_count, zap_amount FROM nip85_addressable_stats WHERE event_address = $1",
+            target_address,
+        )
+        assert row is not None
+        assert row["zap_count"] == 1
+        assert row["zap_amount"] == 2_100_000
+
+
+class TestNip85IdentifierStats:
+    async def test_identifier_counts_and_k_tags(self, brotr: Brotr) -> None:
+        identifier = "isbn:9780140328721"
+        ers = [
+            _event_relay(
+                "f8" * 32,
+                "wss://n85id.example.com",
+                kind=1,
+                pubkey="e9" * 32,
+                tags=[["i", identifier], ["k", "book"], ["k", "fiction"]],
+            ),
+            _event_relay(
+                "f9" * 32,
+                "wss://n85id.example.com",
+                kind=7,
+                pubkey="ea" * 32,
+                tags=[["i", identifier], ["k", "fiction"]],
+            ),
+        ]
+        await brotr.insert_event_relay(ers, cascade=True)
+        await _refresh_nip85(brotr)
+
+        row = await brotr.fetchrow(
+            "SELECT comment_count, reaction_count, k_tags "
+            "FROM nip85_identifier_stats WHERE identifier = $1",
+            identifier,
+        )
+        assert row is not None
+        assert row["comment_count"] == 1
+        assert row["reaction_count"] == 1
+        assert row["k_tags"] == ["book", "fiction"]
 
 
 class TestContactListFacts:

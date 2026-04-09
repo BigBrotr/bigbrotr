@@ -1907,6 +1907,439 @@ COMMENT ON FUNCTION nip85_event_stats_refresh(BIGINT, BIGINT) IS
 'Incremental refresh of NIP-85 per-event engagement metrics. Uses exact tags when available and ordered tagvalues fallback when full tags are not stored.';
 
 
+/*
+ * nip85_addressable_stats_refresh(p_after, p_until) -> INTEGER
+ *
+ * Processes truly new events to update per-addressable-event engagement
+ * metrics. Targets are canonicalized to ``kind:pubkey:d_tag``.
+ *
+ * Resolution strategy:
+ * - kind=1 comments: prefer reply-marked ``a``/``e`` tags when full tags are
+ *   available, else fall back to ordered ``a`` then ordered ``e`` tagvalues
+ * - kind=6 reposts: first ordered ``a`` tagvalue, else first ordered ``e``
+ *   mapped through the target event's address
+ * - kind=7 reactions: last ordered ``a`` tagvalue, else last ordered ``e``
+ *   mapped through the target event's address
+ * - tag ``q`` quotes: each distinct ``q`` target per source event counts once;
+ *   ``q`` may contain a direct address or an event id that maps to one
+ * - kind=9735 zaps: last ordered ``a`` tagvalue, else last ordered ``e``
+ *   mapped through the target event's address; amounts are bolt11-verified
+ *   when full tags are present, and count-only otherwise
+ */
+CREATE OR REPLACE FUNCTION nip85_addressable_stats_refresh(
+    p_after BIGINT,
+    p_until BIGINT
+) RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_rows INTEGER := 0;
+    v_partial INTEGER;
+BEGIN
+    CREATE TEMP TABLE _nip85_new_events_addr ON COMMIT DROP AS
+    SELECT DISTINCT e.id, e.pubkey, e.kind, e.tagvalues, e.tags
+    FROM event_relay AS er
+    INNER JOIN event AS e ON er.event_id = e.id
+    WHERE er.seen_at > p_after AND er.seen_at <= p_until
+      AND NOT EXISTS (
+          SELECT 1 FROM event_relay AS older
+          WHERE older.event_id = er.event_id
+            AND older.seen_at <= p_after
+      );
+    CREATE INDEX idx__nip85_new_events_addr_kind ON _nip85_new_events_addr (kind);
+
+    -- 1. Comments on addressable events
+    WITH targets AS (
+        SELECT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            COALESCE(
+                reply_a.target_address,
+                reply_e.target_address,
+                last_a.target_address,
+                last_e.target_address
+            ) AS target_address
+        FROM _nip85_new_events_addr AS ne
+        LEFT JOIN LATERAL (
+            SELECT normalize_event_address(t.tag ->> 1) AS target_address
+            FROM jsonb_array_elements(ne.tags) WITH ORDINALITY AS t(tag, ord)
+            WHERE t.tag ->> 0 = 'a'
+              AND COALESCE(t.tag ->> 3, '') = 'reply'
+            ORDER BY ord
+            LIMIT 1
+        ) AS reply_a ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT event_address(te.kind, te.pubkey, te.tags, te.tagvalues) AS target_address
+            FROM LATERAL (
+                SELECT LOWER(t.tag ->> 1) AS target_event
+                FROM jsonb_array_elements(ne.tags) WITH ORDINALITY AS t(tag, ord)
+                WHERE t.tag ->> 0 = 'e'
+                  AND COALESCE(t.tag ->> 3, '') = 'reply'
+                ORDER BY ord
+                LIMIT 1
+            ) AS reply_e_tag
+            INNER JOIN event AS te
+                ON reply_e_tag.target_event ~ '^[0-9a-f]{64}$'
+               AND te.id = DECODE(reply_e_tag.target_event, 'hex')
+        ) AS reply_e ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT normalize_event_address(substring(t.tv FROM 3)) AS target_address
+            FROM unnest(ne.tagvalues) WITH ORDINALITY AS t(tv, ord)
+            WHERE t.tv LIKE 'a:%'
+            ORDER BY ord DESC
+            LIMIT 1
+        ) AS last_a ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT event_address(te.kind, te.pubkey, te.tags, te.tagvalues) AS target_address
+            FROM LATERAL (
+                SELECT LOWER(substring(t.tv FROM 3)) AS target_event
+                FROM unnest(ne.tagvalues) WITH ORDINALITY AS t(tv, ord)
+                WHERE t.tv LIKE 'e:%'
+                ORDER BY ord DESC
+                LIMIT 1
+            ) AS last_e_tag
+            INNER JOIN event AS te
+                ON last_e_tag.target_event ~ '^[0-9a-f]{64}$'
+               AND te.id = DECODE(last_e_tag.target_event, 'hex')
+        ) AS last_e ON TRUE
+        WHERE ne.kind = 1
+    ),
+    delta AS (
+        SELECT target_address, COUNT(*) AS cnt
+        FROM targets
+        WHERE target_address IS NOT NULL
+        GROUP BY target_address
+    )
+    INSERT INTO nip85_addressable_stats (event_address, author_pubkey, comment_count)
+    SELECT target_address, split_part(target_address, ':', 2), cnt
+    FROM delta
+    ON CONFLICT (event_address) DO UPDATE SET
+        comment_count = nip85_addressable_stats.comment_count + EXCLUDED.comment_count;
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
+
+    -- 2. Quotes on addressable events (q-tag value may be a direct address or an event id)
+    WITH direct_targets AS (
+        SELECT DISTINCT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            normalize_event_address(substring(tv FROM 3)) AS target_address
+        FROM _nip85_new_events_addr AS ne,
+             unnest(ne.tagvalues) AS tv
+        WHERE tv LIKE 'q:%'
+    ),
+    event_targets AS (
+        SELECT DISTINCT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            event_address(te.kind, te.pubkey, te.tags, te.tagvalues) AS target_address
+        FROM _nip85_new_events_addr AS ne,
+             unnest(ne.tagvalues) AS tv
+        INNER JOIN event AS te
+            ON tv LIKE 'q:%'
+           AND LOWER(substring(tv FROM 3)) ~ '^[0-9a-f]{64}$'
+           AND te.id = DECODE(LOWER(substring(tv FROM 3)), 'hex')
+    ),
+    delta AS (
+        SELECT target_address, COUNT(*) AS cnt
+        FROM (
+            SELECT source_event_id, target_address
+            FROM direct_targets
+            WHERE target_address IS NOT NULL
+            UNION
+            SELECT source_event_id, target_address
+            FROM event_targets
+            WHERE target_address IS NOT NULL
+        ) AS targets
+        GROUP BY target_address
+    )
+    INSERT INTO nip85_addressable_stats (event_address, author_pubkey, quote_count)
+    SELECT target_address, split_part(target_address, ':', 2), cnt
+    FROM delta
+    ON CONFLICT (event_address) DO UPDATE SET
+        quote_count = nip85_addressable_stats.quote_count + EXCLUDED.quote_count;
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
+
+    -- 3. Reposts on addressable events
+    WITH targets AS (
+        SELECT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            COALESCE(first_a.target_address, first_e.target_address) AS target_address
+        FROM _nip85_new_events_addr AS ne
+        LEFT JOIN LATERAL (
+            SELECT normalize_event_address(substring(t.tv FROM 3)) AS target_address
+            FROM unnest(ne.tagvalues) WITH ORDINALITY AS t(tv, ord)
+            WHERE t.tv LIKE 'a:%'
+            ORDER BY ord
+            LIMIT 1
+        ) AS first_a ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT event_address(te.kind, te.pubkey, te.tags, te.tagvalues) AS target_address
+            FROM LATERAL (
+                SELECT LOWER(substring(t.tv FROM 3)) AS target_event
+                FROM unnest(ne.tagvalues) WITH ORDINALITY AS t(tv, ord)
+                WHERE t.tv LIKE 'e:%'
+                ORDER BY ord
+                LIMIT 1
+            ) AS first_e_tag
+            INNER JOIN event AS te
+                ON first_e_tag.target_event ~ '^[0-9a-f]{64}$'
+               AND te.id = DECODE(first_e_tag.target_event, 'hex')
+        ) AS first_e ON TRUE
+        WHERE ne.kind = 6
+    ),
+    delta AS (
+        SELECT target_address, COUNT(*) AS cnt
+        FROM targets
+        WHERE target_address IS NOT NULL
+        GROUP BY target_address
+    )
+    INSERT INTO nip85_addressable_stats (event_address, author_pubkey, repost_count)
+    SELECT target_address, split_part(target_address, ':', 2), cnt
+    FROM delta
+    ON CONFLICT (event_address) DO UPDATE SET
+        repost_count = nip85_addressable_stats.repost_count + EXCLUDED.repost_count;
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
+
+    -- 4. Reactions on addressable events
+    WITH targets AS (
+        SELECT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            COALESCE(last_a.target_address, last_e.target_address) AS target_address
+        FROM _nip85_new_events_addr AS ne
+        LEFT JOIN LATERAL (
+            SELECT normalize_event_address(substring(t.tv FROM 3)) AS target_address
+            FROM unnest(ne.tagvalues) WITH ORDINALITY AS t(tv, ord)
+            WHERE t.tv LIKE 'a:%'
+            ORDER BY ord DESC
+            LIMIT 1
+        ) AS last_a ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT event_address(te.kind, te.pubkey, te.tags, te.tagvalues) AS target_address
+            FROM LATERAL (
+                SELECT LOWER(substring(t.tv FROM 3)) AS target_event
+                FROM unnest(ne.tagvalues) WITH ORDINALITY AS t(tv, ord)
+                WHERE t.tv LIKE 'e:%'
+                ORDER BY ord DESC
+                LIMIT 1
+            ) AS last_e_tag
+            INNER JOIN event AS te
+                ON last_e_tag.target_event ~ '^[0-9a-f]{64}$'
+               AND te.id = DECODE(last_e_tag.target_event, 'hex')
+        ) AS last_e ON TRUE
+        WHERE ne.kind = 7
+    ),
+    delta AS (
+        SELECT target_address, COUNT(*) AS cnt
+        FROM targets
+        WHERE target_address IS NOT NULL
+        GROUP BY target_address
+    )
+    INSERT INTO nip85_addressable_stats (event_address, author_pubkey, reaction_count)
+    SELECT target_address, split_part(target_address, ':', 2), cnt
+    FROM delta
+    ON CONFLICT (event_address) DO UPDATE SET
+        reaction_count = nip85_addressable_stats.reaction_count + EXCLUDED.reaction_count;
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
+
+    -- 5. Zaps on addressable events (tags-required, bolt11-verified)
+    WITH zap_data AS (
+        SELECT
+            COALESCE(last_a.target_address, last_e.target_address) AS target_address,
+            amount_data.claimed_amount,
+            bolt11_data.bolt11_amount
+        FROM _nip85_new_events_addr AS ne
+        LEFT JOIN LATERAL (
+            SELECT normalize_event_address(substring(t.tv FROM 3)) AS target_address
+            FROM unnest(ne.tagvalues) WITH ORDINALITY AS t(tv, ord)
+            WHERE t.tv LIKE 'a:%'
+            ORDER BY ord DESC
+            LIMIT 1
+        ) AS last_a ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT event_address(te.kind, te.pubkey, te.tags, te.tagvalues) AS target_address
+            FROM LATERAL (
+                SELECT LOWER(substring(t.tv FROM 3)) AS target_event
+                FROM unnest(ne.tagvalues) WITH ORDINALITY AS t(tv, ord)
+                WHERE t.tv LIKE 'e:%'
+                ORDER BY ord DESC
+                LIMIT 1
+            ) AS last_e_tag
+            INNER JOIN event AS te
+                ON last_e_tag.target_event ~ '^[0-9a-f]{64}$'
+               AND te.id = DECODE(last_e_tag.target_event, 'hex')
+        ) AS last_e ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT CASE
+                WHEN (t.tag ->> 1) ~ '^[0-9]{1,19}$'
+                 AND (length(t.tag ->> 1) < 19 OR (t.tag ->> 1) <= '9223372036854775807')
+                    THEN (t.tag ->> 1)::BIGINT
+                ELSE NULL
+            END AS claimed_amount
+            FROM jsonb_array_elements(ne.tags) AS t(tag)
+            WHERE t.tag ->> 0 = 'amount'
+            LIMIT 1
+        ) AS amount_data ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT bolt11_amount_msats(t.tag ->> 1) AS bolt11_amount
+            FROM jsonb_array_elements(ne.tags) AS t(tag)
+            WHERE t.tag ->> 0 = 'bolt11'
+              AND length(t.tag ->> 1) > 0
+            LIMIT 1
+        ) AS bolt11_data ON TRUE
+        WHERE ne.kind = 9735
+          AND ne.tags IS NOT NULL
+    ),
+    delta AS (
+        SELECT target_address, COUNT(*) AS cnt, COALESCE(SUM(claimed_amount), 0) AS amt
+        FROM zap_data
+        WHERE target_address IS NOT NULL
+          AND bolt11_amount IS NOT NULL
+          AND claimed_amount = bolt11_amount
+        GROUP BY target_address
+    )
+    INSERT INTO nip85_addressable_stats (event_address, author_pubkey, zap_count, zap_amount)
+    SELECT target_address, split_part(target_address, ':', 2), cnt, amt
+    FROM delta
+    ON CONFLICT (event_address) DO UPDATE SET
+        zap_count  = nip85_addressable_stats.zap_count + EXCLUDED.zap_count,
+        zap_amount = nip85_addressable_stats.zap_amount + EXCLUDED.zap_amount;
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
+
+    -- 6. Zaps on addressable events fallback (tagvalues-only, count-only)
+    WITH fallback_data AS (
+        SELECT
+            COALESCE(last_a.target_address, last_e.target_address) AS target_address
+        FROM _nip85_new_events_addr AS ne
+        LEFT JOIN LATERAL (
+            SELECT normalize_event_address(substring(t.tv FROM 3)) AS target_address
+            FROM unnest(ne.tagvalues) WITH ORDINALITY AS t(tv, ord)
+            WHERE t.tv LIKE 'a:%'
+            ORDER BY ord DESC
+            LIMIT 1
+        ) AS last_a ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT event_address(te.kind, te.pubkey, te.tags, te.tagvalues) AS target_address
+            FROM LATERAL (
+                SELECT LOWER(substring(t.tv FROM 3)) AS target_event
+                FROM unnest(ne.tagvalues) WITH ORDINALITY AS t(tv, ord)
+                WHERE t.tv LIKE 'e:%'
+                ORDER BY ord DESC
+                LIMIT 1
+            ) AS last_e_tag
+            INNER JOIN event AS te
+                ON last_e_tag.target_event ~ '^[0-9a-f]{64}$'
+               AND te.id = DECODE(last_e_tag.target_event, 'hex')
+        ) AS last_e ON TRUE
+        WHERE ne.kind = 9735
+          AND ne.tags IS NULL
+    ),
+    delta AS (
+        SELECT target_address, COUNT(*) AS cnt
+        FROM fallback_data
+        WHERE target_address IS NOT NULL
+        GROUP BY target_address
+    )
+    INSERT INTO nip85_addressable_stats (event_address, author_pubkey, zap_count)
+    SELECT target_address, split_part(target_address, ':', 2), cnt
+    FROM delta
+    ON CONFLICT (event_address) DO UPDATE SET
+        zap_count = nip85_addressable_stats.zap_count + EXCLUDED.zap_count;
+    GET DIAGNOSTICS v_partial = ROW_COUNT;
+    v_rows := v_rows + v_partial;
+
+    DROP TABLE IF EXISTS _nip85_new_events_addr;
+    RETURN v_rows;
+END;
+$$;
+
+COMMENT ON FUNCTION nip85_addressable_stats_refresh(BIGINT, BIGINT) IS
+'Incremental refresh of NIP-85 per-addressable-event engagement metrics. Uses reply-marker precision when full tags exist and otherwise falls back to ordered tagvalues.';
+
+
+/*
+ * nip85_identifier_stats_refresh(p_after, p_until) -> INTEGER
+ *
+ * Processes truly new events to update per-identifier engagement metrics for
+ * NIP-73 ``i`` tags. Counts are maintained for:
+ * - kind=1 comments
+ * - kind=7 reactions
+ *
+ * ``k`` tags are collected as a sorted deduplicated set per identifier.
+ */
+CREATE OR REPLACE FUNCTION nip85_identifier_stats_refresh(
+    p_after BIGINT,
+    p_until BIGINT
+) RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_rows INTEGER := 0;
+BEGIN
+    WITH new_events AS (
+        SELECT DISTINCT e.id, e.kind, e.tagvalues
+        FROM event_relay AS er
+        INNER JOIN event AS e ON er.event_id = e.id
+        WHERE er.seen_at > p_after AND er.seen_at <= p_until
+          AND e.kind IN (1, 7)
+          AND NOT EXISTS (
+              SELECT 1 FROM event_relay AS older
+              WHERE older.event_id = er.event_id
+                AND older.seen_at <= p_after
+          )
+    ),
+    source_identifiers AS (
+        SELECT DISTINCT
+            ENCODE(ne.id, 'hex') AS source_event_id,
+            ne.kind,
+            substring(tv FROM 3) AS identifier
+        FROM new_events AS ne,
+             unnest(ne.tagvalues) AS tv
+        WHERE tv LIKE 'i:%'
+    ),
+    delta AS (
+        SELECT
+            identifier,
+            COUNT(*) FILTER (WHERE kind = 1) AS comment_cnt,
+            COUNT(*) FILTER (WHERE kind = 7) AS reaction_cnt,
+            COALESCE(
+                ARRAY(
+                    SELECT DISTINCT substring(k_tv FROM 3)
+                    FROM source_identifiers AS si2
+                    INNER JOIN new_events AS ne2
+                        ON ENCODE(ne2.id, 'hex') = si2.source_event_id
+                    CROSS JOIN LATERAL unnest(ne2.tagvalues) AS k_tv
+                    WHERE si2.identifier = si.identifier
+                      AND k_tv LIKE 'k:%'
+                    ORDER BY substring(k_tv FROM 3)
+                ),
+                '{}'::TEXT[]
+            ) AS k_tags
+        FROM source_identifiers AS si
+        GROUP BY identifier
+    )
+    INSERT INTO nip85_identifier_stats (identifier, comment_count, reaction_count, k_tags)
+    SELECT identifier, comment_cnt, reaction_cnt, k_tags
+    FROM delta
+    ON CONFLICT (identifier) DO UPDATE SET
+        comment_count = nip85_identifier_stats.comment_count + EXCLUDED.comment_count,
+        reaction_count = nip85_identifier_stats.reaction_count + EXCLUDED.reaction_count,
+        k_tags = ARRAY(
+            SELECT DISTINCT tag
+            FROM unnest(nip85_identifier_stats.k_tags || EXCLUDED.k_tags) AS tag
+            ORDER BY tag
+        );
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    RETURN v_rows;
+END;
+$$;
+
+COMMENT ON FUNCTION nip85_identifier_stats_refresh(BIGINT, BIGINT) IS
+'Incremental refresh of NIP-85 per-identifier engagement metrics derived from NIP-73 i/k tags.';
+
+
 -- **************************************************************************
 -- NIP-85 PERIODIC REFRESH
 -- **************************************************************************

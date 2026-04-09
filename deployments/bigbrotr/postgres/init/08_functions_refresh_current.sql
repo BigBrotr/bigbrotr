@@ -230,27 +230,13 @@ BEGIN
             e.content,
             e.sig,
             seen.first_seen_at,
-            COALESCE(d_exact.val, d_fallback.val, '') AS d_tag
+            event_d_tag(e.tags, e.tagvalues) AS d_tag
         FROM new_events AS e
         INNER JOIN LATERAL (
             SELECT MIN(er.seen_at) AS first_seen_at
             FROM event_relay AS er
             WHERE er.event_id = e.id
         ) AS seen ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT t.tag ->> 1 AS val
-            FROM jsonb_array_elements(e.tags) WITH ORDINALITY AS t(tag, ord)
-            WHERE t.tag ->> 0 = 'd'
-            ORDER BY ord
-            LIMIT 1
-        ) AS d_exact ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT substring(t.tv FROM 3) AS val
-            FROM unnest(e.tagvalues) WITH ORDINALITY AS t(tv, ord)
-            WHERE t.tv LIKE 'd:%'
-            ORDER BY ord
-            LIMIT 1
-        ) AS d_fallback ON TRUE
     ),
     delta AS (
         SELECT DISTINCT ON (e.pubkey, e.kind, e.d_tag)
