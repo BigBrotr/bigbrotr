@@ -466,11 +466,12 @@ Each target is isolated by default: one failed refresh does not stop the rest of
 |-------|------|---------|-------------|
 | `algorithm_id` | string | `global-pagerank-v1` | Stable namespace for checkpoint keys and provider identity |
 | `keys.keys_env` | string | `NOSTR_PRIVATE_KEY_ASSERTOR` | Environment variable that supplies the signing key |
-| `relays` | list[string] | 3 public relays | Relays used for NIP-85 publishing |
-| `kinds` | list[int] | `[30382, 30383, 30384, 30385]` | Assertion kinds to publish |
-| `batch_size` | int | `500` | Maximum eligible subjects per cycle |
-| `min_events` | int | `1` | Minimum total events required for user assertions |
-| `top_topics` | int | `5` | Maximum topic tags included in user assertions |
+| `publishing.relays` | list[string] | 3 public relays | Relays used for NIP-85 publishing |
+| `selection.kinds` | list[int] | `[30382, 30383, 30384, 30385]` | Assertion kinds to publish |
+| `selection.batch_size` | int | `500` | Maximum eligible subjects per cycle |
+| `selection.min_events` | int | `1` | Minimum total events required for user assertions |
+| `selection.top_topics` | int | `5` | Maximum topic tags included in user assertions |
+| `cleanup.remove_stale_checkpoints` | bool | `true` | Remove stale v2 checkpoints after each cycle |
 | `provider_profile.enabled` | bool | `false` | Publish a Kind 0 provider profile for the assertor identity |
 
 !!! note "Assertor Key Lifecycle"
@@ -622,7 +623,7 @@ For complete configuration details including all fields, defaults, constraints, 
 | Synchronizer | `filters`, `limit`, `timeouts.max_duration` | Archival throughput and scope |
 | Refresher | `views`, `interval` | Which views to refresh and how often |
 | Ranker | `algorithm_id`, `graph.*`, `export.batch_size` | PageRank namespace, graph behavior, and snapshot export throughput |
-| Assertor | `algorithm_id`, `kinds`, `provider_profile.enabled` | Assertion namespace, publish scope, and provider identity |
+| Assertor | `algorithm_id`, `selection.kinds`, `provider_profile.enabled` | Assertion namespace, publish scope, and provider identity |
 | Api | `tables`, `max_page_size`, `cors_origins` | Which tables to expose and pagination limits |
 | Dvm | `relays`, `tables`, `kind` | Which relays to listen on and tables to serve |
 

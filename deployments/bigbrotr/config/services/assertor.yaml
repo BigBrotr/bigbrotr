@@ -18,15 +18,19 @@ keys:
 
 interval: 3600.0
 
-batch_size: 500
-min_events: 5
-top_topics: 5
+selection:
+  batch_size: 500
+  min_events: 5
+  top_topics: 5
+  kinds:
+    - 30382
+    - 30383
+    - 30384
+    - 30385
 
-kinds:
-  - 30382
-  - 30383
-  - 30384
-  - 30385
+cleanup:
+  remove_legacy_checkpoints: true
+  remove_stale_checkpoints: true
 
 provider_profile:
   enabled: true

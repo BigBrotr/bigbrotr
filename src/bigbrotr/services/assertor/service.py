@@ -12,10 +12,8 @@ algorithm-aware v2 runtime contract:
 
 from __future__ import annotations
 
-import hashlib
-import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import asyncpg
@@ -46,6 +44,14 @@ from .queries import (
     fetch_identifier_rows,
     fetch_user_rows,
 )
+from .utils import (
+    PROVIDER_PROFILE_SUBJECT_ID,
+    build_state_key,
+    content_hash,
+    is_legacy_checkpoint_key,
+    parse_v2_checkpoint_key,
+    provider_profile_content,
+)
 
 
 if TYPE_CHECKING:
@@ -57,22 +63,69 @@ if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
 
 
-_LEGACY_CHECKPOINT_PREFIXES = ("user:", "event:")
-_PROFILE_SUBJECT_ID = "provider_profile"
-_V2_CHECKPOINT_PARTS = 4
+@dataclass(frozen=True, slots=True)
+class PublishKindResult:
+    """Outcome of publishing one assertor subject kind."""
+
+    eligible: int = 0
+    published: int = 0
+    skipped: int = 0
+    failed: int = 0
+    duration_seconds: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
 class PublishCycleResult:
     """Outcome of one assertor publish cycle."""
 
-    assertions_published: int = 0
-    assertions_skipped: int = 0
-    assertions_failed: int = 0
-    provider_profiles_published: int = 0
-    provider_profiles_skipped: int = 0
-    provider_profiles_failed: int = 0
+    user: PublishKindResult = field(default_factory=PublishKindResult)
+    event: PublishKindResult = field(default_factory=PublishKindResult)
+    addressable: PublishKindResult = field(default_factory=PublishKindResult)
+    identifier: PublishKindResult = field(default_factory=PublishKindResult)
+    provider_profile: PublishKindResult = field(default_factory=PublishKindResult)
     checkpoint_cleanup_removed: int = 0
+
+    @property
+    def assertions_published(self) -> int:
+        """Total assertion events published across NIP-85 subject kinds."""
+        return (
+            self.user.published
+            + self.event.published
+            + self.addressable.published
+            + self.identifier.published
+        )
+
+    @property
+    def assertions_skipped(self) -> int:
+        """Total unchanged assertion events skipped across NIP-85 subject kinds."""
+        return (
+            self.user.skipped
+            + self.event.skipped
+            + self.addressable.skipped
+            + self.identifier.skipped
+        )
+
+    @property
+    def assertions_failed(self) -> int:
+        """Total assertion events that failed to publish across NIP-85 subject kinds."""
+        return (
+            self.user.failed + self.event.failed + self.addressable.failed + self.identifier.failed
+        )
+
+    @property
+    def provider_profiles_published(self) -> int:
+        """Provider profile events published in this cycle."""
+        return self.provider_profile.published
+
+    @property
+    def provider_profiles_skipped(self) -> int:
+        """Provider profile events skipped in this cycle."""
+        return self.provider_profile.skipped
+
+    @property
+    def provider_profiles_failed(self) -> int:
+        """Provider profile events that failed in this cycle."""
+        return self.provider_profile.failed
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,7 +160,7 @@ class Assertor(BaseService[AssertorConfig]):
 
         client = await create_client(
             keys=keys,
-            allow_insecure=self._config.allow_insecure,
+            allow_insecure=self._config.publishing.allow_insecure,
         )
         self._client = client
 
@@ -118,12 +171,14 @@ class Assertor(BaseService[AssertorConfig]):
             algorithm_id=self._config.algorithm_id,
         )
 
-        for relay in self._config.relays:
+        for relay in self._config.publishing.relays:
             await client.add_relay(RelayUrl.parse(relay.url))
             self._logger.info("relay_added", url=relay.url)
         await client.connect()
 
-        removed = await self._purge_legacy_checkpoints()
+        removed = 0
+        if self._config.cleanup.remove_legacy_checkpoints:
+            removed = await self._purge_legacy_checkpoints()
         self._logger.info(
             "legacy_checkpoint_cleanup_completed",
             removed=removed,
@@ -161,73 +216,109 @@ class Assertor(BaseService[AssertorConfig]):
 
         self._cycle_seen_state_keys = set()
 
-        published = 0
-        skipped = 0
-        failed = 0
-        profile_published = 0
-        profile_skipped = 0
-        profile_failed = 0
+        user_result = PublishKindResult()
+        event_result = PublishKindResult()
+        addressable_result = PublishKindResult()
+        identifier_result = PublishKindResult()
+        provider_profile_result = PublishKindResult()
 
-        if EventKind.NIP85_USER_ASSERTION in self._config.kinds:
-            p, s, f = await self._publish_user_assertions()
-            published += p
-            skipped += s
-            failed += f
+        if EventKind.NIP85_USER_ASSERTION in self._config.selection.kinds:
+            user_result = await self._publish_timed(self._publish_user_assertions)
 
-        if EventKind.NIP85_EVENT_ASSERTION in self._config.kinds:
-            p, s, f = await self._publish_event_assertions()
-            published += p
-            skipped += s
-            failed += f
+        if EventKind.NIP85_EVENT_ASSERTION in self._config.selection.kinds:
+            event_result = await self._publish_timed(self._publish_event_assertions)
 
-        if EventKind.NIP85_ADDRESSABLE_ASSERTION in self._config.kinds:
-            p, s, f = await self._publish_addressable_assertions()
-            published += p
-            skipped += s
-            failed += f
+        if EventKind.NIP85_ADDRESSABLE_ASSERTION in self._config.selection.kinds:
+            addressable_result = await self._publish_timed(self._publish_addressable_assertions)
 
-        if EventKind.NIP85_IDENTIFIER_ASSERTION in self._config.kinds:
-            p, s, f = await self._publish_identifier_assertions()
-            published += p
-            skipped += s
-            failed += f
+        if EventKind.NIP85_IDENTIFIER_ASSERTION in self._config.selection.kinds:
+            identifier_result = await self._publish_timed(self._publish_identifier_assertions)
 
         if self._provider_profile_enabled():
-            (
-                profile_published,
-                profile_skipped,
-                profile_failed,
-            ) = await self._publish_provider_profile()
+            provider_profile_result = await self._publish_timed(self._publish_provider_profile)
 
-        removed = await self._delete_stale_v2_checkpoints()
+        cleanup_start = time.monotonic()
+        removed = 0
+        if self._config.cleanup.remove_stale_checkpoints:
+            removed = await self._delete_stale_v2_checkpoints()
+        cleanup_duration = time.monotonic() - cleanup_start
 
-        self.set_gauge("assertions_published", published)
-        self.set_gauge("assertions_skipped", skipped)
-        self.set_gauge("assertions_failed", failed)
-        self.set_gauge("provider_profiles_published", profile_published)
-        self.set_gauge("provider_profiles_skipped", profile_skipped)
-        self.set_gauge("provider_profiles_failed", profile_failed)
-        self.set_gauge("checkpoint_cleanup_removed", removed)
+        result = PublishCycleResult(
+            user=user_result,
+            event=event_result,
+            addressable=addressable_result,
+            identifier=identifier_result,
+            provider_profile=provider_profile_result,
+            checkpoint_cleanup_removed=removed,
+        )
+        self._emit_publish_metrics(result, cleanup_duration=cleanup_duration)
         self._logger.info(
             "cycle_completed",
             algorithm_id=self._config.algorithm_id,
+            published=result.assertions_published,
+            skipped=result.assertions_skipped,
+            failed=result.assertions_failed,
+            provider_profiles_published=result.provider_profiles_published,
+            provider_profiles_skipped=result.provider_profiles_skipped,
+            provider_profiles_failed=result.provider_profiles_failed,
+            checkpoints_removed=result.checkpoint_cleanup_removed,
+        )
+
+        return result
+
+    async def _publish_timed(
+        self,
+        publish_func: Callable[[], Awaitable[tuple[int, int, int]]],
+    ) -> PublishKindResult:
+        """Run one publish branch and return counts plus duration."""
+        phase_start = time.monotonic()
+        published, skipped, failed = await publish_func()
+        return PublishKindResult(
+            eligible=published + skipped + failed,
             published=published,
             skipped=skipped,
             failed=failed,
-            provider_profiles_published=profile_published,
-            provider_profiles_skipped=profile_skipped,
-            provider_profiles_failed=profile_failed,
-            checkpoints_removed=removed,
+            duration_seconds=time.monotonic() - phase_start,
         )
 
-        return PublishCycleResult(
-            assertions_published=published,
-            assertions_skipped=skipped,
-            assertions_failed=failed,
-            provider_profiles_published=profile_published,
-            provider_profiles_skipped=profile_skipped,
-            provider_profiles_failed=profile_failed,
-            checkpoint_cleanup_removed=removed,
+    def _emit_publish_metrics(
+        self,
+        result: PublishCycleResult,
+        *,
+        cleanup_duration: float,
+    ) -> None:
+        """Emit aggregate and per-kind publish metrics from the cycle result."""
+        self.set_gauge("assertions_published", result.assertions_published)
+        self.set_gauge("assertions_skipped", result.assertions_skipped)
+        self.set_gauge("assertions_failed", result.assertions_failed)
+        self.set_gauge("provider_profiles_published", result.provider_profiles_published)
+        self.set_gauge("provider_profiles_skipped", result.provider_profiles_skipped)
+        self.set_gauge("provider_profiles_failed", result.provider_profiles_failed)
+        self.set_gauge("checkpoint_cleanup_removed", result.checkpoint_cleanup_removed)
+        self.set_gauge("stale_checkpoints_removed", result.checkpoint_cleanup_removed)
+        self.set_gauge("phase_duration_cleanup_seconds", cleanup_duration)
+
+        for subject_kind, kind_result in (
+            ("user", result.user),
+            ("event", result.event),
+            ("addressable", result.addressable),
+            ("identifier", result.identifier),
+        ):
+            self.set_gauge(f"{subject_kind}_assertions_eligible", kind_result.eligible)
+            self.set_gauge(f"{subject_kind}_assertions_published", kind_result.published)
+            self.set_gauge(f"{subject_kind}_assertions_skipped", kind_result.skipped)
+            self.set_gauge(f"{subject_kind}_assertions_failed", kind_result.failed)
+            self.set_gauge(
+                f"phase_duration_{subject_kind}_seconds",
+                kind_result.duration_seconds,
+            )
+
+        self.set_gauge("provider_profile_published", result.provider_profile.published)
+        self.set_gauge("provider_profile_skipped", result.provider_profile.skipped)
+        self.set_gauge("provider_profile_failed", result.provider_profile.failed)
+        self.set_gauge(
+            "phase_duration_provider_profile_seconds",
+            result.provider_profile.duration_seconds,
         )
 
     async def _publish_user_assertions(self) -> tuple[int, int, int]:
@@ -237,12 +328,12 @@ class Assertor(BaseService[AssertorConfig]):
             rows = await fetch_user_rows(
                 self._brotr,
                 self._config.algorithm_id,
-                self._config.min_events,
-                self._config.batch_size,
+                self._config.selection.min_events,
+                self._config.selection.batch_size,
                 offset,
             )
             for row in rows:
-                row["top_topics_limit"] = self._config.top_topics
+                row["top_topics_limit"] = self._config.selection.top_topics
             return rows
 
         return await self._publish_assertion_rows(
@@ -265,7 +356,7 @@ class Assertor(BaseService[AssertorConfig]):
                 fetch_rows=lambda offset: fetch_event_rows(
                     self._brotr,
                     self._config.algorithm_id,
-                    self._config.batch_size,
+                    self._config.selection.batch_size,
                     offset,
                 ),
                 assertion_from_row=EventAssertion.from_db_row,
@@ -284,7 +375,7 @@ class Assertor(BaseService[AssertorConfig]):
                 fetch_rows=lambda offset: fetch_addressable_rows(
                     self._brotr,
                     self._config.algorithm_id,
-                    self._config.batch_size,
+                    self._config.selection.batch_size,
                     offset,
                 ),
                 assertion_from_row=AddressableAssertion.from_db_row,
@@ -303,7 +394,7 @@ class Assertor(BaseService[AssertorConfig]):
                 fetch_rows=lambda offset: fetch_identifier_rows(
                     self._brotr,
                     self._config.algorithm_id,
-                    self._config.batch_size,
+                    self._config.selection.batch_size,
                     offset,
                 ),
                 assertion_from_row=IdentifierAssertion.from_db_row,
@@ -332,7 +423,11 @@ class Assertor(BaseService[AssertorConfig]):
             for row in rows:
                 assertion = plan.assertion_from_row(row)
                 subject_id = plan.subject_getter(assertion)
-                state_key = self._state_key(plan.kind, subject_id)
+                state_key = build_state_key(
+                    algorithm_id=self._config.algorithm_id,
+                    kind=plan.kind,
+                    subject_id=subject_id,
+                )
                 self._mark_seen_state_key(state_key)
                 current_hash = assertion.tags_hash()
 
@@ -359,30 +454,41 @@ class Assertor(BaseService[AssertorConfig]):
                         },
                     )
 
-            if len(rows) < self._config.batch_size:
+            if len(rows) < self._config.selection.batch_size:
                 break
-            offset += self._config.batch_size
+            offset += self._config.selection.batch_size
 
         return published, skipped, failed
 
     async def _publish_provider_profile(self) -> tuple[int, int, int]:
         """Publish the optional Kind 0 provider profile when its content changes."""
-        state_key = self._state_key(EventKind.SET_METADATA, _PROFILE_SUBJECT_ID)
+        state_key = build_state_key(
+            algorithm_id=self._config.algorithm_id,
+            kind=EventKind.SET_METADATA,
+            subject_id=PROVIDER_PROFILE_SUBJECT_ID,
+        )
         self._mark_seen_state_key(state_key)
 
-        content = self._provider_profile_content()
-        current_hash = self._content_hash(content)
+        kind0 = self._config.provider_profile.kind0_content
+        content = provider_profile_content(
+            algorithm_id=self._config.algorithm_id,
+            kind0_content=kind0,
+        )
+        current_hash = content_hash(content)
         if await self._is_unchanged(state_key, current_hash):
             return 0, 1, 0
 
-        kind0 = self._config.provider_profile.kind0_content
+        base_profile_fields = {
+            "name",
+            "about",
+            "website",
+            "picture",
+            "nip05",
+            "banner",
+            "lud16",
+        }
         extra_fields = {
-            "algorithm_id": self._config.algorithm_id,
-            **{
-                key: value
-                for key, value in kind0.extra_fields.items()
-                if value is not None and key != "algorithm_id"
-            },
+            key: value for key, value in content.items() if key not in base_profile_fields
         }
 
         try:
@@ -420,40 +526,6 @@ class Assertor(BaseService[AssertorConfig]):
             )
             return 0, 0, 1
 
-    def _provider_profile_content(self) -> dict[str, Any]:
-        """Return the effective Kind 0 content for the provider profile."""
-        cfg = self._config.provider_profile.kind0_content
-        content: dict[str, Any] = {
-            "name": cfg.name,
-            "about": cfg.about,
-            "website": cfg.website,
-            "algorithm_id": self._config.algorithm_id,
-        }
-
-        optional_fields = {
-            "picture": cfg.picture,
-            "nip05": cfg.nip05,
-            "banner": cfg.banner,
-            "lud16": cfg.lud16,
-        }
-        content.update({key: value for key, value in optional_fields.items() if value is not None})
-
-        for key, value in cfg.extra_fields.items():
-            if key and value is not None and key not in content:
-                content[key] = value
-
-        return content
-
-    def _content_hash(self, content: dict[str, Any]) -> str:
-        """Compute a stable SHA-256 hash for JSON profile content."""
-        return hashlib.sha256(
-            json.dumps(content, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
-
-    def _state_key(self, kind: int, subject_id: str) -> str:
-        """Build the v2 checkpoint key for one algorithm/kind/subject tuple."""
-        return f"v2:{self._config.algorithm_id}:{int(kind)}:{subject_id}"
-
     def _mark_seen_state_key(self, state_key: str) -> None:
         """Track checkpoints that were still eligible in the current cycle."""
         if not hasattr(self, "_cycle_seen_state_keys"):
@@ -471,9 +543,7 @@ class Assertor(BaseService[AssertorConfig]):
             ServiceName.ASSERTOR,
             ServiceStateType.CHECKPOINT,
         )
-        stale = [
-            state for state in states if state.state_key.startswith(_LEGACY_CHECKPOINT_PREFIXES)
-        ]
+        stale = [state for state in states if is_legacy_checkpoint_key(state.state_key)]
         if not stale:
             return 0
 
@@ -489,13 +559,13 @@ class Assertor(BaseService[AssertorConfig]):
             ServiceName.ASSERTOR,
             ServiceStateType.CHECKPOINT,
         )
-        configured_kinds = {int(kind) for kind in self._config.kinds}
+        configured_kinds = {int(kind) for kind in self._config.selection.kinds}
         if self._provider_profile_enabled():
             configured_kinds.add(int(EventKind.SET_METADATA))
 
         stale: list[ServiceState] = []
         for state in states:
-            parsed = self._parse_v2_checkpoint_key(state.state_key)
+            parsed = parse_v2_checkpoint_key(state.state_key)
             if parsed is None:
                 continue
 
@@ -519,21 +589,6 @@ class Assertor(BaseService[AssertorConfig]):
             algorithm_id=self._config.algorithm_id,
         )
         return deleted
-
-    def _parse_v2_checkpoint_key(self, state_key: str) -> tuple[str, int, str] | None:
-        """Parse ``v2:<algorithm_id>:<kind>:<subject_id>`` keys.
-
-        ``subject_id`` may itself contain ``:`` characters, so parsing stops after
-        the first three separators.
-        """
-        parts = state_key.split(":", 3)
-        if len(parts) != _V2_CHECKPOINT_PARTS or parts[0] != "v2":
-            return None
-        try:
-            kind = int(parts[2])
-        except ValueError:
-            return None
-        return parts[1], kind, parts[3]
 
     async def _is_unchanged(self, subject: str, current_hash: str) -> bool:
         """Check if the assertion/profile for this subject has the same hash as last published."""

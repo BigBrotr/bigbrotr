@@ -843,22 +843,27 @@ metrics:
 algorithm_id: global-pagerank-v1
 keys:
   keys_env: NOSTR_PRIVATE_KEY_ASSERTOR
-allow_insecure: false
 
-relays:
-  - wss://relay.damus.io
-  - wss://nos.lol
-  - wss://relay.primal.net
+publishing:
+  allow_insecure: false
+  relays:
+    - wss://relay.damus.io
+    - wss://nos.lol
+    - wss://relay.primal.net
 
-kinds:
-  - 30382
-  - 30383
-  - 30384
-  - 30385
+selection:
+  kinds:
+    - 30382
+    - 30383
+    - 30384
+    - 30385
+  batch_size: 500
+  min_events: 1
+  top_topics: 5
 
-batch_size: 500
-min_events: 1
-top_topics: 5
+cleanup:
+  remove_legacy_checkpoints: true
+  remove_stale_checkpoints: true
 
 provider_profile:
   enabled: false
@@ -885,12 +890,14 @@ set both variables to the same private key value.
 |-------|------|---------|-------|-------------|
 | `algorithm_id` | string | `global-pagerank-v1` | lowercase slug | Stable algorithm/service-key namespace used in v2 checkpoint keys |
 | `keys.keys_env` | string | `NOSTR_PRIVATE_KEY_ASSERTOR` | non-empty | Environment variable from which the signing key is loaded |
-| `relays` | list[string] | 3 public relays | min 1 | Relay URLs used for NIP-85 publishing |
-| `kinds` | list[int] | `[30382, 30383, 30384, 30385]` | subset of supported kinds | Assertion kinds to publish |
-| `batch_size` | int | `500` | 1-50000 | Maximum eligible subjects fetched per cycle |
-| `min_events` | int | `1` | >= 0 | Minimum total events required for user assertions |
-| `top_topics` | int | `5` | 0-50 | Maximum number of topic tags per user assertion |
-| `allow_insecure` | bool | `false` | - | Fall back to insecure SSL transport on relay certificate failure |
+| `publishing.relays` | list[string] | 3 public relays | min 1 | Relay URLs used for NIP-85 publishing |
+| `publishing.allow_insecure` | bool | `false` | - | Fall back to insecure SSL transport on relay certificate failure |
+| `selection.kinds` | list[int] | `[30382, 30383, 30384, 30385]` | subset of supported kinds | Assertion kinds to publish |
+| `selection.batch_size` | int | `500` | 1-50000 | Maximum eligible subjects fetched per cycle |
+| `selection.min_events` | int | `1` | >= 0 | Minimum total events required for user assertions |
+| `selection.top_topics` | int | `5` | 0-50 | Maximum number of topic tags per user assertion |
+| `cleanup.remove_legacy_checkpoints` | bool | `true` | - | Delete legacy pre-v2 assertor checkpoints at startup |
+| `cleanup.remove_stale_checkpoints` | bool | `true` | - | Delete v2 checkpoints for subjects no longer eligible in the current cycle |
 | `provider_profile.enabled` | bool | `false` | - | Publish a Kind 0 provider profile for the assertor identity |
 | `provider_profile.kind0_content.*` | object | defaults | - | Metadata fields for the provider profile content |
 
