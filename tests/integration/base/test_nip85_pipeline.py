@@ -257,7 +257,7 @@ def _make_ranker_config(tmp_path: Path, algorithm_id: str) -> RankerConfig:
         {
             "metrics": {"enabled": False},
             "algorithm_id": algorithm_id,
-            "db": {
+            "storage": {
                 "path": tmp_path / "ranker.duckdb",
                 "checkpoint_path": tmp_path / "ranker.checkpoint.json",
             },
@@ -273,8 +273,8 @@ def _make_assertor_config(algorithm_id: str) -> AssertorConfig:
             "metrics": {"enabled": False},
             "algorithm_id": algorithm_id,
             "keys": {"keys_env": "NOSTR_PRIVATE_KEY_ASSERTOR"},
-            "relays": ["wss://relay.damus.io"],
-            "kinds": [30382, 30383, 30384, 30385],
+            "publishing": {"relays": ["wss://relay.damus.io"]},
+            "selection": {"kinds": [30382, 30383, 30384, 30385]},
             "provider_profile": {
                 "enabled": True,
                 "kind0_content": {
