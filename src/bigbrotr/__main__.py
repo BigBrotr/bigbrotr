@@ -31,6 +31,7 @@ from bigbrotr.services.assertor import Assertor
 from bigbrotr.services.dvm import Dvm
 from bigbrotr.services.finder import Finder
 from bigbrotr.services.monitor import Monitor
+from bigbrotr.services.ranker import Ranker
 from bigbrotr.services.refresher import Refresher
 from bigbrotr.services.seeder import Seeder
 from bigbrotr.services.synchronizer import Synchronizer
@@ -54,6 +55,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
     ServiceName.VALIDATOR: ServiceEntry(Validator, CONFIG_BASE / "services" / "validator.yaml"),
     ServiceName.MONITOR: ServiceEntry(Monitor, CONFIG_BASE / "services" / "monitor.yaml"),
     ServiceName.REFRESHER: ServiceEntry(Refresher, CONFIG_BASE / "services" / "refresher.yaml"),
+    ServiceName.RANKER: ServiceEntry(Ranker, CONFIG_BASE / "services" / "ranker.yaml"),
     ServiceName.SYNCHRONIZER: ServiceEntry(
         Synchronizer, CONFIG_BASE / "services" / "synchronizer.yaml"
     ),

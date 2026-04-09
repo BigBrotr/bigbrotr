@@ -44,7 +44,7 @@ Deployments (`deployments/{bigbrotr,lilbrotr}/`) sit outside the package and con
 | `NetworkType` | `constants.py` | `clearnet`, `tor`, `i2p`, `loki`, `local`, `unknown` |
 | `MetadataType` | `metadata.py` | `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
 | `ServiceStateType` | `service_state.py` | `checkpoint`, `cursor` |
-| `ServiceName` | `constants.py` | `seeder`, `finder`, `validator`, `monitor`, `synchronizer`, `refresher`, `api`, `dvm` |
+| `ServiceName` | `constants.py` | `seeder`, `finder`, `validator`, `monitor`, `synchronizer`, `refresher`, `ranker`, `api`, `dvm`, `assertor` |
 | `EventKind` | `constants.py` | `SET_METADATA=0`, `RECOMMEND_RELAY=2`, `CONTACTS=3`, `RELAY_LIST=10002`, `NIP66_TEST=22456`, `MONITOR_ANNOUNCEMENT=10166`, `RELAY_DISCOVERY=30166` |
 
 ### Model Patterns
@@ -213,7 +213,7 @@ class BrotrConfig(BaseModel):
 
 ### BaseService (`base_service.py`)
 
-Abstract base class for all nine services. Generic over configuration type.
+Abstract base class for all ten services. Generic over configuration type.
 
 ```python
 class BaseService(ABC, Generic[ConfigT]):
@@ -410,7 +410,7 @@ flowchart TD
 
 ### Service Architecture Pattern
 
-All nine services follow the same pattern:
+All ten services follow the same pattern:
 
 ```python
 class MyService(BaseService[MyServiceConfig]):

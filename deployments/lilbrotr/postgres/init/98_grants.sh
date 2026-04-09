@@ -3,6 +3,7 @@
 # Writer:    full DML + EXECUTE on data tables/functions.
 # Reader:    SELECT-only access for API, DVM, and monitoring.
 # Refresher: SELECT on source tables + DML on derived tables.
+# Ranker:    SELECT on canonical facts tables only.
 # Uses ALTER DEFAULT PRIVILEGES so future objects inherit the same grants.
 
 set -euo pipefail
@@ -10,6 +11,7 @@ set -euo pipefail
 WRITER_ROLE="writer"
 READER_ROLE="reader"
 REFRESHER_ROLE="refresher"
+RANKER_ROLE="ranker"
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
     -- Writer: full DML + function execution
@@ -41,6 +43,15 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
         GRANT SELECT ON TABLES TO ${REFRESHER_ROLE};
     ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA public
         GRANT EXECUTE ON FUNCTIONS TO ${REFRESHER_ROLE};
+
+    -- Ranker: read-only access to canonical follow-graph and NIP-85 facts
+    GRANT USAGE ON SCHEMA public TO ${RANKER_ROLE};
+    GRANT SELECT ON contact_lists_current TO ${RANKER_ROLE};
+    GRANT SELECT ON contact_list_edges_current TO ${RANKER_ROLE};
+    GRANT SELECT ON nip85_pubkey_stats TO ${RANKER_ROLE};
+    GRANT SELECT ON nip85_event_stats TO ${RANKER_ROLE};
+    GRANT SELECT ON nip85_addressable_stats TO ${RANKER_ROLE};
+    GRANT SELECT ON nip85_identifier_stats TO ${RANKER_ROLE};
 
     -- Current-state tables + analytics tables: DML required for incremental refresh
     GRANT INSERT, UPDATE, DELETE ON daily_counts TO ${REFRESHER_ROLE};
@@ -93,5 +104,5 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     -- Monitoring: pg_monitor grants read access to system statistics (WAL, replication)
     GRANT pg_monitor TO ${READER_ROLE};
 
-    DO \$\$ BEGIN RAISE NOTICE 'Grants applied: % (writer), % (reader), % (refresher)', '${WRITER_ROLE}', '${READER_ROLE}', '${REFRESHER_ROLE}'; END \$\$;
+    DO \$\$ BEGIN RAISE NOTICE 'Grants applied: % (writer), % (reader), % (refresher), % (ranker)', '${WRITER_ROLE}', '${READER_ROLE}', '${REFRESHER_ROLE}', '${RANKER_ROLE}'; END \$\$;
 EOSQL

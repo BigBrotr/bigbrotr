@@ -31,7 +31,7 @@ A comprehensive, step-by-step guide for deploying BigBrotr on a self-hosted Prox
 │  │     ├── bigbrotr-production/{dumps,exports,analysis}           │  │
 │  │     └── lilbrotr-production/  (future)                         │  │
 │  │                                                                │  │
-│  │  Docker Compose → 16 containers (9 services + 7 infra)        │  │
+│  │  Docker Compose → 17 containers (10 services + 7 infra)       │  │
 │  │  cloudflared  → Cloudflare Tunnel (zero open ports)            │  │
 │  │                                                                │  │
 │  │  PostgreSQL accessible on Proxmox internal network (vmbr0)     │  │

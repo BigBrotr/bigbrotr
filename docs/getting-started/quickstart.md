@@ -184,6 +184,7 @@ python -m bigbrotr validator
 python -m bigbrotr monitor
 python -m bigbrotr synchronizer
 python -m bigbrotr refresher
+python -m bigbrotr ranker
 python -m bigbrotr assertor
 python -m bigbrotr api
 python -m bigbrotr dvm

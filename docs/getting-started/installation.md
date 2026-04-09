@@ -108,7 +108,7 @@ python -m bigbrotr --help
 Expected output:
 
 ```text
-usage: python -m bigbrotr [-h] {seeder,finder,validator,monitor,refresher,synchronizer,api,dvm} ...
+usage: python -m bigbrotr [-h] {seeder,finder,validator,monitor,refresher,ranker,synchronizer,api,dvm,assertor} ...
 
 BigBrotr - Nostr relay discovery, monitoring, and event archiving
 ```

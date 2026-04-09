@@ -1,5 +1,5 @@
 #!/bin/bash
-# Create application database roles (writer + reader + refresher).
+# Create application database roles (writer + reader + refresher + ranker).
 # Idempotent: skips creation if roles already exist.
 
 set -euo pipefail
@@ -7,6 +7,7 @@ set -euo pipefail
 WRITER_ROLE="writer"
 READER_ROLE="reader"
 REFRESHER_ROLE="refresher"
+RANKER_ROLE="ranker"
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
     DO \$\$
@@ -30,6 +31,13 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
             RAISE NOTICE 'Created role: ${REFRESHER_ROLE}';
         ELSE
             RAISE NOTICE 'Role already exists: ${REFRESHER_ROLE}';
+        END IF;
+
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${RANKER_ROLE}') THEN
+            CREATE ROLE ${RANKER_ROLE} LOGIN PASSWORD '${DB_RANKER_PASSWORD}';
+            RAISE NOTICE 'Created role: ${RANKER_ROLE}';
+        ELSE
+            RAISE NOTICE 'Role already exists: ${RANKER_ROLE}';
         END IF;
     END \$\$;
 EOSQL
