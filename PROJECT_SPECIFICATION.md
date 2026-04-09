@@ -2,13 +2,14 @@
 
 ## Executive Summary
 
-BigBrotr is a modular Nostr network observatory — a production-grade, fully asynchronous Python system that discovers, validates, monitors, and archives data from the Nostr relay network, materializes analytics views, and exposes everything through a REST API and a NIP-90 Data Vending Machine. It answers three fundamental questions:
+BigBrotr is a modular Nostr network observatory — a production-grade, fully asynchronous Python system that discovers, validates, monitors, and archives data from the Nostr relay network, derives analytics facts, computes NIP-85 ranks, publishes trusted assertions, and exposes everything through a REST API and a NIP-90 Data Vending Machine. It answers four fundamental questions:
 
 1. **What relays exist on the Nostr network?**
 2. **How healthy are they?**
 3. **What events are they publishing?**
+4. **What NIP-85 facts and ranks can be published as trusted assertions?**
 
-Nine independent async services share a PostgreSQL 18 backend, each deployable and scalable on its own. The system supports clearnet (TLS), Tor (.onion), I2P (.i2p), and Lokinet (.loki) relay networks with per-network concurrency control and proxy routing. Built on Python 3.11+ with strict typing, asyncio, and full Prometheus/Grafana observability.
+Ten independent async services share a PostgreSQL 18 backend, each deployable and scalable on its own. The system supports clearnet (TLS), Tor (.onion), I2P (.i2p), and Lokinet (.loki) relay networks with per-network concurrency control and proxy routing. Built on Python 3.11+ with strict typing, asyncio, and full Prometheus/Grafana observability.
 
 ---
 
@@ -49,7 +50,7 @@ BigBrotr is a **relay observatory** that maps the Nostr relay ecosystem. It oper
 | **Health Monitoring** | Runs 7 health check types per relay: NIP-11 info, round-trip time, SSL certificates, DNS records, geolocation, ASN/network info, HTTP headers. Publishes findings as NIP-66 events. | Content-addressed metadata archive + signed Nostr events |
 | **Event Archiving** | Collects and stores Nostr events from all validated relays with binary-split windowed pagination for completeness guarantees. | Time-series event database with relay attribution |
 
-Additionally, BigBrotr maintains 6 summary tables and 6 materialized views for analytics from accumulated data and exposes everything through a FastAPI REST API and a NIP-90 Data Vending Machine.
+Additionally, BigBrotr maintains summary, current-state, analytics, and NIP-85 rank tables from accumulated data and exposes everything through a FastAPI REST API, a NIP-90 Data Vending Machine, and NIP-85 trusted assertion events.
 
 ### What BigBrotr Publishes
 
@@ -58,6 +59,8 @@ BigBrotr is also a **NIP-66 relay monitor**. It publishes its findings back to t
 - **Kind 10166** (Monitor Announcement): Declares itself as a relay monitor with capabilities, check frequencies, and supported networks.
 - **Kind 30166** (Relay Discovery): Per-relay health reports with RTT, SSL, geo, net, DNS tags. Addressable replaceable event keyed by relay URL.
 - **Kind 0** (Profile): Optional monitor identity profile.
+- **Kinds 30382-30385** (NIP-85 Trusted Assertions): Optional assertion events for users, events, addressable events, and NIP-73 identifiers, signed by algorithm-scoped service keys.
+- **Kind 0** (Provider Profile): Optional NIP-85 provider profile for each assertor service key.
 
 ---
 
@@ -89,13 +92,13 @@ The codebase follows a strict **diamond-shaped Directed Acyclic Graph** for impo
 | `core` | Connection pool with retry, DB facade (Brotr), service base class, structured logging, Prometheus metrics, YAML loading | Database | ~2,746 |
 | `nips` | NIP-11 relay info fetch/parse, NIP-66 health checks (6 types), declarative field parsing, event builders | HTTP, DNS, SSL, WebSocket, GeoIP | ~4,311 |
 | `utils` | WebSocket transport, DNS resolution, Nostr key management, bounded HTTP reads, event streaming with binary-split windowing | Network | ~1,410 |
-| `services` | 9 services + shared queries/mixins/configs/catalog | Orchestration | ~7,774 |
+| `services` | 10 services + shared queries/mixins/configs/catalog | Orchestration | ~11,588 |
 
-**Total source**: 17,863 lines across the `src/bigbrotr/` package.
+**Total source**: 23,126 lines across the `src/bigbrotr/` package.
 
 ### Independent Services, Shared Database
 
-All 9 services are **independent processes** with no direct service-to-service dependencies. They communicate exclusively through the shared PostgreSQL database. Stopping one service does not affect the others.
+All 10 services are **independent processes** with no direct service-to-service dependencies. They communicate exclusively through the shared PostgreSQL database. Stopping one service does not affect the others.
 
 ```
                     ┌───────────────────────────────────────────────┐
@@ -103,34 +106,36 @@ All 9 services are **independent processes** with no direct service-to-service d
                     │                                               │
                     │  relay ─── event_relay ─── event              │
                     │  metadata ─── relay_metadata                  │
-                    │  service_state   6 summary tables + 6 matviews│
+                    │  service_state   summary/current/analytics/rank│
                     └──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬───┘
                        │      │      │      │      │      │      │      │
                        ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼
-                    Seeder Finder Valid. Monitor Sync. Refresh. Api    Dvm
-                       │      │      │      │      │      │      │      │
-                       ▼      ▼      ▼      ▼      ▼      │      ▼      ▼
-                    seed   HTTP   Relays Relays  Relays (no I/O) HTTP  Nostr
-                    file   APIs   (WS)  (NIP-11, (fetch         clients
-                                         NIP-66)  events)          │
-                                           │                       ▼
-                                           ▼                  Nostr Network
-                                      Nostr Network           (kind 5050/
-                                    (kind 10166/30166)          6050)
+                    Seeder Finder Valid. Monitor Sync. Refresh Rank Api Dvm Assert
+                       │      │      │      │      │      │      │   │   │     │
+                       ▼      ▼      ▼      ▼      ▼      │      │   ▼   ▼     ▼
+                    seed   HTTP   Relays Relays  Relays facts Duck HTTP Nostr Nostr
+                    file   APIs   (WS)  (NIP-11, (fetch       DB        clients events
+                                         NIP-66)  events)                    │
+                                           │                                ▼
+                                           ▼                           Nostr Network
+                                      Nostr Network                    (kind 5050/
+                                    (kind 10166/30166)                6050/30382-30385)
 ```
 
 ### Service-Database Interaction Map
 
 ```
-                 relay   event  event_  meta-  relay_    service_  summary tables
-                                relay   data   metadata  state     + matviews
+                 relay   event  event_  meta-  relay_    service_  derived/rank
+                                relay   data   metadata  state     tables
 ─────────────┬────────┬──────┬───────┬──────┬─────────┬─────────┬────────────
 Seeder       │  W(1)  │      │       │      │         │    W    │
 Finder       │   R    │      │   R   │      │         │   R/W   │
 Validator    │   W    │      │       │      │         │   R/W   │
 Monitor      │   R    │      │       │  W   │    W    │   R/W   │
 Synchronizer │   R    │  W   │   W   │      │         │   R/W   │
-Refresher    │        │      │       │      │         │         │     W
+Refresher    │   R    │  R   │   R   │  R   │    R    │   R/W   │     W
+Ranker       │        │      │       │      │         │         │    R/W
+Assertor     │        │      │       │      │         │   R/W   │     R
 Api          │   R    │  R   │   R   │  R   │    R    │         │     R
 Dvm          │   R    │  R   │   R   │  R   │    R    │         │     R
 ─────────────┴────────┴──────┴───────┴──────┴─────────┴─────────┴────────────
@@ -362,7 +367,7 @@ High-level database facade wrapping all stored procedures. All inserts return co
 
 #### BaseService (`core/base_service.py`, 418 LOC)
 
-Abstract base class for all 9 services. Provides lifecycle management, metrics, and graceful shutdown.
+Abstract base class for all 10 services. Provides lifecycle management, metrics, and graceful shutdown.
 
 **`BaseServiceConfig`** (Pydantic):
 - `interval: float` — 60-604800s, default=300 (5 min). Target seconds between cycle starts.
@@ -562,25 +567,57 @@ Services add custom metrics via `set_gauge(name, value)` and `inc_counter(name, 
 
 #### 6. Refresher
 
-**Purpose**: Periodically refresh materialized views in dependency order.
+**Purpose**: Incrementally refresh current-state tables, analytics facts, and periodic reconciliation tasks.
 
 | Property | Value |
 |----------|-------|
 | Execution | Continuous (default 60-min interval) |
-| Input | Configured summary tables (6) and materialized views (6) |
-| Output | Fresh summary table and materialized view data |
+| Input | Core event, relay, metadata, event_relay, and current-state tables |
+| Output | Fresh current-state, summary, analytics, and NIP-85 fact tables |
 
 **Refresh order** (dependency levels):
-1. Summary tables refreshed incrementally via range-based refresh functions: `pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats`
-2. `relay_metadata_latest` (base dependency for level 3)
-3. `relay_software_counts`, `supported_nip_counts`, `daily_counts`, `events_replaceable_latest`, `events_addressable_latest` (bounded, full refresh)
-4. Periodic functions: `rolling_windows_refresh()`, `relay_stats_metadata_refresh()`
+1. Current-state tables refreshed incrementally from source watermarks: `relay_metadata_current`, `events_replaceable_current`, `events_addressable_current`, `contact_lists_current`, `contact_list_edges_current`.
+2. Analytics facts refreshed incrementally in canonical dependency order: summary stats, relay metadata rollups, follow-graph facts, and NIP-85 facts for users, events, addressables, and identifiers.
+3. Periodic reconciliation functions: rolling windows, relay metadata rollups, and NIP-85 follower reconciliation.
 
-Individual view failures do not block subsequent views (error isolation). Serial execution (CONCURRENTLY handles read isolation). No timeout (`refresh=None`). View names regex-validated (SQL injection prevention).
+Each target has its own checkpoint, source watermark, metrics, and error handling. Configured targets are normalized into dependency-safe order; free-form SQL names are not executed directly.
 
-#### 7. Api
+#### 7. Ranker
 
-**Purpose**: Provide read-only HTTP access to all tables, views, and materialized views.
+**Purpose**: Compute deterministic NIP-85 rank snapshots with a private DuckDB working store.
+
+| Property | Value |
+|----------|-------|
+| Execution | Continuous (default 60-min interval) |
+| Input | `contact_lists_current`, `contact_list_edges_current`, NIP-85 engagement facts |
+| Output | `nip85_pubkey_ranks`, `nip85_event_ranks`, `nip85_addressable_ranks`, `nip85_identifier_ranks` |
+
+**Process**:
+1. Synchronize changed contact lists and follow edges from PostgreSQL into DuckDB.
+2. Compute algorithm-scoped PageRank for pubkeys and engagement-derived non-user ranks.
+3. Export bounded rank batches back into PostgreSQL rank snapshot tables.
+4. Persist sync checkpoint state locally and emit per-phase metrics.
+
+#### 8. Assertor
+
+**Purpose**: Publish NIP-85 trusted assertion events for ranked subjects.
+
+| Property | Value |
+|----------|-------|
+| Execution | Continuous (default 60-min interval) |
+| Input | NIP-85 facts joined with algorithm-scoped rank snapshot tables |
+| Output | Nostr events `30382`, `30383`, `30384`, `30385`, optional provider profile kind `0` |
+
+**Process**:
+1. Build a Nostr client from the configured assertor service key.
+2. Fetch eligible user, event, addressable, and identifier rows by `algorithm_id`.
+3. Build NIP-85 assertion events with a `d` tag pointing at the subject.
+4. Hash assertion tags and publish only when content changed.
+5. Persist canonical checkpoints as `<algorithm_id>:<kind>:<subject_id>` and clean stale state for the active algorithm namespace.
+
+#### 9. Api
+
+**Purpose**: Provide read-only HTTP access to all enabled tables and views.
 
 | Property | Value |
 |----------|-------|
@@ -604,7 +641,7 @@ Individual view failures do not block subsequent views (error isolation). Serial
 
 **Safety**: whitelist-by-construction column/table validation via Catalog, type-safe casting, CatalogError → 400 (client-safe messages, no DB internals leaked), `asyncio.wait_for(request_timeout)` → 504.
 
-#### 8. Dvm
+#### 10. Dvm
 
 **Purpose**: NIP-90 Data Vending Machine service for on-demand data queries via Nostr.
 
@@ -664,7 +701,7 @@ Frozen dataclass hierarchy for typed service state persistence:
 
 Schema introspection and safe query builder.
 
-- **Discovery**: 4 SQL queries (tables/views, matviews, columns, PKs).
+- **Discovery**: SQL queries for tables, views, columns, and primary keys.
 - **`query()`**: safe paginated queries with whitelist-by-construction validation, typed operators, type casting.
 - **`get_by_pk()`**: single row by composite primary key.
 - **`CatalogError`**: client-safe exception with `client_message` field — prevents leaking database internals.
@@ -877,7 +914,7 @@ Event streaming with binary-split windowing for completeness guarantees:
 
 ### Schema
 
-6 tables, 6 summary tables, 24 stored functions, 6 materialized views, 27 indexes.
+30 table definitions, 38 stored functions, and 29 indexes across core, current-state, analytics, and NIP-85 rank storage. The branch no longer depends on materialized views for the refreshed analytics path; the Refresher maintains regular tables incrementally via checkpointed range functions.
 
 #### Tables
 
@@ -910,16 +947,17 @@ relay                    (url TEXT PK, network TEXT, discovered_at BIGINT)
 - **No CHECK constraints**: Validation enforced in Python enum layer.
 - **All functions SECURITY INVOKER**: PostgreSQL default, ensuring functions run with caller's permissions.
 
-#### Stored Functions (24)
+#### Stored Functions (38)
 
 | Category | Functions |
 |----------|-----------|
-| **Utility** (1) | `tags_to_tagvalues(JSONB) → TEXT[]` |
-| **CRUD** (8) | `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `service_state_upsert`, `service_state_get`, `service_state_delete` |
+| **Utility** | tag extraction, d-tag/address normalization, event address construction, Bolt11 amount parsing |
+| **CRUD** | `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `service_state_upsert`, `service_state_get`, `service_state_delete` |
 | **Cascade** (2) | `event_relay_insert_cascade` (relay+event+junction), `relay_metadata_insert_cascade` (relay+metadata+junction) |
 | **Cleanup** (2) | `orphan_event_delete(batch_size=10000)`, `orphan_metadata_delete(batch_size=10000)` |
-| **Summary refresh** (8) | `pubkey_kind_stats_refresh`, `pubkey_relay_stats_refresh`, `relay_kind_stats_refresh`, `pubkey_stats_refresh`, `kind_stats_refresh`, `relay_stats_refresh`, `rolling_windows_refresh`, `relay_stats_metadata_refresh` |
-| **Matview refresh** (6) | `relay_metadata_latest_refresh`, `relay_software_counts_refresh`, `supported_nip_counts_refresh`, `daily_counts_refresh`, `events_replaceable_latest_refresh`, `events_addressable_latest_refresh` |
+| **Current refresh** | `relay_metadata_current_refresh`, `events_replaceable_current_refresh`, `events_addressable_current_refresh`, `contact_lists_current_refresh`, `contact_list_edges_current_refresh` |
+| **Analytics refresh** | `daily_counts_refresh`, metadata analytics, summary stats, contact graph facts, and NIP-85 user/event/addressable/identifier fact refreshes |
+| **Periodic reconciliation** | `rolling_windows_refresh`, `relay_stats_metadata_refresh`, `nip85_follower_count_refresh` |
 
 #### Summary Tables (6)
 
@@ -932,18 +970,22 @@ relay                    (url TEXT PK, network TEXT, discovered_at BIGINT)
 | `kind_stats` | Per event kind | Event count, unique pubkeys, NIP-01 category |
 | `relay_stats` | Per relay | Event count, unique pubkeys, avg RTT (last 10), NIP-11 info |
 
-#### Materialized Views (6)
+#### Current-State And Analytics Tables
 
-| View | Granularity | Key Metrics |
+| Table | Granularity | Key Metrics |
 |------|-------------|-------------|
-| `relay_metadata_latest` | Per relay + type | Most recent metadata snapshot (DISTINCT ON) |
+| `relay_metadata_current` | Per relay + type | Most recent metadata snapshot (DISTINCT ON) |
 | `relay_software_counts` | Per software + version | Relay count by software distribution |
 | `supported_nip_counts` | Per NIP number | Relay count supporting each NIP |
 | `daily_counts` | Per UTC day | Daily event volume, unique pubkeys/kinds |
-| `events_replaceable_latest` | Per author + kind | Latest replaceable event per pubkey+kind |
-| `events_addressable_latest` | Per author + kind + d-tag | Latest addressable event per pubkey+kind+identifier |
+| `events_replaceable_current` | Per author + kind | Latest replaceable event per pubkey+kind |
+| `events_addressable_current` | Per author + kind + d-tag | Latest addressable event per pubkey+kind+identifier |
+| `contact_lists_current` | Per follower | Latest kind 3 contact list source event |
+| `contact_list_edges_current` | Per follower + followed pubkey | Canonical follow graph edges |
+| `nip85_*_stats` | Per user/event/addressable/identifier | NIP-85 assertion facts refreshed by the Refresher |
+| `nip85_*_ranks` | Per algorithm + subject | Rank snapshots exported by the Ranker |
 
-All views have unique indexes (required for `REFRESH MATERIALIZED VIEW CONCURRENTLY`) and are refreshed by the Refresher service in dependency order.
+These are regular tables with deterministic primary keys/upserts. They are refreshed by checkpointed functions rather than `REFRESH MATERIALIZED VIEW CONCURRENTLY`.
 
 #### Indexes (27)
 
@@ -974,24 +1016,25 @@ All views have unique indexes (required for `REFRESH MATERIALIZED VIEW CONCURREN
 **Summary table indexes** (3 secondary):
 - Additional secondary indexes on summary tables for common query patterns
 
-**Materialized view indexes** (10):
-- 6 unique indexes (one per view, required for CONCURRENTLY)
-- 4 secondary indexes (relay_metadata_latest type, relay_stats network, and others)
+**Current, analytics, and rank indexes**:
+- deterministic primary keys on current-state, fact, and rank tables
+- secondary indexes for relay metadata lookup, current event lookup by id, follow-edge lookup, and rank publication paths
 
-#### Database Roles (4)
+#### Database Roles (5)
 
 | Role | Used By | Privileges |
 |------|---------|-----------|
 | `admin` | Docker setup, PGBouncer | SUPERUSER |
 | `writer` | seeder, finder, validator, monitor, synchronizer | SELECT, INSERT, UPDATE, DELETE on all tables + EXECUTE on all functions |
-| `refresher` | refresher | SELECT on all tables + EXECUTE on all functions + ownership of materialized views |
+| `refresher` | refresher | SELECT/UPSERT on derived tables + EXECUTE on refresh functions |
+| `ranker` | ranker | SELECT from canonical facts/current tables + write access to NIP-85 rank tables |
 | `reader` | api, dvm, postgres-exporter | SELECT on all tables + EXECUTE on all functions + `pg_monitor` |
 
 #### SQL Generation System
 
 SQL schema generated from Jinja2 templates via `tools/generate_sql.py`:
-- **Templates**: `tools/templates/sql/base/` (10 shared) + `tools/templates/sql/lilbrotr/` (3 overrides)
-- **Output**: `deployments/{bigbrotr,lilbrotr}/postgres/init/` (10 files each)
+- **Templates**: `tools/templates/sql/base/` (14 shared) + `tools/templates/sql/lilbrotr/` (3 overrides)
+- **Output**: `deployments/{bigbrotr,lilbrotr}/postgres/init/` (16 files each, including role/grant shell scripts)
 - **Drift detection**: CI runs `generate_sql.py --check` to verify committed SQL matches templates
 
 ---
@@ -1000,7 +1043,7 @@ SQL schema generated from Jinja2 templates via `tools/generate_sql.py`:
 
 ### Docker Compose Stack
 
-15 containers on 2 bridge networks:
+17 containers on 2 bridge networks:
 
 | Container | Image | Purpose |
 |-----------|-------|---------|
@@ -1012,9 +1055,11 @@ SQL schema generated from Jinja2 templates via `tools/generate_sql.py`:
 | Validator | bigbrotr (custom) | WebSocket protocol validation |
 | Monitor | bigbrotr (custom) | Health checks + event publishing |
 | Synchronizer | bigbrotr (custom) | Event collection |
-| Refresher | bigbrotr (custom) | Materialized view refresh |
+| Refresher | bigbrotr (custom) | Current-state and analytics refresh |
+| Ranker | bigbrotr (custom) | NIP-85 rank computation and export |
 | Api | bigbrotr (custom) | REST API (read-only) |
 | Dvm | bigbrotr (custom) | NIP-90 Data Vending Machine |
+| Assertor | bigbrotr (custom) | NIP-85 trusted assertion publisher |
 | postgres-exporter | prometheuscommunity/postgres-exporter:v0.16.0 | PostgreSQL metrics for Prometheus |
 | Prometheus | prom/prometheus:v2.51.0 | Time-series metrics database (30-day retention) |
 | Alertmanager | prom/alertmanager:v0.27.0 | Alert routing and grouping |
@@ -1299,7 +1344,7 @@ All configuration uses Pydantic v2 models with:
 | Query timeout | 60s | Single query timeout |
 | Batch timeout | 120s | Bulk insert timeout |
 | Cleanup timeout | 90s | Orphan deletion timeout |
-| Refresh timeout | None (infinite) | Materialized view refresh timeout |
+| Refresh timeout | None (infinite) | Derived-table refresh query timeout |
 | Pool acquisition timeout | 10s | Connection pool checkout timeout |
 | Pool min/max size | 1/5 | Connection pool bounds |
 | Clearnet max tasks | 50 | Concurrent clearnet operations |
@@ -1320,6 +1365,8 @@ All configuration uses Pydantic v2 models with:
 | Sync flush interval | 50 | Cursor persistence every N relays |
 | API max page size | 1000 | Maximum rows per request |
 | DVM max page size | 1000 | Maximum rows per job result |
+| Ranker algorithm ID | `global-pagerank` | Namespace for NIP-85 rank snapshots |
+| Assertor algorithm ID | `global-pagerank` | Namespace for NIP-85 assertions and checkpoint keys |
 
 ---
 
@@ -1328,7 +1375,7 @@ All configuration uses Pydantic v2 models with:
 ### Credential Management
 
 - Database passwords loaded from environment variables (never in config files).
-- Nostr private keys loaded from `NOSTR_PRIVATE_KEY` environment variable.
+- Nostr private keys are service-scoped through `keys.keys_env` values such as `NOSTR_PRIVATE_KEY_MONITOR`, `NOSTR_PRIVATE_KEY_SYNCHRONIZER`, `NOSTR_PRIVATE_KEY_DVM`, and `NOSTR_PRIVATE_KEY_ASSERTOR`. Blank or unset values generate one ephemeral key at config creation.
 - PGBouncer userlist generated dynamically from environment at container start via `entrypoint.sh`.
 - `detect-secrets` pre-commit hook prevents accidental credential commits.
 - Key material redacted in `__repr__`/`__str__` of `KeysConfig`.
@@ -1388,7 +1435,7 @@ All configuration uses Pydantic v2 models with:
 2. Follow the never-raise contract (errors in logs, not exceptions).
 3. Add `MetadataType` variant to `models/metadata.py`.
 4. Integrate into Monitor service's check flow.
-5. Add materialized views and refresh functions if analytics needed.
+5. Add current-state/analytics tables and refresh functions if persisted analytics are needed.
 
 ### Adding a New Deployment
 
@@ -1418,7 +1465,7 @@ A deployment optimized for reduced disk usage (~60% savings).
 - **`event_insert()`**: stores only `(id, pubkey, created_at, kind, tagvalues)`.
 - **Use case**: relay monitoring with lightweight event archiving (statistics only, no content).
 
-Both share the same Dockerfile, service codebase, CLI, service configurations, materialized views, indexes, monitoring, and infrastructure. The only functional difference is the event table schema and corresponding stored procedure.
+Both share the same Dockerfile, service codebase, CLI, service configurations, current-state/analytics tables, rank tables, indexes, monitoring, and infrastructure. The only functional difference is the event table schema and corresponding stored procedure.
 
 ---
 
@@ -1432,7 +1479,7 @@ python -m bigbrotr <service> [--config PATH] [--brotr-config PATH] [--log-level 
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `service` | (required) | One of: seeder, finder, validator, monitor, synchronizer, refresher, api, dvm |
+| `service` | (required) | One of: seeder, finder, validator, monitor, synchronizer, refresher, ranker, api, dvm, assertor |
 | `--config` | `config/services/<service>.yaml` | Service configuration file |
 | `--brotr-config` | `config/brotr.yaml` | Shared Brotr configuration file |
 | `--log-level` | INFO | DEBUG, INFO, WARNING, ERROR |
@@ -1452,19 +1499,21 @@ python -m bigbrotr <service> [--config PATH] [--brotr-config PATH] [--log-level 
 
 | Metric | Value |
 |--------|-------|
-| Python source LOC | 17,863 |
-| Test LOC | 38,569 |
-| SQL LOC (init scripts) | 1,766 |
+| Python source LOC | 23,126 |
+| Test LOC | 46,160 |
+| SQL/sh LOC (init scripts) | 9,652 |
 | Version | 5.8.0 |
 | Runtime dependencies | 16 |
 | Dev dependencies | 20 |
 | Docs dependencies | 6 |
-| Docker containers | 15 |
-| Database tables | 6 |
-| Stored functions | 24 |
+| Docker containers | 17 |
+| Database tables | 30 |
+| Stored functions | 38 |
 | Summary tables | 6 |
-| Materialized views | 6 |
-| Indexes | 27 |
+| Current-state tables | 5 |
+| NIP-85 fact/rank tables | 8 |
+| Materialized views | 0 |
+| Indexes | 29 |
 | Unit tests | ~2,900 |
 | Integration tests | ~211 |
 | CI/CD pipelines | 4 |
