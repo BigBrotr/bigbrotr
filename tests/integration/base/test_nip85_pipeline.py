@@ -291,6 +291,9 @@ def _make_mock_client() -> MagicMock:
     client = MagicMock()
     client.add_relay = AsyncMock()
     client.connect = AsyncMock()
+    client.try_connect = AsyncMock(
+        return_value=SimpleNamespace(success={"wss://relay.damus.io"}, failed={})
+    )
     client.unsubscribe_all = AsyncMock()
     client.force_remove_all_relays = AsyncMock()
     client.shutdown = AsyncMock()
