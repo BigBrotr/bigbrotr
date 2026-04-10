@@ -16,14 +16,26 @@ BigBrotr uses PostgreSQL 18+ with a schema designed for high-throughput event ar
 
 Two schema variants exist:
 
-| Variant | Event Storage | Summary Tables | Materialized Views | Disk Usage |
-|---------|--------------|---------------|-------------------|------------|
-| **BigBrotr** | Full NIP-01 (id, pubkey, created_at, kind, tags, content, sig) | 6 tables | 6 views | 100% |
-| **LilBrotr** | All 8 columns (tags, content, sig nullable and always NULL) | 6 tables | 6 views | ~40% |
+| Variant | Event Storage | Derived Tables | Regular Views | Disk Usage |
+|---------|--------------|----------------|---------------|------------|
+| **BigBrotr** | Full NIP-01 (id, pubkey, created_at, kind, tags, content, sig) | 5 current-state tables + 17 analytics/rank tables | 0 | 100% |
+| **LilBrotr** | All 8 columns, with tags/content/sig nullable and always NULL | Same derived schema | 0 | ~40% |
 
 ---
 
-## Entity Relationship Diagram
+## Schema Map
+
+The only enforced foreign keys are in the core archive graph. Current-state, analytics, and NIP-85 tables are regular tables maintained by refresh functions and ranker exports.
+
+| Layer | Tables | Source |
+|-------|--------|--------|
+| Core archive | `relay`, `event`, `event_relay`, `metadata`, `relay_metadata`, `service_state` | Services and cascade insert functions |
+| Current state | `relay_metadata_current`, `events_replaceable_current`, `events_addressable_current`, `contact_lists_current`, `contact_list_edges_current` | Refresher, `08_functions_refresh_current.sql` |
+| Core analytics | `pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats`, `daily_counts`, `relay_software_counts`, `supported_nip_counts` | Refresher, `09_functions_refresh_analytics.sql` |
+| NIP-85 facts | `nip85_pubkey_stats`, `nip85_event_stats`, `nip85_addressable_stats`, `nip85_identifier_stats` | Refresher, `09_functions_refresh_analytics.sql` |
+| NIP-85 ranks | `nip85_pubkey_ranks`, `nip85_event_ranks`, `nip85_addressable_ranks`, `nip85_identifier_ranks` | Ranker snapshot exports |
+
+### Core Entity Relationship Diagram
 
 ```mermaid
 erDiagram
@@ -74,6 +86,46 @@ erDiagram
     event ||--o{ event_relay : "seen at relays"
     relay ||--o{ relay_metadata : "has metadata"
     metadata ||--o{ relay_metadata : "referenced by"
+```
+
+### Derived Data Flow
+
+```mermaid
+flowchart LR
+    event["event"]
+    event_relay["event_relay"]
+    relay["relay"]
+    relay_metadata["relay_metadata"]
+    metadata["metadata"]
+
+    relay_metadata_current["relay_metadata_current"]
+    replaceable["events_replaceable_current"]
+    addressable["events_addressable_current"]
+    contacts["contact_lists_current"]
+    edges["contact_list_edges_current"]
+
+    core_stats["core analytics stats"]
+    relay_meta_stats["relay software / supported NIP counts"]
+    nip85_stats["NIP-85 stats tables"]
+    ranks["NIP-85 rank tables"]
+
+    relay_metadata --> relay_metadata_current
+    metadata --> relay_metadata_current
+    relay --> core_stats
+    event --> replaceable
+    event --> addressable
+    event --> core_stats
+    event --> nip85_stats
+    event_relay --> replaceable
+    event_relay --> addressable
+    event_relay --> core_stats
+    event_relay --> nip85_stats
+    relay_metadata_current --> relay_meta_stats
+    replaceable --> contacts
+    contacts --> edges
+    edges --> nip85_stats
+    nip85_stats --> ranks
+    edges --> ranks
 ```
 
 ---
@@ -379,39 +431,51 @@ Removes events with no associated relays in `event_relay`. Enforces the invarian
 
 ---
 
-## Summary Tables
+## Core Analytics Summary Tables
 
-All deployments (BigBrotr, LilBrotr) share the same 6 summary tables. These are regular tables refreshed incrementally via range-based refresh functions that receive `(after, until)` parameters and return the number of rows affected.
+All deployments (BigBrotr, LilBrotr) share these core analytics tables. They are regular tables refreshed incrementally via range-based refresh functions that receive `(after, until)` parameters and return the number of rows affected.
 
 ### pubkey_kind_stats
 
 Per-author, per-kind event statistics.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `pubkey` | BYTEA | Author public key |
-| `kind` | INTEGER | Event kind |
-| `event_count` | BIGINT | Total events by this author of this kind |
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `pubkey` | TEXT | PRIMARY KEY (partial) | Author public key as hex |
+| `kind` | INTEGER | PRIMARY KEY (partial) | Event kind |
+| `event_count` | BIGINT | NOT NULL DEFAULT 0 | Total events by this author of this kind |
+| `first_event_at` | BIGINT | Nullable | Earliest event timestamp |
+| `last_event_at` | BIGINT | Nullable | Latest event timestamp |
+
+Primary key: `(pubkey, kind)`.
 
 ### pubkey_relay_stats
 
 Per-author, per-relay activity metrics.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `pubkey` | BYTEA | Author public key |
-| `relay_url` | TEXT | Relay WebSocket URL |
-| `event_count` | BIGINT | Events by this author on this relay |
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `pubkey` | TEXT | PRIMARY KEY (partial) | Author public key as hex |
+| `relay_url` | TEXT | PRIMARY KEY (partial) | Relay WebSocket URL |
+| `event_count` | BIGINT | NOT NULL DEFAULT 0 | Events by this author on this relay |
+| `first_event_at` | BIGINT | Nullable | Earliest event timestamp |
+| `last_event_at` | BIGINT | Nullable | Latest event timestamp |
+
+Primary key: `(pubkey, relay_url)`.
 
 ### relay_kind_stats
 
 Per-relay, per-kind event distribution.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `relay_url` | TEXT | Relay WebSocket URL |
-| `kind` | INTEGER | Event kind |
-| `event_count` | BIGINT | Events of this kind on this relay |
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `relay_url` | TEXT | PRIMARY KEY (partial) | Relay WebSocket URL |
+| `kind` | INTEGER | PRIMARY KEY (partial) | Event kind |
+| `event_count` | BIGINT | NOT NULL DEFAULT 0 | Events of this kind on this relay |
+| `first_event_at` | BIGINT | Nullable | Earliest event timestamp |
+| `last_event_at` | BIGINT | Nullable | Latest event timestamp |
+
+Primary key: `(relay_url, kind)`.
 
 ### pubkey_stats
 
@@ -419,11 +483,14 @@ Global author activity metrics.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `pubkey` | BYTEA | Author public key |
+| `pubkey` | TEXT PRIMARY KEY | Author public key as hex |
 | `event_count` | BIGINT | Total events by this author |
-| `unique_kinds` | BIGINT | Event kinds authored |
-| `first_event_timestamp` | BIGINT | Earliest event |
-| `last_event_timestamp` | BIGINT | Latest event |
+| `unique_kinds` | INTEGER | Event kinds authored |
+| `unique_relays` | INTEGER | Relays where this author was observed |
+| `first_event_at` | BIGINT | Earliest event timestamp |
+| `last_event_at` | BIGINT | Latest event timestamp |
+| `events_last_24h`, `events_last_7d`, `events_last_30d` | BIGINT | Rolling activity windows |
+| `regular_count`, `replaceable_count`, `ephemeral_count`, `addressable_count` | BIGINT | Event counts by NIP-01 category |
 
 ### kind_stats
 
@@ -431,10 +498,13 @@ Global event count distribution by NIP-01 kind with category labels.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `kind` | INTEGER | Event kind |
+| `kind` | INTEGER PRIMARY KEY | Event kind |
 | `event_count` | BIGINT | Total events of this kind |
-| `unique_pubkeys` | BIGINT | Authors publishing this kind |
+| `unique_pubkeys` | INTEGER | Authors publishing this kind |
+| `unique_relays` | INTEGER | Relays that carried this kind |
 | `category` | TEXT | NIP-01 category: regular, replaceable, ephemeral, addressable, other |
+| `first_event_at`, `last_event_at` | BIGINT | Earliest and latest event timestamps |
+| `events_last_24h`, `events_last_7d`, `events_last_30d` | BIGINT | Rolling activity windows |
 
 ### relay_stats
 
@@ -442,85 +512,53 @@ Per-relay event counts, averaged round-trip times, and NIP-11 info.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `relay_url` | TEXT | Relay WebSocket URL |
+| `relay_url` | TEXT PRIMARY KEY | Relay WebSocket URL |
 | `network` | TEXT | Network type |
 | `discovered_at` | BIGINT | Unix discovery timestamp |
-| `first_event_timestamp` | BIGINT | Earliest event on relay |
-| `last_event_timestamp` | BIGINT | Latest event on relay |
-| `avg_rtt_open` | NUMERIC | Average RTT open phase (last 10 measurements) |
-| `avg_rtt_read` | NUMERIC | Average RTT read phase (last 10 measurements) |
-| `avg_rtt_write` | NUMERIC | Average RTT write phase (last 10 measurements) |
 | `event_count` | BIGINT | Total events on relay |
-| `unique_pubkeys` | BIGINT | Unique authors on relay |
-| `unique_kinds` | BIGINT | Unique event kinds on relay |
-| `nip11_name` | TEXT | Relay name from NIP-11 info (NULL if not available) |
-| `nip11_software` | TEXT | Relay software from NIP-11 info (NULL if not available) |
-| `nip11_version` | TEXT | Relay software version from NIP-11 info (NULL if not available) |
+| `unique_pubkeys` | INTEGER | Unique authors on relay |
+| `unique_kinds` | INTEGER | Unique event kinds on relay |
+| `first_event_at`, `last_event_at` | BIGINT | Earliest and latest event timestamps |
+| `events_last_24h`, `events_last_7d`, `events_last_30d` | BIGINT | Rolling activity windows |
+| `regular_count`, `replaceable_count`, `ephemeral_count`, `addressable_count` | BIGINT | Event counts by NIP-01 category |
+| `avg_rtt_open`, `avg_rtt_read`, `avg_rtt_write` | NUMERIC(10,2) | NIP-66 RTT averages |
+| `nip11_name`, `nip11_software`, `nip11_version` | TEXT | Current NIP-11 metadata fields |
 
 ---
 
-## Derived Current-State And Analytics Tables
+## Derived Current-State Tables
 
-All deployments (BigBrotr, LilBrotr) share the same current-state and analytics tables. The Refresher maintains them incrementally through checkpointed refresh functions rather than `REFRESH MATERIALIZED VIEW CONCURRENTLY`.
+All deployments (BigBrotr, LilBrotr) share the same current-state tables. The Refresher maintains them incrementally through checkpointed refresh functions rather than `REFRESH MATERIALIZED VIEW CONCURRENTLY`.
 
 ### relay_metadata_current
 
 Latest metadata snapshot per relay and check type.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `relay_url` | TEXT | Relay WebSocket URL |
-| `metadata_type` | TEXT | Check type |
-| `generated_at` | BIGINT | Timestamp of latest snapshot |
-| `metadata_id` | BYTEA | Content-addressed hash |
-| `data` | JSONB | Complete JSON document |
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `relay_url` | TEXT | PRIMARY KEY (partial) | Relay WebSocket URL |
+| `metadata_type` | TEXT | PRIMARY KEY (partial) | Check type |
+| `generated_at` | BIGINT | NOT NULL | Timestamp of latest snapshot |
+| `metadata_id` | BYTEA | NOT NULL | Content-addressed hash |
+| `data` | JSONB | NOT NULL | Complete JSON document |
 
-Uses `DISTINCT ON (relay_url, metadata_type) ... ORDER BY generated_at DESC` to select the most recent snapshot.
-
-### relay_software_counts
-
-NIP-11 software distribution across relays. Only includes relays that report a software field.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `software` | TEXT | Software name from NIP-11 |
-| `version` | TEXT | Software version (or "unknown" if not reported) |
-| `relay_count` | BIGINT | Relays running this software |
-
-Depends on `relay_metadata_current` -- refresh that table first.
-
-### supported_nip_counts
-
-NIP support distribution from NIP-11 info. Counts how many relays support each NIP number.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `nip` | INTEGER | NIP number |
-| `relay_count` | BIGINT | Relays supporting this NIP |
-
-Depends on `relay_metadata_current` -- refresh that table first.
-
-### daily_counts
-
-Daily event aggregation for time-series analysis (UTC).
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `day` | DATE | UTC date |
-| `event_count` | BIGINT | Events on this day |
-| `unique_pubkeys` | BIGINT | Unique authors on this day |
-| `unique_kinds` | BIGINT | Unique event kinds on this day |
+Primary key: `(relay_url, metadata_type)`.
 
 ### events_replaceable_current
 
 Latest replaceable event per author and kind.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `pubkey` | BYTEA | Author public key |
-| `kind` | INTEGER | Event kind (replaceable range) |
-| `id` | BYTEA | Event hash |
-| `created_at` | BIGINT | Event timestamp |
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `pubkey` | BYTEA | PRIMARY KEY (partial) | Author public key |
+| `kind` | INTEGER | PRIMARY KEY (partial) | Event kind (replaceable range) |
+| `id` | BYTEA | NOT NULL | Current winning event hash |
+| `created_at` | BIGINT | NOT NULL | Event timestamp |
+| `first_seen_at` | BIGINT | NOT NULL | First observation timestamp for the winning event |
+| `tags`, `content`, `sig` | JSONB/TEXT/BYTEA | Nullable | Event payload fields, nullable for LilBrotr compatibility |
+| `tagvalues` | TEXT[] | NOT NULL | Computed single-char tag values |
+
+Primary key: `(pubkey, kind)`.
 
 ### events_addressable_current
 
@@ -528,13 +566,157 @@ Latest addressable event per author, kind, and d-tag identifier.
 
 BigBrotr extracts `d_tag` from the first `d` tag in the stored JSON tags. LilBrotr uses the same table definition but falls back to the ordered `tagvalues` entry `d:*` when full tags are not persisted.
 
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `pubkey` | BYTEA | PRIMARY KEY (partial) | Author public key |
+| `kind` | INTEGER | PRIMARY KEY (partial) | Event kind (addressable range) |
+| `d_tag` | TEXT | PRIMARY KEY (partial) | Addressable identifier |
+| `id` | BYTEA | NOT NULL | Current winning event hash |
+| `created_at` | BIGINT | NOT NULL | Event timestamp |
+| `first_seen_at` | BIGINT | NOT NULL | First observation timestamp for the winning event |
+| `tags`, `content`, `sig` | JSONB/TEXT/BYTEA | Nullable | Event payload fields, nullable for LilBrotr compatibility |
+| `tagvalues` | TEXT[] | NOT NULL | Computed single-char tag values |
+
+Primary key: `(pubkey, kind, d_tag)`.
+
+### contact_lists_current
+
+Current latest kind=3 contact list per author.
+
 | Column | Type | Description |
 |--------|------|-------------|
-| `pubkey` | BYTEA | Author public key |
-| `kind` | INTEGER | Event kind (addressable range) |
-| `d_tag` | TEXT | Addressable identifier (d-tag value) |
-| `id` | BYTEA | Event hash |
-| `created_at` | BIGINT | Event timestamp |
+| `follower_pubkey` | TEXT PRIMARY KEY | Pubkey that published the current contact list |
+| `source_event_id` | TEXT | Current kind=3 event id |
+| `source_created_at` | BIGINT | Event creation timestamp |
+| `source_seen_at` | BIGINT | First observation timestamp for the source event |
+| `follow_count` | BIGINT | Deduplicated number of followed pubkeys |
+
+### contact_list_edges_current
+
+Current deduplicated follow graph edges.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `follower_pubkey` | TEXT PRIMARY KEY (partial) | Following pubkey |
+| `followed_pubkey` | TEXT PRIMARY KEY (partial) | Followed pubkey |
+| `source_event_id` | TEXT | Current kind=3 event id that produced the edge |
+| `source_created_at` | BIGINT | Event creation timestamp |
+| `source_seen_at` | BIGINT | First observation timestamp for the source event |
+
+Primary key: `(follower_pubkey, followed_pubkey)`.
+
+---
+
+## Metadata And Time-Series Analytics Tables
+
+### relay_software_counts
+
+NIP-11 software distribution across relays. Depends on `relay_metadata_current`.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `software` | TEXT PRIMARY KEY (partial) | Software name from NIP-11 |
+| `version` | TEXT PRIMARY KEY (partial) | Software version |
+| `relay_count` | BIGINT | Relays running this software/version pair |
+
+Primary key: `(software, version)`.
+
+### supported_nip_counts
+
+NIP support distribution from NIP-11 info. Depends on `relay_metadata_current`.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `nip` | INTEGER PRIMARY KEY | NIP number |
+| `relay_count` | BIGINT | Relays supporting this NIP |
+
+### daily_counts
+
+Daily event aggregation for time-series analysis (UTC).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `day` | DATE PRIMARY KEY | UTC date |
+| `event_count` | BIGINT | Events on this day |
+| `unique_pubkeys` | BIGINT | Unique authors on this day |
+| `unique_kinds` | BIGINT | Unique event kinds on this day |
+
+---
+
+## NIP-85 Stats And Rank Tables
+
+NIP-85 stats tables store facts used to publish trusted assertions. Rank tables store score snapshots exported by the ranker. These tables are not foreign-key constrained to the core archive; they use text identifiers for API/publication compatibility.
+
+### nip85_pubkey_stats
+
+Per-pubkey social metrics for NIP-85 kind 30382.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `pubkey` | TEXT PRIMARY KEY | Asserted pubkey |
+| `post_count`, `reply_count` | BIGINT | Authored post and reply counts |
+| `reaction_count_sent`, `reaction_count_recd` | BIGINT | Reactions sent and received |
+| `repost_count_sent`, `repost_count_recd` | BIGINT | Reposts sent and received |
+| `report_count_sent`, `report_count_recd` | BIGINT | Reports sent and received |
+| `zap_count_sent`, `zap_count_recd` | BIGINT | Zaps sent and received |
+| `zap_amount_sent`, `zap_amount_recd` | BIGINT | Bolt11-verified zap amounts |
+| `first_created_at` | BIGINT | First known authored event timestamp |
+| `activity_hours` | INTEGER[24] | UTC hour activity heatmap |
+| `topic_counts` | JSONB | Topic counters by tag/topic |
+| `follower_count`, `following_count` | BIGINT | Counts reconciled from current contact-list facts |
+
+### nip85_event_stats
+
+Per-event engagement metrics for NIP-85 kind 30383.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `event_id` | TEXT PRIMARY KEY | Asserted event id |
+| `author_pubkey` | TEXT | Event author pubkey |
+| `comment_count`, `quote_count`, `repost_count`, `reaction_count` | BIGINT | Engagement counters |
+| `zap_count`, `zap_amount` | BIGINT | Bolt11-verified zap counters |
+
+### nip85_addressable_stats
+
+Per-addressable-event engagement metrics for NIP-85 kind 30384.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `event_address` | TEXT PRIMARY KEY | Canonical `kind:pubkey:d_tag` coordinate |
+| `author_pubkey` | TEXT | Addressable event author pubkey |
+| `comment_count`, `quote_count`, `repost_count`, `reaction_count` | BIGINT | Engagement counters |
+| `zap_count`, `zap_amount` | BIGINT | Bolt11-verified zap counters |
+
+### nip85_identifier_stats
+
+Per-identifier engagement metrics for NIP-85 kind 30385.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `identifier` | TEXT PRIMARY KEY | NIP-73 identifier string |
+| `comment_count`, `reaction_count` | BIGINT | Engagement counters |
+| `k_tags` | TEXT[] | Deduplicated sorted NIP-73 `k` tags observed with the identifier |
+
+### Rank tables
+
+The rank tables share the same shape:
+
+| Table | Subject |
+|-------|---------|
+| `nip85_pubkey_ranks` | Pubkey, for kind 30382 |
+| `nip85_event_ranks` | Event id, for kind 30383 |
+| `nip85_addressable_ranks` | Addressable coordinate, for kind 30384 |
+| `nip85_identifier_ranks` | NIP-73 identifier, for kind 30385 |
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `algorithm_id` | TEXT PRIMARY KEY (partial) | Ranking algorithm identifier |
+| `subject_id` | TEXT PRIMARY KEY (partial) | Pubkey/event/address/identifier being scored |
+| `raw_score` | DOUBLE PRECISION | Raw ranker score |
+| `rank` | INTEGER | Final 0-100 publication score |
+| `computed_at` | BIGINT | Rank snapshot timestamp |
+
+Primary key: `(algorithm_id, subject_id)`.
 
 ---
 
