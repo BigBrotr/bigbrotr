@@ -44,7 +44,7 @@ Deployments (`deployments/{bigbrotr,lilbrotr}/`) sit outside the package and con
 | `NetworkType` | `constants.py` | `clearnet`, `tor`, `i2p`, `loki`, `local`, `unknown` |
 | `MetadataType` | `metadata.py` | `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
 | `ServiceStateType` | `service_state.py` | `checkpoint`, `cursor` |
-| `ServiceName` | `constants.py` | `seeder`, `finder`, `validator`, `monitor`, `synchronizer`, `refresher`, `api`, `dvm` |
+| `ServiceName` | `constants.py` | `seeder`, `finder`, `validator`, `monitor`, `synchronizer`, `refresher`, `ranker`, `api`, `dvm`, `assertor` |
 | `EventKind` | `constants.py` | `SET_METADATA=0`, `RECOMMEND_RELAY=2`, `CONTACTS=3`, `RELAY_LIST=10002`, `NIP66_TEST=22456`, `MONITOR_ANNOUNCEMENT=10166`, `RELAY_DISCOVERY=30166` |
 
 ### Model Patterns
@@ -213,7 +213,7 @@ class BrotrConfig(BaseModel):
 
 ### BaseService (`base_service.py`)
 
-Abstract base class for all eight services. Generic over configuration type.
+Abstract base class for all ten services. Generic over configuration type.
 
 ```python
 class BaseService(ABC, Generic[ConfigT]):
@@ -410,7 +410,7 @@ flowchart TD
 
 ### Service Architecture Pattern
 
-All eight services follow the same pattern:
+All ten services follow the same pattern:
 
 ```python
 class MyService(BaseService[MyServiceConfig]):
@@ -598,7 +598,7 @@ flowchart LR
 
 ```
 
-Each service has its own asyncpg pool with per-service sizing (via pool overrides in service config). PGBouncer provides two database pools: **bigbrotr** (pool_size=10) for writer services (including Refresher, which uses its own DB role with materialized view ownership), and **bigbrotr_readonly** (pool_size=8) for read-only consumers (Api, Dvm, postgres-exporter).
+Each service has its own asyncpg pool with per-service sizing (via pool overrides in service config). PGBouncer provides two database pools: **bigbrotr** (pool_size=10) for writer services, including Refresher's derived-table refreshes, and **bigbrotr_readonly** (pool_size=8) for read-only consumers (Api, Dvm, postgres-exporter).
 
 ### Per-Network Semaphores
 
@@ -701,7 +701,7 @@ All configuration uses Pydantic v2 models with:
 - Typed fields with defaults and constraints (`Field(ge=1, le=65535)`)
 - Nested models (e.g., `MonitorConfig.networks.clearnet.timeout`)
 - `model_validator` for cross-field validation (e.g., Monitor keys at config load time)
-- Environment variable injection for secrets (`DB_WRITER_PASSWORD`, `DB_READER_PASSWORD`, `DB_REFRESHER_PASSWORD`, `NOSTR_PRIVATE_KEY`)
+- Environment variable injection for secrets (`DB_WRITER_PASSWORD`, `DB_READER_PASSWORD`, `DB_REFRESHER_PASSWORD`, `NOSTR_PRIVATE_KEY_<SERVICE>`)
 
 ### Environment Variables
 
@@ -709,9 +709,12 @@ All configuration uses Pydantic v2 models with:
 |----------|----------|---------|
 | `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin, PGBouncer auth |
 | `DB_WRITER_PASSWORD` | Yes | Writer services (via per-service pool overrides) |
-| `DB_REFRESHER_PASSWORD` | Yes | Refresher (matview ownership for REFRESH CONCURRENTLY) |
+| `DB_REFRESHER_PASSWORD` | Yes | Refresher derived-table and analytics refreshes |
 | `DB_READER_PASSWORD` | Yes | Read-only services (postgres-exporter, Api, Dvm) |
-| `NOSTR_PRIVATE_KEY` | For Monitor | Monitor (Nostr event signing, RTT write tests) |
+| `NOSTR_PRIVATE_KEY_MONITOR` | No | Monitor (publishing and NIP-66 write probes) |
+| `NOSTR_PRIVATE_KEY_SYNCHRONIZER` | No | Synchronizer (NIP-42-authenticated relay reads) |
+| `NOSTR_PRIVATE_KEY_DVM` | No | Dvm (NIP-89/NIP-90 signing) |
+| `NOSTR_PRIVATE_KEY_ASSERTOR` | No | Assertor (NIP-85 signing) |
 | `GRAFANA_PASSWORD` | No | Grafana (admin password) |
 
 ---
@@ -752,7 +755,7 @@ tests/
 
 ## Related Documentation
 
-- [Services](services.md) -- Deep dive into the eight independent services and data flow
+- [Services](services.md) -- Deep dive into the ten independent services and data flow
 - [Configuration](configuration.md) -- Complete YAML configuration reference
 - [Database](database.md) -- PostgreSQL schema, stored functions, and indexes
 - [Monitoring](monitoring.md) -- Prometheus metrics, alerting, and Grafana dashboards

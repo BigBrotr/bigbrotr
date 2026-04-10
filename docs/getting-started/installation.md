@@ -29,7 +29,10 @@ Choose the path that matches your use case:
 
     # Configure secrets
     cp .env.example .env
-    # Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD, DB_READER_PASSWORD, NOSTR_PRIVATE_KEY, GRAFANA_PASSWORD
+    # Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD,
+    # DB_READER_PASSWORD, GRAFANA_PASSWORD, and optionally the per-service
+    # Nostr keys NOSTR_PRIVATE_KEY_MONITOR, NOSTR_PRIVATE_KEY_SYNCHRONIZER,
+    # NOSTR_PRIVATE_KEY_DVM, NOSTR_PRIVATE_KEY_ASSERTOR
 
     # Start the full stack
     docker compose up -d
@@ -105,7 +108,7 @@ python -m bigbrotr --help
 Expected output:
 
 ```text
-usage: python -m bigbrotr [-h] {seeder,finder,validator,monitor,refresher,synchronizer,api,dvm} ...
+usage: python -m bigbrotr [-h] {seeder,finder,validator,monitor,refresher,ranker,synchronizer,api,dvm,assertor} ...
 
 BigBrotr - Nostr relay discovery, monitoring, and event archiving
 ```

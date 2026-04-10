@@ -28,28 +28,28 @@ BigBrotr answers three questions about the Nostr network:
 2. **How healthy are they?** — Validator confirms WebSocket connectivity, Monitor runs 7 health checks (RTT, SSL, DNS, Geo, Net, HTTP, NIP-11) and publishes NIP-66 events.
 3. **What events are they publishing?** — Synchronizer connects to relays, streams events, and archives them with cursor-based resumption.
 
-Eight **independent** async services share a PostgreSQL database. Each runs on its own schedule, can be started or stopped individually, and has no direct dependency on any other service.
+Nine **independent** async services share a PostgreSQL database. Each runs on its own schedule, can be started or stopped individually, and has no direct dependency on any other service.
 
 ```text
-                    ┌──────────────────────────────────────────────────────┐
-                    │                    PostgreSQL Database               │
-                    │                                                      │
-                    │         relay ─── event_relay ─── event              │
-                    │         metadata ─── relay_metadata                  │
-                    │         service_state     11 materialized views      │
-                    └──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬──┘
-                       │      │      │      │      │      │      │      │
-                       ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼
-                    Seeder Finder Valid. Monitor Sync. Refresh. Api    Dvm
-                       │      │      │      │      │      │      │      │
-                       ▼      ▼      ▼      ▼      ▼      │      ▼      ▼
-                    seed   HTTP   Relays Relays  Relays (no I/O) HTTP  Nostr
-                    file   APIs   (WS)  (NIP-11, (fetch               clients
-                                         NIP-66)  events)               │
-                                           │                            ▼
-                                           ▼                       Nostr Network
-                                      Nostr Network               (kind 5050/6050)
-                                    (kind 10166/30166)
+              ┌───────────────────────────────────────────────────────────────────┐
+              │                         PostgreSQL Database                       │
+              │                                                                   │
+              │              relay ─── event_relay ─── event                      │
+              │              metadata ─── relay_metadata                          │
+              │              service_state   6 summary tables + 6 matviews        │
+              └──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬──────────────┘
+                 │      │      │      │      │      │      │      │      │
+                 ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼
+              Seeder Finder Valid. Monitor Sync. Refresh. Assert. Api    Dvm
+                 │      │      │      │      │      │      │      │      │
+                 ▼      ▼      ▼      ▼      ▼      │      ▼      ▼      ▼
+              seed   HTTP   Relays Relays  Relays (no I/O) Nostr  HTTP  Nostr
+              file   APIs   (WS)  (NIP-11, (fetch          Network      clients
+                                   NIP-66)  events)       (NIP-85)       │
+                                     │                                    ▼
+                                     ▼                              Nostr Network
+                                Nostr Network                      (kind 5050/6050)
+                              (kind 10166/30166)
 ```
 
 ### Services
@@ -61,13 +61,15 @@ Eight **independent** async services share a PostgreSQL database. Each runs on i
 | **Validator** | Tests candidates via WebSocket handshake, promotes valid relays | WebSocket |
 | **Monitor** | Runs NIP-11 + 6 NIP-66 health checks, publishes kind 10166/30166 events | HTTP, WS, DNS, SSL, GeoIP |
 | **Synchronizer** | Connects to relays, streams and archives signed events with cursor-based resumption | WebSocket |
-| **Refresher** | Refreshes 11 materialized views in dependency order | None |
+| **Refresher** | Refreshes current-state tables, analytics facts, and periodic reconciliations | None |
+| **Ranker** | Computes deterministic NIP-85 rank snapshots in private DuckDB and exports them | PostgreSQL + DuckDB |
+| **Assertor** | Publishes NIP-85 trusted assertion events for users, events, addressables, and identifiers | WebSocket (Nostr) |
 | **Api** | Read-only REST API with auto-generated paginated endpoints | HTTP (FastAPI) |
 | **Dvm** | NIP-90 Data Vending Machine for database queries over Nostr | WebSocket (Nostr) |
 
-All continuous services default to a 5-minute cycle interval (`interval=300.0`), configurable per deployment.
+Cycle intervals are service-specific and configurable per deployment. Discovery and ingestion services default to short cadences, while `refresher`, `ranker`, and `assertor` default to longer intervals.
 
-Services are **loosely coupled through the database**: Seeder and Finder populate candidates, Validator promotes them to relays, Monitor and Synchronizer operate on validated relays, Refresher materializes analytics. Stopping one does not break the others.
+Services are **loosely coupled through the database**: Seeder and Finder populate candidates, Validator promotes them to relays, Monitor and Synchronizer operate on validated relays, Refresher derives canonical facts, Ranker exports snapshots, and Assertor publishes from those snapshots. Stopping one does not break the others.
 
 ---
 
@@ -89,7 +91,7 @@ Imports flow strictly downward:
 - **core** — Pool (asyncpg with retry), Brotr (DB facade), BaseService (lifecycle), Logger (structured kv/JSON), Metrics (Prometheus), YAML loader.
 - **nips** — NIP-11 relay info fetch/parse, NIP-66 health checks (RTT, SSL, DNS, Geo, Net, HTTP). Never raises — errors captured in structured logs.
 - **utils** — DNS resolution, Nostr key management, WebSocket/HTTP transport, SSL fallback, SOCKS5 proxy support, event streaming with binary-split windowing.
-- **services** — 8 independent services + shared queries, configs, mixins (ConcurrentStream, NetworkSemaphores, GeoReader, Clients, CatalogAccess).
+- **services** — 9 independent services + shared queries, configs, mixins (ConcurrentStream, NetworkSemaphores, GeoReader, Clients, CatalogAccess).
 
 ### Database Schema
 
@@ -154,8 +156,8 @@ Imports flow strictly downward:
 ### Service-Database Interaction Map
 
 ```text
-                 relay    event   event_   meta-   relay_    service_  materialized
-                                  relay    data    metadata  state     views (11)
+                 relay    event   event_   meta-   relay_    service_  summary tables
+                                  relay    data    metadata  state     + matviews
   ─────────────┬────────┬───────┬────────┬───────┬─────────┬─────────┬────────────
   Seeder       │  W(1)  │       │        │       │         │  W      │
   Finder       │  R     │       │  R     │       │         │  R/W    │
@@ -187,7 +189,10 @@ cd bigbrotr/deployments/bigbrotr
 
 # Configure secrets
 cp .env.example .env
-# Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD, DB_READER_PASSWORD, NOSTR_PRIVATE_KEY, GRAFANA_PASSWORD
+# Edit .env: set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD,
+# DB_READER_PASSWORD, DB_RANKER_PASSWORD, GRAFANA_PASSWORD, and optionally the per-service
+# Nostr keys NOSTR_PRIVATE_KEY_MONITOR, NOSTR_PRIVATE_KEY_SYNCHRONIZER,
+# NOSTR_PRIVATE_KEY_DVM, NOSTR_PRIVATE_KEY_ASSERTOR
 
 # Start everything
 docker compose up -d
@@ -196,7 +201,7 @@ docker compose up -d
 docker compose logs -f seeder
 ```
 
-This starts PostgreSQL 18, PGBouncer, Tor proxy, all 8 services, Prometheus, Alertmanager, and Grafana.
+This starts PostgreSQL 18, PGBouncer, Tor proxy, all 10 services, Prometheus, Alertmanager, and Grafana.
 
 | Endpoint | URL |
 |----------|-----|
@@ -235,7 +240,7 @@ cd deployments/bigbrotr && docker compose up -d
 
 ### LilBrotr (Lightweight)
 
-Same eight services and schema, but tags, content, and sig columns are nullable and never populated — approximately 60% disk savings while retaining all metadata and relay health data.
+Same ten services and schema, but tags, content, and sig columns are nullable and never populated — approximately 60% disk savings while retaining all metadata and relay health data.
 
 ```bash
 cd deployments/lilbrotr && docker compose up -d
@@ -266,18 +271,23 @@ PostgreSQL 18 with PGBouncer (transaction-mode pooling) and asyncpg async driver
 | `relay_metadata` | Time-series snapshots linking relays to metadata records |
 | `service_state` | Per-service operational data (candidates, cursors, checkpoints) |
 
-### Stored Functions (25)
+### Stored Functions (24)
 
 - **1 utility**: `tags_to_tagvalues` (extracts key-prefixed single-char tag values for GIN indexing)
 - **10 CRUD**: `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `event_relay_insert_cascade`, `relay_metadata_insert_cascade`, `service_state_upsert`, `service_state_get`, `service_state_delete`
 - **2 cleanup**: `orphan_event_delete`, `orphan_metadata_delete` (batched)
-- **12 refresh**: one per materialized view + `all_statistics_refresh`
+- **14 refresh**: 8 summary table refresh functions + 6 materialized view refresh functions
+- **2 periodic**: `rolling_windows_refresh`, `relay_stats_metadata_refresh`
 
 All functions use `SECURITY INVOKER`, bulk array parameters, and `ON CONFLICT DO NOTHING`.
 
-### Materialized Views (11)
+### Summary Tables (6)
 
-`relay_metadata_latest`, `event_stats`, `relay_stats`, `kind_counts`, `kind_counts_by_relay`, `pubkey_counts`, `pubkey_counts_by_relay`, `network_stats`, `relay_software_counts`, `supported_nip_counts`, `event_daily_counts` — all support `REFRESH CONCURRENTLY` via unique indexes.
+`pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats` — incrementally refreshed via range-based refresh functions.
+
+### Materialized Views (6)
+
+`relay_metadata_latest`, `relay_software_counts`, `supported_nip_counts`, `daily_counts`, `events_replaceable_latest`, `events_addressable_latest` — all support `REFRESH CONCURRENTLY` via unique indexes.
 
 ---
 
@@ -373,7 +383,11 @@ JSON mode available for cloud aggregation:
 | `DB_WRITER_PASSWORD` | Yes | Writer role password (Seeder, Finder, Validator, Monitor, Synchronizer) |
 | `DB_REFRESHER_PASSWORD` | Yes | Refresher role password (matview ownership) |
 | `DB_READER_PASSWORD` | Yes | Reader role password (Api, Dvm, postgres-exporter) |
-| `NOSTR_PRIVATE_KEY` | For Monitor, Validator, Synchronizer, Dvm | Nostr private key (hex or nsec) for event signing and NIP-42 auth |
+| `DB_RANKER_PASSWORD` | Yes | Ranker role password (canonical graph reads, NIP-85 rank snapshot writes) |
+| `NOSTR_PRIVATE_KEY_MONITOR` | No | Monitor signing key for published Nostr events and NIP-66 write probes. Blank/unset generates one ephemeral key at config creation. |
+| `NOSTR_PRIVATE_KEY_SYNCHRONIZER` | No | Synchronizer key for NIP-42-authenticated relay reads. Blank/unset generates one ephemeral key at config creation. |
+| `NOSTR_PRIVATE_KEY_DVM` | No | Dvm signing key for NIP-89/NIP-90 events. Blank/unset generates one ephemeral key at config creation. |
+| `NOSTR_PRIVATE_KEY_ASSERTOR` | No | Assertor signing key for NIP-85 assertions and provider profile events. Blank/unset generates one ephemeral key at config creation. |
 | `GRAFANA_PASSWORD` | For Grafana | Grafana admin password |
 
 ### Configuration Files
@@ -388,6 +402,8 @@ deployments/bigbrotr/config/
     ├── monitor.yaml            # Health checks, retry per type, publishing, GeoIP
     ├── synchronizer.yaml       # Networks, filter, time range, per-relay overrides
     ├── refresher.yaml          # View list, refresh interval
+    ├── ranker.yaml             # DuckDB path, PageRank, algorithm namespace
+    ├── assertor.yaml           # NIP-85 algorithm_id, relays, kinds, provider profile
     ├── api.yaml                # Host, port, pagination, CORS
     └── dvm.yaml                # NIP-90 kind, relay list, response format
 ```
@@ -413,8 +429,8 @@ pre-commit install
 make lint             # ruff check src/ tests/
 make format           # ruff format src/ tests/
 make typecheck        # mypy src/bigbrotr (strict mode)
-make test             # pytest unit tests (~2,737 tests)
-make test-integration # pytest integration tests (~216 tests, requires Docker)
+make test             # pytest unit tests (~2,900 tests)
+make test-integration # pytest integration tests (~211 tests, requires Docker)
 make test-fast        # pytest -m "not slow"
 make coverage         # pytest --cov with HTML report (80% branch minimum)
 make ci               # all checks: lint + format-check + typecheck + test + sql-check + audit
@@ -429,7 +445,7 @@ make clean            # remove build artifacts and caches
 
 ### Test Suite
 
-- ~2,737 unit tests + ~216 integration tests (testcontainers PostgreSQL)
+- ~2,900 unit tests + ~211 integration tests (testcontainers PostgreSQL)
 - `asyncio_mode = "auto"` — no `@pytest.mark.asyncio` needed
 - Global timeout: 120s per test
 - Shared fixtures via `tests/fixtures/relays.py` (registered as pytest plugin)
@@ -444,7 +460,7 @@ make clean            # remove build artifacts and caches
 | Integration Test | pytest + testcontainers | PostgreSQL integration tests |
 | Build | Docker Buildx (matrix) | Multi-deployment image builds + Trivy scan |
 | Security | uv-secure, Trivy, CodeQL | Dependency vulns, container scanning, static analysis |
-| Release | PyPI (OIDC) + GHCR | Package + Docker image publishing, SBOM generation |
+| Release | PyPI (OIDC) + Docker Hub | Package + Docker image publishing, SBOM generation |
 | Docs | MkDocs Material | Auto-generated API docs deployed to GitHub Pages |
 | Dependencies | Dependabot | Weekly updates for uv, Docker, GitHub Actions |
 
@@ -493,21 +509,23 @@ bigbrotr/
 │       ├── monitor/                 # Health check orchestration + publishing
 │       ├── synchronizer/            # Event collection (cursor-based)
 │       ├── refresher/               # Materialized view refresh
+│       ├── ranker/                  # Private DuckDB-backed NIP-85 ranking
+│       ├── assertor/                # NIP-85 trusted assertions
 │       ├── api/                     # REST API (FastAPI, read-only)
 │       ├── dvm/                     # NIP-90 Data Vending Machine
 │       └── common/                  # Shared queries, configs, mixins
 ├── deployments/
 │   ├── Dockerfile                   # Single parametric (ARG DEPLOYMENT)
 │   ├── bigbrotr/                    # Full archive deployment
-│   │   ├── config/                  # YAML configs (brotr + 8 services)
-│   │   ├── postgres/init/           # SQL schema (10 files, 25 functions)
+│   │   ├── config/                  # YAML configs (brotr + 10 services)
+│   │   ├── postgres/init/           # SQL schema (10 files, 24 functions)
 │   │   ├── monitoring/              # Prometheus + Alertmanager + Grafana
-│   │   └── docker-compose.yaml      # 15 containers, 2 networks
+│   │   └── docker-compose.yaml      # 16 containers, 2 networks
 │   └── lilbrotr/                    # Lightweight deployment
 ├── tests/
 │   ├── fixtures/relays.py           # Shared relay fixtures
-│   ├── unit/                        # ~2,737 tests (mirrors src/ structure)
-│   └── integration/                 # ~216 tests (testcontainers PostgreSQL)
+│   ├── unit/                        # ~2,900 tests (mirrors src/ structure)
+│   └── integration/                 # ~211 tests (testcontainers PostgreSQL)
 ├── docs/                            # MkDocs Material documentation
 ├── Makefile                         # Development targets
 └── pyproject.toml                   # All config: deps, ruff, mypy, pytest, coverage
@@ -530,6 +548,7 @@ bigbrotr/
 | monitor | bigbrotr (parametric) | Health monitoring + event publishing |
 | synchronizer | bigbrotr (parametric) | Event archiving |
 | refresher | bigbrotr (parametric) | Materialized view refresh |
+| ranker | bigbrotr (parametric) | Private DuckDB-backed NIP-85 rank computation + snapshot export |
 | api | bigbrotr (parametric) | REST API (FastAPI) |
 | dvm | bigbrotr (parametric) | NIP-90 Data Vending Machine |
 | postgres-exporter | `prometheuscommunity/postgres-exporter:v0.16.0` | PostgreSQL metrics |

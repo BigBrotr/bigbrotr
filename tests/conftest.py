@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from nostr_sdk import Event as NostrEvent
+from nostr_sdk import Keys
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.core.pool import Pool
@@ -36,8 +37,11 @@ def setup_logging() -> None:
 @pytest.fixture
 def mock_private_key(monkeypatch: pytest.MonkeyPatch) -> str:
     """Set up a mock private key in environment."""
-    key = "0" * 64
-    monkeypatch.setenv("NOSTR_PRIVATE_KEY", key)
+    key = Keys.generate().secret_key().to_hex()
+    monkeypatch.setenv("NOSTR_PRIVATE_KEY_MONITOR", key)
+    monkeypatch.setenv("NOSTR_PRIVATE_KEY_SYNCHRONIZER", key)
+    monkeypatch.setenv("NOSTR_PRIVATE_KEY_DVM", key)
+    monkeypatch.setenv("NOSTR_PRIVATE_KEY_ASSERTOR", key)
     return key
 
 

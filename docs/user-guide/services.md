@@ -1,12 +1,12 @@
 # Services
 
-Deep dive into BigBrotr's eight independent services: how relays are discovered, validated, monitored, how events are archived, how analytics views are refreshed, and how data is exposed via REST API and Nostr.
+Deep dive into BigBrotr's ten independent services: how relays are discovered, validated, monitored, how events are archived, how derived facts are refreshed, how NIP-85 rank snapshots are computed, and how data is exposed via REST API and Nostr.
 
 ---
 
 ## Overview
 
-BigBrotr uses eight independent async services that share a PostgreSQL database. Each service runs as its own process and can be started, stopped, and scaled independently:
+BigBrotr uses ten independent async services that share a PostgreSQL database. Each service runs as its own process and can be started, stopped, and scaled independently:
 
 --8<-- "docs/_snippets/pipeline.md"
 
@@ -29,6 +29,10 @@ flowchart LR
         MO["Monitor"]
         SY["Synchronizer"]
         RE2["Refresher"]
+        RA["Ranker"]
+        AS["Assertor"]
+        AP["Api"]
+        DV["Dvm"]
     end
 
     subgraph Database
@@ -38,6 +42,9 @@ flowchart LR
         RM["relay_metadata"]
         EV["event"]
         ER["event_relay"]
+        CT["current tables"]
+        ST["analytics tables"]
+        RK["rank tables"]
         MV["materialized views"]
     end
 
@@ -54,7 +61,19 @@ flowchart LR
     SY -->|"cursors"| SS
     SY -->|"write"| EV
     SY -->|"junctions"| ER
+    RE2 -->|"refresh"| CT
+    RE2 -->|"refresh"| ST
     RE2 -->|"refresh"| MV
+    RA -->|"read"| CT
+    RA -->|"read"| ST
+    RA -->|"snapshot export"| RK
+    AS -->|"read"| ST
+    AS -->|"read"| RK
+    AS -->|"checkpoints"| SS
+    AP -->|"read"| RE
+    AP -->|"read"| MV
+    DV -->|"read"| RE
+    DV -->|"read"| MV
 ```
 
 ---
@@ -272,7 +291,9 @@ The Monitor uses two types of `CHECKPOINT` records in `service_state`:
 | `networks` | NetworkConfig | -- | Per-network timeouts and concurrency |
 
 !!! warning
-    The Monitor requires the `NOSTR_PRIVATE_KEY` environment variable for signing published Nostr events and performing NIP-66 write tests.
+    The Monitor uses `NOSTR_PRIVATE_KEY_MONITOR` for signing published Nostr
+    events and performing NIP-66 write tests. If the variable is blank or
+    unset, the config generates one ephemeral key once at startup.
 
 !!! tip "API Reference"
     See [`bigbrotr.services.monitor`](../reference/services/monitor/index.md) for the complete Monitor API.
@@ -332,6 +353,11 @@ flowchart TD
 | `timeouts.max_duration` | float | `14400.0` | Maximum seconds for the entire sync phase |
 | `networks` | NetworksConfig | -- | Per-network timeouts and concurrency |
 
+!!! note "NIP-42 Auth Key"
+    The Synchronizer uses `NOSTR_PRIVATE_KEY_SYNCHRONIZER` when a relay
+    requires authenticated reads via NIP-42. If blank or unset, the config
+    generates one ephemeral key once at startup.
+
 !!! tip "API Reference"
     See [`bigbrotr.services.synchronizer`](../reference/services/synchronizer/index.md) for the complete Synchronizer API.
 
@@ -339,30 +365,131 @@ flowchart TD
 
 ## Refresher
 
-**Purpose**: Refresh materialized views that power analytics queries.
+**Purpose**: Refresh current-state tables, analytics facts, and periodic reconciliation tasks that power downstream services.
 
 **Mode**: Continuous (`run_forever`)
 
-**Reads**: Base tables (indirectly, via `REFRESH MATERIALIZED VIEW CONCURRENTLY`)
-**Writes**: 11 materialized views
+**Reads**: Base tables (indirectly, via refresh functions)
+**Writes**: current-state tables, analytics tables, and service checkpoints
 
 ### How It Works
 
-1. Iterate over the configured list of materialized views
-2. Refresh each view individually via its stored function (e.g., `relay_metadata_latest_refresh()`)
-3. Log per-view timing and success/failure
-4. A failure on one view does not prevent subsequent views from refreshing
+1. Resolve the configured `current.targets` and `analytics.targets` into canonical dependency-safe order
+2. Incrementally refresh each current-state table from its source watermark range
+3. Incrementally refresh each analytics table from its source watermark range
+4. Run enabled periodic reconciliations (`rolling_windows`, `relay_stats_metadata`, `nip85_followers`) and emit per-target timing, row, watermark-lag, and failure metrics
 
-The Refresher calls views in dependency order: `relay_metadata_latest` first (because `relay_software_counts` and `supported_nip_counts` depend on it), then all remaining views.
+Each target is isolated by default: one failed refresh does not stop the rest of the cycle unless `processing.continue_on_target_error` is disabled.
 
 ### Configuration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `refresh.views` | list[string] | all 11 views | Materialized views to refresh |
+| `current.targets` | list[string] | canonical current-state set | Current-state tables to refresh incrementally |
+| `analytics.targets` | list[string] | canonical analytics set | Analytics tables to refresh incrementally |
+| `periodic.rolling_windows` | bool | `true` | Recompute rolling time-window columns |
+| `periodic.relay_stats_metadata` | bool | `true` | Refresh `relay_stats` metadata fields |
+| `periodic.nip85_followers` | bool | `true` | Recompute NIP-85 follower/following counts |
+| `processing.max_duration` | float or null | `null` | Maximum seconds for one refresh cycle |
+| `processing.max_targets_per_cycle` | int or null | `null` | Maximum targets attempted per cycle |
+| `processing.continue_on_target_error` | bool | `true` | Continue after isolated target failures |
+| `cleanup.enabled` | bool | `true` | Remove stale checkpoints for targets no longer configured |
 
 !!! tip "API Reference"
     See [`bigbrotr.services.refresher`](../reference/services/refresher/index.md) for the complete Refresher API.
+
+---
+
+## Ranker
+
+**Purpose**: Compute deterministic NIP-85 rank snapshots in a private DuckDB store and export them back to PostgreSQL.
+
+**Mode**: Continuous (`run_forever`)
+
+**Reads**: `contact_lists_current`, `contact_list_edges_current`, `nip85_event_stats`, `nip85_addressable_stats`, `nip85_identifier_stats`
+**Writes**: `nip85_pubkey_ranks`, `nip85_event_ranks`, `nip85_addressable_ranks`, `nip85_identifier_ranks`, private DuckDB graph state + checkpoint file
+
+### How It Works
+
+1. Load the incremental PostgreSQL -> DuckDB graph checkpoint from the private store
+2. Pull changed canonical contact lists and follow edges from PostgreSQL current tables
+3. Apply the graph delta in DuckDB, then reload non-user fact stages (`event`, `addressable`, `identifier`)
+4. Compute deterministic pubkey PageRank (`30382`) plus derived non-user ranks (`30383`, `30384`, `30385`)
+5. Snapshot-export one complete `algorithm_id` rank set back to PostgreSQL for downstream assertion publishing
+
+### Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `algorithm_id` | string | `global-pagerank` | Namespace written into exported rank snapshots |
+| `storage.path` | path | `/app/data/ranker.duckdb` | Private DuckDB database path |
+| `storage.checkpoint_path` | path | `/app/data/ranker.checkpoint.json` | Incremental graph sync checkpoint |
+| `processing.max_duration` | float or null | `null` | Maximum seconds for one ranker cycle |
+| `graph.damping` | float | `0.85` | PageRank damping factor for pubkey ranking |
+| `graph.iterations` | int | `20` | Deterministic PageRank iteration count |
+| `sync.batch_size` | int | `1000` | Changed followers synced per PostgreSQL batch |
+| `sync.max_batches` | int or null | `null` | Maximum follow-graph sync batches per cycle |
+| `sync.max_followers_per_cycle` | int or null | `null` | Maximum changed followers synced per cycle |
+| `facts_stage.batch_size` | int | `1000` | Rows fetched per non-user fact staging batch |
+| `facts_stage.max_event_rows` | int or null | `null` | Maximum event fact rows staged per cycle |
+| `facts_stage.max_addressable_rows` | int or null | `null` | Maximum addressable fact rows staged per cycle |
+| `facts_stage.max_identifier_rows` | int or null | `null` | Maximum identifier fact rows staged per cycle |
+| `export.batch_size` | int | `1000` | Rows exported per rank snapshot batch |
+| `export.max_batches_per_subject` | int or null | `null` | Maximum export batches per rank subject per cycle |
+| `cleanup.rank_runs_retention` | int or null | `100` | DuckDB-local rank run records to keep |
+
+!!! tip "API Reference"
+    See [`bigbrotr.services.ranker`](../reference/services/ranker/index.md) for the complete Ranker API.
+
+---
+
+## Assertor
+
+**Purpose**: Publish NIP-85 trusted assertions and the optional provider profile for an algorithm-scoped service key.
+
+**Mode**: Continuous (`run_forever`)
+
+**Reads**: `nip85_pubkey_stats`, `nip85_event_stats`, `nip85_addressable_stats`, `nip85_identifier_stats`, `nip85_pubkey_ranks`, `nip85_event_ranks`, `nip85_addressable_ranks`, `nip85_identifier_ranks`, `pubkey_stats`, `service_state`
+**Writes**: `service_state` (checkpoints), published Nostr events (kinds 30382-30385, optional kind 0)
+
+### How It Works
+
+1. On startup (`__aenter__`), build a Nostr client from the configured signing key and connect to relays
+2. During each `run()` cycle, query eligible user, event, addressable, and identifier facts joined with the current algorithm's rank snapshots
+3. Hash each assertion payload and compare it against `service_state` using `<algorithm_id>:<kind>:<subject_id>` checkpoint keys
+4. Publish only changed assertions, optionally publish a Kind 0 provider profile, then persist the new hashes
+5. Remove stale or non-canonical checkpoints after the cycle, keeping only current canonical state for the active algorithm namespace
+
+### Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `algorithm_id` | string | `global-pagerank` | Stable namespace for checkpoint keys and provider identity |
+| `keys.keys_env` | string | `NOSTR_PRIVATE_KEY_ASSERTOR` | Environment variable that supplies the signing key |
+| `publishing.relays` | list[string] | 3 public relays | Relays used for NIP-85 publishing |
+| `selection.kinds` | list[int] | `[30382, 30383, 30384, 30385]` | Assertion kinds to publish |
+| `selection.batch_size` | int | `500` | Maximum eligible subjects per cycle |
+| `selection.min_events` | int | `1` | Minimum total events required for user assertions |
+| `selection.top_topics` | int | `5` | Maximum topic tags included in user assertions |
+| `cleanup.remove_stale_checkpoints` | bool | `true` | Remove stale or non-canonical checkpoints after each cycle |
+| `provider_profile.enabled` | bool | `false` | Publish a Kind 0 provider profile for the assertor identity |
+
+!!! note "Assertor Key Lifecycle"
+    The shipped BigBrotr and LilBrotr deployments configure the Assertor with
+    `keys.keys_env: NOSTR_PRIVATE_KEY_ASSERTOR`. If that variable is blank or
+    unset, the config generates one ephemeral key once at startup. To keep a
+    stable NIP-85 identity across restarts, set the variable explicitly. Per
+    NIP-85, use a distinct service key for each distinct algorithm or
+    personalized point of view.
+
+!!! note "Trusted Provider Declarations"
+    NIP-85 kind `10040` events declare a user's trusted providers. Those are
+    user/client authorization events, so the Assertor does not publish them as
+    part of its provider flow. The NIP helper layer exposes a dedicated builder
+    for projects that need to create public or NIP-44 encrypted provider lists.
+
+!!! tip "API Reference"
+    See [`bigbrotr.services.assertor`](../reference/services/assertor/index.md) for the complete Assertor API.
 
 ---
 
@@ -435,7 +562,9 @@ The Dvm supports per-table pricing via `TableConfig.price`. When a job's bid is 
 | `fetch_timeout` | float | `30.0` | Timeout for relay event fetching |
 
 !!! note "Nostr Keys"
-    The Dvm requires a `NOSTR_PRIVATE_KEY` environment variable (secp256k1 hex). See [KeysConfig](../reference/utils/keys.md) for details.
+    The Dvm uses `NOSTR_PRIVATE_KEY_DVM` (secp256k1 hex or `nsec1...`). If the
+    variable is blank or unset, the config generates one ephemeral key once at
+    startup. See [KeysConfig](../reference/utils/keys.md) for details.
 
 !!! tip "API Reference"
     See [`bigbrotr.services.dvm`](../reference/services/dvm/index.md) for the complete Dvm service API.
@@ -501,6 +630,8 @@ For complete configuration details including all fields, defaults, constraints, 
 | Monitor | `processing.compute.*`, `discovery.enabled` | Which checks to run and publish |
 | Synchronizer | `filters`, `limit`, `timeouts.max_duration` | Archival throughput and scope |
 | Refresher | `views`, `interval` | Which views to refresh and how often |
+| Ranker | `algorithm_id`, `graph.*`, `export.batch_size` | PageRank namespace, graph behavior, and snapshot export throughput |
+| Assertor | `algorithm_id`, `selection.kinds`, `provider_profile.enabled` | Assertion namespace, publish scope, and provider identity |
 | Api | `tables`, `max_page_size`, `cors_origins` | Which tables to expose and pagination limits |
 | Dvm | `relays`, `tables`, `kind` | Which relays to listen on and tables to serve |
 

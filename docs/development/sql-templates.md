@@ -20,12 +20,12 @@ deployment-specific objects without duplicating the shared structure.
 tools/
 +-- generate_sql.py              # Generator script
 +-- templates/sql/
-    +-- base/                    # 10 base templates (shared schema)
+    +-- base/                    # Base templates (shared schema)
     +-- lilbrotr/                # Override templates (lightweight event table)
 
 deployments/
-+-- bigbrotr/postgres/init/      # 10 generated SQL files (DO NOT EDIT DIRECTLY)
-+-- lilbrotr/postgres/init/      # 10 generated SQL files
++-- bigbrotr/postgres/init/      # Generated SQL files (DO NOT EDIT DIRECTLY)
++-- lilbrotr/postgres/init/      # Generated SQL files
 ```
 
 !!! warning
@@ -36,19 +36,23 @@ deployments/
 
 ## Base Templates
 
-The 10 base templates define the minimal Brotr schema shared by all deployments:
+The base templates define the Brotr schema shared by all deployments:
 
 | Template | Purpose |
 |----------|---------|
 | `00_extensions.sql.j2` | PostgreSQL extensions (btree_gin, pg_stat_statements) |
-| `01_functions_utility.sql.j2` | Utility function: `tags_to_tagvalues()` |
-| `02_tables.sql.j2` | Core tables: relay, event, event_relay, metadata, relay_metadata, service_state |
-| `03_functions_crud.sql.j2` | 10 CRUD functions (inserts, upserts, cascade operations) |
-| `04_functions_cleanup.sql.j2` | 2 cleanup functions (orphan metadata + orphan event deletion) |
-| `05_views.sql.j2` | Regular views (extension point for future use) |
-| `06_materialized_views.sql.j2` | 11 materialized views: `relay_metadata_latest` + 10 statistics/analytics views |
-| `07_functions_refresh.sql.j2` | 12 refresh functions: one per matview + `all_statistics_refresh()` |
-| `08_indexes.sql.j2` | Performance indexes for tables and materialized views |
+| `01_functions_utility.sql.j2` | Tag and event-address utility functions |
+| `02_tables_core.sql.j2` | Core tables: relay, event, event_relay, metadata, relay_metadata, service_state |
+| `03_tables_current.sql.j2` | Current-state tables |
+| `04_tables_analytics.sql.j2` | Analytics and NIP-85 rank tables |
+| `05_functions_crud.sql.j2` | CRUD, cascade, and service-state functions |
+| `06_functions_cleanup.sql.j2` | Cleanup functions (orphan metadata + orphan event deletion) |
+| `07_views_reporting.sql.j2` | Reporting views |
+| `08_functions_refresh_current.sql.j2` | Current-state refresh functions |
+| `09_functions_refresh_analytics.sql.j2` | Analytics, contact-graph, and periodic refresh functions |
+| `10_indexes_core.sql.j2` | Core table indexes |
+| `11_indexes_current.sql.j2` | Current-state indexes |
+| `12_indexes_analytics.sql.j2` | Analytics and rank indexes |
 | `99_verify.sql.j2` | Post-init verification script (schema summary) |
 
 ---
@@ -81,19 +85,22 @@ Blocks not overridden are inherited from the base template unchanged.
 
 ### Extension Points
 
-Base templates provide `extra_*` blocks for extension. The 10 statistics/analytics
-matviews and their refresh functions are defined in the base templates and inherited
-by all deployments:
+Base templates expose focused override blocks. LilBrotr currently overrides only
+the lightweight event table, event insertion behavior, and deployment-specific
+verification text; the rest of the current-state, analytics/rank, refresh, and
+index schema is inherited from base templates:
 
 | Block | Defined in | Content |
 |-------|------------|---------|
-| `extra_cleanup_functions` | base (empty) | Additional cleanup functions |
-| `extra_materialized_views` | base | 10 statistics/analytics matviews |
-| `extra_refresh_functions` | base | 10 stat refresh + `all_statistics_refresh()` |
-| `extra_matview_indexes` | base | Indexes for statistics matviews |
-| `views` | base (empty) | Regular SQL views |
+| `extra_extensions` | `00_extensions` | Optional deployment-specific extensions |
+| `events_table` | `02_tables_core` | Event table shape |
+| `relay_metadata_check_types_comment` | `02_tables_core` | Deployment-specific relay metadata comments |
+| `events_insert_body` | `05_functions_crud` | Event insert behavior |
+| `events_insert_description` | `05_functions_crud` | Event insert documentation |
+| `service_data_functions` | `05_functions_crud` | Service-state helper functions |
+| `verify_body` | `99_verify` | Deployment verification output |
 
-All deployments generate the same 10 SQL files. The `OVERRIDES` dict in
+All deployments generate the same SQL file set. The `OVERRIDES` dict in
 `generate_sql.py` is empty for all deployments (no skip, no rename).
 
 ---

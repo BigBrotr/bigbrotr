@@ -1,0 +1,44 @@
+# =============================================================================
+# Ranker Service Configuration (LilBrotr)
+# =============================================================================
+# Private DuckDB-backed NIP-85 ranker. Syncs the canonical follow graph from
+# PostgreSQL, computes deterministic 30382/30383/30384/30385 rank snapshots,
+# and exports final ranks back to PostgreSQL.
+# Only values that differ from defaults are specified here.
+# =============================================================================
+
+pool:
+  user: ranker
+  password_env: DB_RANKER_PASSWORD  # pragma: allowlist secret
+  max_size: 2
+
+algorithm_id: global-pagerank
+
+storage:
+  path: /app/data/ranker.duckdb
+  checkpoint_path: /app/data/ranker.checkpoint.json
+
+processing:
+  max_duration: null
+
+sync:
+  batch_size: 1000
+  max_batches: null
+  max_followers_per_cycle: null
+
+facts_stage:
+  batch_size: 1000
+  max_event_rows: null
+  max_addressable_rows: null
+  max_identifier_rows: null
+
+export:
+  batch_size: 1000
+  max_batches_per_subject: null
+
+cleanup:
+  rank_runs_retention: 100
+
+metrics:
+  enabled: true
+  host: "0.0.0.0"

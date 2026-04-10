@@ -20,7 +20,7 @@ flowchart TD
     A["CLI invocation<br/><small>python -m bigbrotr &lt;service&gt;</small>"] --> B["Brotr.from_yaml<br/><small>config/brotr.yaml</small>"]
     B --> C["Service.from_yaml<br/><small>config/services/&lt;service&gt;.yaml</small>"]
     C --> D["Pydantic validation<br/><small>field constraints, cross-field checks</small>"]
-    D --> E["Environment variable resolution<br/><small>DB_ADMIN_PASSWORD, NOSTR_PRIVATE_KEY</small>"]
+    D --> E["Environment variable resolution<br/><small>DB_*_PASSWORD, NOSTR_PRIVATE_KEY_&lt;SERVICE&gt;</small>"]
     E --> F["Service starts<br/><small>validated configuration</small>"]
 
 ```
@@ -40,6 +40,8 @@ deployments/
 |       +-- monitor.yaml
 |       +-- synchronizer.yaml
 |       +-- refresher.yaml
+|       +-- ranker.yaml
+|       +-- assertor.yaml
 |       +-- api.yaml
 |       +-- dvm.yaml
 +-- lilbrotr/config/
@@ -51,6 +53,8 @@ deployments/
         +-- monitor.yaml
         +-- synchronizer.yaml
         +-- refresher.yaml
+        +-- ranker.yaml
+        +-- assertor.yaml
         +-- api.yaml
         +-- dvm.yaml
 ```
@@ -67,8 +71,12 @@ deployments/
 | `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin, PGBouncer | Admin user password for database initialization and PGBouncer auth |
 | `DB_WRITER_PASSWORD` | Yes | Writer services | Writer role password (seeder, finder, validator, monitor, synchronizer) |
 | `DB_READER_PASSWORD` | Yes | Read-only services | Reader role password (postgres-exporter, Api, Dvm) |
-| `DB_REFRESHER_PASSWORD` | Yes | Refresher | Refresher role password (matview ownership for REFRESH CONCURRENTLY) |
-| `NOSTR_PRIVATE_KEY` | Monitor, optional for Synchronizer | Monitor, Synchronizer | Nostr private key (64-char hex or `nsec1...` bech32). Required for NIP-66 write tests and event publishing. Optional for Synchronizer NIP-42 authentication. |
+| `DB_REFRESHER_PASSWORD` | Yes | Refresher | Refresher role password for derived-table and analytics refreshes |
+| `DB_RANKER_PASSWORD` | Yes | Ranker | Ranker role password (read canonical facts, write `nip85_pubkey_ranks`) |
+| `NOSTR_PRIVATE_KEY_MONITOR` | No | Monitor | Service-specific key used for Monitor publishing and NIP-66 write probes. Blank/unset generates one ephemeral key at config creation. |
+| `NOSTR_PRIVATE_KEY_SYNCHRONIZER` | No | Synchronizer | Service-specific key used for NIP-42-authenticated relay reads. Blank/unset generates one ephemeral key at config creation. |
+| `NOSTR_PRIVATE_KEY_DVM` | No | Dvm | Service-specific key used for NIP-89/NIP-90 signing. Blank/unset generates one ephemeral key at config creation. |
+| `NOSTR_PRIVATE_KEY_ASSERTOR` | No | Assertor | Service-specific key used for NIP-85 assertion signing and optional provider profile publishing. Blank/unset generates one ephemeral key at config creation. |
 | `GRAFANA_PASSWORD` | Docker only | Grafana | Grafana admin password |
 
 ### Setting Environment Variables
@@ -77,14 +85,20 @@ deployments/
 
 ```bash
 cp deployments/bigbrotr/.env.example deployments/bigbrotr/.env
-# Edit and set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD, DB_READER_PASSWORD, NOSTR_PRIVATE_KEY, GRAFANA_PASSWORD
+# Edit and set DB_ADMIN_PASSWORD, DB_WRITER_PASSWORD, DB_REFRESHER_PASSWORD,
+# DB_READER_PASSWORD, DB_RANKER_PASSWORD, GRAFANA_PASSWORD, and optionally the per-service
+# Nostr keys NOSTR_PRIVATE_KEY_MONITOR, NOSTR_PRIVATE_KEY_SYNCHRONIZER,
+# NOSTR_PRIVATE_KEY_DVM, NOSTR_PRIVATE_KEY_ASSERTOR
 ```
 
 **Shell**:
 
 ```bash
 export DB_WRITER_PASSWORD=your_writer_password
-export NOSTR_PRIVATE_KEY=your_hex_private_key
+export NOSTR_PRIVATE_KEY_MONITOR=your_hex_private_key
+export NOSTR_PRIVATE_KEY_SYNCHRONIZER=your_hex_private_key
+export NOSTR_PRIVATE_KEY_DVM=your_hex_private_key
+export NOSTR_PRIVATE_KEY_ASSERTOR=your_assertor_hex_private_key
 ```
 
 **Systemd**:
@@ -92,7 +106,10 @@ export NOSTR_PRIVATE_KEY=your_hex_private_key
 ```ini
 [Service]
 Environment="DB_WRITER_PASSWORD=your_writer_password"
-Environment="NOSTR_PRIVATE_KEY=your_hex_private_key"
+Environment="NOSTR_PRIVATE_KEY_MONITOR=your_hex_private_key"
+Environment="NOSTR_PRIVATE_KEY_SYNCHRONIZER=your_hex_private_key"
+Environment="NOSTR_PRIVATE_KEY_DVM=your_hex_private_key"
+Environment="NOSTR_PRIVATE_KEY_ASSERTOR=your_assertor_hex_private_key"
 ```
 
 ---
@@ -103,7 +120,7 @@ Environment="NOSTR_PRIVATE_KEY=your_hex_private_key"
 python -m bigbrotr <service> [options]
 
 positional arguments:
-  service                 seeder | finder | validator | monitor | synchronizer | refresher | api | dvm
+  service                 seeder | finder | validator | monitor | synchronizer | refresher | ranker | assertor | api | dvm
 
 options:
   --config PATH           Service config path (overrides default)
@@ -272,7 +289,7 @@ If no `pool:` section is present, the service uses the brotr.yaml defaults.
 | Validator | writer | 1 | 3 | WebSocket testing + promotion |
 | Monitor | writer | 1 | 3 | Health checks + metadata persistence |
 | Synchronizer | writer | 2 | 5 | Highest throughput service |
-| Refresher | refresher | 1 | 3 | Materialized view refresh (needs REFRESH CONCURRENTLY) |
+| Refresher | refresher | 1 | 3 | Derived-table and analytics refreshes |
 | Api | reader | 1 | 3 | Read-only REST API queries |
 | Dvm | reader | 1 | 3 | Read-only Nostr DVM queries |
 
@@ -474,7 +491,7 @@ metrics:
   enabled: true
   port: 8003
 
-keys: {}                                     # Loaded from NOSTR_PRIVATE_KEY env var
+keys: {}                                     # Loaded from NOSTR_PRIVATE_KEY_MONITOR or generated once
 
 networks:
   clearnet:
@@ -619,7 +636,7 @@ metrics:
   enabled: true
   port: 8004
 
-keys: {}                                     # Loaded from NOSTR_PRIVATE_KEY env var (for NIP-42)
+keys: {}                                     # Loaded from NOSTR_PRIVATE_KEY_SYNCHRONIZER or generated once
 
 networks:
   clearnet:
@@ -670,6 +687,217 @@ timeouts:
 | `timeouts.relay_i2p` | float | `3600.0` | 60.0-14400.0 | Max time per I2P relay |
 | `timeouts.relay_loki` | float | `3600.0` | 60.0-14400.0 | Max time per Lokinet relay |
 | `timeouts.max_duration` | float | `14400.0` | 60.0-86400.0 | Maximum seconds for the entire sync phase |
+
+---
+
+## Refresher Configuration
+
+Refreshes current-state tables, analytics facts, and periodic reconciliation
+tasks from explicit, typed target lists.
+
+```yaml
+interval: 86400.0
+
+metrics:
+  enabled: true
+  port: 8005
+
+processing:
+  max_duration: null
+  max_targets_per_cycle: null
+  continue_on_target_error: true
+
+current:
+  targets:
+    - relay_metadata_current
+    - events_replaceable_current
+    - events_addressable_current
+    - contact_lists_current
+    - contact_list_edges_current
+
+analytics:
+  targets:
+    - daily_counts
+    - relay_software_counts
+    - supported_nip_counts
+    - pubkey_kind_stats
+    - pubkey_relay_stats
+    - relay_kind_stats
+    - pubkey_stats
+    - kind_stats
+    - relay_stats
+    - nip85_pubkey_stats
+    - nip85_event_stats
+    - nip85_addressable_stats
+    - nip85_identifier_stats
+
+periodic:
+  rolling_windows: true
+  relay_stats_metadata: true
+  nip85_followers: true
+
+cleanup:
+  enabled: true
+```
+
+### Refresher Reference
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `current.targets` | list[string] | canonical current-state set | enum values | Current-state tables refreshed incrementally |
+| `analytics.targets` | list[string] | canonical analytics set | enum values | Analytics tables refreshed incrementally |
+| `periodic.rolling_windows` | bool | `true` | - | Recompute rolling time-window columns |
+| `periodic.relay_stats_metadata` | bool | `true` | - | Refresh `relay_stats` metadata fields from relay metadata |
+| `periodic.nip85_followers` | bool | `true` | - | Recompute NIP-85 follower and following counts |
+| `processing.max_duration` | float or null | `null` | 1-86400 | Maximum seconds for one refresh cycle |
+| `processing.max_targets_per_cycle` | int or null | `null` | >= 1 | Maximum targets attempted in one cycle |
+| `processing.continue_on_target_error` | bool | `true` | - | Continue after isolated target failures |
+| `cleanup.enabled` | bool | `true` | - | Remove stale checkpoints for targets no longer configured |
+| `interval` | float | `86400.0` | >= 60 | Target seconds between refresh cycles |
+
+---
+
+## Ranker Configuration
+
+Computes deterministic NIP-85 rank snapshots from the canonical follow graph
+and refreshed engagement facts. Pubkey ranks (`30382`) come from PageRank,
+while event, addressable, and identifier ranks (`30383`, `30384`, `30385`)
+are derived and snapshot-exported to PostgreSQL.
+
+```yaml
+interval: 3600.0
+
+metrics:
+  enabled: true
+  port: 8009
+
+algorithm_id: global-pagerank
+
+storage:
+  path: /app/data/ranker.duckdb
+  checkpoint_path: /app/data/ranker.checkpoint.json
+
+processing:
+  max_duration: null
+
+graph:
+  damping: 0.85
+  iterations: 20
+  ignore_self_follows: true
+
+sync:
+  batch_size: 1000
+  max_batches: null
+  max_followers_per_cycle: null
+
+facts_stage:
+  batch_size: 1000
+  max_event_rows: null
+  max_addressable_rows: null
+  max_identifier_rows: null
+
+export:
+  batch_size: 1000
+  max_batches_per_subject: null
+
+cleanup:
+  rank_runs_retention: 100
+```
+
+### Ranker Reference
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `algorithm_id` | string | `global-pagerank` | lowercase slug | Stable namespace used in rank snapshots and downstream assertion joins |
+| `storage.path` | path | `/app/data/ranker.duckdb` | writable path | Private DuckDB database file for graph state and PageRank working tables |
+| `storage.checkpoint_path` | path | `/app/data/ranker.checkpoint.json` | writable path | Incremental PostgreSQL -> DuckDB sync checkpoint |
+| `processing.max_duration` | float or null | `null` | `1-86400` | Maximum seconds for one ranker cycle |
+| `graph.damping` | float | `0.85` | `0 < x < 1` | PageRank damping factor |
+| `graph.iterations` | int | `20` | `1-10000` | Fixed number of deterministic PageRank iterations |
+| `graph.ignore_self_follows` | bool | `true` | - | Ignore self-follow edges when computing PageRank |
+| `sync.batch_size` | int | `1000` | `1-100000` | Maximum changed followers synced from PostgreSQL per batch |
+| `sync.max_batches` | int or null | `null` | `>= 1` | Maximum follow-graph sync batches per cycle |
+| `sync.max_followers_per_cycle` | int or null | `null` | `>= 1` | Maximum changed followers synced per cycle |
+| `facts_stage.batch_size` | int | `1000` | `1-100000` | Maximum non-user fact rows fetched per staging batch |
+| `facts_stage.max_event_rows` | int or null | `null` | `>= 1` | Maximum event fact rows staged per cycle |
+| `facts_stage.max_addressable_rows` | int or null | `null` | `>= 1` | Maximum addressable fact rows staged per cycle |
+| `facts_stage.max_identifier_rows` | int or null | `null` | `>= 1` | Maximum identifier fact rows staged per cycle |
+| `export.batch_size` | int | `1000` | `1-100000` | Maximum rank rows exported to PostgreSQL per batch |
+| `export.max_batches_per_subject` | int or null | `null` | `>= 1` | Maximum export batches per rank subject per cycle |
+| `cleanup.rank_runs_retention` | int or null | `100` | `>= 1` | DuckDB-local rank run records to keep |
+| `interval` | float | `3600.0` | `60-604800` | Target seconds between ranker cycles |
+
+---
+
+## Assertor Configuration
+
+Publishes NIP-85 trusted assertion events using canonical algorithm-scoped checkpoints.
+
+```yaml
+interval: 3600.0
+
+metrics:
+  enabled: true
+  port: 8008
+
+algorithm_id: global-pagerank
+keys:
+  keys_env: NOSTR_PRIVATE_KEY_ASSERTOR
+
+publishing:
+  allow_insecure: false
+  relays:
+    - wss://relay.damus.io
+    - wss://nos.lol
+    - wss://relay.primal.net
+
+selection:
+  kinds:
+    - 30382
+    - 30383
+    - 30384
+    - 30385
+  batch_size: 500
+  min_events: 1
+  top_topics: 5
+
+cleanup:
+  remove_stale_checkpoints: true
+
+provider_profile:
+  enabled: false
+  kind0_content:
+    name: BigBrotr Trusted Assertions
+    about: NIP-85 trusted assertion provider
+    website: https://bigbrotr.com
+    picture: null
+    nip05: null
+    banner: null
+    lud16: null
+    extra_fields: {}
+```
+
+The shipped BigBrotr and LilBrotr deployments set `keys.keys_env` to
+`NOSTR_PRIVATE_KEY_ASSERTOR`. If the variable is blank or unset, the config
+generates one ephemeral key once at startup. To keep a stable NIP-85 identity
+across restarts, set the variable explicitly. Per NIP-85, use a distinct
+service key for each distinct algorithm or personalized point of view.
+
+### Assertion Reference
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `algorithm_id` | string | `global-pagerank` | lowercase slug | Stable algorithm/service-key namespace used in checkpoint keys |
+| `keys.keys_env` | string | `NOSTR_PRIVATE_KEY_ASSERTOR` | non-empty | Environment variable from which the signing key is loaded |
+| `publishing.relays` | list[string] | 3 public relays | min 1 | Relay URLs used for NIP-85 publishing |
+| `publishing.allow_insecure` | bool | `false` | - | Fall back to insecure SSL transport on relay certificate failure |
+| `selection.kinds` | list[int] | `[30382, 30383, 30384, 30385]` | subset of supported kinds | Assertion kinds to publish |
+| `selection.batch_size` | int | `500` | 1-50000 | Maximum eligible subjects fetched per cycle |
+| `selection.min_events` | int | `1` | >= 0 | Minimum total events required for user assertions |
+| `selection.top_topics` | int | `5` | 0-50 | Maximum number of topic tags per user assertion |
+| `cleanup.remove_stale_checkpoints` | bool | `true` | - | Delete stale or non-canonical checkpoints after each cycle |
+| `provider_profile.enabled` | bool | `false` | - | Publish a Kind 0 provider profile for the assertor identity |
+| `provider_profile.kind0_content.*` | object | defaults | - | Metadata fields for the provider profile content |
 
 ---
 
@@ -788,6 +1016,6 @@ processing:
 ## Related Documentation
 
 - [Architecture](architecture.md) -- System architecture and module reference
-- [Services](services.md) -- Deep dive into the eight independent services
+- [Services](services.md) -- Deep dive into the ten independent services
 - [Database](database.md) -- Database schema and stored procedures
 - [Monitoring](monitoring.md) -- Prometheus metrics, alerting, and Grafana dashboards

@@ -53,8 +53,10 @@ class TestServiceRegistry:
             "monitor",
             "synchronizer",
             "refresher",
+            "ranker",
             "api",
             "dvm",
+            "assertor",
         }
         assert set(SERVICE_REGISTRY.keys()) == expected
 
@@ -80,9 +82,11 @@ class TestServiceRegistry:
     def test_service_classes_match_expected(self) -> None:
         from bigbrotr.services import (
             Api,
+            Assertor,
             Dvm,
             Finder,
             Monitor,
+            Ranker,
             Refresher,
             Seeder,
             Synchronizer,
@@ -95,9 +99,11 @@ class TestServiceRegistry:
             "validator": Validator,
             "monitor": Monitor,
             "refresher": Refresher,
+            "ranker": Ranker,
             "synchronizer": Synchronizer,
             "api": Api,
             "dvm": Dvm,
+            "assertor": Assertor,
         }
 
         for name, (service_class, _) in SERVICE_REGISTRY.items():

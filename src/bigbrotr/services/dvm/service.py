@@ -47,6 +47,7 @@ import time
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
+import asyncpg
 from nostr_sdk import Client, Filter, Kind, RelayUrl, Timestamp
 
 from bigbrotr.core.base_service import BaseService
@@ -68,6 +69,8 @@ from .utils import (
 
 if TYPE_CHECKING:
     from types import TracebackType
+
+    from nostr_sdk import Keys
 
     from bigbrotr.core.brotr import Brotr
 
@@ -102,18 +105,18 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         super().__init__(brotr=brotr, config=config)
         self._config: DvmConfig
         self._client: Client | None = None
+        self._keys: Keys = self._config.keys.keys
         self._last_fetch_ts: int = 0
         self._processed_ids: set[str] = set()
 
     async def __aenter__(self) -> Dvm:
         await super().__aenter__()
+        keys = self._keys
 
-        client = await create_client(
-            keys=self._config.keys, allow_insecure=self._config.allow_insecure
-        )
+        client = await create_client(keys=keys, allow_insecure=self._config.allow_insecure)
         self._client = client
 
-        pubkey = self._config.keys.public_key().to_hex()
+        pubkey = keys.public_key().to_hex()
         self._logger.info("client_created", pubkey=pubkey)
 
         for relay in self._config.relays:
@@ -174,7 +177,8 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         processed = 0
         failed = 0
         payment_required = 0
-        pubkey_hex = self._config.keys.public_key().to_hex()
+        keys = self._keys
+        pubkey_hex = keys.public_key().to_hex()
 
         for event in events:
             r, p, f, pr = await self._process_event(event, pubkey_hex)
@@ -228,7 +232,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
 
         try:
             return await self._handle_job(event_id, customer_pubkey, params, table)
-        except (CatalogError, OSError, TimeoutError) as e:
+        except (CatalogError, OSError, TimeoutError, asyncpg.PostgresError) as e:
             with contextlib.suppress(OSError, TimeoutError):
                 await self._send_event(build_error_event(event_id, customer_pubkey, str(e)))
             self._logger.error("job_failed", event_id=event_id, error=str(e))

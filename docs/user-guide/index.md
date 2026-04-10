@@ -16,7 +16,7 @@ In-depth reference documentation for BigBrotr's architecture, services, configur
 
     ---
 
-    Deep dive into the eight independent services: Seeder, Finder, Validator, Monitor, Synchronizer, Refresher, Api, Dvm.
+    Deep dive into the ten independent services: Seeder, Finder, Validator, Monitor, Synchronizer, Refresher, Ranker, Assertor, Api, Dvm.
 
 -   :material-file-cog:{ .lg .middle } **[Configuration](configuration.md)**
 

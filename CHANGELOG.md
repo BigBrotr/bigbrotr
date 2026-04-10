@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Ranker service**: private DuckDB-backed NIP-85 ranking engine with CLI registration, deployment configs, Prometheus scraping, and snapshot export to PostgreSQL for all four trusted-assertion subject kinds (`30382`, `30383`, `30384`, `30385`)
+- **Assertor full-kinds runtime**: NIP-85 trusted assertions publisher now supports users, events, addressables, and identifiers (`30382-30385`), plus optional algorithm-scoped Kind 0 provider profile publishing
+- **NIP-85 data models and event builders**: `UserAssertion`, `EventAssertion`, `AddressableAssertion`, and `IdentifierAssertion` frozen dataclasses with SHA-256 change detection, plus builder functions for all four assertion kinds
+- **Incremental summary tables**: 6 summary tables (`pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats`) refreshed incrementally via `(after, until]` watermark ranges, replacing expensive full-refresh materialized views for analytics
+- **Expanded NIP-85 facts layer**: `contact_lists_current`, `contact_list_edges_current`, `nip85_addressable_stats`, `nip85_identifier_stats`, and follower-count refresh logic now complete the facts substrate for downstream ranking and publishing
+- **Deployment smoke coverage**: end-to-end integration coverage now exercises the `refresher -> ranker -> assertor` pipeline and verifies that unchanged assertions are not republished on a second cycle
+
+### Changed
+
+- **Refresher service redesigned**: three-phase refresh cycle (matviews → summary tables → periodic tasks). Periodic tasks now counted in total/failed metrics. Wall-clock watermark replaces `MAX(seen_at)` to prevent TOCTOU race on same-timestamp rows
+- **Analytics layer**: 11 materialized views replaced with hybrid model (6 incremental summary tables + 6 bounded materialized views). `event_daily_counts` renamed to `daily_counts`
+- **Operational rollout contract**: deployments now include the `ranker` PostgreSQL role/password (`DB_RANKER_PASSWORD`), PGBouncer userlist support, Ranker DuckDB volume mounts, per-service Nostr key environment variables, and algorithm-aware Assertor v2 checkpointing
+- **Documentation topology**: README, docs site, deployment examples, and service diagrams now describe the full 10-service architecture and the complete NIP-85 pipeline (`refresher -> ranker -> assertor`)
+- **CI pipeline**: `docs/**` and `*.md` removed from `paths-ignore` so documentation-only PRs trigger the full CI pipeline including `mkdocs build --strict`
+
+### Fixed
+
+- **Catalog ILIKE on non-text columns**: `ILIKE` operator now restricted to text-like column types; previously produced PostgreSQL `UndefinedFunctionError` causing API 500 responses and DVM cycle crashes
+- **Catalog error boundary**: `asyncpg.PostgresError` (not just `DataError`) now caught and converted to `CatalogError` in both `query()` and `get_by_pk()`
+- **DVM error boundary**: `asyncpg.PostgresError` added to `_process_event()` exception handling to prevent query-level DB errors from crashing the service cycle
+- **Topic counts merge logic**: JSONB upsert now uses `UNION ALL + SUM` to preserve existing topic keys; previously dropped historical topics absent from the new batch. Values stored as native JSONB numbers (not text strings) to prevent lexicographic sorting
+- **BigBrotr/LilBrotr analytics parity**: ordered `tagvalues` are now treated as a real fallback substrate rather than an unordered set. Shared SQL logic now reconstructs `first p`, `first e`, `last e`, and addressable `d_tag` consistently across both deployments. LilBrotr keeps exact parity wherever metrics are derivable from `tagvalues`, and uses documented best-effort fallback for data that depends on non-persisted tag fields such as `amount` and `bolt11`
+- **Documentation topology**: service count, env var tables, architecture diagrams, test counts, and release target aligned across all 10+ documentation surfaces (README, PROJECT\_SPECIFICATION, docs site, quickstart, configuration, architecture guides)
+- **Self-hosting guide**: broken TOC anchors fixed, page added to mkdocs.yml navigation
+
 ## [6.6.9] - 2026-04-08
 
 ### Fixed

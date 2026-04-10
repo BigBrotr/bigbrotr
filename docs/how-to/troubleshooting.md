@@ -190,13 +190,13 @@ processing:
 
 ### What is the difference between BigBrotr and LilBrotr?
 
-**BigBrotr** stores complete Nostr events including `tags` (JSON), `content`, and `sig`. It provides 11 materialized views for analytics and uses more disk space.
+**BigBrotr** stores complete Nostr events including `tags` (JSON), `content`, and `sig`. It provides the full current-state, analytics, and NIP-85 rank schema and uses more disk space.
 
-**LilBrotr** has all 8 event columns but keeps `tags`, `content`, and `sig` as NULL (they are nullable columns that are never populated). The `tagvalues` column is computed at insert time. Since NULL values do not occupy storage, this results in approximately 60% disk savings. All 11 materialized views are available in both variants.
+**LilBrotr** has all 8 event columns but keeps `tags`, `content`, and `sig` as NULL (they are nullable columns that are never populated). The `tagvalues` column is still computed at insert time and preserves the order of single-character tags, which lets LilBrotr share almost all analytics logic with BigBrotr while using much less disk. Since NULL values do not occupy storage, this results in approximately 60% disk savings. The current-state, analytics, and NIP-85 rank schema is available in both variants.
 
-Both use the same services and codebase. The only difference is the SQL schema.
+Both use the same services and codebase. The intended contract is exact parity whenever a metric can be reconstructed from `tagvalues`; only metrics that require missing tag metadata fall back to best-effort behavior in LilBrotr. Today the clearest example is NIP-85 zaps: LilBrotr can count zap events from `p`/`e` tagvalues, but cannot reconstruct verified zap amounts because `amount` and `bolt11` are not stored.
 
-### Do I need to run all eight services?
+### Do I need to run all nine services?
 
 No. The only required services are:
 
@@ -208,7 +208,7 @@ The remaining services are optional:
 
 - **Monitor** -- performs NIP-11/NIP-66 health checks and publishes Nostr events. Required if you want relay metadata.
 - **Synchronizer** -- archives events from validated relays. Required only if you want to store Nostr events.
-- **Refresher** -- refreshes materialized views. Required only if you use analytics views.
+- **Refresher** -- refreshes current-state tables, analytics facts, and periodic reconciliation targets. Required if you use derived analytics outputs.
 
 ### How much disk space does BigBrotr use?
 

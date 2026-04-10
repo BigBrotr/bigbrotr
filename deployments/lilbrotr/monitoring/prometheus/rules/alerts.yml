@@ -109,17 +109,343 @@ groups:
             below the 95% threshold. Consider increasing shared_buffers.
 
       # --------------------------------------------------------------------
-      # RefresherViewsFailing: Materialized view refreshes failing
+      # RefresherTargetsFailing: Current-state or analytics refreshes failing
       # --------------------------------------------------------------------
-      - alert: RefresherViewsFailing
+      - alert: RefresherTargetsFailing
         expr: >-
-          service_gauge{service="refresher", name="views_failed"} > 0
+          service_gauge{service="refresher", name="targets_failed"} > 0
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "Refresher has {{ $value }} failing views"
+          summary: "Refresher has {{ $value }} failing targets"
           description: >-
-            The refresher service has had {{ $value }} view refresh failures
-            for more than 10 minutes. Check database health and view
-            definitions.
+            The refresher service has had {{ $value }} current-state or
+            analytics refresh failures for more than 10 minutes. Check
+            database health and refresh definitions.
+
+      # --------------------------------------------------------------------
+      # RefresherEventWatermarkLagHigh: Event ingestion backlog not refreshed
+      # --------------------------------------------------------------------
+      - alert: RefresherEventWatermarkLagHigh
+        expr: >-
+          service_gauge{service="refresher", name="watermark_event_relay_lag_seconds"} > 3600
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Refresher event watermark lag is {{ $value | printf \"%.0f\" }}s"
+          description: >-
+            The refresher event_relay watermark is more than one hour behind
+            the latest visible event_relay source watermark for over 30 minutes.
+
+      # --------------------------------------------------------------------
+      # RefresherMetadataWatermarkLagHigh: Relay metadata backlog not refreshed
+      # --------------------------------------------------------------------
+      - alert: RefresherMetadataWatermarkLagHigh
+        expr: >-
+          service_gauge{service="refresher", name="watermark_relay_metadata_lag_seconds"} > 3600
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Refresher metadata watermark lag is {{ $value | printf \"%.0f\" }}s"
+          description: >-
+            The refresher relay_metadata watermark is more than one hour
+            behind the latest visible relay metadata source watermark.
+
+      # --------------------------------------------------------------------
+      # RefresherMaxDurationBudgetHit: Cycle repeatedly cut by max_duration
+      # --------------------------------------------------------------------
+      - alert: RefresherMaxDurationBudgetHit
+        expr: >-
+          service_gauge{service="refresher", name="cycle_stopped_due_to_max_duration"} > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Refresher is hitting its max_duration budget"
+          description: >-
+            Refresher cycles have been cut short by the configured
+            processing.max_duration budget for more than 30 minutes.
+
+      # --------------------------------------------------------------------
+      # RefresherNoSuccessfulCycle: No completed cycle within expected window
+      # --------------------------------------------------------------------
+      - alert: RefresherNoSuccessfulCycle
+        expr: >-
+          time() - service_gauge{service="refresher", name="last_cycle_timestamp"} > 172800
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Refresher has not completed a successful cycle recently"
+          description: >-
+            The refresher service has not recorded a successful cycle in over
+            48 hours. Check service status, database health, and target errors.
+
+      # --------------------------------------------------------------------
+      # FinderNoSuccessfulCycle: relay discovery has stalled
+      # --------------------------------------------------------------------
+      - alert: FinderNoSuccessfulCycle
+        expr: >-
+          time() - service_gauge{service="finder", name="last_cycle_timestamp"} > 3600
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Finder has not completed a successful cycle recently"
+          description: >-
+            Finder has not recorded a successful cycle in over one hour. Check
+            API discovery sources, event scanning, and database writes.
+
+      # --------------------------------------------------------------------
+      # ValidatorNoSuccessfulCycle: relay validation has stalled
+      # --------------------------------------------------------------------
+      - alert: ValidatorNoSuccessfulCycle
+        expr: >-
+          time() - service_gauge{service="validator", name="last_cycle_timestamp"} > 3600
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Validator has not completed a successful cycle recently"
+          description: >-
+            Validator has not recorded a successful cycle in over one hour.
+            Check relay connectivity, network filters, and database health.
+
+      # --------------------------------------------------------------------
+      # MonitorNoSuccessfulCycle: relay monitoring has stalled
+      # --------------------------------------------------------------------
+      - alert: MonitorNoSuccessfulCycle
+        expr: >-
+          time() - service_gauge{service="monitor", name="last_cycle_timestamp"} > 3600
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Monitor has not completed a successful cycle recently"
+          description: >-
+            Monitor has not recorded a successful cycle in over one hour.
+            Check NIP-11/NIP-66 probes, retry settings, and database writes.
+
+      # --------------------------------------------------------------------
+      # MonitorRelayFailures: relay probes are failing
+      # --------------------------------------------------------------------
+      - alert: MonitorRelayFailures
+        expr: >-
+          service_gauge{service="monitor", name="failed"} > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Monitor is reporting {{ $value }} failed relay checks"
+          description: >-
+            Monitor has reported failed relay checks for more than 30 minutes.
+            Inspect relay health and network reachability.
+
+      # --------------------------------------------------------------------
+      # SynchronizerNoSuccessfulCycle: event synchronization has stalled
+      # --------------------------------------------------------------------
+      - alert: SynchronizerNoSuccessfulCycle
+        expr: >-
+          time() - service_gauge{service="synchronizer", name="last_cycle_timestamp"} > 3600
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Synchronizer has not completed a successful cycle recently"
+          description: >-
+            Synchronizer has not recorded a successful cycle in over one hour.
+            Check relay subscriptions, event fetch windows, and database writes.
+
+      # --------------------------------------------------------------------
+      # ApiNoSuccessfulCycle: API service metrics heartbeat has stalled
+      # --------------------------------------------------------------------
+      - alert: ApiNoSuccessfulCycle
+        expr: >-
+          time() - service_gauge{service="api", name="last_cycle_timestamp"} > 600
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API metrics heartbeat has stalled"
+          description: >-
+            The API service has not recorded a successful metrics cycle in
+            over 10 minutes. Check the HTTP server task and container health.
+
+      # --------------------------------------------------------------------
+      # ApiRequestFailures: API request failures are increasing
+      # --------------------------------------------------------------------
+      - alert: ApiRequestFailures
+        expr: >-
+          rate(service_counter_total{service="api", name="requests_failed"}[5m]) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API request failure rate is {{ $value | printf \"%.3f\" }}/s"
+          description: >-
+            API requests have been failing above 0.05/s for more than
+            10 minutes. Inspect table policies, query errors, and logs.
+
+      # --------------------------------------------------------------------
+      # DvmNoSuccessfulCycle: DVM service metrics heartbeat has stalled
+      # --------------------------------------------------------------------
+      - alert: DvmNoSuccessfulCycle
+        expr: >-
+          time() - service_gauge{service="dvm", name="last_cycle_timestamp"} > 600
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DVM metrics heartbeat has stalled"
+          description: >-
+            The DVM service has not recorded a successful cycle in over
+            10 minutes. Check relay polling, NIP-90 processing, and logs.
+
+      # --------------------------------------------------------------------
+      # DvmRequestFailures: DVM request failures are increasing
+      # --------------------------------------------------------------------
+      - alert: DvmRequestFailures
+        expr: >-
+          rate(service_counter_total{service="dvm", name="requests_failed"}[5m]) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DVM request failure rate is {{ $value | printf \"%.3f\" }}/s"
+          description: >-
+            DVM requests have been failing above 0.05/s for more than
+            10 minutes. Inspect NIP-90 job handling, table policies, and logs.
+
+      # --------------------------------------------------------------------
+      # RankerNoSuccessfulCycle: rank computation has stalled
+      # --------------------------------------------------------------------
+      - alert: RankerNoSuccessfulCycle
+        expr: >-
+          time() - service_gauge{service="ranker", name="last_cycle_timestamp"} > 7200
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ranker has not completed a successful cycle recently"
+          description: >-
+            Ranker has not recorded a successful cycle in over two hours.
+            Check DuckDB storage, PostgreSQL access, and ranker logs.
+
+      # --------------------------------------------------------------------
+      # RankerCheckpointLagHigh: follow graph checkpoint is too far behind
+      # --------------------------------------------------------------------
+      - alert: RankerCheckpointLagHigh
+        expr: >-
+          service_gauge{service="ranker", name="checkpoint_lag_seconds"} > 86400
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ranker checkpoint lag is {{ $value | printf \"%.0f\" }}s"
+          description: >-
+            Ranker checkpoint lag has exceeded 24 hours for more than
+            30 minutes. Check sync budgets, follower changes, and DuckDB state.
+
+      # --------------------------------------------------------------------
+      # RankerCycleBudgetHit: ranker is repeatedly hitting a configured budget
+      # --------------------------------------------------------------------
+      - alert: RankerCycleBudgetHit
+        expr: >-
+          service_gauge{service="ranker", name=~"cycle_cutoff_.*"} > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ranker is hitting cycle budget {{ $labels.name }}"
+          description: >-
+            Ranker cycles have repeatedly stopped because a configured budget
+            was reached. Review processing, sync, facts_stage, and export
+            limits before increasing load.
+
+      # --------------------------------------------------------------------
+      # RankerFailedRunsIncreasing: persisted rank run failures are increasing
+      # --------------------------------------------------------------------
+      - alert: RankerFailedRunsIncreasing
+        expr: >-
+          delta(service_gauge{service="ranker", name="rank_runs_failed_total"}[15m]) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ranker failed run count is increasing"
+          description: >-
+            Ranker has recorded new failed rank runs in the last 15 minutes.
+            Inspect ranker logs and DuckDB run history.
+
+      # --------------------------------------------------------------------
+      # AssertorNoSuccessfulCycle: NIP-85 publishing has stalled
+      # --------------------------------------------------------------------
+      - alert: AssertorNoSuccessfulCycle
+        expr: >-
+          time() - service_gauge{service="assertor", name="last_cycle_timestamp"} > 7200
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Assertor has not completed a successful cycle recently"
+          description: >-
+            Assertor has not recorded a successful cycle in over two hours.
+            Check relay publishing, NIP-85 ranks, and service credentials.
+
+      # --------------------------------------------------------------------
+      # AssertorPublishFailures: assertion publishing is failing
+      # --------------------------------------------------------------------
+      - alert: AssertorPublishFailures
+        expr: >-
+          service_gauge{service="assertor", name="assertions_failed"} > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Assertor has {{ $value }} failed assertion publishes"
+          description: >-
+            Assertor has reported failed NIP-85 assertion publishes for more
+            than 15 minutes. Check relay reachability and publish logs.
+
+      # --------------------------------------------------------------------
+      # AssertorProviderProfileFailures: Kind 0 provider publishing is failing
+      # --------------------------------------------------------------------
+      - alert: AssertorProviderProfileFailures
+        expr: >-
+          service_gauge{service="assertor", name="provider_profiles_failed"} > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Assertor provider profile publishing is failing"
+          description: >-
+            Assertor has reported Kind 0 provider profile publish failures for
+            more than 15 minutes while provider profile publishing is enabled.
+
+      # --------------------------------------------------------------------
+      # AssertorEligibleSubjectsNotHandled: eligible assertions are not handled
+      # --------------------------------------------------------------------
+      - alert: AssertorEligibleSubjectsNotHandled
+        expr: >-
+          sum by (service) (
+            service_gauge{
+              service="assertor",
+              name=~"(user|event|addressable|identifier)_assertions_eligible"
+            }
+          ) > 0
+          and on (service)
+          service_gauge{service="assertor", name="assertions_published"} == 0
+          and on (service)
+          service_gauge{service="assertor", name="assertions_skipped"} == 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Assertor sees eligible subjects but handles none"
+          description: >-
+            Assertor reports eligible NIP-85 subjects but no published or
+            skipped assertions for more than 30 minutes. Inspect the publish
+            cycle and checkpoint state.

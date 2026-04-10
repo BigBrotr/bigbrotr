@@ -31,6 +31,7 @@ services:
       DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
       DB_READER_PASSWORD: ${DB_READER_PASSWORD}
       DB_REFRESHER_PASSWORD: ${DB_REFRESHER_PASSWORD}
+      DB_RANKER_PASSWORD: ${DB_RANKER_PASSWORD}
 
     volumes:
       - ./data/postgres:/var/lib/postgresql/data                # Persistent data
@@ -73,6 +74,7 @@ services:
       DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
       DB_READER_PASSWORD: ${DB_READER_PASSWORD}
       DB_REFRESHER_PASSWORD: ${DB_REFRESHER_PASSWORD}
+      DB_RANKER_PASSWORD: ${DB_RANKER_PASSWORD}
 
     entrypoint: ["/custom-entrypoint.sh"]
 
@@ -303,7 +305,6 @@ services:
 
     environment:
       DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
-      NOSTR_PRIVATE_KEY: ${NOSTR_PRIVATE_KEY}
 
     volumes:
       - ./config:/app/config:ro
@@ -358,7 +359,7 @@ services:
 
     environment:
       DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
-      NOSTR_PRIVATE_KEY: ${NOSTR_PRIVATE_KEY}
+      NOSTR_PRIVATE_KEY_MONITOR: ${NOSTR_PRIVATE_KEY_MONITOR}
 
     volumes:
       - ./config:/app/config:ro
@@ -414,7 +415,7 @@ services:
 
     environment:
       DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
-      NOSTR_PRIVATE_KEY: ${NOSTR_PRIVATE_KEY}
+      NOSTR_PRIVATE_KEY_SYNCHRONIZER: ${NOSTR_PRIVATE_KEY_SYNCHRONIZER}
 
     volumes:
       - ./config:/app/config:ro
@@ -504,6 +505,54 @@ services:
         max-file: "3"
 
   # --------------------------------------------------------------------------
+  # LilBrotr Ranker Service
+  # --------------------------------------------------------------------------
+  ranker:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: lilbrotr
+    container_name: lilbrotr-ranker
+    restart: unless-stopped
+
+    environment:
+      DB_RANKER_PASSWORD: ${DB_RANKER_PASSWORD}
+
+    volumes:
+      - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
+      - ./data/ranker:/app/data
+
+    ports:
+      - "127.0.0.1:${RANKER_METRICS_PORT:-9009}:8000"  # Prometheus metrics
+
+    networks:
+      - lilbrotr-data-network
+      - lilbrotr-monitoring-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+    command: ["bigbrotr", "ranker"]
+
+    stop_grace_period: 30s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
   # LilBrotr API Service
   # --------------------------------------------------------------------------
   api:
@@ -566,7 +615,7 @@ services:
 
     environment:
       DB_READER_PASSWORD: ${DB_READER_PASSWORD}
-      NOSTR_PRIVATE_KEY: ${NOSTR_PRIVATE_KEY}
+      NOSTR_PRIVATE_KEY_DVM: ${NOSTR_PRIVATE_KEY_DVM}
 
     volumes:
       - ./config:/app/config:ro
@@ -594,6 +643,54 @@ services:
       retries: 3
       start_period: 30s
 
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
+  # LilBrotr Assertor Service (NIP-85 Trusted Assertions)
+  # --------------------------------------------------------------------------
+  assertor:
+    build:
+      context: ../../
+      dockerfile: deployments/Dockerfile
+      args:
+        DEPLOYMENT: lilbrotr
+    container_name: lilbrotr-assertor
+    restart: unless-stopped
+
+    environment:
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD}
+      NOSTR_PRIVATE_KEY_ASSERTOR: ${NOSTR_PRIVATE_KEY_ASSERTOR}
+
+    volumes:
+      - ./config:/app/config:ro
+      - ./gai.conf:/etc/gai.conf:ro
+
+    ports:
+      - "127.0.0.1:${ASSERTOR_METRICS_PORT:-9008}:8000"     # Prometheus metrics
+
+    networks:
+      - lilbrotr-data-network
+      - lilbrotr-monitoring-network
+
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+    command: ["bigbrotr", "assertor"]
+
+    stop_grace_period: 30s
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
     logging:
       driver: "json-file"
@@ -789,7 +886,7 @@ networks:
 # ============================================================================
 #
 # 1. Setup:
-#    cp .env.example .env && nano .env  # Set all DB passwords, NOSTR_PRIVATE_KEY, GRAFANA_PASSWORD
+#    cp .env.example .env && nano .env  # Set DB passwords, both Nostr keys, and GRAFANA_PASSWORD
 #
 # 2. Start:
 #    docker-compose up -d

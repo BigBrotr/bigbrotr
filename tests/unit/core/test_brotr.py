@@ -9,7 +9,7 @@ Tests:
 - Insert operations (insert_event, insert_event_relay, insert_relay, insert_metadata, insert_relay_metadata)
 - Service state operations (upsert_service_state, get_service_state, delete_service_state)
 - Cleanup operations (delete_orphan_event, delete_orphan_metadata)
-- Materialized view refresh operations (refresh_materialized_view)
+- Refresh procedure operations (run_refresh_procedure / refresh_materialized_view alias)
 - Explicit lifecycle methods (connect, close)
 - Context manager support
 """
@@ -131,7 +131,7 @@ class TestTimeoutsConfig:
             TimeoutsConfig(cleanup=3601.0)
 
     def test_refresh_has_no_upper_bound(self) -> None:
-        """Test that refresh timeout has no upper bound (matview refreshes can be long)."""
+        """Test that refresh timeout has no upper bound for long-running procedures."""
         config = TimeoutsConfig(refresh=7200.0)
         assert config.refresh == 7200.0
 
@@ -779,35 +779,42 @@ class TestBrotrQueryOperations:
 
 
 # ============================================================================
-# Refresh Operations Tests
+# Refresh Procedure Tests
 # ============================================================================
 
 
-class TestRefreshMatview:
-    """Tests for Brotr.refresh_materialized_view() method."""
+class TestRunRefreshProcedure:
+    """Tests for Brotr.run_refresh_procedure()."""
 
-    async def test_valid_view_names(self, mock_brotr: Brotr) -> None:
-        """Test refreshing valid materialized view names."""
+    async def test_valid_target_names(self, mock_brotr: Brotr) -> None:
+        """Test running refresh procedures for valid target names."""
         valid_names = [
-            "relay_metadata_latest",
+            "custom_reporting_view",
             "events_statistics",
             "relays_statistics",
         ]
 
         for name in valid_names:
-            await mock_brotr.refresh_materialized_view(name)
+            await mock_brotr.run_refresh_procedure(name)
 
     async def test_sql_injection_prevented(self, mock_brotr: Brotr) -> None:
         """Test that SQL injection attempts are prevented by procedure name regex."""
         with pytest.raises(ValueError, match="Invalid procedure name"):
-            await mock_brotr.refresh_materialized_view("events_statistics; DROP TABLE events;")
+            await mock_brotr.run_refresh_procedure("events_statistics; DROP TABLE events;")
 
     async def test_uses_refresh_timeout(self, mock_brotr: Brotr, mock_pool: Pool) -> None:
         """Test that refresh uses config.timeouts.refresh (None by default)."""
-        await mock_brotr.refresh_materialized_view("relay_stats")
+        await mock_brotr.run_refresh_procedure("relay_stats")
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
         call_kwargs = mock_conn.execute.call_args
         assert call_kwargs[1]["timeout"] is None  # refresh default is None
+
+    async def test_legacy_alias_delegates(self, mock_brotr: Brotr) -> None:
+        """Test that the legacy alias still delegates to the generic helper."""
+        with patch.object(mock_brotr, "run_refresh_procedure", AsyncMock()) as mock_run:
+            await mock_brotr.refresh_materialized_view("relay_stats")
+
+        mock_run.assert_awaited_once_with("relay_stats")
 
 
 class TestBrotrTransaction:

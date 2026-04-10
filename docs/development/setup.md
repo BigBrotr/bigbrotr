@@ -81,13 +81,17 @@ bigbrotr/
 |   +-- nips/                         # NIP-11 and NIP-66 protocol I/O
 |   |   +-- nip11/                    # Relay info document fetch/parse
 |   |   +-- nip66/                    # Monitoring: dns, geo, http, net, rtt, ssl
-|   +-- services/                     # Business logic (8 services)
+|   +-- services/                     # Business logic (10 services)
 |   |   +-- seeder/                   # Relay seed loading
 |   |   +-- finder/                   # Relay URL discovery
 |   |   +-- validator/                # Candidate validation
 |   |   +-- monitor/                  # Health check orchestration, publishing, tags
 |   |   +-- synchronizer/             # Event collection
-|   |   +-- refresher/                # Materialized view refresh
+|   |   +-- refresher/                # Derived facts refresh
+|   |   +-- ranker/                   # NIP-85 rank computation + snapshot export
+|   |   +-- assertor/                 # NIP-85 trusted assertion publishing
+|   |   +-- api/                      # Read-only REST API
+|   |   +-- dvm/                      # NIP-90 Data Vending Machine
 |   |   +-- common/                   # Shared constants, configs, queries, mixins
 |   +-- utils/                        # DNS, keys, transport helpers
 +-- tests/

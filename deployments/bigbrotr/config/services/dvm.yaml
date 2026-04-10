@@ -23,27 +23,37 @@ tables:
     enabled: true
   relay_metadata:
     enabled: true
-  relay_metadata_latest:
+  relay_metadata_current:
     enabled: true
-  event_stats:
+  pubkey_stats:
+    enabled: true
+  kind_stats:
     enabled: true
   relay_stats:
     enabled: true
-  kind_counts:
+  pubkey_relay_stats:
     enabled: true
-  kind_counts_by_relay:
+  pubkey_kind_stats:
     enabled: true
-  pubkey_counts:
-    enabled: true
-  pubkey_counts_by_relay:
-    enabled: true
-  network_stats:
+  relay_kind_stats:
     enabled: true
   relay_software_counts:
     enabled: true
   supported_nip_counts:
     enabled: true
-  event_daily_counts:
+  daily_counts:
+    enabled: true
+  events_replaceable_current:
+    enabled: true
+  events_addressable_current:
+    enabled: true
+  nip85_pubkey_stats:
+    enabled: true
+  nip85_event_stats:
+    enabled: true
+  nip85_addressable_stats:
+    enabled: true
+  nip85_identifier_stats:
     enabled: true
 
 metrics:

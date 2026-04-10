@@ -1,6 +1,6 @@
 """Synchronizer service package.
 
-Re-exports all public symbols for backwards-compatible imports::
+Re-exports the public package symbols::
 
     from bigbrotr.services.synchronizer import Synchronizer, SynchronizerConfig
 """

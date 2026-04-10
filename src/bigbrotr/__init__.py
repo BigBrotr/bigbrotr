@@ -1,10 +1,11 @@
 r"""BigBrotr -- Modular Nostr network observatory.
 
-Eight independent async services discover relays, validate connectivity,
+Ten independent async services discover relays, validate connectivity,
 perform NIP-11/NIP-66 health checks, archive events, refresh analytics views,
-and expose data via REST API and NIP-90 Data Vending Machine — across clearnet,
-Tor, I2P, and Lokinet. All services communicate exclusively through a shared
-PostgreSQL database.
+sync private ranking state, and expose data via REST API and NIP-90 Data
+Vending Machine — across clearnet, Tor, I2P, and Lokinet. All services
+communicate through a shared PostgreSQL database, while the ranker also keeps
+private DuckDB state.
 
 Architecture follows a **diamond DAG** dependency structure where imports
 flow strictly downward:
@@ -23,7 +24,7 @@ Attributes:
         logging, metrics.
     nips: NIP-11 relay information, NIP-66 relay monitoring. Has I/O.
     utils: DNS resolution, Nostr key management, WebSocket/HTTP transport.
-    services: Business logic. Eight independent services.
+    services: Business logic. Ten independent services.
 
 Note:
     For lightweight usage, import directly from subpackages::
@@ -64,6 +65,8 @@ __all__ = [
     "Nip66",
     "Pool",
     "PoolConfig",
+    "Ranker",
+    "RankerConfig",
     "Refresher",
     "RefresherConfig",
     "Relay",
@@ -101,6 +104,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "FinderConfig": ("bigbrotr.services", "FinderConfig"),
     "Monitor": ("bigbrotr.services", "Monitor"),
     "MonitorConfig": ("bigbrotr.services", "MonitorConfig"),
+    "Ranker": ("bigbrotr.services", "Ranker"),
+    "RankerConfig": ("bigbrotr.services", "RankerConfig"),
     "Refresher": ("bigbrotr.services", "Refresher"),
     "RefresherConfig": ("bigbrotr.services", "RefresherConfig"),
     "Seeder": ("bigbrotr.services", "Seeder"),

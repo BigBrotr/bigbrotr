@@ -50,7 +50,7 @@ class TestServiceName:
         assert isinstance(ServiceName.SEEDER, StrEnum)
 
     def test_member_count(self) -> None:
-        assert len(ServiceName) == 8
+        assert len(ServiceName) == 10
 
     def test_members(self) -> None:
         expected = {
@@ -60,8 +60,10 @@ class TestServiceName:
             "MONITOR",
             "SYNCHRONIZER",
             "REFRESHER",
+            "RANKER",
             "API",
             "DVM",
+            "ASSERTOR",
         }
         assert {m.name for m in ServiceName} == expected
 
@@ -72,8 +74,10 @@ class TestServiceName:
         assert ServiceName.MONITOR.value == "monitor"
         assert ServiceName.SYNCHRONIZER.value == "synchronizer"
         assert ServiceName.REFRESHER.value == "refresher"
+        assert ServiceName.RANKER.value == "ranker"
         assert ServiceName.API.value == "api"
         assert ServiceName.DVM.value == "dvm"
+        assert ServiceName.ASSERTOR.value == "assertor"
 
     def test_string_comparison(self) -> None:
         assert ServiceName.FINDER == "finder"
@@ -92,16 +96,21 @@ class TestEventKind:
         assert isinstance(EventKind.CONTACTS, IntEnum)
 
     def test_member_count(self) -> None:
-        assert len(EventKind) == 7
+        assert len(EventKind) == 12
 
     def test_members(self) -> None:
         assert EventKind.SET_METADATA == 0
         assert EventKind.RECOMMEND_RELAY == 2
         assert EventKind.CONTACTS == 3
         assert EventKind.RELAY_LIST == 10002
+        assert EventKind.NIP85_TRUSTED_PROVIDER_LIST == 10040
         assert EventKind.NIP66_TEST == 22456
         assert EventKind.MONITOR_ANNOUNCEMENT == 10166
         assert EventKind.RELAY_DISCOVERY == 30166
+        assert EventKind.NIP85_USER_ASSERTION == 30382
+        assert EventKind.NIP85_EVENT_ASSERTION == 30383
+        assert EventKind.NIP85_ADDRESSABLE_ASSERTION == 30384
+        assert EventKind.NIP85_IDENTIFIER_ASSERTION == 30385
 
     def test_event_kind_max(self) -> None:
         assert EVENT_KIND_MAX == 65535

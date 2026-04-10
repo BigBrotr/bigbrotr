@@ -1,11 +1,6 @@
-"""
-Unit tests for utils.keys module.
+"""Unit tests for ``bigbrotr.utils.keys``."""
 
-Tests:
-- ENV_PRIVATE_KEY constant
-- load_keys_from_env() - environment variable loading with various key formats
-- KeysConfig - Pydantic model for Nostr keys configuration
-"""
+from __future__ import annotations
 
 import os
 from unittest.mock import patch
@@ -13,344 +8,111 @@ from unittest.mock import patch
 import pytest
 from nostr_sdk import Keys
 
-from bigbrotr.utils.keys import ENV_PRIVATE_KEY, KeysConfig, load_keys_from_env
+from bigbrotr.utils.keys import (
+    KeysConfig,
+    load_keys_from_env,
+)
 
 
-# =============================================================================
-# Test Constants
-# =============================================================================
-
-# Valid secp256k1 test keys (DO NOT USE IN PRODUCTION)
 VALID_HEX_KEY = (
     "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"  # pragma: allowlist secret
 )
 VALID_NSEC_KEY = (
     "nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5"  # pragma: allowlist secret
 )
-
-# Invalid key formats for testing error handling
 INVALID_KEYS = [
-    "invalid_key",  # Not hex or nsec
-    "0" * 32,  # Too short (32 chars instead of 64)
-    "0" * 128,  # Too long
-    "nsec1invalid",  # Invalid bech32 checksum
-    "npub1abc",  # Wrong prefix (public key, not secret)
-    "xyz" * 21 + "x",  # 64 chars but not valid hex
+    "invalid_key",
+    "0" * 32,
+    "0" * 128,
+    "nsec1invalid",
+    "npub1abc",
+    "xyz" * 21 + "x",
 ]
 
 
-# =============================================================================
-# ENV_PRIVATE_KEY Constant Tests
-# =============================================================================
-
-
-class TestEnvPrivateKeyConstant:
-    """Tests for the ENV_PRIVATE_KEY constant value."""
-
-    def test_constant_value(self) -> None:
-        """Test the constant has the expected value."""
-        assert ENV_PRIVATE_KEY == "NOSTR_PRIVATE_KEY"  # pragma: allowlist secret
-
-    def test_constant_is_string(self) -> None:
-        """Test the constant is a string."""
-        assert isinstance(ENV_PRIVATE_KEY, str)
-
-
-# =============================================================================
-# load_keys_from_env() Tests
-# =============================================================================
-
-
-class TestLoadKeysFromEnvMissingVar:
-    """Tests for load_keys_from_env() with missing environment variable."""
-
-    def test_raises_when_env_var_not_set(self) -> None:
-        """Test that ValueError is raised when env var is not set."""
+class TestLoadKeysFromEnv:
+    def test_missing_env_returns_none(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("NOSTR_PRIVATE_KEY", None)
-            with pytest.raises(ValueError) as exc_info:
-                load_keys_from_env("NOSTR_PRIVATE_KEY")
-            assert "NOSTR_PRIVATE_KEY environment variable is required" in str(exc_info.value)
+            assert load_keys_from_env("NOSTR_PRIVATE_KEY_MONITOR") is None
 
-    def test_raises_when_env_var_is_empty(self) -> None:
-        """Test that ValueError is raised when env var is empty string."""
-        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": ""}):  # pragma: allowlist secret
-            with pytest.raises(ValueError) as exc_info:
-                load_keys_from_env("NOSTR_PRIVATE_KEY")
-            assert "NOSTR_PRIVATE_KEY environment variable is required" in str(exc_info.value)
+    def test_empty_env_returns_none(self) -> None:
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": ""}):
+            assert load_keys_from_env("NOSTR_PRIVATE_KEY_MONITOR") is None
 
-    def test_error_message_includes_generation_hint(self) -> None:
-        """Test that error message includes hint for generating keys."""
-        with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("MY_KEY", None)
-            with pytest.raises(ValueError) as exc_info:
-                load_keys_from_env("MY_KEY")
-            assert "openssl rand -hex 32" in str(exc_info.value)
-
-
-class TestLoadKeysFromEnvHexKey:
-    """Tests for load_keys_from_env() with hex format keys."""
+    def test_whitespace_env_returns_none(self) -> None:
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": "   "}):
+            assert load_keys_from_env("NOSTR_PRIVATE_KEY_MONITOR") is None
 
     def test_valid_hex_key_returns_keys(self) -> None:
-        """Test that valid 64-char hex key returns Keys object."""
-        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": VALID_HEX_KEY}):
-            result = load_keys_from_env("NOSTR_PRIVATE_KEY")
-        assert isinstance(result, Keys)
-
-    def test_hex_key_has_correct_secret_key(self) -> None:
-        """Test that returned Keys has the correct secret key."""
-        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": VALID_HEX_KEY}):
-            keys = load_keys_from_env("NOSTR_PRIVATE_KEY")
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": VALID_HEX_KEY}):
+            keys = load_keys_from_env("NOSTR_PRIVATE_KEY_MONITOR")
+        assert isinstance(keys, Keys)
         assert keys.secret_key().to_hex() == VALID_HEX_KEY
 
-    def test_hex_key_derives_public_key(self) -> None:
-        """Test that public key is correctly derived from hex private key."""
-        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": VALID_HEX_KEY}):
-            keys = load_keys_from_env("NOSTR_PRIVATE_KEY")
-        assert keys.public_key() is not None
-        assert len(keys.public_key().to_hex()) == 64
-
-    def test_hex_key_public_key_format(self) -> None:
-        """Test that public key can be converted to bech32."""
-        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": VALID_HEX_KEY}):
-            keys = load_keys_from_env("NOSTR_PRIVATE_KEY")
-        bech32 = keys.public_key().to_bech32()
-        assert bech32.startswith("npub1")
-
-
-class TestLoadKeysFromEnvNsecKey:
-    """Tests for load_keys_from_env() with nsec (bech32) format keys."""
-
     def test_valid_nsec_key_returns_keys(self) -> None:
-        """Test that valid nsec1 key returns Keys object."""
-        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": VALID_NSEC_KEY}):
-            result = load_keys_from_env("NOSTR_PRIVATE_KEY")
-        assert isinstance(result, Keys)
-
-    def test_nsec_key_has_public_key(self) -> None:
-        """Test that Keys from nsec has valid public key."""
-        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": VALID_NSEC_KEY}):
-            keys = load_keys_from_env("NOSTR_PRIVATE_KEY")
-        assert keys.public_key() is not None
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": VALID_NSEC_KEY}):
+            keys = load_keys_from_env("NOSTR_PRIVATE_KEY_MONITOR")
+        assert isinstance(keys, Keys)
         assert len(keys.public_key().to_hex()) == 64
-
-    def test_nsec_key_can_export_to_hex(self) -> None:
-        """Test that nsec key can be exported to hex format."""
-        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": VALID_NSEC_KEY}):
-            keys = load_keys_from_env("NOSTR_PRIVATE_KEY")
-        hex_key = keys.secret_key().to_hex()
-        assert len(hex_key) == 64
-        int(hex_key, 16)  # Verify it is valid hex
-
-
-class TestLoadKeysFromEnvInvalidKeys:
-    """Tests for load_keys_from_env() with invalid key formats."""
 
     @pytest.mark.parametrize("invalid_key", INVALID_KEYS)
-    def test_invalid_key_raises_error(self, invalid_key: str) -> None:
-        """Test that invalid keys raise an exception."""
+    def test_invalid_key_raises(self, invalid_key: str) -> None:
         with (
-            patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": invalid_key}),  # pragma: allowlist secret
-            pytest.raises(BaseException),  # noqa: B017 - nostr_sdk raises various exceptions
+            patch.dict(
+                os.environ,
+                {"NOSTR_PRIVATE_KEY_MONITOR": invalid_key},  # pragma: allowlist secret
+            ),
+            pytest.raises(BaseException),  # noqa: B017
         ):
-            load_keys_from_env("NOSTR_PRIVATE_KEY")
-
-    def test_whitespace_key_raises_error(self) -> None:
-        """Test that whitespace-only key raises an error."""
-        with (
-            patch.dict(os.environ, {"NOSTR_PRIVATE_KEY": "   "}),  # pragma: allowlist secret
-            pytest.raises(BaseException),  # noqa: B017 - nostr_sdk raises various exceptions
-        ):
-            load_keys_from_env("NOSTR_PRIVATE_KEY")
+            load_keys_from_env("NOSTR_PRIVATE_KEY_MONITOR")
 
 
-class TestLoadKeysFromEnvCustomEnvVar:
-    """Tests for load_keys_from_env() with custom environment variable names."""
+class TestKeysConfig:
+    def test_default_without_keys_env_generates_ephemeral_keys(self) -> None:
+        config = KeysConfig.model_validate({})
+        assert config.keys_env is None
+        assert isinstance(config.keys, Keys)
 
-    def test_custom_env_var_name(self) -> None:
-        """Test loading from a custom environment variable."""
-        with patch.dict(os.environ, {"CUSTOM_KEY": VALID_HEX_KEY}):
-            result = load_keys_from_env("CUSTOM_KEY")
-        assert isinstance(result, Keys)
-
-    def test_custom_env_var_not_set(self) -> None:
-        """Test custom env var raises when not set."""
+    def test_unset_env_generates_ephemeral_keys(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("MY_CUSTOM_KEY", None)
-            with pytest.raises(ValueError) as exc_info:
-                load_keys_from_env("MY_CUSTOM_KEY")
-            assert "MY_CUSTOM_KEY environment variable is required" in str(exc_info.value)
+            config = KeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
+        assert isinstance(config.keys, Keys)
 
-
-# =============================================================================
-# KeysConfig Tests - Defaults and Initialization
-# =============================================================================
-
-
-class TestKeysConfigEnvironmentLoading:
-    """Tests for KeysConfig automatic loading from NOSTR_PRIVATE_KEY environment."""
-
-    def test_raises_when_env_not_set(self) -> None:
-        """Test that exception is raised when NOSTR_PRIVATE_KEY is not set."""
-        with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop(ENV_PRIVATE_KEY, None)
-            with pytest.raises(Exception):  # noqa: B017
-                KeysConfig()
-
-    def test_raises_when_env_empty(self) -> None:
-        """Test that exception is raised when NOSTR_PRIVATE_KEY is empty."""
-        with (
-            patch.dict(os.environ, {ENV_PRIVATE_KEY: ""}),
-            pytest.raises(Exception),  # noqa: B017
-        ):
-            KeysConfig()
+    def test_blank_env_generates_ephemeral_keys(self) -> None:
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": ""}):
+            config = KeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
+        assert isinstance(config.keys, Keys)
 
     def test_loads_hex_key_from_env(self) -> None:
-        """Test that hex key is loaded from environment."""
-        with patch.dict(os.environ, {ENV_PRIVATE_KEY: VALID_HEX_KEY}):
-            config = KeysConfig()
-        assert config.keys is not None
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": VALID_HEX_KEY}):
+            config = KeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
         assert isinstance(config.keys, Keys)
-
-    def test_loads_nsec_key_from_env(self) -> None:
-        """Test that nsec key is loaded from environment."""
-        with patch.dict(os.environ, {ENV_PRIVATE_KEY: VALID_NSEC_KEY}):
-            config = KeysConfig()
-        assert config.keys is not None
-        assert isinstance(config.keys, Keys)
-
-
-class TestKeysConfigExplicitKeys:
-    """Tests for KeysConfig with explicitly provided keys."""
-
-    def test_explicit_keys_override_env(self) -> None:
-        """Test that explicitly provided keys override environment."""
-        explicit_keys = Keys.generate()
-        with patch.dict(os.environ, {ENV_PRIVATE_KEY: VALID_HEX_KEY}):
-            config = KeysConfig(keys=explicit_keys)
-        assert config.keys is explicit_keys
-
-    def test_explicit_keys_without_env_var(self) -> None:
-        """Test that explicit keys work without environment variable set."""
-        explicit_keys = Keys.generate()
-        with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop(ENV_PRIVATE_KEY, None)
-            config = KeysConfig(keys=explicit_keys)
-        assert config.keys is explicit_keys
-
-    def test_explicit_keys_preserved_identity(self) -> None:
-        """Test that the exact Keys instance is preserved."""
-        explicit_keys = Keys.generate()
-        config = KeysConfig(keys=explicit_keys)
-        assert config.keys is explicit_keys
-        assert id(config.keys) == id(explicit_keys)
-
-
-class TestKeysConfigModelValidator:
-    """Tests for KeysConfig model_validator behavior."""
-
-    def test_dict_input_triggers_env_load(self) -> None:
-        """Test that empty dict input triggers environment loading."""
-        with patch.dict(os.environ, {ENV_PRIVATE_KEY: VALID_HEX_KEY}):
-            config = KeysConfig.model_validate({})
-        assert config.keys is not None
-        assert isinstance(config.keys, Keys)
-
-    def test_dict_with_keys_uses_provided(self) -> None:
-        """Test that dict with keys field uses provided keys."""
-        explicit_keys = Keys.generate()
-        with patch.dict(os.environ, {ENV_PRIVATE_KEY: VALID_HEX_KEY}):
-            config = KeysConfig.model_validate({"keys": explicit_keys})
-        assert config.keys is explicit_keys
-
-    def test_validator_only_affects_dict_input(self) -> None:
-        """Test that non-dict input is passed through."""
-        explicit_keys = Keys.generate()
-        config = KeysConfig(keys=explicit_keys)
-        assert config.keys is explicit_keys
-
-
-class TestKeysConfigArbitraryTypes:
-    """Tests for KeysConfig arbitrary_types_allowed configuration."""
-
-    def test_accepts_keys_object(self) -> None:
-        """Test that Keys object is accepted (not a Pydantic type)."""
-        keys = Keys.generate()
-        config = KeysConfig(keys=keys)
-        assert config.keys is keys
-        assert isinstance(config.keys, Keys)
-
-    def test_keys_have_public_key(self) -> None:
-        """Test that loaded keys have accessible public key."""
-        with patch.dict(os.environ, {ENV_PRIVATE_KEY: VALID_HEX_KEY}):
-            config = KeysConfig()
-        assert config.keys is not None
-        assert config.keys.public_key() is not None
-        assert len(config.keys.public_key().to_hex()) == 64
-
-    def test_keys_have_secret_key(self) -> None:
-        """Test that loaded keys have accessible secret key."""
-        with patch.dict(os.environ, {ENV_PRIVATE_KEY: VALID_HEX_KEY}):
-            config = KeysConfig()
-        assert config.keys is not None
-        assert config.keys.secret_key() is not None
         assert config.keys.secret_key().to_hex() == VALID_HEX_KEY
 
-    def test_keys_can_sign(self) -> None:
-        """Test that loaded keys can be used for signing."""
-        with patch.dict(os.environ, {ENV_PRIVATE_KEY: VALID_HEX_KEY}):
-            config = KeysConfig()
-        assert config.keys.public_key().to_bech32().startswith("npub1")
+    def test_explicit_keys_override_env(self) -> None:
+        explicit_keys = Keys.generate()
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": VALID_HEX_KEY}):
+            config = KeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR", keys=explicit_keys)
+        assert config.keys is explicit_keys
 
+    def test_model_validate_uses_custom_env(self) -> None:
+        with patch.dict(os.environ, {"CUSTOM_KEY": VALID_HEX_KEY}):
+            config = KeysConfig.model_validate({"keys_env": "CUSTOM_KEY"})
+        assert isinstance(config.keys, Keys)
 
-class TestKeysConfigSerialization:
-    """Tests for KeysConfig serialization behavior."""
+    def test_repr_redacts_secret_and_shows_none_for_uninitialized_model(self) -> None:
+        config = KeysConfig.model_construct(keys_env="NOSTR_PRIVATE_KEY_MONITOR", keys=None)
+        assert repr(config) == ("KeysConfig(keys_env='NOSTR_PRIVATE_KEY_MONITOR', pubkey=None)")
 
-    def test_model_dump_includes_keys(self) -> None:
-        """Test that model_dump includes keys field."""
-        with patch.dict(os.environ, {ENV_PRIVATE_KEY: VALID_HEX_KEY}):
-            config = KeysConfig()
+    def test_repr_redacts_secret_and_shows_pubkey(self) -> None:
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": VALID_HEX_KEY}):
+            config = KeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
+        rendered = repr(config)
+        assert VALID_HEX_KEY not in rendered
+        assert "pubkey=" in rendered
+
+    def test_model_dump_includes_resolved_keys_field(self) -> None:
+        config = KeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
         dump = config.model_dump()
         assert "keys" in dump
-
-    def test_model_config_allows_arbitrary_types(self) -> None:
-        """Test that model_config has arbitrary_types_allowed."""
-        assert KeysConfig.model_config.get("arbitrary_types_allowed") is True
-
-
-# =============================================================================
-# KeysConfig __repr__ / __str__ Tests
-# =============================================================================
-
-
-class TestKeysConfigRepr:
-    """Tests for KeysConfig __repr__ and __str__ redaction."""
-
-    def test_repr_contains_pubkey(self) -> None:
-        with patch.dict(os.environ, {ENV_PRIVATE_KEY: VALID_HEX_KEY}):
-            config = KeysConfig()
-        pubkey = config.keys.public_key().to_hex()
-        r = repr(config)
-        assert pubkey in r
-        assert "KeysConfig" in r
-
-    def test_repr_does_not_contain_secret_key(self) -> None:
-        with patch.dict(os.environ, {ENV_PRIVATE_KEY: VALID_HEX_KEY}):
-            config = KeysConfig()
-        r = repr(config)
-        assert VALID_HEX_KEY not in r
-
-    def test_str_delegates_to_repr(self) -> None:
-        with patch.dict(os.environ, {ENV_PRIVATE_KEY: VALID_HEX_KEY}):
-            config = KeysConfig()
-        assert str(config) == repr(config)
-
-    def test_repr_contains_keys_env(self) -> None:
-        with patch.dict(os.environ, {ENV_PRIVATE_KEY: VALID_HEX_KEY}):
-            config = KeysConfig()
-        assert "NOSTR_PRIVATE_KEY" in repr(config)
-
-    def test_repr_with_custom_env(self) -> None:
-        with patch.dict(os.environ, {"CUSTOM_VAR": VALID_HEX_KEY}):
-            config = KeysConfig(keys_env="CUSTOM_VAR")
-        assert "CUSTOM_VAR" in repr(config)
+        assert dump["keys"] is not None

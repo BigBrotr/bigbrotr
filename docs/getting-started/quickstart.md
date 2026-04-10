@@ -47,7 +47,7 @@ You should see both `postgres` and `pgbouncer` with status `healthy`.
 !!! note
     The PostgreSQL init scripts in `deployments/bigbrotr/postgres/init/` run
     automatically on first start. They create all tables, stored functions,
-    indexes, and materialized views.
+    indexes, current-state tables, analytics tables, and reporting views.
 
 ## Step 3: Set Environment Variables
 
@@ -152,7 +152,7 @@ SELECT key, state_type, count(*) FROM service_state GROUP BY key, state_type;
 
 ## What Just Happened?
 
-You ran three of BigBrotr's eight independent services:
+You ran three of BigBrotr's ten independent services:
 
 --8<-- "docs/_snippets/pipeline.md"
 
@@ -160,15 +160,18 @@ You ran three of BigBrotr's eight independent services:
 2. **Finder** discovered additional relay URLs from events and external APIs
 3. **Validator** tested every candidate via WebSocket and promoted live relays
 
-The remaining five services handle monitoring, event archiving, analytics, and data access:
+The remaining seven services handle monitoring, event archiving, analytics, ranking, trust assertions, and data access:
 
 - **Monitor** performs NIP-11 and NIP-66 health checks on validated relays and
-  publishes results as kind 10166/30166 Nostr events (requires `NOSTR_PRIVATE_KEY`)
+  publishes results as kind 10166/30166 Nostr events and uses a service key for NIP-66 write probes
 - **Synchronizer** connects to validated relays, subscribes to events, and
-  archives them with cursor-based pagination
-- **Refresher** refreshes materialized views that power analytics queries
+  archives them with cursor-based pagination, using a service key for NIP-42-authenticated reads when needed
+- **Refresher** refreshes current-state tables, analytics facts, and periodic reconciliation targets that power downstream queries
+- **Ranker** keeps a private DuckDB graph store, computes NIP-85 ranks, and snapshot-exports them back to PostgreSQL
+- **Assertor** publishes NIP-85 trusted assertion events for users, events, addressables, and identifiers
+  with its own service signing key
 - **Api** exposes the database as a read-only REST API with paginated endpoints
-- **Dvm** serves database queries over the Nostr protocol as a NIP-90 Data Vending Machine
+- **Dvm** serves database queries over the Nostr protocol as a NIP-90 Data Vending Machine using its own service signing key
 
 ## Running All Services
 
@@ -179,18 +182,26 @@ infinite loop with configurable intervals between cycles:
 # In separate terminals (from deployments/bigbrotr/):
 python -m bigbrotr finder
 python -m bigbrotr validator
-python -m bigbrotr monitor       # requires NOSTR_PRIVATE_KEY env var
+python -m bigbrotr monitor
 python -m bigbrotr synchronizer
 python -m bigbrotr refresher
+python -m bigbrotr ranker
+python -m bigbrotr assertor
 python -m bigbrotr api
-python -m bigbrotr dvm           # requires NOSTR_PRIVATE_KEY env var
+python -m bigbrotr dvm
 ```
 
 !!! warning
-    The Monitor requires a `NOSTR_PRIVATE_KEY` environment variable (hex format, 64
-    characters) to sign and publish Nostr events. Generate one with:
+    The shipped deployment uses per-service signing-key environment variables:
+    `NOSTR_PRIVATE_KEY_MONITOR`, `NOSTR_PRIVATE_KEY_SYNCHRONIZER`,
+    `NOSTR_PRIVATE_KEY_DVM`, and `NOSTR_PRIVATE_KEY_ASSERTOR`.
+    If any are blank or unset, the corresponding service config generates
+    an ephemeral key once at startup. To pin stable identities, set them explicitly:
     ```bash
-    export NOSTR_PRIVATE_KEY=$(openssl rand -hex 32)
+    export NOSTR_PRIVATE_KEY_MONITOR=$(openssl rand -hex 32)
+    export NOSTR_PRIVATE_KEY_SYNCHRONIZER=$(openssl rand -hex 32)
+    export NOSTR_PRIVATE_KEY_DVM=$(openssl rand -hex 32)
+    export NOSTR_PRIVATE_KEY_ASSERTOR=$(openssl rand -hex 32)
     ```
 
 ## Next Steps
@@ -209,4 +220,4 @@ stack with monitoring, Grafana dashboards, and automatic restarts:
 - [Installation](installation.md) -- Install paths and system requirements
 - [First Deployment](first-deployment.md) -- Full stack Docker deployment
 - [Configuration Reference](../user-guide/configuration.md) -- YAML configuration for all services
-- [Database](../user-guide/database.md) -- Schema, stored functions, and materialized views
+- [Database](../user-guide/database.md) -- Schema, stored functions, derived tables, and reporting views

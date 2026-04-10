@@ -27,9 +27,11 @@ from bigbrotr.core.logger import Logger, StructuredFormatter
 from bigbrotr.core.yaml import load_yaml
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.api import Api
+from bigbrotr.services.assertor import Assertor
 from bigbrotr.services.dvm import Dvm
 from bigbrotr.services.finder import Finder
 from bigbrotr.services.monitor import Monitor
+from bigbrotr.services.ranker import Ranker
 from bigbrotr.services.refresher import Refresher
 from bigbrotr.services.seeder import Seeder
 from bigbrotr.services.synchronizer import Synchronizer
@@ -53,11 +55,13 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
     ServiceName.VALIDATOR: ServiceEntry(Validator, CONFIG_BASE / "services" / "validator.yaml"),
     ServiceName.MONITOR: ServiceEntry(Monitor, CONFIG_BASE / "services" / "monitor.yaml"),
     ServiceName.REFRESHER: ServiceEntry(Refresher, CONFIG_BASE / "services" / "refresher.yaml"),
+    ServiceName.RANKER: ServiceEntry(Ranker, CONFIG_BASE / "services" / "ranker.yaml"),
     ServiceName.SYNCHRONIZER: ServiceEntry(
         Synchronizer, CONFIG_BASE / "services" / "synchronizer.yaml"
     ),
     ServiceName.API: ServiceEntry(Api, CONFIG_BASE / "services" / "api.yaml"),
     ServiceName.DVM: ServiceEntry(Dvm, CONFIG_BASE / "services" / "dvm.yaml"),
+    ServiceName.ASSERTOR: ServiceEntry(Assertor, CONFIG_BASE / "services" / "assertor.yaml"),
 }
 
 logger = Logger("cli")

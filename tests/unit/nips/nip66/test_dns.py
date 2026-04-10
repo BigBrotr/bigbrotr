@@ -208,6 +208,86 @@ class TestNip66DnsMetadataDnsSync:
 
         assert result == {}
 
+    def test_a_records_empty_list(self) -> None:
+        """A record resolves but returns no addresses."""
+        mock_response = MagicMock()
+        mock_response.__iter__ = lambda _: iter([])
+        mock_response.rrset = None
+
+        mock_resolver = MagicMock()
+        call_count = 0
+
+        def resolve_side_effect(*args: Any, **kwargs: Any) -> Any:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return mock_response
+            raise dns.resolver.NXDOMAIN
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        with patch("dns.resolver.Resolver", return_value=mock_resolver):
+            result = Nip66DnsMetadata._dns("example.com", 5.0)
+
+        assert "dns_ips" not in result
+        assert "dns_ttl" not in result
+
+    def test_a_records_present_but_no_rrset(self) -> None:
+        """A record has addresses but rrset is None (no TTL)."""
+        mock_rdata = MagicMock()
+        mock_rdata.address = "1.2.3.4"
+        mock_response = MagicMock()
+        mock_response.__iter__ = lambda _: iter([mock_rdata])
+        mock_response.rrset = None
+
+        mock_resolver = MagicMock()
+        call_count = 0
+
+        def resolve_side_effect(*args: Any, **kwargs: Any) -> Any:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return mock_response
+            raise dns.resolver.NXDOMAIN
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        with patch("dns.resolver.Resolver", return_value=mock_resolver):
+            result = Nip66DnsMetadata._dns("example.com", 5.0)
+
+        assert result.get("dns_ips") == ["1.2.3.4"]
+        assert "dns_ttl" not in result
+
+    def test_tldextract_failure_skips_ns(self) -> None:
+        """NS resolution is skipped when tldextract raises."""
+        mock_rdata = MagicMock()
+        mock_rdata.address = "8.8.8.8"
+        mock_response = MagicMock()
+        mock_response.__iter__ = lambda _: iter([mock_rdata])
+        mock_response.rrset = MagicMock()
+        mock_response.rrset.ttl = 300
+
+        mock_resolver = MagicMock()
+        call_count = 0
+
+        def resolve_side_effect(*args: Any, **kwargs: Any) -> Any:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return mock_response
+            raise dns.resolver.NXDOMAIN
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        with (
+            patch("dns.resolver.Resolver", return_value=mock_resolver),
+            patch("tldextract.extract", side_effect=RuntimeError("parse fail")),
+        ):
+            result = Nip66DnsMetadata._dns("example.com", 5.0)
+
+        assert result.get("dns_ips") == ["8.8.8.8"]
+        assert "dns_ns" not in result
+
     def test_sets_timeout_and_lifetime(self) -> None:
         """Sets resolver timeout and lifetime."""
         mock_resolver = MagicMock()

@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import logging
 import os
 import socket
@@ -166,6 +167,13 @@ class _StderrSuppressor:
 _suppress_stderr = _StderrSuppressor()
 
 
+async def _await_if_needed(value: object) -> object:
+    """Await ``value`` when it is awaitable, otherwise return it as-is."""
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
 async def shutdown_client(client: Client) -> None:
     """Fully release a nostr-sdk Client's resources before shutdown.
 
@@ -175,13 +183,14 @@ async def shutdown_client(client: Client) -> None:
     full cleanup sequence before calling ``shutdown()``.
     """
     with contextlib.suppress(Exception):
-        await client.unsubscribe_all()
+        await _await_if_needed(client.unsubscribe_all())
     with contextlib.suppress(Exception):
-        await client.force_remove_all_relays()
+        await _await_if_needed(client.force_remove_all_relays())
     with contextlib.suppress(Exception):
-        await client.database().wipe()
+        database = await _await_if_needed(client.database())
+        await _await_if_needed(database.wipe())  # type: ignore[attr-defined]
     with contextlib.suppress(Exception):
-        await client.shutdown()
+        await _await_if_needed(client.shutdown())
 
 
 async def create_client(

@@ -10,6 +10,7 @@ Tests:
 
 from __future__ import annotations
 
+import asyncio
 from time import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -22,8 +23,12 @@ from bigbrotr.nips.nip66 import (
     Nip66DnsData,
     Nip66DnsLogs,
     Nip66DnsMetadata,
+    Nip66GeoData,
+    Nip66GeoLogs,
     Nip66GeoMetadata,
     Nip66HttpMetadata,
+    Nip66NetData,
+    Nip66NetLogs,
     Nip66NetMetadata,
     Nip66RttData,
     Nip66RttMetadata,
@@ -530,6 +535,87 @@ class TestNip66Create:
         assert isinstance(result, Nip66)
         assert result.ssl is None  # Failed test mapped to None
         assert result.dns.data.dns_ips == ["8.8.8.8"]  # Other test succeeded
+
+    async def test_geo_runs_with_city_reader(
+        self,
+        relay: Relay,
+        mock_keys: MagicMock,
+        mock_event_builder: MagicMock,
+        mock_read_filter: MagicMock,
+        mock_city_reader: MagicMock,
+    ) -> None:
+        geo_metadata = Nip66GeoMetadata(
+            data=Nip66GeoData(geo_country="US"),
+            logs=Nip66GeoLogs(success=True, reason=None),
+        )
+        deps = Nip66Dependencies(
+            keys=mock_keys,
+            event_builder=mock_event_builder,
+            read_filter=mock_read_filter,
+            city_reader=mock_city_reader,
+        )
+        selection = Nip66Selection(rtt=False, ssl=False, net=False, dns=False, http=False)
+
+        with patch.object(
+            Nip66GeoMetadata, "execute", new_callable=AsyncMock, return_value=geo_metadata
+        ) as mock_geo:
+            result = await Nip66.create(relay, selection=selection, deps=deps)
+
+        assert result.geo is not None
+        assert result.geo.data.geo_country == "US"
+        mock_geo.assert_called_once()
+
+    async def test_net_runs_with_asn_reader(
+        self,
+        relay: Relay,
+        mock_keys: MagicMock,
+        mock_event_builder: MagicMock,
+        mock_read_filter: MagicMock,
+        mock_asn_reader: MagicMock,
+    ) -> None:
+        net_metadata = Nip66NetMetadata(
+            data=Nip66NetData(net_ip="93.184.216.34"),
+            logs=Nip66NetLogs(success=True, reason=None),
+        )
+        deps = Nip66Dependencies(
+            keys=mock_keys,
+            event_builder=mock_event_builder,
+            read_filter=mock_read_filter,
+            asn_reader=mock_asn_reader,
+        )
+        selection = Nip66Selection(rtt=False, ssl=False, geo=False, dns=False, http=False)
+
+        with patch.object(
+            Nip66NetMetadata, "execute", new_callable=AsyncMock, return_value=net_metadata
+        ) as mock_net:
+            result = await Nip66.create(relay, selection=selection, deps=deps)
+
+        assert result.net is not None
+        assert result.net.data.net_ip == "93.184.216.34"
+        mock_net.assert_called_once()
+
+    async def test_cancelled_error_propagates(
+        self,
+        relay: Relay,
+        mock_keys: MagicMock,
+        mock_event_builder: MagicMock,
+        mock_read_filter: MagicMock,
+    ) -> None:
+        deps = Nip66Dependencies(
+            keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
+        )
+        selection = Nip66Selection(rtt=False, ssl=False, geo=False, net=False, http=False)
+
+        with (
+            patch.object(
+                Nip66DnsMetadata,
+                "execute",
+                new_callable=AsyncMock,
+                side_effect=asyncio.CancelledError,
+            ),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await Nip66.create(relay, selection=selection, deps=deps)
 
 
 class TestRelayNip66MetadataTuple:
