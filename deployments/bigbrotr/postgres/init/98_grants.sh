@@ -43,6 +43,9 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
         GRANT SELECT ON TABLES TO ${REFRESHER_ROLE};
     ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA public
         GRANT EXECUTE ON FUNCTIONS TO ${REFRESHER_ROLE};
+    -- Refresher stores incremental refresh checkpoints in service_state.
+    -- service_state_* functions are SECURITY INVOKER, so DML is required.
+    GRANT INSERT, UPDATE, DELETE ON service_state TO ${REFRESHER_ROLE};
 
     -- Ranker: read-only access to canonical follow-graph and NIP-85 facts
     GRANT USAGE ON SCHEMA public TO ${RANKER_ROLE};
