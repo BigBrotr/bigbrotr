@@ -2956,11 +2956,11 @@ wheels = [
 
 [[package]]
 name = "types-jmespath"
-version = "1.1.0.20260124"
+version = "1.1.0.20260408"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/2b/ca/c8d7fc6e450c2f8fc6f510cb194754c43b17f933f2dcabcfc6985cbb97a8/types_jmespath-1.1.0.20260124.tar.gz", hash = "sha256:29d86868e72c0820914577077b27d167dcab08b1fc92157a29d537ff7153fdfe", size = 10709, upload-time = "2026-01-24T03:18:46.557Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a1/5e/33881ff525fbaa71cb6192d81fd4039607006ff48f85c40ef1e20d72d1d3/types_jmespath-1.1.0.20260408.tar.gz", hash = "sha256:42483cfc3d16bdd88c1150a7419d59ef59b8bdc4db3eec8ebf6971a0dad1a425", size = 10733, upload-time = "2026-04-08T04:29:22.923Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/61/91/915c4a6e6e9bd2bca3ec0c21c1771b175c59e204b85e57f3f572370fe753/types_jmespath-1.1.0.20260124-py3-none-any.whl", hash = "sha256:ec387666d446b15624215aa9cbd2867ffd885b6c74246d357c65e830c7a138b3", size = 11509, upload-time = "2026-01-24T03:18:45.536Z" },
+    { url = "https://files.pythonhosted.org/packages/e4/f8/4c34097ce72dc8ea533db26a0162c53837398b26d4a0645ca3c7df74370b/types_jmespath-1.1.0.20260408-py3-none-any.whl", hash = "sha256:58a29fe039e5d3f9d0d42f1b067b9efa7c3e29c7e6df9c6830cbe5fa44ffb943", size = 11512, upload-time = "2026-04-08T04:29:22.133Z" },
 ]
 
 [[package]]
