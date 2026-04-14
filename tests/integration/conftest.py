@@ -37,6 +37,25 @@ _DOCKER_REQUIRED_MESSAGE = (
     "Docker is required to run integration tests. "
     "Start a Docker daemon or run the unit test suite instead."
 )
+_PUBLIC_TRUNCATE_TABLES_SQL = """
+SELECT c.relname
+FROM pg_catalog.pg_class AS c
+JOIN pg_catalog.pg_namespace AS n
+    ON n.oid = c.relnamespace
+WHERE n.nspname = 'public'
+  AND (
+      c.relkind = 'p'
+      OR (
+          c.relkind = 'r'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM pg_catalog.pg_inherits AS i
+              WHERE i.inhrelid = c.oid
+          )
+      )
+  )
+ORDER BY c.relname
+"""
 
 
 def _ensure_docker_available() -> None:
@@ -75,20 +94,8 @@ def pg_dsn(pg_container: PostgresContainer) -> dict[str, str | int]:
 # Deployment-aware Brotr factory
 # ---------------------------------------------------------------------------
 
-_TABLES = (
-    "relay, event, event_relay, metadata, relay_metadata, service_state, "
-    "daily_counts, relay_metadata_current, relay_software_counts, supported_nip_counts, "
-    "events_replaceable_current, events_addressable_current, "
-    "contact_lists_current, contact_list_edges_current, "
-    "pubkey_kind_stats, pubkey_relay_stats, relay_kind_stats, "
-    "pubkey_stats, kind_stats, relay_stats, "
-    "nip85_pubkey_stats, nip85_event_stats, "
-    "nip85_addressable_stats, nip85_identifier_stats, "
-    "nip85_pubkey_ranks, nip85_event_ranks, "
-    "nip85_addressable_ranks, nip85_identifier_ranks"
-)
-
 _current_deployment: str | None = None
+_deployment_tables: dict[str, tuple[str, ...]] = {}
 
 
 def _strip_sql_comments(sql: str) -> str:
@@ -96,6 +103,30 @@ def _strip_sql_comments(sql: str) -> str:
     sql = re.sub(r"/\*.*?\*/", "", sql, flags=re.DOTALL)
     sql = re.sub(r"--[^\n]*", "", sql)
     return sql.strip()
+
+
+def _quote_identifier(identifier: str) -> str:
+    """Quote an SQL identifier returned by PostgreSQL catalog introspection."""
+    escaped = identifier.replace('"', '""')
+    return f'"{escaped}"'
+
+
+async def _load_public_truncate_tables(conn: asyncpg.Connection) -> tuple[str, ...]:
+    """Return public-schema base tables and partitioned parents suitable for TRUNCATE."""
+    rows = await conn.fetch(_PUBLIC_TRUNCATE_TABLES_SQL)
+    return tuple(str(row["relname"]) for row in rows)
+
+
+async def _truncate_public_tables(
+    conn: asyncpg.Connection,
+    table_names: tuple[str, ...],
+) -> None:
+    """Truncate all cached public tables for the active deployment."""
+    if not table_names:
+        return
+
+    identifiers = ", ".join(_quote_identifier(name) for name in table_names)
+    await conn.execute(f"TRUNCATE {identifiers} CASCADE")
 
 
 async def make_brotr(
@@ -141,9 +172,14 @@ async def make_brotr(
                 if not stripped:
                     continue
                 await conn.execute(sql)
+            _deployment_tables[deployment] = await _load_public_truncate_tables(conn)
             _current_deployment = deployment
         else:
-            await conn.execute(f"TRUNCATE {_TABLES} CASCADE")
+            table_names = _deployment_tables.get(deployment)
+            if table_names is None:
+                table_names = await _load_public_truncate_tables(conn)
+                _deployment_tables[deployment] = table_names
+            await _truncate_public_tables(conn, table_names)
     finally:
         await conn.close()
 
