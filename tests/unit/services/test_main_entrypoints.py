@@ -4,7 +4,13 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from bigbrotr.__main__ import cli, main
+from bigbrotr.__main__ import (
+    DEFAULT_PROFILE,
+    _default_brotr_config_path,
+    _default_service_config_path,
+    cli,
+    main,
+)
 from bigbrotr.core.brotr import Brotr
 
 
@@ -86,13 +92,6 @@ class TestMain:
     async def test_main_uses_default_config_when_not_specified(
         self, mock_brotr_for_cli: Brotr, tmp_path: Path
     ) -> None:
-        brotr_config = tmp_path / "brotr.yaml"
-        _write_brotr_config(
-            brotr_config,
-            "pool:\n  database:\n    host: localhost\n    port: 5432\n"
-            "    database: testdb\n    user: testuser\n",
-        )
-
         captured_service_dict: dict[str, Any] | None = None
 
         async def capture_run_service(*args: object, **kwargs: Any) -> int:
@@ -100,17 +99,55 @@ class TestMain:
             captured_service_dict = kwargs.get("service_dict")
             return 0
 
+        expected_brotr_path = _default_brotr_config_path(DEFAULT_PROFILE)
+        expected_service_path = _default_service_config_path(DEFAULT_PROFILE, "finder")
+
+        def fake_load_yaml(path: Path) -> dict[str, Any]:
+            if path == expected_brotr_path:
+                return {"pool": {"database": {"host": "localhost"}}}
+            if path == expected_service_path:
+                return {"interval": 120.0}
+            raise AssertionError(f"unexpected config path: {path}")
+
         with (
-            patch(
-                "sys.argv",
-                ["prog", "finder", "--brotr-config", str(brotr_config), "--once"],
-            ),
+            patch("sys.argv", ["prog", "finder", "--once"]),
+            patch("bigbrotr.__main__._load_yaml_dict", side_effect=fake_load_yaml),
             patch("bigbrotr.__main__.Brotr.from_dict", return_value=mock_brotr_for_cli),
             patch("bigbrotr.__main__.run_service", AsyncMock(side_effect=capture_run_service)),
         ):
             await main()
 
-        assert captured_service_dict == {}
+        assert captured_service_dict == {"interval": 120.0}
+
+    async def test_main_uses_profile_defaults_when_requested(
+        self, mock_brotr_for_cli: Brotr
+    ) -> None:
+        captured_service_dict: dict[str, Any] | None = None
+
+        async def capture_run_service(*args: object, **kwargs: Any) -> int:
+            nonlocal captured_service_dict
+            captured_service_dict = kwargs.get("service_dict")
+            return 0
+
+        expected_brotr_path = _default_brotr_config_path("lilbrotr")
+        expected_service_path = _default_service_config_path("lilbrotr", "finder")
+
+        def fake_load_yaml(path: Path) -> dict[str, Any]:
+            if path == expected_brotr_path:
+                return {"pool": {"database": {"host": "localhost"}}}
+            if path == expected_service_path:
+                return {"interval": 240.0}
+            raise AssertionError(f"unexpected config path: {path}")
+
+        with (
+            patch("sys.argv", ["prog", "finder", "--profile", "lilbrotr", "--once"]),
+            patch("bigbrotr.__main__._load_yaml_dict", side_effect=fake_load_yaml),
+            patch("bigbrotr.__main__.Brotr.from_dict", return_value=mock_brotr_for_cli),
+            patch("bigbrotr.__main__.run_service", AsyncMock(side_effect=capture_run_service)),
+        ):
+            await main()
+
+        assert captured_service_dict == {"interval": 240.0}
 
     async def test_main_uses_custom_config_when_specified(
         self, mock_brotr_for_cli: Brotr, tmp_path: Path

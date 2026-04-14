@@ -40,6 +40,9 @@ from bigbrotr.services.validator import Validator
 
 CONFIG_BASE = Path("config")
 CORE_CONFIG = CONFIG_BASE / "brotr.yaml"
+DEPLOYMENTS_BASE = Path("deployments")
+DEFAULT_PROFILE = "bigbrotr"
+DEPLOYMENT_PROFILES = ("bigbrotr", "lilbrotr")
 
 
 class ServiceEntry(NamedTuple):
@@ -65,6 +68,16 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
 }
 
 logger = Logger("cli")
+
+
+def _default_brotr_config_path(profile: str) -> Path:
+    """Resolve the default shared config path for a deployment profile."""
+    return DEPLOYMENTS_BASE / profile / CORE_CONFIG
+
+
+def _default_service_config_path(profile: str, service_name: str) -> Path:
+    """Resolve the default service config path for a deployment profile."""
+    return DEPLOYMENTS_BASE / profile / SERVICE_REGISTRY[service_name].config_path
 
 
 async def run_service(
@@ -158,14 +171,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=Path,
-        help="Service config path (default: config/services/<service>.yaml)",
+        help="Service config path (default: deployments/<profile>/config/services/<service>.yaml)",
     )
 
     parser.add_argument(
         "--brotr-config",
         type=Path,
-        default=CORE_CONFIG,
-        help=f"Brotr config path (default: {CORE_CONFIG})",
+        help="Brotr config path (default: deployments/<profile>/config/brotr.yaml)",
+    )
+
+    parser.add_argument(
+        "--profile",
+        choices=DEPLOYMENT_PROFILES,
+        default=DEFAULT_PROFILE,
+        help=f"Deployment profile for default config resolution (default: {DEFAULT_PROFILE})",
     )
 
     parser.add_argument(
@@ -253,9 +272,10 @@ async def main() -> int:
     setup_logging(args.log_level)
 
     entry = SERVICE_REGISTRY[args.service]
-    config_path = args.config or entry.config_path
+    config_path = args.config or _default_service_config_path(args.profile, args.service)
+    brotr_config_path = args.brotr_config or _default_brotr_config_path(args.profile)
 
-    brotr_dict = _load_yaml_dict(args.brotr_config)
+    brotr_dict = _load_yaml_dict(brotr_config_path)
     service_dict = _load_yaml_dict(config_path)
     pool_overrides = service_dict.pop("pool", None)
     _apply_pool_overrides(brotr_dict, pool_overrides, args.service)

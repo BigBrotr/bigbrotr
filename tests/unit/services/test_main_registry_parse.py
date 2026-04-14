@@ -3,7 +3,15 @@ from unittest.mock import patch
 
 import pytest
 
-from bigbrotr.__main__ import SERVICE_REGISTRY, ServiceEntry, parse_args
+from bigbrotr.__main__ import (
+    CORE_CONFIG,
+    DEFAULT_PROFILE,
+    SERVICE_REGISTRY,
+    ServiceEntry,
+    _default_brotr_config_path,
+    _default_service_config_path,
+    parse_args,
+)
 
 
 class TestServiceRegistry:
@@ -28,6 +36,17 @@ class TestServiceRegistry:
         for name, (_, config_path) in SERVICE_REGISTRY.items():
             expected = CONFIG_BASE / "services" / f"{name}.yaml"
             assert config_path == expected, f"{name} config path mismatch"
+
+    def test_default_service_config_path_uses_profile_root(self) -> None:
+        for name in SERVICE_REGISTRY:
+            expected = (
+                Path("deployments") / DEFAULT_PROFILE / "config" / "services" / f"{name}.yaml"
+            )
+            assert _default_service_config_path(DEFAULT_PROFILE, name) == expected
+
+    def test_default_brotr_config_path_uses_profile_root(self) -> None:
+        expected = Path("deployments") / DEFAULT_PROFILE / CORE_CONFIG
+        assert _default_brotr_config_path(DEFAULT_PROFILE) == expected
 
     def test_service_classes_are_base_service_subclasses(self) -> None:
         from bigbrotr.core.base_service import BaseService
@@ -103,16 +122,24 @@ class TestParseArgs:
             assert args.config is None
 
     def test_brotr_config_default(self) -> None:
-        from bigbrotr.__main__ import CORE_CONFIG
-
         with patch("sys.argv", ["prog", "finder"]):
             args = parse_args()
-            assert args.brotr_config == CORE_CONFIG
+            assert args.brotr_config is None
 
     def test_brotr_config_custom(self) -> None:
         with patch("sys.argv", ["prog", "finder", "--brotr-config", "custom/brotr.yaml"]):
             args = parse_args()
             assert args.brotr_config == Path("custom/brotr.yaml")
+
+    def test_profile_default(self) -> None:
+        with patch("sys.argv", ["prog", "finder"]):
+            args = parse_args()
+            assert args.profile == DEFAULT_PROFILE
+
+    def test_profile_custom(self) -> None:
+        with patch("sys.argv", ["prog", "finder", "--profile", "lilbrotr"]):
+            args = parse_args()
+            assert args.profile == "lilbrotr"
 
     def test_log_level_default(self) -> None:
         with patch("sys.argv", ["prog", "finder"]):
@@ -153,6 +180,8 @@ class TestParseArgs:
                 "custom/monitor.yaml",
                 "--brotr-config",
                 "custom/brotr.yaml",
+                "--profile",
+                "lilbrotr",
                 "--log-level",
                 "DEBUG",
                 "--once",
@@ -162,5 +191,6 @@ class TestParseArgs:
             assert args.service == "monitor"
             assert args.config == Path("custom/monitor.yaml")
             assert args.brotr_config == Path("custom/brotr.yaml")
+            assert args.profile == "lilbrotr"
             assert args.log_level == "DEBUG"
             assert args.once is True
