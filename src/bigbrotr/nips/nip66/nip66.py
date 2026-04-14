@@ -1,5 +1,5 @@
 """
-Top-level NIP-66 model with factory method and database serialization.
+Top-level NIP-66 model with semantic probe entrypoint and database serialization.
 
 Orchestrates all [NIP-66](https://github.com/nostr-protocol/nips/blob/master/66.md)
 monitoring tests (RTT, SSL, GEO, NET, DNS, HTTP) via the ``probe()``
@@ -68,7 +68,7 @@ class Nip66Selection(BaseNipSelection):
 
     All checks are enabled by default. Set individual fields to ``False``
     to skip specific test types during
-    [Nip66.create][bigbrotr.nips.nip66.nip66.Nip66.create].
+    [Nip66.probe][bigbrotr.nips.nip66.nip66.Nip66.probe].
 
     See Also:
         [Nip66Options][bigbrotr.nips.nip66.nip66.Nip66Options]:
@@ -185,7 +185,7 @@ class Nip66(BaseNip):
             (inherited from [BaseNip][bigbrotr.nips.base.BaseNip]).
 
     Note:
-        The ``create()`` factory method runs all enabled tests concurrently
+        The ``probe()`` factory method runs all enabled tests concurrently
         via ``asyncio.gather(return_exceptions=True)``. Individual test
         failures are recorded in each test's logs field and never raised.
         Unexpected exceptions (bugs) are logged at ERROR level and the
@@ -195,7 +195,7 @@ class Nip66(BaseNip):
         [bigbrotr.nips.nip11.nip11.Nip11][bigbrotr.nips.nip11.nip11.Nip11]:
             Companion NIP-11 model with the same factory/serialization pattern.
         [bigbrotr.services.monitor.Monitor][bigbrotr.services.monitor.Monitor]:
-            Service that calls ``create()`` during health check cycles.
+            Service that calls ``probe()`` during health check cycles.
         [bigbrotr.nips.event_builders][bigbrotr.nips.event_builders]:
             Tag builder that converts results into kind 30166 event tags.
 
@@ -203,7 +203,7 @@ class Nip66(BaseNip):
         ```python
         relay = Relay("wss://relay.damus.io")
         selection = Nip66Selection(rtt=False, geo=False, net=False)
-        nip66 = await Nip66.create(relay, timeout=10.0, selection=selection)
+        nip66 = await Nip66.probe(relay, timeout=10.0, selection=selection)
         nip66.ssl is not None    # True (SSL test ran)
         nip66.rtt is None        # True (RTT was disabled)
         records = nip66.to_relay_metadata_tuple()

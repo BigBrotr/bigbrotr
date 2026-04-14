@@ -1,4 +1,4 @@
-"""NIP-90 Data Vending Machine service for Nostr-based database queries.
+"""NIP-90 Data Vending Machine service for Nostr-based read-model queries.
 
 Re-exports the public package symbols::
 

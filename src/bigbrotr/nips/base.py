@@ -13,7 +13,7 @@ inherited by NIP-11 and NIP-66 model hierarchies:
         Operation log with success/reason semantic validation.
     [BaseNip][bigbrotr.nips.base.BaseNip]
         Abstract top-level NIP model with relay, generated_at, and
-        enforced ``create()`` / ``to_relay_metadata_tuple()`` contract.
+        semantic entrypoints plus a compatibility ``create()`` alias.
     [BaseNipSelection][bigbrotr.nips.base.BaseNipSelection]
         Base for selection models controlling which metadata types
         to retrieve.

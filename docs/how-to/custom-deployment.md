@@ -70,8 +70,8 @@ Service files to customize:
 - `monitor.yaml` -- health check settings, publishing relays
 - `synchronizer.yaml` -- sync interval, concurrency, event filters
 - `refresher.yaml` -- current-state, analytics, periodic refresh targets, and cycle budgets
-- `api.yaml` -- REST API host, port, table access policies
-- `dvm.yaml` -- Nostr relays, table policies, NIP-90 kind
+- `api.yaml` -- REST API host, port, public read-model policies
+- `dvm.yaml` -- Nostr relays, read-model pricing/policies, NIP-90 kind
 
 !!! tip
     See the [Configuration](../user-guide/configuration.md) reference for all available fields and their defaults.

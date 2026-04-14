@@ -6,8 +6,8 @@ It performs I/O (HTTP, DNS, SSL, WebSocket, GeoIP) and is the most
 protocol-aware part of the codebase.
 
 Warning:
-    NIP fetch methods ([Nip11.create()][bigbrotr.nips.nip11.nip11.Nip11.create],
-    [Nip66.create()][bigbrotr.nips.nip66.nip66.Nip66.create]) **never raise
+    NIP semantic entrypoints ([Nip11.fetch()][bigbrotr.nips.nip11.nip11.Nip11.fetch],
+    [Nip66.probe()][bigbrotr.nips.nip66.nip66.Nip66.probe]) **never raise
     exceptions**. Always check ``succeeded`` and ``failure_reason`` on the
     returned metadata to determine whether the operation succeeded.
 
@@ -24,8 +24,8 @@ Attributes:
     BaseData, BaseLogs, BaseNipMetadata: Shared abstract base classes inherited by
         all NIP data, log, and metadata models.
     BaseNip: Abstract base class for top-level NIP models with ``relay``,
-        ``generated_at``, and enforced ``create()`` / ``to_relay_metadata_tuple()``
-        contract.
+        ``generated_at``, semantic ``fetch()`` / ``probe()`` entrypoints,
+        and a compatibility ``create()`` alias.
     BaseNipSelection: Base for selection models controlling which metadata types
         to retrieve.
     BaseNipOptions: Base for options models controlling how metadata is retrieved

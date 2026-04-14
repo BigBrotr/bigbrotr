@@ -68,7 +68,7 @@ class Nip11InfoMetadata(BaseNipMetadata):
         ``succeeded`` before accessing data fields.
 
     See Also:
-        [bigbrotr.nips.nip11.nip11.Nip11.create][bigbrotr.nips.nip11.nip11.Nip11.create]:
+        [bigbrotr.nips.nip11.nip11.Nip11.fetch][bigbrotr.nips.nip11.nip11.Nip11.fetch]:
             Factory method that delegates to ``fetch()``.
     """
 

@@ -141,7 +141,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
     """NIP-90 Data Vending Machine for BigBrotr read-model queries.
 
     Processes NIP-90 job requests (default Kind 5050) by executing
-    read-only database queries and publishing results (Kind 6050).
+    read-only read-model queries and publishing results (Kind 6050).
     Supports per-read-model pricing with bid/payment-required negotiation.
 
     Lifecycle:

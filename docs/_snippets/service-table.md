@@ -9,4 +9,4 @@
 | **Ranker** | Computes deterministic NIP-85 rank snapshots in private DuckDB and exports them | Continuous |
 | **Assertor** | Publishes NIP-85 trust assertions from facts and rank snapshots | Continuous |
 | **Api** | Exposes the database as a read-only REST API with paginated endpoints | Continuous |
-| **Dvm** | NIP-90 Data Vending Machine for Nostr database queries | Continuous |
+| **Dvm** | NIP-90 Data Vending Machine for Nostr read-model queries | Continuous |

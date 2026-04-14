@@ -1,5 +1,5 @@
 """
-Top-level NIP-11 model with factory method and database serialization.
+Top-level NIP-11 model with semantic fetch entrypoint and database serialization.
 
 Wraps the [Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]
 container and provides ``fetch()`` for retrieving a relay's
@@ -51,7 +51,7 @@ class Nip11Selection(BaseNipSelection):
 
     All retrieval types are enabled by default. Set individual fields to
     ``False`` to skip specific metadata types during
-    [Nip11.create][bigbrotr.nips.nip11.nip11.Nip11.create].
+    [Nip11.fetch][bigbrotr.nips.nip11.nip11.Nip11.fetch].
 
     See Also:
         [Nip11Options][bigbrotr.nips.nip11.nip11.Nip11Options]:
@@ -132,7 +132,7 @@ class Nip11(BaseNip):
         [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
             Companion NIP-66 model with the same factory/serialization pattern.
         [bigbrotr.services.monitor.Monitor][bigbrotr.services.monitor.Monitor]:
-            Service that calls ``create()`` during health check cycles.
+            Service that calls ``fetch()`` during health check cycles.
 
     Examples:
         ```python
