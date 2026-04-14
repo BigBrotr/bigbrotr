@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
@@ -52,15 +53,25 @@ class RankerStore:
     def __init__(self, db_path: Path, checkpoint_path: Path) -> None:
         self._db_path = db_path
         self._checkpoint_path = checkpoint_path
+        self._conn: duckdb.DuckDBPyConnection | None = None
+        self._conn_thread_id: int | None = None
+
+    def close(self) -> None:
+        """Close the cached DuckDB connection if one is open."""
+        conn = self._conn
+        self._conn = None
+        self._conn_thread_id = None
+        if conn is not None:
+            conn.close()
 
     def ensure_initialized(self) -> None:
         """Create the DuckDB file, directories, schema, and checkpoint file."""
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with duckdb.connect(str(self._db_path)) as conn:
-            for statement in _SCHEMA_STATEMENTS:
-                conn.execute(statement)
+        conn = self._connection()
+        for statement in _SCHEMA_STATEMENTS:
+            conn.execute(statement)
 
         if not self._checkpoint_path.exists():
             self._write_checkpoint(_DEFAULT_CHECKPOINT)
@@ -96,54 +107,54 @@ class RankerStore:
             | {fact.followed_pubkey for fact in edges}
         )
 
-        with duckdb.connect(str(self._db_path)) as conn:
+        conn = self._connection()
+        try:
             conn.execute("BEGIN TRANSACTION")
-            try:
-                node_ids = self._ensure_node_ids(conn, sorted(pubkeys))
-                follower_node_ids = [node_ids[fact.follower_pubkey] for fact in changed_lists]
+            node_ids = self._ensure_node_ids(conn, sorted(pubkeys))
+            follower_node_ids = [node_ids[fact.follower_pubkey] for fact in changed_lists]
 
-                self._delete_followers(conn, follower_node_ids)
+            self._delete_followers(conn, follower_node_ids)
 
+            conn.executemany(
+                """
+                INSERT INTO contact_lists_current (
+                    follower_node_id,
+                    source_event_id,
+                    source_created_at,
+                    source_seen_at,
+                    follow_count
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        node_ids[fact.follower_pubkey],
+                        fact.source_event_id,
+                        fact.source_created_at,
+                        fact.source_seen_at,
+                        fact.follow_count,
+                    )
+                    for fact in changed_lists
+                ],
+            )
+
+            if edges:
                 conn.executemany(
                     """
-                    INSERT INTO contact_lists_current (
+                    INSERT INTO follow_edges_current (
                         follower_node_id,
-                        source_event_id,
-                        source_created_at,
-                        source_seen_at,
-                        follow_count
-                    ) VALUES (?, ?, ?, ?, ?)
+                        followed_node_id
+                    ) VALUES (?, ?)
                     """,
                     [
-                        (
-                            node_ids[fact.follower_pubkey],
-                            fact.source_event_id,
-                            fact.source_created_at,
-                            fact.source_seen_at,
-                            fact.follow_count,
-                        )
-                        for fact in changed_lists
+                        (node_ids[fact.follower_pubkey], node_ids[fact.followed_pubkey])
+                        for fact in edges
                     ],
                 )
 
-                if edges:
-                    conn.executemany(
-                        """
-                        INSERT INTO follow_edges_current (
-                            follower_node_id,
-                            followed_node_id
-                        ) VALUES (?, ?)
-                        """,
-                        [
-                            (node_ids[fact.follower_pubkey], node_ids[fact.followed_pubkey])
-                            for fact in edges
-                        ],
-                    )
-
-                conn.execute("COMMIT")
-            except Exception:
-                conn.execute("ROLLBACK")
-                raise
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
 
         self._write_checkpoint(checkpoint)
 
@@ -151,9 +162,9 @@ class RankerStore:
         """Return the current node/edge counts stored in DuckDB."""
         self.ensure_initialized()
 
-        with duckdb.connect(str(self._db_path)) as conn:
-            node_count_row = conn.execute(_ACTIVE_NODE_COUNT_QUERY).fetchone()
-            edge_count_row = conn.execute(_ACTIVE_EDGE_COUNT_QUERY).fetchone()
+        conn = self._connection()
+        node_count_row = conn.execute(_ACTIVE_NODE_COUNT_QUERY).fetchone()
+        edge_count_row = conn.execute(_ACTIVE_EDGE_COUNT_QUERY).fetchone()
 
         node_count = int(node_count_row[0]) if node_count_row is not None else 0
         edge_count = int(edge_count_row[0]) if edge_count_row is not None else 0
@@ -168,9 +179,9 @@ class RankerStore:
             _ACTIVE_EDGE_COUNT_NO_SELF_QUERY if ignore_self_follows else _ACTIVE_EDGE_COUNT_QUERY
         )
 
-        with duckdb.connect(str(self._db_path)) as conn:
-            node_count_row = conn.execute(_ACTIVE_NODE_COUNT_QUERY).fetchone()
-            edge_count_row = conn.execute(edge_query).fetchone()
+        conn = self._connection()
+        node_count_row = conn.execute(_ACTIVE_NODE_COUNT_QUERY).fetchone()
+        edge_count_row = conn.execute(edge_query).fetchone()
 
         node_count = int(node_count_row[0]) if node_count_row is not None else 0
         edge_count = int(edge_count_row[0]) if edge_count_row is not None else 0
@@ -195,24 +206,22 @@ class RankerStore:
 
         started_at = int(time.time())
 
-        with duckdb.connect(str(self._db_path)) as conn:
-            next_run_row = conn.execute(
-                "SELECT COALESCE(MAX(run_id), 0) + 1 FROM rank_runs"
-            ).fetchone()
-            run_id = int(next_run_row[0]) if next_run_row is not None else 1
-            conn.execute(
-                """
-                INSERT INTO rank_runs (
-                    run_id,
-                    algorithm_id,
-                    started_at,
-                    status,
-                    node_count,
-                    edge_count
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                [run_id, algorithm_id, started_at, "running", node_count, edge_count],
-            )
+        conn = self._connection()
+        next_run_row = conn.execute("SELECT COALESCE(MAX(run_id), 0) + 1 FROM rank_runs").fetchone()
+        run_id = int(next_run_row[0]) if next_run_row is not None else 1
+        conn.execute(
+            """
+            INSERT INTO rank_runs (
+                run_id,
+                algorithm_id,
+                started_at,
+                status,
+                node_count,
+                edge_count
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [run_id, algorithm_id, started_at, "running", node_count, edge_count],
+        )
 
         return RankRun(
             run_id=run_id,
@@ -226,28 +235,28 @@ class RankerStore:
         """Mark a tracked run as ``success`` or ``failed`` after export finishes."""
         self.ensure_initialized()
 
-        with duckdb.connect(str(self._db_path)) as conn:
-            conn.execute(
-                """
-                UPDATE rank_runs
-                SET finished_at = ?, status = ?
-                WHERE run_id = ?
-                """,
-                [int(time.time()), status, run_id],
-            )
+        conn = self._connection()
+        conn.execute(
+            """
+            UPDATE rank_runs
+            SET finished_at = ?, status = ?
+            WHERE run_id = ?
+            """,
+            [int(time.time()), status, run_id],
+        )
 
     def count_rank_runs(self, *, status: str | None = None) -> int:
         """Count local rank run records, optionally filtered by status."""
         self.ensure_initialized()
 
-        with duckdb.connect(str(self._db_path)) as conn:
-            if status is None:
-                row = conn.execute("SELECT COUNT(*) FROM rank_runs").fetchone()
-            else:
-                row = conn.execute(
-                    "SELECT COUNT(*) FROM rank_runs WHERE status = ?",
-                    [status],
-                ).fetchone()
+        conn = self._connection()
+        if status is None:
+            row = conn.execute("SELECT COUNT(*) FROM rank_runs").fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM rank_runs WHERE status = ?",
+                [status],
+            ).fetchone()
 
         return int(row[0]) if row is not None else 0
 
@@ -258,27 +267,27 @@ class RankerStore:
 
         self.ensure_initialized()
 
-        with duckdb.connect(str(self._db_path)) as conn:
-            before_row = conn.execute("SELECT COUNT(*) FROM rank_runs").fetchone()
-            before = int(before_row[0]) if before_row is not None else 0
-            conn.execute(
-                """
-                DELETE FROM rank_runs
-                WHERE run_id IN (
-                    SELECT run_id
-                    FROM (
-                        SELECT
-                            run_id,
-                            ROW_NUMBER() OVER (ORDER BY run_id DESC) AS row_num
-                        FROM rank_runs
-                    )
-                    WHERE row_num > ?
+        conn = self._connection()
+        before_row = conn.execute("SELECT COUNT(*) FROM rank_runs").fetchone()
+        before = int(before_row[0]) if before_row is not None else 0
+        conn.execute(
+            """
+            DELETE FROM rank_runs
+            WHERE run_id IN (
+                SELECT run_id
+                FROM (
+                    SELECT
+                        run_id,
+                        ROW_NUMBER() OVER (ORDER BY run_id DESC) AS row_num
+                    FROM rank_runs
                 )
-                """,
-                [retention],
+                WHERE row_num > ?
             )
-            after_row = conn.execute("SELECT COUNT(*) FROM rank_runs").fetchone()
-            after = int(after_row[0]) if after_row is not None else 0
+            """,
+            [retention],
+        )
+        after_row = conn.execute("SELECT COUNT(*) FROM rank_runs").fetchone()
+        after = int(after_row[0]) if after_row is not None else 0
 
         return before - after
 
@@ -294,55 +303,55 @@ class RankerStore:
 
         edge_filter = "WHERE follower_node_id <> followed_node_id" if ignore_self_follows else ""
 
-        with duckdb.connect(str(self._db_path)) as conn:
+        conn = self._connection()
+        try:
             conn.execute("BEGIN TRANSACTION")
-            try:
-                node_count_row = conn.execute(_ACTIVE_NODE_COUNT_QUERY).fetchone()
-                node_count = int(node_count_row[0]) if node_count_row is not None else 0
+            node_count_row = conn.execute(_ACTIVE_NODE_COUNT_QUERY).fetchone()
+            node_count = int(node_count_row[0]) if node_count_row is not None else 0
 
-                conn.execute("DELETE FROM pagerank_curr")
-                conn.execute("DELETE FROM pagerank_next")
+            conn.execute("DELETE FROM pagerank_curr")
+            conn.execute("DELETE FROM pagerank_next")
 
-                if node_count == 0:
-                    conn.execute("COMMIT")
-                    return
-
-                initial_score = 1.0 / float(node_count)
-                conn.execute(_INSERT_INITIAL_PAGERANK_QUERY, [initial_score])
-
-                dangling_mass_query = _DANGLING_MASS_QUERY.format(edge_filter=edge_filter)
-                next_query = _INSERT_NEXT_PAGERANK_QUERY.format(edge_filter=edge_filter)
-
-                for _ in range(iterations):
-                    dangling_row = conn.execute(dangling_mass_query).fetchone()
-                    dangling_mass = float(dangling_row[0]) if dangling_row is not None else 0.0
-
-                    conn.execute("DELETE FROM pagerank_next")
-                    conn.execute(
-                        next_query,
-                        [
-                            1.0 - damping,
-                            float(node_count),
-                            damping,
-                            dangling_mass,
-                            float(node_count),
-                            damping,
-                        ],
-                    )
-                    conn.execute("DELETE FROM pagerank_curr")
-                    conn.execute(
-                        """
-                        INSERT INTO pagerank_curr (node_id, raw_score)
-                        SELECT node_id, raw_score
-                        FROM pagerank_next
-                        ORDER BY node_id
-                        """
-                    )
-
+            if node_count == 0:
                 conn.execute("COMMIT")
-            except Exception:
-                conn.execute("ROLLBACK")
-                raise
+                return
+
+            initial_score = 1.0 / float(node_count)
+            conn.execute(_INSERT_INITIAL_PAGERANK_QUERY, [initial_score])
+
+            dangling_mass_query = _DANGLING_MASS_QUERY.format(edge_filter=edge_filter)
+            next_query = _INSERT_NEXT_PAGERANK_QUERY.format(edge_filter=edge_filter)
+
+            for _ in range(iterations):
+                dangling_row = conn.execute(dangling_mass_query).fetchone()
+                dangling_mass = float(dangling_row[0]) if dangling_row is not None else 0.0
+
+                conn.execute("DELETE FROM pagerank_next")
+                conn.execute(
+                    next_query,
+                    [
+                        1.0 - damping,
+                        float(node_count),
+                        damping,
+                        dangling_mass,
+                        float(node_count),
+                        damping,
+                    ],
+                )
+                conn.execute("DELETE FROM pagerank_curr")
+                conn.execute(
+                    """
+                    INSERT INTO pagerank_curr (node_id, raw_score)
+                    SELECT node_id, raw_score
+                    FROM pagerank_next
+                    ORDER BY node_id
+                    """
+                )
+
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
 
     def fetch_pubkey_rank_batch(
         self,
@@ -353,17 +362,17 @@ class RankerStore:
         """Fetch one deterministic export batch from the final PageRank snapshot."""
         self.ensure_initialized()
 
-        with duckdb.connect(str(self._db_path)) as conn:
-            node_count_row = conn.execute("SELECT COUNT(*) FROM pagerank_curr").fetchone()
-            node_count = int(node_count_row[0]) if node_count_row is not None else 0
-            if node_count == 0:
-                return []
+        conn = self._connection()
+        node_count_row = conn.execute("SELECT COUNT(*) FROM pagerank_curr").fetchone()
+        node_count = int(node_count_row[0]) if node_count_row is not None else 0
+        if node_count == 0:
+            return []
 
-            baseline_score = 1.0 / float(node_count)
-            rows = conn.execute(
-                _PUBKEY_RANK_EXPORT_QUERY,
-                [baseline_score, after_subject_id, limit],
-            ).fetchall()
+        baseline_score = 1.0 / float(node_count)
+        rows = conn.execute(
+            _PUBKEY_RANK_EXPORT_QUERY,
+            [baseline_score, after_subject_id, limit],
+        ).fetchall()
 
         return [
             RankExportRow(
@@ -378,16 +387,16 @@ class RankerStore:
         """Reset the staged non-user facts loaded from PostgreSQL."""
         self.ensure_initialized()
 
-        with duckdb.connect(str(self._db_path)) as conn:
+        conn = self._connection()
+        try:
             conn.execute("BEGIN TRANSACTION")
-            try:
-                conn.execute("DELETE FROM nip85_event_stats_stage")
-                conn.execute("DELETE FROM nip85_addressable_stats_stage")
-                conn.execute("DELETE FROM nip85_identifier_stats_stage")
-                conn.execute("COMMIT")
-            except Exception:
-                conn.execute("ROLLBACK")
-                raise
+            conn.execute("DELETE FROM nip85_event_stats_stage")
+            conn.execute("DELETE FROM nip85_addressable_stats_stage")
+            conn.execute("DELETE FROM nip85_identifier_stats_stage")
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
 
     def append_event_stats_stage_batch(self, rows: list[EventStatFact]) -> None:
         """Append one PostgreSQL batch into the local event-facts stage table."""
@@ -396,34 +405,34 @@ class RankerStore:
 
         self.ensure_initialized()
 
-        with duckdb.connect(str(self._db_path)) as conn:
-            conn.executemany(
-                """
-                INSERT INTO nip85_event_stats_stage (
-                    event_id,
-                    author_pubkey,
-                    comment_count,
-                    quote_count,
-                    repost_count,
-                    reaction_count,
-                    zap_count,
-                    zap_amount
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    (
-                        row.event_id,
-                        row.author_pubkey,
-                        row.comment_count,
-                        row.quote_count,
-                        row.repost_count,
-                        row.reaction_count,
-                        row.zap_count,
-                        row.zap_amount,
-                    )
-                    for row in rows
-                ],
-            )
+        conn = self._connection()
+        conn.executemany(
+            """
+            INSERT INTO nip85_event_stats_stage (
+                event_id,
+                author_pubkey,
+                comment_count,
+                quote_count,
+                repost_count,
+                reaction_count,
+                zap_count,
+                zap_amount
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    row.event_id,
+                    row.author_pubkey,
+                    row.comment_count,
+                    row.quote_count,
+                    row.repost_count,
+                    row.reaction_count,
+                    row.zap_count,
+                    row.zap_amount,
+                )
+                for row in rows
+            ],
+        )
 
     def append_addressable_stats_stage_batch(self, rows: list[AddressableStatFact]) -> None:
         """Append one PostgreSQL batch into the local addressable-facts stage table."""
@@ -432,34 +441,34 @@ class RankerStore:
 
         self.ensure_initialized()
 
-        with duckdb.connect(str(self._db_path)) as conn:
-            conn.executemany(
-                """
-                INSERT INTO nip85_addressable_stats_stage (
-                    event_address,
-                    author_pubkey,
-                    comment_count,
-                    quote_count,
-                    repost_count,
-                    reaction_count,
-                    zap_count,
-                    zap_amount
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    (
-                        row.event_address,
-                        row.author_pubkey,
-                        row.comment_count,
-                        row.quote_count,
-                        row.repost_count,
-                        row.reaction_count,
-                        row.zap_count,
-                        row.zap_amount,
-                    )
-                    for row in rows
-                ],
-            )
+        conn = self._connection()
+        conn.executemany(
+            """
+            INSERT INTO nip85_addressable_stats_stage (
+                event_address,
+                author_pubkey,
+                comment_count,
+                quote_count,
+                repost_count,
+                reaction_count,
+                zap_count,
+                zap_amount
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    row.event_address,
+                    row.author_pubkey,
+                    row.comment_count,
+                    row.quote_count,
+                    row.repost_count,
+                    row.reaction_count,
+                    row.zap_count,
+                    row.zap_amount,
+                )
+                for row in rows
+            ],
+        )
 
     def append_identifier_stats_stage_batch(self, rows: list[IdentifierStatFact]) -> None:
         """Append one PostgreSQL batch into the local identifier-facts stage table."""
@@ -468,46 +477,58 @@ class RankerStore:
 
         self.ensure_initialized()
 
-        with duckdb.connect(str(self._db_path)) as conn:
-            conn.executemany(
-                """
-                INSERT INTO nip85_identifier_stats_stage (
-                    identifier,
-                    comment_count,
-                    reaction_count,
-                    k_tags
-                ) VALUES (?, ?, ?, ?)
-                """,
-                [
-                    (
-                        row.identifier,
-                        row.comment_count,
-                        row.reaction_count,
-                        list(row.k_tags),
-                    )
-                    for row in rows
-                ],
-            )
+        conn = self._connection()
+        conn.executemany(
+            """
+            INSERT INTO nip85_identifier_stats_stage (
+                identifier,
+                comment_count,
+                reaction_count,
+                k_tags
+            ) VALUES (?, ?, ?, ?)
+            """,
+            [
+                (
+                    row.identifier,
+                    row.comment_count,
+                    row.reaction_count,
+                    list(row.k_tags),
+                )
+                for row in rows
+            ],
+        )
 
     def compute_non_user_ranks(self) -> None:
         """Compute final 30383/30384/30385 ranks from the staged facts tables."""
         self.ensure_initialized()
 
-        with duckdb.connect(str(self._db_path)) as conn:
+        conn = self._connection()
+        try:
             conn.execute("BEGIN TRANSACTION")
-            try:
-                conn.execute("DELETE FROM nip85_event_ranks_curr")
-                conn.execute("DELETE FROM nip85_addressable_ranks_curr")
-                conn.execute("DELETE FROM nip85_identifier_ranks_curr")
+            conn.execute("DELETE FROM nip85_event_ranks_curr")
+            conn.execute("DELETE FROM nip85_addressable_ranks_curr")
+            conn.execute("DELETE FROM nip85_identifier_ranks_curr")
 
-                conn.execute(_INSERT_EVENT_RANKS_QUERY)
-                conn.execute(_INSERT_ADDRESSABLE_RANKS_QUERY)
-                conn.execute(_INSERT_IDENTIFIER_RANKS_QUERY)
+            conn.execute(_INSERT_EVENT_RANKS_QUERY)
+            conn.execute(_INSERT_ADDRESSABLE_RANKS_QUERY)
+            conn.execute(_INSERT_IDENTIFIER_RANKS_QUERY)
 
-                conn.execute("COMMIT")
-            except Exception:
-                conn.execute("ROLLBACK")
-                raise
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
+    def _connection(self) -> duckdb.DuckDBPyConnection:
+        thread_id = threading.get_ident()
+        conn = self._conn
+        if conn is None:
+            conn = duckdb.connect(str(self._db_path))
+            self._conn = conn
+            self._conn_thread_id = thread_id
+            return conn
+        if self._conn_thread_id != thread_id:
+            raise RuntimeError("RankerStore connection must be used from a single dedicated thread")
+        return conn
 
     def fetch_event_rank_batch(
         self,
@@ -621,11 +642,11 @@ class RankerStore:
     ) -> list[RankExportRow]:
         self.ensure_initialized()
 
-        with duckdb.connect(str(self._db_path)) as conn:
-            rows = conn.execute(
-                _RANK_BATCH_QUERIES[table_name],
-                [after_subject_id, limit],
-            ).fetchall()
+        conn = self._connection()
+        rows = conn.execute(
+            _RANK_BATCH_QUERIES[table_name],
+            [after_subject_id, limit],
+        ).fetchall()
 
         return [
             RankExportRow(

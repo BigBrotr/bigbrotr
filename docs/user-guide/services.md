@@ -411,7 +411,7 @@ Each target is isolated by default: one failed refresh does not stop the rest of
 
 ### How It Works
 
-1. Load the incremental PostgreSQL -> DuckDB graph checkpoint from the private store
+1. Open the private DuckDB store for the service lifetime and load the incremental PostgreSQL -> DuckDB graph checkpoint
 2. Pull changed canonical contact lists and follow edges from PostgreSQL current tables
 3. Apply the graph delta in DuckDB, then reload non-user fact stages (`event`, `addressable`, `identifier`)
 4. Compute deterministic pubkey PageRank (`30382`) plus derived non-user ranks (`30383`, `30384`, `30385`)

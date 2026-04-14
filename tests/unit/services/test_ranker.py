@@ -351,6 +351,38 @@ class TestRankerStore:
             "nip85_identifier_ranks_curr",
         }
 
+    def test_reuses_cached_connection_until_closed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        db_path = tmp_path / "ranker.duckdb"
+        store = RankerStore(
+            db_path=db_path,
+            checkpoint_path=tmp_path / "ranker.checkpoint.json",
+        )
+        real_connect = duckdb.connect
+        connect_calls = 0
+
+        def counting_connect(path: str) -> duckdb.DuckDBPyConnection:
+            nonlocal connect_calls
+            connect_calls += 1
+            return real_connect(path)
+
+        monkeypatch.setattr("bigbrotr.services.ranker.utils.duckdb.connect", counting_connect)
+
+        store.ensure_initialized()
+        store.start_rank_run(
+            algorithm_id="global-pagerank",
+            node_count=4,
+            edge_count=3,
+        )
+        assert store.count_rank_runs() == 1
+        assert connect_calls == 1
+
+        store.close()
+        store.ensure_initialized()
+        assert connect_calls == 2
+        store.close()
+
     def test_apply_follow_graph_delta_replaces_edges_and_preserves_nodes(
         self, tmp_path: Path
     ) -> None:
@@ -699,6 +731,45 @@ class TestRankerService:
         assert ranker.SERVICE_NAME == ServiceName.RANKER
         assert ranker.CONFIG_CLASS is RankerConfig
         assert ranker.config.algorithm_id == "global-pagerank"
+
+    @pytest.mark.asyncio
+    async def test_context_manager_opens_and_closes_store_executor(
+        self,
+        mock_brotr: Brotr,
+        ranker_config: RankerConfig,
+    ) -> None:
+        ranker = Ranker(brotr=mock_brotr, config=ranker_config)
+
+        with (
+            patch.object(type(ranker).__mro__[1], "__aenter__", new_callable=AsyncMock),
+            patch.object(type(ranker).__mro__[1], "__aexit__", new_callable=AsyncMock),
+            patch.object(ranker._store, "ensure_initialized"),
+            patch.object(ranker._store, "close") as mock_close,
+        ):
+            await ranker.__aenter__()
+            assert ranker._store_executor is not None
+
+            await ranker.__aexit__(None, None, None)
+            mock_close.assert_called_once()
+
+        assert ranker._store_executor is None
+
+    @pytest.mark.asyncio
+    async def test_aenter_shuts_down_executor_on_store_init_failure(
+        self,
+        mock_brotr: Brotr,
+        ranker_config: RankerConfig,
+    ) -> None:
+        ranker = Ranker(brotr=mock_brotr, config=ranker_config)
+
+        with (
+            patch.object(type(ranker).__mro__[1], "__aenter__", new_callable=AsyncMock),
+            patch.object(ranker._store, "ensure_initialized", side_effect=RuntimeError("boom")),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            await ranker.__aenter__()
+
+        assert ranker._store_executor is None
 
     @pytest.mark.asyncio
     async def test_run_delegates_to_rank(

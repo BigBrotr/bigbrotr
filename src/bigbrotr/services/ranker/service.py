@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, ClassVar
+from functools import partial
+from typing import TYPE_CHECKING, ClassVar, TypeVar
+
+import duckdb
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
@@ -31,8 +35,12 @@ from .queries import (
 from .utils import RankerStore
 
 
+_StoreResult = TypeVar("_StoreResult")
+
+
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import TracebackType
 
     import asyncpg
 
@@ -144,10 +152,18 @@ class Ranker(BaseService[RankerConfig]):
             db_path=self._config.storage.path,
             checkpoint_path=self._config.storage.checkpoint_path,
         )
+        self._store_executor: ThreadPoolExecutor | None = None
 
     async def __aenter__(self) -> Ranker:
         await super().__aenter__()
-        await asyncio.to_thread(self._store.ensure_initialized)
+        try:
+            await self._run_store(self._store.ensure_initialized)
+        except (duckdb.Error, OSError, RuntimeError):
+            executor = self._store_executor
+            self._store_executor = None
+            if executor is not None:
+                await asyncio.to_thread(executor.shutdown, wait=True)
+            raise
         self._logger.info(
             "duckdb_store_ready",
             algorithm_id=self._config.algorithm_id,
@@ -156,9 +172,44 @@ class Ranker(BaseService[RankerConfig]):
         )
         return self
 
+    async def __aexit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        _exc_val: BaseException | None,
+        _exc_tb: TracebackType | None,
+    ) -> None:
+        executor = self._store_executor
+        self._store_executor = None
+        if executor is not None:
+            try:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(executor, self._store.close)
+            finally:
+                await asyncio.to_thread(executor.shutdown, wait=True)
+        await super().__aexit__(_exc_type, _exc_val, _exc_tb)
+
+    def _get_store_executor(self) -> ThreadPoolExecutor:
+        executor = self._store_executor
+        if executor is None:
+            executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ranker-store")
+            self._store_executor = executor
+        return executor
+
+    async def _run_store(
+        self,
+        func: Callable[..., _StoreResult],
+        *args: object,
+        **kwargs: object,
+    ) -> _StoreResult:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._get_store_executor(),
+            partial(func, *args, **kwargs),
+        )
+
     async def cleanup(self) -> int:
         """Remove old DuckDB-local rank run records beyond retention."""
-        removed = await asyncio.to_thread(
+        removed = await self._run_store(
             self._store.delete_rank_runs_older_than_retention,
             self._config.cleanup.rank_runs_retention,
         )
@@ -172,7 +223,7 @@ class Ranker(BaseService[RankerConfig]):
     async def rank(self) -> RankCycleResult:
         """Sync facts, compute 30382/30383/30384/30385 ranks, and export them."""
         cycle_start = time.monotonic()
-        await asyncio.to_thread(self._store.ensure_initialized)
+        await self._run_store(self._store.ensure_initialized)
         self._reset_cycle_metrics()
 
         cleanup_removed = 0
@@ -230,12 +281,12 @@ class Ranker(BaseService[RankerConfig]):
             )
 
         compute_start = time.monotonic()
-        graph_stats = await asyncio.to_thread(
+        graph_stats = await self._run_store(
             self._store.get_graph_stats_for_ranking,
             ignore_self_follows=self._config.graph.ignore_self_follows,
         )
 
-        rank_run = await asyncio.to_thread(
+        rank_run = await self._run_store(
             self._store.start_rank_run,
             algorithm_id=self._config.algorithm_id,
             node_count=graph_stats.node_count,
@@ -244,17 +295,17 @@ class Ranker(BaseService[RankerConfig]):
 
         rank_counts = RankRowCounts()
         try:
-            await asyncio.to_thread(
+            await self._run_store(
                 self._store.compute_pubkey_pagerank,
                 damping=self._config.graph.damping,
                 iterations=self._config.graph.iterations,
                 ignore_self_follows=self._config.graph.ignore_self_follows,
             )
-            await asyncio.to_thread(self._store.compute_non_user_ranks)
+            await self._run_store(self._store.compute_non_user_ranks)
             compute_duration = time.monotonic() - compute_start
 
             if cutoff_reason := self._cycle_cutoff_reason(cycle_start):
-                await asyncio.to_thread(
+                await self._run_store(
                     self._store.finish_rank_run,
                     rank_run.run_id,
                     status="cutoff",
@@ -283,7 +334,7 @@ class Ranker(BaseService[RankerConfig]):
             )
             export_duration = time.monotonic() - export_start
             if export_result.cutoff_reason is not None:
-                await asyncio.to_thread(
+                await self._run_store(
                     self._store.finish_rank_run,
                     rank_run.run_id,
                     status="cutoff",
@@ -307,18 +358,18 @@ class Ranker(BaseService[RankerConfig]):
                 )
 
             rank_counts = export_result.counts
-            await asyncio.to_thread(
+            await self._run_store(
                 self._store.finish_rank_run,
                 rank_run.run_id,
                 status="success",
             )
         except Exception:
-            await asyncio.to_thread(
+            await self._run_store(
                 self._store.finish_rank_run,
                 rank_run.run_id,
                 status="failed",
             )
-            failed_total = await asyncio.to_thread(self._store.count_rank_runs, status="failed")
+            failed_total = await self._run_store(self._store.count_rank_runs, status="failed")
             self.set_gauge("rank_runs_failed_total", failed_total)
             raise
 
@@ -367,13 +418,13 @@ class Ranker(BaseService[RankerConfig]):
         data: _CycleBuildInput,
     ) -> RankCycleResult:
         """Build a typed cycle result and emit the matching gauges."""
-        graph_stats = await asyncio.to_thread(
+        graph_stats = await self._run_store(
             self._store.get_graph_stats_for_ranking,
             ignore_self_follows=self._config.graph.ignore_self_follows,
         )
         source_watermark = await get_contact_list_source_watermark(self._brotr)
-        duckdb_file_size = await asyncio.to_thread(self._store.duckdb_file_size_bytes)
-        failed_total = await asyncio.to_thread(self._store.count_rank_runs, status="failed")
+        duckdb_file_size = await self._run_store(self._store.duckdb_file_size_bytes)
+        failed_total = await self._run_store(self._store.count_rank_runs, status="failed")
 
         result = RankCycleResult(
             rank_run_id=data.rank_run_id,
@@ -414,7 +465,7 @@ class Ranker(BaseService[RankerConfig]):
 
     async def _sync_follow_graph(self, cycle_start: float) -> _GraphSyncResult:
         """Sync changed contact lists into DuckDB while respecting cycle budgets."""
-        checkpoint = await asyncio.to_thread(self._store.load_checkpoint)
+        checkpoint = await self._run_store(self._store.load_checkpoint)
         changed_followers_synced = 0
         batches_processed = 0
 
@@ -460,7 +511,7 @@ class Ranker(BaseService[RankerConfig]):
                 follower_pubkey=changed_lists[-1].follower_pubkey,
             )
 
-            await asyncio.to_thread(
+            await self._run_store(
                 self._store.apply_follow_graph_delta,
                 changed_lists,
                 edges,
@@ -487,7 +538,7 @@ class Ranker(BaseService[RankerConfig]):
 
     async def _sync_non_user_stats_stage(self, cycle_start: float) -> _StageResult:
         """Reload non-user fact stages from PostgreSQL into private DuckDB."""
-        await asyncio.to_thread(self._store.clear_non_user_stats_stage)
+        await self._run_store(self._store.clear_non_user_stats_stage)
 
         event_rows_staged, cutoff_reason = await self._stage_event_stats(cycle_start)
         if cutoff_reason is not None:
@@ -534,7 +585,7 @@ class Ranker(BaseService[RankerConfig]):
             if not event_rows:
                 return rows_staged, None
 
-            await asyncio.to_thread(self._store.append_event_stats_stage_batch, event_rows)
+            await self._run_store(self._store.append_event_stats_stage_batch, event_rows)
             rows_staged += len(event_rows)
             after_event_id = event_rows[-1].event_id
 
@@ -562,7 +613,7 @@ class Ranker(BaseService[RankerConfig]):
             if not addressable_rows:
                 return rows_staged, None
 
-            await asyncio.to_thread(
+            await self._run_store(
                 self._store.append_addressable_stats_stage_batch,
                 addressable_rows,
             )
@@ -593,7 +644,7 @@ class Ranker(BaseService[RankerConfig]):
             if not identifier_rows:
                 return rows_staged, None
 
-            await asyncio.to_thread(
+            await self._run_store(
                 self._store.append_identifier_stats_stage_batch,
                 identifier_rows,
             )
@@ -686,7 +737,7 @@ class Ranker(BaseService[RankerConfig]):
                 self._config.export.max_batches_per_subject is not None
                 and batches_processed >= self._config.export.max_batches_per_subject
             ):
-                rows = await asyncio.to_thread(
+                rows = await self._run_store(
                     fetch_batch,
                     after_subject_id=after_subject_id,
                     limit=self._config.export.batch_size,
@@ -697,7 +748,7 @@ class Ranker(BaseService[RankerConfig]):
                     rows=total_rows,
                     cutoff_reason=f"export_{subject_type}_max_batches",
                 )
-            rows = await asyncio.to_thread(
+            rows = await self._run_store(
                 fetch_batch,
                 after_subject_id=after_subject_id,
                 limit=self._config.export.batch_size,
