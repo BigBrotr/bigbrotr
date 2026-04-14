@@ -55,8 +55,6 @@ from bigbrotr.services.common.catalog import CatalogError
 from bigbrotr.services.common.mixins import CatalogAccessMixin
 from bigbrotr.services.common.read_models import (
     ReadModelEntry,
-    ReadModelQueryError,
-    read_model_query_from_job_params,
     resolve_read_model_id,
 )
 from bigbrotr.services.common.state_store import ServiceStateStore
@@ -65,12 +63,16 @@ from bigbrotr.utils.protocol import NostrClientManager
 
 from .configs import DvmConfig
 from .utils import (
+    JobPreparationContext,
+    RejectedJobRequest,
     ResultEventRequest,
     build_announcement_event,
     build_error_event,
     build_payment_required_event,
     build_result_event,
+    configured_read_model_price,
     parse_job_params,
+    prepare_job_request,
 )
 
 
@@ -360,53 +362,54 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         Returns:
             Tuple of (received, processed, failed, payment_required) deltas.
         """
-        resolved_read_model = self._resolve_enabled_read_model(read_model_id)
-        if resolved_read_model is None:
-            await self._send_event(
-                build_error_event(
-                    event_id,
-                    customer_pubkey,
-                    f"Invalid or disabled read model: {read_model_id}",
-                ),
-                require_success=True,
-            )
-            return 1, 0, 1, 0
-        read_model_id, read_model = resolved_read_model
-
-        price = self._get_read_model_price(read_model_id)
-        if price > 0:
-            bid = params.get("bid", 0)
-            if bid < price:
+        prepared_job = prepare_job_request(
+            read_model_id,
+            params,
+            context=JobPreparationContext(
+                policies=self._config.read_models,
+                available_catalog_names=self._available_catalog_names(),
+                default_page_size=self._config.default_page_size,
+                max_page_size=self._config.max_page_size,
+            ),
+        )
+        if isinstance(prepared_job, RejectedJobRequest):
+            if prepared_job.required_price is not None:
                 await self._send_event(
-                    build_payment_required_event(event_id, customer_pubkey, price),
+                    build_payment_required_event(
+                        event_id,
+                        customer_pubkey,
+                        prepared_job.required_price,
+                    ),
                     require_success=True,
                 )
                 self._logger.info(
                     "job_payment_required",
                     event_id=event_id,
-                    price=price,
-                    bid=bid,
+                    price=prepared_job.required_price,
+                    bid=prepared_job.bid,
                 )
                 return 1, 0, 0, 1
-
-        try:
-            query = read_model_query_from_job_params(
-                params,
-                default_page_size=self._config.default_page_size,
-                max_page_size=self._config.max_page_size,
-            )
-        except ReadModelQueryError as e:
+            error_message = prepared_job.error_message
+            if error_message is None:
+                raise RuntimeError("dvm job rejection missing client error message")
             await self._send_event(
-                build_error_event(event_id, customer_pubkey, e.client_message),
+                build_error_event(
+                    event_id,
+                    customer_pubkey,
+                    error_message,
+                ),
                 require_success=True,
             )
             return 1, 0, 1, 0
+
+        read_model_id = prepared_job.read_model_id
+        read_model = prepared_job.read_model
 
         start = time.monotonic()
         result = await read_model.query(
             self._brotr,
             self._catalog,
-            query,
+            prepared_job.query,
         )
         duration_ms = (time.monotonic() - start) * 1000
 
@@ -419,7 +422,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
                     read_model_id=read_model_id,
                 ),
                 result,
-                price,
+                prepared_job.price,
             ),
             require_success=True,
         )
@@ -475,11 +478,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         return self._resolve_enabled_read_model_for("dvm", name)
 
     def _get_read_model_price(self, name: str) -> int:
-        canonical_name = resolve_read_model_id(name) or name
-        policy = self._config.read_models.get(canonical_name)
-        if policy is None:
-            return 0
-        return policy.price
+        return configured_read_model_price(name, policies=self._config.read_models)
 
     def _enabled_read_model_names(self) -> list[str]:
         """Return enabled DVM read models that are present in the discovered catalog."""

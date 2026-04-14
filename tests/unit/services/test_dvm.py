@@ -26,6 +26,9 @@ from bigbrotr.services.common.types import DvmRequestCursor
 from bigbrotr.services.dvm.configs import DvmConfig
 from bigbrotr.services.dvm.service import Dvm
 from bigbrotr.services.dvm.utils import (
+    JobPreparationContext,
+    PreparedJobRequest,
+    RejectedJobRequest,
     ResultEventRequest,
     build_announcement_event,
     build_error_event,
@@ -33,6 +36,7 @@ from bigbrotr.services.dvm.utils import (
     build_result_event,
     parse_job_params,
     parse_query_filters,
+    prepare_job_request,
 )
 from bigbrotr.utils.protocol import ClientConnectResult, ClientSession, NostrClientManager
 
@@ -332,6 +336,81 @@ class TestDvmReadModelAccessPolicy:
 
     def test_unknown_read_model_price_returns_zero(self, dvm_service: Dvm) -> None:
         assert dvm_service._get_read_model_price("nonexistent-read-model") == 0
+
+
+class TestPrepareJobRequest:
+    def test_accepts_legacy_alias(self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog) -> None:
+        prepared = prepare_job_request(
+            "relay",
+            {"limit": "5"},
+            context=JobPreparationContext(
+                policies=dvm_config.read_models,
+                available_catalog_names=set(sample_dvm_catalog.tables),
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(prepared, PreparedJobRequest)
+        assert prepared.read_model_id == "relays"
+        assert prepared.read_model.read_model_id == "relays"
+        assert prepared.query.limit == 5
+        assert prepared.price == 0
+
+    def test_rejects_disabled_read_model(
+        self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
+    ) -> None:
+        rejected = prepare_job_request(
+            "service_state",
+            {},
+            context=JobPreparationContext(
+                policies=dvm_config.read_models,
+                available_catalog_names=set(sample_dvm_catalog.tables),
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(rejected, RejectedJobRequest)
+        assert rejected.error_message == "Invalid or disabled read model: service_state"
+        assert rejected.required_price is None
+
+    def test_requires_payment_when_bid_too_low(
+        self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
+    ) -> None:
+        rejected = prepare_job_request(
+            "events",
+            {"bid": 1000},
+            context=JobPreparationContext(
+                policies=dvm_config.read_models,
+                available_catalog_names=set(sample_dvm_catalog.tables),
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(rejected, RejectedJobRequest)
+        assert rejected.required_price == 5000
+        assert rejected.bid == 1000
+        assert rejected.error_message is None
+
+    def test_returns_client_error_for_invalid_query(
+        self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
+    ) -> None:
+        rejected = prepare_job_request(
+            "relays",
+            {"limit": "not-a-number"},
+            context=JobPreparationContext(
+                policies=dvm_config.read_models,
+                available_catalog_names=set(sample_dvm_catalog.tables),
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(rejected, RejectedJobRequest)
+        assert rejected.error_message == "Invalid limit or offset value"
+        assert rejected.required_price is None
 
 
 # ============================================================================

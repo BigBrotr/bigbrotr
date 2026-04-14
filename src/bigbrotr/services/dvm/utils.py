@@ -1,8 +1,9 @@
 """DVM service utility functions.
 
-Pure helpers for NIP-90 event parsing and event builder construction.
-All functions are stateless — they build ``EventBuilder`` instances or
-parse event data without touching the network or database.
+Pure helpers for NIP-90 event parsing, request preparation, and event
+builder construction. All functions are stateless — they only normalize
+inputs or build ``EventBuilder`` instances without touching the network
+or database.
 """
 
 from __future__ import annotations
@@ -15,13 +16,22 @@ from typing import TYPE_CHECKING, Any
 from nostr_sdk import EventBuilder, Kind, Tag
 
 from bigbrotr.services.common.read_models import (
+    ReadModelEntry,
+    ReadModelQuery,
+    ReadModelQueryError,
     build_read_model_meta,
     parse_read_model_filter_string,
+    read_model_query_from_job_params,
+    resolve_read_model_id,
+    resolve_surface_read_model,
 )
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from bigbrotr.services.common.catalog import QueryResult
+    from bigbrotr.services.common.configs import ReadModelConfig
 
 # Minimum tag lengths for NIP-90 tag parsing
 _MIN_PARAM_TAG_LEN = 3
@@ -36,6 +46,45 @@ class ResultEventRequest:
     request_event_id: str
     customer_pubkey: str
     read_model_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedJobRequest:
+    """Validated NIP-90 job request ready for execution."""
+
+    read_model_id: str
+    read_model: ReadModelEntry
+    query: ReadModelQuery
+    price: int
+
+
+@dataclass(frozen=True, slots=True)
+class RejectedJobRequest:
+    """Client-safe rejection produced while validating one job request."""
+
+    error_message: str | None = None
+    required_price: int | None = None
+    bid: int | None = None
+
+    def __post_init__(self) -> None:
+        has_error = self.error_message is not None
+        has_payment = self.required_price is not None
+        if has_error == has_payment:
+            raise ValueError(
+                "RejectedJobRequest requires exactly one of error_message or required_price"
+            )
+        if self.bid is not None and self.required_price is None:
+            raise ValueError("RejectedJobRequest.bid requires required_price")
+
+
+@dataclass(frozen=True, slots=True)
+class JobPreparationContext:
+    """Pure inputs needed to validate one job request."""
+
+    policies: Mapping[str, ReadModelConfig]
+    available_catalog_names: set[str]
+    default_page_size: int
+    max_page_size: int
 
 
 def parse_job_params(event: Any) -> dict[str, Any]:
@@ -75,6 +124,61 @@ def parse_query_filters(filter_str: str) -> dict[str, str] | None:
         Dict of column→value pairs, or ``None`` if empty or unparsable.
     """
     return parse_read_model_filter_string(filter_str)
+
+
+def configured_read_model_price(
+    name: str,
+    *,
+    policies: Mapping[str, ReadModelConfig],
+) -> int:
+    """Return the configured millisat price for one canonical or legacy read model."""
+    canonical_name = resolve_read_model_id(name) or name
+    policy = policies.get(canonical_name)
+    if policy is None:
+        return 0
+    return policy.price
+
+
+def prepare_job_request(
+    requested_read_model_id: str,
+    params: Mapping[str, Any],
+    *,
+    context: JobPreparationContext,
+) -> PreparedJobRequest | RejectedJobRequest:
+    """Resolve access, pricing, and query parsing for one NIP-90 job request."""
+    resolved_read_model = resolve_surface_read_model(
+        "dvm",
+        name=requested_read_model_id,
+        policies=context.policies,
+        available_catalog_names=context.available_catalog_names,
+    )
+    if resolved_read_model is None:
+        return RejectedJobRequest(
+            error_message=f"Invalid or disabled read model: {requested_read_model_id}"
+        )
+
+    read_model_id, read_model = resolved_read_model
+    price = configured_read_model_price(read_model_id, policies=context.policies)
+    raw_bid = params.get("bid", 0)
+    bid = raw_bid if isinstance(raw_bid, int) else 0
+    if price > 0 and bid < price:
+        return RejectedJobRequest(required_price=price, bid=bid)
+
+    try:
+        query = read_model_query_from_job_params(
+            params,
+            default_page_size=context.default_page_size,
+            max_page_size=context.max_page_size,
+        )
+    except ReadModelQueryError as e:
+        return RejectedJobRequest(error_message=e.client_message)
+
+    return PreparedJobRequest(
+        read_model_id=read_model_id,
+        read_model=read_model,
+        query=query,
+        price=price,
+    )
 
 
 def build_result_event(
