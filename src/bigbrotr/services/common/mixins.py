@@ -137,9 +137,12 @@ class ConcurrentStreamMixin:
         as each yield arrives, without waiting for all workers to finish.
 
         Workers that yield nothing are silently skipped. Unhandled
-        exceptions inside a worker are caught by ``_run_worker`` and
-        logged, so a single failing worker never aborts the whole group.
-        ``CancelledError`` propagates naturally through the ``TaskGroup``.
+        ``Exception`` subclasses inside a worker are caught by
+        ``_run_worker`` and logged, so a single failing worker never
+        aborts the whole group. A worker that ends with
+        ``asyncio.CancelledError`` is treated like a worker that yielded
+        nothing: it does not abort sibling tasks and produces no output
+        for the caller.
 
         Args:
             items: Items to process concurrently.

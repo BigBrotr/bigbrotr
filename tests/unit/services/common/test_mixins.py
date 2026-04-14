@@ -148,7 +148,7 @@ class TestConcurrentStreamMixinErrorHandling:
 
 
 class TestConcurrentStreamMixinCancellation:
-    async def test_worker_cancelled_error_does_not_propagate(self) -> None:
+    async def test_worker_cancelled_error_is_treated_as_empty_worker(self) -> None:
         svc = _TestConcurrentService()
 
         async def worker(item: int):
