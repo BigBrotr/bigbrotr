@@ -194,3 +194,20 @@ class Nip66HttpMetadata(BaseNipMetadata):
             data=Nip66HttpData.model_validate(data_report.parsed),
             logs=Nip66HttpLogs.model_validate(logs),
         )
+
+    @classmethod
+    async def probe(
+        cls,
+        relay: Relay,
+        timeout: float | None = None,  # noqa: ASYNC109
+        proxy_url: str | None = None,
+        *,
+        allow_insecure: bool = False,
+    ) -> Self:
+        """Run the HTTP probe using the semantic entrypoint."""
+        return await cls.execute(
+            relay,
+            timeout,
+            proxy_url,
+            allow_insecure=allow_insecure,
+        )

@@ -310,6 +310,29 @@ class TestNip11CreateSuccess:
         assert result.info.data.supported_nips == [1, 11, 42, 65]
         assert result.info.data.limitation.max_message_length == 65535
 
+    async def test_fetch_delegates_to_create(self, relay: Relay) -> None:
+        """fetch() is a semantic alias for create()."""
+        expected = Nip11(relay=relay)
+
+        with patch.object(
+            Nip11,
+            "create",
+            new_callable=AsyncMock,
+            return_value=expected,
+        ) as mock_create:
+            result = await Nip11.fetch(relay)
+
+        mock_create.assert_awaited_once_with(
+            relay,
+            timeout=None,
+            proxy_url=None,
+            session=None,
+            selection=None,
+            options=None,
+            deps=None,
+        )
+        assert result is expected
+
 
 # =============================================================================
 # Nip11.create() Tests - Error Handling

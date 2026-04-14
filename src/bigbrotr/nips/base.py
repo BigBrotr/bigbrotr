@@ -188,6 +188,20 @@ class BaseNipMetadata(BaseModel):
                 result[key] = value
         return result
 
+    @property
+    def succeeded(self) -> bool:
+        """Return the semantic operation outcome for this metadata result."""
+        logs = getattr(self, "logs", None)
+        value = getattr(logs, "succeeded", None)
+        return value if isinstance(value, bool) else False
+
+    @property
+    def failure_reason(self) -> str | None:
+        """Return the semantic failure reason for this metadata result."""
+        logs = getattr(self, "logs", None)
+        value = getattr(logs, "failure_reason", None)
+        return str(value) if isinstance(value, str) else None
+
 
 class BaseLogs(BaseModel):
     """Base class for operation logs with success/reason validation.
@@ -232,6 +246,16 @@ class BaseLogs(BaseModel):
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary, excluding fields with ``None`` values."""
         return self.model_dump(exclude_none=True)
+
+    @property
+    def succeeded(self) -> bool:
+        """Return the semantic operation outcome."""
+        return self.success
+
+    @property
+    def failure_reason(self) -> str | None:
+        """Return the semantic failure reason."""
+        return self.reason
 
 
 class BaseNipSelection(BaseModel):
@@ -317,7 +341,8 @@ class BaseNip(BaseModel, ABC):
       [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] records.
     * ``create()`` — async factory that performs I/O and returns a populated
       instance. Must **never raise exceptions** — errors are captured in
-      the ``logs.success`` / ``logs.reason`` fields of each metadata container.
+      the ``succeeded`` / ``failure_reason`` properties of each metadata
+      container.
 
     Note:
         ``BaseNip`` cannot be instantiated directly due to the ABC constraint.
@@ -353,4 +378,4 @@ class BaseNip(BaseModel, ABC):
     @classmethod
     @abstractmethod
     async def create(cls, relay: Relay, **kwargs: Any) -> Self:
-        """Async factory method. Never raises — check logs.success."""
+        """Async factory method. Never raises — check the result properties."""

@@ -445,7 +445,7 @@ class Monitor(
 
                 async def _fetch_nip11() -> Nip11InfoMetadata | None:
                     return (
-                        await Nip11.create(
+                        await Nip11.fetch(
                             relay,
                             timeout=timeout,
                             proxy_url=proxy_url,
@@ -472,7 +472,7 @@ class Monitor(
                     [Tag.identifier(relay.url)]
                 )
                 # Apply proof-of-work if NIP-11 specifies minimum difficulty
-                if nip11_info and nip11_info.logs.success:
+                if nip11_info and nip11_info.succeeded:
                     pow_difficulty = nip11_info.data.limitation.min_pow_difficulty
                     if pow_difficulty and pow_difficulty > 0:
                         event_builder = event_builder.pow(pow_difficulty)
@@ -484,7 +484,7 @@ class Monitor(
                 )
                 rtt_meta = await retry_fetch(
                     relay,
-                    lambda: Nip66RttMetadata.execute(
+                    lambda: Nip66RttMetadata.probe(
                         relay,
                         rtt_deps,
                         timeout,
@@ -550,7 +550,7 @@ class Monitor(
         if compute.nip66_ssl and relay.network == NetworkType.CLEARNET:
             tasks["ssl"] = retry_fetch(
                 relay,
-                lambda: Nip66SslMetadata.execute(relay, timeout),
+                lambda: Nip66SslMetadata.probe(relay, timeout),
                 self._config.processing.retries.nip66_ssl,
                 "nip66_ssl",
                 wait=self.wait,
@@ -558,7 +558,7 @@ class Monitor(
         if compute.nip66_dns and relay.network == NetworkType.CLEARNET:
             tasks["dns"] = retry_fetch(
                 relay,
-                lambda: Nip66DnsMetadata.execute(relay, timeout),
+                lambda: Nip66DnsMetadata.probe(relay, timeout),
                 self._config.processing.retries.nip66_dns,
                 "nip66_dns",
                 wait=self.wait,
@@ -568,7 +568,7 @@ class Monitor(
             precision = self._config.geo.geohash_precision
             tasks["geo"] = retry_fetch(
                 relay,
-                lambda: Nip66GeoMetadata.execute(relay, city_reader, precision, timeout=timeout),
+                lambda: Nip66GeoMetadata.probe(relay, city_reader, precision, timeout=timeout),
                 self._config.processing.retries.nip66_geo,
                 "nip66_geo",
                 wait=self.wait,
@@ -577,7 +577,7 @@ class Monitor(
             asn_reader = self.geo_readers.asn
             tasks["net"] = retry_fetch(
                 relay,
-                lambda: Nip66NetMetadata.execute(relay, asn_reader, timeout=timeout),
+                lambda: Nip66NetMetadata.probe(relay, asn_reader, timeout=timeout),
                 self._config.processing.retries.nip66_net,
                 "nip66_net",
                 wait=self.wait,
@@ -585,7 +585,7 @@ class Monitor(
         if compute.nip66_http:
             tasks["http"] = retry_fetch(
                 relay,
-                lambda: Nip66HttpMetadata.execute(
+                lambda: Nip66HttpMetadata.probe(
                     relay,
                     timeout,
                     proxy_url,

@@ -8,8 +8,8 @@ protocol-aware part of the codebase.
 Warning:
     NIP fetch methods ([Nip11.create()][bigbrotr.nips.nip11.nip11.Nip11.create],
     [Nip66.create()][bigbrotr.nips.nip66.nip66.Nip66.create]) **never raise
-    exceptions**. Always check ``logs.success`` on the returned metadata to
-    determine whether the operation succeeded.
+    exceptions**. Always check ``succeeded`` and ``failure_reason`` on the
+    returned metadata to determine whether the operation succeeded.
 
 Attributes:
     Nip11: Fetches and parses NIP-11 Relay Information Documents via HTTP.

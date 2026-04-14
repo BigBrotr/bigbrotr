@@ -56,20 +56,20 @@ logger = logging.getLogger("bigbrotr.nips.nip11")
 class Nip11InfoMetadata(BaseNipMetadata):
     """Container for NIP-11 info data and operation logs.
 
-    Provides the ``execute()`` class method for retrieving a relay's NIP-11
+    Provides the ``fetch()`` class method for retrieving a relay's NIP-11
     document over HTTP(S). The result always contains both a
     [Nip11InfoData][bigbrotr.nips.nip11.data.Nip11InfoData] object and a
     [Nip11InfoLogs][bigbrotr.nips.nip11.logs.Nip11InfoLogs] object --
-    check ``logs.success`` for the operation status.
+    check ``succeeded`` for the operation status.
 
     Warning:
-        The ``execute()`` method **never raises exceptions**. All errors are
-        captured in the ``logs.reason`` field. Callers must always check
-        ``logs.success`` before accessing data fields.
+        The ``fetch()`` method **never raises exceptions**. All errors are
+        captured in the ``failure_reason`` property. Callers must always check
+        ``succeeded`` before accessing data fields.
 
     See Also:
         [bigbrotr.nips.nip11.nip11.Nip11.create][bigbrotr.nips.nip11.nip11.Nip11.create]:
-            Factory method that delegates to ``execute()``.
+            Factory method that delegates to ``fetch()``.
     """
 
     data: Nip11InfoData
@@ -205,7 +205,7 @@ class Nip11InfoMetadata(BaseNipMetadata):
         connections use no SSL.
 
         This method never raises and never returns None. Check
-        ``logs.success`` for the operation outcome.
+        ``succeeded`` for the operation outcome.
 
         Args:
             relay: Relay to fetch from.
@@ -320,3 +320,24 @@ class Nip11InfoMetadata(BaseNipMetadata):
             logger.debug("nip11_failed relay=%s error=%s", relay.url, logs["reason"])
 
         return result
+
+    @classmethod
+    async def fetch(  # noqa: PLR0913
+        cls,
+        relay: Relay,
+        timeout: float | None = None,  # noqa: ASYNC109
+        max_size: int | None = None,
+        proxy_url: str | None = None,
+        session: aiohttp.ClientSession | None = None,
+        *,
+        allow_insecure: bool = False,
+    ) -> Self:
+        """Fetch a relay's NIP-11 document using the semantic entrypoint."""
+        return await cls.execute(
+            relay,
+            timeout,
+            max_size,
+            proxy_url,
+            session,
+            allow_insecure=allow_insecure,
+        )

@@ -11,8 +11,6 @@ import random
 from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar
 
 from bigbrotr.models import Metadata, MetadataType, RelayMetadata
-from bigbrotr.nips.base import BaseLogs
-from bigbrotr.nips.nip66.logs import Nip66RttMultiPhaseLogs
 
 
 if TYPE_CHECKING:
@@ -32,9 +30,8 @@ if TYPE_CHECKING:
     from bigbrotr.services.monitor.configs import MetadataFlags, RetryConfig
 
 
-logger = logging.getLogger(__name__)
-
 _T = TypeVar("_T")
+logger = logging.getLogger(__name__)
 
 
 class CheckResult(NamedTuple):
@@ -86,23 +83,25 @@ class CheckResult(NamedTuple):
 
 
 def log_success(result: Any) -> bool:
-    """Extract success status from a metadata result's logs object."""
-    logs = result.logs
-    if isinstance(logs, BaseLogs):
-        return bool(logs.success)
-    if isinstance(logs, Nip66RttMultiPhaseLogs):
-        return bool(logs.open_success)
-    return False
+    """Extract semantic success status from a metadata result."""
+    success = getattr(result, "succeeded", None)
+    if isinstance(success, bool):
+        return success
+
+    logs = getattr(result, "logs", None)
+    success = getattr(logs, "succeeded", None)
+    return success if isinstance(success, bool) else False
 
 
 def log_reason(result: Any) -> str | None:
-    """Extract failure reason from a metadata result's logs object."""
-    logs = result.logs
-    if isinstance(logs, BaseLogs):
-        return str(logs.reason) if logs.reason else None
-    if isinstance(logs, Nip66RttMultiPhaseLogs):
-        return str(logs.open_reason) if logs.open_reason else None
-    return None
+    """Extract a semantic failure reason from a metadata result."""
+    reason = getattr(result, "failure_reason", None)
+    if isinstance(reason, str):
+        return reason
+
+    logs = getattr(result, "logs", None)
+    reason = getattr(logs, "failure_reason", None)
+    return reason if isinstance(reason, str) else None
 
 
 def extract_result(results: dict[str, Any], key: str) -> Any:

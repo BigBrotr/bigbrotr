@@ -39,7 +39,7 @@ Note:
     with a distinct [MetadataType][bigbrotr.models.metadata.MetadataType]
     variant (``NIP66_RTT``, ``NIP66_SSL``, ``NIP66_GEO``, ``NIP66_NET``,
     ``NIP66_DNS``, ``NIP66_HTTP``). Tests are executed concurrently via
-    ``asyncio.gather`` in [Nip66.create][bigbrotr.nips.nip66.nip66.Nip66.create].
+    ``asyncio.gather`` in [Nip66.probe][bigbrotr.nips.nip66.nip66.Nip66.probe].
 
 See Also:
     [bigbrotr.nips.nip11][bigbrotr.nips.nip11]: Companion NIP-11 module for

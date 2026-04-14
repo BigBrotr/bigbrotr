@@ -204,3 +204,12 @@ class Nip66DnsMetadata(BaseNipMetadata):
             data=Nip66DnsData.model_validate(data_report.parsed),
             logs=Nip66DnsLogs.model_validate(logs),
         )
+
+    @classmethod
+    async def probe(
+        cls,
+        relay: Relay,
+        timeout: float | None = None,  # noqa: ASYNC109
+    ) -> Self:
+        """Run the DNS probe using the semantic entrypoint."""
+        return await cls.execute(relay, timeout)

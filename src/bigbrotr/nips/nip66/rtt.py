@@ -80,11 +80,11 @@ class Nip66RttDependencies(NamedTuple):
 class Nip66RttMetadata(BaseNipMetadata):
     """Container for RTT measurement data and multi-phase probe logs.
 
-    Provides the ``execute()`` class method that connects to a relay and
+    Provides the ``probe()`` class method that connects to a relay and
     measures open, read, and write round-trip times.
 
     Warning:
-        The ``execute()`` method **never raises exceptions** for transport
+        The ``probe()`` method **never raises exceptions** for transport
         errors or missing dependencies. All failures are captured in the
         [Nip66RttMultiPhaseLogs][bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs]
         fields. Overlay network relays tested without a proxy URL receive
@@ -184,6 +184,25 @@ class Nip66RttMetadata(BaseNipMetadata):
             logs.get("write_success"),
         )
         return cls._build_result(rtt_data, logs)
+
+    @classmethod
+    async def probe(
+        cls,
+        relay: Relay,
+        deps: Nip66RttDependencies,
+        timeout: float | None = None,  # noqa: ASYNC109
+        proxy_url: str | None = None,
+        *,
+        allow_insecure: bool = False,
+    ) -> Self:
+        """Run the RTT probe using the semantic entrypoint."""
+        return await cls.execute(
+            relay,
+            deps,
+            timeout,
+            proxy_url,
+            allow_insecure=allow_insecure,
+        )
 
     @staticmethod
     def _empty_rtt_data() -> dict[str, Any]:

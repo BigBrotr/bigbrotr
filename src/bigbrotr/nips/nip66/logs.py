@@ -100,6 +100,16 @@ class Nip66RttMultiPhaseLogs(BaseModel):
         """Serialize to a dictionary, excluding fields with ``None`` values."""
         return self.model_dump(exclude_none=True)
 
+    @property
+    def succeeded(self) -> bool:
+        """Return the semantic outcome used by retry/orchestration code."""
+        return self.open_success
+
+    @property
+    def failure_reason(self) -> str | None:
+        """Return the primary failure reason used by retry/orchestration code."""
+        return self.open_reason
+
 
 class Nip66BaseLogs(BaseLogs):
     """Standard NIP-66 operation log with single success/reason pair.

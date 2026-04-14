@@ -2,7 +2,7 @@
 Top-level NIP-66 model with factory method and database serialization.
 
 Orchestrates all [NIP-66](https://github.com/nostr-protocol/nips/blob/master/66.md)
-monitoring tests (RTT, SSL, GEO, NET, DNS, HTTP) via the ``create()``
+monitoring tests (RTT, SSL, GEO, NET, DNS, HTTP) via the ``probe()``
 async factory method, and provides ``to_relay_metadata_tuple()`` for
 converting results into database-ready
 [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] records.
@@ -165,7 +165,7 @@ class Nip66(BaseNip):
 
     Collects relay capability metrics including round-trip times, SSL
     certificate details, DNS records, HTTP headers, network/ASN info,
-    and geolocation. Created via the ``create()`` async factory method.
+    and geolocation. Created via the ``probe()`` async factory method.
 
     Each metadata field is ``None`` when the corresponding test was
     skipped (disabled via selection, missing dependency, or inapplicable
@@ -357,3 +357,24 @@ class Nip66(BaseNip):
             nip66.http is not None,
         )
         return nip66
+
+    @classmethod
+    async def probe(  # noqa: PLR0913
+        cls,
+        relay: Relay,
+        *,
+        timeout: float | None = None,  # noqa: ASYNC109
+        proxy_url: str | None = None,
+        selection: Nip66Selection | None = None,
+        options: Nip66Options | None = None,
+        deps: Nip66Dependencies | None = None,
+    ) -> Nip66:
+        """Run the NIP-66 checks using the semantic entrypoint."""
+        return await cls.create(
+            relay,
+            timeout=timeout,
+            proxy_url=proxy_url,
+            selection=selection,
+            options=options,
+            deps=deps,
+        )

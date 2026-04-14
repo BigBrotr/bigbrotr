@@ -40,7 +40,7 @@ See Also:
     [bigbrotr.nips.nip66][bigbrotr.nips.nip66]: Companion NIP-66 monitoring
         module that collects health metrics alongside NIP-11 info.
     [bigbrotr.services.monitor.Monitor][bigbrotr.services.monitor.Monitor]:
-        Service that invokes [Nip11.create][bigbrotr.nips.nip11.nip11.Nip11.create]
+        Service that invokes [Nip11.fetch][bigbrotr.nips.nip11.nip11.Nip11.fetch]
         during health check cycles.
 """
 

@@ -379,6 +379,28 @@ class TestNip66Create:
         assert result.rtt is not None
         mock_rtt.assert_called_once()
 
+    async def test_probe_delegates_to_create(self, relay: Relay) -> None:
+        """probe() is a semantic alias for create()."""
+        expected = Nip66(relay=relay)
+
+        with patch.object(
+            Nip66,
+            "create",
+            new_callable=AsyncMock,
+            return_value=expected,
+        ) as mock_create:
+            result = await Nip66.probe(relay)
+
+        mock_create.assert_awaited_once_with(
+            relay,
+            timeout=None,
+            proxy_url=None,
+            selection=None,
+            options=None,
+            deps=None,
+        )
+        assert result is expected
+
     async def test_can_skip_all_except_dns(self, relay: Relay) -> None:
         """Can skip all tests except DNS."""
         dns_metadata = Nip66DnsMetadata(

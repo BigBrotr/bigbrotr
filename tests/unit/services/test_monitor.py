@@ -2360,7 +2360,7 @@ class TestCheckRelay:
         assert result.nip11_info is None
         assert result.nip66_rtt is rtt_meta
 
-    async def test_check_relay_nip11_closure_calls_create(self, mock_brotr: Brotr) -> None:
+    async def test_check_relay_nip11_closure_calls_fetch(self, mock_brotr: Brotr) -> None:
         config = self._cfg(nip11_info=True)
         monitor = Monitor(brotr=mock_brotr, config=config)
         relay = Relay("wss://relay.example.com")
@@ -2375,14 +2375,14 @@ class TestCheckRelay:
         with (
             patch("bigbrotr.services.monitor.service.retry_fetch", side_effect=call_through),
             patch(
-                "bigbrotr.services.monitor.service.Nip11.create",
+                "bigbrotr.services.monitor.service.Nip11.fetch",
                 new_callable=AsyncMock,
                 return_value=mock_nip11,
-            ) as mock_create,
+            ) as mock_fetch,
         ):
             result = await monitor.check_relay(relay)
 
-        mock_create.assert_awaited_once()
+        mock_fetch.assert_awaited_once()
         assert result.nip11_info is nip11_meta
 
     async def test_check_relay_rtt_with_pow(self, mock_brotr: Brotr) -> None:

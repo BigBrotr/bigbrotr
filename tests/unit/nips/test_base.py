@@ -313,6 +313,26 @@ class TestBaseNipMetadata:
         with pytest.raises(ValidationError):
             model.data = TestData(name="Changed")
 
+    def test_succeeded_proxies_logs(self, metadata_subclass):
+        """succeeded proxies the semantic outcome from logs."""
+        TestMetadata, TestData, TestLogs = metadata_subclass
+        model = TestMetadata(
+            data=TestData(name="Test"),
+            logs=TestLogs(success=True),
+        )
+
+        assert model.succeeded is True
+
+    def test_failure_reason_proxies_logs(self, metadata_subclass):
+        """failure_reason proxies the semantic reason from logs."""
+        TestMetadata, TestData, TestLogs = metadata_subclass
+        model = TestMetadata(
+            data=TestData(name="Test"),
+            logs=TestLogs(success=False, reason="boom"),
+        )
+
+        assert model.failure_reason == "boom"
+
 
 # =============================================================================
 # BaseLogs Tests
@@ -327,6 +347,8 @@ class TestBaseLogsSuccess:
         logs = BaseLogs(success=True)
         assert logs.success is True
         assert logs.reason is None
+        assert logs.succeeded is True
+        assert logs.failure_reason is None
 
     def test_success_with_none_reason(self):
         """success=True with explicit reason=None is valid."""
@@ -348,6 +370,8 @@ class TestBaseLogsFailure:
         logs = BaseLogs(success=False, reason="Connection timeout")
         assert logs.success is False
         assert logs.reason == "Connection timeout"
+        assert logs.succeeded is False
+        assert logs.failure_reason == "Connection timeout"
 
     def test_failure_without_reason_raises(self):
         """success=False without reason raises ValidationError."""

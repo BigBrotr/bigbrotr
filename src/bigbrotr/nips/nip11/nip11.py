@@ -2,7 +2,7 @@
 Top-level NIP-11 model with factory method and database serialization.
 
 Wraps the [Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]
-container and provides ``create()`` for retrieving a relay's
+container and provides ``fetch()`` for retrieving a relay's
 [NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md) information
 document, and ``to_relay_metadata_tuple()`` for converting the result into
 database-ready [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
@@ -112,7 +112,7 @@ class RelayNip11MetadataTuple(NamedTuple):
 class Nip11(BaseNip):
     """NIP-11 relay information document.
 
-    Created via the ``create()`` async factory method, which retrieves the
+    Created via the ``fetch()`` async factory method, which retrieves the
     relay's information document over HTTP and packages the result.
 
     Attributes:
@@ -123,8 +123,8 @@ class Nip11(BaseNip):
             (inherited from [BaseNip][bigbrotr.nips.base.BaseNip]).
 
     Note:
-        The ``create()`` factory method **never raises exceptions**. Always
-        check ``info.logs.success`` for the operation outcome.
+        The ``fetch()`` factory method **never raises exceptions**. Always
+        check ``info.succeeded`` for the operation outcome.
         This design allows batch processing of many relays without individual
         error handling.
 
@@ -139,8 +139,8 @@ class Nip11(BaseNip):
         relay = Relay("wss://relay.damus.io")
         selection = Nip11Selection(info=True)
         options = Nip11Options(allow_insecure=True)
-        nip11 = await Nip11.create(relay, timeout=10.0, selection=selection, options=options)
-        if nip11.info and nip11.info.logs.success:
+        nip11 = await Nip11.fetch(relay, timeout=10.0, selection=selection, options=options)
+        if nip11.info and nip11.info.succeeded:
             print(nip11.info.data.name)  # 'Damus Relay'
         ```
     """
@@ -190,7 +190,7 @@ class Nip11(BaseNip):
         additional dependencies in the future, provided via ``deps``.
 
         This method never raises and never returns None. Check
-        ``info.logs.success`` for the outcome.
+        ``info.succeeded`` for the outcome.
 
         Args:
             relay: Relay to retrieve from.
@@ -215,7 +215,7 @@ class Nip11(BaseNip):
 
         info = None
         if selection.info:
-            info = await Nip11InfoMetadata.execute(
+            info = await Nip11InfoMetadata.fetch(
                 relay,
                 timeout,
                 options.max_size,
@@ -227,6 +227,29 @@ class Nip11(BaseNip):
         logger.debug(
             "create_completed relay=%s info=%s",
             relay.url,
-            info is not None and info.logs.success if info else False,
+            info is not None and info.succeeded if info else False,
         )
         return cls(relay=relay, info=info)
+
+    @classmethod
+    async def fetch(  # noqa: PLR0913
+        cls,
+        relay: Relay,
+        *,
+        timeout: float | None = None,  # noqa: ASYNC109
+        proxy_url: str | None = None,
+        session: aiohttp.ClientSession | None = None,
+        selection: Nip11Selection | None = None,
+        options: Nip11Options | None = None,
+        deps: Nip11Dependencies | None = None,
+    ) -> Nip11:
+        """Fetch a relay's NIP-11 data using the semantic entrypoint."""
+        return await cls.create(
+            relay,
+            timeout=timeout,
+            proxy_url=proxy_url,
+            session=session,
+            selection=selection,
+            options=options,
+            deps=deps,
+        )

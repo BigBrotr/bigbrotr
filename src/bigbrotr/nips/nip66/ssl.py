@@ -285,3 +285,12 @@ class Nip66SslMetadata(BaseNipMetadata):
             data=Nip66SslData.model_validate(data_report.parsed),
             logs=Nip66SslLogs.model_validate(logs),
         )
+
+    @classmethod
+    async def probe(
+        cls,
+        relay: Relay,
+        timeout: float | None = None,  # noqa: ASYNC109
+    ) -> Self:
+        """Run the SSL probe using the semantic entrypoint."""
+        return await cls.execute(relay, timeout)
