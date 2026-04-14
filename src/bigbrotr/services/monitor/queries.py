@@ -3,20 +3,31 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.common.artifact_store import ArtifactStore
+from bigbrotr.services.common.paging import iter_keyset_pages
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import MonitorCheckpoint, PublishCheckpoint
 from bigbrotr.services.common.utils import parse_relay_row
 
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay, RelayMetadata
     from bigbrotr.models.constants import NetworkType
+
+
+@dataclass(frozen=True, slots=True)
+class _MonitorRelayPageToken:
+    last_monitored: int
+    discovered_at: int
+    relay_url: str
 
 
 async def delete_stale_checkpoints(brotr: Brotr, keep_keys: list[str]) -> int:
@@ -67,6 +78,23 @@ _RELAYS_TO_MONITOR_WHERE = """
 """
 
 
+async def count_relays_to_monitor(
+    brotr: Brotr, monitored_before: int, networks: list[NetworkType]
+) -> int:
+    """Count relays currently due for monitoring."""
+    count: int = await brotr.fetchval(
+        f"""
+        SELECT count(*)::int
+        {_RELAYS_TO_MONITOR_WHERE}
+        """,
+        networks,
+        monitored_before,
+        ServiceName.MONITOR,
+        ServiceStateType.CHECKPOINT,
+    )
+    return count
+
+
 async def fetch_relays_to_monitor(
     brotr: Brotr, monitored_before: int, networks: list[NetworkType]
 ) -> list[Relay]:
@@ -106,6 +134,82 @@ async def fetch_relays_to_monitor(
         if relay is not None:
             relays.append(relay)
     return relays
+
+
+async def fetch_relays_to_monitor_page(
+    brotr: Brotr,
+    monitored_before: int,
+    networks: list[NetworkType],
+    after: _MonitorRelayPageToken | None,
+    limit: int,
+) -> tuple[list[Relay], _MonitorRelayPageToken | None]:
+    """Fetch one page of relays due for monitoring ordered by oldest checkpoint."""
+    rows = await brotr.fetch(
+        f"""
+        SELECT r.url,
+               r.network,
+               r.discovered_at,
+               COALESCE((ss.state_value->>'timestamp')::BIGINT, 0) AS last_monitored
+        {_RELAYS_TO_MONITOR_WHERE}
+          AND (
+                $5::bigint IS NULL
+                OR (
+                    COALESCE((ss.state_value->>'timestamp')::BIGINT, 0),
+                    r.discovered_at,
+                    r.url
+                ) > ($5::bigint, $6::bigint, $7::text)
+          )
+        ORDER BY
+            COALESCE((ss.state_value->>'timestamp')::BIGINT, 0) ASC,
+            r.discovered_at ASC,
+            r.url ASC
+        LIMIT $8
+        """,
+        networks,
+        monitored_before,
+        ServiceName.MONITOR,
+        ServiceStateType.CHECKPOINT,
+        after.last_monitored if after is not None else None,
+        after.discovered_at if after is not None else 0,
+        after.relay_url if after is not None else "",
+        limit,
+    )
+    relays: list[Relay] = []
+    next_token: _MonitorRelayPageToken | None = None
+    for row in rows:
+        relay = parse_relay_row(row)
+        if relay is None:
+            continue
+        relays.append(relay)
+        next_token = _MonitorRelayPageToken(
+            last_monitored=int(row["last_monitored"]),
+            discovered_at=relay.discovered_at,
+            relay_url=relay.url,
+        )
+    return relays, next_token
+
+
+async def iter_relays_to_monitor_pages(
+    brotr: Brotr,
+    monitored_before: int,
+    networks: list[NetworkType],
+    *,
+    page_size: int,
+    max_relays: int | None = None,
+) -> AsyncIterator[list[Relay]]:
+    """Yield relay pages due for monitoring without materializing the full workset."""
+    async for page in iter_keyset_pages(
+        lambda after, limit: fetch_relays_to_monitor_page(
+            brotr,
+            monitored_before,
+            networks,
+            after,
+            limit,
+        ),
+        page_size=page_size,
+        max_items=max_relays,
+    ):
+        yield page
 
 
 async def insert_relay_metadata(brotr: Brotr, records: list[RelayMetadata]) -> int:

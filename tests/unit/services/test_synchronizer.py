@@ -22,9 +22,12 @@ from bigbrotr.services.synchronizer import (
     TimeoutsConfig,
 )
 from bigbrotr.services.synchronizer.queries import (
+    count_cursors_to_sync,
     delete_stale_cursors,
     fetch_cursors_to_sync,
+    fetch_cursors_to_sync_page,
     insert_event_relays,
+    iter_cursors_to_sync_pages,
     upsert_sync_cursors,
 )
 
@@ -79,6 +82,11 @@ def _make_mock_event(created_at_secs: int) -> MagicMock:
     event.created_at = created_at_secs
     event.id = f"{_mock_event_counter:064x}"
     return event
+
+
+async def _mock_pages(*pages: list[SyncCursor]):
+    for page in pages:
+        yield page
 
 
 # ============================================================================
@@ -298,6 +306,69 @@ class TestFetchCursorsToSync:
         assert args[4] == ["clearnet", "tor"]
 
 
+class TestSyncCursorPages:
+    async def test_count_cursors_to_sync_uses_scalar_query(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetchval = AsyncMock(return_value=4)
+
+        result = await count_cursors_to_sync(query_brotr, 1000, [NetworkType.CLEARNET])
+
+        assert result == 4
+        args = query_brotr.fetchval.call_args[0]
+        assert "count(*)::int" in args[0]
+        assert args[1] == ServiceName.SYNCHRONIZER
+        assert args[2] == ServiceStateType.CURSOR
+        assert args[3] == 1000
+        assert args[4] == ["clearnet"]
+
+    async def test_page_query_applies_limit_and_after_cursor(self, query_brotr: MagicMock) -> None:
+        after = SyncCursor(key="wss://relay-1.example.com", timestamp=25, id="cd" * 32)
+
+        await fetch_cursors_to_sync_page(
+            query_brotr,
+            5000,
+            [NetworkType.CLEARNET],
+            after,
+            limit=50,
+        )
+
+        args = query_brotr.fetch.call_args[0]
+        sql = args[0]
+        assert "LIMIT $8" in sql
+        assert "r.url" in sql
+        assert args[5] == 25
+        assert args[6] == "cd" * 32
+        assert args[7] == "wss://relay-1.example.com"
+        assert args[8] == 50
+
+    async def test_iter_pages_respects_page_size(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            side_effect=[
+                [
+                    {"url": "wss://relay1.example.com", "state_value": None},
+                    {"url": "wss://relay2.example.com", "state_value": None},
+                ],
+                [
+                    {"url": "wss://relay3.example.com", "state_value": None},
+                ],
+            ]
+        )
+
+        pages = [
+            page
+            async for page in iter_cursors_to_sync_pages(
+                query_brotr,
+                5000,
+                [NetworkType.CLEARNET],
+                page_size=2,
+            )
+        ]
+
+        assert [[cursor.key for cursor in page] for page in pages] == [
+            ["wss://relay1.example.com", "wss://relay2.example.com"],
+            ["wss://relay3.example.com"],
+        ]
+
+
 class TestUpsertSyncCursors:
     async def test_upserts_multiple_cursors(self, query_brotr: MagicMock) -> None:
         cursors = [
@@ -400,10 +471,16 @@ class TestSynchronize:
     async def test_returns_zero_when_no_cursors(self, mock_synchronizer_brotr: Brotr) -> None:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
 
-        with patch(
-            "bigbrotr.services.synchronizer.service.fetch_cursors_to_sync",
-            new_callable=AsyncMock,
-            return_value=[],
+        with (
+            patch(
+                "bigbrotr.services.synchronizer.service.count_cursors_to_sync",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
+                return_value=_mock_pages(),
+            ),
         ):
             result = await sync.synchronize()
 
@@ -425,9 +502,13 @@ class TestSynchronize:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.fetch_cursors_to_sync",
+                "bigbrotr.services.synchronizer.service.count_cursors_to_sync",
                 new_callable=AsyncMock,
-                return_value=[cursor],
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
+                return_value=_mock_pages([cursor]),
             ),
             patch("bigbrotr.services.synchronizer.service.EventRelay"),
             patch(
@@ -459,9 +540,13 @@ class TestSynchronize:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.fetch_cursors_to_sync",
+                "bigbrotr.services.synchronizer.service.count_cursors_to_sync",
                 new_callable=AsyncMock,
-                return_value=[cursor],
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
+                return_value=_mock_pages([cursor]),
             ),
             patch.object(sync, "_synchronize_worker", side_effect=failing_worker),
         ):
@@ -482,9 +567,13 @@ class TestSynchronize:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.fetch_cursors_to_sync",
+                "bigbrotr.services.synchronizer.service.count_cursors_to_sync",
                 new_callable=AsyncMock,
-                return_value=[cursor],
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
+                return_value=_mock_pages([cursor]),
             ),
             patch("bigbrotr.services.synchronizer.service.EventRelay"),
             patch(
@@ -518,9 +607,13 @@ class TestSynchronize:
         mock_insert = AsyncMock(side_effect=[200, 100])
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.fetch_cursors_to_sync",
+                "bigbrotr.services.synchronizer.service.count_cursors_to_sync",
                 new_callable=AsyncMock,
-                return_value=[cursor],
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
+                return_value=_mock_pages([cursor]),
             ),
             patch("bigbrotr.services.synchronizer.service.EventRelay"),
             patch(
@@ -568,9 +661,13 @@ class TestSynchronize:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.fetch_cursors_to_sync",
+                "bigbrotr.services.synchronizer.service.count_cursors_to_sync",
                 new_callable=AsyncMock,
-                return_value=[cursor],
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
+                return_value=_mock_pages([cursor]),
             ),
             patch("bigbrotr.services.synchronizer.service.EventRelay"),
             patch(
@@ -607,9 +704,13 @@ class TestSynchronize:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.fetch_cursors_to_sync",
+                "bigbrotr.services.synchronizer.service.count_cursors_to_sync",
                 new_callable=AsyncMock,
-                return_value=[cursor],
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
+                return_value=_mock_pages([cursor]),
             ),
             patch("bigbrotr.services.synchronizer.service.EventRelay"),
             patch(
@@ -643,9 +744,13 @@ class TestSynchronize:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.fetch_cursors_to_sync",
+                "bigbrotr.services.synchronizer.service.count_cursors_to_sync",
                 new_callable=AsyncMock,
-                return_value=[cursor],
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
+                return_value=_mock_pages([cursor]),
             ),
             patch("bigbrotr.services.synchronizer.service.EventRelay"),
             patch(

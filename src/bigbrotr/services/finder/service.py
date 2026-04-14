@@ -67,10 +67,11 @@ from bigbrotr.services.common.types import ApiCheckpoint, FinderCursor
 
 from .configs import ApiSourceConfig, FinderConfig
 from .queries import (
+    count_relays_to_find,
     delete_stale_api_checkpoints,
     delete_stale_cursors,
     fetch_api_checkpoints,
-    fetch_cursors_to_find,
+    iter_cursors_to_find_pages,
     upsert_api_checkpoints,
     upsert_finder_cursors,
 )
@@ -248,8 +249,8 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         if not self._config.events.enabled:
             return 0
 
-        cursors = await fetch_cursors_to_find(self._brotr)
-        if not cursors:
+        relay_count = await count_relays_to_find(self._brotr)
+        if relay_count == 0:
             self._logger.debug("no_relays_to_scan")
             return 0
 
@@ -265,23 +266,26 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         self.set_gauge("rows_seen", 0)
         self.set_gauge("candidates_found_from_events", 0)
 
-        self._logger.info("scan_started", relay_count=len(cursors))
+        self._logger.info("scan_started", relay_count=relay_count)
 
-        async for relays, cursor in self._iter_concurrent(
-            cursors,
-            self._find_from_events_worker,
-            max_concurrency=self._config.events.parallel_relays,
-        ):
-            buffer.extend(relays)
-            pending_cursors[cursor.key] = cursor
-            self.inc_gauge("rows_seen")
-            if len(buffer) >= batch_size:
-                found = await insert_relays_as_candidates(self._brotr, buffer)
-                total_found += found
-                self.inc_gauge("candidates_found_from_events", found)
-                buffer = []
-                await upsert_finder_cursors(self._brotr, pending_cursors.values())
-                pending_cursors = {}
+        page_size = max(self._config.events.batch_size, self._config.events.parallel_relays)
+
+        async for cursors in iter_cursors_to_find_pages(self._brotr, page_size=page_size):
+            async for relays, cursor in self._iter_concurrent(
+                cursors,
+                self._find_from_events_worker,
+                max_concurrency=self._config.events.parallel_relays,
+            ):
+                buffer.extend(relays)
+                pending_cursors[cursor.key] = cursor
+                self.inc_gauge("rows_seen")
+                if len(buffer) >= batch_size:
+                    found = await insert_relays_as_candidates(self._brotr, buffer)
+                    total_found += found
+                    self.inc_gauge("candidates_found_from_events", found)
+                    buffer = []
+                    await upsert_finder_cursors(self._brotr, pending_cursors.values())
+                    pending_cursors = {}
 
         if buffer:
             found = await insert_relays_as_candidates(self._brotr, buffer)

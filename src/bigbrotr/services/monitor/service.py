@@ -94,10 +94,11 @@ from bigbrotr.utils.protocol import broadcast_events
 
 from .configs import MetadataFlags, MonitorConfig
 from .queries import (
+    count_relays_to_monitor,
     delete_stale_checkpoints,
-    fetch_relays_to_monitor,
     insert_relay_metadata,
     is_publish_due,
+    iter_relays_to_monitor_pages,
     upsert_monitor_checkpoints,
     upsert_publish_checkpoints,
 )
@@ -617,11 +618,9 @@ class Monitor(
         monitored_before = int(time.time() - self._config.discovery.interval)
         max_relays = self._config.processing.max_relays
 
-        all_relays = await fetch_relays_to_monitor(self._brotr, monitored_before, networks)
+        total = await count_relays_to_monitor(self._brotr, monitored_before, networks)
         if max_relays is not None:
-            all_relays = all_relays[:max_relays]
-
-        total = len(all_relays)
+            total = min(total, max_relays)
         succeeded = 0
         failed = 0
 
@@ -633,11 +632,16 @@ class Monitor(
 
         chunk_size = self._config.processing.chunk_size
 
-        for i in range(0, total, chunk_size):
+        async for relays in iter_relays_to_monitor_pages(
+            self._brotr,
+            monitored_before,
+            networks,
+            page_size=chunk_size,
+            max_relays=max_relays,
+        ):
             if not self.is_running:
                 break
 
-            relays = all_relays[i : i + chunk_size]
             chunk_successful: list[tuple[Relay, CheckResult]] = []
             chunk_failed: list[Relay] = []
 

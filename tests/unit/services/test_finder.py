@@ -30,10 +30,13 @@ from bigbrotr.services.finder import (
     FinderConfig,
 )
 from bigbrotr.services.finder.queries import (
+    count_relays_to_find,
     delete_stale_api_checkpoints,
     delete_stale_cursors,
     fetch_api_checkpoints,
     fetch_cursors_to_find,
+    fetch_cursors_to_find_page,
+    iter_cursors_to_find_pages,
     scan_event_relay,
     upsert_api_checkpoints,
     upsert_finder_cursors,
@@ -87,6 +90,12 @@ async def _mock_stream(*rows: dict[str, Any]) -> AsyncGenerator[dict[str, Any], 
     """Create an async generator that yields the given rows."""
     for row in rows:
         yield row
+
+
+async def _mock_pages(*pages: list[Any]) -> AsyncGenerator[list[Any], None]:
+    """Create an async generator that yields the given pages."""
+    for page in pages:
+        yield page
 
 
 # ============================================================================
@@ -620,6 +629,50 @@ class TestFetchFinderCursors:
         result = await fetch_cursors_to_find(query_brotr)
 
         assert result == []
+
+
+class TestFinderCursorPages:
+    async def test_count_relays_to_find_uses_scalar_query(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetchval = AsyncMock(return_value=7)
+
+        result = await count_relays_to_find(query_brotr)
+
+        assert result == 7
+        query_brotr.fetchval.assert_awaited_once_with("SELECT count(*)::int FROM relay")
+
+    async def test_page_query_applies_limit_and_after_cursor(self, query_brotr: MagicMock) -> None:
+        after = FinderCursor(key="wss://relay-1.example.com", timestamp=10, id="ab" * 32)
+
+        await fetch_cursors_to_find_page(query_brotr, after, limit=25)
+
+        args = query_brotr.fetch.call_args[0]
+        sql = args[0]
+        assert "LIMIT $6" in sql
+        assert "r.url" in sql
+        assert args[3] == 10
+        assert args[4] == "ab" * 32
+        assert args[5] == "wss://relay-1.example.com"
+        assert args[6] == 25
+
+    async def test_iter_pages_respects_page_size(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            side_effect=[
+                [
+                    _make_dict_row({"url": "wss://relay1.example.com", "state_value": None}),
+                    _make_dict_row({"url": "wss://relay2.example.com", "state_value": None}),
+                ],
+                [
+                    _make_dict_row({"url": "wss://relay3.example.com", "state_value": None}),
+                ],
+            ]
+        )
+
+        pages = [page async for page in iter_cursors_to_find_pages(query_brotr, page_size=2)]
+
+        assert [[cursor.key for cursor in page] for page in pages] == [
+            ["wss://relay1.example.com", "wss://relay2.example.com"],
+            ["wss://relay3.example.com"],
+        ]
 
 
 class TestScanEventRelay:
@@ -1390,10 +1443,13 @@ class TestFinderFindFromEvents:
         finder.set_gauge.assert_not_called()
 
     async def test_empty_database_returns_zero(self, mock_brotr: Brotr) -> None:
-        mock_brotr._pool.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
-
         finder = Finder(brotr=mock_brotr)
-        result = await finder.find_from_events()
+        with patch(
+            "bigbrotr.services.finder.service.count_relays_to_find",
+            new_callable=AsyncMock,
+            return_value=0,
+        ):
+            result = await finder.find_from_events()
 
         assert result == 0
 
@@ -1406,9 +1462,13 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_cursors_to_find",
+                "bigbrotr.services.finder.service.count_relays_to_find",
                 new_callable=AsyncMock,
-                return_value=[FinderCursor(key="wss://source.relay.com")],
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.finder.service.iter_cursors_to_find_pages",
+                return_value=_mock_pages([FinderCursor(key="wss://source.relay.com")]),
             ),
             patch(
                 "bigbrotr.services.finder.service.stream_event_relays",
@@ -1438,9 +1498,13 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_cursors_to_find",
+                "bigbrotr.services.finder.service.count_relays_to_find",
                 new_callable=AsyncMock,
-                return_value=[FinderCursor(key="wss://source.relay.com")],
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.finder.service.iter_cursors_to_find_pages",
+                return_value=_mock_pages([FinderCursor(key="wss://source.relay.com")]),
             ),
             patch(
                 "bigbrotr.services.finder.service.stream_event_relays",
@@ -1478,9 +1542,13 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_cursors_to_find",
+                "bigbrotr.services.finder.service.count_relays_to_find",
                 new_callable=AsyncMock,
-                return_value=[FinderCursor(key="wss://source.relay.com")],
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.finder.service.iter_cursors_to_find_pages",
+                return_value=_mock_pages([FinderCursor(key="wss://source.relay.com")]),
             ),
             patch(
                 "bigbrotr.services.finder.service.stream_event_relays",
@@ -1564,9 +1632,13 @@ class TestFinderFindFromEvents:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_cursors_to_find",
+                "bigbrotr.services.finder.service.count_relays_to_find",
                 new_callable=AsyncMock,
-                return_value=[FinderCursor(key="wss://source.relay.com")],
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.finder.service.iter_cursors_to_find_pages",
+                return_value=_mock_pages([FinderCursor(key="wss://source.relay.com")]),
             ),
             patch(
                 "bigbrotr.services.finder.service.stream_event_relays",
@@ -1600,13 +1672,19 @@ class TestFinderEventScanConcurrency:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_cursors_to_find",
+                "bigbrotr.services.finder.service.count_relays_to_find",
                 new_callable=AsyncMock,
-                return_value=[
-                    FinderCursor(key="wss://relay1.com"),
-                    FinderCursor(key="wss://relay2.com"),
-                    FinderCursor(key="wss://relay3.com"),
-                ],
+                return_value=3,
+            ),
+            patch(
+                "bigbrotr.services.finder.service.iter_cursors_to_find_pages",
+                return_value=_mock_pages(
+                    [
+                        FinderCursor(key="wss://relay1.com"),
+                        FinderCursor(key="wss://relay2.com"),
+                        FinderCursor(key="wss://relay3.com"),
+                    ]
+                ),
             ),
             patch(
                 "bigbrotr.services.finder.service.stream_event_relays",
@@ -1653,12 +1731,18 @@ class TestFinderEventScanConcurrency:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_cursors_to_find",
+                "bigbrotr.services.finder.service.count_relays_to_find",
                 new_callable=AsyncMock,
-                return_value=[
-                    FinderCursor(key="wss://good.relay.com"),
-                    FinderCursor(key="wss://failing.relay.com"),
-                ],
+                return_value=2,
+            ),
+            patch(
+                "bigbrotr.services.finder.service.iter_cursors_to_find_pages",
+                return_value=_mock_pages(
+                    [
+                        FinderCursor(key="wss://good.relay.com"),
+                        FinderCursor(key="wss://failing.relay.com"),
+                    ]
+                ),
             ),
             patch(
                 "bigbrotr.services.finder.service.stream_event_relays",
@@ -1706,9 +1790,13 @@ class TestFinderEventScanConcurrency:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_cursors_to_find",
+                "bigbrotr.services.finder.service.count_relays_to_find",
                 new_callable=AsyncMock,
-                return_value=cursors,
+                return_value=len(cursors),
+            ),
+            patch(
+                "bigbrotr.services.finder.service.iter_cursors_to_find_pages",
+                return_value=_mock_pages(cursors),
             ),
             patch(
                 "bigbrotr.services.finder.service.stream_event_relays",
@@ -1740,12 +1828,18 @@ class TestFinderEventScanConcurrency:
 
         with (
             patch(
-                "bigbrotr.services.finder.service.fetch_cursors_to_find",
+                "bigbrotr.services.finder.service.count_relays_to_find",
                 new_callable=AsyncMock,
-                return_value=[
-                    FinderCursor(key="wss://good.relay.com"),
-                    FinderCursor(key="wss://bad.relay.com"),
-                ],
+                return_value=2,
+            ),
+            patch(
+                "bigbrotr.services.finder.service.iter_cursors_to_find_pages",
+                return_value=_mock_pages(
+                    [
+                        FinderCursor(key="wss://good.relay.com"),
+                        FinderCursor(key="wss://bad.relay.com"),
+                    ]
+                ),
             ),
             patch(
                 "bigbrotr.services.finder.service.stream_event_relays",

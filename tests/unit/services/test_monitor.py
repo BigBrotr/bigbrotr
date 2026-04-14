@@ -43,10 +43,13 @@ from bigbrotr.services.monitor import (
 )
 from bigbrotr.services.monitor.configs import RetriesConfig, RetryConfig
 from bigbrotr.services.monitor.queries import (
+    count_relays_to_monitor,
     delete_stale_checkpoints,
     fetch_relays_to_monitor,
+    fetch_relays_to_monitor_page,
     insert_relay_metadata,
     is_publish_due,
+    iter_relays_to_monitor_pages,
     upsert_monitor_checkpoints,
     upsert_publish_checkpoints,
 )
@@ -232,6 +235,11 @@ def query_brotr() -> MagicMock:
 
 def _make_dict_row(data: dict[str, Any]) -> dict[str, Any]:
     return data
+
+
+async def _mock_pages(*pages: list[Relay]):
+    for page in pages:
+        yield page
 
 
 # ============================================================================
@@ -1127,6 +1135,86 @@ class TestFetchRelaysToMonitor:
         assert result == []
 
 
+class TestMonitorRelayPages:
+    async def test_count_relays_to_monitor_uses_scalar_query(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetchval = AsyncMock(return_value=9)
+
+        result = await count_relays_to_monitor(query_brotr, 1700000000, [NetworkType.CLEARNET])
+
+        assert result == 9
+        args = query_brotr.fetchval.call_args[0]
+        assert "count(*)::int" in args[0]
+        assert args[1] == [NetworkType.CLEARNET]
+        assert args[2] == 1700000000
+        assert args[3] == ServiceName.MONITOR
+        assert args[4] == ServiceStateType.CHECKPOINT
+
+    async def test_page_query_applies_limit_and_after_token(self, query_brotr: MagicMock) -> None:
+        await fetch_relays_to_monitor_page(
+            query_brotr,
+            1700000000,
+            [NetworkType.CLEARNET],
+            after=None,
+            limit=50,
+        )
+
+        args = query_brotr.fetch.call_args[0]
+        sql = args[0]
+        assert "LIMIT $8" in sql
+        assert "r.url" in sql
+        assert args[8] == 50
+
+    async def test_iter_pages_respects_max_relays(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            side_effect=[
+                [
+                    _make_dict_row(
+                        {
+                            "url": "wss://relay1.example.com",
+                            "network": "clearnet",
+                            "discovered_at": 1,
+                            "last_monitored": 0,
+                        }
+                    ),
+                    _make_dict_row(
+                        {
+                            "url": "wss://relay2.example.com",
+                            "network": "clearnet",
+                            "discovered_at": 2,
+                            "last_monitored": 0,
+                        }
+                    ),
+                ],
+                [
+                    _make_dict_row(
+                        {
+                            "url": "wss://relay3.example.com",
+                            "network": "clearnet",
+                            "discovered_at": 3,
+                            "last_monitored": 0,
+                        }
+                    ),
+                ],
+            ]
+        )
+
+        pages = [
+            page
+            async for page in iter_relays_to_monitor_pages(
+                query_brotr,
+                1700000000,
+                [NetworkType.CLEARNET],
+                page_size=2,
+                max_relays=3,
+            )
+        ]
+
+        assert [[relay.url for relay in page] for page in pages] == [
+            ["wss://relay1.example.com", "wss://relay2.example.com"],
+            ["wss://relay3.example.com"],
+        ]
+
+
 class TestInsertRelayMetadata:
     async def test_delegates_to_batched_insert(self, query_brotr: MagicMock) -> None:
         query_brotr.insert_relay_metadata = AsyncMock(return_value=5)
@@ -1288,19 +1376,24 @@ class TestMonitorInit:
 
 class TestMonitorRun:
     @patch(
+        "bigbrotr.services.monitor.service.iter_relays_to_monitor_pages",
+        return_value=_mock_pages(),
+    )
+    @patch(
+        "bigbrotr.services.monitor.service.count_relays_to_monitor",
+        new_callable=AsyncMock,
+        return_value=0,
+    )
+    @patch(
         "bigbrotr.services.monitor.service.is_publish_due",
         new_callable=AsyncMock,
         return_value=False,
     )
-    @patch(
-        "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
-        new_callable=AsyncMock,
-        return_value=[],
-    )
     async def test_run_no_relays(
         self,
-        mock_fetch: AsyncMock,
-        mock_checkpoint: AsyncMock,
+        mock_publish_due: AsyncMock,
+        mock_count: AsyncMock,
+        mock_iter_pages: MagicMock,
         mock_brotr: Brotr,
         tmp_path: Path,
     ) -> None:
@@ -1312,7 +1405,8 @@ class TestMonitorRun:
         monitor.clients.disconnect = AsyncMock()
         await monitor.run()
 
-        mock_fetch.assert_awaited_once()
+        mock_count.assert_awaited_once()
+        mock_iter_pages.assert_called_once()
 
     async def test_monitor_no_networks_enabled_returns_zero(self, mock_brotr: Brotr) -> None:
         no_clearnet = MetadataFlags(
@@ -2018,9 +2112,13 @@ class TestMonitorMetrics:
 
         with (
             patch(
-                "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
+                "bigbrotr.services.monitor.service.count_relays_to_monitor",
                 new_callable=AsyncMock,
-                return_value=[relay1, relay2],
+                return_value=2,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.iter_relays_to_monitor_pages",
+                return_value=_mock_pages([relay1, relay2]),
             ),
             patch.object(monitor, "_monitor_worker", side_effect=fake_monitor_worker),
             patch(
@@ -2554,9 +2652,13 @@ class TestMonitorMaxRelaysBudget:
 
         with (
             patch(
-                "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
+                "bigbrotr.services.monitor.service.count_relays_to_monitor",
                 new_callable=AsyncMock,
-                return_value=[relay1, relay2, relay3],
+                return_value=3,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.iter_relays_to_monitor_pages",
+                return_value=_mock_pages([relay1, relay2, relay3]),
             ),
             patch.object(monitor, "_monitor_worker", side_effect=fake_worker),
             patch(
@@ -2584,7 +2686,6 @@ class TestMonitorMaxRelaysBudget:
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
         relay1 = Relay("wss://r1.example.com")
-        relay2 = Relay("wss://r2.example.com")
         result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
 
         async def fake_worker(relay: Relay):
@@ -2595,9 +2696,13 @@ class TestMonitorMaxRelaysBudget:
 
         with (
             patch(
-                "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
+                "bigbrotr.services.monitor.service.count_relays_to_monitor",
                 new_callable=AsyncMock,
-                return_value=[relay1, relay2],
+                return_value=2,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.iter_relays_to_monitor_pages",
+                return_value=_mock_pages([relay1]),
             ),
             patch.object(monitor, "_monitor_worker", side_effect=fake_worker),
             patch(
@@ -2632,9 +2737,13 @@ class TestMonitorMaxRelaysBudget:
 
         with (
             patch(
-                "bigbrotr.services.monitor.service.fetch_relays_to_monitor",
+                "bigbrotr.services.monitor.service.count_relays_to_monitor",
                 new_callable=AsyncMock,
-                return_value=[relay1, relay2],
+                return_value=2,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.iter_relays_to_monitor_pages",
+                return_value=_mock_pages([relay1, relay2]),
             ),
         ):
             total = await monitor.monitor()

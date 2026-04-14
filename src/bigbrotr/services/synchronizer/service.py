@@ -76,9 +76,10 @@ from bigbrotr.utils.streaming import stream_events
 
 from .configs import SynchronizerConfig
 from .queries import (
+    count_cursors_to_sync,
     delete_stale_cursors,
-    fetch_cursors_to_sync,
     insert_event_relays,
+    iter_cursors_to_sync_pages,
     upsert_sync_cursors,
 )
 
@@ -160,41 +161,56 @@ class Synchronizer(
             return 0
 
         end_time = self._config.processing.get_end_time()
-        cursors = await fetch_cursors_to_sync(self._brotr, end_time, networks)
+        total_relays = await count_cursors_to_sync(self._brotr, end_time, networks)
 
         events_synced = 0
         buffer: list[EventRelay] = []
         pending_cursors: dict[str, SyncCursor] = {}
         batch_size = self._config.processing.batch_size
 
-        self.set_gauge("total_relays", len(cursors))
+        self.set_gauge("total_relays", total_relays)
         self.set_gauge("relays_seen", 0)
         self.set_gauge("events_seen", 0)
 
         deadline = time.monotonic() + self._config.timeouts.max_duration
 
-        self._logger.info("sync_started", relay_count=len(cursors))
+        self._logger.info("sync_started", relay_count=total_relays)
 
-        async for event, relay in self._iter_concurrent(
-            cursors,
-            self._synchronize_worker,
-            max_concurrency=self.network_semaphores.max_concurrency(networks),
+        page_size = max(
+            self._config.processing.batch_size,
+            self.network_semaphores.max_concurrency(networks),
+        )
+
+        timed_out = False
+        async for cursors in iter_cursors_to_sync_pages(
+            self._brotr,
+            end_time,
+            networks,
+            page_size=page_size,
         ):
-            buffer.append(EventRelay(event, relay))
-            pending_cursors[relay.url] = SyncCursor(
-                key=relay.url,
-                timestamp=event.created_at,
-                id=event.id,
-            )
-            self.inc_gauge("events_seen")
-            if len(buffer) == batch_size:
-                events_synced += await insert_event_relays(self._brotr, buffer)
-                buffer = []
-                await upsert_sync_cursors(self._brotr, pending_cursors.values())
-                pending_cursors = {}
-                if time.monotonic() > deadline:
-                    self._logger.info("sync_timeout", events_synced=events_synced)
-                    break
+            async for event, relay in self._iter_concurrent(
+                cursors,
+                self._synchronize_worker,
+                max_concurrency=self.network_semaphores.max_concurrency(networks),
+            ):
+                buffer.append(EventRelay(event, relay))
+                pending_cursors[relay.url] = SyncCursor(
+                    key=relay.url,
+                    timestamp=event.created_at,
+                    id=event.id,
+                )
+                self.inc_gauge("events_seen")
+                if len(buffer) == batch_size:
+                    events_synced += await insert_event_relays(self._brotr, buffer)
+                    buffer = []
+                    await upsert_sync_cursors(self._brotr, pending_cursors.values())
+                    pending_cursors = {}
+                    if time.monotonic() > deadline:
+                        self._logger.info("sync_timeout", events_synced=events_synced)
+                        timed_out = True
+                        break
+            if timed_out:
+                break
 
         if buffer:
             events_synced += await insert_event_relays(self._brotr, buffer)

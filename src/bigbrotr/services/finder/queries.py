@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceStateType
+from bigbrotr.services.common.paging import iter_keyset_pages
 from bigbrotr.services.common.state_store import (
     ServiceStateStore,
     cursor_from_payload,
@@ -14,9 +15,25 @@ from bigbrotr.services.common.types import ApiCheckpoint, FinderCursor
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import AsyncIterator, Iterable
 
     from bigbrotr.core.brotr import Brotr
+
+
+_CURSOR_SENTINEL_ID = "0" * 64
+
+
+def _finder_cursor_from_row(row: Any) -> FinderCursor:
+    state_value = row["state_value"]
+    if state_value:
+        return cursor_from_payload(row["url"], state_value, FinderCursor)
+    return FinderCursor(key=row["url"])
+
+
+async def count_relays_to_find(brotr: Brotr) -> int:
+    """Count relay rows eligible for event scanning."""
+    count: int = await brotr.fetchval("SELECT count(*)::int FROM relay")
+    return count
 
 
 async def fetch_cursors_to_find(brotr: Brotr) -> list[FinderCursor]:
@@ -59,14 +76,63 @@ async def fetch_cursors_to_find(brotr: Brotr) -> list[FinderCursor]:
         ServiceName.FINDER,
         ServiceStateType.CURSOR,
     )
-    results: list[FinderCursor] = []
-    for row in rows:
-        sv = row["state_value"]
-        if sv:
-            results.append(cursor_from_payload(row["url"], sv, FinderCursor))
-        else:
-            results.append(FinderCursor(key=row["url"]))
-    return results
+    return [_finder_cursor_from_row(row) for row in rows]
+
+
+async def fetch_cursors_to_find_page(
+    brotr: Brotr,
+    after: FinderCursor | None,
+    limit: int,
+) -> tuple[list[FinderCursor], FinderCursor | None]:
+    """Fetch one page of relay scan cursors ordered by progress ascending."""
+    rows = await brotr.fetch(
+        """
+        WITH cursors AS (
+            SELECT state_key,
+                   state_value,
+                   (state_value->>'timestamp')::bigint AS ts,
+                   state_value->>'id' AS cursor_id
+            FROM service_state
+            WHERE service_name = $1
+              AND state_type = $2
+        )
+        SELECT r.url, c.state_value
+        FROM relay r
+        LEFT JOIN cursors c ON c.state_key = r.url
+        WHERE $3::bigint IS NULL
+           OR (
+                COALESCE(c.ts, 0),
+                COALESCE(c.cursor_id, $4::text),
+                r.url
+           ) > ($3::bigint, $4::text, $5::text)
+        ORDER BY COALESCE(c.ts, 0) ASC,
+                 COALESCE(c.cursor_id, $4::text) ASC,
+                 r.url ASC
+        LIMIT $6
+        """,
+        ServiceName.FINDER,
+        ServiceStateType.CURSOR,
+        after.timestamp if after is not None else None,
+        after.id if after is not None else _CURSOR_SENTINEL_ID,
+        after.key if after is not None else "",
+        limit,
+    )
+    results = [_finder_cursor_from_row(row) for row in rows]
+    next_cursor = results[-1] if results else None
+    return results, next_cursor
+
+
+async def iter_cursors_to_find_pages(
+    brotr: Brotr,
+    *,
+    page_size: int,
+) -> AsyncIterator[list[FinderCursor]]:
+    """Yield finder cursor pages without materializing the full workset."""
+    async for page in iter_keyset_pages(
+        lambda after, limit: fetch_cursors_to_find_page(brotr, after, limit),
+        page_size=page_size,
+    ):
+        yield page
 
 
 async def scan_event_relay(
