@@ -15,7 +15,7 @@ from typing import Any
 from pydantic import AliasChoices, Field, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
-from bigbrotr.services.common.configs import TableConfig  # noqa: TC001 (Pydantic runtime)
+from bigbrotr.services.common.configs import ReadModelConfig  # noqa: TC001 (Pydantic runtime)
 from bigbrotr.services.common.read_models import read_models_for_surface
 
 
@@ -28,9 +28,9 @@ class ApiConfig(BaseServiceConfig):
         route_prefix: URL prefix for all API routes (e.g. ``/v1``, ``/api/v1``).
         max_page_size: Hard ceiling on the ``limit`` query parameter.
         default_page_size: Default ``limit`` when not specified.
-        tables: Backward-compatible alias for ``read_models``.
-        read_models: Per-read-model access policies. Read models not
-            listed here default to disabled.
+        read_models: Per-read-model access policies. The legacy YAML key
+            ``tables`` is still accepted as an input alias. Read models
+            not listed here default to disabled.
         cors_origins: Allowed CORS origins.  Empty list disables CORS.
         request_timeout: HTTP request timeout in seconds.
     """
@@ -68,7 +68,7 @@ class ApiConfig(BaseServiceConfig):
         le=10000,
         description="Default limit when not specified",
     )
-    tables: dict[str, TableConfig] = Field(
+    read_models: dict[str, ReadModelConfig] = Field(
         default_factory=dict,
         validation_alias=AliasChoices("read_models", "tables"),
         description="Per-read-model access policies",
@@ -121,7 +121,7 @@ class ApiConfig(BaseServiceConfig):
     @model_validator(mode="after")
     def _validate_public_tables(self) -> ApiConfig:
         allowed_tables = set(read_models_for_surface("api"))
-        invalid_tables = sorted(set(self.tables) - allowed_tables)
+        invalid_tables = sorted(set(self.read_models) - allowed_tables)
         if invalid_tables:
             invalid = ", ".join(invalid_tables)
             allowed = ", ".join(sorted(allowed_tables))
@@ -130,8 +130,3 @@ class ApiConfig(BaseServiceConfig):
                 f"{invalid}. Allowed read models: {allowed}"
             )
         return self
-
-    @property
-    def read_models(self) -> dict[str, TableConfig]:
-        """Canonical access policy mapping for public API read models."""
-        return self.tables

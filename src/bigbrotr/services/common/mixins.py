@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from bigbrotr.models import Relay
 
     from .catalog import Catalog
-    from .configs import NetworksConfig, TableConfig
+    from .configs import NetworksConfig, ReadModelConfig
 
 
 #: Network types that support concurrent relay connections.
@@ -435,7 +435,7 @@ class CatalogAccessMixin:
         policies = getattr(self._config, "read_models", None)  # type: ignore[attr-defined]
         if not isinstance(policies, dict):
             policies = getattr(self._config, "tables", {})  # type: ignore[attr-defined]
-        policy: TableConfig | None = policies.get(name)
+        policy: ReadModelConfig | None = policies.get(name)
         if policy is None:
             return False
         return policy.enabled

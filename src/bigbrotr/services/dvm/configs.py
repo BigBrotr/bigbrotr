@@ -18,7 +18,7 @@ from pydantic import AliasChoices, BeforeValidator, Field, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
-from bigbrotr.services.common.configs import TableConfig  # noqa: TC001 (Pydantic runtime)
+from bigbrotr.services.common.configs import ReadModelConfig  # noqa: TC001 (Pydantic runtime)
 from bigbrotr.services.common.read_models import read_models_for_surface
 from bigbrotr.utils.keys import KeysConfig
 from bigbrotr.utils.parsing import parse_relay_url, safe_parse
@@ -35,8 +35,8 @@ class DvmConfig(BaseServiceConfig):
         kind: NIP-90 request event kind (result = kind + 1000).
         default_page_size: Default ``limit`` when not specified.
         max_page_size: Hard ceiling on query limit.
-        tables: Backward-compatible alias for ``read_models``.
         read_models: Per-read-model policies (enable/disable, pricing).
+            The legacy YAML key ``tables`` is still accepted as an input alias.
         announce: Whether to publish a NIP-89 handler announcement at startup.
         fetch_timeout: Timeout in seconds for relay subscription setup and replay startup.
     """
@@ -93,7 +93,7 @@ class DvmConfig(BaseServiceConfig):
         le=10000,
         description="Hard ceiling on query limit",
     )
-    tables: dict[str, TableConfig] = Field(
+    read_models: dict[str, ReadModelConfig] = Field(
         default_factory=dict,
         validation_alias=AliasChoices("read_models", "tables"),
         description="Per-read-model access and pricing policies",
@@ -134,7 +134,7 @@ class DvmConfig(BaseServiceConfig):
     @model_validator(mode="after")
     def _validate_public_tables(self) -> DvmConfig:
         allowed_tables = set(read_models_for_surface("dvm"))
-        invalid_tables = sorted(set(self.tables) - allowed_tables)
+        invalid_tables = sorted(set(self.read_models) - allowed_tables)
         if invalid_tables:
             invalid = ", ".join(invalid_tables)
             allowed = ", ".join(sorted(allowed_tables))
@@ -143,8 +143,3 @@ class DvmConfig(BaseServiceConfig):
                 f"{invalid}. Allowed read models: {allowed}"
             )
         return self
-
-    @property
-    def read_models(self) -> dict[str, TableConfig]:
-        """Canonical access policy mapping for public DVM read models."""
-        return self.tables

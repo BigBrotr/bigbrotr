@@ -2,7 +2,7 @@
 Unit tests for services.common.configs module.
 
 Tests:
-- TableConfig - Per-table access and pricing policy
+- ReadModelConfig - Per-read-model access and pricing policy
 - ClearnetConfig - Configuration for clearnet (standard internet) relays
 - TorConfig - Configuration for Tor (.onion) relays
 - I2pConfig - Configuration for I2P (.i2p) relays
@@ -20,45 +20,49 @@ from bigbrotr.services.common.configs import (
     LokiConfig,
     NetworksConfig,
     NetworkTypeConfig,
+    ReadModelConfig,
     TableConfig,
     TorConfig,
 )
 
 
 # =============================================================================
-# TableConfig Tests
+# ReadModelConfig Tests
 # =============================================================================
 
 
-class TestTableConfig:
-    """Tests for TableConfig Pydantic model."""
+class TestReadModelConfig:
+    """Tests for ReadModelConfig Pydantic model."""
 
     def test_default_disabled(self) -> None:
-        config = TableConfig()
+        config = ReadModelConfig()
         assert config.enabled is False
         assert config.price == 0
 
     def test_enabled(self) -> None:
-        config = TableConfig(enabled=True)
+        config = ReadModelConfig(enabled=True)
         assert config.enabled is True
 
     def test_from_dict(self) -> None:
-        config = TableConfig.model_validate({"enabled": True})
+        config = ReadModelConfig.model_validate({"enabled": True})
         assert config.enabled is True
 
     def test_with_price(self) -> None:
-        config = TableConfig(enabled=True, price=5000)
+        config = ReadModelConfig(enabled=True, price=5000)
         assert config.price == 5000
         assert config.enabled is True
 
     def test_negative_price_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            TableConfig(price=-1)
+            ReadModelConfig(price=-1)
 
     def test_disabled_with_price(self) -> None:
-        config = TableConfig(enabled=False, price=100)
+        config = ReadModelConfig(enabled=False, price=100)
         assert config.enabled is False
         assert config.price == 100
+
+    def test_table_config_alias_points_to_read_model_config(self) -> None:
+        assert TableConfig is ReadModelConfig
 
 
 # =============================================================================

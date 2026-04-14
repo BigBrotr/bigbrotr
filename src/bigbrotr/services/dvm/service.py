@@ -4,7 +4,7 @@ Listens for NIP-90 job requests on configured relays, executes
 read-only queries via the shared
 [Catalog][bigbrotr.services.common.catalog.Catalog], and publishes
 results as job-result events (request kind + 1000). Read-model pricing via
-[TableConfig][bigbrotr.services.common.configs.TableConfig]
+[ReadModelConfig][bigbrotr.services.common.configs.ReadModelConfig]
 enables the NIP-90 bid/payment-required mechanism.
 
 Each ``run()`` cycle drains job requests buffered by a long-lived NIP-90

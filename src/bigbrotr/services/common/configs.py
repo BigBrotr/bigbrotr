@@ -49,21 +49,25 @@ from bigbrotr.models.constants import NetworkType
 logger = logging.getLogger(__name__)
 
 
-class TableConfig(BaseModel):
-    """Per-table access and pricing policy for API and DVM services.
+class ReadModelConfig(BaseModel):
+    """Per-read-model access and pricing policy for API and DVM services.
 
-    Tables default to disabled (not exposed).  Only tables explicitly
+    Read models default to disabled (not exposed). Only read models explicitly
     listed with ``enabled: true`` in the service YAML config are served.
 
     Attributes:
-        enabled: Whether this table is exposed.  Disabled tables return
+        enabled: Whether this read model is exposed. Disabled read models return
             404 in the API and error feedback in the DVM.
         price: Price in millisats.  ``0`` means free (no payment required).
             Used by the DVM service for NIP-90 bid/payment-required.
     """
 
-    enabled: bool = Field(default=False, description="Whether this table is exposed to clients")
+    enabled: bool = Field(default=False, description="Whether this read model is exposed")
     price: int = Field(default=0, ge=0, description="Price in millisats (0 = free)")
+
+
+# Backward-compatible alias for older imports and test fixtures.
+TableConfig = ReadModelConfig
 
 
 class ClearnetConfig(BaseModel):

@@ -21,7 +21,7 @@ from bigbrotr.services.common.catalog import (
     QueryResult,
     TableSchema,
 )
-from bigbrotr.services.common.configs import TableConfig
+from bigbrotr.services.common.configs import ReadModelConfig
 from bigbrotr.services.common.read_models import CatalogReadModelBackend, ReadModelEntry
 from bigbrotr.services.common.types import DvmRequestCursor
 from bigbrotr.services.dvm.configs import DvmConfig
@@ -62,8 +62,8 @@ def dvm_config() -> DvmConfig:
         kind=5050,
         max_page_size=100,
         read_models={
-            "relay": TableConfig(enabled=True),
-            "event": TableConfig(enabled=True, price=5000),
+            "relay": ReadModelConfig(enabled=True),
+            "event": ReadModelConfig(enabled=True, price=5000),
         },
     )
 
@@ -182,7 +182,6 @@ class TestDvmConfig:
         assert config.default_page_size == 100
         assert config.max_page_size == 1000
         assert config.announce is True
-        assert config.tables == {}
         assert config.read_models == {}
         assert config.fetch_timeout == 30.0
         assert config.allow_insecure is False
@@ -213,25 +212,24 @@ class TestDvmConfig:
     def test_custom_tables(self) -> None:
         config = DvmConfig(
             relays=["wss://relay.example.com"],
-            tables={"relay": TableConfig(enabled=True, price=1000)},
+            tables={"relay": ReadModelConfig(enabled=True, price=1000)},
         )
-        assert config.tables["relay"].price == 1000
-        assert config.tables["relay"].enabled is True
+        assert config.read_models["relay"].price == 1000
+        assert config.read_models["relay"].enabled is True
 
     def test_read_models_alias_accepted(self) -> None:
         config = DvmConfig(
             relays=["wss://relay.example.com"],
-            read_models={"relay": TableConfig(enabled=True, price=1000)},
+            read_models={"relay": ReadModelConfig(enabled=True, price=1000)},
         )
         assert config.read_models["relay"].price == 1000
-        assert config.tables["relay"].enabled is True
 
     def test_tables_and_read_models_together_rejected(self) -> None:
         with pytest.raises(ValueError, match="Specify only one of tables or read_models"):
             DvmConfig(
                 relays=["wss://relay.example.com"],
-                tables={"relay": TableConfig(enabled=True)},
-                read_models={"event": TableConfig(enabled=True)},
+                tables={"relay": ReadModelConfig(enabled=True)},
+                read_models={"event": ReadModelConfig(enabled=True)},
             )
 
     def test_inherits_base_service_config(self) -> None:
@@ -267,7 +265,7 @@ class TestDvmConfig:
         with pytest.raises(ValueError, match=r"non-public DVM read models: service_state"):
             DvmConfig(
                 relays=["wss://relay.example.com"],
-                tables={"service_state": TableConfig(enabled=True)},
+                tables={"service_state": ReadModelConfig(enabled=True)},
             )
 
 
@@ -312,8 +310,8 @@ class TestDvmReadModelAccessPolicy:
                 interval=60.0,
                 relays=["wss://relay.example.com"],
                 tables={
-                    "relay": TableConfig(enabled=True),
-                    "service_state": TableConfig(enabled=True),
+                    "relay": ReadModelConfig(enabled=True),
+                    "service_state": ReadModelConfig(enabled=True),
                 },
             )
 
@@ -417,7 +415,7 @@ class TestDvmLifecycle:
             interval=60.0,
             relays=["wss://relay.example.com"],
             announce=False,
-            read_models={"relay": TableConfig(enabled=True)},
+            read_models={"relay": ReadModelConfig(enabled=True)},
         )
         service = Dvm(brotr=mock_brotr, config=config)
         service._catalog = Catalog()

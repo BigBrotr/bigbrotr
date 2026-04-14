@@ -430,35 +430,35 @@ class TestCatalogAccessMixinIsTableEnabled:
 
     def test_returns_false_when_table_not_in_config(self) -> None:
         svc = _TestCatalogService()
-        svc._config.tables = {}
+        svc._config.read_models = {}
 
         assert svc._is_table_enabled("relay") is False
 
     def test_returns_false_when_table_disabled(self) -> None:
         svc = _TestCatalogService()
         policy = MagicMock(enabled=False)
-        svc._config.tables = {"relay": policy}
+        svc._config.read_models = {"relay": policy}
 
         assert svc._is_table_enabled("relay") is False
 
     def test_returns_true_when_table_enabled(self) -> None:
         svc = _TestCatalogService()
         policy = MagicMock(enabled=True)
-        svc._config.tables = {"relay": policy}
+        svc._config.read_models = {"relay": policy}
 
         assert svc._is_table_enabled("relay") is True
 
     def test_returns_false_for_unknown_table(self) -> None:
         svc = _TestCatalogService()
         policy = MagicMock(enabled=True)
-        svc._config.tables = {"relay": policy}
+        svc._config.read_models = {"relay": policy}
 
         assert svc._is_table_enabled("nonexistent") is False
 
     def test_returns_false_for_non_public_table_even_when_enabled(self) -> None:
         svc = _TestCatalogService()
         policy = MagicMock(enabled=True)
-        svc._config.tables = {"service_state": policy}
+        svc._config.read_models = {"service_state": policy}
 
         assert svc._is_table_enabled("service_state") is False
 
