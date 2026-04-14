@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType
@@ -14,12 +14,13 @@ from bigbrotr.nips.nip66 import Nip66, Nip66Selection
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from nostr_sdk import EventBuilder
+    from nostr_sdk import Client, EventBuilder
 
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.core.logger import Logger
     from bigbrotr.models import Relay
     from bigbrotr.services.common.mixins import Clients
+    from bigbrotr.utils.protocol import BroadcastClientResult
 
     from .configs import MonitorConfig
     from .utils import CheckResult
@@ -34,7 +35,7 @@ class PublishContext:
     clients: Clients
     logger: Logger
     is_due: Callable[[Brotr, str, float], Awaitable[bool]]
-    broadcast: Callable[[list[EventBuilder], list[Any]], Awaitable[int]]
+    broadcast: Callable[[list[EventBuilder], list[Client]], Awaitable[list[BroadcastClientResult]]]
     save_checkpoints: Callable[[Brotr, list[str]], Awaitable[None]]
 
 
@@ -45,7 +46,7 @@ class DiscoveryContext:
     config: MonitorConfig
     clients: Clients
     logger: Logger
-    broadcast: Callable[[list[EventBuilder], list[Any]], Awaitable[int]]
+    broadcast: Callable[[list[EventBuilder], list[Client]], Awaitable[list[BroadcastClientResult]]]
 
 
 def _resolve_publish_relays(
@@ -53,6 +54,18 @@ def _resolve_publish_relays(
     default_relays: list[Relay],
 ) -> list[Relay]:
     return override_relays if override_relays is not None else default_relays
+
+
+def _summarize_broadcast_results(
+    results: list[BroadcastClientResult],
+) -> tuple[tuple[str, ...], dict[str, str]]:
+    successful_relays = tuple(
+        sorted({relay_url for result in results for relay_url in result.successful_relays})
+    )
+    failed_relays: dict[str, str] = {}
+    for result in results:
+        failed_relays.update(result.failed_relays)
+    return successful_relays, failed_relays
 
 
 async def publish_profile(
@@ -74,25 +87,37 @@ async def publish_profile(
         context.logger.warning("publish_failed", event="profile", error="no relays reachable")
         return
 
-    sent = await context.broadcast(
-        [
-            build_profile(
-                name=cfg.name,
-                about=cfg.about,
-                picture=cfg.picture,
-                nip05=cfg.nip05,
-                website=cfg.website,
-                banner=cfg.banner,
-                lud16=cfg.lud16,
-            )
-        ],
-        connected_clients,
+    successful_relays, failed_relays = _summarize_broadcast_results(
+        await context.broadcast(
+            [
+                build_profile(
+                    name=cfg.name,
+                    about=cfg.about,
+                    picture=cfg.picture,
+                    nip05=cfg.nip05,
+                    website=cfg.website,
+                    banner=cfg.banner,
+                    lud16=cfg.lud16,
+                )
+            ],
+            connected_clients,
+        )
     )
-    if not sent:
-        context.logger.warning("publish_failed", event="profile", error="no relays reachable")
+    if not successful_relays:
+        context.logger.warning(
+            "publish_failed",
+            event="profile",
+            error="no relays accepted event",
+            failed_relays=failed_relays,
+        )
         return
 
-    context.logger.info("publish_completed", event="profile", relays=sent)
+    context.logger.info(
+        "publish_completed",
+        event="profile",
+        relays=len(successful_relays),
+        failed_relays=len(failed_relays),
+    )
     await context.save_checkpoints(context.brotr, ["profile"])
 
 
@@ -119,16 +144,24 @@ async def publish_relay_list(
         )
         return
 
-    sent = await context.broadcast([build_relay_list(relays)], connected_clients)
-    if not sent:
+    successful_relays, failed_relays = _summarize_broadcast_results(
+        await context.broadcast([build_relay_list(relays)], connected_clients)
+    )
+    if not successful_relays:
         context.logger.warning(
             "publish_failed",
             event="relay_list",
-            error="no relays reachable",
+            error="no relays accepted event",
+            failed_relays=failed_relays,
         )
         return
 
-    context.logger.info("publish_completed", event="relay_list", relays=sent)
+    context.logger.info(
+        "publish_completed",
+        event="relay_list",
+        relays=len(successful_relays),
+        failed_relays=len(failed_relays),
+    )
     await context.save_checkpoints(context.brotr, ["relay_list"])
 
 
@@ -160,35 +193,43 @@ async def publish_announcement(
         )
         return
 
-    sent = await context.broadcast(
-        [
-            build_announcement(
-                interval=int(context.config.discovery.interval),
-                timeout_ms=timeout_ms,
-                enabled_networks=enabled_networks,
-                nip11_selection=Nip11Selection(info=include.nip11_info),
-                nip66_selection=Nip66Selection(
-                    rtt=include.nip66_rtt,
-                    ssl=include.nip66_ssl,
-                    geo=include.nip66_geo,
-                    net=include.nip66_net,
-                    dns=include.nip66_dns,
-                    http=include.nip66_http,
-                ),
-                geohash=cfg.geohash,
-            )
-        ],
-        connected_clients,
+    successful_relays, failed_relays = _summarize_broadcast_results(
+        await context.broadcast(
+            [
+                build_announcement(
+                    interval=int(context.config.discovery.interval),
+                    timeout_ms=timeout_ms,
+                    enabled_networks=enabled_networks,
+                    nip11_selection=Nip11Selection(info=include.nip11_info),
+                    nip66_selection=Nip66Selection(
+                        rtt=include.nip66_rtt,
+                        ssl=include.nip66_ssl,
+                        geo=include.nip66_geo,
+                        net=include.nip66_net,
+                        dns=include.nip66_dns,
+                        http=include.nip66_http,
+                    ),
+                    geohash=cfg.geohash,
+                )
+            ],
+            connected_clients,
+        )
     )
-    if not sent:
+    if not successful_relays:
         context.logger.warning(
             "publish_failed",
             event="announcement",
-            error="no relays reachable",
+            error="no relays accepted event",
+            failed_relays=failed_relays,
         )
         return
 
-    context.logger.info("publish_completed", event="announcement", relays=sent)
+    context.logger.info(
+        "publish_completed",
+        event="announcement",
+        relays=len(successful_relays),
+        failed_relays=len(failed_relays),
+    )
     await context.save_checkpoints(context.brotr, ["announcement"])
 
 
@@ -232,6 +273,12 @@ async def publish_discovery(
         context.logger.debug("build_30166_failed", url=relay.url, error=str(e))
         return
 
-    sent = await context.broadcast([builder], connected_clients)
-    if not sent:
-        context.logger.debug("discovery_broadcast_failed", url=relay.url)
+    successful_relays, failed_relays = _summarize_broadcast_results(
+        await context.broadcast([builder], connected_clients)
+    )
+    if not successful_relays:
+        context.logger.debug(
+            "discovery_broadcast_failed",
+            url=relay.url,
+            failed_relays=failed_relays,
+        )

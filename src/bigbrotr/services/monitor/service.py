@@ -83,7 +83,7 @@ from bigbrotr.services.common.mixins import (
     NetworkSemaphoresMixin,
 )
 from bigbrotr.utils.http import download_bounded_file
-from bigbrotr.utils.protocol import broadcast_events
+from bigbrotr.utils.protocol import broadcast_events_detailed
 
 from .checks import (
     MonitorCheckContext,
@@ -252,7 +252,7 @@ class Monitor(
                 clients=self.clients,
                 logger=self._logger,
                 is_due=is_publish_due,
-                broadcast=broadcast_events,
+                broadcast=broadcast_events_detailed,
                 save_checkpoints=upsert_publish_checkpoints,
             ),
             build_profile=build_profile_event,
@@ -267,7 +267,7 @@ class Monitor(
                 clients=self.clients,
                 logger=self._logger,
                 is_due=is_publish_due,
-                broadcast=broadcast_events,
+                broadcast=broadcast_events_detailed,
                 save_checkpoints=upsert_publish_checkpoints,
             ),
             build_relay_list=build_relay_list_event,
@@ -282,7 +282,7 @@ class Monitor(
                 clients=self.clients,
                 logger=self._logger,
                 is_due=is_publish_due,
-                broadcast=broadcast_events,
+                broadcast=broadcast_events_detailed,
                 save_checkpoints=upsert_publish_checkpoints,
             ),
             build_announcement=build_monitor_announcement,
@@ -303,7 +303,7 @@ class Monitor(
                 config=self._config,
                 clients=self.clients,
                 logger=self._logger,
-                broadcast=broadcast_events,
+                broadcast=broadcast_events_detailed,
             ),
             relay=relay,
             result=result,

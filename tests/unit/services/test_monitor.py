@@ -60,6 +60,7 @@ from bigbrotr.services.monitor.utils import (
     log_success,
     retry_fetch,
 )
+from bigbrotr.utils.protocol import BroadcastClientResult
 
 
 if TYPE_CHECKING:
@@ -92,6 +93,20 @@ def _make_config(**overrides: Any) -> MonitorConfig:
     }
     defaults.update(overrides)
     return MonitorConfig(**defaults)
+
+
+def _broadcast_results(
+    *,
+    successful_relays: tuple[str, ...] = ("wss://publish.example.com",),
+    failed_relays: dict[str, str] | None = None,
+) -> list[BroadcastClientResult]:
+    return [
+        BroadcastClientResult(
+            event_ids=("event-id",),
+            successful_relays=successful_relays,
+            failed_relays=failed_relays or {},
+        )
+    ]
 
 
 class _MonitorStub:
@@ -1640,9 +1655,9 @@ class TestPublishAnnouncement:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
-                return_value=1,
+                return_value=_broadcast_results(),
             ) as mock_broadcast,
             patch(
                 "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
@@ -1653,7 +1668,12 @@ class TestPublishAnnouncement:
 
         mock_broadcast.assert_awaited_once()
         mock_save.assert_awaited_once()
-        stub._logger.info.assert_called_with("publish_completed", event="announcement", relays=1)
+        stub._logger.info.assert_called_with(
+            "publish_completed",
+            event="announcement",
+            relays=1,
+            failed_relays=0,
+        )
 
     async def test_publish_announcement_interval_elapsed(self, stub: _MonitorStub) -> None:
         with (
@@ -1663,9 +1683,9 @@ class TestPublishAnnouncement:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
-                return_value=1,
+                return_value=_broadcast_results(),
             ) as mock_broadcast,
             patch(
                 "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
@@ -1686,7 +1706,7 @@ class TestPublishAnnouncement:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
             ) as mock_broadcast,
         ):
@@ -1705,9 +1725,12 @@ class TestPublishAnnouncement:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
-                return_value=0,
+                return_value=_broadcast_results(
+                    successful_relays=(),
+                    failed_relays={"wss://publish.example.com": "timeout"},
+                ),
             ),
             patch(
                 "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
@@ -1719,7 +1742,10 @@ class TestPublishAnnouncement:
         mock_save.assert_not_awaited()
         stub._logger.warning.assert_called_once()
         stub._logger.warning.assert_called_once_with(
-            "publish_failed", event="announcement", error="no relays reachable"
+            "publish_failed",
+            event="announcement",
+            error="no relays accepted event",
+            failed_relays={"wss://publish.example.com": "timeout"},
         )
 
 
@@ -1767,9 +1793,9 @@ class TestPublishProfile:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
-                return_value=1,
+                return_value=_broadcast_results(),
             ) as mock_broadcast,
             patch(
                 "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
@@ -1780,7 +1806,12 @@ class TestPublishProfile:
 
         mock_broadcast.assert_awaited_once()
         mock_save.assert_awaited_once()
-        stub._logger.info.assert_called_with("publish_completed", event="profile", relays=1)
+        stub._logger.info.assert_called_with(
+            "publish_completed",
+            event="profile",
+            relays=1,
+            failed_relays=0,
+        )
 
     async def test_publish_profile_no_reachable_clients(self, stub: _MonitorStub) -> None:
         stub.clients.get_many = AsyncMock(return_value=[])
@@ -1791,7 +1822,7 @@ class TestPublishProfile:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
             ) as mock_broadcast,
         ):
@@ -1810,9 +1841,12 @@ class TestPublishProfile:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
-                return_value=0,
+                return_value=_broadcast_results(
+                    successful_relays=(),
+                    failed_relays={"wss://publish.example.com": "timeout"},
+                ),
             ),
             patch(
                 "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
@@ -1824,7 +1858,10 @@ class TestPublishProfile:
         mock_save.assert_not_awaited()
         stub._logger.warning.assert_called_once()
         stub._logger.warning.assert_called_once_with(
-            "publish_failed", event="profile", error="no relays reachable"
+            "publish_failed",
+            event="profile",
+            error="no relays accepted event",
+            failed_relays={"wss://publish.example.com": "timeout"},
         )
 
 
@@ -1854,9 +1891,9 @@ class TestPublishRelayList:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
-                return_value=1,
+                return_value=_broadcast_results(),
             ),
             patch(
                 "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
@@ -1898,9 +1935,9 @@ class TestPublishRelayList:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
-                return_value=1,
+                return_value=_broadcast_results(),
             ) as mock_broadcast,
             patch(
                 "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
@@ -1911,7 +1948,12 @@ class TestPublishRelayList:
 
         mock_broadcast.assert_awaited_once()
         mock_save.assert_awaited_once_with(stub._brotr, ["relay_list"])
-        stub._logger.info.assert_called_with("publish_completed", event="relay_list", relays=1)
+        stub._logger.info.assert_called_with(
+            "publish_completed",
+            event="relay_list",
+            relays=1,
+            failed_relays=0,
+        )
 
     async def test_no_reachable_clients(self, stub: _MonitorStub) -> None:
         stub.clients.get_many = AsyncMock(return_value=[])
@@ -1922,7 +1964,7 @@ class TestPublishRelayList:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
             ) as mock_broadcast,
         ):
@@ -1941,9 +1983,12 @@ class TestPublishRelayList:
                 return_value=True,
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
-                return_value=0,
+                return_value=_broadcast_results(
+                    successful_relays=(),
+                    failed_relays={"wss://publish.example.com": "timeout"},
+                ),
             ),
             patch(
                 "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
@@ -1954,7 +1999,10 @@ class TestPublishRelayList:
 
         mock_save.assert_not_awaited()
         stub._logger.warning.assert_called_once_with(
-            "publish_failed", event="relay_list", error="no relays reachable"
+            "publish_failed",
+            event="relay_list",
+            error="no relays accepted event",
+            failed_relays={"wss://publish.example.com": "timeout"},
         )
 
 
@@ -1971,7 +2019,7 @@ class TestPublishDiscovery:
         result = _make_check_result(nip11_info=_make_nip11_meta(name="Test"))
 
         with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
+            "bigbrotr.services.monitor.service.broadcast_events_detailed",
             new_callable=AsyncMock,
         ) as mock_broadcast:
             await monitor.publish_discovery(relay, result)
@@ -1984,7 +2032,7 @@ class TestPublishDiscovery:
         result = _make_check_result(nip11_info=_make_nip11_meta(name="Test"))
 
         with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
+            "bigbrotr.services.monitor.service.broadcast_events_detailed",
             new_callable=AsyncMock,
         ) as mock_broadcast:
             await monitor.publish_discovery(relay, result)
@@ -2004,7 +2052,7 @@ class TestPublishDiscovery:
         result = _make_check_result(nip11_info=_make_nip11_meta(name="Test"))
 
         with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
+            "bigbrotr.services.monitor.service.broadcast_events_detailed",
             new_callable=AsyncMock,
         ) as mock_broadcast:
             await monitor.publish_discovery(relay, result)
@@ -2024,9 +2072,9 @@ class TestPublishDiscovery:
         result = _make_check_result(nip11_info=_make_nip11_meta(name="Test Relay"))
 
         with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
+            "bigbrotr.services.monitor.service.broadcast_events_detailed",
             new_callable=AsyncMock,
-            return_value=1,
+            return_value=_broadcast_results(),
         ) as mock_broadcast:
             await monitor.publish_discovery(relay, result)
 
@@ -2051,7 +2099,7 @@ class TestPublishDiscovery:
                 side_effect=ValueError("build failed"),
             ),
             patch(
-                "bigbrotr.services.monitor.service.broadcast_events",
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
                 new_callable=AsyncMock,
             ) as mock_broadcast,
         ):
@@ -2067,17 +2115,27 @@ class TestPublishDiscovery:
             ),
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
+        monitor._logger = MagicMock()
         monitor.clients = MagicMock()
         monitor.clients.get_many = AsyncMock(return_value=[AsyncMock()])
         relay = Relay("wss://relay.example.com")
         result = _make_check_result(nip11_info=_make_nip11_meta(name="Test"))
 
         with patch(
-            "bigbrotr.services.monitor.service.broadcast_events",
+            "bigbrotr.services.monitor.service.broadcast_events_detailed",
             new_callable=AsyncMock,
-            return_value=0,
+            return_value=_broadcast_results(
+                successful_relays=(),
+                failed_relays={"wss://publish.example.com": "timeout"},
+            ),
         ):
             await monitor.publish_discovery(relay, result)
+
+        monitor._logger.debug.assert_any_call(
+            "discovery_broadcast_failed",
+            url=relay.url,
+            failed_relays={"wss://publish.example.com": "timeout"},
+        )
 
 
 # ============================================================================
