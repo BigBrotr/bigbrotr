@@ -278,10 +278,18 @@ class TestApiBuildApp:
         self, api_service: Api, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            "bigbrotr.services.api.service.read_models_for_surface",
-            lambda _surface: {
-                "relay": ReadModelEntry(catalog_name="relay", surfaces=("api",)),
-                "missing_view": ReadModelEntry(catalog_name="missing_view", surfaces=("api",)),
+            "bigbrotr.services.api.service.enabled_read_models_for_surface",
+            lambda *_args, **_kwargs: {
+                "relay": ReadModelEntry(
+                    read_model_id="relay",
+                    catalog_name="relay",
+                    surfaces=("api",),
+                ),
+                "missing_view": ReadModelEntry(
+                    read_model_id="missing_view",
+                    catalog_name="missing_view",
+                    surfaces=("api",),
+                ),
             },
         )
 

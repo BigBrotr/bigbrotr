@@ -55,7 +55,11 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.catalog import CatalogError
 from bigbrotr.services.common.mixins import CatalogAccessMixin
-from bigbrotr.services.common.read_models import read_models_for_surface
+from bigbrotr.services.common.read_models import (
+    ReadModelEntry,
+    ReadModelQuery,
+    enabled_read_models_for_surface,
+)
 
 from .configs import ApiConfig
 
@@ -182,12 +186,20 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
 
     def _enabled_read_model_names(self) -> list[str]:
         """Return enabled API read models that are present in the discovered catalog."""
-        read_models = read_models_for_surface("api")
-        return [
-            name
-            for name in sorted(read_models)
-            if name in self._catalog.tables and self._is_table_enabled(name)
-        ]
+        return list(self._enabled_read_models())
+
+    def _enabled_read_models(self) -> dict[str, ReadModelEntry]:
+        """Return enabled API read models keyed by public read-model ID."""
+        enabled_names = {name for name in self._config.tables if self._is_table_enabled(name)}
+        return {
+            read_model_id: entry
+            for read_model_id, entry in enabled_read_models_for_surface(
+                "api",
+                available_catalog_names=set(self._catalog.tables),
+                enabled_names=enabled_names,
+            ).items()
+            if entry.catalog_name in self._catalog.tables and self._is_table_enabled(read_model_id)
+        }
 
     def _add_middleware(self, app: FastAPI) -> None:
         """Register CORS and request-logging middleware."""
@@ -256,28 +268,29 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         async def list_schema() -> JSONResponse:
             tables = [
                 {
-                    "name": schema.name,
+                    "name": read_model_id,
                     "is_view": schema.is_view,
                     "columns": len(schema.columns),
                     "has_primary_key": bool(schema.primary_key),
                 }
-                for name in self._enabled_read_model_names()
-                for schema in [self._catalog.tables[name]]
+                for read_model_id, read_model in self._enabled_read_models().items()
+                for schema in [read_model.schema(self._catalog)]
             ]
             return JSONResponse({"data": tables})
 
         @app.get(f"{prefix}/schema/{{table}}")
         async def get_schema(table: str) -> JSONResponse:
-            if table not in self._catalog.tables or not self._is_table_enabled(table):
+            read_model = self._enabled_read_models().get(table)
+            if read_model is None:
                 return JSONResponse(
                     {"error": f"table not found: {table}"},
                     status_code=404,
                 )
-            schema = self._catalog.tables[table]
+            schema = read_model.schema(self._catalog)
             return JSONResponse(
                 {
                     "data": {
-                        "name": schema.name,
+                        "name": table,
                         "is_view": schema.is_view,
                         "columns": [
                             {
@@ -294,19 +307,24 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
 
     def _add_table_routes(self, app: FastAPI) -> None:
         """Register auto-generated list and detail routes for enabled tables."""
-        for table_name in self._enabled_read_model_names():
-            self._register_table_routes(app, table_name)
+        for read_model_id, read_model in self._enabled_read_models().items():
+            self._register_table_routes(app, read_model_id, read_model)
 
-    def _register_table_routes(self, app: FastAPI, table_name: str) -> None:
+    def _register_table_routes(
+        self,
+        app: FastAPI,
+        read_model_id: str,
+        read_model: ReadModelEntry,
+    ) -> None:
         """Register list and detail routes for a single table.
 
         Each call creates a new scope, so closures safely capture
         ``table_name`` and ``pk_cols`` without the loop-variable gotcha.
         """
-        schema = self._catalog.tables[table_name]
+        schema = read_model.schema(self._catalog)
         pk_cols = schema.primary_key
 
-        @app.get(f"{self._config.route_prefix}/{table_name}")
+        @app.get(f"{self._config.route_prefix}/{read_model_id}")
         async def list_rows(request: Request) -> JSONResponse:
             params = dict(request.query_params)
             try:
@@ -322,14 +340,16 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
 
             try:
                 result = await asyncio.wait_for(
-                    self._catalog.query(
+                    read_model.query(
                         self._brotr,
-                        table_name,
-                        limit=limit,
-                        offset=offset,
-                        max_page_size=self._config.max_page_size,
-                        filters=filters,
-                        sort=sort,
+                        self._catalog,
+                        ReadModelQuery(
+                            limit=limit,
+                            offset=offset,
+                            max_page_size=self._config.max_page_size,
+                            filters=filters,
+                            sort=sort,
+                        ),
                     ),
                     timeout=self._config.request_timeout,
                 )
@@ -345,7 +365,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
                         "total": result.total,
                         "limit": result.limit,
                         "offset": result.offset,
-                        "table": table_name,
+                        "table": read_model_id,
                     },
                 }
             )
@@ -358,14 +378,14 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
             else:
                 pk_path = "/".join(f"{{{pk}}}" for pk in pk_cols)
 
-            @app.get(f"{self._config.route_prefix}/{table_name}/{pk_path}")
+            @app.get(f"{self._config.route_prefix}/{read_model_id}/{pk_path}")
             async def get_row(request: Request) -> JSONResponse:
                 pk_values = {col: request.path_params[col] for col in pk_cols}
                 try:
                     row = await asyncio.wait_for(
-                        self._catalog.get_by_pk(
+                        read_model.get_by_pk(
                             self._brotr,
-                            table_name,
+                            self._catalog,
                             pk_values,
                         ),
                         timeout=self._config.request_timeout,

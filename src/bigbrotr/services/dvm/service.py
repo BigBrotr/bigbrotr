@@ -54,7 +54,11 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.catalog import CatalogError
 from bigbrotr.services.common.mixins import CatalogAccessMixin
-from bigbrotr.services.common.read_models import read_models_for_surface
+from bigbrotr.services.common.read_models import (
+    ReadModelEntry,
+    ReadModelQuery,
+    enabled_read_models_for_surface,
+)
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import Checkpoint
 from bigbrotr.utils.protocol import create_connected_client
@@ -267,7 +271,8 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         Returns:
             Tuple of (received, processed, failed, payment_required) deltas.
         """
-        if not table or not self._is_table_enabled(table):
+        read_model = self._enabled_read_models().get(table)
+        if read_model is None:
             await self._send_event(
                 build_error_event(event_id, customer_pubkey, f"Invalid or disabled table: {table}"),
                 require_success=True,
@@ -301,14 +306,16 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             return 1, 0, 1, 0
 
         start = time.monotonic()
-        result = await self._catalog.query(
+        result = await read_model.query(
             self._brotr,
-            table,
-            limit=limit,
-            offset=offset,
-            max_page_size=self._config.max_page_size,
-            filters=parse_query_filters(params.get("filter", "")),
-            sort=params.get("sort") or None,
+            self._catalog,
+            ReadModelQuery(
+                limit=limit,
+                offset=offset,
+                max_page_size=self._config.max_page_size,
+                filters=parse_query_filters(params.get("filter", "")),
+                sort=params.get("sort") or None,
+            ),
         )
         duration_ms = (time.monotonic() - start) * 1000
 
@@ -380,12 +387,20 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
 
     def _enabled_read_model_names(self) -> list[str]:
         """Return enabled DVM read models that are present in the discovered catalog."""
-        read_models = read_models_for_surface("dvm")
-        return [
-            name
-            for name in sorted(read_models)
-            if name in self._catalog.tables and self._is_table_enabled(name)
-        ]
+        return list(self._enabled_read_models())
+
+    def _enabled_read_models(self) -> dict[str, ReadModelEntry]:
+        """Return enabled DVM read models keyed by public read-model ID."""
+        enabled_names = {name for name in self._config.tables if self._is_table_enabled(name)}
+        return {
+            read_model_id: entry
+            for read_model_id, entry in enabled_read_models_for_surface(
+                "dvm",
+                available_catalog_names=set(self._catalog.tables),
+                enabled_names=enabled_names,
+            ).items()
+            if entry.catalog_name in self._catalog.tables and self._is_table_enabled(read_model_id)
+        }
 
     # ── Event fetching ────────────────────────────────────────────
 
