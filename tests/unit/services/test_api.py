@@ -336,6 +336,12 @@ class TestReadModelRoutes:
         relay = next(item for item in data if item["id"] == "relay")
         assert relay["path"] == "/v1/relay"
         assert relay["column_count"] == 2
+        assert relay["default_pagination"] == "cursor"
+        assert relay["supports_cursor_pagination"] is True
+
+        relay_stats = next(item for item in data if item["id"] == "relay_stats")
+        assert relay_stats["default_pagination"] == "offset"
+        assert relay_stats["supports_cursor_pagination"] is False
 
     def test_read_model_detail(self, test_client: TestClient) -> None:
         resp = test_client.get("/v1/read-models/relay")
@@ -346,6 +352,14 @@ class TestReadModelRoutes:
         assert data["is_view"] is False
         assert len(data["columns"]) == 2
         assert data["primary_key"] == ["url"]
+        assert data["pagination"] == {
+            "default_mode": "cursor",
+            "supports_cursor": True,
+            "supports_offset": True,
+            "supports_total_opt_in": True,
+            "cursor_param": "cursor",
+            "meta_cursor_field": "next_cursor",
+        }
 
     @pytest.mark.parametrize("read_model", ["service_state", "nonexistent"])
     def test_read_model_detail_not_found(self, test_client: TestClient, read_model: str) -> None:

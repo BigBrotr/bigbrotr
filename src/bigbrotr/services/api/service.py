@@ -294,12 +294,15 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
     ) -> dict[str, Any]:
         """Build the public discovery payload for one read model."""
         schema = read_model.schema(self._catalog)
+        supports_cursor = bool(schema.primary_key)
         return {
             "id": read_model_id,
             "path": f"{self._config.route_prefix}/{read_model_id}",
             "is_view": schema.is_view,
             "column_count": len(schema.columns),
-            "has_primary_key": bool(schema.primary_key),
+            "has_primary_key": supports_cursor,
+            "default_pagination": "cursor" if supports_cursor else "offset",
+            "supports_cursor_pagination": supports_cursor,
         }
 
     def _build_read_model_detail(
@@ -309,6 +312,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
     ) -> dict[str, Any]:
         """Build the public detail payload for one read model."""
         schema = read_model.schema(self._catalog)
+        supports_cursor = bool(schema.primary_key)
         return {
             "id": read_model_id,
             "path": f"{self._config.route_prefix}/{read_model_id}",
@@ -322,6 +326,14 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
                 for c in schema.columns
             ],
             "primary_key": list(schema.primary_key),
+            "pagination": {
+                "default_mode": "cursor" if supports_cursor else "offset",
+                "supports_cursor": supports_cursor,
+                "supports_offset": True,
+                "supports_total_opt_in": True,
+                "cursor_param": "cursor" if supports_cursor else None,
+                "meta_cursor_field": "next_cursor" if supports_cursor else None,
+            },
         }
 
     def _add_read_model_data_routes(self, app: FastAPI) -> None:

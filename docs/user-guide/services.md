@@ -506,13 +506,23 @@ Each target is isolated by default: one failed refresh does not stop the rest of
 
 1. On startup (`__aenter__`), discover the backing catalog via the shared Catalog
 2. Build a FastAPI application with discovery endpoints for enabled public read models
-3. Register list endpoints (`GET /api/v1/{read_model}`) with pagination (`limit`, `offset`, `sort`, filters)
+3. Register list endpoints (`GET /api/v1/{read_model}`) with read-model query params:
+   `limit`, `sort`, column filters, optional `cursor`, optional `include_total`,
+   and `offset` only as a compatibility fallback
 4. Register detail endpoints (`GET /api/v1/{read_model}/{pk}`) for read models with a primary key
 5. Start uvicorn as a background asyncio task
 6. Each `run()` cycle logs request statistics (total, failed) and updates Prometheus gauges
 
 Endpoints also include `/health` (readiness check), `GET /api/v1/read-models`, and
 `GET /api/v1/read-models/{read_model}` for public surface discovery.
+
+For read models with a primary key, list responses default to cursor pagination:
+
+- the request can pass `cursor=<opaque-token>` for the next page
+- the response `meta` can include `next_cursor`
+- `include_total=true` opt-in enables the extra `COUNT(*)` query only when needed
+
+For read models without a stable primary key, the API falls back to offset pagination.
 
 ### Configuration
 
@@ -546,11 +556,19 @@ Endpoints also include `/health` (readiness check), `GET /api/v1/read-models`, a
 2. Optionally publish a NIP-89 handler announcement (kind 31990) advertising available read models
 3. Restore a persisted `(timestamp, event_id)` request cursor and open a long-lived kind 5050 subscription on the connected relays
 4. Each `run()` cycle drains buffered subscription notifications in cursor order
-5. Parse job parameters from event tags: `read_model`, `limit`, `offset`, `sort`, `filter`, `columns`
+5. Parse job parameters from event tags: `read_model`, `limit`, `sort`, `filter`,
+   optional `cursor`, optional `include_total`, and `offset` only as a compatibility fallback
 6. Execute the query via the shared Catalog (same engine as the Api service)
 7. Publish the result as a kind 6050 event, or publish error/payment-required feedback (kind 7000)
 
 The Dvm supports per-read-model pricing via `ReadModelConfig.price`. When a job's bid is below the required price, a payment-required feedback event is published instead of the query result.
+
+When the target read model has a primary key, DVM list jobs default to the same
+cursor-based contract as the API:
+
+- pass `cursor=<opaque-token>` in a `param` tag to continue a prior page
+- inspect `meta.next_cursor` in the result event content
+- request `include_total=true` only when the full filtered count is actually needed
 
 ### Configuration
 
