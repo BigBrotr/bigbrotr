@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from bigbrotr.models.constants import EventKind, ServiceName
 from bigbrotr.services.assertor.configs import AssertorConfig
 from bigbrotr.services.assertor.service import Assertor
+from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 
 VALID_HEX_KEY = (
@@ -20,7 +21,7 @@ VALID_HEX_KEY = (
 
 
 def _connect_output() -> SimpleNamespace:
-    return SimpleNamespace(success={"wss://relay.example"}, failed={})
+    return SimpleNamespace(connected=("wss://relay.example",), failed={})
 
 
 @pytest.fixture(autouse=True)
@@ -690,16 +691,15 @@ class TestAssertorCheckpointNamespacing:
 
 
 class TestAssertorLifecycle:
-    @patch("bigbrotr.services.assertor.service.create_client", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.create_connected_client", new_callable=AsyncMock)
     async def test_aenter_creates_client_and_connects(
         self,
-        mock_create_client: AsyncMock,
+        mock_create_connected_client: AsyncMock,
     ) -> None:
         from bigbrotr.services.assertor.service import Assertor
 
         mock_client = AsyncMock()
-        mock_client.try_connect.return_value = _connect_output()
-        mock_create_client.return_value = mock_client
+        mock_create_connected_client.return_value = (mock_client, _connect_output())
         with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
             svc = Assertor.__new__(Assertor)
             svc._brotr = MagicMock()
@@ -717,7 +717,7 @@ class TestAssertorLifecycle:
                 result = await svc.__aenter__()
 
             assert svc._client is mock_client
-            mock_client.try_connect.assert_awaited_once()
+            mock_create_connected_client.assert_awaited_once()
             assert result is svc
 
     async def test_aexit_shuts_down_client(self) -> None:
@@ -770,16 +770,15 @@ class TestAssertorLifecycle:
 
 
 class TestAssertorKeyLifecycle:
-    @patch("bigbrotr.services.assertor.service.create_client", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.create_connected_client", new_callable=AsyncMock)
     async def test_aenter_uses_config_keys_to_create_client(
         self,
-        mock_create_client: AsyncMock,
+        mock_create_connected_client: AsyncMock,
     ) -> None:
         from bigbrotr.services.assertor.service import Assertor
 
         mock_client = AsyncMock()
-        mock_client.try_connect.return_value = _connect_output()
-        mock_create_client.return_value = mock_client
+        mock_create_connected_client.return_value = (mock_client, _connect_output())
         with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
             svc = Assertor.__new__(Assertor)
             svc._brotr = MagicMock()
@@ -794,23 +793,24 @@ class TestAssertorKeyLifecycle:
             with patch.object(type(svc).__bases__[0], "__aenter__", new_callable=AsyncMock):
                 await svc.__aenter__()
 
-            mock_create_client.assert_awaited_once_with(
+            mock_create_connected_client.assert_awaited_once_with(
+                svc._config.publishing.relays,
                 keys=svc._config.keys.keys,
+                timeout=DEFAULT_TIMEOUT,
                 allow_insecure=svc._config.publishing.allow_insecure,
             )
 
-    @patch("bigbrotr.services.assertor.service.create_client", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.create_connected_client", new_callable=AsyncMock)
     async def test_aenter_uses_generated_config_keys_when_env_missing(
         self,
-        mock_create_client: AsyncMock,
+        mock_create_connected_client: AsyncMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         from bigbrotr.services.assertor.service import Assertor
 
         monkeypatch.delenv("NOSTR_PRIVATE_KEY_ASSERTOR", raising=False)
         mock_client = AsyncMock()
-        mock_client.try_connect.return_value = _connect_output()
-        mock_create_client.return_value = mock_client
+        mock_create_connected_client.return_value = (mock_client, _connect_output())
         with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
             svc = Assertor.__new__(Assertor)
             svc._brotr = MagicMock()

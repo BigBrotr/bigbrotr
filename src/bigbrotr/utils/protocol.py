@@ -50,6 +50,7 @@ import os
 import socket
 import ssl
 import sys
+from dataclasses import dataclass
 from datetime import timedelta
 from ipaddress import AddressValueError, IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, TextIO
@@ -167,6 +168,14 @@ class _StderrSuppressor:
 _suppress_stderr = _StderrSuppressor()
 
 
+@dataclass(frozen=True, slots=True)
+class ClientConnectResult:
+    """Normalized outcome of connecting one client to multiple relays."""
+
+    connected: tuple[str, ...]
+    failed: dict[str, str]
+
+
 async def _await_if_needed(value: object) -> object:
     """Await ``value`` when it is awaitable, otherwise return it as-is."""
     if inspect.isawaitable(value):
@@ -260,6 +269,27 @@ async def create_client(
         builder = builder.opts(opts)
 
     return builder.build()
+
+
+async def create_connected_client(
+    relays: list[Relay],
+    *,
+    keys: Keys | None = None,
+    timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
+    allow_insecure: bool = False,
+) -> tuple[Client, ClientConnectResult]:
+    """Create a client, register relays, and connect with a normalized result."""
+    client = await create_client(keys=keys, allow_insecure=allow_insecure)
+
+    for relay in relays:
+        await client.add_relay(RelayUrl.parse(relay.url))
+
+    output = await client.try_connect(timedelta(seconds=timeout))
+    connected = tuple(str(relay_url) for relay_url in getattr(output, "success", ()))
+    failed = {
+        str(relay_url): str(error) for relay_url, error in getattr(output, "failed", {}).items()
+    }
+    return client, ClientConnectResult(connected=connected, failed=failed)
 
 
 async def connect_relay(

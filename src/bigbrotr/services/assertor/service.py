@@ -11,11 +11,9 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import asyncpg
-from nostr_sdk import Client, RelayUrl
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import EventKind, ServiceName
@@ -34,7 +32,7 @@ from bigbrotr.nips.nip85.data import (
     UserAssertion,
 )
 from bigbrotr.services.common.state_store import ServiceStateStore
-from bigbrotr.utils.protocol import broadcast_events, create_client
+from bigbrotr.utils.protocol import broadcast_events, create_connected_client
 from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 from .configs import AssertorConfig
@@ -57,7 +55,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from types import TracebackType
 
-    from nostr_sdk import EventBuilder, Keys
+    from nostr_sdk import Client, EventBuilder, Keys
 
     from bigbrotr.core.brotr import Brotr
 
@@ -157,8 +155,10 @@ class Assertor(BaseService[AssertorConfig]):
         await super().__aenter__()
         keys = self._keys
 
-        client = await create_client(
+        client, connect_result = await create_connected_client(
+            self._config.publishing.relays,
             keys=keys,
+            timeout=DEFAULT_TIMEOUT,
             allow_insecure=self._config.publishing.allow_insecure,
         )
         self._client = client
@@ -169,22 +169,14 @@ class Assertor(BaseService[AssertorConfig]):
             pubkey=pubkey,
             algorithm_id=self._config.algorithm_id,
         )
-
-        for relay in self._config.publishing.relays:
-            await client.add_relay(RelayUrl.parse(relay.url))
-            self._logger.info("relay_added", url=relay.url)
-
-        output = await client.try_connect(timedelta(seconds=DEFAULT_TIMEOUT))
-        connected = getattr(output, "success", ())
-        failed = getattr(output, "failed", {})
         self._logger.info(
             "client_connected",
-            relays_connected=len(connected),
-            relays_failed=len(failed),
+            relays_connected=len(connect_result.connected),
+            relays_failed=len(connect_result.failed),
         )
-        for relay_url, error in failed.items():
-            self._logger.warning("relay_connect_failed", url=str(relay_url), error=str(error))
-        if not connected:
+        for relay_url, error in connect_result.failed.items():
+            self._logger.warning("relay_connect_failed", url=relay_url, error=error)
+        if not connect_result.connected:
             from bigbrotr.utils.protocol import shutdown_client  # noqa: PLC0415
 
             await shutdown_client(client)

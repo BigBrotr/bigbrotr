@@ -18,8 +18,10 @@ import pytest
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay
 from bigbrotr.utils.protocol import (
+    ClientConnectResult,
     _is_ssl_error,
     create_client,
+    create_connected_client,
 )
 
 
@@ -209,6 +211,36 @@ class TestCreateClientInsecure:
         keys = Keys.generate()
         client = await create_client(keys=keys, allow_insecure=True)
         assert client is not None
+
+
+class TestCreateConnectedClient:
+    async def test_registers_relays_and_normalizes_connect_result(self) -> None:
+        relays = [Relay("wss://relay1.example.com"), Relay("wss://relay2.example.com")]
+        mock_client = MagicMock()
+        mock_client.add_relay = AsyncMock()
+        mock_client.try_connect = AsyncMock(
+            return_value=MagicMock(
+                success=("wss://relay1.example.com",),
+                failed={"wss://relay2.example.com": "timeout"},
+            )
+        )
+
+        with patch(
+            "bigbrotr.utils.protocol.create_client", new=AsyncMock(return_value=mock_client)
+        ):
+            client, result = await create_connected_client(
+                relays,
+                timeout=12.0,
+                allow_insecure=True,
+            )
+
+        assert client is mock_client
+        assert result == ClientConnectResult(
+            connected=("wss://relay1.example.com",),
+            failed={"wss://relay2.example.com": "timeout"},
+        )
+        assert mock_client.add_relay.await_count == 2
+        mock_client.try_connect.assert_awaited_once()
 
 
 # =============================================================================
