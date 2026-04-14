@@ -495,23 +495,24 @@ Each target is isolated by default: one failed refresh does not stop the rest of
 
 ## Api
 
-**Purpose**: Expose the BigBrotr database as a read-only REST API via FastAPI.
+**Purpose**: Expose BigBrotr public read models as a read-only REST API via FastAPI.
 
 **Mode**: Continuous (HTTP server runs alongside the `run_forever` cycle)
 
-**Reads**: All tables, views, and materialized views (via Catalog)
+**Reads**: Public read models backed by Catalog-managed tables, views, and materialized views
 **Writes**: -- (read-only; emits Prometheus metrics)
 
 ### How It Works
 
-1. On startup (`__aenter__`), discover the database schema via the shared Catalog
-2. Build a FastAPI application with auto-generated routes for each enabled table
-3. Register list endpoints (`GET /api/v1/{table}`) with pagination (`limit`, `offset`, `sort`, filters)
-4. Register detail endpoints (`GET /api/v1/{table}/{pk}`) for tables with a primary key
+1. On startup (`__aenter__`), discover the backing catalog via the shared Catalog
+2. Build a FastAPI application with discovery endpoints for enabled public read models
+3. Register list endpoints (`GET /api/v1/{read_model}`) with pagination (`limit`, `offset`, `sort`, filters)
+4. Register detail endpoints (`GET /api/v1/{read_model}/{pk}`) for read models with a primary key
 5. Start uvicorn as a background asyncio task
 6. Each `run()` cycle logs request statistics (total, failed) and updates Prometheus gauges
 
-Endpoints also include `/health` (readiness check) and `/api/v1/schema` (schema introspection).
+Endpoints also include `/health` (readiness check), `GET /api/v1/read-models`, and
+`GET /api/v1/read-models/{read_model}` for public surface discovery.
 
 ### Configuration
 
@@ -521,7 +522,7 @@ Endpoints also include `/health` (readiness check) and `/api/v1/schema` (schema 
 | `port` | int | `8080` | HTTP listen port |
 | `max_page_size` | int | `1000` | Hard ceiling on the `limit` query parameter |
 | `default_page_size` | int | `100` | Default `limit` when not specified |
-| `tables` | dict | `{}` | Per-table access policies (`enabled`, `price`) |
+| `read_models` | dict | `{}` | Per-read-model access policies (`enabled`) |
 | `cors_origins` | list | `[]` | Allowed CORS origins (empty disables CORS) |
 | `request_timeout` | float | `30.0` | Timeout in seconds for each database query |
 
@@ -632,7 +633,7 @@ For complete configuration details including all fields, defaults, constraints, 
 | Refresher | `views`, `interval` | Which views to refresh and how often |
 | Ranker | `algorithm_id`, `graph.*`, `export.batch_size` | PageRank namespace, graph behavior, and snapshot export throughput |
 | Assertor | `algorithm_id`, `selection.kinds`, `provider_profile.enabled` | Assertion namespace, publish scope, and provider identity |
-| Api | `tables`, `max_page_size`, `cors_origins` | Which tables to expose and pagination limits |
+| Api | `read_models`, `max_page_size`, `cors_origins` | Which read models to expose and pagination limits |
 | Dvm | `relays`, `tables`, `kind` | Which relays to listen on and tables to serve |
 
 ---

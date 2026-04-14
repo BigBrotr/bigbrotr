@@ -1,9 +1,9 @@
-"""REST API service for read-only database exposure via FastAPI.
+"""REST API service for read-only read-model exposure via FastAPI.
 
-Auto-generates paginated endpoints for all discovered tables, views, and
-materialized views.  Per-table access control via
-[TableConfig][bigbrotr.services.common.configs.TableConfig] allows
-disabling individual endpoints.
+Registers paginated endpoints for all enabled public read models.
+[TableConfig][bigbrotr.services.common.configs.TableConfig] remains the
+shared access-policy model, but the public HTTP contract is expressed in
+terms of named read models rather than raw database tables.
 
 The HTTP server runs as a background ``asyncio.Task`` alongside the
 standard ``run_forever()`` cycle.  Each ``run()`` cycle logs request
@@ -73,10 +73,10 @@ _HTTP_ERROR_THRESHOLD = 400
 
 
 class Api(CatalogAccessMixin, BaseService[ApiConfig]):
-    """REST API service exposing the BigBrotr database read-only.
+    """REST API service exposing BigBrotr read models over HTTP.
 
-    Auto-generates paginated GET endpoints for each enabled table,
-    view, and materialized view discovered by the
+    Registers paginated GET endpoints for each enabled public read
+    model discovered through the shared
     [Catalog][bigbrotr.services.common.catalog.Catalog].
 
     Lifecycle:
@@ -173,14 +173,14 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         """Construct the FastAPI application with auto-generated routes.
 
         Delegates to sub-methods for each route group:
-        middleware, health, schema endpoints, and per-table CRUD routes.
+        middleware, health, read-model discovery, and read-model data routes.
         """
         app = FastAPI(title=self._config.title)
 
         self._add_middleware(app)
         self._add_health_route(app)
-        self._add_schema_routes(app)
-        self._add_table_routes(app)
+        self._add_read_model_routes(app)
+        self._add_read_model_data_routes(app)
 
         return app
 
@@ -263,66 +263,80 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         async def health() -> dict[str, str]:
             return {"status": "ok"}
 
-    def _add_schema_routes(self, app: FastAPI) -> None:
-        """Register schema list and detail endpoints."""
+    def _add_read_model_routes(self, app: FastAPI) -> None:
+        """Register read-model discovery endpoints."""
         prefix = self._config.route_prefix
 
-        @app.get(f"{prefix}/schema")
-        async def list_schema() -> JSONResponse:
-            tables = [
-                {
-                    "name": read_model_id,
-                    "is_view": schema.is_view,
-                    "columns": len(schema.columns),
-                    "has_primary_key": bool(schema.primary_key),
-                }
+        @app.get(f"{prefix}/read-models")
+        async def list_read_models() -> JSONResponse:
+            read_models = [
+                self._build_read_model_summary(read_model_id, read_model)
                 for read_model_id, read_model in self._enabled_read_models().items()
-                for schema in [read_model.schema(self._catalog)]
             ]
-            return JSONResponse({"data": tables})
+            return JSONResponse({"data": read_models})
 
-        @app.get(f"{prefix}/schema/{{table}}")
-        async def get_schema(table: str) -> JSONResponse:
-            read_model = self._enabled_read_models().get(table)
+        @app.get(f"{prefix}/read-models/{{read_model_id}}")
+        async def get_read_model(read_model_id: str) -> JSONResponse:
+            read_model = self._enabled_read_models().get(read_model_id)
             if read_model is None:
                 return JSONResponse(
-                    {"error": f"table not found: {table}"},
+                    {"error": f"read model not found: {read_model_id}"},
                     status_code=404,
                 )
-            schema = read_model.schema(self._catalog)
-            return JSONResponse(
+            return JSONResponse({"data": self._build_read_model_detail(read_model_id, read_model)})
+
+    def _build_read_model_summary(
+        self,
+        read_model_id: str,
+        read_model: ReadModelEntry,
+    ) -> dict[str, Any]:
+        """Build the public discovery payload for one read model."""
+        schema = read_model.schema(self._catalog)
+        return {
+            "id": read_model_id,
+            "path": f"{self._config.route_prefix}/{read_model_id}",
+            "is_view": schema.is_view,
+            "column_count": len(schema.columns),
+            "has_primary_key": bool(schema.primary_key),
+        }
+
+    def _build_read_model_detail(
+        self,
+        read_model_id: str,
+        read_model: ReadModelEntry,
+    ) -> dict[str, Any]:
+        """Build the public detail payload for one read model."""
+        schema = read_model.schema(self._catalog)
+        return {
+            "id": read_model_id,
+            "path": f"{self._config.route_prefix}/{read_model_id}",
+            "is_view": schema.is_view,
+            "columns": [
                 {
-                    "data": {
-                        "name": table,
-                        "is_view": schema.is_view,
-                        "columns": [
-                            {
-                                "name": c.name,
-                                "type": c.pg_type,
-                                "nullable": c.nullable,
-                            }
-                            for c in schema.columns
-                        ],
-                        "primary_key": list(schema.primary_key),
-                    },
+                    "name": c.name,
+                    "type": c.pg_type,
+                    "nullable": c.nullable,
                 }
-            )
+                for c in schema.columns
+            ],
+            "primary_key": list(schema.primary_key),
+        }
 
-    def _add_table_routes(self, app: FastAPI) -> None:
-        """Register auto-generated list and detail routes for enabled tables."""
+    def _add_read_model_data_routes(self, app: FastAPI) -> None:
+        """Register list and detail data routes for enabled read models."""
         for read_model_id, read_model in self._enabled_read_models().items():
-            self._register_table_routes(app, read_model_id, read_model)
+            self._register_read_model_data_routes(app, read_model_id, read_model)
 
-    def _register_table_routes(
+    def _register_read_model_data_routes(
         self,
         app: FastAPI,
         read_model_id: str,
         read_model: ReadModelEntry,
     ) -> None:
-        """Register list and detail routes for a single table.
+        """Register list and detail routes for one public read model.
 
         Each call creates a new scope, so closures safely capture
-        ``table_name`` and ``pk_cols`` without the loop-variable gotcha.
+        ``read_model_id`` and ``pk_cols`` without the loop-variable gotcha.
         """
         schema = read_model.schema(self._catalog)
         pk_cols = schema.primary_key
@@ -368,12 +382,12 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
                         "total": result.total,
                         "limit": result.limit,
                         "offset": result.offset,
-                        "table": read_model_id,
+                        "read_model": read_model_id,
                     },
                 }
             )
 
-        # PK-based detail route (only for tables with a primary key)
+        # PK-based detail route (only for read models with a primary key)
         if pk_cols:
             if len(pk_cols) == 1:
                 pk_col = pk_cols[0]

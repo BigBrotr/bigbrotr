@@ -36,7 +36,7 @@ def api_config() -> ApiConfig:
         port=9999,
         max_page_size=100,
         default_page_size=10,
-        tables={
+        read_models={
             "relay": TableConfig(enabled=True),
             "relay_stats": TableConfig(enabled=True),
         },
@@ -214,7 +214,7 @@ class TestApiConfigRoutePrefix:
 
 class TestApiBuildApp:
     def test_app_title_from_config(self, mock_brotr: Brotr, sample_catalog: Catalog) -> None:
-        config = ApiConfig(title="LilBrotr API", tables={"relay": TableConfig(enabled=True)})
+        config = ApiConfig(title="LilBrotr API", read_models={"relay": TableConfig(enabled=True)})
         service = Api(brotr=mock_brotr, config=config)
         service._catalog = sample_catalog
         app = service._build_app()
@@ -229,7 +229,7 @@ class TestApiBuildApp:
     ) -> None:
         config = ApiConfig(
             cors_origins=["https://example.com"],
-            tables={"relay": TableConfig(enabled=True)},
+            read_models={"relay": TableConfig(enabled=True)},
         )
         service = Api(brotr=mock_brotr, config=config)
         service._catalog = sample_catalog
@@ -248,20 +248,20 @@ class TestApiBuildApp:
             host="127.0.0.1",
             port=9999,
             route_prefix="/api/v2",
-            tables={"relay": TableConfig(enabled=True)},
+            read_models={"relay": TableConfig(enabled=True)},
         )
         service = Api(brotr=mock_brotr, config=config)
         service._catalog = sample_catalog
         client = TestClient(service._build_app())
 
-        assert client.get("/api/v2/schema").status_code == 200
+        assert client.get("/api/v2/read-models").status_code == 200
         assert client.get("/api/v2/relay").status_code == 200
-        assert client.get("/v1/schema").status_code in (404, 405)
+        assert client.get("/v1/read-models").status_code in (404, 405)
 
     def test_composite_pk_route_generated(
         self, mock_brotr: Brotr, composite_pk_catalog: Catalog
     ) -> None:
-        config = ApiConfig(tables={"relay_metadata": TableConfig(enabled=True)})
+        config = ApiConfig(read_models={"relay_metadata": TableConfig(enabled=True)})
         service = Api(brotr=mock_brotr, config=config)
         service._catalog = composite_pk_catalog
         app = service._build_app()
@@ -321,28 +321,32 @@ class TestHealthRoute:
         assert resp.json() == {"status": "ok"}
 
 
-class TestSchemaRoutes:
-    def test_list_schema(self, test_client: TestClient) -> None:
-        resp = test_client.get("/v1/schema")
+class TestReadModelRoutes:
+    def test_list_read_models(self, test_client: TestClient) -> None:
+        resp = test_client.get("/v1/read-models")
         assert resp.status_code == 200
         data = resp.json()["data"]
-        names = [t["name"] for t in data]
+        names = [t["id"] for t in data]
         assert "relay" in names
         assert "relay_stats" in names
         assert "service_state" not in names
+        relay = next(item for item in data if item["id"] == "relay")
+        assert relay["path"] == "/v1/relay"
+        assert relay["column_count"] == 2
 
-    def test_schema_detail(self, test_client: TestClient) -> None:
-        resp = test_client.get("/v1/schema/relay")
+    def test_read_model_detail(self, test_client: TestClient) -> None:
+        resp = test_client.get("/v1/read-models/relay")
         assert resp.status_code == 200
         data = resp.json()["data"]
-        assert data["name"] == "relay"
+        assert data["id"] == "relay"
+        assert data["path"] == "/v1/relay"
         assert data["is_view"] is False
         assert len(data["columns"]) == 2
         assert data["primary_key"] == ["url"]
 
-    @pytest.mark.parametrize("table", ["service_state", "nonexistent"])
-    def test_schema_detail_not_found(self, test_client: TestClient, table: str) -> None:
-        resp = test_client.get(f"/v1/schema/{table}")
+    @pytest.mark.parametrize("read_model", ["service_state", "nonexistent"])
+    def test_read_model_detail_not_found(self, test_client: TestClient, read_model: str) -> None:
+        resp = test_client.get(f"/v1/read-models/{read_model}")
         assert resp.status_code == 404
 
 
@@ -368,7 +372,7 @@ class TestListRowsRoute:
         body = resp.json()
         assert body["data"] == [{"url": "wss://relay.example.com", "network": "clearnet"}]
         assert body["meta"]["total"] == 1
-        assert body["meta"]["table"] == "relay"
+        assert body["meta"]["read_model"] == "relay"
 
     def test_with_sort_param(self, test_client: TestClient, api_service: Api) -> None:
         mock_result = QueryResult(rows=[], total=0, limit=10, offset=0)
@@ -486,7 +490,7 @@ class TestRequestMiddleware:
     def test_error_request_increments_failed(
         self, test_client: TestClient, api_service: Api
     ) -> None:
-        test_client.get("/v1/schema/nonexistent")
+        test_client.get("/v1/read-models/nonexistent")
         assert api_service._requests_total == 1
         assert api_service._requests_failed == 1
 
