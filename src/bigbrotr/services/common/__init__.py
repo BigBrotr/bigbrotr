@@ -14,6 +14,8 @@ Attributes:
         for per-network concurrency control, and
         [GeoReaders][bigbrotr.services.common.mixins.GeoReaders] for GeoIP
         database reader lifecycle management.
+    read_models: Static registry of built-in read models currently exposed by
+        API and DVM compatibility surfaces.
     queries: Batch insert and service-state upsert helpers.
 
 See Also:
