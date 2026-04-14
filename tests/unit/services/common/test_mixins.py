@@ -4,7 +4,7 @@ Tests:
 - ConcurrentStreamMixin - Concurrent item processing with streaming results
 - NetworkSemaphores - Per-network concurrency semaphore container
 - NetworkSemaphoresMixin - Mixin that provides a network_semaphores attribute via __init__
-- CatalogAccessMixin - Mixin for schema catalog lifecycle and table access policy
+- CatalogAccessMixin - Mixin for schema catalog lifecycle and read-model access policy
 """
 
 import asyncio
@@ -428,34 +428,34 @@ class TestCatalogAccessMixinAenter:
 class TestCatalogAccessMixinIsReadModelEnabled:
     """Tests for CatalogAccessMixin._is_read_model_enabled()."""
 
-    def test_returns_false_when_table_not_in_config(self) -> None:
+    def test_returns_false_when_read_model_not_in_config(self) -> None:
         svc = _TestCatalogService()
         svc._config.read_models = {}
 
-        assert svc._is_read_model_enabled("relay") is False
+        assert svc._is_read_model_enabled("relays") is False
 
-    def test_returns_false_when_table_disabled(self) -> None:
+    def test_returns_false_when_read_model_disabled(self) -> None:
         svc = _TestCatalogService()
         policy = MagicMock(enabled=False)
         svc._config.read_models = {"relays": policy}
 
-        assert svc._is_read_model_enabled("relay") is False
+        assert svc._is_read_model_enabled("relays") is False
 
-    def test_returns_true_when_table_enabled(self) -> None:
+    def test_returns_true_when_read_model_enabled(self) -> None:
         svc = _TestCatalogService()
         policy = MagicMock(enabled=True)
         svc._config.read_models = {"relays": policy}
 
-        assert svc._is_read_model_enabled("relay") is True
+        assert svc._is_read_model_enabled("relays") is True
 
-    def test_returns_false_for_unknown_table(self) -> None:
+    def test_returns_false_for_unknown_read_model(self) -> None:
         svc = _TestCatalogService()
         policy = MagicMock(enabled=True)
         svc._config.read_models = {"relays": policy}
 
         assert svc._is_read_model_enabled("nonexistent") is False
 
-    def test_returns_false_for_non_public_table_even_when_enabled(self) -> None:
+    def test_returns_false_for_non_public_read_model_even_when_enabled(self) -> None:
         svc = _TestCatalogService()
         policy = MagicMock(enabled=True)
         svc._config.read_models = {"service_state": policy}

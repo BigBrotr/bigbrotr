@@ -129,7 +129,7 @@ class TestApiConfig:
             port=9000,
             max_page_size=500,
             request_timeout=60.0,
-            read_models={"event": ReadModelConfig(enabled=True)},
+            read_models={"events": ReadModelConfig(enabled=True)},
         )
         assert config.title == "LilBrotr API"
         assert config.port == 9000
@@ -179,7 +179,7 @@ class TestApiConfig:
         assert config.port == 8080
         assert config.metrics.port == 9090
 
-    def test_internal_table_rejected(self) -> None:
+    def test_internal_read_model_rejected(self) -> None:
         with pytest.raises(ValueError, match=r"non-public API read models: service_state"):
             ApiConfig(read_models={"service_state": ReadModelConfig(enabled=True)})
 
@@ -269,11 +269,11 @@ class TestApiBuildApp:
         paths = [r.path for r in app.routes]
         assert any("relay_url" in p and "metadata_id" in p and "metadata_type" in p for p in paths)
 
-    def test_disabled_table_not_routed(self, test_client: TestClient) -> None:
+    def test_disabled_read_model_not_routed(self, test_client: TestClient) -> None:
         resp = test_client.get("/v1/service_state")
         assert resp.status_code in (404, 405)
 
-    def test_configured_internal_table_still_not_routed(
+    def test_configured_internal_read_model_still_not_routed(
         self, mock_brotr: Brotr, sample_catalog: Catalog
     ) -> None:
         with pytest.raises(ValueError, match=r"non-public API read models: service_state"):
@@ -363,7 +363,7 @@ class TestReadModelRoutes:
 
 
 # ============================================================================
-# Route Tests — Table List & Detail
+# Route Tests — Read Model Data
 # ============================================================================
 
 
