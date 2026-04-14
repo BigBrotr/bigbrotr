@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import importlib
 import sys
+import tomllib
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -74,3 +77,32 @@ class TestLazyImports:
         assert hasattr(bigbrotr, "__version__")
         assert isinstance(bigbrotr.__version__, str)
         assert bigbrotr.__version__  # Not empty
+
+    def test_resolve_version_prefers_pyproject_version(self, tmp_path: Path) -> None:
+        import bigbrotr
+
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("[project]\nversion = '9.9.9'\n")
+
+        with patch("bigbrotr._get_version", return_value="5.0.1"):
+            assert bigbrotr._resolve_version(pyproject) == "9.9.9"
+
+    def test_resolve_version_falls_back_to_runtime_metadata_when_pyproject_missing(self) -> None:
+        import bigbrotr
+
+        with patch("bigbrotr._get_version", return_value="6.6.9"):
+            assert bigbrotr._resolve_version(Path("/definitely/missing/pyproject.toml")) == "6.6.9"
+
+    def test_resolve_version_returns_unknown_when_no_metadata_is_available(self) -> None:
+        import bigbrotr
+
+        with patch("bigbrotr._get_version", side_effect=bigbrotr.PackageNotFoundError):
+            assert (
+                bigbrotr._resolve_version(Path("/definitely/missing/pyproject.toml")) == "0+unknown"
+            )
+
+    def test_source_tree_version_matches_pyproject(self) -> None:
+        import bigbrotr
+
+        expected = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+        assert bigbrotr._source_tree_version() == expected

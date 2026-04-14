@@ -37,10 +37,46 @@ Note:
 """
 
 import importlib
+import tomllib
+from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _get_version
+from pathlib import Path
 
 
-__version__ = _get_version("bigbrotr")
+def _source_tree_version(pyproject_path: Path | None = None) -> str | None:
+    """Return the version declared in pyproject.toml when running from a source tree."""
+    if pyproject_path is None:
+        pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
+
+    if not pyproject_path.is_file():
+        return None
+
+    try:
+        pyproject = tomllib.loads(pyproject_path.read_text())
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+
+    project = pyproject.get("project")
+    if not isinstance(project, dict):
+        return None
+
+    version = project.get("version")
+    return version if isinstance(version, str) and version else None
+
+
+def _resolve_version(pyproject_path: Path | None = None) -> str:
+    """Resolve the package version without depending solely on runtime metadata."""
+    source_version = _source_tree_version(pyproject_path)
+    if source_version is not None:
+        return source_version
+
+    try:
+        return _get_version("bigbrotr")
+    except PackageNotFoundError:
+        return "0+unknown"
+
+
+__version__ = _resolve_version()
 
 __all__ = [
     "Api",
