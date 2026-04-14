@@ -55,6 +55,7 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.catalog import CatalogError
 from bigbrotr.services.common.mixins import CatalogAccessMixin
+from bigbrotr.services.common.read_models import read_models_for_surface
 
 from .configs import ApiConfig
 
@@ -101,7 +102,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         await super().__aenter__()
 
         app = self._build_app()
-        endpoint_count = sum(1 for name in self._catalog.tables if self._is_table_enabled(name))
+        endpoint_count = len(self._enabled_read_model_names())
         self._logger.info("endpoints_registered", count=endpoint_count)
         self.set_gauge("tables_exposed", endpoint_count)
 
@@ -151,7 +152,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         self._requests_total = 0
         self._requests_failed = 0
 
-        tables_exposed = sum(1 for name in self._catalog.tables if self._is_table_enabled(name))
+        tables_exposed = len(self._enabled_read_model_names())
         self._logger.info(
             "cycle_stats",
             requests_total=total,
@@ -178,6 +179,15 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         self._add_table_routes(app)
 
         return app
+
+    def _enabled_read_model_names(self) -> list[str]:
+        """Return enabled API read models that are present in the discovered catalog."""
+        read_models = read_models_for_surface("api")
+        return [
+            name
+            for name in sorted(read_models)
+            if name in self._catalog.tables and self._is_table_enabled(name)
+        ]
 
     def _add_middleware(self, app: FastAPI) -> None:
         """Register CORS and request-logging middleware."""
@@ -251,8 +261,8 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
                     "columns": len(schema.columns),
                     "has_primary_key": bool(schema.primary_key),
                 }
-                for name, schema in sorted(self._catalog.tables.items())
-                if self._is_table_enabled(name)
+                for name in self._enabled_read_model_names()
+                for schema in [self._catalog.tables[name]]
             ]
             return JSONResponse({"data": tables})
 
@@ -284,9 +294,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
 
     def _add_table_routes(self, app: FastAPI) -> None:
         """Register auto-generated list and detail routes for enabled tables."""
-        for table_name in self._catalog.tables:
-            if not self._is_table_enabled(table_name):
-                continue
+        for table_name in self._enabled_read_model_names():
             self._register_table_routes(app, table_name)
 
     def _register_table_routes(self, app: FastAPI, table_name: str) -> None:

@@ -20,6 +20,7 @@ from bigbrotr.services.common.catalog import (
     TableSchema,
 )
 from bigbrotr.services.common.configs import TableConfig
+from bigbrotr.services.common.read_models import ReadModelEntry
 
 
 # ============================================================================
@@ -272,6 +273,19 @@ class TestApiBuildApp:
     def test_view_has_no_pk_route(self, test_client: TestClient) -> None:
         resp = test_client.get("/v1/relay_stats/something")
         assert resp.status_code in (404, 405)
+
+    def test_enabled_read_model_names_follow_registry(
+        self, api_service: Api, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "bigbrotr.services.api.service.read_models_for_surface",
+            lambda _surface: {
+                "relay": ReadModelEntry(catalog_name="relay", surfaces=("api",)),
+                "missing_view": ReadModelEntry(catalog_name="missing_view", surfaces=("api",)),
+            },
+        )
+
+        assert api_service._enabled_read_model_names() == ["relay"]
 
 
 # ============================================================================
