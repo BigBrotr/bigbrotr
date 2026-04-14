@@ -11,7 +11,12 @@ from pydantic import ValidationError
 from bigbrotr.models.constants import EventKind, ServiceName
 from bigbrotr.services.assertor.configs import AssertorConfig
 from bigbrotr.services.assertor.service import Assertor
-from bigbrotr.utils.protocol import ClientConnectResult, ClientSession, NostrClientManager
+from bigbrotr.utils.protocol import (
+    BroadcastClientResult,
+    ClientConnectResult,
+    ClientSession,
+    NostrClientManager,
+)
 from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 
@@ -31,6 +36,20 @@ def _session_output(mock_client: AsyncMock | MagicMock) -> ClientSession:
         relay_urls=("wss://relay.example",),
         connect_result=_connect_output(),
     )
+
+
+def _broadcast_results(
+    *,
+    successful_relays: tuple[str, ...] = ("wss://relay.example",),
+    failed_relays: dict[str, str] | None = None,
+) -> list[BroadcastClientResult]:
+    return [
+        BroadcastClientResult(
+            event_ids=("event-id",),
+            successful_relays=successful_relays,
+            failed_relays=failed_relays or {},
+        )
+    ]
 
 
 @pytest.fixture(autouse=True)
@@ -338,7 +357,7 @@ class TestAssertorPublishUserFlow:
         mock_brotr: MagicMock,
     ) -> None:
         mock_fetch.return_value = [self._make_row()]
-        mock_broadcast.return_value = 1
+        mock_broadcast.return_value = _broadcast_results()
         service = self._make_service(mock_brotr)
 
         published, skipped, failed = await service._publish_user_assertions()
@@ -385,7 +404,10 @@ class TestAssertorPublishUserFlow:
         mock_brotr: MagicMock,
     ) -> None:
         mock_fetch.return_value = [self._make_row()]
-        mock_broadcast.return_value = 0  # No relays accepted
+        mock_broadcast.return_value = _broadcast_results(
+            successful_relays=(),
+            failed_relays={"wss://relay.example": "timeout"},
+        )
         service = self._make_service(mock_brotr)
 
         published, _skipped, failed = await service._publish_user_assertions()
@@ -393,6 +415,13 @@ class TestAssertorPublishUserFlow:
         assert published == 0
         assert failed == 1
         mock_brotr.upsert_service_state.assert_not_awaited()
+        service._logger.warning.assert_called_once_with(
+            "user_assertion_failed",
+            pubkey=self._make_row()["pubkey"],
+            algorithm_id=service._config.algorithm_id,
+            error="no relays accepted assertion",
+            failed_relays={"wss://relay.example": "timeout"},
+        )
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_user_rows", new_callable=AsyncMock)
@@ -422,7 +451,7 @@ class TestAssertorPublishUserFlow:
     ) -> None:
         # Return fewer rows than batch_size -> should stop after first call
         mock_fetch.return_value = [self._make_row(pubkey=f"{i:02x}" * 32) for i in range(3)]
-        mock_broadcast.return_value = 1
+        mock_broadcast.return_value = _broadcast_results()
         service = self._make_service(mock_brotr)
         service._config.selection.batch_size = 100  # 3 < 100 = partial
 
@@ -440,7 +469,7 @@ class TestAssertorPublishUserFlow:
     ) -> None:
         batch = [self._make_row(pubkey=f"{i:02x}" * 32) for i in range(100)]
         mock_fetch.side_effect = [batch, []]
-        mock_broadcast.return_value = 1
+        mock_broadcast.return_value = _broadcast_results()
         service = self._make_service(mock_brotr)
         service._config.selection.batch_size = 100
 
@@ -528,7 +557,7 @@ class TestAssertorCheckpointNamespacing:
                 "following_count": 0,
             }
         ]
-        mock_broadcast.return_value = 1
+        mock_broadcast.return_value = _broadcast_results()
         service = self._make_service(mock_brotr)
 
         await service._publish_user_assertions()
@@ -561,7 +590,7 @@ class TestAssertorCheckpointNamespacing:
                 "zap_amount": 0,
             }
         ]
-        mock_broadcast.return_value = 1
+        mock_broadcast.return_value = _broadcast_results()
         service = self._make_service(mock_brotr)
 
         await service._publish_event_assertions()
@@ -594,7 +623,7 @@ class TestAssertorCheckpointNamespacing:
                 "zap_amount": 0,
             }
         ]
-        mock_broadcast.return_value = 1
+        mock_broadcast.return_value = _broadcast_results()
         service = self._make_service(mock_brotr)
 
         await service._publish_addressable_assertions()
@@ -620,7 +649,7 @@ class TestAssertorCheckpointNamespacing:
                 "k_tags": ["book"],
             }
         ]
-        mock_broadcast.return_value = 1
+        mock_broadcast.return_value = _broadcast_results()
         service = self._make_service(mock_brotr)
 
         await service._publish_identifier_assertions()
@@ -675,7 +704,7 @@ class TestAssertorCheckpointNamespacing:
                 "zap_amount": 0,
             }
         ]
-        mock_broadcast.return_value = 1
+        mock_broadcast.return_value = _broadcast_results()
         service = self._make_service(mock_brotr)
 
         from bigbrotr.models.constants import EventKind
@@ -950,7 +979,7 @@ class TestAssertorProviderProfile:
         mock_broadcast: AsyncMock,
         mock_brotr: MagicMock,
     ) -> None:
-        mock_broadcast.return_value = 1
+        mock_broadcast.return_value = _broadcast_results()
         service = self._make_service(mock_brotr)
 
         published, skipped, failed = await service._publish_provider_profile()
@@ -995,14 +1024,22 @@ class TestAssertorProviderProfile:
         mock_broadcast: AsyncMock,
         mock_brotr: MagicMock,
     ) -> None:
-        mock_broadcast.return_value = 0
+        mock_broadcast.return_value = _broadcast_results(
+            successful_relays=(),
+            failed_relays={"wss://relay.example": "timeout"},
+        )
         service = self._make_service(mock_brotr)
 
         published, skipped, failed = await service._publish_provider_profile()
 
         assert (published, skipped, failed) == (0, 0, 1)
         mock_brotr.upsert_service_state.assert_not_awaited()
-        service._logger.warning.assert_called_once()
+        service._logger.warning.assert_called_once_with(
+            "provider_profile_publish_failed",
+            algorithm_id=service._config.algorithm_id,
+            error="no relays accepted provider profile",
+            failed_relays={"wss://relay.example": "timeout"},
+        )
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     async def test_provider_profile_publish_error_counts_as_failed(
@@ -1127,7 +1164,7 @@ class TestAssertorPublishEventFlow:
         mock_brotr: MagicMock,
     ) -> None:
         mock_fetch.return_value = [self._make_event_row()]
-        mock_broadcast.return_value = 1
+        mock_broadcast.return_value = _broadcast_results()
         service = self._make_service(mock_brotr)
 
         published, skipped, failed = await service._publish_event_assertions()
@@ -1172,13 +1209,23 @@ class TestAssertorPublishEventFlow:
         mock_brotr: MagicMock,
     ) -> None:
         mock_fetch.return_value = [self._make_event_row()]
-        mock_broadcast.return_value = 0
+        mock_broadcast.return_value = _broadcast_results(
+            successful_relays=(),
+            failed_relays={"wss://relay.example": "timeout"},
+        )
         service = self._make_service(mock_brotr)
 
         published, _skipped, failed = await service._publish_event_assertions()
 
         assert published == 0
         assert failed == 1
+        service._logger.warning.assert_called_once_with(
+            "event_assertion_failed",
+            event_id=self._make_event_row()["event_id"],
+            algorithm_id=service._config.algorithm_id,
+            error="no relays accepted assertion",
+            failed_relays={"wss://relay.example": "timeout"},
+        )
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_event_rows", new_callable=AsyncMock)
@@ -1208,7 +1255,7 @@ class TestAssertorPublishEventFlow:
     ) -> None:
         batch = [self._make_event_row(event_id=f"{i:02x}" * 32) for i in range(100)]
         mock_fetch.side_effect = [batch, []]
-        mock_broadcast.return_value = 1
+        mock_broadcast.return_value = _broadcast_results()
         service = self._make_service(mock_brotr)
         service._config.selection.batch_size = 100
 
@@ -1296,7 +1343,7 @@ class TestAssertorPublishAddressableAndIdentifierFlow:
                 "zap_amount": 21000,
             }
         ]
-        mock_broadcast.return_value = 1
+        mock_broadcast.return_value = _broadcast_results()
         service = self._make_service(mock_brotr)
 
         published, skipped, failed = await service._publish_addressable_assertions()
@@ -1325,7 +1372,7 @@ class TestAssertorPublishAddressableAndIdentifierFlow:
                 "k_tags": ["book", "isbn"],
             }
         ]
-        mock_broadcast.return_value = 1
+        mock_broadcast.return_value = _broadcast_results()
         service = self._make_service(mock_brotr)
 
         published, skipped, failed = await service._publish_identifier_assertions()

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from nostr_sdk import Client, EventBuilder
 
     from bigbrotr.core.logger import Logger
+    from bigbrotr.utils.protocol import BroadcastClientResult
 
     from .configs import AssertorConfig
 
@@ -54,7 +55,10 @@ class PublishRuntime:
     mark_seen_state_key: Callable[[str], None]
     is_unchanged: Callable[[str, str], Awaitable[bool]]
     save_hash: Callable[[str, str], Awaitable[None]]
-    publish_events: Callable[[list[EventBuilder], list[Client]], Awaitable[int]]
+    publish_events: Callable[
+        [list[EventBuilder], list[Client]],
+        Awaitable[list[BroadcastClientResult]],
+    ]
     build_state_key: Callable[..., str]
 
 
@@ -68,11 +72,26 @@ class ProviderProfileRuntime:
     mark_seen_state_key: Callable[[str], None]
     is_unchanged: Callable[[str, str], Awaitable[bool]]
     save_hash: Callable[[str, str], Awaitable[None]]
-    publish_events: Callable[[list[EventBuilder], list[Client]], Awaitable[int]]
+    publish_events: Callable[
+        [list[EventBuilder], list[Client]],
+        Awaitable[list[BroadcastClientResult]],
+    ]
     build_state_key: Callable[..., str]
     build_profile_event: Callable[..., EventBuilder]
     provider_profile_content: Callable[..., dict[str, Any]]
     content_hash: Callable[[dict[str, Any]], str]
+
+
+def _summarize_publish_results(
+    results: list[BroadcastClientResult],
+) -> tuple[tuple[str, ...], dict[str, str]]:
+    successful_relays = tuple(
+        sorted({relay_url for result in results for relay_url in result.successful_relays})
+    )
+    failed_relays: dict[str, str] = {}
+    for result in results:
+        failed_relays.update(result.failed_relays)
+    return successful_relays, failed_relays
 
 
 async def publish_assertion_rows(
@@ -107,12 +126,23 @@ async def publish_assertion_rows(
 
             try:
                 builder = plan.builder_from_assertion(assertion)
-                sent = await runtime.publish_events([builder], [runtime.client])
-                if sent > 0:
+                successful_relays, failed_relays = _summarize_publish_results(
+                    await runtime.publish_events([builder], [runtime.client])
+                )
+                if successful_relays:
                     await runtime.save_hash(state_key, current_hash)
                     published += 1
                 else:
                     failed += 1
+                    runtime.logger.warning(
+                        plan.error_event_name,
+                        **{
+                            plan.error_subject_field: subject_id,
+                            "algorithm_id": runtime.algorithm_id,
+                            "error": "no relays accepted assertion",
+                            "failed_relays": failed_relays,
+                        },
+                    )
             except (asyncpg.PostgresError, OSError) as exc:
                 failed += 1
                 runtime.logger.error(
@@ -171,20 +201,24 @@ async def publish_provider_profile(runtime: ProviderProfileRuntime) -> tuple[int
             lud16=kind0.lud16,
             extra_fields=extra_fields,
         )
-        sent = await runtime.publish_events([builder], [runtime.client])
-        if sent > 0:
+        successful_relays, failed_relays = _summarize_publish_results(
+            await runtime.publish_events([builder], [runtime.client])
+        )
+        if successful_relays:
             await runtime.save_hash(state_key, current_hash)
             runtime.logger.info(
                 "provider_profile_published",
                 algorithm_id=runtime.config.algorithm_id,
-                relays=sent,
+                relays=len(successful_relays),
+                failed_relays=len(failed_relays),
             )
             return 1, 0, 0
 
         runtime.logger.warning(
             "provider_profile_publish_failed",
             algorithm_id=runtime.config.algorithm_id,
-            error="no relays reachable",
+            error="no relays accepted provider profile",
+            failed_relays=failed_relays,
         )
         return 0, 0, 1
     except (asyncpg.PostgresError, OSError) as exc:

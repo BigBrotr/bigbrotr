@@ -30,7 +30,12 @@ from bigbrotr.nips.nip85.data import (
     UserAssertion,
 )
 from bigbrotr.services.common.state_store import ServiceStateStore
-from bigbrotr.utils.protocol import NostrClientManager, broadcast_events
+from bigbrotr.utils.protocol import (
+    NostrClientManager,
+)
+from bigbrotr.utils.protocol import (
+    broadcast_events_detailed as broadcast_events,
+)
 from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 from .configs import AssertorConfig
