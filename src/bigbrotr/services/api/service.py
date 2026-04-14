@@ -301,16 +301,15 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
     ) -> dict[str, Any]:
         """Build the public discovery payload for one read model."""
         schema = read_model.schema(self._catalog)
-        supports_cursor = bool(schema.primary_key)
+        supports_identity_lookup = bool(schema.primary_key)
         return {
             "id": read_model_id,
             "path": f"{self._config.route_prefix}/{read_model_id}",
             "legacy_aliases": list(read_model.aliases),
-            "is_view": schema.is_view,
-            "column_count": len(schema.columns),
-            "has_primary_key": supports_cursor,
-            "default_pagination": "cursor" if supports_cursor else "offset",
-            "supports_cursor_pagination": supports_cursor,
+            "field_count": len(schema.columns),
+            "supports_identity_lookup": supports_identity_lookup,
+            "default_pagination_mode": "cursor" if supports_identity_lookup else "offset",
+            "supports_cursor_pagination": supports_identity_lookup,
         }
 
     def _build_read_model_detail(
@@ -320,13 +319,12 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
     ) -> dict[str, Any]:
         """Build the public detail payload for one read model."""
         schema = read_model.schema(self._catalog)
-        supports_cursor = bool(schema.primary_key)
+        supports_identity_lookup = bool(schema.primary_key)
         return {
             "id": read_model_id,
             "path": f"{self._config.route_prefix}/{read_model_id}",
             "legacy_aliases": list(read_model.aliases),
-            "is_view": schema.is_view,
-            "columns": [
+            "fields": [
                 {
                     "name": c.name,
                     "type": c.pg_type,
@@ -334,14 +332,14 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
                 }
                 for c in schema.columns
             ],
-            "primary_key": list(schema.primary_key),
+            "identity_fields": list(schema.primary_key),
             "pagination": {
-                "default_mode": "cursor" if supports_cursor else "offset",
-                "supports_cursor": supports_cursor,
+                "default_mode": "cursor" if supports_identity_lookup else "offset",
+                "supports_cursor": supports_identity_lookup,
                 "supports_offset": True,
                 "supports_total_opt_in": True,
-                "cursor_param": "cursor" if supports_cursor else None,
-                "meta_cursor_field": "next_cursor" if supports_cursor else None,
+                "cursor_param": "cursor" if supports_identity_lookup else None,
+                "meta_cursor_field": "next_cursor" if supports_identity_lookup else None,
             },
         }
 

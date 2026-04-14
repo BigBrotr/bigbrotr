@@ -340,13 +340,15 @@ class TestReadModelRoutes:
         assert "service_state" not in names
         relay = next(item for item in data if item["id"] == "relays")
         assert relay["path"] == "/v1/relays"
-        assert relay["column_count"] == 2
-        assert relay["default_pagination"] == "cursor"
+        assert relay["field_count"] == 2
+        assert relay["default_pagination_mode"] == "cursor"
+        assert relay["supports_identity_lookup"] is True
         assert relay["supports_cursor_pagination"] is True
         assert relay["legacy_aliases"] == ["relay"]
 
         relay_stats = next(item for item in data if item["id"] == "relay-stats")
-        assert relay_stats["default_pagination"] == "offset"
+        assert relay_stats["default_pagination_mode"] == "offset"
+        assert relay_stats["supports_identity_lookup"] is False
         assert relay_stats["supports_cursor_pagination"] is False
 
     def test_read_model_detail(self, test_client: TestClient) -> None:
@@ -355,9 +357,8 @@ class TestReadModelRoutes:
         data = resp.json()["data"]
         assert data["id"] == "relays"
         assert data["path"] == "/v1/relays"
-        assert data["is_view"] is False
-        assert len(data["columns"]) == 2
-        assert data["primary_key"] == ["url"]
+        assert len(data["fields"]) == 2
+        assert data["identity_fields"] == ["url"]
         assert data["legacy_aliases"] == ["relay"]
         assert data["pagination"] == {
             "default_mode": "cursor",

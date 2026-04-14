@@ -521,6 +521,10 @@ The discovery surface now exposes canonical, product-level read-model IDs such a
 remain accepted for compatibility, but discovery and deployment configs should prefer
 the canonical IDs.
 
+`GET /api/v1/read-models/{read_model}` describes the public contract in read-model
+terms: `fields`, `identity_fields`, and pagination capabilities, rather than exposing
+raw catalog internals as the primary vocabulary.
+
 For read models with a primary key, list responses default to cursor pagination:
 
 - the request can pass `cursor=<opaque-token>` for the next page
