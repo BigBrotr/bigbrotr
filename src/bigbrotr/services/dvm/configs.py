@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from pydantic import AliasChoices, BeforeValidator, Field, model_validator
+from pydantic import BeforeValidator, Field, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
@@ -36,7 +36,6 @@ class DvmConfig(BaseServiceConfig):
         default_page_size: Default ``limit`` when not specified.
         max_page_size: Hard ceiling on query limit.
         read_models: Per-read-model policies (enable/disable, pricing).
-            The legacy YAML key ``tables`` is still accepted as an input alias.
         announce: Whether to publish a NIP-89 handler announcement at startup.
         fetch_timeout: Timeout in seconds for relay subscription setup and replay startup.
     """
@@ -95,7 +94,6 @@ class DvmConfig(BaseServiceConfig):
     )
     read_models: dict[str, ReadModelConfig] = Field(
         default_factory=dict,
-        validation_alias=AliasChoices("read_models", "tables"),
         description="Per-read-model access and pricing policies",
     )
     announce: bool = Field(
@@ -126,9 +124,9 @@ class DvmConfig(BaseServiceConfig):
 
     @model_validator(mode="before")
     @classmethod
-    def _reject_duplicate_read_model_keys(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "tables" in data and "read_models" in data:
-            raise ValueError("Specify only one of tables or read_models")
+    def _reject_legacy_tables_key(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "tables" in data:
+            raise ValueError("Use read_models instead of tables")
         return data
 
     @model_validator(mode="after")

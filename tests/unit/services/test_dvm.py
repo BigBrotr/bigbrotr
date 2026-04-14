@@ -208,10 +208,10 @@ class TestDvmConfig:
         with pytest.raises(ValueError):
             DvmConfig(relays=["wss://relay.example.com"], kind=4000)
 
-    def test_custom_tables(self) -> None:
+    def test_custom_read_models(self) -> None:
         config = DvmConfig(
             relays=["wss://relay.example.com"],
-            tables={"relay": ReadModelConfig(enabled=True, price=1000)},
+            read_models={"relay": ReadModelConfig(enabled=True, price=1000)},
         )
         assert config.read_models["relays"].price == 1000
         assert config.read_models["relays"].enabled is True
@@ -223,12 +223,11 @@ class TestDvmConfig:
         )
         assert config.read_models["relays"].price == 1000
 
-    def test_tables_and_read_models_together_rejected(self) -> None:
-        with pytest.raises(ValueError, match="Specify only one of tables or read_models"):
+    def test_tables_key_rejected(self) -> None:
+        with pytest.raises(ValueError, match="Use read_models instead of tables"):
             DvmConfig(
                 relays=["wss://relay.example.com"],
                 tables={"relay": ReadModelConfig(enabled=True)},
-                read_models={"events": ReadModelConfig(enabled=True)},
             )
 
     def test_inherits_base_service_config(self) -> None:
@@ -264,7 +263,7 @@ class TestDvmConfig:
         with pytest.raises(ValueError, match=r"non-public DVM read models: service_state"):
             DvmConfig(
                 relays=["wss://relay.example.com"],
-                tables={"service_state": ReadModelConfig(enabled=True)},
+                read_models={"service_state": ReadModelConfig(enabled=True)},
             )
 
 
@@ -316,7 +315,7 @@ class TestDvmReadModelAccessPolicy:
             DvmConfig(
                 interval=60.0,
                 relays=["wss://relay.example.com"],
-                tables={
+                read_models={
                     "relay": ReadModelConfig(enabled=True),
                     "service_state": ReadModelConfig(enabled=True),
                 },
