@@ -57,9 +57,10 @@ from bigbrotr.services.common.read_models import (
     ReadModelEntry,
     ReadModelQueryError,
     catalog_name_for_read_model,
-    enabled_read_models_for_surface,
     read_model_query_from_job_params,
     resolve_read_model_id,
+    resolve_surface_read_model_names,
+    resolve_surface_read_models,
 )
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import DvmRequestCursor
@@ -483,23 +484,19 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
 
     def _enabled_read_model_names(self) -> list[str]:
         """Return enabled DVM read models that are present in the discovered catalog."""
-        return list(self._enabled_read_models())
+        return resolve_surface_read_model_names(
+            "dvm",
+            policies=self._config.read_models,
+            available_catalog_names=set(self._catalog.tables),
+        )
 
     def _enabled_read_models(self) -> dict[str, ReadModelEntry]:
         """Return enabled DVM read models keyed by public read-model ID."""
-        enabled_names = {
-            name for name in self._config.read_models if self._is_read_model_enabled(name)
-        }
-        return {
-            read_model_id: entry
-            for read_model_id, entry in enabled_read_models_for_surface(
-                "dvm",
-                available_catalog_names=set(self._catalog.tables),
-                enabled_names=enabled_names,
-            ).items()
-            if entry.catalog_name in self._catalog.tables
-            and self._is_read_model_enabled(read_model_id)
-        }
+        return resolve_surface_read_models(
+            "dvm",
+            policies=self._config.read_models,
+            available_catalog_names=set(self._catalog.tables),
+        )
 
     def _set_read_model_exposure_metrics(self, count: int) -> None:
         """Publish canonical and compatibility gauges for exposed read models."""

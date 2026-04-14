@@ -20,7 +20,6 @@ from bigbrotr.services.common.catalog import (
     TableSchema,
 )
 from bigbrotr.services.common.configs import ReadModelConfig
-from bigbrotr.services.common.read_models import CatalogReadModelBackend, ReadModelEntry
 
 
 # ============================================================================
@@ -296,22 +295,8 @@ class TestApiBuildApp:
         self, api_service: Api, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            "bigbrotr.services.api.service.enabled_read_models_for_surface",
-            lambda *_args, **_kwargs: {
-                "relays": ReadModelEntry(
-                    read_model_id="relays",
-                    catalog_name="relay",
-                    backend=CatalogReadModelBackend("relay"),
-                    aliases=("relay",),
-                    surfaces=("api",),
-                ),
-                "missing_view": ReadModelEntry(
-                    read_model_id="missing_view",
-                    catalog_name="missing_view",
-                    backend=CatalogReadModelBackend("missing_view"),
-                    surfaces=("api",),
-                ),
-            },
+            "bigbrotr.services.api.service.resolve_surface_read_model_names",
+            lambda *_args, **_kwargs: ["relays"],
         )
 
         assert api_service._enabled_read_model_names() == ["relays"]

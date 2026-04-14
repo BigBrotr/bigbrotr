@@ -439,3 +439,34 @@ def enabled_read_models_for_surface(
         for read_model_id, entry in sorted(read_models_for_surface(surface).items())
         if entry.catalog_name in available_catalog_names and read_model_id in canonical_enabled
     }
+
+
+def resolve_surface_read_models(
+    surface: ReadSurface,
+    *,
+    policies: Mapping[str, ReadModelConfig],
+    available_catalog_names: set[str],
+) -> dict[str, ReadModelEntry]:
+    """Resolve one public surface to enabled, discoverable read-model entries."""
+    enabled_names = {name for name, policy in policies.items() if policy.enabled}
+    return enabled_read_models_for_surface(
+        surface,
+        available_catalog_names=available_catalog_names,
+        enabled_names=enabled_names,
+    )
+
+
+def resolve_surface_read_model_names(
+    surface: ReadSurface,
+    *,
+    policies: Mapping[str, ReadModelConfig],
+    available_catalog_names: set[str],
+) -> list[str]:
+    """Resolve one public surface to the ordered list of enabled read-model IDs."""
+    return list(
+        resolve_surface_read_models(
+            surface,
+            policies=policies,
+            available_catalog_names=available_catalog_names,
+        )
+    )

@@ -22,7 +22,6 @@ from bigbrotr.services.common.catalog import (
     TableSchema,
 )
 from bigbrotr.services.common.configs import ReadModelConfig
-from bigbrotr.services.common.read_models import CatalogReadModelBackend, ReadModelEntry
 from bigbrotr.services.common.types import DvmRequestCursor
 from bigbrotr.services.dvm.configs import DvmConfig
 from bigbrotr.services.dvm.service import Dvm
@@ -1090,22 +1089,8 @@ class TestDvmPublishingGuards:
         self, dvm_service: Dvm, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            "bigbrotr.services.dvm.service.enabled_read_models_for_surface",
-            lambda *_args, **_kwargs: {
-                "relays": ReadModelEntry(
-                    read_model_id="relays",
-                    catalog_name="relay",
-                    backend=CatalogReadModelBackend("relay"),
-                    aliases=("relay",),
-                    surfaces=("dvm",),
-                ),
-                "missing_view": ReadModelEntry(
-                    read_model_id="missing_view",
-                    catalog_name="missing_view",
-                    backend=CatalogReadModelBackend("missing_view"),
-                    surfaces=("dvm",),
-                ),
-            },
+            "bigbrotr.services.dvm.service.resolve_surface_read_model_names",
+            lambda *_args, **_kwargs: ["relays"],
         )
 
         assert dvm_service._enabled_read_model_names() == ["relays"]

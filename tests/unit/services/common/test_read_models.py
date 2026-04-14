@@ -20,6 +20,8 @@ from bigbrotr.services.common.read_models import (
     read_model_query_from_job_params,
     read_models_for_surface,
     resolve_read_model_id,
+    resolve_surface_read_model_names,
+    resolve_surface_read_models,
 )
 
 
@@ -106,6 +108,31 @@ class TestReadModelRegistry:
         )
 
         assert set(enabled) == {"relays"}
+
+    def test_resolve_surface_read_models_filters_disabled_and_missing_catalog_entries(self) -> None:
+        resolved = resolve_surface_read_models(
+            "api",
+            policies={
+                "relays": ReadModelConfig(enabled=True),
+                "events": ReadModelConfig(enabled=False),
+                "metadata-documents": ReadModelConfig(enabled=True),
+            },
+            available_catalog_names={"relay"},
+        )
+
+        assert set(resolved) == {"relays"}
+
+    def test_resolve_surface_read_model_names_returns_stable_sorted_ids(self) -> None:
+        resolved = resolve_surface_read_model_names(
+            "dvm",
+            policies={
+                "events": ReadModelConfig(enabled=True),
+                "relays": ReadModelConfig(enabled=True),
+            },
+            available_catalog_names={"relay", "event"},
+        )
+
+        assert resolved == ["events", "relays"]
 
     def test_entry_schema_uses_catalog_name(self) -> None:
         catalog = Catalog()
