@@ -300,6 +300,14 @@ class TestDvmReadModelAccessPolicy:
     def test_enabled_in_config(self, dvm_service: Dvm) -> None:
         assert dvm_service._is_read_model_enabled("relay") is True
 
+    def test_resolve_enabled_read_model_returns_canonical_entry(self, dvm_service: Dvm) -> None:
+        resolved = dvm_service._resolve_enabled_read_model("relay")
+
+        assert resolved is not None
+        read_model_id, read_model = resolved
+        assert read_model_id == "relays"
+        assert read_model.read_model_id == "relays"
+
     def test_not_in_config_disabled(self, dvm_service: Dvm) -> None:
         assert dvm_service._is_read_model_enabled("service_state") is False
 

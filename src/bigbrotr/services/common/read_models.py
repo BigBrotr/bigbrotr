@@ -373,14 +373,6 @@ def resolve_read_model_id(name: str) -> str | None:
     return READ_MODEL_ALIASES.get(name)
 
 
-def catalog_name_for_read_model(name: str) -> str | None:
-    """Resolve one public read-model name to the backing catalog name."""
-    canonical_name = resolve_read_model_id(name)
-    if canonical_name is None:
-        return None
-    return READ_MODEL_REGISTRY[canonical_name].catalog_name
-
-
 def normalize_read_model_policies(
     policies: Mapping[str, ReadModelConfig],
     *,
@@ -454,6 +446,25 @@ def resolve_surface_read_models(
         available_catalog_names=available_catalog_names,
         enabled_names=enabled_names,
     )
+
+
+def resolve_surface_read_model(
+    surface: ReadSurface,
+    *,
+    name: str,
+    policies: Mapping[str, ReadModelConfig],
+    available_catalog_names: set[str],
+) -> tuple[str, ReadModelEntry] | None:
+    """Resolve one public read-model name to an enabled, discoverable entry."""
+    canonical_name = resolve_read_model_id(name) or name
+    read_model = resolve_surface_read_models(
+        surface,
+        policies=policies,
+        available_catalog_names=available_catalog_names,
+    ).get(canonical_name)
+    if read_model is None:
+        return None
+    return canonical_name, read_model
 
 
 def resolve_surface_read_model_names(

@@ -56,9 +56,9 @@ from bigbrotr.services.common.mixins import CatalogAccessMixin
 from bigbrotr.services.common.read_models import (
     ReadModelEntry,
     ReadModelQueryError,
-    catalog_name_for_read_model,
     read_model_query_from_job_params,
     resolve_read_model_id,
+    resolve_surface_read_model,
     resolve_surface_read_model_names,
     resolve_surface_read_models,
 )
@@ -363,8 +363,8 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         Returns:
             Tuple of (received, processed, failed, payment_required) deltas.
         """
-        read_model = self._enabled_read_models().get(read_model_id)
-        if read_model is None:
+        resolved_read_model = self._resolve_enabled_read_model(read_model_id)
+        if resolved_read_model is None:
             await self._send_event(
                 build_error_event(
                     event_id,
@@ -374,6 +374,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
                 require_success=True,
             )
             return 1, 0, 1, 0
+        read_model_id, read_model = resolved_read_model
 
         price = self._get_read_model_price(read_model_id)
         if price > 0:
@@ -470,10 +471,16 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
     # ── Read-model policy helpers ─────────────────────────────────
 
     def _is_read_model_enabled(self, name: str) -> bool:
-        catalog_name = catalog_name_for_read_model(name) or name
-        if catalog_name not in self._catalog.tables:
-            return False
-        return super()._is_read_model_enabled(name)
+        return self._resolve_enabled_read_model(name) is not None
+
+    def _resolve_enabled_read_model(self, name: str) -> tuple[str, ReadModelEntry] | None:
+        """Resolve one DVM read-model name to its enabled registered entry."""
+        return resolve_surface_read_model(
+            "dvm",
+            name=name,
+            policies=self._config.read_models,
+            available_catalog_names=set(self._catalog.tables),
+        )
 
     def _get_read_model_price(self, name: str) -> int:
         canonical_name = resolve_read_model_id(name) or name

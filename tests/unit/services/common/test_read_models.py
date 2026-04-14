@@ -20,6 +20,7 @@ from bigbrotr.services.common.read_models import (
     read_model_query_from_job_params,
     read_models_for_surface,
     resolve_read_model_id,
+    resolve_surface_read_model,
     resolve_surface_read_model_names,
     resolve_surface_read_models,
 )
@@ -133,6 +134,29 @@ class TestReadModelRegistry:
         )
 
         assert resolved == ["events", "relays"]
+
+    def test_resolve_surface_read_model_accepts_legacy_public_name(self) -> None:
+        resolved = resolve_surface_read_model(
+            "dvm",
+            name="relay",
+            policies={"relays": ReadModelConfig(enabled=True)},
+            available_catalog_names={"relay"},
+        )
+
+        assert resolved is not None
+        canonical_name, entry = resolved
+        assert canonical_name == "relays"
+        assert entry.read_model_id == "relays"
+
+    def test_resolve_surface_read_model_filters_out_missing_catalog_entries(self) -> None:
+        resolved = resolve_surface_read_model(
+            "dvm",
+            name="relay",
+            policies={"relays": ReadModelConfig(enabled=True)},
+            available_catalog_names={"event"},
+        )
+
+        assert resolved is None
 
     def test_entry_schema_uses_catalog_name(self) -> None:
         catalog = Catalog()
