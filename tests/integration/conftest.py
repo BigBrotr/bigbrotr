@@ -19,7 +19,9 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 import asyncpg
+import docker
 import pytest
+from docker.errors import DockerException
 from pydantic import SecretStr
 from testcontainers.postgres import PostgresContainer
 
@@ -31,10 +33,28 @@ from bigbrotr.core.pool import DatabaseConfig, Pool, PoolConfig
 # Session-scoped container (shared across all integration tests)
 # ---------------------------------------------------------------------------
 
+_DOCKER_REQUIRED_MESSAGE = (
+    "Docker is required to run integration tests. "
+    "Start a Docker daemon or run the unit test suite instead."
+)
+
+
+def _ensure_docker_available() -> None:
+    """Fail fast with a clear message when Docker is unavailable."""
+    try:
+        client = docker.from_env()
+        try:
+            client.ping()
+        finally:
+            client.close()
+    except (DockerException, OSError) as exc:
+        pytest.fail(f"{_DOCKER_REQUIRED_MESSAGE} Original error: {exc}", pytrace=False)
+
 
 @pytest.fixture(scope="session")
 def pg_container():
     """Spawn an ephemeral PostgreSQL 18 container for the test session."""
+    _ensure_docker_available()
     with PostgresContainer("postgres:18-alpine") as pg:
         yield pg
 
