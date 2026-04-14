@@ -246,45 +246,21 @@ class Monitor(
     async def publish_profile(self) -> None:
         """Publish Kind 0 profile metadata if the configured interval has elapsed."""
         await publish_monitor_profile(
-            context=PublishContext(
-                brotr=self._brotr,
-                config=self._config,
-                clients=self.clients,
-                logger=self._logger,
-                is_due=is_publish_due,
-                broadcast=broadcast_events_detailed,
-                save_checkpoints=upsert_publish_checkpoints,
-            ),
+            context=self._publish_context(),
             build_profile=build_profile_event,
         )
 
     async def publish_relay_list(self) -> None:
         """Publish Kind 10002 relay list metadata if the configured interval has elapsed."""
         await publish_monitor_relay_list(
-            context=PublishContext(
-                brotr=self._brotr,
-                config=self._config,
-                clients=self.clients,
-                logger=self._logger,
-                is_due=is_publish_due,
-                broadcast=broadcast_events_detailed,
-                save_checkpoints=upsert_publish_checkpoints,
-            ),
+            context=self._publish_context(),
             build_relay_list=build_relay_list_event,
         )
 
     async def publish_announcement(self) -> None:
         """Publish Kind 10166 monitor announcement if the configured interval has elapsed."""
         await publish_monitor_announcement(
-            context=PublishContext(
-                brotr=self._brotr,
-                config=self._config,
-                clients=self.clients,
-                logger=self._logger,
-                is_due=is_publish_due,
-                broadcast=broadcast_events_detailed,
-                save_checkpoints=upsert_publish_checkpoints,
-            ),
+            context=self._publish_context(),
             build_announcement=build_monitor_announcement,
         )
 
@@ -326,35 +302,9 @@ class Monitor(
             [CheckResult][bigbrotr.services.monitor.CheckResult] with
             metadata for each completed check (``None`` if skipped/failed).
         """
-        network_config = self._config.networks.get(relay.network)
-        proxy_url = self._config.networks.get_proxy_url(relay.network)
         return await run_monitor_check_relay(
-            MonitorCheckContext(
-                relay=relay,
-                compute=self._config.processing.compute,
-                timeout=network_config.timeout,
-                proxy_url=proxy_url,
-                allow_insecure=self._config.processing.allow_insecure,
-                nip11_info_max_size=self._config.processing.nip11_info_max_size,
-                retries=self._config.processing.retries,
-                geohash_precision=self._config.geo.geohash_precision,
-                keys=self._keys,
-                city_reader=self.geo_readers.city,
-                asn_reader=self.geo_readers.asn,
-                logger=self._logger,
-                wait=self.wait,
-                generated_at=int(time.time()),
-            ),
-            MonitorCheckDependencies(
-                retry_fetch=retry_fetch,
-                nip11_fetch=Nip11.fetch,
-                rtt_probe=Nip66RttMetadata.probe,
-                ssl_probe=Nip66SslMetadata.probe,
-                geo_probe=Nip66GeoMetadata.probe,
-                net_probe=Nip66NetMetadata.probe,
-                dns_probe=Nip66DnsMetadata.probe,
-                http_probe=Nip66HttpMetadata.probe,
-            ),
+            self._check_context(relay, generated_at=int(time.time())),
+            self._check_dependencies(),
         )
 
     def _build_parallel_checks(
@@ -371,32 +321,69 @@ class Monitor(
         relay's network type are included.
         """
         return build_monitor_parallel_checks(
-            MonitorCheckContext(
-                relay=relay,
+            self._check_context(
+                relay,
                 compute=compute,
                 timeout=timeout,
                 proxy_url=proxy_url,
-                allow_insecure=self._config.processing.allow_insecure,
-                nip11_info_max_size=self._config.processing.nip11_info_max_size,
-                retries=self._config.processing.retries,
-                geohash_precision=self._config.geo.geohash_precision,
-                keys=self._keys,
-                city_reader=self.geo_readers.city,
-                asn_reader=self.geo_readers.asn,
-                logger=self._logger,
-                wait=self.wait,
                 generated_at=0,
             ),
-            MonitorCheckDependencies(
-                retry_fetch=retry_fetch,
-                nip11_fetch=Nip11.fetch,
-                rtt_probe=Nip66RttMetadata.probe,
-                ssl_probe=Nip66SslMetadata.probe,
-                geo_probe=Nip66GeoMetadata.probe,
-                net_probe=Nip66NetMetadata.probe,
-                dns_probe=Nip66DnsMetadata.probe,
-                http_probe=Nip66HttpMetadata.probe,
-            ),
+            self._check_dependencies(),
+        )
+
+    def _publish_context(self) -> PublishContext:
+        """Build the shared publishing context for monitor announcements."""
+        return PublishContext(
+            brotr=self._brotr,
+            config=self._config,
+            clients=self.clients,
+            logger=self._logger,
+            is_due=is_publish_due,
+            broadcast=broadcast_events_detailed,
+            save_checkpoints=upsert_publish_checkpoints,
+        )
+
+    def _check_context(
+        self,
+        relay: Relay,
+        *,
+        generated_at: int,
+        compute: MetadataFlags | None = None,
+        timeout: float | None = None,
+        proxy_url: str | None = None,
+    ) -> MonitorCheckContext:
+        """Build the shared per-relay monitor check context."""
+        network_config = self._config.networks.get(relay.network)
+        return MonitorCheckContext(
+            relay=relay,
+            compute=compute or self._config.processing.compute,
+            timeout=timeout if timeout is not None else network_config.timeout,
+            proxy_url=proxy_url
+            if proxy_url is not None
+            else self._config.networks.get_proxy_url(relay.network),
+            allow_insecure=self._config.processing.allow_insecure,
+            nip11_info_max_size=self._config.processing.nip11_info_max_size,
+            retries=self._config.processing.retries,
+            geohash_precision=self._config.geo.geohash_precision,
+            keys=self._keys,
+            city_reader=self.geo_readers.city,
+            asn_reader=self.geo_readers.asn,
+            logger=self._logger,
+            wait=self.wait,
+            generated_at=generated_at,
+        )
+
+    def _check_dependencies(self) -> MonitorCheckDependencies:
+        """Build the shared check dependency bundle for monitor relay probes."""
+        return MonitorCheckDependencies(
+            retry_fetch=retry_fetch,
+            nip11_fetch=Nip11.fetch,
+            rtt_probe=Nip66RttMetadata.probe,
+            ssl_probe=Nip66SslMetadata.probe,
+            geo_probe=Nip66GeoMetadata.probe,
+            net_probe=Nip66NetMetadata.probe,
+            dns_probe=Nip66DnsMetadata.probe,
+            http_probe=Nip66HttpMetadata.probe,
         )
 
     async def monitor(self) -> int:

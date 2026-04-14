@@ -15,6 +15,7 @@ from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.nips.base import BaseLogs
+from bigbrotr.nips.nip11 import Nip11
 from bigbrotr.nips.nip11.data import Nip11InfoData, Nip11InfoDataLimitation
 from bigbrotr.nips.nip11.info import Nip11InfoMetadata
 from bigbrotr.nips.nip11.logs import Nip11InfoLogs
@@ -53,6 +54,13 @@ from bigbrotr.services.monitor.queries import (
     upsert_monitor_checkpoints,
     upsert_publish_checkpoints,
 )
+from bigbrotr.services.monitor.service import (
+    Nip66DnsMetadata,
+    Nip66GeoMetadata,
+    Nip66HttpMetadata,
+    Nip66NetMetadata,
+    Nip66SslMetadata,
+)
 from bigbrotr.services.monitor.utils import (
     collect_metadata,
     extract_result,
@@ -60,7 +68,7 @@ from bigbrotr.services.monitor.utils import (
     log_success,
     retry_fetch,
 )
-from bigbrotr.utils.protocol import BroadcastClientResult
+from bigbrotr.utils.protocol import BroadcastClientResult, broadcast_events_detailed
 
 
 if TYPE_CHECKING:
@@ -131,6 +139,9 @@ class _MonitorStub:
         self.clients.disconnect = AsyncMock()
 
     # Publishing methods bound from Monitor
+    _publish_context = Monitor._publish_context
+    _check_context = Monitor._check_context
+    _check_dependencies = Monitor._check_dependencies
     publish_announcement = Monitor.publish_announcement
     publish_profile = Monitor.publish_profile
     publish_relay_list = Monitor.publish_relay_list
@@ -1382,6 +1393,58 @@ class TestMonitorInit:
 
     def test_service_name_attribute(self, mock_brotr: Brotr) -> None:
         assert Monitor.SERVICE_NAME == "monitor"
+
+
+class TestMonitorHelpers:
+    def test_publish_context_uses_monitor_dependencies(self, mock_brotr: Brotr) -> None:
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+
+        context = monitor._publish_context()
+
+        assert context.brotr is mock_brotr
+        assert context.config is config
+        assert context.clients is monitor.clients
+        assert context.logger is monitor._logger
+        assert context.is_due is is_publish_due
+        assert context.broadcast is broadcast_events_detailed
+        assert context.save_checkpoints is upsert_publish_checkpoints
+
+    def test_check_context_defaults_to_network_timeout_and_proxy(self, mock_brotr: Brotr) -> None:
+        config = _make_config(
+            networks=NetworksConfig(
+                clearnet=ClearnetConfig(timeout=5.0),
+                tor=TorConfig(enabled=True, timeout=30.0, proxy_url="socks5://tor:9050"),
+            )
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay(f"ws://{'a' * 56}.onion")
+        monitor.geo_readers.city = MagicMock()
+        monitor.geo_readers.asn = MagicMock()
+
+        context = monitor._check_context(relay, generated_at=123)
+
+        assert context.relay == relay
+        assert context.compute == config.processing.compute
+        assert context.timeout == 30.0
+        assert context.proxy_url == "socks5://tor:9050"
+        assert context.generated_at == 123
+        assert context.city_reader is monitor.geo_readers.city
+        assert context.asn_reader is monitor.geo_readers.asn
+
+    def test_check_dependencies_match_monitor_probe_functions(self, mock_brotr: Brotr) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+
+        deps = monitor._check_dependencies()
+
+        assert deps.retry_fetch is retry_fetch
+        assert deps.nip11_fetch.__func__ is Nip11.fetch.__func__
+        assert deps.rtt_probe.__func__ is Nip66RttMetadata.probe.__func__
+        assert deps.ssl_probe.__func__ is Nip66SslMetadata.probe.__func__
+        assert deps.geo_probe.__func__ is Nip66GeoMetadata.probe.__func__
+        assert deps.net_probe.__func__ is Nip66NetMetadata.probe.__func__
+        assert deps.dns_probe.__func__ is Nip66DnsMetadata.probe.__func__
+        assert deps.http_probe.__func__ is Nip66HttpMetadata.probe.__func__
 
 
 # ============================================================================
