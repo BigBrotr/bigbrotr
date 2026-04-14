@@ -2,7 +2,7 @@
 
 import pytest
 
-from bigbrotr.nips.parsing import FieldSpec, parse_fields
+from bigbrotr.nips.parsing import FieldSpec, parse_fields, parse_fields_report
 
 
 # =============================================================================
@@ -679,3 +679,51 @@ class TestParseFieldsRealWorld:
             "dns_ns": ["ns1.google.com", "ns2.google.com"],
             "dns_ttl": 300,
         }
+
+
+# =============================================================================
+# parse_fields_report Tests
+# =============================================================================
+
+
+class TestParseFieldsReport:
+    """Test parse_fields_report issue collection."""
+
+    def test_report_collects_unknown_and_invalid_fields(self):
+        """Report records unknown keys and invalid field values."""
+        spec = FieldSpec(int_fields=frozenset({"count"}))
+
+        report = parse_fields_report(
+            {"count": "bad", "name": "relay"},
+            spec,
+            path="nip11",
+        )
+
+        assert report.parsed == {}
+        assert report.has_issues is True
+        assert [issue.kind for issue in report.issues] == ["invalid_value", "unknown_field"]
+        assert [issue.path for issue in report.issues] == ["nip11.count", "nip11.name"]
+
+    def test_report_collects_filtered_list_items(self):
+        """Report records partial list filtering instead of dropping silently."""
+        spec = FieldSpec(str_list_fields=frozenset({"tags"}))
+
+        report = parse_fields_report({"tags": ["ok", 1, None]}, spec)
+
+        assert report.parsed == {"tags": ["ok"]}
+        assert len(report.issues) == 1
+        assert report.issues[0].kind == "filtered_items"
+        assert report.issues[0].path == "tags"
+
+    def test_report_honors_extra_known_fields(self):
+        """Custom parsers can suppress unknown reports for nested fields they handle."""
+        spec = FieldSpec(str_fields=frozenset({"name"}))
+
+        report = parse_fields_report(
+            {"name": "relay", "retention": []},
+            spec,
+            extra_known_fields=frozenset({"retention"}),
+        )
+
+        assert report.parsed == {"name": "relay"}
+        assert report.issues == ()

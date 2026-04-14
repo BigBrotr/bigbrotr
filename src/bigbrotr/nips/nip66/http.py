@@ -188,7 +188,9 @@ class Nip66HttpMetadata(BaseNipMetadata):
             logs["reason"] = str(e) or type(e).__name__
             logger.debug("http_error relay=%s error=%s", relay.url, logs["reason"])
 
+        data_report = Nip66HttpData.parse_report(data)
+        Nip66HttpData.log_parse_issues(logger, relay.url, data_report)
         return cls(
-            data=Nip66HttpData.model_validate(Nip66HttpData.parse(data)),
+            data=Nip66HttpData.model_validate(data_report.parsed),
             logs=Nip66HttpLogs.model_validate(logs),
         )

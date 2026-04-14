@@ -37,13 +37,17 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from time import time
-from typing import Any, ClassVar, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 
 from bigbrotr.models.relay import Relay  # noqa: TC001
 
-from .parsing import FieldSpec, parse_fields
+from .parsing import FieldSpec, ParseIssue, ParseReport, parse_fields_report
+
+
+if TYPE_CHECKING:
+    from logging import Logger
 
 
 class BaseData(BaseModel):
@@ -86,9 +90,43 @@ class BaseData(BaseModel):
         Returns:
             A cleaned dictionary containing only valid fields.
         """
+        return cls.parse_report(data).parsed
+
+    @classmethod
+    def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
+        """Parse arbitrary data and record unknown or invalid fields."""
         if not isinstance(data, dict):
-            return {}
-        return parse_fields(data, cls._FIELD_SPEC)
+            target = path or cls.__name__
+            return ParseReport(
+                parsed={},
+                issues=(
+                    ParseIssue(
+                        kind="invalid_input",
+                        path=target,
+                        detail="expected dict",
+                    ),
+                ),
+            )
+        return parse_fields_report(data, cls._FIELD_SPEC, path=path)
+
+    @classmethod
+    def log_parse_issues(
+        cls,
+        logger: Logger,
+        relay_url: str,
+        report: ParseReport,
+    ) -> None:
+        """Log a warning when permissive parsing had to drop data."""
+        if not report.has_issues:
+            return
+
+        logger.warning(
+            "nip_parse_issues relay=%s model=%s count=%s issues=%s",
+            relay_url,
+            cls.__name__,
+            len(report.issues),
+            report.summary(),
+        )
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:

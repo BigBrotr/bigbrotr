@@ -279,7 +279,9 @@ class Nip66SslMetadata(BaseNipMetadata):
             logs["reason"] = str(e) or type(e).__name__
             logger.debug("ssl_error relay=%s error=%s", relay.url, logs["reason"])
 
+        data_report = Nip66SslData.parse_report(data)
+        Nip66SslData.log_parse_issues(logger, relay.url, data_report)
         return cls(
-            data=Nip66SslData.model_validate(Nip66SslData.parse(data)),
+            data=Nip66SslData.model_validate(data_report.parsed),
             logs=Nip66SslLogs.model_validate(logs),
         )

@@ -198,7 +198,9 @@ class Nip66DnsMetadata(BaseNipMetadata):
             logs["reason"] = str(e) or type(e).__name__
             logger.debug("dns_error relay=%s error=%s", relay.url, logs["reason"])
 
+        data_report = Nip66DnsData.parse_report(data)
+        Nip66DnsData.log_parse_issues(logger, relay.url, data_report)
         return cls(
-            data=Nip66DnsData.model_validate(Nip66DnsData.parse(data)),
+            data=Nip66DnsData.model_validate(data_report.parsed),
             logs=Nip66DnsLogs.model_validate(logs),
         )

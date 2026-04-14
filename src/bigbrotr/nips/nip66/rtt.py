@@ -205,8 +205,9 @@ class Nip66RttMetadata(BaseNipMetadata):
     @classmethod
     def _build_result(cls, rtt_data: dict[str, Any], logs: dict[str, Any]) -> Self:
         """Construct the final Nip66RttMetadata from raw data and logs dicts."""
+        data_report = Nip66RttData.parse_report(rtt_data)
         return cls(
-            data=Nip66RttData.model_validate(Nip66RttData.parse(rtt_data)),
+            data=Nip66RttData.model_validate(data_report.parsed),
             logs=Nip66RttMultiPhaseLogs.model_validate(logs),
         )
 

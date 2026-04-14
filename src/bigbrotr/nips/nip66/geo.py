@@ -252,7 +252,9 @@ class Nip66GeoMetadata(BaseNipMetadata):
             logs["reason"] = "could not resolve hostname to IP"
             logger.debug("geo_no_ip relay=%s", relay.url)
 
+        data_report = Nip66GeoData.parse_report(data)
+        Nip66GeoData.log_parse_issues(logger, relay.url, data_report)
         return cls(
-            data=Nip66GeoData.model_validate(Nip66GeoData.parse(data)),
+            data=Nip66GeoData.model_validate(data_report.parsed),
             logs=Nip66GeoLogs.model_validate(logs),
         )

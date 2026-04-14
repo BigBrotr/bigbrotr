@@ -1,5 +1,7 @@
 """Unit tests for BaseData, BaseNipMetadata, BaseLogs, BaseNip, BaseNipSelection, BaseNipOptions, BaseNipDependencies."""
 
+import logging
+
 import pytest
 from pydantic import ValidationError
 
@@ -61,6 +63,15 @@ class TestBaseDataParse:
         # BaseData has empty _FIELD_SPEC by default
         result = BaseData.parse({"count": 10, "name": "test"})
         assert result == {}
+
+    def test_parse_report_with_non_dict_records_invalid_input(self):
+        """parse_report() records invalid input instead of failing silently."""
+        report = BaseData.parse_report("string")
+
+        assert report.parsed == {}
+        assert len(report.issues) == 1
+        assert report.issues[0].kind == "invalid_input"
+        assert report.issues[0].path == "BaseData"
 
 
 class TestBaseDataSubclass:
@@ -131,6 +142,21 @@ class TestBaseDataSubclass:
         data = {"count": 10, "unknown_field": "value"}
         result = data_subclass.parse(data)
         assert result == {"count": 10}
+
+    def test_log_parse_issues_emits_warning(self, data_subclass, caplog):
+        """log_parse_issues() emits a single warning for dropped fields."""
+        report = data_subclass.parse_report({"count": "bad", "unknown_field": "value"})
+
+        with caplog.at_level(logging.WARNING, logger="bigbrotr.nips.base-test"):
+            data_subclass.log_parse_issues(
+                logging.getLogger("bigbrotr.nips.base-test"),
+                "wss://relay.example.com",
+                report,
+            )
+
+        assert "nip_parse_issues" in caplog.text
+        assert "TestData" in caplog.text
+        assert "wss://relay.example.com" in caplog.text
 
     def test_from_dict_creates_model(self, data_subclass):
         """from_dict() creates model from valid dict."""

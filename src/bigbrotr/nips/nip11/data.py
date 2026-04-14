@@ -29,10 +29,200 @@ from typing import Any, ClassVar
 from pydantic import ConfigDict, Field, StrictBool, StrictInt
 
 from bigbrotr.nips.base import BaseData
-from bigbrotr.nips.parsing import FieldSpec, parse_fields
+from bigbrotr.nips.parsing import (
+    FieldSpec,
+    ParseIssue,
+    ParseReport,
+    join_parse_path,
+    parse_fields_report,
+)
 
 
 KindRange = tuple[StrictInt, StrictInt]
+
+
+def _invalid_input_report(path: str, fallback: str) -> ParseReport:
+    return ParseReport(
+        parsed={},
+        issues=(
+            ParseIssue(
+                kind="invalid_input",
+                path=path or fallback,
+                detail="expected dict",
+            ),
+        ),
+    )
+
+
+def _unknown_field_issues(
+    data: dict[str, Any],
+    known_fields: set[str],
+    *,
+    path: str,
+) -> list[ParseIssue]:
+    return [
+        ParseIssue(
+            kind="unknown_field",
+            path=join_parse_path(path, key),
+            detail="field not declared in parsing spec",
+        )
+        for key in data
+        if key not in known_fields
+    ]
+
+
+def _parse_strict_int_fields(
+    data: dict[str, Any],
+    field_names: tuple[str, ...],
+    *,
+    path: str,
+) -> tuple[dict[str, int], list[ParseIssue]]:
+    result: dict[str, int] = {}
+    issues: list[ParseIssue] = []
+
+    for key in field_names:
+        if key not in data:
+            continue
+        value = data[key]
+        if isinstance(value, int) and not isinstance(value, bool):
+            result[key] = value
+        else:
+            issues.append(
+                ParseIssue(
+                    kind="invalid_value",
+                    path=join_parse_path(path, key),
+                    detail="expected int",
+                )
+            )
+
+    return result, issues
+
+
+def _parse_supported_nips(raw_nips: Any, *, path: str) -> tuple[list[int] | None, list[ParseIssue]]:
+    issues: list[ParseIssue] = []
+    if not isinstance(raw_nips, list):
+        return None, [
+            ParseIssue(
+                kind="invalid_value",
+                path=path,
+                detail="expected list[int]",
+            )
+        ]
+
+    nips: list[int] = []
+    for index, value in enumerate(raw_nips):
+        if isinstance(value, int) and not isinstance(value, bool):
+            nips.append(value)
+        else:
+            issues.append(
+                ParseIssue(
+                    kind="invalid_value",
+                    path=join_parse_path(path, f"[{index}]"),
+                    detail="expected int",
+                )
+            )
+
+    if nips:
+        return sorted(set(nips)), issues
+    if not raw_nips:
+        issues.append(
+            ParseIssue(
+                kind="invalid_value",
+                path=path,
+                detail="expected non-empty list[int]",
+            )
+        )
+    return None, issues
+
+
+def _parse_retention_kinds(
+    raw_kinds: Any,
+    *,
+    path: str,
+) -> tuple[list[int | tuple[int, int]] | None, list[ParseIssue]]:
+    if not isinstance(raw_kinds, list):
+        return None, [
+            ParseIssue(
+                kind="invalid_value",
+                path=path,
+                detail="expected list[int | [int, int]]",
+            )
+        ]
+
+    kinds: list[int | tuple[int, int]] = []
+    issues: list[ParseIssue] = []
+    for index, item in enumerate(raw_kinds):
+        item_path = join_parse_path(path, f"[{index}]")
+        if isinstance(item, int) and not isinstance(item, bool):
+            kinds.append(item)
+            continue
+        if (
+            isinstance(item, list)
+            and len(item) == 2  # noqa: PLR2004 - [min, max] range pair
+            and isinstance(item[0], int)
+            and not isinstance(item[0], bool)
+            and isinstance(item[1], int)
+            and not isinstance(item[1], bool)
+        ):
+            kinds.append((item[0], item[1]))
+            continue
+        issues.append(
+            ParseIssue(
+                kind="invalid_value",
+                path=item_path,
+                detail="expected int or [int, int] range",
+            )
+        )
+
+    if kinds:
+        return kinds, issues
+    if not raw_kinds:
+        issues.append(
+            ParseIssue(
+                kind="invalid_value",
+                path=path,
+                detail="expected non-empty list[int | [int, int]]",
+            )
+        )
+    return None, issues
+
+
+def _parse_retention_entries(
+    raw_entries: Any,
+    *,
+    path: str,
+) -> tuple[list[dict[str, Any]] | None, list[ParseIssue]]:
+    if not isinstance(raw_entries, list):
+        return None, [
+            ParseIssue(
+                kind="invalid_value",
+                path=path,
+                detail="expected list[retention_entry]",
+            )
+        ]
+
+    entries: list[dict[str, Any]] = []
+    issues: list[ParseIssue] = []
+    for index, entry in enumerate(raw_entries):
+        entry_report = Nip11InfoDataRetentionEntry.parse_report(
+            entry,
+            path=join_parse_path(path, f"[{index}]"),
+        )
+        issues.extend(entry_report.issues)
+        if entry_report.parsed:
+            entries.append(entry_report.parsed)
+
+    if entries:
+        return entries, issues
+    if not raw_entries:
+        issues.append(
+            ParseIssue(
+                kind="invalid_value",
+                path=path,
+                detail="expected non-empty list[retention_entry]",
+            )
+        )
+    return None, issues
 
 
 class Nip11InfoDataLimitation(BaseData):
@@ -134,7 +324,7 @@ class Nip11InfoDataRetentionEntry(BaseData):
     count: StrictInt | None = Field(default=None, description="Maximum events to retain")
 
     @classmethod
-    def parse(cls, data: Any) -> dict[str, Any]:
+    def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
         """Parse a retention entry, handling mixed int/range kinds lists.
 
         Args:
@@ -144,32 +334,28 @@ class Nip11InfoDataRetentionEntry(BaseData):
             Validated dictionary with ``kinds``, ``time``, and ``count``.
         """
         if not isinstance(data, dict):
-            return {}
+            return _invalid_input_report(path, cls.__name__)
         result: dict[str, Any] = {}
+        issues = _unknown_field_issues(data, {"kinds", "time", "count"}, path=path)
 
-        if "kinds" in data and isinstance(data["kinds"], list):
-            kinds: list[int | tuple[int, int]] = []
-            for item in data["kinds"]:
-                if isinstance(item, int) and not isinstance(item, bool):
-                    kinds.append(item)
-                elif (
-                    isinstance(item, list)
-                    and len(item) == 2  # noqa: PLR2004 - [min, max] range pair
-                    and isinstance(item[0], int)
-                    and not isinstance(item[0], bool)
-                    and isinstance(item[1], int)
-                    and not isinstance(item[1], bool)
-                ):
-                    kinds.append((item[0], item[1]))
-            if kinds:
+        if "kinds" in data:
+            kinds, kinds_issues = _parse_retention_kinds(
+                data["kinds"],
+                path=join_parse_path(path, "kinds"),
+            )
+            issues.extend(kinds_issues)
+            if kinds is not None:
                 result["kinds"] = kinds
 
-        for key in ("time", "count"):
-            if key in data:
-                value = data[key]
-                if isinstance(value, int) and not isinstance(value, bool):
-                    result[key] = value
-        return result
+        int_fields, int_issues = _parse_strict_int_fields(data, ("time", "count"), path=path)
+        result.update(int_fields)
+        issues.extend(int_issues)
+        return ParseReport(parsed=result, issues=tuple(issues))
+
+    @classmethod
+    def parse(cls, data: Any) -> dict[str, Any]:
+        """Parse a retention entry, handling mixed int/range kinds lists."""
+        return cls.parse_report(data).parsed
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary, converting tuples to lists for JSON."""
@@ -221,7 +407,7 @@ class Nip11InfoDataFees(BaseData):
     )
 
     @classmethod
-    def parse(cls, data: Any) -> dict[str, Any]:
+    def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
         """Parse fee schedule data with nested fee entry objects.
 
         Args:
@@ -231,15 +417,57 @@ class Nip11InfoDataFees(BaseData):
             Validated dictionary with non-empty fee entry lists.
         """
         if not isinstance(data, dict):
-            return {}
+            return _invalid_input_report(path, cls.__name__)
         result: dict[str, Any] = {}
+        issues = _unknown_field_issues(
+            data,
+            {"admission", "subscription", "publication"},
+            path=path,
+        )
+
         for key in ("admission", "subscription", "publication"):
-            if key in data and isinstance(data[key], list):
-                entries = [Nip11InfoDataFeeEntry.parse(e) for e in data[key]]
-                entries = [e for e in entries if e]
-                if entries:
-                    result[key] = entries
-        return result
+            if key not in data:
+                continue
+
+            raw_entries = data[key]
+            field_path = join_parse_path(path, key)
+            if not isinstance(raw_entries, list):
+                issues.append(
+                    ParseIssue(
+                        kind="invalid_value",
+                        path=field_path,
+                        detail="expected list[fee_entry]",
+                    )
+                )
+                continue
+
+            entries: list[dict[str, Any]] = []
+            for index, entry in enumerate(raw_entries):
+                entry_report = Nip11InfoDataFeeEntry.parse_report(
+                    entry,
+                    path=join_parse_path(field_path, f"[{index}]"),
+                )
+                issues.extend(entry_report.issues)
+                if entry_report.parsed:
+                    entries.append(entry_report.parsed)
+
+            if entries:
+                result[key] = entries
+            elif not raw_entries:
+                issues.append(
+                    ParseIssue(
+                        kind="invalid_value",
+                        path=field_path,
+                        detail="expected non-empty list[fee_entry]",
+                    )
+                )
+
+        return ParseReport(parsed=result, issues=tuple(issues))
+
+    @classmethod
+    def parse(cls, data: Any) -> dict[str, Any]:
+        """Parse fee schedule data with nested fee entry objects."""
+        return cls.parse_report(data).parsed
 
 
 class Nip11InfoData(BaseData):
@@ -336,36 +564,6 @@ class Nip11InfoData(BaseData):
         ),
     )
 
-    @staticmethod
-    def _parse_sub_objects(data: dict[str, Any]) -> dict[str, Any]:
-        """Parse nested limitation, retention, and fees sub-objects.
-
-        Args:
-            data: Raw dictionary from the relay HTTP response.
-
-        Returns:
-            Validated dictionary containing only non-empty sub-objects.
-        """
-        result: dict[str, Any] = {}
-
-        if "limitation" in data:
-            limitation = Nip11InfoDataLimitation.parse(data["limitation"])
-            if limitation:
-                result["limitation"] = limitation
-
-        if "retention" in data and isinstance(data["retention"], list):
-            entries = [Nip11InfoDataRetentionEntry.parse(e) for e in data["retention"]]
-            entries = [e for e in entries if e]
-            if entries:
-                result["retention"] = entries
-
-        if "fees" in data:
-            fees = Nip11InfoDataFees.parse(data["fees"])
-            if fees:
-                result["fees"] = fees
-
-        return result
-
     @classmethod
     def parse(cls, data: Any) -> dict[str, Any]:
         """Parse a complete NIP-11 document with nested sub-objects.
@@ -379,19 +577,60 @@ class Nip11InfoData(BaseData):
         Returns:
             Validated dictionary suitable for model construction.
         """
+        return cls.parse_report(data).parsed
+
+    @classmethod
+    def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
+        """Parse a complete NIP-11 document and record dropped fields."""
         if not isinstance(data, dict):
-            return {}
-        result = parse_fields(data, cls._FIELD_SPEC)
+            return _invalid_input_report(path, cls.__name__)
 
-        if "supported_nips" in data and isinstance(data["supported_nips"], list):
-            nips = [
-                n for n in data["supported_nips"] if isinstance(n, int) and not isinstance(n, bool)
-            ]
-            if nips:
-                result["supported_nips"] = sorted(set(nips))
+        report = parse_fields_report(
+            data,
+            cls._FIELD_SPEC,
+            path=path,
+            extra_known_fields=frozenset({"supported_nips", "limitation", "retention", "fees"}),
+        )
+        result = dict(report.parsed)
+        issues = list(report.issues)
 
-        result.update(cls._parse_sub_objects(data))
-        return result
+        if "supported_nips" in data:
+            supported_nips, supported_nips_issues = _parse_supported_nips(
+                data["supported_nips"],
+                path=join_parse_path(path, "supported_nips"),
+            )
+            issues.extend(supported_nips_issues)
+            if supported_nips is not None:
+                result["supported_nips"] = supported_nips
+
+        if "limitation" in data:
+            limitation_report = Nip11InfoDataLimitation.parse_report(
+                data["limitation"],
+                path=join_parse_path(path, "limitation"),
+            )
+            issues.extend(limitation_report.issues)
+            if limitation_report.parsed:
+                result["limitation"] = limitation_report.parsed
+
+        if "retention" in data:
+            retention_entries, retention_issues = _parse_retention_entries(
+                data["retention"],
+                path=join_parse_path(path, "retention"),
+            )
+            issues.extend(retention_issues)
+            if retention_entries is not None:
+                result["retention"] = retention_entries
+
+        if "fees" in data:
+            fees_report = Nip11InfoDataFees.parse_report(
+                data["fees"],
+                path=join_parse_path(path, "fees"),
+            )
+            issues.extend(fees_report.issues)
+            if fees_report.parsed:
+                result["fees"] = fees_report.parsed
+
+        return ParseReport(parsed=result, issues=tuple(issues))
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary using field aliases (``self`` instead of ``self_pubkey``)."""

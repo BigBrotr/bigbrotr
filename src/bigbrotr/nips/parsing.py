@@ -84,6 +84,59 @@ _FIELD_PARSERS: tuple[tuple[str, Callable[[Any], Any]], ...] = (
 
 
 @dataclass(frozen=True, slots=True)
+class ParseIssue:
+    """Single parsing issue recorded while sanitizing untrusted NIP data."""
+
+    kind: str
+    path: str
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class ParseReport:
+    """Structured result of a permissive parse operation."""
+
+    parsed: dict[str, Any]
+    issues: tuple[ParseIssue, ...] = ()
+
+    @property
+    def has_issues(self) -> bool:
+        """Whether the parse operation dropped or ignored any data."""
+        return bool(self.issues)
+
+    def summary(self, limit: int = 5) -> str:
+        """Return a compact, human-readable summary of parse issues."""
+        if not self.issues:
+            return "none"
+
+        visible = [f"{issue.kind}@{issue.path}" for issue in self.issues[:limit]]
+        remaining = len(self.issues) - len(visible)
+        if remaining > 0:
+            visible.append(f"+{remaining} more")
+        return ", ".join(visible)
+
+
+@dataclass(frozen=True, slots=True)
+class _FieldParser:
+    label: str
+    parser: Callable[[Any], Any]
+    is_list: bool = False
+
+
+def join_parse_path(base: str, segment: str) -> str:
+    """Join parse path fragments using dotted notation plus list indices."""
+    if not base:
+        return segment
+    if segment.startswith("["):
+        return f"{base}{segment}"
+    return f"{base}.{segment}"
+
+
+def _invalid_value_issue(path: str, detail: str) -> ParseIssue:
+    return ParseIssue(kind="invalid_value", path=path, detail=detail)
+
+
+@dataclass(frozen=True, slots=True)
 class FieldSpec:
     """Declarative specification of expected field types for parsing.
 
@@ -118,12 +171,77 @@ class FieldSpec:
 
 
 @functools.lru_cache(maxsize=8)
-def _build_dispatch(spec: FieldSpec) -> dict[str, Callable[[Any], Any]]:
-    dispatch: dict[str, Callable[[Any], Any]] = {}
+def _build_dispatch(spec: FieldSpec) -> dict[str, _FieldParser]:
+    dispatch: dict[str, _FieldParser] = {}
     for attr_name, parser in _FIELD_PARSERS:
+        label = attr_name.removesuffix("_fields").replace("_", "")
+        if attr_name == "str_list_fields":
+            label = "list[str]"
+        elif attr_name == "int_list_fields":
+            label = "list[int]"
+        elif attr_name == "float_fields":
+            label = "float"
+        elif attr_name == "bool_fields":
+            label = "bool"
+        elif attr_name == "int_fields":
+            label = "int"
+        elif attr_name == "str_fields":
+            label = "str"
+
+        field_parser = _FieldParser(
+            label=label,
+            parser=parser,
+            is_list=attr_name in {"str_list_fields", "int_list_fields"},
+        )
         for name in getattr(spec, attr_name):
-            dispatch[name] = parser
+            dispatch[name] = field_parser
     return dispatch
+
+
+def parse_fields_report(
+    data: dict[str, Any],
+    spec: FieldSpec,
+    *,
+    path: str = "",
+    extra_known_fields: frozenset[str] = frozenset(),
+) -> ParseReport:
+    """Parse a dictionary according to a ``FieldSpec`` and record dropped data."""
+    dispatch = _build_dispatch(spec)
+
+    result: dict[str, Any] = {}
+    issues: list[ParseIssue] = []
+
+    for key, value in data.items():
+        field_path = join_parse_path(path, key)
+        handler = dispatch.get(key)
+        if handler is None:
+            if key not in extra_known_fields:
+                issues.append(
+                    ParseIssue(
+                        kind="unknown_field",
+                        path=field_path,
+                        detail="field not declared in parsing spec",
+                    )
+                )
+            continue
+
+        parsed = handler.parser(value)
+        if parsed is _SKIP:
+            issues.append(_invalid_value_issue(field_path, f"expected {handler.label}"))
+            continue
+
+        result[key] = parsed
+        if handler.is_list and isinstance(value, list) and len(parsed) != len(value):
+            dropped = len(value) - len(parsed)
+            issues.append(
+                ParseIssue(
+                    kind="filtered_items",
+                    path=field_path,
+                    detail=f"filtered {dropped} invalid item(s)",
+                )
+            )
+
+    return ParseReport(parsed=result, issues=tuple(issues))
 
 
 def parse_fields(data: dict[str, Any], spec: FieldSpec) -> dict[str, Any]:
@@ -154,17 +272,14 @@ def parse_fields(data: dict[str, Any], spec: FieldSpec) -> dict[str, Any]:
         [bigbrotr.nips.base.BaseData.parse][bigbrotr.nips.base.BaseData.parse]:
             Class method that delegates to this function.
     """
-    dispatch = _build_dispatch(spec)
-
-    result: dict[str, Any] = {}
-    for key, value in data.items():
-        handler = dispatch.get(key)
-        if handler is not None:
-            parsed = handler(value)
-            if parsed is not _SKIP:
-                result[key] = parsed
-
-    return result
+    return parse_fields_report(data, spec).parsed
 
 
-__all__ = ["FieldSpec", "parse_fields"]
+__all__ = [
+    "FieldSpec",
+    "ParseIssue",
+    "ParseReport",
+    "join_parse_path",
+    "parse_fields",
+    "parse_fields_report",
+]

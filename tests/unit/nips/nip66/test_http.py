@@ -175,6 +175,27 @@ class TestNip66HttpMetadataHttp:
         assert result.data.http_server is None
         assert result.data.http_powered_by == "Express"
 
+    async def test_logs_parse_issues_for_invalid_headers(self, relay: Relay, caplog) -> None:
+        """Invalid or unknown HTTP fields are logged instead of being dropped silently."""
+        http_result = {
+            "http_server": 123,
+            "http_powered_by": "Express",
+            "unknown_field": "ignored",
+        }
+
+        with (
+            caplog.at_level("WARNING", logger="bigbrotr.nips.nip66"),
+            patch.object(Nip66HttpMetadata, "_http", return_value=http_result),
+        ):
+            result = await Nip66HttpMetadata.execute(relay, 10.0)
+
+        assert result.logs.success is True
+        assert result.data.http_server is None
+        assert result.data.http_powered_by == "Express"
+        assert "nip_parse_issues" in caplog.text
+        assert "http_server" in caplog.text
+        assert "unknown_field" in caplog.text
+
     async def test_overlay_relay_with_proxy(self, tor_relay: Relay) -> None:
         """ws:// overlay relay works for HTTP check with proxy."""
         http_result = {"http_server": "nginx/1.24.0"}

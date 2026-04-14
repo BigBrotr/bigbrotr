@@ -184,7 +184,9 @@ class Nip66NetMetadata(BaseNipMetadata):
             logs["reason"] = "could not resolve hostname to IP"
             logger.debug("net_no_ip relay=%s", relay.url)
 
+        data_report = Nip66NetData.parse_report(data)
+        Nip66NetData.log_parse_issues(logger, relay.url, data_report)
         return cls(
-            data=Nip66NetData.model_validate(Nip66NetData.parse(data)),
+            data=Nip66NetData.model_validate(data_report.parsed),
             logs=Nip66NetLogs.model_validate(logs),
         )

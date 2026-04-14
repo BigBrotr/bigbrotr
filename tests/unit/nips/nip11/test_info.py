@@ -719,7 +719,7 @@ class TestNip11InfoMetadataTimeout:
 class TestNip11InfoMetadataDataParsing:
     """Test data parsing in execute() with invalid fields."""
 
-    async def test_info_filters_invalid_fields(self, relay: Relay, mock_session_factory):
+    async def test_info_filters_invalid_fields(self, relay: Relay, mock_session_factory, caplog):
         """Retrieval filters invalid fields from response."""
         response = AsyncMock()
         response.status = 200
@@ -732,14 +732,19 @@ class TestNip11InfoMetadataDataParsing:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
+        with (
+            caplog.at_level("WARNING", logger="bigbrotr.nips.nip11"),
+            patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session),
+        ):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is True
         assert result.data.name == "Test"
         assert result.data.supported_nips == [1, 11]
+        assert "nip_parse_issues" in caplog.text
+        assert "supported_nips[1]" in caplog.text
 
-    async def test_info_ignores_unknown_fields(self, relay: Relay, mock_session_factory):
+    async def test_info_ignores_unknown_fields(self, relay: Relay, mock_session_factory, caplog):
         """Retrieval ignores unknown fields in response."""
         response = AsyncMock()
         response.status = 200
@@ -752,12 +757,17 @@ class TestNip11InfoMetadataDataParsing:
 
         session = mock_session_factory(response)
 
-        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
+        with (
+            caplog.at_level("WARNING", logger="bigbrotr.nips.nip11"),
+            patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session),
+        ):
             result = await Nip11InfoMetadata.execute(relay)
 
         assert result.logs.success is True
         assert result.data.name == "Test"
         assert not hasattr(result.data, "unknown_field")
+        assert "nip_parse_issues" in caplog.text
+        assert "unknown_field" in caplog.text
 
 
 # =============================================================================

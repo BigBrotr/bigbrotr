@@ -302,8 +302,10 @@ class Nip11InfoMetadata(BaseNipMetadata):
             logs["success"] = False
             logs["reason"] = str(e) or type(e).__name__
 
+        data_report = Nip11InfoData.parse_report(data)
+        Nip11InfoData.log_parse_issues(logger, relay.url, data_report)
         result = cls(
-            data=Nip11InfoData.model_validate(Nip11InfoData.parse(data)),
+            data=Nip11InfoData.model_validate(data_report.parsed),
             logs=Nip11InfoLogs.model_validate(logs),
         )
 
