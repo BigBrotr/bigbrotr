@@ -653,6 +653,24 @@ class TestGetServiceState:
         assert isinstance(result[0], ServiceState)
         assert result[0].state_key == "cursor_key"
 
+    async def test_accepts_custom_string_identifiers(
+        self, mock_brotr: Brotr, mock_pool: Pool
+    ) -> None:
+        """Test that custom service/state identifiers round-trip through Brotr."""
+        mock_row = MagicMock()
+        mock_row.__getitem__ = lambda _, key: {
+            "state_key": "custom_key",
+            "state_value": {"offset": 100},
+        }[key]
+        mock_pool._mock_connection.fetch = AsyncMock(return_value=[mock_row])  # type: ignore[attr-defined]
+
+        result = await mock_brotr.get_service_state("custom_service", "custom_state")
+
+        assert len(result) == 1
+        assert result[0].service_name == "custom_service"
+        assert result[0].state_type == "custom_state"
+        assert result[0].state_key == "custom_key"
+
 
 class TestDeleteServiceState:
     """Tests for Brotr.delete_service_state() method."""
@@ -678,6 +696,20 @@ class TestDeleteServiceState:
             ["key1", "key2", "key3"],
         )
         assert result == 3
+
+    async def test_accepts_custom_string_identifiers(
+        self, mock_brotr: Brotr, mock_pool: Pool
+    ) -> None:
+        """Test deleting custom service/state identifiers."""
+        mock_pool._mock_connection.fetchval = AsyncMock(return_value=1)  # type: ignore[attr-defined]
+
+        result = await mock_brotr.delete_service_state(
+            ["custom_service"],
+            ["custom_state"],
+            ["key1"],
+        )
+
+        assert result == 1
 
     async def test_mismatched_array_lengths_raises(self, mock_brotr: Brotr) -> None:
         """Test that mismatched parallel array lengths raise ValueError."""

@@ -50,7 +50,7 @@ def candidate_from_payload(key: str, payload: MappingLike) -> CandidateCheckpoin
     )
 
 
-def checkpoint_state(service_name: ServiceName, checkpoint: Checkpoint) -> ServiceState:
+def checkpoint_state(service_name: str, checkpoint: Checkpoint) -> ServiceState:
     """Encode a typed checkpoint as a service-state row."""
     return ServiceState(
         service_name=service_name,
@@ -60,7 +60,7 @@ def checkpoint_state(service_name: ServiceName, checkpoint: Checkpoint) -> Servi
     )
 
 
-def cursor_state(service_name: ServiceName, cursor: Cursor) -> ServiceState:
+def cursor_state(service_name: str, cursor: Cursor) -> ServiceState:
     """Encode a typed cursor as a service-state row."""
     return ServiceState(
         service_name=service_name,
@@ -90,7 +90,7 @@ def candidate_state(
 
 
 def hash_state(
-    service_name: ServiceName,
+    service_name: str,
     key: str,
     hash_value: str,
     *,
@@ -120,8 +120,8 @@ class ServiceStateStore:
 
     async def get(
         self,
-        service_name: ServiceName,
-        state_type: ServiceStateType,
+        service_name: str,
+        state_type: str,
         key: str | None = None,
     ) -> list[ServiceState]:
         return await self._brotr.get_service_state(service_name, state_type, key)
@@ -137,8 +137,8 @@ class ServiceStateStore:
 
     async def delete_keys(
         self,
-        service_name: ServiceName,
-        state_type: ServiceStateType,
+        service_name: str,
+        state_type: str,
         keys: list[str],
     ) -> int:
         if not keys:
@@ -170,7 +170,7 @@ class ServiceStateStore:
 
     async def fetch_checkpoints(
         self,
-        service_name: ServiceName,
+        service_name: str,
         keys: list[str],
         checkpoint_type: type[_CheckpointT],
     ) -> list[_CheckpointT]:
@@ -202,7 +202,7 @@ class ServiceStateStore:
 
     async def upsert_checkpoints(
         self,
-        service_name: ServiceName,
+        service_name: str,
         checkpoints: Sequence[Checkpoint],
     ) -> int:
         records = [checkpoint_state(service_name, checkpoint) for checkpoint in checkpoints]
@@ -210,7 +210,7 @@ class ServiceStateStore:
 
     async def upsert_cursors(
         self,
-        service_name: ServiceName,
+        service_name: str,
         cursors: Sequence[Cursor],
         *,
         skip_zero_timestamp: bool = False,
@@ -236,7 +236,7 @@ class ServiceStateStore:
             ]
         )
 
-    async def fetch_hash(self, service_name: ServiceName, key: str) -> str | None:
+    async def fetch_hash(self, service_name: str, key: str) -> str | None:
         states = await self.get(service_name, ServiceStateType.CHECKPOINT, key)
         if not states:
             return None
@@ -247,7 +247,7 @@ class ServiceStateStore:
 
     async def upsert_hash(
         self,
-        service_name: ServiceName,
+        service_name: str,
         key: str,
         hash_value: str,
         *,

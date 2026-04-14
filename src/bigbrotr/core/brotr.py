@@ -52,8 +52,6 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from bigbrotr.models import Event, EventRelay, Metadata, Relay, RelayMetadata
-    from bigbrotr.models.constants import ServiceName
-    from bigbrotr.models.service_state import ServiceStateType
 
 
 class BatchConfig(BaseModel):
@@ -808,8 +806,8 @@ class Brotr:
 
     async def get_service_state(
         self,
-        service_name: ServiceName,
-        state_type: ServiceStateType,
+        service_name: str,
+        state_type: str,
         key: str | None = None,
     ) -> list[ServiceState]:
         """Retrieve persisted service state records.
@@ -817,11 +815,13 @@ class Brotr:
         Calls the ``service_state_get`` stored procedure.
 
         Args:
-            service_name: Owning service name (e.g.
-                ``ServiceName.FINDER``).
-            state_type: Category of state. See
-                [ServiceStateType][bigbrotr.models.service_state.ServiceStateType]
-                for the canonical enum values.
+            service_name: Owning service identifier. Built-in callers
+                typically use names from
+                [ServiceName][bigbrotr.models.constants.ServiceName], but any
+                normalized non-empty string is accepted.
+            state_type: Category of state. Built-in callers typically use
+                [ServiceStateType][bigbrotr.models.service_state.ServiceStateType],
+                but any normalized non-empty string is accepted.
             key: Specific record key, or ``None`` to retrieve all records
                 matching the service/type combination.
 
@@ -854,8 +854,8 @@ class Brotr:
 
     async def delete_service_state(
         self,
-        service_names: list[ServiceName],
-        state_types: list[ServiceStateType],
+        service_names: list[str],
+        state_types: list[str],
         state_keys: list[str],
     ) -> int:
         """Atomically delete service state records by composite key.
@@ -864,8 +864,8 @@ class Brotr:
         parallel arrays identifying the records to remove.
 
         Args:
-            service_names: Service name for each record.
-            state_types: State type for each record.
+            service_names: Service identifier for each record.
+            state_types: State type identifier for each record.
             state_keys: State key for each record.
 
         Returns:

@@ -28,8 +28,6 @@ from typing import Any, ClassVar, Generic, Self, TypeVar, cast
 
 from pydantic import BaseModel, Field
 
-from bigbrotr.models.constants import ServiceName
-
 from .brotr import Brotr
 from .logger import Logger
 from .metrics import (
@@ -120,7 +118,7 @@ class BaseService(ABC, Generic[ConfigT]):
             endpoint started alongside the service.
     """
 
-    SERVICE_NAME: ClassVar[ServiceName]
+    SERVICE_NAME: ClassVar[str]
     CONFIG_CLASS: ClassVar[type[BaseModel]]
 
     def __init__(self, brotr: Brotr, config: ConfigT | None = None) -> None:

@@ -53,8 +53,8 @@ class TestConstruction:
             state_key="wss://relay.damus.io",
             state_value={"last_seen": 1700000000},
         )
-        assert state.service_name is ServiceName.FINDER
-        assert state.state_type is ServiceStateType.CURSOR
+        assert state.service_name == "finder"
+        assert state.state_type == "cursor"
         assert state.state_key == "wss://relay.damus.io"
         assert state.state_value == {"last_seen": 1700000000}
 
@@ -65,28 +65,26 @@ class TestConstruction:
             state_key="wss://relay.damus.io",
             state_value={},
         )
-        assert state.service_name is ServiceName.FINDER
-        assert state.state_type is ServiceStateType.CURSOR
-        assert isinstance(state.service_name, ServiceName)
-        assert isinstance(state.state_type, ServiceStateType)
+        assert state.service_name == "finder"
+        assert state.state_type == "cursor"
 
-    def test_invalid_service_name(self):
-        with pytest.raises(ValueError):
-            ServiceState(
-                service_name="invalid_service",  # type: ignore[arg-type]
-                state_type=ServiceStateType.CURSOR,
-                state_key="key",
-                state_value={},
-            )
+    def test_custom_service_name_allowed(self):
+        state = ServiceState(
+            service_name="custom_service",
+            state_type=ServiceStateType.CURSOR,
+            state_key="key",
+            state_value={},
+        )
+        assert state.service_name == "custom_service"
 
-    def test_invalid_state_type(self):
-        with pytest.raises(ValueError):
-            ServiceState(
-                service_name=ServiceName.FINDER,
-                state_type="invalid_type",  # type: ignore[arg-type]
-                state_key="key",
-                state_value={},
-            )
+    def test_custom_state_type_allowed(self):
+        state = ServiceState(
+            service_name=ServiceName.FINDER,
+            state_type="custom_type",
+            state_key="key",
+            state_value={},
+        )
+        assert state.state_type == "custom_type"
 
     def test_frozen(self):
         state = ServiceState(
@@ -134,8 +132,8 @@ class TestToDbParams:
             state_value={"source": "nip65"},
         )
         params = state.to_db_params()
-        assert params.service_name is ServiceName.FINDER
-        assert params.state_type is ServiceStateType.CHECKPOINT
+        assert params.service_name == "finder"
+        assert params.state_type == "checkpoint"
         assert params.state_key == "wss://nos.lol"
         assert params.state_value == '{"source": "nip65"}'
 

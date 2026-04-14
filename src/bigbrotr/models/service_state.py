@@ -26,18 +26,16 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-
 from ._validation import (
     deep_freeze,
     sanitize_data,
     validate_mapping,
     validate_str_not_empty,
 )
-from .constants import ServiceName
 
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -82,8 +80,8 @@ class ServiceStateDbParams(NamedTuple):
             Returns a cached instance of this tuple.
     """
 
-    service_name: ServiceName
-    state_type: ServiceStateType
+    service_name: str
+    state_type: str
     state_key: str
     state_value: str
 
@@ -96,10 +94,12 @@ class ServiceState:
     from ``Brotr.get_service_state()``.
 
     Attributes:
-        service_name: Owning service (validated against
-            [ServiceName][bigbrotr.models.constants.ServiceName]).
-        state_type: Discriminator (validated against
-            [ServiceStateType][bigbrotr.models.service_state.ServiceStateType]).
+        service_name: Owning service identifier. Built-in services use the
+            [ServiceName][bigbrotr.models.constants.ServiceName] catalog, but
+            arbitrary non-empty string IDs are accepted for extensibility.
+        state_type: Discriminator. Built-in records use the
+            [ServiceStateType][bigbrotr.models.service_state.ServiceStateType]
+            catalog, but arbitrary non-empty string IDs are accepted.
         state_key: Application-defined key within the service and type
             (e.g., a relay URL for cursor state).
         state_value: Arbitrary JSON-compatible dictionary with service-specific
@@ -131,8 +131,8 @@ class ServiceState:
             Database parameter container returned by ``to_db_params()``.
     """
 
-    service_name: ServiceName
-    state_type: ServiceStateType
+    service_name: str
+    state_type: str
     state_key: str
     state_value: Mapping[str, Any]
     _json_value: str = field(default="", init=False, repr=False, compare=False)
@@ -145,11 +145,13 @@ class ServiceState:
     )
 
     def __post_init__(self) -> None:
+        normalized_service_name = _normalize_state_token(self.service_name, "service_name")
+        normalized_state_type = _normalize_state_token(self.state_type, "state_type")
+        object.__setattr__(self, "service_name", normalized_service_name)
+        object.__setattr__(self, "state_type", normalized_state_type)
         validate_str_not_empty(self.state_key, "state_key")
         validate_mapping(self.state_value, "state_value")
 
-        object.__setattr__(self, "service_name", ServiceName(self.service_name))
-        object.__setattr__(self, "state_type", ServiceStateType(self.state_type))
         sanitized = sanitize_data(self.state_value, "state_value")
         object.__setattr__(self, "_json_value", json.dumps(sanitized))
         object.__setattr__(self, "state_value", deep_freeze(sanitized))
@@ -171,3 +173,10 @@ class ServiceState:
             with fields in stored procedure column order.
         """
         return self._db_params
+
+
+def _normalize_state_token(value: str | StrEnum, name: str) -> str:
+    """Normalize enum-backed or plain string state identifiers."""
+    normalized = value.value if isinstance(value, StrEnum) else value
+    validate_str_not_empty(normalized, name)
+    return normalized
