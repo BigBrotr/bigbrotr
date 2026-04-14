@@ -794,36 +794,29 @@ class TestSyncWorker:
         cursor = SyncCursor(key="wss://relay.example.com")
 
         with patch(
-            "bigbrotr.services.synchronizer.service.NostrClientManager.connect_relay_once",
+            "bigbrotr.services.synchronizer.service.NostrClientManager.get_relay_client",
             new_callable=AsyncMock,
-        ) as mock_connect:
+        ) as mock_get_client:
             items = [item async for item in sync._synchronize_worker(cursor)]
 
         assert items == []
-        mock_connect.assert_not_awaited()
+        mock_get_client.assert_not_awaited()
 
-    @pytest.mark.parametrize(
-        "error",
-        [OSError("connection refused"), TimeoutError("timed out")],
-        ids=["os_error", "timeout_error"],
-    )
-    async def test_connect_failure_yields_nothing(
-        self, mock_synchronizer_brotr: Brotr, error: Exception
-    ) -> None:
+    async def test_connect_failure_yields_nothing(self, mock_synchronizer_brotr: Brotr) -> None:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
 
         cursor = SyncCursor(key="wss://relay.example.com")
 
         with patch(
-            "bigbrotr.services.synchronizer.service.NostrClientManager.connect_relay_once",
+            "bigbrotr.services.synchronizer.service.NostrClientManager.get_relay_client",
             new_callable=AsyncMock,
-            side_effect=error,
+            return_value=None,
         ):
             items = [item async for item in sync._synchronize_worker(cursor)]
 
         assert items == []
 
-    async def test_yields_events_and_disconnects(self, mock_synchronizer_brotr: Brotr) -> None:
+    async def test_yields_events_with_cached_client(self, mock_synchronizer_brotr: Brotr) -> None:
         config = SynchronizerConfig(processing=ProcessingConfig(limit=10))
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
@@ -842,7 +835,7 @@ class TestSyncWorker:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.NostrClientManager.connect_relay_once",
+                "bigbrotr.services.synchronizer.service.NostrClientManager.get_relay_client",
                 new_callable=AsyncMock,
                 return_value=mock_client,
             ),
@@ -856,9 +849,11 @@ class TestSyncWorker:
         assert len(items) == 2
         assert items[0][0] is evt_a
         assert items[1][0] is evt_b
-        mock_client.shutdown.assert_awaited_once()
+        mock_client.shutdown.assert_not_awaited()
 
-    async def test_empty_stream_disconnects_normally(self, mock_synchronizer_brotr: Brotr) -> None:
+    async def test_empty_stream_keeps_cached_client_alive(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
 
         cursor = SyncCursor(key="wss://relay.example.com")
@@ -873,7 +868,7 @@ class TestSyncWorker:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.NostrClientManager.connect_relay_once",
+                "bigbrotr.services.synchronizer.service.NostrClientManager.get_relay_client",
                 new_callable=AsyncMock,
                 return_value=mock_client,
             ),
@@ -885,7 +880,7 @@ class TestSyncWorker:
             items = [item async for item in sync._synchronize_worker(cursor)]
 
         assert items == []
-        mock_client.shutdown.assert_awaited_once()
+        mock_client.shutdown.assert_not_awaited()
 
     @pytest.mark.parametrize(
         "error",
@@ -912,7 +907,7 @@ class TestSyncWorker:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.NostrClientManager.connect_relay_once",
+                "bigbrotr.services.synchronizer.service.NostrClientManager.get_relay_client",
                 new_callable=AsyncMock,
                 return_value=mock_client,
             ),
@@ -923,35 +918,6 @@ class TestSyncWorker:
         ):
             items = [item async for item in sync._synchronize_worker(cursor)]
 
-        assert items == []
-
-    async def test_client_shutdown_error_handled(self, mock_synchronizer_brotr: Brotr) -> None:
-        sync = Synchronizer(brotr=mock_synchronizer_brotr)
-
-        cursor = SyncCursor(key="wss://relay.example.com")
-
-        mock_client = AsyncMock()
-        mock_client.disconnect = AsyncMock()
-        mock_client.shutdown = AsyncMock(side_effect=RuntimeError("FFI crash"))
-
-        async def empty_stream(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
-            return
-            yield  # make it a generator  # pragma: no cover
-
-        with (
-            patch(
-                "bigbrotr.services.synchronizer.service.NostrClientManager.connect_relay_once",
-                new_callable=AsyncMock,
-                return_value=mock_client,
-            ),
-            patch(
-                "bigbrotr.services.synchronizer.service.stream_events",
-                side_effect=empty_stream,
-            ),
-        ):
-            items = [item async for item in sync._synchronize_worker(cursor)]
-
-        mock_client.shutdown.assert_awaited_once()
         assert items == []
 
     async def test_passes_idle_timeout_to_stream_events(
@@ -972,7 +938,7 @@ class TestSyncWorker:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.NostrClientManager.connect_relay_once",
+                "bigbrotr.services.synchronizer.service.NostrClientManager.get_relay_client",
                 new_callable=AsyncMock,
                 return_value=mock_client,
             ),
@@ -1001,7 +967,7 @@ class TestSyncWorker:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.NostrClientManager.connect_relay_once",
+                "bigbrotr.services.synchronizer.service.NostrClientManager.get_relay_client",
                 new_callable=AsyncMock,
                 return_value=mock_client,
             ),

@@ -71,7 +71,7 @@ from bigbrotr.models import EventRelay, Relay
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin, NetworkSemaphoresMixin
 from bigbrotr.services.common.types import SyncCursor
-from bigbrotr.utils.protocol import NostrClientManager, shutdown_client
+from bigbrotr.utils.protocol import NostrClientManager
 from bigbrotr.utils.streaming import stream_events
 
 from .configs import SynchronizerConfig
@@ -273,10 +273,8 @@ class Synchronizer(
                 network_config = self._config.networks.get(relay.network)
                 request_timeout = network_config.timeout
 
-                try:
-                    client = await self._get_client_manager().connect_relay_once(relay)
-                except (OSError, TimeoutError) as e:
-                    self._logger.warning("connect_failed", relay=relay.url, error=str(e))
+                client = await self._get_client_manager().get_relay_client(relay)
+                if client is None:
                     return
 
                 try:
@@ -296,8 +294,6 @@ class Synchronizer(
                     self._logger.warning("sync_relay_error", relay=relay.url, error=str(e))
                 finally:
                     self.inc_gauge("relays_seen")
-                    await shutdown_client(client)
-                    del client
         except Exception as e:  # Worker exception boundary — protects TaskGroup
             self._logger.error(
                 "sync_worker_failed",
