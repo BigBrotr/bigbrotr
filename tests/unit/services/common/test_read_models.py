@@ -130,6 +130,7 @@ class TestReadModelRegistry:
             max_page_size=50,
             filters={"url": "foo"},
             sort=None,
+            include_total=False,
         )
 
     async def test_entry_get_by_pk_delegates_to_catalog(self) -> None:
@@ -167,6 +168,7 @@ class TestReadModelQueryHelpers:
                 "limit": "25",
                 "offset": "5",
                 "sort": "url:asc",
+                "include_total": "true",
                 "network": "clearnet",
             },
             default_page_size=100,
@@ -179,12 +181,21 @@ class TestReadModelQueryHelpers:
             max_page_size=1000,
             filters={"network": "clearnet"},
             sort="url:asc",
+            include_total=True,
         )
 
     def test_read_model_query_from_http_params_invalid_limit(self) -> None:
         with pytest.raises(ReadModelQueryError, match="Invalid limit or offset"):
             read_model_query_from_http_params(
                 {"limit": "oops"},
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
+    def test_read_model_query_from_http_params_invalid_include_total(self) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid include_total value"):
+            read_model_query_from_http_params(
+                {"include_total": "maybe"},
                 default_page_size=100,
                 max_page_size=1000,
             )
@@ -196,6 +207,7 @@ class TestReadModelQueryHelpers:
                 "offset": "10",
                 "sort": "url:asc",
                 "filter": "network=clearnet,kind=>:100",
+                "include_total": "1",
             },
             default_page_size=100,
             max_page_size=1000,
@@ -207,12 +219,21 @@ class TestReadModelQueryHelpers:
             max_page_size=1000,
             filters={"network": "clearnet", "kind": ">:100"},
             sort="url:asc",
+            include_total=True,
         )
 
     def test_read_model_query_from_job_params_invalid_offset(self) -> None:
         with pytest.raises(ReadModelQueryError, match="Invalid limit or offset value"):
             read_model_query_from_job_params(
                 {"offset": "oops"},
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
+    def test_read_model_query_from_job_params_invalid_include_total(self) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid include_total value"):
+            read_model_query_from_job_params(
+                {"include_total": "maybe"},
                 default_page_size=100,
                 max_page_size=1000,
             )
@@ -230,6 +251,23 @@ class TestReadModelQueryHelpers:
 
         assert meta == {
             "total": 1,
+            "limit": 10,
+            "offset": 0,
+            "read_model": "relay",
+        }
+
+    def test_build_read_model_meta_omits_total_when_unavailable(self) -> None:
+        meta = build_read_model_meta(
+            QueryResult(
+                rows=[{"url": "wss://relay.example.com"}],
+                total=None,
+                limit=10,
+                offset=0,
+            ),
+            read_model_id="relay",
+        )
+
+        assert meta == {
             "limit": 10,
             "offset": 0,
             "read_model": "relay",

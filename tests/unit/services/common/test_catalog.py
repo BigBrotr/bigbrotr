@@ -482,6 +482,40 @@ class TestCatalogQuery:
         call_args = catalog_brotr.fetch.call_args
         assert "ORDER BY discovered_at DESC" in call_args[0][0]
 
+    async def test_query_skips_total_when_not_requested(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        catalog_brotr.fetchval = AsyncMock(return_value=999)  # type: ignore[method-assign]
+        catalog_brotr.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+        result = await populated_catalog.query(
+            catalog_brotr,
+            "relay",
+            limit=10,
+            offset=0,
+            include_total=False,
+        )
+
+        assert result.total is None
+        catalog_brotr.fetchval.assert_not_called()
+
+    async def test_query_includes_total_when_requested(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        catalog_brotr.fetchval = AsyncMock(return_value=7)  # type: ignore[method-assign]
+        catalog_brotr.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+        result = await populated_catalog.query(
+            catalog_brotr,
+            "relay",
+            limit=10,
+            offset=0,
+            include_total=True,
+        )
+
+        assert result.total == 7
+        catalog_brotr.fetchval.assert_awaited_once()
+
     async def test_query_with_invalid_sort_column(
         self, populated_catalog: Catalog, catalog_brotr: Brotr
     ) -> None:

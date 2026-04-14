@@ -115,7 +115,7 @@ class QueryResult:
     """Result of a paginated query."""
 
     rows: list[dict[str, Any]]
-    total: int
+    total: int | None
     limit: int
     offset: int
 
@@ -193,6 +193,7 @@ class Catalog:
         max_page_size: int = 1000,
         filters: dict[str, str] | None = None,
         sort: str | None = None,
+        include_total: bool = True,
     ) -> QueryResult:
         """Execute a safe paginated query against a discovered table.
 
@@ -205,6 +206,8 @@ class Catalog:
             filters: Column filters as ``{column: "op:value"}`` or
                 ``{column: "value"}`` (defaults to ``=``).
             sort: Sort specification as ``"column"`` or ``"column:desc"``.
+            include_total: Whether to execute an additional ``COUNT(*)``
+                query and include ``total`` in the result metadata.
 
         Returns:
             Paginated query result.
@@ -258,14 +261,16 @@ class Catalog:
             order_sql = f" ORDER BY {order_col} {order_dir}"
 
         # Count query + data query (wrapped to convert DB type errors to ValueError)
-        count_query = f"SELECT COUNT(*)::int FROM {table}{where_sql}"  # noqa: S608
         data_query = (
             f"SELECT {select_cols} FROM {table}{where_sql}{order_sql}"  # noqa: S608
             f" LIMIT ${param_idx} OFFSET ${param_idx + 1}"
         )
 
         try:
-            total: int = await brotr.fetchval(count_query, *params)
+            total: int | None = None
+            if include_total:
+                count_query = f"SELECT COUNT(*)::int FROM {table}{where_sql}"  # noqa: S608
+                total = await brotr.fetchval(count_query, *params)
             params.extend([limit, offset])
             rows = await brotr.fetch(data_query, *params)
         except asyncpg.DataError as e:

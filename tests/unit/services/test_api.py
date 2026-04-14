@@ -362,7 +362,7 @@ class TestListRowsRoute:
     def test_success(self, test_client: TestClient, api_service: Api) -> None:
         mock_result = QueryResult(
             rows=[{"url": "wss://relay.example.com", "network": "clearnet"}],
-            total=1,
+            total=None,
             limit=10,
             offset=0,
         )
@@ -374,11 +374,23 @@ class TestListRowsRoute:
         assert resp.status_code == 200
         body = resp.json()
         assert body["data"] == [{"url": "wss://relay.example.com", "network": "clearnet"}]
-        assert body["meta"]["total"] == 1
+        assert "total" not in body["meta"]
         assert body["meta"]["read_model"] == "relay"
 
+    def test_include_total_param(self, test_client: TestClient, api_service: Api) -> None:
+        mock_result = QueryResult(rows=[], total=5, limit=10, offset=0)
+        with patch.object(
+            api_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+        ) as mock_query:
+            resp = test_client.get("/v1/relay?include_total=true")
+
+        assert resp.status_code == 200
+        _, kwargs = mock_query.call_args
+        assert kwargs["include_total"] is True
+        assert resp.json()["meta"]["total"] == 5
+
     def test_with_sort_param(self, test_client: TestClient, api_service: Api) -> None:
-        mock_result = QueryResult(rows=[], total=0, limit=10, offset=0)
+        mock_result = QueryResult(rows=[], total=None, limit=10, offset=0)
         with patch.object(
             api_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
         ) as mock_query:
@@ -387,6 +399,7 @@ class TestListRowsRoute:
         assert resp.status_code == 200
         _, kwargs = mock_query.call_args
         assert kwargs["sort"] == "url:asc"
+        assert kwargs["include_total"] is False
 
     def test_catalog_error_returns_400(self, test_client: TestClient, api_service: Api) -> None:
         with patch.object(

@@ -720,14 +720,40 @@ class TestDvmRun:
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
-            ),
+                dvm_service._catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
+            ) as mock_query,
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
         ):
             await dvm_service.run()
 
         mock_client.send_event_builder.assert_called_once()
+        _, kwargs = mock_query.call_args
+        assert kwargs["include_total"] is False
+
+    async def test_run_include_total_opt_in(self, dvm_service: Dvm) -> None:
+        event = _make_mock_event(
+            tags=[["param", "read_model", "relay"], ["param", "include_total", "true"]]
+        )
+        mock_client = _make_client_with_events([event])
+        dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
+
+        mock_result = QueryResult(rows=[], total=1, limit=100, offset=0)
+        with (
+            patch.object(
+                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+            ) as mock_query,
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(dvm_service, "inc_counter"),
+        ):
+            await dvm_service.run()
+
+        _, kwargs = mock_query.call_args
+        assert kwargs["include_total"] is True
 
     async def test_run_invalid_limit(self, dvm_service: Dvm) -> None:
         event = _make_mock_event(
@@ -1227,6 +1253,20 @@ class TestBuildResultEvent:
         assert content["data"] == [{"url": "wss://r.io"}]
         assert content["meta"] == {
             "total": 1,
+            "limit": 10,
+            "offset": 0,
+            "read_model": "relay",
+        }
+
+    def test_content_omits_total_when_not_requested(self) -> None:
+        result = QueryResult(rows=[{"url": "wss://r.io"}], total=None, limit=10, offset=0)
+        event = build_result_event(
+            ResultEventRequest(5050, "eid", "pk", "relay"),
+            result,
+            0,
+        ).sign_with_keys(_KEYS)
+        content = json.loads(event.content())
+        assert content["meta"] == {
             "limit": 10,
             "offset": 0,
             "read_model": "relay",

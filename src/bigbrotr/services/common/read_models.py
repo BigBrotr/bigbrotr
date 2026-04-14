@@ -38,6 +38,7 @@ class ReadModelQuery:
     max_page_size: int = 1000
     filters: dict[str, str] | None = None
     sort: str | None = None
+    include_total: bool = False
 
 
 def parse_read_model_filter_string(filter_str: str) -> dict[str, str] | None:
@@ -55,6 +56,19 @@ def parse_read_model_filter_string(filter_str: str) -> dict[str, str] | None:
     return filters or None
 
 
+def _parse_include_total(raw_value: str | None) -> bool:
+    """Normalize public include-total flags from HTTP or NIP-90 inputs."""
+    if raw_value is None:
+        return False
+
+    normalized = raw_value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off", ""}:
+        return False
+    raise ReadModelQueryError("Invalid include_total value")
+
+
 def read_model_query_from_http_params(
     params: Mapping[str, str],
     *,
@@ -70,6 +84,7 @@ def read_model_query_from_http_params(
         raise ReadModelQueryError("Invalid limit or offset") from e
 
     sort = raw_params.pop("sort", None)
+    include_total = _parse_include_total(raw_params.pop("include_total", None))
 
     return ReadModelQuery(
         limit=limit,
@@ -77,6 +92,7 @@ def read_model_query_from_http_params(
         max_page_size=max_page_size,
         filters=raw_params or None,
         sort=sort,
+        include_total=include_total,
     )
 
 
@@ -104,17 +120,20 @@ def read_model_query_from_job_params(
         max_page_size=max_page_size,
         filters=parse_read_model_filter_string(filter_str),
         sort=sort,
+        include_total=_parse_include_total(params.get("include_total", None)),
     )
 
 
 def build_read_model_meta(result: QueryResult, *, read_model_id: str) -> dict[str, Any]:
     """Build the shared metadata envelope for HTTP and DVM list responses."""
-    return {
-        "total": result.total,
+    meta: dict[str, Any] = {
         "limit": result.limit,
         "offset": result.offset,
         "read_model": read_model_id,
     }
+    if result.total is not None:
+        meta["total"] = result.total
+    return meta
 
 
 class ReadModelBackend(Protocol):
@@ -162,6 +181,7 @@ class CatalogReadModelBackend:
             max_page_size=request.max_page_size,
             filters=request.filters,
             sort=request.sort,
+            include_total=request.include_total,
         )
 
     async def get_by_pk(
