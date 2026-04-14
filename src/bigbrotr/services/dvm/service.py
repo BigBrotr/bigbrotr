@@ -247,7 +247,10 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             return await self._handle_job(event_id, customer_pubkey, params, table)
         except (CatalogError, OSError, TimeoutError, asyncpg.PostgresError) as e:
             with contextlib.suppress(OSError, TimeoutError):
-                await self._send_event(build_error_event(event_id, customer_pubkey, str(e)))
+                await self._send_event(
+                    build_error_event(event_id, customer_pubkey, str(e)),
+                    require_success=True,
+                )
             self._logger.error("job_failed", event_id=event_id, error=str(e))
             return 1, 0, 1, 0
 
@@ -265,7 +268,8 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         """
         if not table or not self._is_table_enabled(table):
             await self._send_event(
-                build_error_event(event_id, customer_pubkey, f"Invalid or disabled table: {table}")
+                build_error_event(event_id, customer_pubkey, f"Invalid or disabled table: {table}"),
+                require_success=True,
             )
             return 1, 0, 1, 0
 
@@ -274,7 +278,8 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             bid = params.get("bid", 0)
             if bid < price:
                 await self._send_event(
-                    build_payment_required_event(event_id, customer_pubkey, price)
+                    build_payment_required_event(event_id, customer_pubkey, price),
+                    require_success=True,
                 )
                 self._logger.info(
                     "job_payment_required",
@@ -289,7 +294,8 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             offset = int(params.get("offset", 0))
         except (ValueError, TypeError):
             await self._send_event(
-                build_error_event(event_id, customer_pubkey, "Invalid limit or offset value")
+                build_error_event(event_id, customer_pubkey, "Invalid limit or offset value"),
+                require_success=True,
             )
             return 1, 0, 1, 0
 
@@ -306,7 +312,14 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         duration_ms = (time.monotonic() - start) * 1000
 
         await self._send_event(
-            build_result_event(self._config.kind, event_id, customer_pubkey, result, price)
+            build_result_event(
+                self._config.kind,
+                event_id,
+                customer_pubkey,
+                result,
+                price,
+            ),
+            require_success=True,
         )
         self._logger.info(
             "job_completed",
@@ -406,16 +419,33 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
 
     # ── Event publishing ──────────────────────────────────────────
 
-    async def _send_event(self, builder: Any) -> None:
+    async def _send_event(
+        self,
+        builder: Any,
+        *,
+        require_success: bool = False,
+    ) -> tuple[tuple[str, ...], dict[str, str]]:
         """Sign and send an event via the connected client.
 
         No-op if the client is not connected.
         """
-        if self._client is not None:
-            await self._client.send_event_builder(builder)
+        if self._client is None:
+            return (), {}
+
+        output = await self._client.send_event_builder(builder)
+        successful_relays = tuple(str(relay_url) for relay_url in output.success)
+        failed_relays = {str(relay_url): str(error) for relay_url, error in output.failed.items()}
+
+        if require_success and not successful_relays:
+            raise OSError("event was not accepted by any relay")
+
+        return successful_relays, failed_relays
 
     async def _publish_announcement(self) -> None:
         """Publish a NIP-89 handler announcement (kind 31990)."""
+        if self._client is None:
+            return
+
         tables_info = [
             name for name in sorted(self._catalog.tables) if self._is_table_enabled(name)
         ]
@@ -426,9 +456,18 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             about=self._config.about,
             tables=tables_info,
         )
-        await self._send_event(builder)
-        self._logger.info(
-            "announcement_published",
+        successful_relays, failed_relays = await self._send_event(builder)
+        if successful_relays:
+            self._logger.info(
+                "announcement_published",
+                kind=31990,
+                relays=len(successful_relays),
+            )
+            return
+
+        self._logger.warning(
+            "announcement_publish_failed",
             kind=31990,
-            relays=len(self._config.relays),
+            error="no relays accepted announcement",
+            failed_relays=failed_relays,
         )

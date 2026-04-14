@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
@@ -130,11 +131,22 @@ def _make_mock_event(
 
 def _make_client_with_events(events: list[MagicMock]) -> MagicMock:
     mock_client = MagicMock()
-    mock_client.send_event_builder = AsyncMock()
+    mock_client.send_event_builder = AsyncMock(return_value=_make_send_output())
     events_obj = MagicMock()
     events_obj.to_vec.return_value = events
     mock_client.fetch_events = AsyncMock(return_value=events_obj)
     return mock_client
+
+
+def _make_send_output(
+    success_relays: tuple[str, ...] = ("wss://relay.example.com",),
+    failed_relays: dict[str, str] | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        id="event-id",
+        success=list(success_relays),
+        failed=failed_relays or {},
+    )
 
 
 # ============================================================================
@@ -288,7 +300,7 @@ class TestDvmTableAccessPolicy:
 class TestDvmLifecycle:
     async def test_aenter_creates_client_and_connects(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
-        mock_client.send_event_builder = AsyncMock()
+        mock_client.send_event_builder = AsyncMock(return_value=_make_send_output())
         mock_state_store = MagicMock()
         mock_state_store.fetch_checkpoints = AsyncMock(
             return_value=[Checkpoint(key="job_requests", timestamp=1234)]
@@ -318,7 +330,7 @@ class TestDvmLifecycle:
 
     async def test_aenter_initializes_fetch_checkpoint_when_missing(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
-        mock_client.send_event_builder = AsyncMock()
+        mock_client.send_event_builder = AsyncMock(return_value=_make_send_output())
         mock_state_store = MagicMock()
         mock_state_store.fetch_checkpoints = AsyncMock(
             return_value=[Checkpoint(key="job_requests", timestamp=0)]
@@ -367,7 +379,7 @@ class TestDvmLifecycle:
         }
 
         mock_client = MagicMock()
-        mock_client.send_event_builder = AsyncMock()
+        mock_client.send_event_builder = AsyncMock(return_value=_make_send_output())
 
         with (
             patch(
@@ -633,7 +645,7 @@ class TestDvmRun:
     async def test_run_publish_error_failure_does_not_abort_batch(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
         mock_client.send_event_builder = AsyncMock(
-            side_effect=[OSError("relay offline"), None, None],
+            side_effect=[OSError("relay offline"), _make_send_output(), _make_send_output()],
         )
 
         event1 = _make_mock_event(
@@ -756,6 +768,33 @@ class TestDvmJobErrorHandling:
         mock_counter.assert_any_call("requests_failed", 1)
         mock_client.send_event_builder.assert_called_once()
 
+    async def test_result_publish_without_success_counts_as_failed(self, dvm_service: Dvm) -> None:
+        event = _make_mock_event(tags=[["param", "table", "relay"]])
+        mock_client = _make_client_with_events([event])
+        mock_client.send_event_builder = AsyncMock(
+            side_effect=[
+                _make_send_output(
+                    success_relays=(),
+                    failed_relays={"wss://relay.example.com": "rejected"},
+                ),
+                _make_send_output(),
+            ]
+        )
+        dvm_service._client = mock_client
+
+        mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
+        with (
+            patch.object(
+                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+            ),
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(dvm_service, "inc_counter") as mock_counter,
+        ):
+            await dvm_service.run()
+
+        mock_counter.assert_any_call("requests_failed", 1)
+        assert mock_client.send_event_builder.call_count == 2
+
     async def test_error_event_publish_failure_suppressed(self, dvm_service: Dvm) -> None:
         event = _make_mock_event(tags=[["param", "table", "relay"]])
         mock_client = _make_client_with_events([event])
@@ -820,7 +859,7 @@ class TestDvmPublishingGuards:
 
     async def test_send_event_no_client(self, dvm_service: Dvm) -> None:
         dvm_service._client = None
-        await dvm_service._send_event(build_error_event("eid", "pk", "err"))
+        assert await dvm_service._send_event(build_error_event("eid", "pk", "err")) == ((), {})
 
     async def test_publish_announcement_no_client(self, dvm_service: Dvm) -> None:
         dvm_service._client = None
@@ -828,12 +867,34 @@ class TestDvmPublishingGuards:
 
     async def test_publish_announcement_sends_event(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
-        mock_client.send_event_builder = AsyncMock()
+        mock_client.send_event_builder = AsyncMock(return_value=_make_send_output())
         dvm_service._client = mock_client
 
         await dvm_service._publish_announcement()
 
         mock_client.send_event_builder.assert_called_once()
+
+    async def test_publish_announcement_logs_warning_when_unaccepted(
+        self, dvm_service: Dvm
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.send_event_builder = AsyncMock(
+            return_value=_make_send_output(
+                success_relays=(),
+                failed_relays={"wss://relay.example.com": "rejected"},
+            )
+        )
+        dvm_service._client = mock_client
+
+        with patch.object(dvm_service._logger, "warning") as mock_warning:
+            await dvm_service._publish_announcement()
+
+        mock_warning.assert_called_once_with(
+            "announcement_publish_failed",
+            kind=31990,
+            error="no relays accepted announcement",
+            failed_relays={"wss://relay.example.com": "rejected"},
+        )
 
 
 # ============================================================================
