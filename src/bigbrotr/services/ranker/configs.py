@@ -25,7 +25,7 @@ class RankerStorageConfig(BaseModel):
     )
     checkpoint_path: Path = Field(
         default=Path("/app/data/ranker.checkpoint.json"),
-        description="Path to the incremental sync checkpoint JSON file",
+        description="Optional legacy JSON checkpoint import path for the follow-graph cursor",
     )
 
 

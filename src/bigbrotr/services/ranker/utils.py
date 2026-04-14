@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 
 _DEFAULT_CHECKPOINT: Final[GraphSyncCheckpoint] = GraphSyncCheckpoint()
+_GRAPH_CHECKPOINT_NAME: Final[str] = "graph"
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,28 +66,21 @@ class RankerStore:
             conn.close()
 
     def ensure_initialized(self) -> None:
-        """Create the DuckDB file, directories, schema, and checkpoint file."""
+        """Create the DuckDB file, directories, schema, and canonical checkpoint row."""
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
         conn = self._connection()
         for statement in _SCHEMA_STATEMENTS:
             conn.execute(statement)
-
-        if not self._checkpoint_path.exists():
-            self._write_checkpoint(_DEFAULT_CHECKPOINT)
+        if self._load_checkpoint_from_db(conn) is None:
+            self._upsert_checkpoint(conn, self._load_legacy_checkpoint())
 
     def load_checkpoint(self) -> GraphSyncCheckpoint:
-        """Read the lexicographic follow-graph checkpoint from disk."""
-        if not self._checkpoint_path.exists():
-            return _DEFAULT_CHECKPOINT
-
-        raw = json.loads(self._checkpoint_path.read_text())
-        graph = raw.get("graph", {})
-        return GraphSyncCheckpoint(
-            source_seen_at=int(graph.get("source_seen_at", 0)),
-            follower_pubkey=str(graph.get("follower_pubkey", "")),
-        )
+        """Read the canonical lexicographic follow-graph checkpoint from DuckDB."""
+        self.ensure_initialized()
+        checkpoint = self._load_checkpoint_from_db(self._connection())
+        return checkpoint if checkpoint is not None else _DEFAULT_CHECKPOINT
 
     def apply_follow_graph_delta(
         self,
@@ -95,11 +89,11 @@ class RankerStore:
         checkpoint: GraphSyncCheckpoint,
     ) -> None:
         """Apply one incremental follow-graph batch and persist the checkpoint."""
-        if not changed_lists:
-            self._write_checkpoint(checkpoint)
-            return
-
         self.ensure_initialized()
+
+        if not changed_lists:
+            self._upsert_checkpoint(self._connection(), checkpoint)
+            return
 
         pubkeys = (
             {fact.follower_pubkey for fact in changed_lists}
@@ -151,12 +145,11 @@ class RankerStore:
                     ],
                 )
 
+            self._upsert_checkpoint(conn, checkpoint)
             conn.execute("COMMIT")
         except Exception:
             conn.execute("ROLLBACK")
             raise
-
-        self._write_checkpoint(checkpoint)
 
     def get_graph_stats(self) -> GraphStats:
         """Return the current node/edge counts stored in DuckDB."""
@@ -624,14 +617,63 @@ class RankerStore:
             [follower_node_ids],
         )
 
-    def _write_checkpoint(self, checkpoint: GraphSyncCheckpoint) -> None:
+    def _load_checkpoint_from_db(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+    ) -> GraphSyncCheckpoint | None:
+        row = conn.execute(
+            """
+            SELECT source_seen_at, follower_pubkey
+            FROM graph_sync_checkpoint
+            WHERE checkpoint_name = ?
+            """,
+            [_GRAPH_CHECKPOINT_NAME],
+        ).fetchone()
+        if row is None:
+            return None
+        return GraphSyncCheckpoint(
+            source_seen_at=int(row[0]),
+            follower_pubkey=str(row[1]),
+        )
+
+    def _load_legacy_checkpoint(self) -> GraphSyncCheckpoint:
+        if not self._checkpoint_path.exists():
+            return _DEFAULT_CHECKPOINT
+
+        raw = json.loads(self._checkpoint_path.read_text())
+        graph = raw.get("graph", {})
+        return GraphSyncCheckpoint(
+            source_seen_at=int(graph.get("source_seen_at", 0)),
+            follower_pubkey=str(graph.get("follower_pubkey", "")),
+        )
+
+    def _upsert_checkpoint(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        checkpoint: GraphSyncCheckpoint,
+    ) -> None:
         payload = {
-            "graph": {
-                "source_seen_at": checkpoint.source_seen_at,
-                "follower_pubkey": checkpoint.follower_pubkey,
-            }
+            "checkpoint_name": _GRAPH_CHECKPOINT_NAME,
+            "source_seen_at": checkpoint.source_seen_at,
+            "follower_pubkey": checkpoint.follower_pubkey,
         }
-        self._checkpoint_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        conn.execute(
+            """
+            INSERT INTO graph_sync_checkpoint (
+                checkpoint_name,
+                source_seen_at,
+                follower_pubkey
+            ) VALUES (?, ?, ?)
+            ON CONFLICT (checkpoint_name) DO UPDATE SET
+                source_seen_at = excluded.source_seen_at,
+                follower_pubkey = excluded.follower_pubkey
+            """,
+            [
+                payload["checkpoint_name"],
+                payload["source_seen_at"],
+                payload["follower_pubkey"],
+            ],
+        )
 
     def _fetch_rank_batch(
         self,
@@ -702,6 +744,13 @@ _SCHEMA_STATEMENTS: Final[tuple[str, ...]] = (
         status VARCHAR NOT NULL,
         node_count BIGINT NOT NULL DEFAULT 0,
         edge_count BIGINT NOT NULL DEFAULT 0
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS graph_sync_checkpoint (
+        checkpoint_name VARCHAR PRIMARY KEY,
+        source_seen_at BIGINT NOT NULL DEFAULT 0,
+        follower_pubkey VARCHAR NOT NULL DEFAULT ''
     )
     """,
     """

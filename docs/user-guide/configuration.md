@@ -810,7 +810,7 @@ cleanup:
 |-------|------|---------|-------|-------------|
 | `algorithm_id` | string | `global-pagerank` | lowercase slug | Stable namespace used in rank snapshots and downstream assertion joins |
 | `storage.path` | path | `/app/data/ranker.duckdb` | writable path | Private DuckDB database file for graph state and PageRank working tables |
-| `storage.checkpoint_path` | path | `/app/data/ranker.checkpoint.json` | writable path | Incremental PostgreSQL -> DuckDB sync checkpoint |
+| `storage.checkpoint_path` | path | `/app/data/ranker.checkpoint.json` | readable path | Optional legacy JSON checkpoint import path used when seeding DuckDB state |
 | `processing.max_duration` | float or null | `null` | `1-86400` | Maximum seconds for one ranker cycle |
 | `graph.damping` | float | `0.85` | `0 < x < 1` | PageRank damping factor |
 | `graph.iterations` | int | `20` | `1-10000` | Fixed number of deterministic PageRank iterations |

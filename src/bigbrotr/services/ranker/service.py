@@ -168,7 +168,7 @@ class Ranker(BaseService[RankerConfig]):
             "duckdb_store_ready",
             algorithm_id=self._config.algorithm_id,
             path=str(self._config.storage.path),
-            checkpoint_path=str(self._config.storage.checkpoint_path),
+            legacy_checkpoint_path=str(self._config.storage.checkpoint_path),
         )
         return self
 

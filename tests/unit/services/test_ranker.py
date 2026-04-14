@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import time
 from pathlib import Path
@@ -323,7 +324,7 @@ class TestRankerConfig:
 
 
 class TestRankerStore:
-    def test_ensure_initialized_creates_schema_and_checkpoint(self, tmp_path: Path) -> None:
+    def test_ensure_initialized_creates_schema_and_duckdb_checkpoint(self, tmp_path: Path) -> None:
         store = RankerStore(
             db_path=tmp_path / "ranker.duckdb",
             checkpoint_path=tmp_path / "ranker.checkpoint.json",
@@ -343,6 +344,7 @@ class TestRankerStore:
             "pagerank_curr",
             "pagerank_next",
             "rank_runs",
+            "graph_sync_checkpoint",
             "nip85_event_stats_stage",
             "nip85_addressable_stats_stage",
             "nip85_identifier_stats_stage",
@@ -350,6 +352,29 @@ class TestRankerStore:
             "nip85_addressable_ranks_curr",
             "nip85_identifier_ranks_curr",
         }
+
+    def test_load_checkpoint_imports_legacy_json_once(self, tmp_path: Path) -> None:
+        checkpoint_path = tmp_path / "ranker.checkpoint.json"
+        checkpoint_path.write_text(
+            json.dumps(
+                {
+                    "graph": {
+                        "source_seen_at": 42,
+                        "follower_pubkey": "a" * 64,
+                    }
+                }
+            )
+        )
+        store = RankerStore(
+            db_path=tmp_path / "ranker.duckdb",
+            checkpoint_path=checkpoint_path,
+        )
+
+        checkpoint = store.load_checkpoint()
+
+        assert checkpoint == GraphSyncCheckpoint(source_seen_at=42, follower_pubkey="a" * 64)
+        checkpoint_path.unlink()
+        assert store.load_checkpoint() == checkpoint
 
     def test_reuses_cached_connection_until_closed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -560,7 +585,7 @@ class TestRankerStore:
         )
 
         assert store.load_checkpoint() == GraphSyncCheckpoint()
-        assert store.duckdb_file_size_bytes() == 0
+        assert store.duckdb_file_size_bytes() > 0
 
         checkpoint = GraphSyncCheckpoint(source_seen_at=42, follower_pubkey="a" * 64)
         store.apply_follow_graph_delta(changed_lists=[], edges=[], checkpoint=checkpoint)

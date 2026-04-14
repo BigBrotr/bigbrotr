@@ -423,7 +423,7 @@ Each target is isolated by default: one failed refresh does not stop the rest of
 |-------|------|---------|-------------|
 | `algorithm_id` | string | `global-pagerank` | Namespace written into exported rank snapshots |
 | `storage.path` | path | `/app/data/ranker.duckdb` | Private DuckDB database path |
-| `storage.checkpoint_path` | path | `/app/data/ranker.checkpoint.json` | Incremental graph sync checkpoint |
+| `storage.checkpoint_path` | path | `/app/data/ranker.checkpoint.json` | Optional legacy JSON checkpoint import path |
 | `processing.max_duration` | float or null | `null` | Maximum seconds for one ranker cycle |
 | `graph.damping` | float | `0.85` | PageRank damping factor for pubkey ranking |
 | `graph.iterations` | int | `20` | Deterministic PageRank iteration count |
