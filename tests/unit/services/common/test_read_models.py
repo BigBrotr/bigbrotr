@@ -12,10 +12,12 @@ from bigbrotr.services.common.read_models import (
 )
 
 
-def _configured_tables(path: Path) -> set[str]:
+def _configured_read_models(path: Path) -> set[str]:
     config = load_yaml(str(path))
-    tables = config.get("tables", {})
-    return set(tables)
+    read_models = config.get("read_models")
+    if read_models is None:
+        read_models = config.get("tables", {})
+    return set(read_models)
 
 
 class TestReadModelRegistry:
@@ -35,7 +37,7 @@ class TestReadModelRegistry:
             Path("deployments/lilbrotr/config/services/api.yaml"),
         )
 
-        configured = set().union(*(_configured_tables(path) for path in api_configs))
+        configured = set().union(*(_configured_read_models(path) for path in api_configs))
 
         assert configured <= set(READ_MODEL_REGISTRY)
 
@@ -45,7 +47,7 @@ class TestReadModelRegistry:
             Path("deployments/lilbrotr/config/services/dvm.yaml"),
         )
 
-        configured = set().union(*(_configured_tables(path) for path in dvm_configs))
+        configured = set().union(*(_configured_read_models(path) for path in dvm_configs))
 
         assert configured <= set(READ_MODEL_REGISTRY)
 
@@ -55,7 +57,7 @@ class TestReadModelRegistry:
             Path("deployments/lilbrotr/config/services/api.yaml"),
         )
 
-        expected = set().union(*(_configured_tables(path) for path in api_configs))
+        expected = set().union(*(_configured_read_models(path) for path in api_configs))
 
         assert set(read_models_for_surface("api")) == expected
 
@@ -65,7 +67,7 @@ class TestReadModelRegistry:
             Path("deployments/lilbrotr/config/services/dvm.yaml"),
         )
 
-        expected = set().union(*(_configured_tables(path) for path in dvm_configs))
+        expected = set().union(*(_configured_read_models(path) for path in dvm_configs))
 
         assert set(read_models_for_surface("dvm")) == expected
 

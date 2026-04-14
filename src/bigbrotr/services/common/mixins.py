@@ -422,8 +422,8 @@ class CatalogAccessMixin:
 
     Creates a [Catalog][bigbrotr.services.common.catalog.Catalog] instance
     during ``__init__`` and discovers the database schema during
-    ``__aenter__``. Also provides a ``_is_table_enabled()`` helper that
-    checks table access policy from the service config.
+    ``__aenter__``. Also provides a ``_is_read_model_enabled()`` helper that
+    checks read-model access policy from the service config.
 
     Services must compose this mixin with
     [BaseService][bigbrotr.core.base_service.BaseService] (which provides
@@ -454,13 +454,20 @@ class CatalogAccessMixin:
         )
         return self
 
-    def _is_table_enabled(self, name: str) -> bool:
-        """Check whether a catalog object is a registered public read model and enabled."""
+    def _is_read_model_enabled(self, name: str) -> bool:
+        """Check whether a public read model is registered and enabled in config."""
         from .read_models import READ_MODEL_REGISTRY  # noqa: PLC0415
 
         if name not in READ_MODEL_REGISTRY:
             return False
-        policy: TableConfig | None = self._config.tables.get(name)  # type: ignore[attr-defined]
+        policies = getattr(self._config, "read_models", None)  # type: ignore[attr-defined]
+        if not isinstance(policies, dict):
+            policies = getattr(self._config, "tables", {})  # type: ignore[attr-defined]
+        policy: TableConfig | None = policies.get(name)
         if policy is None:
             return False
         return policy.enabled
+
+    def _is_table_enabled(self, name: str) -> bool:
+        """Backward-compatible alias for older table-shaped compatibility paths."""
+        return self._is_read_model_enabled(name)

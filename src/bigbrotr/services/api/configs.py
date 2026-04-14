@@ -10,7 +10,9 @@ See Also:
 
 from __future__ import annotations
 
-from pydantic import Field, field_validator, model_validator
+from typing import Any
+
+from pydantic import AliasChoices, Field, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.services.common.configs import TableConfig  # noqa: TC001 (Pydantic runtime)
@@ -26,8 +28,9 @@ class ApiConfig(BaseServiceConfig):
         route_prefix: URL prefix for all API routes (e.g. ``/v1``, ``/api/v1``).
         max_page_size: Hard ceiling on the ``limit`` query parameter.
         default_page_size: Default ``limit`` when not specified.
-        tables: Per-table access policies.  Tables not listed here
-            default to disabled.
+        tables: Backward-compatible alias for ``read_models``.
+        read_models: Per-read-model access policies. Read models not
+            listed here default to disabled.
         cors_origins: Allowed CORS origins.  Empty list disables CORS.
         request_timeout: HTTP request timeout in seconds.
     """
@@ -67,7 +70,8 @@ class ApiConfig(BaseServiceConfig):
     )
     tables: dict[str, TableConfig] = Field(
         default_factory=dict,
-        description="Per-table access policies",
+        validation_alias=AliasChoices("read_models", "tables"),
+        description="Per-read-model access policies",
     )
     cors_origins: list[str] = Field(
         default_factory=list,
@@ -107,6 +111,13 @@ class ApiConfig(BaseServiceConfig):
             )
         return self
 
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_duplicate_read_model_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "tables" in data and "read_models" in data:
+            raise ValueError("Specify only one of tables or read_models")
+        return data
+
     @model_validator(mode="after")
     def _validate_public_tables(self) -> ApiConfig:
         allowed_tables = set(read_models_for_surface("api"))
@@ -115,6 +126,12 @@ class ApiConfig(BaseServiceConfig):
             invalid = ", ".join(invalid_tables)
             allowed = ", ".join(sorted(allowed_tables))
             raise ValueError(
-                f"tables contains non-public API read models: {invalid}. Allowed tables: {allowed}"
+                "read_models contains non-public API read models: "
+                f"{invalid}. Allowed read models: {allowed}"
             )
         return self
+
+    @property
+    def read_models(self) -> dict[str, TableConfig]:
+        """Canonical access policy mapping for public API read models."""
+        return self.tables

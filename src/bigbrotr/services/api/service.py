@@ -190,7 +190,9 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
 
     def _enabled_read_models(self) -> dict[str, ReadModelEntry]:
         """Return enabled API read models keyed by public read-model ID."""
-        enabled_names = {name for name in self._config.tables if self._is_table_enabled(name)}
+        enabled_names = {
+            name for name in self._config.read_models if self._is_read_model_enabled(name)
+        }
         return {
             read_model_id: entry
             for read_model_id, entry in enabled_read_models_for_surface(
@@ -198,7 +200,8 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
                 available_catalog_names=set(self._catalog.tables),
                 enabled_names=enabled_names,
             ).items()
-            if entry.catalog_name in self._catalog.tables and self._is_table_enabled(read_model_id)
+            if entry.catalog_name in self._catalog.tables
+            and self._is_read_model_enabled(read_model_id)
         }
 
     def _add_middleware(self, app: FastAPI) -> None:

@@ -12,9 +12,9 @@ See Also:
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
-from pydantic import BeforeValidator, Field, model_validator
+from pydantic import AliasChoices, BeforeValidator, Field, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
@@ -35,7 +35,8 @@ class DvmConfig(BaseServiceConfig):
         kind: NIP-90 request event kind (result = kind + 1000).
         default_page_size: Default ``limit`` when not specified.
         max_page_size: Hard ceiling on query limit.
-        tables: Per-table policies (enable/disable, pricing).
+        tables: Backward-compatible alias for ``read_models``.
+        read_models: Per-read-model policies (enable/disable, pricing).
         announce: Whether to publish a NIP-89 handler announcement at startup.
         fetch_timeout: Timeout in seconds for relay event fetching.
     """
@@ -94,7 +95,8 @@ class DvmConfig(BaseServiceConfig):
     )
     tables: dict[str, TableConfig] = Field(
         default_factory=dict,
-        description="Per-table access and pricing policies",
+        validation_alias=AliasChoices("read_models", "tables"),
+        description="Per-read-model access and pricing policies",
     )
     announce: bool = Field(
         default=True,
@@ -122,6 +124,13 @@ class DvmConfig(BaseServiceConfig):
             raise ValueError(msg)
         return self
 
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_duplicate_read_model_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "tables" in data and "read_models" in data:
+            raise ValueError("Specify only one of tables or read_models")
+        return data
+
     @model_validator(mode="after")
     def _validate_public_tables(self) -> DvmConfig:
         allowed_tables = set(read_models_for_surface("dvm"))
@@ -130,6 +139,12 @@ class DvmConfig(BaseServiceConfig):
             invalid = ", ".join(invalid_tables)
             allowed = ", ".join(sorted(allowed_tables))
             raise ValueError(
-                f"tables contains non-public DVM read models: {invalid}. Allowed tables: {allowed}"
+                "read_models contains non-public DVM read models: "
+                f"{invalid}. Allowed read models: {allowed}"
             )
         return self
+
+    @property
+    def read_models(self) -> dict[str, TableConfig]:
+        """Canonical access policy mapping for public DVM read models."""
+        return self.tables

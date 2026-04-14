@@ -168,6 +168,7 @@ class TestDvmConfig:
         assert config.max_page_size == 1000
         assert config.announce is True
         assert config.tables == {}
+        assert config.read_models == {}
         assert config.fetch_timeout == 30.0
         assert config.allow_insecure is False
 
@@ -201,6 +202,22 @@ class TestDvmConfig:
         )
         assert config.tables["relay"].price == 1000
         assert config.tables["relay"].enabled is True
+
+    def test_read_models_alias_accepted(self) -> None:
+        config = DvmConfig(
+            relays=["wss://relay.example.com"],
+            read_models={"relay": TableConfig(enabled=True, price=1000)},
+        )
+        assert config.read_models["relay"].price == 1000
+        assert config.tables["relay"].enabled is True
+
+    def test_tables_and_read_models_together_rejected(self) -> None:
+        with pytest.raises(ValueError, match="Specify only one of tables or read_models"):
+            DvmConfig(
+                relays=["wss://relay.example.com"],
+                tables={"relay": TableConfig(enabled=True)},
+                read_models={"event": TableConfig(enabled=True)},
+            )
 
     def test_inherits_base_service_config(self) -> None:
         config = DvmConfig(relays=["wss://relay.example.com"], interval=120.0)

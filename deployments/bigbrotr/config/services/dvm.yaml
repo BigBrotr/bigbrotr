@@ -12,7 +12,7 @@ pool:
 
 interval: 60.0
 
-tables:
+read_models:
   relay:
     enabled: true
   event:

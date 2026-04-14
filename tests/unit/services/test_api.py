@@ -120,6 +120,7 @@ class TestApiConfig:
         assert config.max_page_size == 1000
         assert config.default_page_size == 100
         assert config.tables == {}
+        assert config.read_models == {}
         assert config.cors_origins == []
         assert config.request_timeout == 30.0
 
@@ -137,6 +138,18 @@ class TestApiConfig:
         assert config.max_page_size == 500
         assert config.request_timeout == 60.0
         assert config.tables["event"].enabled is True
+
+    def test_read_models_alias_accepted(self) -> None:
+        config = ApiConfig(read_models={"event": TableConfig(enabled=True)})
+        assert config.read_models["event"].enabled is True
+        assert config.tables["event"].enabled is True
+
+    def test_tables_and_read_models_together_rejected(self) -> None:
+        with pytest.raises(ValueError, match="Specify only one of tables or read_models"):
+            ApiConfig(
+                tables={"relay": TableConfig(enabled=True)},
+                read_models={"event": TableConfig(enabled=True)},
+            )
 
     def test_inherits_base_service_config(self) -> None:
         config = ApiConfig(interval=120.0)

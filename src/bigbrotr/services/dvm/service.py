@@ -380,7 +380,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         return super()._is_table_enabled(name)
 
     def _get_table_price(self, name: str) -> int:
-        policy = self._config.tables.get(name)
+        policy = self._config.read_models.get(name)
         if policy is None:
             return 0
         return policy.price
@@ -391,7 +391,9 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
 
     def _enabled_read_models(self) -> dict[str, ReadModelEntry]:
         """Return enabled DVM read models keyed by public read-model ID."""
-        enabled_names = {name for name in self._config.tables if self._is_table_enabled(name)}
+        enabled_names = {
+            name for name in self._config.read_models if self._is_read_model_enabled(name)
+        }
         return {
             read_model_id: entry
             for read_model_id, entry in enabled_read_models_for_surface(
@@ -399,7 +401,8 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
                 available_catalog_names=set(self._catalog.tables),
                 enabled_names=enabled_names,
             ).items()
-            if entry.catalog_name in self._catalog.tables and self._is_table_enabled(read_model_id)
+            if entry.catalog_name in self._catalog.tables
+            and self._is_read_model_enabled(read_model_id)
         }
 
     # ── Event fetching ────────────────────────────────────────────
