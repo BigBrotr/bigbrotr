@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from bigbrotr.models.constants import EventKind, ServiceName
+from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.assertor.configs import AssertorConfig
 from bigbrotr.services.assertor.service import Assertor
 from bigbrotr.utils.protocol import (
@@ -1062,6 +1063,7 @@ class TestAssertorCheckpointCleanup:
         self,
     ) -> None:
         from bigbrotr.services.assertor.service import Assertor
+        from bigbrotr.services.common.state_store import ServiceStateStore
 
         keep_key = "global-pagerank:30382:" + ("aa" * 32)
         stale_key = "global-pagerank:30382:" + ("bb" * 32)
@@ -1080,17 +1082,6 @@ class TestAssertorCheckpointCleanup:
         with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
             svc = Assertor.__new__(Assertor)
             svc._brotr = MagicMock()
-            svc._brotr.get_service_state = AsyncMock(
-                return_value=[
-                    _state(keep_key),
-                    _state(stale_key),
-                    _state(disabled_kind_key),
-                    _state(other_algorithm_key),
-                    _state(profile_key),
-                    _state(noncanonical_key),
-                ]
-            )
-            svc._brotr.delete_service_state = AsyncMock(return_value=3)
             svc._config = AssertorConfig(
                 selection={"kinds": [30382]},
                 provider_profile={
@@ -1105,10 +1096,33 @@ class TestAssertorCheckpointCleanup:
             svc._logger = MagicMock()
             svc._cycle_seen_state_keys = {keep_key, profile_key}
 
-            removed = await svc._delete_stale_checkpoints()
+            with (
+                patch.object(
+                    ServiceStateStore,
+                    "get",
+                    AsyncMock(
+                        return_value=[
+                            _state(keep_key),
+                            _state(stale_key),
+                            _state(disabled_kind_key),
+                            _state(other_algorithm_key),
+                            _state(profile_key),
+                            _state(noncanonical_key),
+                        ]
+                    ),
+                ) as mock_get,
+                patch.object(
+                    ServiceStateStore,
+                    "delete_states",
+                    AsyncMock(return_value=3),
+                ) as mock_delete,
+            ):
+                removed = await svc._delete_stale_checkpoints()
 
             assert removed == 3
-            deleted_keys = svc._brotr.delete_service_state.call_args.kwargs["state_keys"]
+            mock_get.assert_awaited_once_with(ServiceName.ASSERTOR, ServiceStateType.CHECKPOINT)
+            deleted_states = mock_delete.await_args.args[0]
+            deleted_keys = [state.state_key for state in deleted_states]
             assert deleted_keys == [stale_key, disabled_kind_key, noncanonical_key]
 
 

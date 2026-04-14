@@ -467,10 +467,8 @@ class Assertor(BaseService[AssertorConfig]):
 
     async def _delete_stale_checkpoints(self) -> int:
         """Delete non-canonical or current-algorithm checkpoints that are no longer eligible."""
-        states = await self._brotr.get_service_state(
-            ServiceName.ASSERTOR,
-            ServiceStateType.CHECKPOINT,
-        )
+        store = ServiceStateStore(self._brotr)
+        states = await store.get(ServiceName.ASSERTOR, ServiceStateType.CHECKPOINT)
         configured_kinds = {int(kind) for kind in self._config.selection.kinds}
         if self._provider_profile_enabled():
             configured_kinds.add(int(EventKind.SET_METADATA))
@@ -491,11 +489,7 @@ class Assertor(BaseService[AssertorConfig]):
         if not stale:
             return 0
 
-        deleted = await self._brotr.delete_service_state(
-            service_names=[state.service_name for state in stale],
-            state_types=[state.state_type for state in stale],
-            state_keys=[state.state_key for state in stale],
-        )
+        deleted = await store.delete_states(stale)
         self._logger.info(
             "stale_checkpoint_cleanup_completed",
             removed=deleted,
