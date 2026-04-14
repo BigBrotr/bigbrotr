@@ -55,27 +55,23 @@ Examples:
 
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from nostr_sdk import EventBuilder, Filter, Kind, Tag
-
 from bigbrotr.core.base_service import BaseService
-from bigbrotr.models.constants import EventKind, NetworkType, ServiceName
+from bigbrotr.models.constants import ServiceName
 from bigbrotr.nips.event_builders import (
     build_monitor_announcement,
     build_profile_event,
     build_relay_discovery,
     build_relay_list_event,
 )
-from bigbrotr.nips.nip11 import Nip11, Nip11Options
+from bigbrotr.nips.nip11 import Nip11
 from bigbrotr.nips.nip66 import (
     Nip66DnsMetadata,
     Nip66GeoMetadata,
     Nip66HttpMetadata,
     Nip66NetMetadata,
-    Nip66RttDependencies,
     Nip66RttMetadata,
     Nip66SslMetadata,
 )
@@ -89,6 +85,16 @@ from bigbrotr.services.common.mixins import (
 from bigbrotr.utils.http import download_bounded_file
 from bigbrotr.utils.protocol import broadcast_events
 
+from .checks import (
+    MonitorCheckContext,
+    MonitorCheckDependencies,
+)
+from .checks import (
+    build_parallel_checks as build_monitor_parallel_checks,
+)
+from .checks import (
+    check_relay as run_monitor_check_relay,
+)
 from .configs import MetadataFlags, MonitorConfig
 from .geo import update_geo_databases as update_monitor_geo_databases
 from .publishing import (
@@ -119,7 +125,6 @@ from .queries import (
 from .utils import (
     CheckResult,
     collect_metadata,
-    extract_result,
     retry_fetch,
 )
 
@@ -131,7 +136,6 @@ if TYPE_CHECKING:
 
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
-    from bigbrotr.nips.nip11.info import Nip11InfoMetadata
 
 
 class Monitor(
@@ -322,107 +326,36 @@ class Monitor(
             [CheckResult][bigbrotr.services.monitor.CheckResult] with
             metadata for each completed check (``None`` if skipped/failed).
         """
-        empty = CheckResult()
-
         network_config = self._config.networks.get(relay.network)
         proxy_url = self._config.networks.get_proxy_url(relay.network)
-        timeout = network_config.timeout
-        compute = self._config.processing.compute
-
-        nip11_info: Nip11InfoMetadata | None = None
-        generated_at = int(time.time())
-
-        try:
-            if compute.nip11_info:
-
-                async def _fetch_nip11() -> Nip11InfoMetadata | None:
-                    return (
-                        await Nip11.fetch(
-                            relay,
-                            timeout=timeout,
-                            proxy_url=proxy_url,
-                            options=Nip11Options(
-                                allow_insecure=self._config.processing.allow_insecure,
-                                max_size=self._config.processing.nip11_info_max_size,
-                            ),
-                        )
-                    ).info
-
-                nip11_info = await retry_fetch(
-                    relay,
-                    _fetch_nip11,
-                    self._config.processing.retries.nip11_info,
-                    "nip11_info",
-                    wait=self.wait,
-                )
-
-            rtt_meta: Nip66RttMetadata | None = None
-
-            # RTT test: open/read/write round-trip times
-            if compute.nip66_rtt:
-                event_builder = EventBuilder(Kind(EventKind.NIP66_TEST), "nip66-test").tags(
-                    [Tag.identifier(relay.url)]
-                )
-                # Apply proof-of-work if NIP-11 specifies minimum difficulty
-                if nip11_info and nip11_info.succeeded:
-                    pow_difficulty = nip11_info.data.limitation.min_pow_difficulty
-                    if pow_difficulty and pow_difficulty > 0:
-                        event_builder = event_builder.pow(pow_difficulty)
-                read_filter = Filter().limit(1)
-                rtt_deps = Nip66RttDependencies(
-                    keys=self._keys,
-                    event_builder=event_builder,
-                    read_filter=read_filter,
-                )
-                rtt_meta = await retry_fetch(
-                    relay,
-                    lambda: Nip66RttMetadata.probe(
-                        relay,
-                        rtt_deps,
-                        timeout,
-                        proxy_url,
-                        allow_insecure=self._config.processing.allow_insecure,
-                    ),
-                    self._config.processing.retries.nip66_rtt,
-                    "nip66_rtt",
-                    wait=self.wait,
-                )
-
-            # Run independent checks (SSL, DNS, Geo, Net, HTTP) in parallel
-            parallel_tasks = self._build_parallel_checks(relay, compute, timeout, proxy_url)
-
-            gathered: dict[str, Any] = {}
-            if parallel_tasks:
-                parallel_results = await asyncio.gather(
-                    *parallel_tasks.values(), return_exceptions=True
-                )
-                # Re-raise CancelledError from parallel checks
-                for r in parallel_results:
-                    if isinstance(r, asyncio.CancelledError):
-                        raise r
-                gathered = dict(zip(parallel_tasks.keys(), parallel_results, strict=True))
-
-            result = CheckResult(
-                generated_at=generated_at,
-                nip11_info=nip11_info,
-                nip66_rtt=rtt_meta,
-                nip66_ssl=extract_result(gathered, "ssl"),
-                nip66_geo=extract_result(gathered, "geo"),
-                nip66_net=extract_result(gathered, "net"),
-                nip66_dns=extract_result(gathered, "dns"),
-                nip66_http=extract_result(gathered, "http"),
-            )
-
-            if result.has_data:
-                self._logger.debug("check_succeeded", url=relay.url)
-            else:
-                self._logger.debug("check_failed", url=relay.url)
-
-            return result
-
-        except (TimeoutError, OSError) as e:
-            self._logger.debug("check_error", url=relay.url, error=str(e))
-            return empty
+        return await run_monitor_check_relay(
+            MonitorCheckContext(
+                relay=relay,
+                compute=self._config.processing.compute,
+                timeout=network_config.timeout,
+                proxy_url=proxy_url,
+                allow_insecure=self._config.processing.allow_insecure,
+                nip11_info_max_size=self._config.processing.nip11_info_max_size,
+                retries=self._config.processing.retries,
+                geohash_precision=self._config.geo.geohash_precision,
+                keys=self._keys,
+                city_reader=self.geo_readers.city,
+                asn_reader=self.geo_readers.asn,
+                logger=self._logger,
+                wait=self.wait,
+                generated_at=int(time.time()),
+            ),
+            MonitorCheckDependencies(
+                retry_fetch=retry_fetch,
+                nip11_fetch=Nip11.fetch,
+                rtt_probe=Nip66RttMetadata.probe,
+                ssl_probe=Nip66SslMetadata.probe,
+                geo_probe=Nip66GeoMetadata.probe,
+                net_probe=Nip66NetMetadata.probe,
+                dns_probe=Nip66DnsMetadata.probe,
+                http_probe=Nip66HttpMetadata.probe,
+            ),
+        )
 
     def _build_parallel_checks(
         self,
@@ -437,58 +370,34 @@ class Monitor(
         checks that are enabled in ``compute`` and applicable to the
         relay's network type are included.
         """
-        tasks: dict[str, Any] = {}
-
-        if compute.nip66_ssl and relay.network == NetworkType.CLEARNET:
-            tasks["ssl"] = retry_fetch(
-                relay,
-                lambda: Nip66SslMetadata.probe(relay, timeout),
-                self._config.processing.retries.nip66_ssl,
-                "nip66_ssl",
+        return build_monitor_parallel_checks(
+            MonitorCheckContext(
+                relay=relay,
+                compute=compute,
+                timeout=timeout,
+                proxy_url=proxy_url,
+                allow_insecure=self._config.processing.allow_insecure,
+                nip11_info_max_size=self._config.processing.nip11_info_max_size,
+                retries=self._config.processing.retries,
+                geohash_precision=self._config.geo.geohash_precision,
+                keys=self._keys,
+                city_reader=self.geo_readers.city,
+                asn_reader=self.geo_readers.asn,
+                logger=self._logger,
                 wait=self.wait,
-            )
-        if compute.nip66_dns and relay.network == NetworkType.CLEARNET:
-            tasks["dns"] = retry_fetch(
-                relay,
-                lambda: Nip66DnsMetadata.probe(relay, timeout),
-                self._config.processing.retries.nip66_dns,
-                "nip66_dns",
-                wait=self.wait,
-            )
-        if compute.nip66_geo and self.geo_readers.city and relay.network == NetworkType.CLEARNET:
-            city_reader = self.geo_readers.city
-            precision = self._config.geo.geohash_precision
-            tasks["geo"] = retry_fetch(
-                relay,
-                lambda: Nip66GeoMetadata.probe(relay, city_reader, precision, timeout=timeout),
-                self._config.processing.retries.nip66_geo,
-                "nip66_geo",
-                wait=self.wait,
-            )
-        if compute.nip66_net and self.geo_readers.asn and relay.network == NetworkType.CLEARNET:
-            asn_reader = self.geo_readers.asn
-            tasks["net"] = retry_fetch(
-                relay,
-                lambda: Nip66NetMetadata.probe(relay, asn_reader, timeout=timeout),
-                self._config.processing.retries.nip66_net,
-                "nip66_net",
-                wait=self.wait,
-            )
-        if compute.nip66_http:
-            tasks["http"] = retry_fetch(
-                relay,
-                lambda: Nip66HttpMetadata.probe(
-                    relay,
-                    timeout,
-                    proxy_url,
-                    allow_insecure=self._config.processing.allow_insecure,
-                ),
-                self._config.processing.retries.nip66_http,
-                "nip66_http",
-                wait=self.wait,
-            )
-
-        return tasks
+                generated_at=0,
+            ),
+            MonitorCheckDependencies(
+                retry_fetch=retry_fetch,
+                nip11_fetch=Nip11.fetch,
+                rtt_probe=Nip66RttMetadata.probe,
+                ssl_probe=Nip66SslMetadata.probe,
+                geo_probe=Nip66GeoMetadata.probe,
+                net_probe=Nip66NetMetadata.probe,
+                dns_probe=Nip66DnsMetadata.probe,
+                http_probe=Nip66HttpMetadata.probe,
+            ),
+        )
 
     async def monitor(self) -> int:
         """Check, persist, and publish all pending relays.
