@@ -437,21 +437,21 @@ class TestCatalogAccessMixinIsTableEnabled:
     def test_returns_false_when_table_disabled(self) -> None:
         svc = _TestCatalogService()
         policy = MagicMock(enabled=False)
-        svc._config.read_models = {"relay": policy}
+        svc._config.read_models = {"relays": policy}
 
         assert svc._is_table_enabled("relay") is False
 
     def test_returns_true_when_table_enabled(self) -> None:
         svc = _TestCatalogService()
         policy = MagicMock(enabled=True)
-        svc._config.read_models = {"relay": policy}
+        svc._config.read_models = {"relays": policy}
 
         assert svc._is_table_enabled("relay") is True
 
     def test_returns_false_for_unknown_table(self) -> None:
         svc = _TestCatalogService()
         policy = MagicMock(enabled=True)
-        svc._config.read_models = {"relay": policy}
+        svc._config.read_models = {"relays": policy}
 
         assert svc._is_table_enabled("nonexistent") is False
 

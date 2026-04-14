@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.services.common.catalog import Catalog, QueryResult, TableSchema
+    from bigbrotr.services.common.configs import ReadModelConfig
 
 
 ReadSurface = Literal["api", "dvm"]
@@ -228,7 +229,13 @@ class ReadModelEntry:
     read_model_id: str
     catalog_name: str
     backend: ReadModelBackend
+    aliases: tuple[str, ...] = ()
     surfaces: tuple[ReadSurface, ...] = ("api", "dvm")
+
+    @property
+    def all_public_ids(self) -> tuple[str, ...]:
+        """Return canonical and legacy public IDs for this read model."""
+        return (self.read_model_id, *self.aliases)
 
     def schema(self, catalog: Catalog) -> TableSchema:
         """Resolve the discovered schema backing this read model."""
@@ -254,42 +261,160 @@ class ReadModelEntry:
 
 
 def _table_read_model(
-    name: str,
+    read_model_id: str,
+    catalog_name: str,
     *,
+    aliases: tuple[str, ...] = (),
     surfaces: tuple[ReadSurface, ...] = ("api", "dvm"),
 ) -> ReadModelEntry:
-    """Build a compatibility read model backed by one catalog table/view."""
+    """Build one catalog-backed read model with canonical and legacy IDs."""
     return ReadModelEntry(
-        read_model_id=name,
-        catalog_name=name,
-        backend=CatalogReadModelBackend(name),
+        read_model_id=read_model_id,
+        catalog_name=catalog_name,
+        backend=CatalogReadModelBackend(catalog_name),
+        aliases=aliases,
         surfaces=surfaces,
     )
 
 
 READ_MODEL_REGISTRY: dict[str, ReadModelEntry] = {
-    "relay": _table_read_model("relay"),
-    "event": _table_read_model("event"),
-    "event_relay": _table_read_model("event_relay"),
-    "metadata": _table_read_model("metadata"),
-    "relay_metadata": _table_read_model("relay_metadata"),
-    "relay_metadata_current": _table_read_model("relay_metadata_current"),
-    "pubkey_stats": _table_read_model("pubkey_stats"),
-    "kind_stats": _table_read_model("kind_stats"),
-    "relay_stats": _table_read_model("relay_stats"),
-    "pubkey_relay_stats": _table_read_model("pubkey_relay_stats"),
-    "pubkey_kind_stats": _table_read_model("pubkey_kind_stats"),
-    "relay_kind_stats": _table_read_model("relay_kind_stats"),
-    "relay_software_counts": _table_read_model("relay_software_counts"),
-    "supported_nip_counts": _table_read_model("supported_nip_counts"),
-    "daily_counts": _table_read_model("daily_counts"),
-    "events_replaceable_current": _table_read_model("events_replaceable_current"),
-    "events_addressable_current": _table_read_model("events_addressable_current"),
-    "nip85_pubkey_stats": _table_read_model("nip85_pubkey_stats"),
-    "nip85_event_stats": _table_read_model("nip85_event_stats"),
-    "nip85_addressable_stats": _table_read_model("nip85_addressable_stats"),
-    "nip85_identifier_stats": _table_read_model("nip85_identifier_stats"),
+    "relays": _table_read_model("relays", "relay", aliases=("relay",)),
+    "events": _table_read_model("events", "event", aliases=("event",)),
+    "event-observations": _table_read_model(
+        "event-observations",
+        "event_relay",
+        aliases=("event_relay",),
+    ),
+    "metadata-documents": _table_read_model(
+        "metadata-documents",
+        "metadata",
+        aliases=("metadata",),
+    ),
+    "relay-metadata-history": _table_read_model(
+        "relay-metadata-history",
+        "relay_metadata",
+        aliases=("relay_metadata",),
+    ),
+    "relay-metadata-current": _table_read_model(
+        "relay-metadata-current",
+        "relay_metadata_current",
+        aliases=("relay_metadata_current",),
+    ),
+    "pubkey-stats": _table_read_model("pubkey-stats", "pubkey_stats", aliases=("pubkey_stats",)),
+    "kind-stats": _table_read_model("kind-stats", "kind_stats", aliases=("kind_stats",)),
+    "relay-stats": _table_read_model("relay-stats", "relay_stats", aliases=("relay_stats",)),
+    "pubkey-relay-stats": _table_read_model(
+        "pubkey-relay-stats",
+        "pubkey_relay_stats",
+        aliases=("pubkey_relay_stats",),
+    ),
+    "pubkey-kind-stats": _table_read_model(
+        "pubkey-kind-stats",
+        "pubkey_kind_stats",
+        aliases=("pubkey_kind_stats",),
+    ),
+    "relay-kind-stats": _table_read_model(
+        "relay-kind-stats",
+        "relay_kind_stats",
+        aliases=("relay_kind_stats",),
+    ),
+    "relay-software-counts": _table_read_model(
+        "relay-software-counts",
+        "relay_software_counts",
+        aliases=("relay_software_counts",),
+    ),
+    "supported-nip-counts": _table_read_model(
+        "supported-nip-counts",
+        "supported_nip_counts",
+        aliases=("supported_nip_counts",),
+    ),
+    "daily-counts": _table_read_model("daily-counts", "daily_counts", aliases=("daily_counts",)),
+    "replaceable-events-current": _table_read_model(
+        "replaceable-events-current",
+        "events_replaceable_current",
+        aliases=("events_replaceable_current",),
+    ),
+    "addressable-events-current": _table_read_model(
+        "addressable-events-current",
+        "events_addressable_current",
+        aliases=("events_addressable_current",),
+    ),
+    "nip85-pubkey-stats": _table_read_model(
+        "nip85-pubkey-stats",
+        "nip85_pubkey_stats",
+        aliases=("nip85_pubkey_stats",),
+    ),
+    "nip85-event-stats": _table_read_model(
+        "nip85-event-stats",
+        "nip85_event_stats",
+        aliases=("nip85_event_stats",),
+    ),
+    "nip85-addressable-stats": _table_read_model(
+        "nip85-addressable-stats",
+        "nip85_addressable_stats",
+        aliases=("nip85_addressable_stats",),
+    ),
+    "nip85-identifier-stats": _table_read_model(
+        "nip85-identifier-stats",
+        "nip85_identifier_stats",
+        aliases=("nip85_identifier_stats",),
+    ),
 }
+
+READ_MODEL_ALIASES: dict[str, str] = {
+    public_id: entry.read_model_id
+    for entry in READ_MODEL_REGISTRY.values()
+    for public_id in entry.all_public_ids
+}
+
+
+def resolve_read_model_id(name: str) -> str | None:
+    """Resolve one canonical or legacy public name to the canonical read-model ID."""
+    return READ_MODEL_ALIASES.get(name)
+
+
+def catalog_name_for_read_model(name: str) -> str | None:
+    """Resolve one public read-model name to the backing catalog name."""
+    canonical_name = resolve_read_model_id(name)
+    if canonical_name is None:
+        return None
+    return READ_MODEL_REGISTRY[canonical_name].catalog_name
+
+
+def normalize_read_model_policies(
+    policies: Mapping[str, ReadModelConfig],
+    *,
+    surface: ReadSurface,
+) -> dict[str, ReadModelConfig]:
+    """Normalize config policies onto canonical read-model IDs.
+
+    Accepts both canonical and legacy names, but rejects conflicting duplicates
+    that would collapse onto the same canonical read model.
+    """
+    normalized: dict[str, ReadModelConfig] = {}
+    seen_names: dict[str, str] = {}
+    allowed = set(read_models_for_surface(surface))
+
+    for raw_name, policy in policies.items():
+        canonical_name = resolve_read_model_id(raw_name) or raw_name
+        if canonical_name in normalized:
+            previous = seen_names[canonical_name]
+            raise ValueError(
+                f"Duplicate read model policy for {canonical_name}: {previous}, {raw_name}"
+            )
+        normalized[canonical_name] = policy
+        seen_names[canonical_name] = raw_name
+
+    invalid = sorted(set(normalized) - allowed)
+    if invalid:
+        invalid_names = ", ".join(invalid)
+        allowed_names = ", ".join(sorted(allowed))
+        raise ValueError(
+            f"read_models contains non-public {surface.upper()} read models: "
+            f"{invalid_names}. Allowed read models: {allowed_names}"
+        )
+
+    return normalized
 
 
 def read_models_for_surface(surface: ReadSurface) -> dict[str, ReadModelEntry]:
@@ -308,8 +433,9 @@ def enabled_read_models_for_surface(
     enabled_names: set[str],
 ) -> dict[str, ReadModelEntry]:
     """Return surface read models that are both configured and discoverable."""
+    canonical_enabled = {resolve_read_model_id(name) or name for name in enabled_names}
     return {
         read_model_id: entry
         for read_model_id, entry in sorted(read_models_for_surface(surface).items())
-        if entry.catalog_name in available_catalog_names and read_model_id in enabled_names
+        if entry.catalog_name in available_catalog_names and read_model_id in canonical_enabled
     }

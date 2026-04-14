@@ -37,8 +37,8 @@ def api_config() -> ApiConfig:
         max_page_size=100,
         default_page_size=10,
         read_models={
-            "relay": ReadModelConfig(enabled=True),
-            "relay_stats": ReadModelConfig(enabled=True),
+            "relays": ReadModelConfig(enabled=True),
+            "relay-stats": ReadModelConfig(enabled=True),
         },
     )
 
@@ -136,17 +136,21 @@ class TestApiConfig:
         assert config.port == 9000
         assert config.max_page_size == 500
         assert config.request_timeout == 60.0
-        assert config.read_models["event"].enabled is True
+        assert config.read_models["events"].enabled is True
 
     def test_read_models_alias_accepted(self) -> None:
         config = ApiConfig(read_models={"event": ReadModelConfig(enabled=True)})
-        assert config.read_models["event"].enabled is True
+        assert config.read_models["events"].enabled is True
+
+    def test_legacy_read_model_names_are_canonicalized(self) -> None:
+        config = ApiConfig(read_models={"relay": ReadModelConfig(enabled=True)})
+        assert config.read_models == {"relays": ReadModelConfig(enabled=True)}
 
     def test_tables_and_read_models_together_rejected(self) -> None:
         with pytest.raises(ValueError, match="Specify only one of tables or read_models"):
             ApiConfig(
                 tables={"relay": ReadModelConfig(enabled=True)},
-                read_models={"event": ReadModelConfig(enabled=True)},
+                read_models={"events": ReadModelConfig(enabled=True)},
             )
 
     def test_inherits_base_service_config(self) -> None:
@@ -214,7 +218,7 @@ class TestApiBuildApp:
     def test_app_title_from_config(self, mock_brotr: Brotr, sample_catalog: Catalog) -> None:
         config = ApiConfig(
             title="LilBrotr API",
-            read_models={"relay": ReadModelConfig(enabled=True)},
+            read_models={"relays": ReadModelConfig(enabled=True)},
         )
         service = Api(brotr=mock_brotr, config=config)
         service._catalog = sample_catalog
@@ -230,7 +234,7 @@ class TestApiBuildApp:
     ) -> None:
         config = ApiConfig(
             cors_origins=["https://example.com"],
-            read_models={"relay": ReadModelConfig(enabled=True)},
+            read_models={"relays": ReadModelConfig(enabled=True)},
         )
         service = Api(brotr=mock_brotr, config=config)
         service._catalog = sample_catalog
@@ -249,20 +253,20 @@ class TestApiBuildApp:
             host="127.0.0.1",
             port=9999,
             route_prefix="/api/v2",
-            read_models={"relay": ReadModelConfig(enabled=True)},
+            read_models={"relays": ReadModelConfig(enabled=True)},
         )
         service = Api(brotr=mock_brotr, config=config)
         service._catalog = sample_catalog
         client = TestClient(service._build_app())
 
         assert client.get("/api/v2/read-models").status_code == 200
-        assert client.get("/api/v2/relay").status_code == 200
+        assert client.get("/api/v2/relays").status_code == 200
         assert client.get("/v1/read-models").status_code in (404, 405)
 
     def test_composite_pk_route_generated(
         self, mock_brotr: Brotr, composite_pk_catalog: Catalog
     ) -> None:
-        config = ApiConfig(read_models={"relay_metadata": ReadModelConfig(enabled=True)})
+        config = ApiConfig(read_models={"relay-metadata-history": ReadModelConfig(enabled=True)})
         service = Api(brotr=mock_brotr, config=config)
         service._catalog = composite_pk_catalog
         app = service._build_app()
@@ -279,13 +283,13 @@ class TestApiBuildApp:
         with pytest.raises(ValueError, match=r"non-public API read models: service_state"):
             ApiConfig(
                 tables={
-                    "relay": ReadModelConfig(enabled=True),
+                    "relays": ReadModelConfig(enabled=True),
                     "service_state": ReadModelConfig(enabled=True),
                 }
             )
 
     def test_view_has_no_pk_route(self, test_client: TestClient) -> None:
-        resp = test_client.get("/v1/relay_stats/something")
+        resp = test_client.get("/v1/relay-stats/something")
         assert resp.status_code in (404, 405)
 
     def test_enabled_read_model_names_follow_registry(
@@ -294,10 +298,11 @@ class TestApiBuildApp:
         monkeypatch.setattr(
             "bigbrotr.services.api.service.enabled_read_models_for_surface",
             lambda *_args, **_kwargs: {
-                "relay": ReadModelEntry(
-                    read_model_id="relay",
+                "relays": ReadModelEntry(
+                    read_model_id="relays",
                     catalog_name="relay",
                     backend=CatalogReadModelBackend("relay"),
+                    aliases=("relay",),
                     surfaces=("api",),
                 ),
                 "missing_view": ReadModelEntry(
@@ -309,7 +314,7 @@ class TestApiBuildApp:
             },
         )
 
-        assert api_service._enabled_read_model_names() == ["relay"]
+        assert api_service._enabled_read_model_names() == ["relays"]
 
 
 # ============================================================================
@@ -330,28 +335,30 @@ class TestReadModelRoutes:
         assert resp.status_code == 200
         data = resp.json()["data"]
         names = [t["id"] for t in data]
-        assert "relay" in names
-        assert "relay_stats" in names
+        assert "relays" in names
+        assert "relay-stats" in names
         assert "service_state" not in names
-        relay = next(item for item in data if item["id"] == "relay")
-        assert relay["path"] == "/v1/relay"
+        relay = next(item for item in data if item["id"] == "relays")
+        assert relay["path"] == "/v1/relays"
         assert relay["column_count"] == 2
         assert relay["default_pagination"] == "cursor"
         assert relay["supports_cursor_pagination"] is True
+        assert relay["legacy_aliases"] == ["relay"]
 
-        relay_stats = next(item for item in data if item["id"] == "relay_stats")
+        relay_stats = next(item for item in data if item["id"] == "relay-stats")
         assert relay_stats["default_pagination"] == "offset"
         assert relay_stats["supports_cursor_pagination"] is False
 
     def test_read_model_detail(self, test_client: TestClient) -> None:
-        resp = test_client.get("/v1/read-models/relay")
+        resp = test_client.get("/v1/read-models/relays")
         assert resp.status_code == 200
         data = resp.json()["data"]
-        assert data["id"] == "relay"
-        assert data["path"] == "/v1/relay"
+        assert data["id"] == "relays"
+        assert data["path"] == "/v1/relays"
         assert data["is_view"] is False
         assert len(data["columns"]) == 2
         assert data["primary_key"] == ["url"]
+        assert data["legacy_aliases"] == ["relay"]
         assert data["pagination"] == {
             "default_mode": "cursor",
             "supports_cursor": True,
@@ -360,6 +367,11 @@ class TestReadModelRoutes:
             "cursor_param": "cursor",
             "meta_cursor_field": "next_cursor",
         }
+
+    def test_read_model_detail_accepts_legacy_alias(self, test_client: TestClient) -> None:
+        resp = test_client.get("/v1/read-models/relay")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["id"] == "relays"
 
     @pytest.mark.parametrize("read_model", ["service_state", "nonexistent"])
     def test_read_model_detail_not_found(self, test_client: TestClient, read_model: str) -> None:
@@ -384,21 +396,31 @@ class TestListRowsRoute:
         with patch.object(
             api_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
         ):
-            resp = test_client.get("/v1/relay?limit=10")
+            resp = test_client.get("/v1/relays?limit=10")
 
         assert resp.status_code == 200
         body = resp.json()
         assert body["data"] == [{"url": "wss://relay.example.com", "network": "clearnet"}]
         assert "total" not in body["meta"]
         assert body["meta"]["next_cursor"] == "opaque-token"
-        assert body["meta"]["read_model"] == "relay"
+        assert body["meta"]["read_model"] == "relays"
+
+    def test_legacy_alias_path_still_works(self, test_client: TestClient, api_service: Api) -> None:
+        mock_result = QueryResult(rows=[], total=None, limit=10, offset=0)
+        with patch.object(
+            api_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+        ):
+            resp = test_client.get("/v1/relay?limit=10")
+
+        assert resp.status_code == 200
+        assert resp.json()["meta"]["read_model"] == "relays"
 
     def test_include_total_param(self, test_client: TestClient, api_service: Api) -> None:
         mock_result = QueryResult(rows=[], total=5, limit=10, offset=0)
         with patch.object(
             api_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
         ) as mock_query:
-            resp = test_client.get("/v1/relay?include_total=true")
+            resp = test_client.get("/v1/relays?include_total=true")
 
         assert resp.status_code == 200
         _, kwargs = mock_query.call_args
@@ -410,7 +432,7 @@ class TestListRowsRoute:
         with patch.object(
             api_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
         ) as mock_query:
-            resp = test_client.get("/v1/relay?sort=url:asc")
+            resp = test_client.get("/v1/relays?sort=url:asc")
 
         assert resp.status_code == 200
         _, kwargs = mock_query.call_args
@@ -423,14 +445,14 @@ class TestListRowsRoute:
         with patch.object(
             api_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
         ) as mock_query:
-            resp = test_client.get("/v1/relay?cursor=opaque-token")
+            resp = test_client.get("/v1/relays?cursor=opaque-token")
 
         assert resp.status_code == 200
         _, kwargs = mock_query.call_args
         assert kwargs["cursor"] == "opaque-token"
 
     def test_cursor_and_offset_returns_400(self, test_client: TestClient) -> None:
-        resp = test_client.get("/v1/relay?cursor=opaque-token&offset=1")
+        resp = test_client.get("/v1/relays?cursor=opaque-token&offset=1")
         assert resp.status_code == 400
         assert "cursor pagination" in resp.json()["error"].lower()
 
@@ -441,7 +463,7 @@ class TestListRowsRoute:
             new_callable=AsyncMock,
             side_effect=CatalogError("Unknown column: bad"),
         ):
-            resp = test_client.get("/v1/relay?bad=value")
+            resp = test_client.get("/v1/relays?bad=value")
         assert resp.status_code == 400
         assert "Unknown column" in resp.json()["error"]
 
@@ -451,7 +473,7 @@ class TestListRowsRoute:
         ids=["invalid_limit", "invalid_offset"],
     )
     def test_invalid_pagination_returns_400(self, test_client: TestClient, params: str) -> None:
-        resp = test_client.get(f"/v1/relay?{params}")
+        resp = test_client.get(f"/v1/relays?{params}")
         assert resp.status_code == 400
         assert "Invalid limit" in resp.json()["error"]
 
@@ -461,7 +483,7 @@ class TestListRowsRoute:
 
         api_service._config.request_timeout = 0.01
         with patch.object(api_service._catalog, "query", side_effect=slow_query):
-            resp = test_client.get("/v1/relay?limit=10")
+            resp = test_client.get("/v1/relays?limit=10")
         assert resp.status_code == 504
         assert "timeout" in resp.json()["error"].lower()
 
@@ -475,7 +497,7 @@ class TestGetRowRoute:
             new_callable=AsyncMock,
             return_value=mock_row,
         ):
-            resp = test_client.get("/v1/relay/wss://relay.example.com")
+            resp = test_client.get("/v1/relays/wss://relay.example.com")
 
         assert resp.status_code == 200
         assert resp.json()["data"] == mock_row
@@ -487,7 +509,7 @@ class TestGetRowRoute:
             new_callable=AsyncMock,
             return_value=None,
         ):
-            resp = test_client.get("/v1/relay/wss://nonexistent")
+            resp = test_client.get("/v1/relays/wss://nonexistent")
         assert resp.status_code == 404
 
     def test_value_error_returns_400(self, test_client: TestClient, api_service: Api) -> None:
@@ -497,7 +519,7 @@ class TestGetRowRoute:
             new_callable=AsyncMock,
             side_effect=ValueError("bad pk"),
         ):
-            resp = test_client.get("/v1/relay/wss://bad")
+            resp = test_client.get("/v1/relays/wss://bad")
         assert resp.status_code == 400
         assert "Invalid request" in resp.json()["error"]
 
@@ -508,7 +530,7 @@ class TestGetRowRoute:
             new_callable=AsyncMock,
             side_effect=CatalogError("type cast failed"),
         ):
-            resp = test_client.get("/v1/relay/wss://bad")
+            resp = test_client.get("/v1/relays/wss://bad")
         assert resp.status_code == 400
         assert "type cast failed" in resp.json()["error"]
 
@@ -518,7 +540,7 @@ class TestGetRowRoute:
 
         api_service._config.request_timeout = 0.01
         with patch.object(api_service._catalog, "get_by_pk", side_effect=slow_pk):
-            resp = test_client.get("/v1/relay/wss://example.com")
+            resp = test_client.get("/v1/relays/wss://example.com")
         assert resp.status_code == 504
         assert "timeout" in resp.json()["error"].lower()
 
@@ -554,7 +576,7 @@ class TestRequestMiddleware:
             new_callable=AsyncMock,
             side_effect=RuntimeError("unexpected DB failure"),
         ):
-            resp = test_client.get("/v1/relay?limit=10")
+            resp = test_client.get("/v1/relays?limit=10")
 
         assert resp.status_code == 500
         assert resp.json()["error"] == "Internal server error"

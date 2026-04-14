@@ -19,7 +19,7 @@ from pydantic import AliasChoices, BeforeValidator, Field, model_validator
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
 from bigbrotr.services.common.configs import ReadModelConfig  # noqa: TC001 (Pydantic runtime)
-from bigbrotr.services.common.read_models import read_models_for_surface
+from bigbrotr.services.common.read_models import normalize_read_model_policies
 from bigbrotr.utils.keys import KeysConfig
 from bigbrotr.utils.parsing import parse_relay_url, safe_parse
 
@@ -133,13 +133,5 @@ class DvmConfig(BaseServiceConfig):
 
     @model_validator(mode="after")
     def _validate_public_tables(self) -> DvmConfig:
-        allowed_tables = set(read_models_for_surface("dvm"))
-        invalid_tables = sorted(set(self.read_models) - allowed_tables)
-        if invalid_tables:
-            invalid = ", ".join(invalid_tables)
-            allowed = ", ".join(sorted(allowed_tables))
-            raise ValueError(
-                "read_models contains non-public DVM read models: "
-                f"{invalid}. Allowed read models: {allowed}"
-            )
+        self.read_models = normalize_read_model_policies(self.read_models, surface="dvm")
         return self

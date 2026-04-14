@@ -62,8 +62,8 @@ def dvm_config() -> DvmConfig:
         kind=5050,
         max_page_size=100,
         read_models={
-            "relay": ReadModelConfig(enabled=True),
-            "event": ReadModelConfig(enabled=True, price=5000),
+            "relays": ReadModelConfig(enabled=True),
+            "events": ReadModelConfig(enabled=True, price=5000),
         },
     )
 
@@ -214,22 +214,22 @@ class TestDvmConfig:
             relays=["wss://relay.example.com"],
             tables={"relay": ReadModelConfig(enabled=True, price=1000)},
         )
-        assert config.read_models["relay"].price == 1000
-        assert config.read_models["relay"].enabled is True
+        assert config.read_models["relays"].price == 1000
+        assert config.read_models["relays"].enabled is True
 
     def test_read_models_alias_accepted(self) -> None:
         config = DvmConfig(
             relays=["wss://relay.example.com"],
             read_models={"relay": ReadModelConfig(enabled=True, price=1000)},
         )
-        assert config.read_models["relay"].price == 1000
+        assert config.read_models["relays"].price == 1000
 
     def test_tables_and_read_models_together_rejected(self) -> None:
         with pytest.raises(ValueError, match="Specify only one of tables or read_models"):
             DvmConfig(
                 relays=["wss://relay.example.com"],
                 tables={"relay": ReadModelConfig(enabled=True)},
-                read_models={"event": ReadModelConfig(enabled=True)},
+                read_models={"events": ReadModelConfig(enabled=True)},
             )
 
     def test_inherits_base_service_config(self) -> None:
@@ -648,6 +648,9 @@ class TestDvmRun:
             await dvm_service.run()
 
         mock_client.send_event_builder.assert_called_once()
+        builder = mock_client.send_event_builder.await_args.args[0]
+        published = builder.sign_with_keys(_KEYS)
+        assert json.loads(published.content())["meta"]["read_model"] == "relays"
         assert dvm_service._last_fetch_ts == 2000
         assert dvm_service._last_fetch_id == "abc123"
         mock_state_store.upsert_cursors.assert_awaited_once()
@@ -1085,10 +1088,11 @@ class TestDvmPublishingGuards:
         monkeypatch.setattr(
             "bigbrotr.services.dvm.service.enabled_read_models_for_surface",
             lambda *_args, **_kwargs: {
-                "relay": ReadModelEntry(
-                    read_model_id="relay",
+                "relays": ReadModelEntry(
+                    read_model_id="relays",
                     catalog_name="relay",
                     backend=CatalogReadModelBackend("relay"),
+                    aliases=("relay",),
                     surfaces=("dvm",),
                 ),
                 "missing_view": ReadModelEntry(
@@ -1100,7 +1104,7 @@ class TestDvmPublishingGuards:
             },
         )
 
-        assert dvm_service._enabled_read_model_names() == ["relay"]
+        assert dvm_service._enabled_read_model_names() == ["relays"]
 
     async def test_publish_announcement_logs_warning_when_unaccepted(
         self, dvm_service: Dvm
@@ -1274,7 +1278,7 @@ class TestBuildResultEvent:
     def test_result_kind_is_request_plus_1000(self) -> None:
         result = QueryResult(rows=[], total=0, limit=10, offset=0)
         event = build_result_event(
-            ResultEventRequest(5050, "eid", "pk", "relay"),
+            ResultEventRequest(5050, "eid", "pk", "relays"),
             result,
             0,
         ).sign_with_keys(_KEYS)
@@ -1289,7 +1293,7 @@ class TestBuildResultEvent:
             next_cursor="opaque-token",
         )
         event = build_result_event(
-            ResultEventRequest(5050, "eid", "pk", "relay"),
+            ResultEventRequest(5050, "eid", "pk", "relays"),
             result,
             0,
         ).sign_with_keys(_KEYS)
@@ -1300,13 +1304,13 @@ class TestBuildResultEvent:
             "limit": 10,
             "offset": 0,
             "next_cursor": "opaque-token",
-            "read_model": "relay",
+            "read_model": "relays",
         }
 
     def test_content_omits_total_when_not_requested(self) -> None:
         result = QueryResult(rows=[{"url": "wss://r.io"}], total=None, limit=10, offset=0)
         event = build_result_event(
-            ResultEventRequest(5050, "eid", "pk", "relay"),
+            ResultEventRequest(5050, "eid", "pk", "relays"),
             result,
             0,
         ).sign_with_keys(_KEYS)
@@ -1314,13 +1318,13 @@ class TestBuildResultEvent:
         assert content["meta"] == {
             "limit": 10,
             "offset": 0,
-            "read_model": "relay",
+            "read_model": "relays",
         }
 
     def test_amount_tag_included_when_price_positive(self) -> None:
         result = QueryResult(rows=[], total=0, limit=10, offset=0)
         event = build_result_event(
-            ResultEventRequest(5050, "eid", "pk", "relay"),
+            ResultEventRequest(5050, "eid", "pk", "relays"),
             result,
             500,
         ).sign_with_keys(_KEYS)
@@ -1330,7 +1334,7 @@ class TestBuildResultEvent:
     def test_no_amount_tag_when_price_zero(self) -> None:
         result = QueryResult(rows=[], total=0, limit=10, offset=0)
         event = build_result_event(
-            ResultEventRequest(5050, "eid", "pk", "relay"),
+            ResultEventRequest(5050, "eid", "pk", "relays"),
             result,
             0,
         ).sign_with_keys(_KEYS)
@@ -1383,7 +1387,7 @@ class TestBuildPaymentRequiredEvent:
 
 class TestBuildAnnouncementEvent:
     def test_kind_31990(self) -> None:
-        event = build_announcement_event("dtag", 5050, "DVM", "about", ["relay"]).sign_with_keys(
+        event = build_announcement_event("dtag", 5050, "DVM", "about", ["relays"]).sign_with_keys(
             _KEYS
         )
         assert event.kind().as_u16() == 31990

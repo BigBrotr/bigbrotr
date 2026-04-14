@@ -61,6 +61,7 @@ from bigbrotr.services.common.read_models import (
     build_read_model_meta,
     enabled_read_models_for_surface,
     read_model_query_from_http_params,
+    resolve_read_model_id,
 )
 
 from .configs import ApiConfig
@@ -279,13 +280,14 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
 
         @app.get(f"{prefix}/read-models/{{read_model_id}}")
         async def get_read_model(read_model_id: str) -> JSONResponse:
-            read_model = self._enabled_read_models().get(read_model_id)
+            canonical_id = resolve_read_model_id(read_model_id) or read_model_id
+            read_model = self._enabled_read_models().get(canonical_id)
             if read_model is None:
                 return JSONResponse(
                     {"error": f"read model not found: {read_model_id}"},
                     status_code=404,
                 )
-            return JSONResponse({"data": self._build_read_model_detail(read_model_id, read_model)})
+            return JSONResponse({"data": self._build_read_model_detail(canonical_id, read_model)})
 
     def _build_read_model_summary(
         self,
@@ -298,6 +300,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         return {
             "id": read_model_id,
             "path": f"{self._config.route_prefix}/{read_model_id}",
+            "legacy_aliases": list(read_model.aliases),
             "is_view": schema.is_view,
             "column_count": len(schema.columns),
             "has_primary_key": supports_cursor,
@@ -316,6 +319,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         return {
             "id": read_model_id,
             "path": f"{self._config.route_prefix}/{read_model_id}",
+            "legacy_aliases": list(read_model.aliases),
             "is_view": schema.is_view,
             "columns": [
                 {
@@ -355,7 +359,6 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         schema = read_model.schema(self._catalog)
         pk_cols = schema.primary_key
 
-        @app.get(f"{self._config.route_prefix}/{read_model_id}")
         async def list_rows(request: Request) -> JSONResponse:
             try:
                 query = read_model_query_from_http_params(
@@ -390,39 +393,46 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
                 }
             )
 
+        for public_id in read_model.all_public_ids:
+            app.get(f"{self._config.route_prefix}/{public_id}")(list_rows)
+
         # PK-based detail route (only for read models with a primary key)
-        if pk_cols:
-            if len(pk_cols) == 1:
-                pk_col = pk_cols[0]
-                pk_path = f"{{{pk_col}:path}}"
-            else:
-                pk_path = "/".join(f"{{{pk}}}" for pk in pk_cols)
+        if not pk_cols:
+            return
 
-            @app.get(f"{self._config.route_prefix}/{read_model_id}/{pk_path}")
-            async def get_row(request: Request) -> JSONResponse:
-                pk_values = {col: request.path_params[col] for col in pk_cols}
-                try:
-                    row = await asyncio.wait_for(
-                        read_model.get_by_pk(
-                            self._brotr,
-                            self._catalog,
-                            pk_values,
-                        ),
-                        timeout=self._config.request_timeout,
-                    )
-                except TimeoutError:
-                    return JSONResponse({"error": "Query timeout"}, status_code=504)
-                except ValueError:
-                    return JSONResponse(
-                        {"error": "Invalid request parameters"},
-                        status_code=400,
-                    )
-                except CatalogError as e:
-                    return JSONResponse({"error": e.client_message}, status_code=400)
+        if len(pk_cols) == 1:
+            pk_col = pk_cols[0]
+            pk_path = f"{{{pk_col}:path}}"
+        else:
+            pk_path = "/".join(f"{{{pk}}}" for pk in pk_cols)
 
-                if row is None:
-                    return JSONResponse({"error": "not found"}, status_code=404)
-                return JSONResponse({"data": row})
+        async def get_row(request: Request) -> JSONResponse:
+            pk_values = {col: request.path_params[col] for col in pk_cols}
+            try:
+                row = await asyncio.wait_for(
+                    read_model.get_by_pk(
+                        self._brotr,
+                        self._catalog,
+                        pk_values,
+                    ),
+                    timeout=self._config.request_timeout,
+                )
+            except TimeoutError:
+                return JSONResponse({"error": "Query timeout"}, status_code=504)
+            except ValueError:
+                return JSONResponse(
+                    {"error": "Invalid request parameters"},
+                    status_code=400,
+                )
+            except CatalogError as e:
+                return JSONResponse({"error": e.client_message}, status_code=400)
+
+            if row is None:
+                return JSONResponse({"error": "not found"}, status_code=404)
+            return JSONResponse({"data": row})
+
+        for public_id in read_model.all_public_ids:
+            app.get(f"{self._config.route_prefix}/{public_id}/{pk_path}")(get_row)
 
     # ── Server lifecycle ──────────────────────────────────────────
 

@@ -428,14 +428,15 @@ class CatalogAccessMixin:
 
     def _is_read_model_enabled(self, name: str) -> bool:
         """Check whether a public read model is registered and enabled in config."""
-        from .read_models import READ_MODEL_REGISTRY  # noqa: PLC0415
+        from .read_models import READ_MODEL_REGISTRY, resolve_read_model_id  # noqa: PLC0415
 
-        if name not in READ_MODEL_REGISTRY:
+        canonical_name = resolve_read_model_id(name) or name
+        if canonical_name not in READ_MODEL_REGISTRY:
             return False
         policies = getattr(self._config, "read_models", None)  # type: ignore[attr-defined]
         if not isinstance(policies, dict):
             policies = getattr(self._config, "tables", {})  # type: ignore[attr-defined]
-        policy: ReadModelConfig | None = policies.get(name)
+        policy: ReadModelConfig | None = policies.get(canonical_name)
         if policy is None:
             return False
         return policy.enabled

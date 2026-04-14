@@ -5,6 +5,7 @@ import pytest
 
 from bigbrotr.core.yaml import load_yaml
 from bigbrotr.services.common.catalog import Catalog, ColumnSchema, QueryResult, TableSchema
+from bigbrotr.services.common.configs import ReadModelConfig
 from bigbrotr.services.common.read_models import (
     READ_MODEL_REGISTRY,
     CatalogReadModelBackend,
@@ -13,10 +14,12 @@ from bigbrotr.services.common.read_models import (
     ReadModelQueryError,
     build_read_model_meta,
     enabled_read_models_for_surface,
+    normalize_read_model_policies,
     parse_read_model_filter_string,
     read_model_query_from_http_params,
     read_model_query_from_job_params,
     read_models_for_surface,
+    resolve_read_model_id,
 )
 
 
@@ -36,10 +39,12 @@ class TestReadModelRegistry:
     def test_all_entries_are_catalog_compatibility_read_models(self) -> None:
         for read_model_id, entry in READ_MODEL_REGISTRY.items():
             assert entry.read_model_id == read_model_id
-            assert entry.catalog_name == read_model_id
             assert isinstance(entry.backend, CatalogReadModelBackend)
             assert entry.backend.catalog_name == entry.catalog_name
             assert entry.surfaces
+            assert resolve_read_model_id(read_model_id) == read_model_id
+            for alias in entry.aliases:
+                assert resolve_read_model_id(alias) == read_model_id
 
     def test_registry_covers_all_configured_api_tables(self) -> None:
         api_configs = (
@@ -88,10 +93,19 @@ class TestReadModelRegistry:
         enabled = enabled_read_models_for_surface(
             "api",
             available_catalog_names={"relay", "event"},
+            enabled_names={"relays", "metadata-documents"},
+        )
+
+        assert set(enabled) == {"relays"}
+
+    def test_enabled_read_models_accept_legacy_enabled_names(self) -> None:
+        enabled = enabled_read_models_for_surface(
+            "api",
+            available_catalog_names={"relay", "event"},
             enabled_names={"relay", "metadata"},
         )
 
-        assert set(enabled) == {"relay"}
+        assert set(enabled) == {"relays"}
 
     def test_entry_schema_uses_catalog_name(self) -> None:
         catalog = Catalog()
@@ -104,7 +118,7 @@ class TestReadModelRegistry:
             )
         }
 
-        entry = READ_MODEL_REGISTRY["relay"]
+        entry = READ_MODEL_REGISTRY["relays"]
 
         assert entry.schema(catalog) == catalog.tables["relay"]
 
@@ -116,7 +130,7 @@ class TestReadModelRegistry:
         catalog.query = AsyncMock(return_value=expected)  # type: ignore[method-assign]
         brotr = object()
 
-        entry = READ_MODEL_REGISTRY["relay"]
+        entry = READ_MODEL_REGISTRY["relays"]
         request = ReadModelQuery(limit=5, offset=0, max_page_size=50, filters={"url": "foo"})
 
         result = await entry.query(brotr, catalog, request)
@@ -141,7 +155,7 @@ class TestReadModelRegistry:
         catalog.get_by_pk = AsyncMock(return_value=expected)  # type: ignore[method-assign]
         brotr = object()
 
-        entry = READ_MODEL_REGISTRY["relay"]
+        entry = READ_MODEL_REGISTRY["relays"]
         pk_values = {"url": "wss://relay.example.com"}
 
         result = await entry.get_by_pk(brotr, catalog, pk_values)
@@ -307,7 +321,7 @@ class TestReadModelQueryHelpers:
                 offset=0,
                 next_cursor="opaque-token",
             ),
-            read_model_id="relay",
+            read_model_id="relays",
         )
 
         assert meta == {
@@ -315,7 +329,7 @@ class TestReadModelQueryHelpers:
             "limit": 10,
             "offset": 0,
             "next_cursor": "opaque-token",
-            "read_model": "relay",
+            "read_model": "relays",
         }
 
     def test_build_read_model_meta_omits_total_when_unavailable(self) -> None:
@@ -326,11 +340,32 @@ class TestReadModelQueryHelpers:
                 limit=10,
                 offset=0,
             ),
-            read_model_id="relay",
+            read_model_id="relays",
         )
 
         assert meta == {
             "limit": 10,
             "offset": 0,
-            "read_model": "relay",
+            "read_model": "relays",
         }
+
+    def test_normalize_read_model_policies_canonicalizes_legacy_names(self) -> None:
+        policies = normalize_read_model_policies(
+            {
+                "relay": ReadModelConfig(enabled=True),
+                "relay_stats": ReadModelConfig(enabled=True),
+            },
+            surface="api",
+        )
+
+        assert set(policies) == {"relays", "relay-stats"}
+
+    def test_normalize_read_model_policies_rejects_duplicate_aliases(self) -> None:
+        with pytest.raises(ValueError, match="Duplicate read model policy for relays"):
+            normalize_read_model_policies(
+                {
+                    "relay": ReadModelConfig(enabled=True),
+                    "relays": ReadModelConfig(enabled=True),
+                },
+                surface="api",
+            )

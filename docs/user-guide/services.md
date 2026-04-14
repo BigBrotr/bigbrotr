@@ -516,6 +516,11 @@ Each target is isolated by default: one failed refresh does not stop the rest of
 Endpoints also include `/health` (readiness check), `GET /api/v1/read-models`, and
 `GET /api/v1/read-models/{read_model}` for public surface discovery.
 
+The discovery surface now exposes canonical, product-level read-model IDs such as
+`relays`, `relay-stats`, and `relay-metadata-current`. Legacy table-shaped aliases
+remain accepted for compatibility, but discovery and deployment configs should prefer
+the canonical IDs.
+
 For read models with a primary key, list responses default to cursor pagination:
 
 - the request can pass `cursor=<opaque-token>` for the next page
@@ -562,6 +567,10 @@ For read models without a stable primary key, the API falls back to offset pagin
 7. Publish the result as a kind 6050 event, or publish error/payment-required feedback (kind 7000)
 
 The Dvm supports per-read-model pricing via `ReadModelConfig.price`. When a job's bid is below the required price, a payment-required feedback event is published instead of the query result.
+
+As with the HTTP API, DVM announcements and deployment config should use the canonical
+read-model IDs (`relays`, `relay-stats`, `relay-metadata-current`, ...). Legacy
+table-shaped aliases are still accepted on inbound jobs for compatibility.
 
 When the target read model has a primary key, DVM list jobs default to the same
 cursor-based contract as the API:

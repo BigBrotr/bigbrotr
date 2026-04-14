@@ -56,8 +56,10 @@ from bigbrotr.services.common.mixins import CatalogAccessMixin
 from bigbrotr.services.common.read_models import (
     ReadModelEntry,
     ReadModelQueryError,
+    catalog_name_for_read_model,
     enabled_read_models_for_surface,
     read_model_query_from_job_params,
+    resolve_read_model_id,
 )
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import DvmRequestCursor
@@ -329,12 +331,14 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
 
         customer_pubkey = event.author().to_hex()
         params = parse_job_params(event)
-        read_model_id = params.get("read_model", "")
+        raw_read_model_id = params.get("read_model", "")
+        read_model_id = resolve_read_model_id(raw_read_model_id) or raw_read_model_id
 
         self._logger.info(
             "job_received",
             event_id=event_id,
             read_model=read_model_id,
+            raw_read_model=raw_read_model_id,
             customer=customer_pubkey,
         )
 
@@ -469,12 +473,14 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
     # ── Read-model policy helpers ─────────────────────────────────
 
     def _is_read_model_enabled(self, name: str) -> bool:
-        if name not in self._catalog.tables:
+        catalog_name = catalog_name_for_read_model(name) or name
+        if catalog_name not in self._catalog.tables:
             return False
         return super()._is_read_model_enabled(name)
 
     def _get_read_model_price(self, name: str) -> int:
-        policy = self._config.read_models.get(name)
+        canonical_name = resolve_read_model_id(name) or name
+        policy = self._config.read_models.get(canonical_name)
         if policy is None:
             return 0
         return policy.price
