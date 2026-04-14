@@ -794,7 +794,7 @@ class TestSyncWorker:
         cursor = SyncCursor(key="wss://relay.example.com")
 
         with patch(
-            "bigbrotr.services.synchronizer.service.connect_relay",
+            "bigbrotr.services.synchronizer.service.NostrClientManager.connect_relay_once",
             new_callable=AsyncMock,
         ) as mock_connect:
             items = [item async for item in sync._synchronize_worker(cursor)]
@@ -815,7 +815,7 @@ class TestSyncWorker:
         cursor = SyncCursor(key="wss://relay.example.com")
 
         with patch(
-            "bigbrotr.services.synchronizer.service.connect_relay",
+            "bigbrotr.services.synchronizer.service.NostrClientManager.connect_relay_once",
             new_callable=AsyncMock,
             side_effect=error,
         ):
@@ -842,7 +842,7 @@ class TestSyncWorker:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.connect_relay",
+                "bigbrotr.services.synchronizer.service.NostrClientManager.connect_relay_once",
                 new_callable=AsyncMock,
                 return_value=mock_client,
             ),
@@ -873,7 +873,7 @@ class TestSyncWorker:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.connect_relay",
+                "bigbrotr.services.synchronizer.service.NostrClientManager.connect_relay_once",
                 new_callable=AsyncMock,
                 return_value=mock_client,
             ),
@@ -912,7 +912,7 @@ class TestSyncWorker:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.connect_relay",
+                "bigbrotr.services.synchronizer.service.NostrClientManager.connect_relay_once",
                 new_callable=AsyncMock,
                 return_value=mock_client,
             ),
@@ -940,7 +940,7 @@ class TestSyncWorker:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.connect_relay",
+                "bigbrotr.services.synchronizer.service.NostrClientManager.connect_relay_once",
                 new_callable=AsyncMock,
                 return_value=mock_client,
             ),
@@ -972,7 +972,7 @@ class TestSyncWorker:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.connect_relay",
+                "bigbrotr.services.synchronizer.service.NostrClientManager.connect_relay_once",
                 new_callable=AsyncMock,
                 return_value=mock_client,
             ),
@@ -1001,7 +1001,7 @@ class TestSyncWorker:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.connect_relay",
+                "bigbrotr.services.synchronizer.service.NostrClientManager.connect_relay_once",
                 new_callable=AsyncMock,
                 return_value=mock_client,
             ),

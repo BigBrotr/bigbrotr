@@ -71,7 +71,7 @@ from bigbrotr.models import EventRelay, Relay
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin, NetworkSemaphoresMixin
 from bigbrotr.services.common.types import SyncCursor
-from bigbrotr.utils.protocol import connect_relay, shutdown_client
+from bigbrotr.utils.protocol import NostrClientManager, shutdown_client
 from bigbrotr.utils.streaming import stream_events
 
 from .configs import SynchronizerConfig
@@ -86,6 +86,7 @@ from .queries import (
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
+    from types import TracebackType
 
     from nostr_sdk import Keys
 
@@ -132,7 +133,32 @@ class Synchronizer(
         config = config or SynchronizerConfig()
         super().__init__(brotr=brotr, config=config, networks=config.networks)
         self._config: SynchronizerConfig
+        self._client_manager: NostrClientManager | None = None
         self._keys: Keys = self._config.keys.keys
+
+    async def __aexit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        _exc_val: BaseException | None,
+        _exc_tb: TracebackType | None,
+    ) -> None:
+        manager = self._client_manager
+        if manager is not None:
+            await manager.disconnect()
+            self._client_manager = None
+        await super().__aexit__(_exc_type, _exc_val, _exc_tb)
+
+    def _get_client_manager(self) -> NostrClientManager:
+        """Return the lazy-initialized nostr client manager for this service."""
+        manager = self._client_manager
+        if manager is None:
+            manager = NostrClientManager(
+                keys=self._keys,
+                networks=self._config.networks,
+                allow_insecure=self._config.processing.allow_insecure,
+            )
+            self._client_manager = manager
+        return manager
 
     async def run(self) -> None:
         """Execute one complete synchronization cycle across all relays."""
@@ -248,13 +274,7 @@ class Synchronizer(
                 request_timeout = network_config.timeout
 
                 try:
-                    client = await connect_relay(
-                        relay,
-                        keys=self._keys,
-                        proxy_url=self._config.networks.get_proxy_url(relay.network),
-                        timeout=request_timeout,
-                        allow_insecure=self._config.processing.allow_insecure,
-                    )
+                    client = await self._get_client_manager().connect_relay_once(relay)
                 except (OSError, TimeoutError) as e:
                     self._logger.warning("connect_failed", relay=relay.url, error=str(e))
                     return

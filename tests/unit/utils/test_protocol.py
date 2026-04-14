@@ -246,6 +246,33 @@ class TestCreateConnectedClient:
 
 
 class TestNostrClientManagerRelayClients:
+    async def test_connect_relay_once_uses_network_policy_without_caching(self) -> None:
+        networks = MagicMock()
+        network_cfg = MagicMock()
+        network_cfg.timeout = 12.0
+        networks.get.return_value = network_cfg
+        networks.get_proxy_url.return_value = "socks5://127.0.0.1:9050"
+        relay = Relay("wss://relay.example.com")
+        manager = NostrClientManager(keys=MagicMock(), networks=networks, allow_insecure=True)
+
+        with patch(
+            "bigbrotr.utils.protocol.connect_relay",
+            new_callable=AsyncMock,
+        ) as mock_connect:
+            await manager.connect_relay_once(relay)
+            await manager.connect_relay_once(relay)
+
+        assert manager._relay_clients == {}
+        assert manager._failed_relays == set()
+        assert mock_connect.await_count == 2
+        mock_connect.assert_awaited_with(
+            relay,
+            keys=manager._keys,
+            proxy_url="socks5://127.0.0.1:9050",
+            timeout=12.0,
+            allow_insecure=True,
+        )
+
     async def test_get_relay_client_caches_successful_connections(self) -> None:
         networks = MagicMock()
         network_cfg = MagicMock()

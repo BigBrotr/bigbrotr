@@ -203,6 +203,7 @@ class NostrClientManager:
 
     Supports two patterns used across the codebase:
 
+    - uncached relay-scoped clients (`connect_relay_once`)
     - cached per-relay publishing clients (`get_relay_client`)
     - named multi-relay sessions (`connect_session`)
     """
@@ -230,25 +231,33 @@ class NostrClientManager:
         self._failed_relays: set[str] = set()
         self._sessions: dict[str, ClientSession] = {}
 
+    async def _connect_relay_with_networks(self, relay: Relay) -> Client:
+        """Connect one relay using this manager's shared network policy."""
+        if self._networks is None:
+            raise RuntimeError("networks configuration required for relay-scoped clients")
+        proxy_url = self._networks.get_proxy_url(relay.network)
+        timeout = self._networks.get(relay.network).timeout
+        return await connect_relay(
+            relay,
+            keys=self._keys,
+            proxy_url=proxy_url,
+            timeout=timeout,
+            allow_insecure=self._allow_insecure,
+        )
+
+    async def connect_relay_once(self, relay: Relay) -> Client:
+        """Return one uncached relay-scoped client using shared policy."""
+        return await self._connect_relay_with_networks(relay)
+
     async def get_relay_client(self, relay: Relay) -> Client | None:
-        """Return one lazily connected client for a single relay."""
+        """Return one lazily connected cached client for a single relay."""
         if relay.url in self._relay_clients:
             return self._relay_clients[relay.url]
         if relay.url in self._failed_relays:
             return None
-        if self._networks is None:
-            raise RuntimeError("networks configuration required for relay-scoped clients")
 
-        proxy_url = self._networks.get_proxy_url(relay.network)
-        timeout = self._networks.get(relay.network).timeout
         try:
-            client = await connect_relay(
-                relay,
-                keys=self._keys,
-                proxy_url=proxy_url,
-                timeout=timeout,
-                allow_insecure=self._allow_insecure,
-            )
+            client = await self._connect_relay_with_networks(relay)
         except (OSError, TimeoutError) as e:
             logger.warning("connect_client_failed relay=%s error=%s", relay.url, e)
             self._failed_relays.add(relay.url)
