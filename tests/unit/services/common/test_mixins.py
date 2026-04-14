@@ -23,6 +23,7 @@ from bigbrotr.services.common.mixins import (
     NetworkSemaphores,
     NetworkSemaphoresMixin,
 )
+from bigbrotr.services.common.read_models import ReadModelEntry, ReadModelQuery
 
 
 # =============================================================================
@@ -491,6 +492,87 @@ class TestCatalogAccessMixinReadModelResolution:
         read_model_id, entry = resolved
         assert read_model_id == "relays"
         assert entry.read_model_id == "relays"
+
+    async def test_query_read_model_entry_uses_shared_catalog_context(self) -> None:
+        svc = _TestCatalogService()
+        query = ReadModelQuery(limit=10, offset=0)
+        result = MagicMock()
+        backend = MagicMock()
+        backend.query = AsyncMock(return_value=result)
+        read_model = ReadModelEntry(
+            read_model_id="relays",
+            catalog_name="relay",
+            backend=backend,
+        )
+
+        resolved = await svc._query_read_model_entry(read_model, query)
+
+        assert resolved is result
+        backend.query.assert_awaited_once_with(svc._brotr, svc._catalog, query)
+
+    async def test_get_read_model_entry_by_pk_uses_shared_catalog_context(self) -> None:
+        svc = _TestCatalogService()
+        row = {"url": "wss://relay.example.com"}
+        backend = MagicMock()
+        backend.get_by_pk = AsyncMock(return_value=row)
+        read_model = ReadModelEntry(
+            read_model_id="relays",
+            catalog_name="relay",
+            backend=backend,
+        )
+
+        resolved = await svc._get_read_model_entry_by_pk(
+            read_model,
+            {"url": "wss://relay.example.com"},
+        )
+
+        assert resolved == row
+        backend.get_by_pk.assert_awaited_once_with(
+            svc._brotr,
+            svc._catalog,
+            {"url": "wss://relay.example.com"},
+        )
+
+    async def test_query_enabled_read_model_for_surface_returns_canonical_name_and_result(
+        self,
+    ) -> None:
+        svc = _TestCatalogService()
+        svc._config.read_models = {"relays": MagicMock(enabled=True)}
+        svc._catalog._tables = {"relay": MagicMock()}
+        expected = MagicMock()
+        query = ReadModelQuery(limit=5, offset=0)
+        query_mock = AsyncMock(return_value=expected)
+        with patch.object(svc, "_query_read_model_entry", query_mock):
+            resolved = await svc._query_enabled_read_model_for("dvm", "relay", query)
+
+        assert resolved == ("relays", expected)
+        query_mock.assert_awaited_once()
+        read_model = query_mock.await_args.args[0]
+        assert isinstance(read_model, ReadModelEntry)
+        assert read_model.read_model_id == "relays"
+        assert query_mock.await_args.args[1] is query
+
+    async def test_get_enabled_read_model_row_for_surface_returns_canonical_name_and_row(
+        self,
+    ) -> None:
+        svc = _TestCatalogService()
+        svc._config.read_models = {"relays": MagicMock(enabled=True)}
+        svc._catalog._tables = {"relay": MagicMock()}
+        row = {"url": "wss://relay.example.com"}
+        get_mock = AsyncMock(return_value=row)
+        with patch.object(svc, "_get_read_model_entry_by_pk", get_mock):
+            resolved = await svc._get_enabled_read_model_row_for(
+                "api",
+                "relay",
+                {"url": "wss://relay.example.com"},
+            )
+
+        assert resolved == ("relays", row)
+        get_mock.assert_awaited_once()
+        read_model = get_mock.await_args.args[0]
+        assert isinstance(read_model, ReadModelEntry)
+        assert read_model.read_model_id == "relays"
+        assert get_mock.await_args.args[1] == {"url": "wss://relay.example.com"}
 
 
 # =============================================================================

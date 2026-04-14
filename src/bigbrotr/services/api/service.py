@@ -330,11 +330,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
 
             try:
                 result = await asyncio.wait_for(
-                    read_model.query(
-                        self._brotr,
-                        self._catalog,
-                        query,
-                    ),
+                    self._query_read_model_entry(read_model, query),
                     timeout=self._config.request_timeout,
                 )
             except TimeoutError:
@@ -366,11 +362,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
             pk_values = {col: request.path_params[col] for col in pk_cols}
             try:
                 row = await asyncio.wait_for(
-                    read_model.get_by_pk(
-                        self._brotr,
-                        self._catalog,
-                        pk_values,
-                    ),
+                    self._get_read_model_entry_by_pk(read_model, pk_values),
                     timeout=self._config.request_timeout,
                 )
             except TimeoutError:

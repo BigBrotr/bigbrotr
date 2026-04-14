@@ -406,11 +406,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         read_model = prepared_job.read_model
 
         start = time.monotonic()
-        result = await read_model.query(
-            self._brotr,
-            self._catalog,
-            prepared_job.query,
-        )
+        result = await self._query_read_model_entry(read_model, prepared_job.query)
         duration_ms = (time.monotonic() - start) * 1000
 
         await self._send_event(

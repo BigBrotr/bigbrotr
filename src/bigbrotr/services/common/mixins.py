@@ -38,9 +38,9 @@ if TYPE_CHECKING:
     from bigbrotr.core.logger import Logger
     from bigbrotr.models import Relay
 
-    from .catalog import Catalog
+    from .catalog import Catalog, QueryResult
     from .configs import NetworksConfig, ReadModelConfig
-    from .read_models import ReadModelEntry, ReadSurface
+    from .read_models import ReadModelEntry, ReadModelQuery, ReadSurface
 
 
 #: Network types that support concurrent relay connections.
@@ -485,3 +485,45 @@ class CatalogAccessMixin:
             policies=self._read_model_policies(),
             available_catalog_names=self._available_catalog_names(),
         )
+
+    async def _query_read_model_entry(
+        self,
+        read_model: ReadModelEntry,
+        request: ReadModelQuery,
+    ) -> QueryResult:
+        """Execute one resolved read-model query through the shared catalog context."""
+        return await read_model.query(self._brotr, self._catalog, request)  # type: ignore[attr-defined]
+
+    async def _get_read_model_entry_by_pk(
+        self,
+        read_model: ReadModelEntry,
+        pk_values: dict[str, str],
+    ) -> dict[str, Any] | None:
+        """Fetch one resolved read-model row by primary key through the shared catalog context."""
+        return await read_model.get_by_pk(self._brotr, self._catalog, pk_values)  # type: ignore[attr-defined]
+
+    async def _query_enabled_read_model_for(
+        self,
+        surface: ReadSurface,
+        name: str,
+        request: ReadModelQuery,
+    ) -> tuple[str, QueryResult] | None:
+        """Resolve and execute one enabled public read model for a surface."""
+        resolved = self._resolve_enabled_read_model_for(surface, name)
+        if resolved is None:
+            return None
+        read_model_id, read_model = resolved
+        return read_model_id, await self._query_read_model_entry(read_model, request)
+
+    async def _get_enabled_read_model_row_for(
+        self,
+        surface: ReadSurface,
+        name: str,
+        pk_values: dict[str, str],
+    ) -> tuple[str, dict[str, Any] | None] | None:
+        """Resolve and fetch one row from an enabled public read model for a surface."""
+        resolved = self._resolve_enabled_read_model_for(surface, name)
+        if resolved is None:
+            return None
+        read_model_id, read_model = resolved
+        return read_model_id, await self._get_read_model_entry_by_pk(read_model, pk_values)
