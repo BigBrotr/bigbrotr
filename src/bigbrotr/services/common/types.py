@@ -144,3 +144,13 @@ class FinderCursor(Cursor):
     ``timestamp`` is the ``seen_at`` from the ``event_relay`` junction,
     ``id`` is the event ID for tie-breaking.
     """
+
+
+@dataclass(frozen=True, slots=True)
+class DvmRequestCursor(Cursor):
+    """Cursor for NIP-90 request replay protection (Dvm).
+
+    Tracks the newest processed job request using the event ``created_at``
+    timestamp and event ID. The ``key`` is the logical DVM request stream
+    identifier (currently ``"job_requests"``).
+    """

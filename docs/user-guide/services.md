@@ -544,10 +544,11 @@ Endpoints also include `/health` (readiness check), `GET /api/v1/read-models`, a
 
 1. On startup (`__aenter__`), connect to configured relays and discover the backing catalog
 2. Optionally publish a NIP-89 handler announcement (kind 31990) advertising available read models
-3. Each `run()` cycle fetches new kind 5050 job request events using a `since` timestamp filter
-4. Parse job parameters from event tags: `read_model`, `limit`, `offset`, `sort`, `filter`, `columns`
-5. Execute the query via the shared Catalog (same engine as the Api service)
-6. Publish the result as a kind 6050 event, or publish error/payment-required feedback (kind 7000)
+3. Restore a persisted `(timestamp, event_id)` request cursor and open a long-lived kind 5050 subscription on the connected relays
+4. Each `run()` cycle drains buffered subscription notifications in cursor order
+5. Parse job parameters from event tags: `read_model`, `limit`, `offset`, `sort`, `filter`, `columns`
+6. Execute the query via the shared Catalog (same engine as the Api service)
+7. Publish the result as a kind 6050 event, or publish error/payment-required feedback (kind 7000)
 
 The Dvm supports per-read-model pricing via `TableConfig.price`. When a job's bid is below the required price, a payment-required feedback event is published instead of the query result.
 
@@ -560,7 +561,7 @@ The Dvm supports per-read-model pricing via `TableConfig.price`. When a job's bi
 | `max_page_size` | int | `1000` | Hard ceiling on query limit |
 | `read_models` | dict | `{}` | Per-read-model policies: `enabled` (bool), `price` (int, millisats) |
 | `announce` | bool | `true` | Publish NIP-89 handler announcement at startup |
-| `fetch_timeout` | float | `30.0` | Timeout for relay event fetching |
+| `fetch_timeout` | float | `30.0` | Timeout for relay subscription setup and initial request replay |
 
 !!! note "Nostr Keys"
     The Dvm uses `NOSTR_PRIVATE_KEY_DVM` (secp256k1 hex or `nsec1...`). If the

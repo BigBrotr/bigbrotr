@@ -16,7 +16,12 @@ from bigbrotr.services.common.state_store import (
     cursor_from_payload,
     hash_state,
 )
-from bigbrotr.services.common.types import ApiCheckpoint, CandidateCheckpoint, FinderCursor
+from bigbrotr.services.common.types import (
+    ApiCheckpoint,
+    CandidateCheckpoint,
+    DvmRequestCursor,
+    FinderCursor,
+)
 
 
 @pytest.fixture
@@ -116,6 +121,32 @@ class TestServiceStateStore:
             ApiCheckpoint(key="https://api1.example.com", timestamp=0),
             ApiCheckpoint(key="https://api2.example.com", timestamp=200),
             ApiCheckpoint(key="https://api3.example.com", timestamp=0),
+        ]
+
+    async def test_fetch_cursors_preserves_order_and_defaults(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                {
+                    "state_key": "job_requests",
+                    "state_value": {"timestamp": 200, "id": "ab" * 32},
+                },
+                {
+                    "state_key": "job_requests_2",
+                    "state_value": {},
+                },
+            ]
+        )
+
+        result = await ServiceStateStore(query_brotr).fetch_cursors(
+            ServiceName.DVM,
+            ["job_requests", "job_requests_2", "job_requests_3"],
+            DvmRequestCursor,
+        )
+
+        assert result == [
+            DvmRequestCursor(key="job_requests", timestamp=200, id="ab" * 32),
+            DvmRequestCursor(key="job_requests_2"),
+            DvmRequestCursor(key="job_requests_3"),
         ]
 
     async def test_upsert_cursors_skips_zero_timestamp_when_requested(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -22,7 +23,7 @@ from bigbrotr.services.common.catalog import (
 )
 from bigbrotr.services.common.configs import TableConfig
 from bigbrotr.services.common.read_models import ReadModelEntry
-from bigbrotr.services.common.types import Checkpoint
+from bigbrotr.services.common.types import DvmRequestCursor
 from bigbrotr.services.dvm.configs import DvmConfig
 from bigbrotr.services.dvm.service import Dvm
 from bigbrotr.services.dvm.utils import (
@@ -107,10 +108,12 @@ def _make_mock_event(
     event_id: str = "abc123",
     author_hex: str = "author_pubkey_hex",
     tags: list[list[str]] | None = None,
+    created_at: int = 1234,
 ) -> MagicMock:
     event = MagicMock()
     event.id.return_value.to_hex.return_value = event_id
     event.author.return_value.to_hex.return_value = author_hex
+    event.created_at.return_value.as_secs.return_value = created_at
 
     if tags is None:
         tags = [
@@ -134,10 +137,21 @@ def _make_mock_event(
 def _make_client_with_events(events: list[MagicMock]) -> MagicMock:
     mock_client = MagicMock()
     mock_client.send_event_builder = AsyncMock(return_value=_make_send_output())
-    events_obj = MagicMock()
-    events_obj.to_vec.return_value = events
-    mock_client.fetch_events = AsyncMock(return_value=events_obj)
+    mock_client.subscribe_to = AsyncMock(
+        return_value=SimpleNamespace(
+            id="sub-1",
+            success=["wss://relay.example.com"],
+            failed={},
+        )
+    )
+    mock_client.handle_notifications = AsyncMock()
     return mock_client
+
+
+async def _seed_request_events(service: Dvm, events: list[MagicMock]) -> None:
+    service._request_events = asyncio.Queue()
+    for event in events:
+        service._request_events.put_nowait(event)
 
 
 def _make_send_output(
@@ -272,7 +286,11 @@ class TestDvm:
     def test_init(self, dvm_service: Dvm) -> None:
         assert dvm_service._client is None
         assert dvm_service._client_manager is None
+        assert dvm_service._notification_task is None
+        assert dvm_service._request_events is None
+        assert dvm_service._request_subscription_id is None
         assert dvm_service._last_fetch_ts == 0
+        assert dvm_service._last_fetch_id == "0" * 64
         assert dvm_service._processed_ids == set()
 
 
@@ -334,13 +352,14 @@ class TestDvmLifecycle:
             )
         )
         mock_state_store = MagicMock()
-        mock_state_store.fetch_checkpoints = AsyncMock(
-            return_value=[Checkpoint(key="job_requests", timestamp=1234)]
+        mock_state_store.fetch_cursors = AsyncMock(
+            return_value=[DvmRequestCursor(key="job_requests", timestamp=1234, id="ab" * 32)]
         )
 
         with (
             patch("bigbrotr.services.dvm.service.NostrClientManager", return_value=mock_manager),
             patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
+            patch.object(dvm_service, "_start_request_subscription", new_callable=AsyncMock),
             patch.object(dvm_service, "set_gauge"),
             patch.object(type(dvm_service), "__aexit__", new_callable=AsyncMock),
         ):
@@ -349,6 +368,7 @@ class TestDvmLifecycle:
             assert dvm_service._client is mock_client
             assert dvm_service._client_manager is mock_manager
             assert dvm_service._last_fetch_ts == 1234
+            assert dvm_service._last_fetch_id == "ab" * 32
             mock_manager.connect_session.assert_awaited_once_with(
                 "dvm-read-relays",
                 dvm_service._config.relays,
@@ -356,7 +376,7 @@ class TestDvmLifecycle:
             )
             mock_client.send_event_builder.assert_called_once()
 
-    async def test_aenter_initializes_fetch_checkpoint_when_missing(self, dvm_service: Dvm) -> None:
+    async def test_aenter_initializes_request_cursor_when_missing(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
         mock_client.send_event_builder = AsyncMock(return_value=_make_send_output())
         mock_manager = MagicMock()
@@ -372,14 +392,15 @@ class TestDvmLifecycle:
             )
         )
         mock_state_store = MagicMock()
-        mock_state_store.fetch_checkpoints = AsyncMock(
-            return_value=[Checkpoint(key="job_requests", timestamp=0)]
+        mock_state_store.fetch_cursors = AsyncMock(
+            return_value=[DvmRequestCursor(key="job_requests")]
         )
-        mock_state_store.upsert_checkpoints = AsyncMock(return_value=1)
+        mock_state_store.upsert_cursors = AsyncMock(return_value=1)
 
         with (
             patch("bigbrotr.services.dvm.service.NostrClientManager", return_value=mock_manager),
             patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
+            patch.object(dvm_service, "_start_request_subscription", new_callable=AsyncMock),
             patch("bigbrotr.services.dvm.service.time") as mock_time,
             patch.object(dvm_service, "set_gauge"),
             patch.object(type(dvm_service), "__aexit__", new_callable=AsyncMock),
@@ -388,7 +409,8 @@ class TestDvmLifecycle:
             await dvm_service.__aenter__()
 
         assert dvm_service._last_fetch_ts == 4321
-        mock_state_store.upsert_checkpoints.assert_awaited_once()
+        assert dvm_service._last_fetch_id == "0" * 64
+        mock_state_store.upsert_cursors.assert_awaited_once()
 
     async def test_aenter_skips_announcement_when_disabled(self, mock_brotr: Brotr) -> None:
         config = DvmConfig(
@@ -425,6 +447,7 @@ class TestDvmLifecycle:
 
         with (
             patch("bigbrotr.services.dvm.service.NostrClientManager", return_value=mock_manager),
+            patch.object(service, "_start_request_subscription", new_callable=AsyncMock),
             patch.object(service, "set_gauge"),
             patch.object(type(service), "__aexit__", new_callable=AsyncMock),
         ):
@@ -448,13 +471,14 @@ class TestDvmLifecycle:
         )
         mock_manager.disconnect = AsyncMock()
         mock_state_store = MagicMock()
-        mock_state_store.fetch_checkpoints = AsyncMock(
-            return_value=[Checkpoint(key="job_requests", timestamp=1234)]
+        mock_state_store.fetch_cursors = AsyncMock(
+            return_value=[DvmRequestCursor(key="job_requests", timestamp=1234, id="ab" * 32)]
         )
 
         with (
             patch("bigbrotr.services.dvm.service.NostrClientManager", return_value=mock_manager),
             patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
+            patch.object(dvm_service, "_start_request_subscription", new_callable=AsyncMock),
             patch.object(dvm_service, "set_gauge"),
             patch.object(type(dvm_service), "__aexit__", new_callable=AsyncMock),
             pytest.raises(TimeoutError, match="dvm could not connect to any relay"),
@@ -464,14 +488,55 @@ class TestDvmLifecycle:
         mock_manager.disconnect.assert_awaited_once()
         assert dvm_service._client is None
 
+    async def test_aenter_disconnects_if_announcement_fails_after_subscription_start(
+        self, dvm_service: Dvm
+    ) -> None:
+        mock_client = MagicMock()
+        mock_manager = MagicMock()
+        mock_manager.connect_session = AsyncMock(
+            return_value=ClientSession(
+                session_id="dvm-read-relays",
+                client=mock_client,
+                relay_urls=("wss://relay.example.com",),
+                connect_result=ClientConnectResult(
+                    connected=("wss://relay.example.com",),
+                    failed={},
+                ),
+            )
+        )
+        mock_manager.disconnect = AsyncMock()
+        mock_state_store = MagicMock()
+        mock_state_store.fetch_cursors = AsyncMock(
+            return_value=[DvmRequestCursor(key="job_requests", timestamp=1234, id="ab" * 32)]
+        )
+        dvm_service._stop_request_subscription = AsyncMock()  # type: ignore[method-assign]
+
+        with (
+            patch("bigbrotr.services.dvm.service.NostrClientManager", return_value=mock_manager),
+            patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
+            patch.object(dvm_service, "_start_request_subscription", new_callable=AsyncMock),
+            patch.object(dvm_service, "_publish_announcement", new_callable=AsyncMock) as announce,
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(type(dvm_service), "__aexit__", new_callable=AsyncMock),
+            pytest.raises(OSError, match="announce failed"),
+        ):
+            announce.side_effect = OSError("announce failed")
+            await dvm_service.__aenter__()
+
+        dvm_service._stop_request_subscription.assert_awaited_once()  # type: ignore[attr-defined]
+        mock_manager.disconnect.assert_awaited_once()
+        assert dvm_service._client is None
+
     async def test_aexit_shuts_down_client(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
         dvm_service._client_manager = MagicMock(disconnect=AsyncMock())
+        dvm_service._stop_request_subscription = AsyncMock()  # type: ignore[method-assign]
         dvm_service._client = mock_client
 
         with patch.object(type(dvm_service).__mro__[2], "__aexit__", new_callable=AsyncMock):
             await dvm_service.__aexit__(None, None, None)
 
+        dvm_service._stop_request_subscription.assert_awaited_once()  # type: ignore[attr-defined]
         dvm_service._client_manager.disconnect.assert_awaited_once()
         assert dvm_service._client is None
 
@@ -488,6 +553,7 @@ class TestDvmLifecycle:
             ),
         )
         dvm_service._client = mock_client
+        dvm_service._stop_request_subscription = AsyncMock()  # type: ignore[method-assign]
 
         with (
             patch.object(type(dvm_service).__mro__[2], "__aexit__", new_callable=AsyncMock),
@@ -499,6 +565,7 @@ class TestDvmLifecycle:
         ):
             await dvm_service.__aexit__(None, None, None)
 
+        dvm_service._stop_request_subscription.assert_awaited_once()  # type: ignore[attr-defined]
         assert dvm_service._client is None
 
     async def test_aexit_noop_when_no_client(self, dvm_service: Dvm) -> None:
@@ -524,11 +591,9 @@ class TestDvmRun:
     async def test_run_no_events(self, dvm_service: Dvm) -> None:
         mock_client = _make_client_with_events([])
         dvm_service._client = mock_client
-        mock_state_store = MagicMock()
-        mock_state_store.upsert_checkpoints = AsyncMock(return_value=1)
+        await _seed_request_events(dvm_service, [])
 
         with (
-            patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(dvm_service, "set_gauge") as mock_gauge,
             patch.object(dvm_service, "inc_counter"),
         ):
@@ -539,30 +604,34 @@ class TestDvmRun:
             len(dvm_service._enabled_read_model_names()),
         )
 
-    async def test_run_no_events_updates_fetch_ts(self, dvm_service: Dvm) -> None:
+    async def test_run_no_events_does_not_advance_cursor(self, dvm_service: Dvm) -> None:
         mock_client = _make_client_with_events([])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [])
         mock_state_store = MagicMock()
-        mock_state_store.upsert_checkpoints = AsyncMock(return_value=1)
+        mock_state_store.upsert_cursors = AsyncMock(return_value=1)
 
         with (
             patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
-            patch("bigbrotr.services.dvm.service.time") as mock_time,
         ):
-            mock_time.time.return_value = 5000
             await dvm_service.run()
 
-        assert dvm_service._last_fetch_ts == 5000
-        mock_state_store.upsert_checkpoints.assert_awaited_once()
+        assert dvm_service._last_fetch_ts == 0
+        assert dvm_service._last_fetch_id == "0" * 64
+        mock_state_store.upsert_cursors.assert_not_awaited()
 
     async def test_run_processes_job(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "read_model", "relay"], ["param", "limit", "10"]])
+        event = _make_mock_event(
+            tags=[["param", "read_model", "relay"], ["param", "limit", "10"]],
+            created_at=2000,
+        )
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
         mock_state_store = MagicMock()
-        mock_state_store.upsert_checkpoints = AsyncMock(return_value=1)
+        mock_state_store.upsert_cursors = AsyncMock(return_value=1)
 
         mock_result = QueryResult(
             rows=[{"url": "wss://x", "network": "clearnet"}],
@@ -581,6 +650,9 @@ class TestDvmRun:
             await dvm_service.run()
 
         mock_client.send_event_builder.assert_called_once()
+        assert dvm_service._last_fetch_ts == 2000
+        assert dvm_service._last_fetch_id == "abc123"
+        mock_state_store.upsert_cursors.assert_awaited_once()
 
     async def test_run_dedup(self, dvm_service: Dvm) -> None:
         event = _make_mock_event(
@@ -589,6 +661,7 @@ class TestDvmRun:
         )
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
         dvm_service._processed_ids.add("dedup_id")
 
         with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
@@ -600,6 +673,7 @@ class TestDvmRun:
         event = _make_mock_event(tags=[["param", "read_model", "service_state"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
             await dvm_service.run()
@@ -610,6 +684,7 @@ class TestDvmRun:
         event = _make_mock_event(tags=[["param", "read_model", ""]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
             await dvm_service.run()
@@ -620,6 +695,7 @@ class TestDvmRun:
         event = _make_mock_event(tags=[["param", "limit", "10"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
             await dvm_service.run()
@@ -630,6 +706,7 @@ class TestDvmRun:
         event = _make_mock_event(tags=[["param", "read_model", "event"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
             await dvm_service.run()
@@ -640,6 +717,7 @@ class TestDvmRun:
         event = _make_mock_event(tags=[["param", "read_model", "event"], ["bid", "10000"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
@@ -659,18 +737,20 @@ class TestDvmRun:
         )
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
             await dvm_service.run()
 
         mock_client.send_event_builder.assert_called_once()
 
-    async def test_run_updates_fetch_ts_before_processing(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "read_model", "relay"]])
+    async def test_run_updates_request_cursor_after_processing(self, dvm_service: Dvm) -> None:
+        event = _make_mock_event(tags=[["param", "read_model", "relay"]], created_at=1000)
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
         mock_state_store = MagicMock()
-        mock_state_store.upsert_checkpoints = AsyncMock(return_value=1)
+        mock_state_store.upsert_cursors = AsyncMock(return_value=1)
 
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
@@ -680,14 +760,12 @@ class TestDvmRun:
             ),
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
-            patch("bigbrotr.services.dvm.service.time") as mock_time,
         ):
-            mock_time.time.side_effect = [1000, 2000]
-            mock_time.monotonic.return_value = 0.0
             await dvm_service.run()
 
         assert dvm_service._last_fetch_ts == 1000
-        mock_state_store.upsert_checkpoints.assert_awaited_once()
+        assert dvm_service._last_fetch_id == "abc123"
+        mock_state_store.upsert_cursors.assert_awaited_once()
 
     async def test_run_publish_error_failure_does_not_abort_batch(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
@@ -703,10 +781,8 @@ class TestDvmRun:
             event_id="ok_pub",
             tags=[["param", "read_model", "relay"]],
         )
-        events_obj = MagicMock()
-        events_obj.to_vec.return_value = [event1, event2]
-        mock_client.fetch_events = AsyncMock(return_value=events_obj)
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event1, event2])
 
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
@@ -727,6 +803,7 @@ class TestDvmRun:
         )
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         dvm_service._processed_ids = {str(i) for i in range(10_001)}
 
@@ -753,6 +830,7 @@ class TestDvmPtagTargeting:
         event = _make_mock_event(tags=[["p", "other_pubkey_hex"], ["param", "read_model", "relay"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
             await dvm_service.run()
@@ -763,6 +841,7 @@ class TestDvmPtagTargeting:
         event = _make_mock_event(tags=[["param", "read_model", "relay"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
@@ -799,6 +878,7 @@ class TestDvmJobErrorHandling:
         event = _make_mock_event(tags=[["param", "read_model", "relay"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         with (
             patch.object(
@@ -828,6 +908,7 @@ class TestDvmJobErrorHandling:
             ]
         )
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
@@ -847,6 +928,7 @@ class TestDvmJobErrorHandling:
         mock_client = _make_client_with_events([event])
         mock_client.send_event_builder = AsyncMock(side_effect=OSError("relay down"))
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         with (
             patch.object(
@@ -873,6 +955,7 @@ class TestDvmMetrics:
         event = _make_mock_event(tags=[["param", "read_model", "relay"], ["param", "limit", "5"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
 
         mock_result = QueryResult(
             rows=[{"url": "wss://x", "network": "clearnet"}],
@@ -903,6 +986,19 @@ class TestDvmPublishingGuards:
         dvm_service._client = None
         result = await dvm_service._fetch_job_requests()
         assert result == []
+
+    async def test_fetch_job_requests_drains_subscription_queue_in_cursor_order(
+        self, dvm_service: Dvm
+    ) -> None:
+        older = _make_mock_event(event_id="bb", created_at=1000)
+        newer = _make_mock_event(event_id="aa", created_at=2000)
+        same_ts_lower_id = _make_mock_event(event_id="aa", created_at=1000)
+        dvm_service._client = _make_client_with_events([])
+        await _seed_request_events(dvm_service, [newer, older, same_ts_lower_id])
+
+        result = await dvm_service._fetch_job_requests()
+
+        assert [event.id().to_hex() for event in result] == ["aa", "bb", "aa"]
 
     async def test_send_event_no_client(self, dvm_service: Dvm) -> None:
         dvm_service._client = None
@@ -963,6 +1059,29 @@ class TestDvmPublishingGuards:
             error="no relays accepted announcement",
             failed_relays={"wss://relay.example.com": "rejected"},
         )
+
+    async def test_run_skips_events_at_or_before_persisted_cursor(self, dvm_service: Dvm) -> None:
+        older = _make_mock_event(event_id="aa", created_at=900)
+        same_position = _make_mock_event(event_id="bb", created_at=1000)
+        newer = _make_mock_event(event_id="cc", created_at=1000)
+        mock_client = _make_client_with_events([older, same_position, newer])
+        dvm_service._client = mock_client
+        dvm_service._last_fetch_ts = 1000
+        dvm_service._last_fetch_id = "bb"
+        await _seed_request_events(dvm_service, [newer, older, same_position])
+
+        mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
+        with (
+            patch.object(
+                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+            ),
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(dvm_service, "inc_counter"),
+        ):
+            await dvm_service.run()
+
+        mock_client.send_event_builder.assert_called_once()
+        assert dvm_service._last_fetch_id == "cc"
 
 
 # ============================================================================

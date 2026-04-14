@@ -7,16 +7,15 @@ results as job-result events (request kind + 1000). Read-model pricing via
 [TableConfig][bigbrotr.services.common.configs.TableConfig]
 enables the NIP-90 bid/payment-required mechanism.
 
-Each ``run()`` cycle polls for new job requests using ``fetch_events()``
-with a ``since`` timestamp filter, processes them, and publishes results
-or error feedback.
+Each ``run()`` cycle drains job requests buffered by a long-lived NIP-90
+subscription, processes them in cursor order, and publishes results or
+error feedback.
 
 Note:
     Event IDs are deduplicated in-memory (capped at 10,000) to avoid
-    processing the same job twice within the ``since`` overlap window.
-    The ``since`` timestamp filter provides a secondary deduplication
-    boundary so that the in-memory set only needs to cover the current
-    cycle.
+    processing the same job twice within the current process. A persisted
+    `(timestamp, event_id)` cursor provides restart-safe replay protection
+    for the long-lived subscription.
 
 See Also:
     [DvmConfig][bigbrotr.services.dvm.DvmConfig]: Configuration model
@@ -42,13 +41,13 @@ Examples:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import time
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import asyncpg
-from nostr_sdk import Client, Filter, Kind, Timestamp
+from nostr_sdk import Client, Filter, Kind, RelayUrl, Timestamp
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
@@ -60,7 +59,7 @@ from bigbrotr.services.common.read_models import (
     enabled_read_models_for_surface,
 )
 from bigbrotr.services.common.state_store import ServiceStateStore
-from bigbrotr.services.common.types import Checkpoint
+from bigbrotr.services.common.types import DvmRequestCursor
 from bigbrotr.utils.protocol import NostrClientManager
 
 from .configs import DvmConfig
@@ -84,7 +83,58 @@ if TYPE_CHECKING:
 
 _MAX_PROCESSED_IDS = 10_000
 _MIN_TAG_LEN = 2
-_REQUEST_CHECKPOINT_KEY = "job_requests"
+_REQUEST_CURSOR_KEY = "job_requests"
+_REQUEST_CURSOR_DEFAULT_ID = "0" * 64
+
+
+class _RequestNotificationBuffer:
+    """Buffer long-lived DVM subscription notifications into an asyncio queue."""
+
+    __slots__ = ("_logger", "_loop", "_queue", "_subscription_id")
+
+    def __init__(
+        self,
+        *,
+        subscription_id: str,
+        queue: asyncio.Queue[Any],
+        logger: Any,
+    ) -> None:
+        self._subscription_id = subscription_id
+        self._queue = queue
+        self._loop = asyncio.get_running_loop()
+        self._logger = logger
+
+    def handle_msg(self, relay_url: RelayUrl, msg: Any) -> None:
+        relay_msg = msg.as_enum()
+        relay = str(relay_url)
+
+        if (
+            relay_msg.is_END_OF_STORED_EVENTS()
+            and relay_msg.subscription_id == self._subscription_id
+        ):
+            self._logger.debug(
+                "request_subscription_eose",
+                relay=relay,
+                subscription_id=relay_msg.subscription_id,
+            )
+        elif relay_msg.is_CLOSED() and relay_msg.subscription_id == self._subscription_id:
+            self._logger.warning(
+                "request_subscription_closed",
+                relay=relay,
+                subscription_id=relay_msg.subscription_id,
+                message=relay_msg.message,
+            )
+        elif relay_msg.is_NOTICE():
+            self._logger.debug(
+                "request_subscription_notice",
+                relay=relay,
+                message=relay_msg.message,
+            )
+
+    def handle(self, _relay_url: RelayUrl, subscription_id: str, event: Any) -> None:
+        if subscription_id != self._subscription_id or self._loop.is_closed():
+            return
+        self._loop.call_soon_threadsafe(self._queue.put_nowait, event)
 
 
 class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
@@ -97,7 +147,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
     Lifecycle:
         1. ``__aenter__``: discover schema, create Nostr client, connect
            to relays, optionally publish NIP-89 announcement.
-        2. ``run()``: fetch new job requests, process each, publish results.
+        2. ``run()``: drain buffered subscription events, process each, publish results.
         3. ``__aexit__``: disconnect client.
 
     See Also:
@@ -115,8 +165,12 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         self._config: DvmConfig
         self._client: Client | None = None
         self._client_manager: NostrClientManager | None = None
+        self._notification_task: asyncio.Task[None] | None = None
+        self._request_events: asyncio.Queue[Any] | None = None
+        self._request_subscription_id: str | None = None
         self._keys: Keys = self._config.keys.keys
         self._last_fetch_ts: int = 0
+        self._last_fetch_id: str = _REQUEST_CURSOR_DEFAULT_ID
         self._processed_ids: set[str] = set()
 
     async def __aenter__(self) -> Dvm:
@@ -143,15 +197,22 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             self._client = None
             raise TimeoutError("dvm could not connect to any relay")
 
-        if self._config.announce:
-            await self._publish_announcement()
+        try:
+            self._last_fetch_ts, self._last_fetch_id = await self._restore_request_cursor()
+            await self._start_request_subscription(connect_result.connected)
+            if self._config.announce:
+                await self._publish_announcement()
+        except (asyncpg.PostgresError, OSError, RuntimeError, TimeoutError):
+            await self._stop_request_subscription()
+            await manager.disconnect()
+            self._client = None
+            raise
 
         self.set_gauge(
             "tables_exposed",
             len(self._enabled_read_model_names()),
         )
 
-        self._last_fetch_ts = await self._restore_fetch_checkpoint()
         return self
 
     async def __aexit__(
@@ -161,6 +222,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         _exc_tb: TracebackType | None,
     ) -> None:
         if self._client is not None:
+            await self._stop_request_subscription()
             manager = self._client_manager
             if manager is not None:
                 await manager.disconnect()
@@ -169,7 +231,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         await super().__aexit__(_exc_type, _exc_val, _exc_tb)
 
     async def cleanup(self) -> int:
-        """No-op: Dvm does not use service state."""
+        """No-op: Dvm keeps a request cursor but has no stale state cleanup."""
         return 0
 
     def _get_client_manager(self) -> NostrClientManager:
@@ -183,23 +245,32 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             self._client_manager = manager
         return manager
 
+    def _ensure_request_subscription_healthy(self) -> None:
+        """Raise if the background notification loop has stopped unexpectedly."""
+        task = self._notification_task
+        if task is None or not task.done():
+            return
+
+        if task.cancelled():
+            raise RuntimeError("dvm request subscription was cancelled unexpectedly")
+        error = task.exception()
+        if error is None:
+            raise RuntimeError("dvm request subscription stopped unexpectedly")
+        raise RuntimeError("dvm request subscription failed") from error
+
     async def run(self) -> None:
         """Fetch and process NIP-90 job requests for one cycle.
 
-        Captures the current timestamp before fetching so that events
-        arriving during processing are not lost (the dedup set handles
-        the overlap window).  After processing, updates metrics and
-        manages the dedup set size.
+        Drains the subscription buffer, processes new requests in cursor
+        order, persists the newest replay boundary, then updates metrics
+        and manages the dedup set size.
         """
         if self._client is None:
             return
 
-        # Capture timestamp before fetching so events arriving during
-        # processing are not lost (dedup set handles the overlap)
-        fetch_ts = int(time.time())
+        self._ensure_request_subscription_healthy()
         events = await self._fetch_job_requests()
         if not events:
-            await self._store_fetch_checkpoint(fetch_ts)
             self._report_metrics(0, 0, 0, 0)
             return
 
@@ -209,16 +280,23 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         payment_required = 0
         keys = self._keys
         pubkey_hex = keys.public_key().to_hex()
+        latest_ts = self._last_fetch_ts
+        latest_id = self._last_fetch_id
 
         for event in events:
+            event_ts, event_id = self._event_position(event)
+            if (event_ts, event_id) <= (latest_ts, latest_id):
+                continue
             r, p, f, pr = await self._process_event(event, pubkey_hex)
             received += r
             processed += p
             failed += f
             payment_required += pr
+            latest_ts, latest_id = event_ts, event_id
 
         self._manage_dedup_set()
-        await self._store_fetch_checkpoint(fetch_ts)
+        if (latest_ts, latest_id) != (self._last_fetch_ts, self._last_fetch_id):
+            await self._store_request_cursor(latest_ts, latest_id)
         self._report_metrics(received, processed, failed, payment_required)
 
     # ── Event processing ──────────────────────────────────────────
@@ -363,8 +441,8 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         """Clear the processed IDs set when it exceeds the maximum size.
 
         Replay protection: cleared at ``_MAX_PROCESSED_IDS`` to bound memory.
-        The ``since`` timestamp filter on subscription provides a secondary
-        deduplication window, limiting replays to the current cycle.
+        The persisted `(timestamp, event_id)` cursor provides the durable
+        deduplication boundary across restarts.
         """
         if len(self._processed_ids) >= _MAX_PROCESSED_IDS:
             self._processed_ids.clear()
@@ -426,43 +504,125 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
 
     # ── Event fetching ────────────────────────────────────────────
 
-    async def _restore_fetch_checkpoint(self) -> int:
-        """Load the persisted request boundary or initialize it from wall clock."""
-        checkpoint = (
-            await ServiceStateStore(self._brotr).fetch_checkpoints(
+    async def _restore_request_cursor(self) -> tuple[int, str]:
+        """Load the persisted request cursor or initialize it from wall clock."""
+        cursor = (
+            await ServiceStateStore(self._brotr).fetch_cursors(
                 ServiceName.DVM,
-                [_REQUEST_CHECKPOINT_KEY],
-                Checkpoint,
+                [_REQUEST_CURSOR_KEY],
+                DvmRequestCursor,
             )
         )[0]
-        if checkpoint.timestamp > 0:
-            self._logger.info("request_checkpoint_restored", timestamp=checkpoint.timestamp)
-            return checkpoint.timestamp
+        if cursor.timestamp > 0:
+            self._logger.info(
+                "request_cursor_restored",
+                timestamp=cursor.timestamp,
+                event_id=cursor.id,
+            )
+            return cursor.timestamp, cursor.id
 
         timestamp = int(time.time())
-        await self._store_fetch_checkpoint(timestamp)
-        self._logger.info("request_checkpoint_initialized", timestamp=timestamp)
-        return timestamp
-
-    async def _store_fetch_checkpoint(self, timestamp: int) -> None:
-        """Persist the current request boundary after a successful cycle."""
-        self._last_fetch_ts = timestamp
-        await ServiceStateStore(self._brotr).upsert_checkpoints(
-            ServiceName.DVM,
-            [Checkpoint(key=_REQUEST_CHECKPOINT_KEY, timestamp=timestamp)],
+        await self._store_request_cursor(timestamp, _REQUEST_CURSOR_DEFAULT_ID)
+        self._logger.info(
+            "request_cursor_initialized",
+            timestamp=timestamp,
+            event_id=_REQUEST_CURSOR_DEFAULT_ID,
         )
+        return timestamp, _REQUEST_CURSOR_DEFAULT_ID
+
+    async def _store_request_cursor(self, timestamp: int, event_id: str) -> None:
+        """Persist the current request cursor after a successful cycle."""
+        self._last_fetch_ts = timestamp
+        self._last_fetch_id = event_id
+        await ServiceStateStore(self._brotr).upsert_cursors(
+            ServiceName.DVM,
+            [
+                DvmRequestCursor(
+                    key=_REQUEST_CURSOR_KEY,
+                    timestamp=timestamp,
+                    id=event_id,
+                )
+            ],
+        )
+
+    async def _start_request_subscription(self, connected_relays: tuple[str, ...]) -> None:
+        """Subscribe the DVM client to long-lived job request notifications."""
+        if self._client is None:
+            return
+
+        queue: asyncio.Queue[Any] = asyncio.Queue()
+        filter_ = (
+            Filter().kind(Kind(self._config.kind)).since(Timestamp.from_secs(self._last_fetch_ts))
+        )
+        urls = [RelayUrl.parse(url) for url in connected_relays]
+        output = await self._client.subscribe_to(urls, filter_)
+        successful_relays = tuple(str(relay_url) for relay_url in output.success)
+        failed_relays = {str(relay_url): str(error) for relay_url, error in output.failed.items()}
+
+        for relay_url, error in failed_relays.items():
+            self._logger.warning(
+                "request_subscription_relay_failed",
+                url=relay_url,
+                error=error,
+            )
+        if not successful_relays:
+            raise TimeoutError("dvm could not subscribe to any relay")
+
+        self._request_events = queue
+        self._request_subscription_id = output.id
+        handler = _RequestNotificationBuffer(
+            subscription_id=output.id,
+            queue=queue,
+            logger=self._logger,
+        )
+        self._notification_task = asyncio.create_task(self._client.handle_notifications(handler))
+        self._logger.info(
+            "request_subscription_started",
+            subscription_id=output.id,
+            relays=len(successful_relays),
+            since=self._last_fetch_ts,
+        )
+
+    async def _stop_request_subscription(self) -> None:
+        """Stop the long-lived DVM request subscription notification loop."""
+        task = self._notification_task
+        self._notification_task = None
+        self._request_events = None
+        self._request_subscription_id = None
+        if task is None:
+            return
+        if task.done():
+            if task.cancelled():
+                return
+            error = task.exception()
+            if error is not None:
+                self._logger.warning(
+                    "request_subscription_task_failed_on_shutdown",
+                    error=str(error),
+                    error_type=type(error).__name__,
+                )
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
     async def _fetch_job_requests(self) -> list[Any]:
-        """Fetch new NIP-90 job request events since last timestamp."""
-        if self._client is None:
+        """Drain buffered NIP-90 job request events from the live subscription."""
+        if self._client is None or self._request_events is None:
             return []
 
-        f = Filter().kind(Kind(self._config.kind)).since(Timestamp.from_secs(self._last_fetch_ts))
-        events_obj = await self._client.fetch_events(
-            f,
-            timedelta(seconds=self._config.fetch_timeout),
-        )
-        return list(events_obj.to_vec())
+        events: list[Any] = []
+        while True:
+            try:
+                events.append(self._request_events.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+        events.sort(key=self._event_position)
+        return events
+
+    def _event_position(self, event: Any) -> tuple[int, str]:
+        """Return the monotonic replay cursor for a request event."""
+        return event.created_at().as_secs(), event.id().to_hex()
 
     # ── Event publishing ──────────────────────────────────────────
 

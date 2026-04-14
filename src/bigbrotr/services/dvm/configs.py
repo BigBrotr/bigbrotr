@@ -38,7 +38,7 @@ class DvmConfig(BaseServiceConfig):
         tables: Backward-compatible alias for ``read_models``.
         read_models: Per-read-model policies (enable/disable, pricing).
         announce: Whether to publish a NIP-89 handler announcement at startup.
-        fetch_timeout: Timeout in seconds for relay event fetching.
+        fetch_timeout: Timeout in seconds for relay subscription setup and replay startup.
     """
 
     keys: KeysConfig = Field(
@@ -106,7 +106,7 @@ class DvmConfig(BaseServiceConfig):
         default=30.0,
         ge=1.0,
         le=300.0,
-        description="Timeout for relay event fetching in seconds",
+        description="Timeout for relay subscription setup and replay startup in seconds",
     )
     allow_insecure: bool = Field(
         default=False,

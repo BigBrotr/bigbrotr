@@ -208,6 +208,38 @@ class ServiceStateStore:
         records = [checkpoint_state(service_name, checkpoint) for checkpoint in checkpoints]
         return await self.upsert(records)
 
+    async def fetch_cursors(
+        self,
+        service_name: str,
+        keys: list[str],
+        cursor_type: type[_CursorT],
+    ) -> list[_CursorT]:
+        if not keys:
+            return []
+        rows = await self._brotr.fetch(
+            """
+            SELECT state_key, state_value
+            FROM service_state
+            WHERE service_name = $1
+              AND state_type = $2
+              AND state_key = ANY($3::text[])
+            """,
+            service_name,
+            ServiceStateType.CURSOR,
+            keys,
+        )
+        stored: dict[str, _CursorT] = {}
+        for row in rows:
+            try:
+                stored[row["state_key"]] = cursor_from_payload(
+                    row["state_key"],
+                    row["state_value"],
+                    cursor_type,
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+        return [stored.get(key, cursor_type(key=key)) for key in keys]
+
     async def upsert_cursors(
         self,
         service_name: str,
