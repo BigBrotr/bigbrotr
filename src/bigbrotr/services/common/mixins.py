@@ -527,3 +527,46 @@ class CatalogAccessMixin:
             return None
         read_model_id, read_model = resolved
         return read_model_id, await self._get_read_model_entry_by_pk(read_model, pk_values)
+
+    def _build_enabled_read_model_summaries(
+        self,
+        surface: ReadSurface,
+        *,
+        route_prefix: str,
+    ) -> list[dict[str, Any]]:
+        """Build discovery summaries for enabled public read models on one surface."""
+        from .read_models import build_read_model_summary  # noqa: PLC0415
+
+        return [
+            build_read_model_summary(
+                read_model_id,
+                read_model,
+                catalog=self._catalog,
+                route_prefix=route_prefix,
+            )
+            for read_model_id, read_model in self._enabled_read_models_for(surface).items()
+        ]
+
+    def _build_enabled_read_model_detail_for(
+        self,
+        surface: ReadSurface,
+        name: str,
+        *,
+        route_prefix: str,
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Build the discovery detail payload for one enabled public read model."""
+        from .read_models import build_read_model_detail  # noqa: PLC0415
+
+        resolved = self._resolve_enabled_read_model_for(surface, name)
+        if resolved is None:
+            return None
+        read_model_id, read_model = resolved
+        return (
+            read_model_id,
+            build_read_model_detail(
+                read_model_id,
+                read_model,
+                catalog=self._catalog,
+                route_prefix=route_prefix,
+            ),
+        )

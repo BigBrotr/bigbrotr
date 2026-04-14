@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from bigbrotr.models.constants import NetworkType
-from bigbrotr.services.common.catalog import Catalog
+from bigbrotr.services.common.catalog import Catalog, ColumnSchema
 from bigbrotr.services.common.mixins import (
     CatalogAccessMixin,
     Clients,
@@ -573,6 +573,67 @@ class TestCatalogAccessMixinReadModelResolution:
         assert isinstance(read_model, ReadModelEntry)
         assert read_model.read_model_id == "relays"
         assert get_mock.await_args.args[1] == {"url": "wss://relay.example.com"}
+
+    def test_build_enabled_read_model_summaries_returns_public_payloads(self) -> None:
+        svc = _TestCatalogService()
+        svc._config.read_models = {
+            "relays": MagicMock(enabled=True),
+            "events": MagicMock(enabled=False),
+        }
+        svc._catalog._tables = {
+            "relay": MagicMock(
+                columns=(
+                    ColumnSchema(name="url", pg_type="text", nullable=False),
+                    ColumnSchema(name="network", pg_type="text", nullable=False),
+                ),
+                primary_key=("url",),
+            ),
+            "event": MagicMock(
+                columns=(ColumnSchema(name="id", pg_type="text", nullable=False),),
+                primary_key=("id",),
+            ),
+        }
+
+        summaries = svc._build_enabled_read_model_summaries("api", route_prefix="/v1")
+
+        assert summaries == [
+            {
+                "id": "relays",
+                "path": "/v1/relays",
+                "legacy_aliases": ["relay"],
+                "field_count": 2,
+                "supports_identity_lookup": True,
+                "default_pagination_mode": "cursor",
+                "supports_cursor_pagination": True,
+            }
+        ]
+
+    def test_build_enabled_read_model_detail_for_accepts_legacy_alias(self) -> None:
+        svc = _TestCatalogService()
+        svc._config.read_models = {"relays": MagicMock(enabled=True)}
+        svc._catalog._tables = {
+            "relay": MagicMock(
+                columns=(
+                    ColumnSchema(name="url", pg_type="text", nullable=False),
+                    ColumnSchema(name="network", pg_type="text", nullable=False),
+                ),
+                primary_key=("url",),
+            )
+        }
+
+        resolved = svc._build_enabled_read_model_detail_for(
+            "api",
+            "relay",
+            route_prefix="/v1",
+        )
+
+        assert resolved is not None
+        read_model_id, detail = resolved
+        assert read_model_id == "relays"
+        assert detail["id"] == "relays"
+        assert detail["path"] == "/v1/relays"
+        assert detail["legacy_aliases"] == ["relay"]
+        assert detail["identity_fields"] == ["url"]
 
 
 # =============================================================================

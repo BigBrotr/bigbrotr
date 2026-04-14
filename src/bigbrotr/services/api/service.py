@@ -58,11 +58,8 @@ from bigbrotr.services.common.mixins import CatalogAccessMixin
 from bigbrotr.services.common.read_models import (
     ReadModelEntry,
     ReadModelQueryError,
-    build_read_model_detail,
     build_read_model_meta,
-    build_read_model_summary,
     read_model_query_from_http_params,
-    resolve_read_model_id,
 )
 
 from .configs import ApiConfig
@@ -265,36 +262,29 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
 
         @app.get(f"{prefix}/read-models")
         async def list_read_models() -> JSONResponse:
-            read_models = [
-                build_read_model_summary(
-                    read_model_id,
-                    read_model,
-                    catalog=self._catalog,
-                    route_prefix=self._config.route_prefix,
-                )
-                for read_model_id, read_model in self._enabled_read_models().items()
-            ]
-            return JSONResponse({"data": read_models})
-
-        @app.get(f"{prefix}/read-models/{{read_model_id}}")
-        async def get_read_model(read_model_id: str) -> JSONResponse:
-            canonical_id = resolve_read_model_id(read_model_id) or read_model_id
-            read_model = self._enabled_read_models().get(canonical_id)
-            if read_model is None:
-                return JSONResponse(
-                    {"error": f"read model not found: {read_model_id}"},
-                    status_code=404,
-                )
             return JSONResponse(
                 {
-                    "data": build_read_model_detail(
-                        canonical_id,
-                        read_model,
-                        catalog=self._catalog,
+                    "data": self._build_enabled_read_model_summaries(
+                        "api",
                         route_prefix=self._config.route_prefix,
                     )
                 }
             )
+
+        @app.get(f"{prefix}/read-models/{{read_model_id}}")
+        async def get_read_model(read_model_id: str) -> JSONResponse:
+            resolved = self._build_enabled_read_model_detail_for(
+                "api",
+                read_model_id,
+                route_prefix=self._config.route_prefix,
+            )
+            if resolved is None:
+                return JSONResponse(
+                    {"error": f"read model not found: {read_model_id}"},
+                    status_code=404,
+                )
+            _canonical_id, detail = resolved
+            return JSONResponse({"data": detail})
 
     def _add_read_model_data_routes(self, app: FastAPI) -> None:
         """Register list and detail data routes for enabled read models."""
