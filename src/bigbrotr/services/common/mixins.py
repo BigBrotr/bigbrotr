@@ -422,7 +422,11 @@ class CatalogAccessMixin:
         return self
 
     def _is_table_enabled(self, name: str) -> bool:
-        """Check whether a table is enabled per access policy (default: disabled)."""
+        """Check whether a catalog object is a registered public read model and enabled."""
+        from .read_models import READ_MODEL_REGISTRY  # noqa: PLC0415
+
+        if name not in READ_MODEL_REGISTRY:
+            return False
         policy: TableConfig | None = self._config.tables.get(name)  # type: ignore[attr-defined]
         if policy is None:
             return False

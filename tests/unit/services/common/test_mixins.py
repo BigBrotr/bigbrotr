@@ -415,6 +415,13 @@ class TestCatalogAccessMixinIsTableEnabled:
 
         assert svc._is_table_enabled("nonexistent") is False
 
+    def test_returns_false_for_non_public_table_even_when_enabled(self) -> None:
+        svc = _TestCatalogService()
+        policy = MagicMock(enabled=True)
+        svc._config.tables = {"service_state": policy}
+
+        assert svc._is_table_enabled("service_state") is False
+
 
 # =============================================================================
 # ConcurrentStreamMixin: early break cancels runner (lines 180-183)

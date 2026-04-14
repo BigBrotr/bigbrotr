@@ -247,6 +247,34 @@ class TestDvmTableAccessPolicy:
     def test_not_in_config_disabled(self, dvm_service: Dvm) -> None:
         assert dvm_service._is_table_enabled("service_state") is False
 
+    def test_configured_internal_table_still_disabled(self, mock_brotr: Brotr) -> None:
+        config = DvmConfig(
+            interval=60.0,
+            relays=["wss://relay.example.com"],
+            tables={
+                "relay": TableConfig(enabled=True),
+                "service_state": TableConfig(enabled=True),
+            },
+        )
+        service = Dvm(brotr=mock_brotr, config=config)
+        service._catalog = Catalog()
+        service._catalog._tables = {
+            "relay": TableSchema(
+                name="relay",
+                columns=(ColumnSchema(name="url", pg_type="text", nullable=False),),
+                primary_key=("url",),
+                is_view=False,
+            ),
+            "service_state": TableSchema(
+                name="service_state",
+                columns=(ColumnSchema(name="service_name", pg_type="text", nullable=False),),
+                primary_key=("service_name",),
+                is_view=False,
+            ),
+        }
+
+        assert service._is_table_enabled("service_state") is False
+
     def test_unknown_table_disabled(self, dvm_service: Dvm) -> None:
         assert dvm_service._is_table_enabled("nonexistent") is False
 
