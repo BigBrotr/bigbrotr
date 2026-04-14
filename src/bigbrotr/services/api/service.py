@@ -92,6 +92,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
     def __init__(self, brotr: Brotr, config: ApiConfig | None = None) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: ApiConfig
+        self._server: uvicorn.Server | None = None
         self._server_task: asyncio.Task[None] | None = None
         self._requests_total = 0
         self._requests_failed = 0
@@ -104,7 +105,15 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         self._logger.info("endpoints_registered", count=endpoint_count)
         self.set_gauge("tables_exposed", endpoint_count)
 
-        self._server_task = asyncio.create_task(self._run_server(app))
+        self._server = self._build_server(app)
+        self._server_task = asyncio.create_task(self._run_server(self._server))
+        startup_complete = False
+        try:
+            await self._wait_for_server_startup(self._server)
+            startup_complete = True
+        finally:
+            if not startup_complete:
+                await self._stop_server_task()
         self._logger.info(
             "http_server_started",
             host=self._config.host,
@@ -119,11 +128,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         _exc_val: BaseException | None,
         _exc_tb: TracebackType | None,
     ) -> None:
-        if self._server_task is not None:
-            self._server_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._server_task
-            self._server_task = None
+        await self._stop_server_task()
         self._logger.info("http_server_stopped")
         await super().__aexit__(_exc_type, _exc_val, _exc_tb)
 
@@ -138,10 +143,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         to trigger the ``run_forever()`` failure counter.  Per-cycle
         request counters are snapshotted and reset atomically.
         """
-        if self._server_task is not None and self._server_task.done():
-            exc = self._server_task.exception() if not self._server_task.cancelled() else None
-            self._logger.error("http_server_crashed", error=str(exc) if exc else "cancelled")
-            raise RuntimeError("HTTP server task has stopped unexpectedly") from exc
+        self._raise_if_server_task_stopped()
 
         # Snapshot and reset per-cycle counters
         total = self._requests_total
@@ -376,8 +378,8 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
 
     # ── Server lifecycle ──────────────────────────────────────────
 
-    async def _run_server(self, app: FastAPI) -> None:
-        """Run uvicorn as an asyncio server."""
+    def _build_server(self, app: FastAPI) -> uvicorn.Server:
+        """Build the uvicorn server instance for this API service."""
         config = uvicorn.Config(
             app,
             host=self._config.host,
@@ -385,5 +387,44 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
             log_level="warning",
             access_log=False,
         )
-        server = uvicorn.Server(config)
+        return uvicorn.Server(config)
+
+    async def _run_server(self, server: uvicorn.Server) -> None:
+        """Run uvicorn as an asyncio server."""
         await server.serve()
+
+    async def _wait_for_server_startup(self, server: uvicorn.Server) -> None:
+        """Wait until uvicorn reports startup success or the server task fails."""
+        while not server.started:
+            self._raise_if_server_task_stopped()
+            await asyncio.sleep(0)
+
+    async def _stop_server_task(self) -> None:
+        """Cancel the HTTP server task and clear local server state."""
+        task = self._server_task
+        self._server_task = None
+
+        if task is not None:
+            if task.done():
+                if not task.cancelled():
+                    task.exception()
+            else:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        self._server = None
+
+    def _raise_if_server_task_stopped(self) -> None:
+        """Raise when the HTTP server task has exited unexpectedly."""
+        if self._server_task is None or not self._server_task.done():
+            return
+
+        exc: BaseException | None = None
+        if not self._server_task.cancelled():
+            try:
+                exc = self._server_task.exception()
+            except BaseException as task_exc:
+                exc = task_exc
+
+        self._logger.error("http_server_crashed", error=str(exc) if exc else "cancelled")
+        raise RuntimeError("HTTP server task has stopped unexpectedly") from exc

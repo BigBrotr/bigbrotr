@@ -486,30 +486,87 @@ class TestApiInit:
 
 class TestApiLifecycle:
     async def test_aenter_starts_server_task(self, api_service: Api) -> None:
+        server = MagicMock()
+        server.started = True
+
         with (
             patch.object(api_service._catalog, "discover", new_callable=AsyncMock),
+            patch.object(api_service, "_build_server", return_value=server),
             patch.object(api_service, "_run_server", new_callable=AsyncMock) as mock_server,
         ):
             async with api_service:
                 assert api_service._server_task is not None
-                mock_server.assert_called_once()
+                await asyncio.sleep(0)
+                mock_server.assert_called_once_with(server)
+                assert api_service._server is server
 
     async def test_aexit_cancels_server_task(self, api_service: Api) -> None:
+        server = MagicMock()
+        server.started = True
+
         with (
             patch.object(api_service._catalog, "discover", new_callable=AsyncMock),
+            patch.object(api_service, "_build_server", return_value=server),
             patch.object(api_service, "_run_server", new_callable=AsyncMock),
         ):
             async with api_service:
                 assert api_service._server_task is not None
             assert api_service._server_task is None
+            assert api_service._server is None
 
     async def test_aexit_with_no_server_task(self, api_service: Api) -> None:
+        server = MagicMock()
+        server.started = True
+
         with (
             patch.object(api_service._catalog, "discover", new_callable=AsyncMock),
+            patch.object(api_service, "_build_server", return_value=server),
             patch.object(api_service, "_run_server", new_callable=AsyncMock),
         ):
             async with api_service:
                 api_service._server_task = None
+
+    async def test_aenter_propagates_immediate_server_startup_failure(
+        self, api_service: Api
+    ) -> None:
+        server = MagicMock()
+        server.started = False
+
+        with (
+            patch.object(api_service._catalog, "discover", new_callable=AsyncMock),
+            patch.object(api_service, "_build_server", return_value=server),
+            patch.object(
+                api_service,
+                "_run_server",
+                new_callable=AsyncMock,
+                side_effect=OSError("bind failed"),
+            ),
+            pytest.raises(RuntimeError, match="HTTP server task has stopped unexpectedly"),
+        ):
+            await api_service.__aenter__()
+
+        assert api_service._server_task is None
+        assert api_service._server is None
+
+    async def test_aenter_logs_http_server_started_only_after_success(
+        self, api_service: Api
+    ) -> None:
+        server = MagicMock()
+        server.started = True
+
+        with (
+            patch.object(api_service._catalog, "discover", new_callable=AsyncMock),
+            patch.object(api_service, "_build_server", return_value=server),
+            patch.object(api_service, "_run_server", new_callable=AsyncMock),
+            patch.object(api_service._logger, "info") as mock_info,
+        ):
+            async with api_service:
+                await asyncio.sleep(0)
+
+        http_started_calls = [
+            call for call in mock_info.call_args_list if call.args[0] == "http_server_started"
+        ]
+        assert len(http_started_calls) == 1
 
 
 # ============================================================================
