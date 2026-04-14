@@ -267,7 +267,11 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
 
         self._logger.info("scan_started", relay_count=len(cursors))
 
-        async for relays, cursor in self._iter_concurrent(cursors, self._find_from_events_worker):
+        async for relays, cursor in self._iter_concurrent(
+            cursors,
+            self._find_from_events_worker,
+            max_concurrency=self._config.events.parallel_relays,
+        ):
             buffer.extend(relays)
             pending_cursors[cursor.key] = cursor
             self.inc_gauge("rows_seen")

@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from typing import TYPE_CHECKING, Any, Self, TypeVar
+from typing import TYPE_CHECKING, Any, Self, TypeVar, cast
 
 from bigbrotr.models.constants import NetworkType
 
@@ -51,6 +51,10 @@ OPERATIONAL_NETWORKS: tuple[NetworkType, ...] = (
 )
 
 
+_QUEUE_DONE = object()
+_ITEM_DONE = object()
+
+
 class NetworkSemaphores:
     """Per-network concurrency semaphores.
 
@@ -63,11 +67,14 @@ class NetworkSemaphores:
             Provides ``max_tasks`` per network type.
     """
 
-    __slots__ = ("_map",)
+    __slots__ = ("_limits", "_map")
 
     def __init__(self, networks: NetworksConfig) -> None:
+        self._limits: dict[NetworkType, int] = {
+            nt: networks.get(nt).max_tasks for nt in OPERATIONAL_NETWORKS
+        }
         self._map: dict[NetworkType, asyncio.Semaphore] = {
-            nt: asyncio.Semaphore(networks.get(nt).max_tasks) for nt in OPERATIONAL_NETWORKS
+            nt: asyncio.Semaphore(limit) for nt, limit in self._limits.items()
         }
 
     def get(self, network: NetworkType) -> asyncio.Semaphore | None:
@@ -78,6 +85,11 @@ class NetworkSemaphores:
             (LOCAL, UNKNOWN).
         """
         return self._map.get(network)
+
+    def max_concurrency(self, enabled_networks: list[NetworkType] | None = None) -> int:
+        """Return the configured total concurrency across operational networks."""
+        networks = enabled_networks or list(self._limits)
+        return sum(self._limits.get(network, 0) for network in networks)
 
 
 class NetworkSemaphoresMixin:
@@ -127,11 +139,13 @@ class ConcurrentStreamMixin:
         self,
         items: Sequence[T],
         worker: Callable[[T], AsyncIterator[R]],
+        *,
+        max_concurrency: int | None = None,
     ) -> AsyncIterator[R]:
         """Launch concurrent tasks and yield results as they are produced.
 
-        Each item is processed by ``worker`` in a separate
-        ``asyncio.TaskGroup`` task. ``worker`` must be an async generator:
+        A bounded worker pool consumes ``items`` up to ``max_concurrency``
+        at a time. ``worker`` must be an async generator:
         it can yield zero or more results per item. Results stream through
         an ``asyncio.Queue`` so the caller can update metrics progressively
         as each yield arrives, without waiting for all workers to finish.
@@ -148,16 +162,28 @@ class ConcurrentStreamMixin:
             items: Items to process concurrently.
             worker: Async generator callable receiving a single item.
                 Yields results; yields nothing to skip.
+            max_concurrency: Maximum number of worker tasks to run at once.
+                ``None`` defaults to one task per input item.
 
         Yields:
             Results in arrival order (completion order within each worker).
         """
-        queue: asyncio.Queue[R | None] = asyncio.Queue()
+        if max_concurrency is not None and max_concurrency < 1:
+            raise ValueError("max_concurrency must be >= 1")
+
+        work_queue: asyncio.Queue[T | object] = asyncio.Queue()
+        result_queue: asyncio.Queue[object] = asyncio.Queue()
+        worker_count = min(len(items), max_concurrency or len(items))
+
+        for item in items:
+            work_queue.put_nowait(item)
+        for _ in range(worker_count):
+            work_queue.put_nowait(_ITEM_DONE)
 
         async def _run_worker(item: T) -> None:
             try:
                 async for result in worker(item):
-                    await queue.put(result)
+                    await result_queue.put(result)
             except Exception as e:
                 self._logger.error(
                     "concurrent_worker_error",
@@ -165,21 +191,28 @@ class ConcurrentStreamMixin:
                     error_type=type(e).__name__,
                 )
 
+        async def _worker_loop() -> None:
+            while True:
+                item = await work_queue.get()
+                if item is _ITEM_DONE:
+                    return
+                await _run_worker(cast("T", item))
+
         async def _run_all() -> None:
             try:
                 async with asyncio.TaskGroup() as tg:
-                    for item in items:
-                        tg.create_task(_run_worker(item))
+                    for _ in range(worker_count):
+                        tg.create_task(_worker_loop())
             finally:
-                await queue.put(None)
+                await result_queue.put(_QUEUE_DONE)
 
         runner = asyncio.create_task(_run_all())
         try:
             while True:
-                result = await queue.get()
-                if result is None:
+                result = await result_queue.get()
+                if result is _QUEUE_DONE:
                     break
-                yield result
+                yield cast("R", result)
         finally:
             if not runner.done():
                 runner.cancel()

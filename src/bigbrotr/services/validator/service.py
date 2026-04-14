@@ -174,7 +174,9 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
             chunk_invalid: list[CandidateCheckpoint] = []
 
             async for candidate, is_valid in self._iter_concurrent(
-                candidates, self._validate_worker
+                candidates,
+                self._validate_worker,
+                max_concurrency=self.network_semaphores.max_concurrency(networks),
             ):
                 if is_valid:
                     chunk_valid.append(candidate)

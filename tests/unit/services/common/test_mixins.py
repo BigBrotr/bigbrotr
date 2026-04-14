@@ -11,6 +11,8 @@ import asyncio
 from typing import Self
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.catalog import Catalog
 from bigbrotr.services.common.mixins import (
@@ -104,6 +106,34 @@ class TestConcurrentStreamMixinResults:
         assert set(arrival_order) == {1, 2, 3}
         assert arrival_order[0] == 3  # shortest sleep finishes first
 
+    async def test_max_concurrency_limits_active_workers(self) -> None:
+        svc = _TestConcurrentService()
+        current = 0
+        peak = 0
+        lock = asyncio.Lock()
+
+        async def worker(item: int):
+            nonlocal current, peak
+            async with lock:
+                current += 1
+                peak = max(peak, current)
+            await asyncio.sleep(0.01)
+            yield item
+            async with lock:
+                current -= 1
+
+        results = [
+            r
+            async for r in svc._iter_concurrent(
+                [1, 2, 3, 4, 5],
+                worker,
+                max_concurrency=2,
+            )
+        ]
+
+        assert sorted(results) == [1, 2, 3, 4, 5]
+        assert peak == 2
+
 
 class TestConcurrentStreamMixinErrorHandling:
     async def test_worker_exception_logged_via_exception_group(self) -> None:
@@ -172,6 +202,16 @@ class TestConcurrentStreamMixinCancellation:
                 break
 
         assert len(collected) >= 2
+
+    async def test_invalid_max_concurrency_raises(self) -> None:
+        svc = _TestConcurrentService()
+
+        async def worker(item: int):
+            yield item
+
+        with pytest.raises(ValueError, match="max_concurrency must be >= 1"):
+            async for _ in svc._iter_concurrent([1], worker, max_concurrency=0):
+                pass
 
 
 # =============================================================================

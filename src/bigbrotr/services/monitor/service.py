@@ -641,7 +641,11 @@ class Monitor(
             chunk_successful: list[tuple[Relay, CheckResult]] = []
             chunk_failed: list[Relay] = []
 
-            async for relay, result in self._iter_concurrent(relays, self._monitor_worker):
+            async for relay, result in self._iter_concurrent(
+                relays,
+                self._monitor_worker,
+                max_concurrency=self.network_semaphores.max_concurrency(networks),
+            ):
                 if result is not None:
                     chunk_successful.append((relay, result))
                     succeeded += 1

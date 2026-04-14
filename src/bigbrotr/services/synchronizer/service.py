@@ -175,7 +175,11 @@ class Synchronizer(
 
         self._logger.info("sync_started", relay_count=len(cursors))
 
-        async for event, relay in self._iter_concurrent(cursors, self._synchronize_worker):
+        async for event, relay in self._iter_concurrent(
+            cursors,
+            self._synchronize_worker,
+            max_concurrency=self.network_semaphores.max_concurrency(networks),
+        ):
             buffer.append(EventRelay(event, relay))
             pending_cursors[relay.url] = SyncCursor(
                 key=relay.url,
