@@ -176,6 +176,15 @@ class ClientConnectResult:
     failed: dict[str, str]
 
 
+@dataclass(frozen=True, slots=True)
+class BroadcastClientResult:
+    """Normalized per-client outcome of publishing one or more events."""
+
+    event_ids: tuple[str, ...]
+    successful_relays: tuple[str, ...]
+    failed_relays: dict[str, str]
+
+
 async def _await_if_needed(value: object) -> object:
     """Await ``value`` when it is awaitable, otherwise return it as-is."""
     if inspect.isawaitable(value):
@@ -410,19 +419,52 @@ async def broadcast_events(
     Returns:
         Number of clients that successfully received all events.
     """
-    if not builders or not clients:
-        return 0
+    detailed_results = await broadcast_events_detailed(builders, clients)
+    return sum(1 for result in detailed_results if result.successful_relays)
 
-    success = 0
+
+async def broadcast_events_detailed(
+    builders: list[EventBuilder],
+    clients: list[Client],
+) -> list[BroadcastClientResult]:
+    """Broadcast events and preserve the per-relay send semantics from nostr-sdk."""
+    if not builders or not clients:
+        return []
+
+    results: list[BroadcastClientResult] = []
     for client in clients:
         try:
+            event_ids: list[str] = []
+            successful_relays: set[str] | None = None
+            failed_relays: dict[str, str] = {}
+
             for builder in builders:
-                await client.send_event_builder(builder)
-            success += 1
+                output = await client.send_event_builder(builder)
+                event_ids.append(str(getattr(output, "id", "")))
+
+                builder_success = {str(relay_url) for relay_url in getattr(output, "success", ())}
+                builder_failed = {
+                    str(relay_url): str(error)
+                    for relay_url, error in getattr(output, "failed", {}).items()
+                }
+
+                if successful_relays is None:
+                    successful_relays = set(builder_success)
+                else:
+                    successful_relays.intersection_update(builder_success)
+                failed_relays.update(builder_failed)
+
+            results.append(
+                BroadcastClientResult(
+                    event_ids=tuple(event_ids),
+                    successful_relays=tuple(sorted(successful_relays or ())),
+                    failed_relays=failed_relays,
+                )
+            )
         except (OSError, TimeoutError) as e:
             logger.warning("broadcast_send_failed error=%s", e)
 
-    return success
+    return results
 
 
 async def is_nostr_relay(

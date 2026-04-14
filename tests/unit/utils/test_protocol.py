@@ -487,9 +487,32 @@ class TestBroadcastEvents:
 
         return sys.modules["bigbrotr.utils.protocol"].broadcast_events
 
+    @staticmethod
+    def _get_broadcast_detailed():
+        """Get the current broadcast_events_detailed from sys.modules."""
+        import sys
+
+        return sys.modules["bigbrotr.utils.protocol"].broadcast_events_detailed
+
+    @staticmethod
+    def _send_output(
+        *,
+        event_id: str = "event-id",
+        success: tuple[str, ...] = (),
+        failed: dict[str, str] | None = None,
+    ) -> MagicMock:
+        output = MagicMock()
+        output.id = event_id
+        output.success = list(success)
+        output.failed = failed or {}
+        return output
+
     async def test_sends_to_single_client(self) -> None:
         mock_client = AsyncMock()
         mock_builder = MagicMock()
+        mock_client.send_event_builder.return_value = self._send_output(
+            success=("wss://relay.example.com",)
+        )
 
         result = await self._get_broadcast()([mock_builder], [mock_client])
 
@@ -499,6 +522,14 @@ class TestBroadcastEvents:
     async def test_sends_to_multiple_clients(self) -> None:
         clients = [AsyncMock(), AsyncMock()]
         builders = [MagicMock(), MagicMock(), MagicMock()]
+        for index, client in enumerate(clients):
+            client.send_event_builder.side_effect = [
+                self._send_output(
+                    event_id=f"event-{index}-{builder_index}",
+                    success=(f"wss://relay-{index}.example.com",),
+                )
+                for builder_index, _builder in enumerate(builders)
+            ]
 
         result = await self._get_broadcast()(builders, clients)
 
@@ -518,6 +549,9 @@ class TestBroadcastEvents:
         bad_client = AsyncMock()
         bad_client.send_event_builder.side_effect = OSError("send failed")
         good_client = AsyncMock()
+        good_client.send_event_builder.return_value = self._send_output(
+            success=("wss://relay.example.com",)
+        )
 
         result = await self._get_broadcast()([MagicMock()], [bad_client, good_client])
 
@@ -526,13 +560,51 @@ class TestBroadcastEvents:
 
     async def test_returns_zero_on_all_failures(self) -> None:
         client = AsyncMock()
-        client.send_event_builder.side_effect = TimeoutError("timeout")
+        client.send_event_builder.return_value = self._send_output(
+            failed={"wss://relay.example.com": "timeout"}
+        )
 
         result = await self._get_broadcast()([MagicMock()], [client])
         assert result == 0
 
     async def test_returns_zero_on_empty_input(self) -> None:
         assert await self._get_broadcast()([], []) == 0
+
+    async def test_detailed_results_keep_failed_relays(self) -> None:
+        client = AsyncMock()
+        client.send_event_builder.return_value = self._send_output(
+            event_id="evt-1",
+            success=("wss://relay.good",),
+            failed={"wss://relay.bad": "timeout"},
+        )
+
+        results = await self._get_broadcast_detailed()([MagicMock()], [client])
+
+        assert len(results) == 1
+        assert results[0].event_ids == ("evt-1",)
+        assert results[0].successful_relays == ("wss://relay.good",)
+        assert results[0].failed_relays == {"wss://relay.bad": "timeout"}
+
+    async def test_detailed_results_require_success_across_all_builders(self) -> None:
+        client = AsyncMock()
+        client.send_event_builder.side_effect = [
+            self._send_output(
+                event_id="evt-1",
+                success=("wss://relay.a", "wss://relay.b"),
+            ),
+            self._send_output(
+                event_id="evt-2",
+                success=("wss://relay.b",),
+                failed={"wss://relay.a": "rejected"},
+            ),
+        ]
+
+        results = await self._get_broadcast_detailed()([MagicMock(), MagicMock()], [client])
+
+        assert len(results) == 1
+        assert results[0].event_ids == ("evt-1", "evt-2")
+        assert results[0].successful_relays == ("wss://relay.b",)
+        assert results[0].failed_relays == {"wss://relay.a": "rejected"}
 
 
 # =============================================================================
