@@ -318,8 +318,8 @@ class TestRefresherCleanup:
 
         assert result == 1
         mock_refresher_brotr.delete_service_state.assert_called_once()
-        call_kwargs = mock_refresher_brotr.delete_service_state.call_args.kwargs
-        assert call_kwargs["state_keys"] == ["old_removed_table"]
+        call_args = mock_refresher_brotr.delete_service_state.call_args.args
+        assert call_args[2] == ["old_removed_table"]
 
 
 class TestRefresherRun:

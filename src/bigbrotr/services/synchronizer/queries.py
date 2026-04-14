@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from bigbrotr.models.constants import NetworkType, ServiceName
-from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.services.common.queries import batched_insert, upsert_service_states
+from bigbrotr.models.service_state import ServiceStateType
+from bigbrotr.services.common.queries import batched_insert
+from bigbrotr.services.common.state_store import ServiceStateStore, cursor_from_payload
 from bigbrotr.services.common.types import SyncCursor
 
 
@@ -64,9 +65,7 @@ async def fetch_cursors_to_sync(
     for row in rows:
         sv = row["state_value"]
         if sv:
-            results.append(
-                SyncCursor(key=row["url"], timestamp=int(sv["timestamp"]), id=str(sv["id"]))
-            )
+            results.append(cursor_from_payload(row["url"], sv, SyncCursor))
         else:
             results.append(SyncCursor(key=row["url"]))
     return results
@@ -132,16 +131,4 @@ async def upsert_sync_cursors(brotr: Brotr, cursors: Iterable[SyncCursor]) -> No
         cursors: Iterable of [SyncCursor][bigbrotr.services.common.types.SyncCursor]
             instances to persist.
     """
-    states = [
-        ServiceState(
-            service_name=ServiceName.SYNCHRONIZER,
-            state_type=ServiceStateType.CURSOR,
-            state_key=cursor.key,
-            state_value={
-                "timestamp": cursor.timestamp,
-                "id": cursor.id,
-            },
-        )
-        for cursor in cursors
-    ]
-    await upsert_service_states(brotr, states)
+    await ServiceStateStore(brotr).upsert_cursors(ServiceName.SYNCHRONIZER, list(cursors))

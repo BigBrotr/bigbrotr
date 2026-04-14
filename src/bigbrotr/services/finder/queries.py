@@ -5,8 +5,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.services.common.queries import upsert_service_states
+from bigbrotr.models.service_state import ServiceStateType
+from bigbrotr.services.common.state_store import (
+    ServiceStateStore,
+    cursor_from_payload,
+)
 from bigbrotr.services.common.types import ApiCheckpoint, FinderCursor
 
 
@@ -60,9 +63,7 @@ async def fetch_cursors_to_find(brotr: Brotr) -> list[FinderCursor]:
     for row in rows:
         sv = row["state_value"]
         if sv:
-            results.append(
-                FinderCursor(key=row["url"], timestamp=int(sv["timestamp"]), id=str(sv["id"]))
-            )
+            results.append(cursor_from_payload(row["url"], sv, FinderCursor))
         else:
             results.append(FinderCursor(key=row["url"]))
     return results
@@ -129,27 +130,11 @@ async def fetch_api_checkpoints(brotr: Brotr, urls: list[str]) -> list[ApiCheckp
     """
     if not urls:
         return []
-    rows = await brotr.fetch(
-        """
-        SELECT state_key, state_value
-        FROM service_state
-        WHERE service_name = $1
-          AND state_type = $2
-          AND state_key = ANY($3::text[])
-        """,
+    return await ServiceStateStore(brotr).fetch_checkpoints(
         ServiceName.FINDER,
-        ServiceStateType.CHECKPOINT,
         urls,
+        ApiCheckpoint,
     )
-    stored: dict[str, ApiCheckpoint] = {}
-    for r in rows:
-        try:
-            stored[r["state_key"]] = ApiCheckpoint(
-                key=r["state_key"], timestamp=int(r["state_value"]["timestamp"])
-            )
-        except (KeyError, ValueError, TypeError):
-            continue
-    return [stored.get(url, ApiCheckpoint(key=url)) for url in urls]
 
 
 async def upsert_api_checkpoints(brotr: Brotr, checkpoints: list[ApiCheckpoint]) -> None:
@@ -160,16 +145,7 @@ async def upsert_api_checkpoints(brotr: Brotr, checkpoints: list[ApiCheckpoint])
         checkpoints: [ApiCheckpoint][bigbrotr.services.common.types.ApiCheckpoint]
             instances to persist.
     """
-    records = [
-        ServiceState(
-            service_name=ServiceName.FINDER,
-            state_type=ServiceStateType.CHECKPOINT,
-            state_key=cp.key,
-            state_value={"timestamp": cp.timestamp},
-        )
-        for cp in checkpoints
-    ]
-    await upsert_service_states(brotr, records)
+    await ServiceStateStore(brotr).upsert_checkpoints(ServiceName.FINDER, checkpoints)
 
 
 async def upsert_finder_cursors(brotr: Brotr, cursors: Iterable[FinderCursor]) -> None:
@@ -182,20 +158,11 @@ async def upsert_finder_cursors(brotr: Brotr, cursors: Iterable[FinderCursor]) -
         cursors: Iterable of [FinderCursor][bigbrotr.services.common.types.FinderCursor]
             instances to persist.
     """
-    states = [
-        ServiceState(
-            service_name=ServiceName.FINDER,
-            state_type=ServiceStateType.CURSOR,
-            state_key=cursor.key,
-            state_value={
-                "timestamp": cursor.timestamp,
-                "id": cursor.id,
-            },
-        )
-        for cursor in cursors
-        if cursor.timestamp > 0
-    ]
-    await upsert_service_states(brotr, states)
+    await ServiceStateStore(brotr).upsert_cursors(
+        ServiceName.FINDER,
+        list(cursors),
+        skip_zero_timestamp=True,
+    )
 
 
 async def delete_stale_cursors(brotr: Brotr) -> int:

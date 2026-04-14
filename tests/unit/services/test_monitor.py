@@ -1188,47 +1188,26 @@ class TestSaveMonitoringMarkers:
 
 class TestIsPublishDue:
     async def test_no_prior_state_returns_true(self, query_brotr: MagicMock) -> None:
-        query_brotr.get_service_state = AsyncMock(return_value=[])
+        query_brotr.fetch = AsyncMock(return_value=[])
         assert await is_publish_due(query_brotr, "announcement", 86400) is True
 
     async def test_interval_not_elapsed_returns_false(self, query_brotr: MagicMock) -> None:
         now = int(time.time())
-        query_brotr.get_service_state = AsyncMock(
-            return_value=[
-                ServiceState(
-                    service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key="announcement",
-                    state_value={"timestamp": now},
-                )
-            ]
+        query_brotr.fetch = AsyncMock(
+            return_value=[{"state_key": "announcement", "state_value": {"timestamp": now}}]
         )
         assert await is_publish_due(query_brotr, "announcement", 86400) is False
 
     async def test_interval_elapsed_returns_true(self, query_brotr: MagicMock) -> None:
         old = int(time.time()) - 100_000
-        query_brotr.get_service_state = AsyncMock(
-            return_value=[
-                ServiceState(
-                    service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key="profile",
-                    state_value={"timestamp": old},
-                )
-            ]
+        query_brotr.fetch = AsyncMock(
+            return_value=[{"state_key": "profile", "state_value": {"timestamp": old}}]
         )
         assert await is_publish_due(query_brotr, "profile", 86400) is True
 
     async def test_missing_timestamp_key_returns_true(self, query_brotr: MagicMock) -> None:
-        query_brotr.get_service_state = AsyncMock(
-            return_value=[
-                ServiceState(
-                    service_name=ServiceName.MONITOR,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key="announcement",
-                    state_value={},
-                )
-            ]
+        query_brotr.fetch = AsyncMock(
+            return_value=[{"state_key": "announcement", "state_value": {}}]
         )
         assert await is_publish_due(query_brotr, "announcement", 86400) is True
 

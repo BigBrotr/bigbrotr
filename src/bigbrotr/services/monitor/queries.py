@@ -6,8 +6,10 @@ import time
 from typing import TYPE_CHECKING
 
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.services.common.queries import batched_insert, upsert_service_states
+from bigbrotr.models.service_state import ServiceStateType
+from bigbrotr.services.common.queries import batched_insert
+from bigbrotr.services.common.state_store import ServiceStateStore
+from bigbrotr.services.common.types import MonitorCheckpoint, PublishCheckpoint
 from bigbrotr.services.common.utils import parse_relay_row
 
 
@@ -138,16 +140,10 @@ async def upsert_monitor_checkpoints(brotr: Brotr, relays: list[Relay], now: int
         relays: Relays that were checked (successful and failed).
         now: Unix timestamp to store as the checkpoint value.
     """
-    records: list[ServiceState] = [
-        ServiceState(
-            service_name=ServiceName.MONITOR,
-            state_type=ServiceStateType.CHECKPOINT,
-            state_key=relay.url,
-            state_value={"timestamp": now},
-        )
-        for relay in relays
-    ]
-    await upsert_service_states(brotr, records)
+    await ServiceStateStore(brotr).upsert_checkpoints(
+        ServiceName.MONITOR,
+        [MonitorCheckpoint(key=relay.url, timestamp=now) for relay in relays],
+    )
 
 
 # Sync with: Monitor.cleanup() keep_keys and MonitorConfig publishing sub-configs.
@@ -177,14 +173,12 @@ async def is_publish_due(brotr: Brotr, state_key: str, interval: float) -> bool:
         ValueError: If *state_key* is not in the whitelist.
     """
     _validate_publish_keys([state_key])
-    results = await brotr.get_service_state(
+    results = await ServiceStateStore(brotr).fetch_checkpoints(
         ServiceName.MONITOR,
-        ServiceStateType.CHECKPOINT,
-        state_key,
+        [state_key],
+        PublishCheckpoint,
     )
-    if not results:
-        return True
-    last_ts: int = results[0].state_value.get("timestamp", 0)
+    last_ts = results[0].timestamp
     return time.time() - last_ts >= interval
 
 
@@ -203,13 +197,7 @@ async def upsert_publish_checkpoints(brotr: Brotr, state_keys: list[str]) -> Non
         return
     _validate_publish_keys(state_keys)
     now = int(time.time())
-    records = [
-        ServiceState(
-            service_name=ServiceName.MONITOR,
-            state_type=ServiceStateType.CHECKPOINT,
-            state_key=key,
-            state_value={"timestamp": now},
-        )
-        for key in state_keys
-    ]
-    await upsert_service_states(brotr, records)
+    await ServiceStateStore(brotr).upsert_checkpoints(
+        ServiceName.MONITOR,
+        [PublishCheckpoint(key=key, timestamp=now) for key in state_keys],
+    )

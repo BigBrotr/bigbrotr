@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING, TypeVar
 
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
+from bigbrotr.services.common.state_store import ServiceStateStore
+from bigbrotr.services.common.types import CandidateCheckpoint
 
 
 if TYPE_CHECKING:
@@ -65,7 +67,7 @@ async def upsert_service_states(brotr: Brotr, records: list[ServiceState]) -> in
     Returns:
         Number of records upserted.
     """
-    return await batched_insert(brotr, records, brotr.upsert_service_state)
+    return await ServiceStateStore(brotr).upsert(records)
 
 
 async def _filter_new_relays(
@@ -120,17 +122,13 @@ async def insert_relays_as_candidates(brotr: Brotr, relays: list[Relay]) -> int:
         return 0
 
     now = int(time.time())
-    records: list[ServiceState] = [
-        ServiceState(
-            service_name=ServiceName.VALIDATOR,
-            state_type=ServiceStateType.CHECKPOINT,
-            state_key=relay.url,
-            state_value={
-                "network": relay.network.value,
-                "failures": 0,
-                "timestamp": now,
-            },
+    records = [
+        CandidateCheckpoint(
+            key=relay.url,
+            timestamp=now,
+            network=relay.network,
+            failures=0,
         )
         for relay in new_relays
     ]
-    return await batched_insert(brotr, records, brotr.upsert_service_state)
+    return await ServiceStateStore(brotr).upsert_candidates(records)

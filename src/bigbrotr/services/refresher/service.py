@@ -16,7 +16,9 @@ import asyncpg
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.models.service_state import ServiceState, ServiceStateType
+from bigbrotr.models.service_state import ServiceStateType
+from bigbrotr.services.common.state_store import ServiceStateStore
+from bigbrotr.services.common.types import Checkpoint
 
 from .configs import IncrementalRefreshTarget, PeriodicRefreshTarget, RefresherConfig
 from .queries import (
@@ -105,7 +107,8 @@ class Refresher(BaseService[RefresherConfig]):
             return 0
 
         configured = {target.value for target in self._incremental_targets()}
-        states = await self._brotr.get_service_state(
+        store = ServiceStateStore(self._brotr)
+        states = await store.get(
             ServiceName.REFRESHER,
             ServiceStateType.CHECKPOINT,
         )
@@ -115,11 +118,7 @@ class Refresher(BaseService[RefresherConfig]):
             self.set_gauge("cleanup_removed_checkpoints", 0)
             return 0
 
-        removed = await self._brotr.delete_service_state(
-            service_names=[state.service_name for state in stale],
-            state_types=[state.state_type for state in stale],
-            state_keys=[state.state_key for state in stale],
-        )
+        removed = await store.delete_states(stale)
         self._last_cleanup_removed = removed
         self.set_gauge("cleanup_removed_checkpoints", removed)
         return removed
@@ -367,7 +366,7 @@ class Refresher(BaseService[RefresherConfig]):
 
     async def _read_checkpoint(self, target: str) -> int:
         """Read the stored checkpoint for one incremental target."""
-        states = await self._brotr.get_service_state(
+        states = await ServiceStateStore(self._brotr).get(
             ServiceName.REFRESHER,
             ServiceStateType.CHECKPOINT,
             target,
@@ -376,15 +375,9 @@ class Refresher(BaseService[RefresherConfig]):
 
     async def _write_checkpoint(self, target: str, timestamp: int) -> None:
         """Persist the checkpoint for one successfully refreshed target."""
-        await self._brotr.upsert_service_state(
-            [
-                ServiceState(
-                    service_name=ServiceName.REFRESHER,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key=target,
-                    state_value={"timestamp": timestamp},
-                )
-            ]
+        await ServiceStateStore(self._brotr).upsert_checkpoints(
+            ServiceName.REFRESHER,
+            [Checkpoint(key=target, timestamp=timestamp)],
         )
 
     def _reset_cycle_metrics(self, totals: RefreshCycleTotals) -> None:

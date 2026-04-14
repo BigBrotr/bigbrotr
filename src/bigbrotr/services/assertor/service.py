@@ -33,6 +33,7 @@ from bigbrotr.nips.nip85.data import (
     IdentifierAssertion,
     UserAssertion,
 )
+from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.utils.protocol import broadcast_events, create_client
 from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
@@ -582,24 +583,14 @@ class Assertor(BaseService[AssertorConfig]):
 
     async def _is_unchanged(self, subject: str, current_hash: str) -> bool:
         """Check if the assertion/profile for this subject has the same hash as last published."""
-        states = await self._brotr.get_service_state(
-            ServiceName.ASSERTOR,
-            ServiceStateType.CHECKPOINT,
-            subject,
-        )
-        if not states:
-            return False
-        return states[0].state_value.get("hash") == current_hash
+        saved_hash = await ServiceStateStore(self._brotr).fetch_hash(ServiceName.ASSERTOR, subject)
+        return saved_hash == current_hash
 
     async def _save_hash(self, subject: str, hash_value: str) -> None:
         """Persist the published object hash for change detection."""
-        await self._brotr.upsert_service_state(
-            [
-                ServiceState(
-                    service_name=ServiceName.ASSERTOR,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key=subject,
-                    state_value={"hash": hash_value, "timestamp": int(time.time())},
-                )
-            ]
+        await ServiceStateStore(self._brotr).upsert_hash(
+            ServiceName.ASSERTOR,
+            subject,
+            hash_value,
+            timestamp=int(time.time()),
         )

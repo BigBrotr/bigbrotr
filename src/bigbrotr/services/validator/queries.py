@@ -8,13 +8,18 @@ from typing import TYPE_CHECKING
 
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.relay import Relay
-from bigbrotr.models.service_state import ServiceState, ServiceStateType
+from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.common.queries import batched_insert
-from bigbrotr.services.common.types import CandidateCheckpoint
+from bigbrotr.services.common.state_store import (
+    ServiceStateStore,
+    candidate_from_payload,
+    candidate_state,
+)
 
 
 if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
+    from bigbrotr.services.common.types import CandidateCheckpoint
 
 
 logger = logging.getLogger(__name__)
@@ -164,15 +169,7 @@ async def fetch_candidates(
     candidates: list[CandidateCheckpoint] = []
     for row in rows:
         try:
-            sv = row["state_value"]
-            candidates.append(
-                CandidateCheckpoint(
-                    key=row["state_key"],
-                    timestamp=int(sv.get("timestamp", 0)),
-                    network=NetworkType(sv.get("network", "clearnet")),
-                    failures=int(sv.get("failures", 0)),
-                )
-            )
+            candidates.append(candidate_from_payload(row["state_key"], row["state_value"]))
         except (ValueError, TypeError) as e:
             logger.warning("invalid_candidate_skipped: %s (%s)", row["state_key"], e)
     return candidates
@@ -196,14 +193,11 @@ async def promote_candidates(brotr: Brotr, candidates: list[CandidateCheckpoint]
     relays = [Relay(c.key) for c in candidates]
     inserted = await batched_insert(brotr, relays, brotr.insert_relay)
 
-    batch_size = brotr.config.batch.max_size
-    for i in range(0, len(candidates), batch_size):
-        chunk = candidates[i : i + batch_size]
-        await brotr.delete_service_state(
-            [ServiceName.VALIDATOR] * len(chunk),
-            [ServiceStateType.CHECKPOINT] * len(chunk),
-            [c.key for c in chunk],
-        )
+    await ServiceStateStore(brotr).delete_keys(
+        ServiceName.VALIDATOR,
+        ServiceStateType.CHECKPOINT,
+        [candidate.key for candidate in candidates],
+    )
     return inserted
 
 
@@ -225,17 +219,8 @@ async def fail_candidates(brotr: Brotr, candidates: list[CandidateCheckpoint]) -
         return 0
 
     now = int(time.time())
-    records: list[ServiceState] = [
-        ServiceState(
-            service_name=ServiceName.VALIDATOR,
-            state_type=ServiceStateType.CHECKPOINT,
-            state_key=c.key,
-            state_value={
-                "network": c.network.value,
-                "failures": c.failures + 1,
-                "timestamp": now,
-            },
-        )
-        for c in candidates
+    records = [
+        candidate_state(candidate, timestamp=now, failures=candidate.failures + 1)
+        for candidate in candidates
     ]
-    return await batched_insert(brotr, records, brotr.upsert_service_state)
+    return await ServiceStateStore(brotr).upsert(records)
