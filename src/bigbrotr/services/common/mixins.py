@@ -438,7 +438,3 @@ class CatalogAccessMixin:
         if policy is None:
             return False
         return policy.enabled
-
-    def _is_table_enabled(self, name: str) -> bool:
-        """Backward-compatible alias for older table-shaped compatibility paths."""
-        return self._is_read_model_enabled(name)
