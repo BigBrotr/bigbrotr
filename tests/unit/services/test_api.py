@@ -712,6 +712,7 @@ class TestApiRun:
 
         mock_counter.assert_any_call("requests_total", 42)
         mock_counter.assert_any_call("requests_failed", 3)
+        mock_gauge.assert_any_call("read_models_exposed", 2)
         mock_gauge.assert_any_call("tables_exposed", 2)
 
     async def test_resets_counters(self, api_service: Api) -> None:

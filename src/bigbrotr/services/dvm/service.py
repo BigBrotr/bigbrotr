@@ -210,10 +210,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             self._client = None
             raise
 
-        self.set_gauge(
-            "tables_exposed",
-            len(self._enabled_read_model_names()),
-        )
+        self._set_read_model_exposure_metrics(len(self._enabled_read_model_names()))
 
         return self
 
@@ -456,18 +453,17 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         payment_required: int,
     ) -> None:
         """Update Prometheus metrics and log cycle stats."""
+        read_models_exposed = len(self._enabled_read_model_names())
         self.inc_counter("requests_total", received)
         self.inc_counter("requests_failed", failed)
-        self.set_gauge(
-            "tables_exposed",
-            len(self._enabled_read_model_names()),
-        )
+        self._set_read_model_exposure_metrics(read_models_exposed)
         self._logger.info(
             "cycle_stats",
             jobs_received=received,
             processed=processed,
             failed=failed,
             payment_required=payment_required,
+            read_models_exposed=read_models_exposed,
         )
 
     # ── Read-model policy helpers ─────────────────────────────────
@@ -504,6 +500,11 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             if entry.catalog_name in self._catalog.tables
             and self._is_read_model_enabled(read_model_id)
         }
+
+    def _set_read_model_exposure_metrics(self, count: int) -> None:
+        """Publish canonical and compatibility gauges for exposed read models."""
+        self.set_gauge("read_models_exposed", count)
+        self.set_gauge("tables_exposed", count)
 
     # ── Event fetching ────────────────────────────────────────────
 

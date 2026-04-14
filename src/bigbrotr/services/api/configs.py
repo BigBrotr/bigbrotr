@@ -119,6 +119,6 @@ class ApiConfig(BaseServiceConfig):
         return data
 
     @model_validator(mode="after")
-    def _validate_public_tables(self) -> ApiConfig:
+    def _validate_public_read_models(self) -> ApiConfig:
         self.read_models = normalize_read_model_policies(self.read_models, surface="api")
         return self

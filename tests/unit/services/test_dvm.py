@@ -598,6 +598,10 @@ class TestDvmRun:
             await dvm_service.run()
 
         mock_gauge.assert_any_call(
+            "read_models_exposed",
+            len(dvm_service._enabled_read_model_names()),
+        )
+        mock_gauge.assert_any_call(
             "tables_exposed",
             len(dvm_service._enabled_read_model_names()),
         )

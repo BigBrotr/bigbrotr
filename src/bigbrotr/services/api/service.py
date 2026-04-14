@@ -109,9 +109,9 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         await super().__aenter__()
 
         app = self._build_app()
-        endpoint_count = len(self._enabled_read_model_names())
-        self._logger.info("endpoints_registered", count=endpoint_count)
-        self.set_gauge("tables_exposed", endpoint_count)
+        read_model_count = len(self._enabled_read_model_names())
+        self._logger.info("endpoints_registered", count=read_model_count)
+        self._set_read_model_exposure_metrics(read_model_count)
 
         self._server = self._build_server(app)
         self._server_task = asyncio.create_task(self._run_server(self._server))
@@ -159,16 +159,16 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         self._requests_total = 0
         self._requests_failed = 0
 
-        tables_exposed = len(self._enabled_read_model_names())
+        read_models_exposed = len(self._enabled_read_model_names())
         self._logger.info(
             "cycle_stats",
             requests_total=total,
             requests_failed=failed,
-            tables_exposed=tables_exposed,
+            read_models_exposed=read_models_exposed,
         )
         self.inc_counter("requests_total", total)
         self.inc_counter("requests_failed", failed)
-        self.set_gauge("tables_exposed", tables_exposed)
+        self._set_read_model_exposure_metrics(read_models_exposed)
 
     # ── App construction ──────────────────────────────────────────
 
@@ -206,6 +206,11 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
             if entry.catalog_name in self._catalog.tables
             and self._is_read_model_enabled(read_model_id)
         }
+
+    def _set_read_model_exposure_metrics(self, count: int) -> None:
+        """Publish canonical and compatibility gauges for exposed read models."""
+        self.set_gauge("read_models_exposed", count)
+        self.set_gauge("tables_exposed", count)
 
     def _add_middleware(self, app: FastAPI) -> None:
         """Register CORS and request-logging middleware."""

@@ -132,6 +132,6 @@ class DvmConfig(BaseServiceConfig):
         return data
 
     @model_validator(mode="after")
-    def _validate_public_tables(self) -> DvmConfig:
+    def _validate_public_read_models(self) -> DvmConfig:
         self.read_models = normalize_read_model_policies(self.read_models, surface="dvm")
         return self
