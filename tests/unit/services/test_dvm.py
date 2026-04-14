@@ -31,6 +31,7 @@ from bigbrotr.services.dvm.utils import (
     parse_job_params,
     parse_query_filters,
 )
+from bigbrotr.utils.protocol import ClientConnectResult
 
 
 # Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
@@ -287,8 +288,6 @@ class TestDvmTableAccessPolicy:
 class TestDvmLifecycle:
     async def test_aenter_creates_client_and_connects(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
-        mock_client.add_relay = AsyncMock()
-        mock_client.connect = AsyncMock()
         mock_client.send_event_builder = AsyncMock()
         mock_state_store = MagicMock()
         mock_state_store.fetch_checkpoints = AsyncMock(
@@ -297,9 +296,15 @@ class TestDvmLifecycle:
 
         with (
             patch(
-                "bigbrotr.services.dvm.service.create_client",
+                "bigbrotr.services.dvm.service.create_connected_client",
                 new_callable=AsyncMock,
-                return_value=mock_client,
+                return_value=(
+                    mock_client,
+                    ClientConnectResult(
+                        connected=("wss://relay.example.com",),
+                        failed={},
+                    ),
+                ),
             ),
             patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(dvm_service, "set_gauge"),
@@ -309,14 +314,10 @@ class TestDvmLifecycle:
 
             assert dvm_service._client is mock_client
             assert dvm_service._last_fetch_ts == 1234
-            mock_client.add_relay.assert_called_once()
-            mock_client.connect.assert_called_once()
             mock_client.send_event_builder.assert_called_once()
 
     async def test_aenter_initializes_fetch_checkpoint_when_missing(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
-        mock_client.add_relay = AsyncMock()
-        mock_client.connect = AsyncMock()
         mock_client.send_event_builder = AsyncMock()
         mock_state_store = MagicMock()
         mock_state_store.fetch_checkpoints = AsyncMock(
@@ -326,9 +327,15 @@ class TestDvmLifecycle:
 
         with (
             patch(
-                "bigbrotr.services.dvm.service.create_client",
+                "bigbrotr.services.dvm.service.create_connected_client",
                 new_callable=AsyncMock,
-                return_value=mock_client,
+                return_value=(
+                    mock_client,
+                    ClientConnectResult(
+                        connected=("wss://relay.example.com",),
+                        failed={},
+                    ),
+                ),
             ),
             patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch("bigbrotr.services.dvm.service.time") as mock_time,
@@ -360,15 +367,19 @@ class TestDvmLifecycle:
         }
 
         mock_client = MagicMock()
-        mock_client.add_relay = AsyncMock()
-        mock_client.connect = AsyncMock()
         mock_client.send_event_builder = AsyncMock()
 
         with (
             patch(
-                "bigbrotr.services.dvm.service.create_client",
+                "bigbrotr.services.dvm.service.create_connected_client",
                 new_callable=AsyncMock,
-                return_value=mock_client,
+                return_value=(
+                    mock_client,
+                    ClientConnectResult(
+                        connected=("wss://relay.example.com",),
+                        failed={},
+                    ),
+                ),
             ),
             patch.object(service, "set_gauge"),
             patch.object(type(service), "__aexit__", new_callable=AsyncMock),

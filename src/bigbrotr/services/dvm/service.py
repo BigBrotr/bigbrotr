@@ -48,7 +48,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import asyncpg
-from nostr_sdk import Client, Filter, Kind, RelayUrl, Timestamp
+from nostr_sdk import Client, Filter, Kind, Timestamp
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
@@ -56,7 +56,7 @@ from bigbrotr.services.common.catalog import CatalogError
 from bigbrotr.services.common.mixins import CatalogAccessMixin
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import Checkpoint
-from bigbrotr.utils.protocol import create_client
+from bigbrotr.utils.protocol import create_connected_client
 
 from .configs import DvmConfig
 from .utils import (
@@ -116,16 +116,20 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         await super().__aenter__()
         keys = self._keys
 
-        client = await create_client(keys=keys, allow_insecure=self._config.allow_insecure)
+        client, connect_result = await create_connected_client(
+            self._config.relays,
+            keys=keys,
+            timeout=self._config.fetch_timeout,
+            allow_insecure=self._config.allow_insecure,
+        )
         self._client = client
 
         pubkey = keys.public_key().to_hex()
         self._logger.info("client_created", pubkey=pubkey)
-
-        for relay in self._config.relays:
-            await client.add_relay(RelayUrl.parse(relay.url))
-            self._logger.info("relay_connected", url=relay.url)
-        await client.connect()
+        for relay_url in connect_result.connected:
+            self._logger.info("relay_connected", url=relay_url)
+        for relay_url, error in connect_result.failed.items():
+            self._logger.warning("relay_connect_failed", url=relay_url, error=error)
 
         if self._config.announce:
             await self._publish_announcement()
