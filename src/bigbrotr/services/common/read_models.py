@@ -39,6 +39,7 @@ class ReadModelQuery:
     filters: dict[str, str] | None = None
     sort: str | None = None
     include_total: bool = False
+    cursor: str | None = None
 
 
 def parse_read_model_filter_string(filter_str: str) -> dict[str, str] | None:
@@ -69,6 +70,15 @@ def _parse_include_total(raw_value: str | None) -> bool:
     raise ReadModelQueryError("Invalid include_total value")
 
 
+def _parse_cursor(raw_value: str | None) -> str | None:
+    """Normalize optional opaque keyset cursors from public inputs."""
+    if raw_value is None:
+        return None
+
+    normalized = raw_value.strip()
+    return normalized or None
+
+
 def read_model_query_from_http_params(
     params: Mapping[str, str],
     *,
@@ -77,6 +87,7 @@ def read_model_query_from_http_params(
 ) -> ReadModelQuery:
     """Normalize one HTTP read-model request into the shared query contract."""
     raw_params = dict(params)
+    raw_cursor = raw_params.pop("cursor", None)
     try:
         limit = int(raw_params.pop("limit", default_page_size))
         offset = int(raw_params.pop("offset", 0))
@@ -85,6 +96,9 @@ def read_model_query_from_http_params(
 
     sort = raw_params.pop("sort", None)
     include_total = _parse_include_total(raw_params.pop("include_total", None))
+    cursor = _parse_cursor(raw_cursor)
+    if cursor is not None and offset > 0:
+        raise ReadModelQueryError("Cursor pagination cannot be combined with offset")
 
     return ReadModelQuery(
         limit=limit,
@@ -93,6 +107,7 @@ def read_model_query_from_http_params(
         filters=raw_params or None,
         sort=sort,
         include_total=include_total,
+        cursor=cursor,
     )
 
 
@@ -113,6 +128,9 @@ def read_model_query_from_job_params(
     sort = raw_sort if isinstance(raw_sort, str) and raw_sort else None
     raw_filter = params.get("filter", "")
     filter_str = raw_filter if isinstance(raw_filter, str) else ""
+    cursor = _parse_cursor(params.get("cursor", None))
+    if cursor is not None and offset > 0:
+        raise ReadModelQueryError("Cursor pagination cannot be combined with offset")
 
     return ReadModelQuery(
         limit=limit,
@@ -121,6 +139,7 @@ def read_model_query_from_job_params(
         filters=parse_read_model_filter_string(filter_str),
         sort=sort,
         include_total=_parse_include_total(params.get("include_total", None)),
+        cursor=cursor,
     )
 
 
@@ -133,6 +152,8 @@ def build_read_model_meta(result: QueryResult, *, read_model_id: str) -> dict[st
     }
     if result.total is not None:
         meta["total"] = result.total
+    if result.next_cursor is not None:
+        meta["next_cursor"] = result.next_cursor
     return meta
 
 
@@ -182,6 +203,8 @@ class CatalogReadModelBackend:
             filters=request.filters,
             sort=request.sort,
             include_total=request.include_total,
+            cursor=request.cursor,
+            prefer_keyset=True,
         )
 
     async def get_by_pk(

@@ -130,6 +130,7 @@ class TestQueryResult:
         assert result.total == 10
         assert result.limit == 5
         assert result.offset == 0
+        assert result.next_cursor is None
 
     def test_empty(self) -> None:
         result = QueryResult(rows=[], total=0, limit=100, offset=0)
@@ -481,6 +482,152 @@ class TestCatalogQuery:
 
         call_args = catalog_brotr.fetch.call_args
         assert "ORDER BY discovered_at DESC" in call_args[0][0]
+
+    async def test_query_prefers_primary_key_keyset_when_requested(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        first = MagicMock()
+        first.items.return_value = [("url", "wss://relay-1.example.com"), ("network", "clearnet")]
+        first.__iter__ = lambda self: iter(self.items())
+        first.keys.return_value = ["url", "network"]
+        first.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        second = MagicMock()
+        second.items.return_value = [("url", "wss://relay-2.example.com"), ("network", "clearnet")]
+        second.__iter__ = lambda self: iter(self.items())
+        second.keys.return_value = ["url", "network"]
+        second.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        trailing = MagicMock()
+        trailing.items.return_value = [
+            ("url", "wss://relay-3.example.com"),
+            ("network", "clearnet"),
+        ]
+        trailing.__iter__ = lambda self: iter(self.items())
+        trailing.keys.return_value = ["url", "network"]
+        trailing.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        catalog_brotr.fetchval = AsyncMock(return_value=3)  # type: ignore[method-assign]
+        catalog_brotr.fetch = AsyncMock(return_value=[first, second, trailing])  # type: ignore[method-assign]
+
+        result = await populated_catalog.query(
+            catalog_brotr,
+            "relay",
+            limit=2,
+            offset=0,
+            prefer_keyset=True,
+        )
+
+        assert result.rows == [
+            {"url": "wss://relay-1.example.com", "network": "clearnet"},
+            {"url": "wss://relay-2.example.com", "network": "clearnet"},
+        ]
+        assert result.next_cursor is not None
+        call_args = catalog_brotr.fetch.call_args
+        assert "ORDER BY url ASC" in call_args[0][0]
+        assert "OFFSET" not in call_args[0][0]
+        assert call_args[0][1:] == (3,)
+
+    async def test_query_uses_cursor_for_follow_up_keyset_page(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        first = MagicMock()
+        first.items.return_value = [("url", "wss://relay-1.example.com"), ("network", "clearnet")]
+        first.__iter__ = lambda self: iter(self.items())
+        first.keys.return_value = ["url", "network"]
+        first.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        second = MagicMock()
+        second.items.return_value = [("url", "wss://relay-2.example.com"), ("network", "clearnet")]
+        second.__iter__ = lambda self: iter(self.items())
+        second.keys.return_value = ["url", "network"]
+        second.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        catalog_brotr.fetch = AsyncMock(return_value=[first, second])  # type: ignore[method-assign]
+        first_page = await populated_catalog.query(
+            catalog_brotr,
+            "relay",
+            limit=1,
+            offset=0,
+            prefer_keyset=True,
+            include_total=False,
+        )
+
+        next_row = MagicMock()
+        next_row.items.return_value = [
+            ("url", "wss://relay-2.example.com"),
+            ("network", "clearnet"),
+        ]
+        next_row.__iter__ = lambda self: iter(self.items())
+        next_row.keys.return_value = ["url", "network"]
+        next_row.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        catalog_brotr.fetch = AsyncMock(return_value=[next_row])  # type: ignore[method-assign]
+
+        result = await populated_catalog.query(
+            catalog_brotr,
+            "relay",
+            limit=1,
+            offset=0,
+            cursor=first_page.next_cursor,
+            prefer_keyset=True,
+            include_total=False,
+        )
+
+        assert result.rows == [{"url": "wss://relay-2.example.com", "network": "clearnet"}]
+        call_args = catalog_brotr.fetch.call_args
+        assert "(url) > ($1)" in call_args[0][0]
+        assert call_args[0][1:] == ("wss://relay-1.example.com", 2)
+
+    async def test_query_rejects_cursor_without_primary_key(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        populated_catalog._tables["relay_stats"] = TableSchema(
+            name="relay_stats",
+            columns=(
+                ColumnSchema(name="url", pg_type="text", nullable=False),
+                ColumnSchema(name="event_count", pg_type="bigint", nullable=False),
+            ),
+            primary_key=(),
+            is_view=True,
+        )
+
+        with pytest.raises(CatalogError, match="stable primary key"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay_stats",
+                limit=10,
+                offset=0,
+                cursor="opaque-token",
+                prefer_keyset=True,
+            )
+
+    async def test_query_rejects_cursor_with_offset(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        with pytest.raises(CatalogError, match="cannot be combined with offset"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay",
+                limit=10,
+                offset=1,
+                cursor="opaque-token",
+                prefer_keyset=True,
+            )
+
+    async def test_query_rejects_invalid_cursor(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        with pytest.raises(CatalogError, match="Invalid cursor"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay",
+                limit=10,
+                offset=0,
+                cursor="not-base64",
+                prefer_keyset=True,
+                include_total=False,
+            )
 
     async def test_query_skips_total_when_not_requested(
         self, populated_catalog: Catalog, catalog_brotr: Brotr

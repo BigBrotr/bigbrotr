@@ -22,6 +22,9 @@ See Also:
 
 from __future__ import annotations
 
+import base64
+import binascii
+import json
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -118,6 +121,41 @@ class QueryResult:
     total: int | None
     limit: int
     offset: int
+    next_cursor: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _OrderTerm:
+    """One validated ORDER BY term used for public list pagination."""
+
+    column: str
+    direction: str
+
+
+@dataclass(frozen=True, slots=True)
+class _QueryContext:
+    """Precomputed query state shared by count and data queries."""
+
+    columns_by_name: dict[str, ColumnSchema]
+    col_types: dict[str, str]
+    select_cols: str
+    where_clauses: list[str]
+    params: list[Any]
+    next_param_idx: int
+    base_where_sql: str
+    base_params: tuple[Any, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _PaginationPlan:
+    """Concrete SQL plan for one catalog list query."""
+
+    data_query: str
+    data_params: list[Any]
+    count_query: str | None
+    count_params: tuple[Any, ...]
+    order_terms: tuple[_OrderTerm, ...]
+    use_keyset: bool
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +232,8 @@ class Catalog:
         filters: dict[str, str] | None = None,
         sort: str | None = None,
         include_total: bool = True,
+        cursor: str | None = None,
+        prefer_keyset: bool = False,
     ) -> QueryResult:
         """Execute a safe paginated query against a discovered table.
 
@@ -208,6 +248,9 @@ class Catalog:
             sort: Sort specification as ``"column"`` or ``"column:desc"``.
             include_total: Whether to execute an additional ``COUNT(*)``
                 query and include ``total`` in the result metadata.
+            cursor: Opaque keyset-pagination cursor produced by a prior query.
+            prefer_keyset: Whether to prefer cursor pagination when the
+                schema provides a stable primary key.
 
         Returns:
             Paginated query result.
@@ -218,71 +261,47 @@ class Catalog:
         schema = self._get_schema(table)
         limit = min(max(limit, 1), max_page_size)
         offset = min(max(offset, 0), _MAX_OFFSET)
+        if cursor is not None and offset > 0:
+            raise CatalogError("Cursor pagination cannot be combined with offset")
 
-        col_names = {c.name for c in schema.columns}
-        col_types = {c.name: c.pg_type for c in schema.columns}
-
-        # Build SELECT columns with type transforms
-        select_cols = self._build_select_columns(schema.columns)
-
-        # Build WHERE clause
-        where_clauses: list[str] = []
-        params: list[Any] = []
-        param_idx = 1
-
-        if filters:
-            for col, raw_value in filters.items():
-                if col not in col_names:
-                    raise CatalogError(f"Unknown column: {col}")
-                op, value = self._parse_filter(raw_value)
-                if op == "ILIKE" and col_types[col] not in _TEXT_TYPES:
-                    raise CatalogError(
-                        f"ILIKE operator requires a text column, got {col_types[col]} for {col}"
-                    )
-                cast = self._param_cast(col_types[col])
-                where_clauses.append(f"{col} {op} ${param_idx}{cast}")
-                if col_types[col] in _BYTEA_TYPES:
-                    try:
-                        params.append(bytes.fromhex(value))
-                    except ValueError as e:
-                        raise CatalogError(f"Invalid hex value for column {col}: {value}") from e
-                else:
-                    params.append(value)
-                param_idx += 1
-
-        where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
-
-        # Build ORDER BY
-        order_sql = ""
-        if sort:
-            order_col, order_dir = self._parse_sort(sort)
-            if order_col not in col_names:
-                raise CatalogError(f"Unknown sort column: {order_col}")
-            order_sql = f" ORDER BY {order_col} {order_dir}"
-
-        # Count query + data query (wrapped to convert DB type errors to ValueError)
-        data_query = (
-            f"SELECT {select_cols} FROM {table}{where_sql}{order_sql}"  # noqa: S608
-            f" LIMIT ${param_idx} OFFSET ${param_idx + 1}"
+        context = self._build_query_context(schema, filters)
+        plan = self._build_pagination_plan(
+            table,
+            schema=schema,
+            context=context,
+            sort=sort,
+            cursor=cursor,
+            limit=limit,
+            offset=offset,
+            include_total=include_total,
+            prefer_keyset=prefer_keyset,
         )
-
         try:
             total: int | None = None
-            if include_total:
-                count_query = f"SELECT COUNT(*)::int FROM {table}{where_sql}"  # noqa: S608
-                total = await brotr.fetchval(count_query, *params)
-            params.extend([limit, offset])
-            rows = await brotr.fetch(data_query, *params)
+            if plan.count_query is not None:
+                total = await brotr.fetchval(plan.count_query, *plan.count_params)
+            rows = await brotr.fetch(plan.data_query, *plan.data_params)
         except asyncpg.DataError as e:
             raise CatalogError("Invalid filter value") from e
         except asyncpg.PostgresError as e:
             raise CatalogError("Query execution failed") from e
 
+        result_rows = [dict(row) for row in rows]
+        next_cursor: str | None = None
+        if plan.use_keyset and len(result_rows) > limit:
+            result_rows = result_rows[:limit]
+            next_cursor = self._encode_cursor(
+                result_rows[-1],
+                sort=sort,
+                order_terms=plan.order_terms,
+            )
+
         return QueryResult(
-            rows=[dict(row) for row in rows],
+            rows=result_rows,
             total=total,
             limit=limit,
             offset=offset,
+            next_cursor=next_cursor,
         )
 
     async def get_by_pk(
@@ -349,6 +368,127 @@ class Catalog:
             raise CatalogError(f"Unknown table: {table}")
         return self._tables[table]
 
+    def _build_query_context(
+        self,
+        schema: TableSchema,
+        filters: dict[str, str] | None,
+    ) -> _QueryContext:
+        """Build validated filter state shared by count and data queries."""
+        col_names = {c.name for c in schema.columns}
+        columns_by_name = {c.name: c for c in schema.columns}
+        col_types = {c.name: c.pg_type for c in schema.columns}
+        select_cols = self._build_select_columns(schema.columns)
+
+        where_clauses: list[str] = []
+        params: list[Any] = []
+        param_idx = 1
+        if filters:
+            for col, raw_value in filters.items():
+                if col not in col_names:
+                    raise CatalogError(f"Unknown column: {col}")
+                op, value = self._parse_filter(raw_value)
+                if op == "ILIKE" and col_types[col] not in _TEXT_TYPES:
+                    raise CatalogError(
+                        f"ILIKE operator requires a text column, got {col_types[col]} for {col}"
+                    )
+                cast = self._param_cast(col_types[col])
+                where_clauses.append(f"{col} {op} ${param_idx}{cast}")
+                params.append(
+                    self._coerce_parameter_value(
+                        col,
+                        col_types[col],
+                        value,
+                        source="filter",
+                    )
+                )
+                param_idx += 1
+
+        return _QueryContext(
+            columns_by_name=columns_by_name,
+            col_types=col_types,
+            select_cols=select_cols,
+            where_clauses=where_clauses,
+            params=params,
+            next_param_idx=param_idx,
+            base_where_sql=(" WHERE " + " AND ".join(where_clauses)) if where_clauses else "",
+            base_params=tuple(params),
+        )
+
+    def _build_pagination_plan(  # noqa: PLR0913
+        self,
+        table: str,
+        *,
+        schema: TableSchema,
+        context: _QueryContext,
+        sort: str | None,
+        cursor: str | None,
+        limit: int,
+        offset: int,
+        include_total: bool,
+        prefer_keyset: bool,
+    ) -> _PaginationPlan:
+        """Build the concrete SQL and parameter plan for one list query."""
+        where_clauses = list(context.where_clauses)
+        params = list(context.params)
+        next_param_idx = context.next_param_idx
+
+        order_terms = self._build_order_terms(
+            schema,
+            columns_by_name=context.columns_by_name,
+            sort=sort,
+            prefer_keyset=prefer_keyset,
+        )
+        if cursor is not None:
+            if not order_terms:
+                raise CatalogError("Cursor pagination requires a stable primary key")
+            where_clauses.append(
+                self._build_cursor_clause(
+                    cursor,
+                    sort=sort,
+                    order_terms=order_terms,
+                    col_types=context.col_types,
+                    params=params,
+                    next_param_idx=next_param_idx,
+                )
+            )
+            next_param_idx = len(params) + 1
+
+        data_where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+        order_sql = self._build_order_sql(
+            order_terms,
+            sort=sort,
+            schema=schema,
+            prefer_keyset=prefer_keyset,
+        )
+        use_keyset = bool(order_terms) and offset == 0
+
+        data_params = list(params)
+        if use_keyset:
+            data_query = (
+                f"SELECT {context.select_cols} FROM {table}{data_where_sql}{order_sql}"  # noqa: S608
+                f" LIMIT ${next_param_idx}"
+            )
+            data_params.append(limit + 1)
+        else:
+            data_query = (
+                f"SELECT {context.select_cols} FROM {table}{data_where_sql}{order_sql}"  # noqa: S608
+                f" LIMIT ${next_param_idx} OFFSET ${next_param_idx + 1}"
+            )
+            data_params.extend([limit, offset])
+
+        count_query = None
+        if include_total:
+            count_query = f"SELECT COUNT(*)::int FROM {table}{context.base_where_sql}"  # noqa: S608
+
+        return _PaginationPlan(
+            data_query=data_query,
+            data_params=data_params,
+            count_query=count_query,
+            count_params=context.base_params,
+            order_terms=order_terms,
+            use_keyset=use_keyset,
+        )
+
     @staticmethod
     def _build_select_columns(columns: tuple[ColumnSchema, ...]) -> str:
         """Build a SELECT column list with type-appropriate transforms."""
@@ -397,6 +537,156 @@ class Catalog:
         if pg_type in _CAST_TYPES:
             return _CAST_TYPES[pg_type]
         return ""
+
+    def _build_order_terms(
+        self,
+        schema: TableSchema,
+        *,
+        columns_by_name: dict[str, ColumnSchema],
+        sort: str | None,
+        prefer_keyset: bool,
+    ) -> tuple[_OrderTerm, ...]:
+        """Build a stable ORDER BY plan for one query."""
+        if sort:
+            order_col, order_dir = self._parse_sort(sort)
+            column = columns_by_name.get(order_col)
+            if column is None:
+                raise CatalogError(f"Unknown sort column: {order_col}")
+            if not prefer_keyset or not schema.primary_key or column.nullable:
+                return ()
+            pk_terms = tuple(
+                _OrderTerm(column=pk_col, direction=order_dir)
+                for pk_col in schema.primary_key
+                if pk_col != order_col
+            )
+            return (_OrderTerm(column=order_col, direction=order_dir), *pk_terms)
+
+        if prefer_keyset and schema.primary_key:
+            return tuple(
+                _OrderTerm(column=pk_col, direction="ASC") for pk_col in schema.primary_key
+            )
+
+        return ()
+
+    @staticmethod
+    def _build_order_sql(
+        order_terms: tuple[_OrderTerm, ...],
+        *,
+        sort: str | None,
+        schema: TableSchema,
+        prefer_keyset: bool,
+    ) -> str:
+        """Build the ORDER BY clause for the current query mode."""
+        if order_terms:
+            order_parts = [f"{term.column} {term.direction}" for term in order_terms]
+            return " ORDER BY " + ", ".join(order_parts)
+        if sort:
+            order_col, order_dir = Catalog._parse_sort(sort)
+            return f" ORDER BY {order_col} {order_dir}"
+        if prefer_keyset and schema.primary_key:
+            pk_parts = [f"{column} ASC" for column in schema.primary_key]
+            return " ORDER BY " + ", ".join(pk_parts)
+        return ""
+
+    def _build_cursor_clause(  # noqa: PLR0913
+        self,
+        cursor: str,
+        *,
+        sort: str | None,
+        order_terms: tuple[_OrderTerm, ...],
+        col_types: dict[str, str],
+        params: list[Any],
+        next_param_idx: int,
+    ) -> str:
+        """Build a tuple-comparison keyset clause from one opaque cursor."""
+        values = self._decode_cursor(cursor, sort=sort, order_terms=order_terms)
+        operator = "<" if order_terms[0].direction == "DESC" else ">"
+        lhs = ", ".join(term.column for term in order_terms)
+        rhs_parts: list[str] = []
+        for index, term in enumerate(order_terms, start=next_param_idx):
+            value = values.get(term.column)
+            if term.column not in values:
+                raise CatalogError("Cursor does not match requested page order")
+            params.append(
+                self._coerce_parameter_value(
+                    term.column,
+                    col_types[term.column],
+                    value,
+                    source="cursor",
+                )
+            )
+            rhs_parts.append(f"${index}{self._param_cast(col_types[term.column])}")
+        return f"({lhs}) {operator} ({', '.join(rhs_parts)})"
+
+    @staticmethod
+    def _encode_cursor(
+        row: dict[str, Any],
+        *,
+        sort: str | None,
+        order_terms: tuple[_OrderTerm, ...],
+    ) -> str:
+        """Encode one opaque cursor from the last row in a keyset page."""
+        payload = {
+            "v": 1,
+            "sort": sort or "",
+            "values": {term.column: row[term.column] for term in order_terms},
+        }
+        raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+        return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+    @staticmethod
+    def _decode_cursor(
+        cursor: str,
+        *,
+        sort: str | None,
+        order_terms: tuple[_OrderTerm, ...],
+    ) -> dict[str, Any]:
+        """Decode and validate one opaque keyset cursor."""
+        try:
+            padding = "=" * (-len(cursor) % 4)
+            raw = base64.urlsafe_b64decode(cursor + padding)
+            payload = json.loads(raw.decode())
+        except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError) as e:
+            raise CatalogError("Invalid cursor") from e
+
+        if not isinstance(payload, dict) or payload.get("v") != 1:
+            raise CatalogError("Invalid cursor")
+
+        payload_sort = payload.get("sort", "")
+        if payload_sort != (sort or ""):
+            raise CatalogError("Cursor does not match requested sort")
+
+        values = payload.get("values")
+        if not isinstance(values, dict):
+            raise CatalogError("Invalid cursor")
+
+        expected_columns = {term.column for term in order_terms}
+        if not expected_columns <= set(values):
+            raise CatalogError("Cursor does not match requested page order")
+
+        return values
+
+    @staticmethod
+    def _coerce_parameter_value(
+        column: str,
+        pg_type: str,
+        value: Any,
+        *,
+        source: str,
+    ) -> Any:
+        """Coerce one cursor/filter value back into a DB-comparable Python value."""
+        if value is None:
+            raise CatalogError(f"Invalid {source} value for column {column}")
+        if pg_type in _BYTEA_TYPES:
+            if not isinstance(value, str):
+                raise CatalogError(f"Invalid {source} value for column {column}")
+            try:
+                return bytes.fromhex(value)
+            except ValueError as e:
+                if source == "filter":
+                    raise CatalogError(f"Invalid hex value for column {column}: {value}") from e
+                raise CatalogError(f"Invalid {source} value for column {column}") from e
+        return value
 
     # -------------------------------------------------------------------
     # Discovery queries

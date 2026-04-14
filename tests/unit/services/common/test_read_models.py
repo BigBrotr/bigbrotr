@@ -131,6 +131,8 @@ class TestReadModelRegistry:
             filters={"url": "foo"},
             sort=None,
             include_total=False,
+            cursor=None,
+            prefer_keyset=True,
         )
 
     async def test_entry_get_by_pk_delegates_to_catalog(self) -> None:
@@ -182,6 +184,7 @@ class TestReadModelQueryHelpers:
             filters={"network": "clearnet"},
             sort="url:asc",
             include_total=True,
+            cursor=None,
         )
 
     def test_read_model_query_from_http_params_invalid_limit(self) -> None:
@@ -196,6 +199,34 @@ class TestReadModelQueryHelpers:
         with pytest.raises(ReadModelQueryError, match="Invalid include_total value"):
             read_model_query_from_http_params(
                 {"include_total": "maybe"},
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
+    def test_read_model_query_from_http_params_with_cursor(self) -> None:
+        query = read_model_query_from_http_params(
+            {"cursor": "opaque-token", "limit": "20"},
+            default_page_size=100,
+            max_page_size=1000,
+        )
+
+        assert query == ReadModelQuery(
+            limit=20,
+            offset=0,
+            max_page_size=1000,
+            filters=None,
+            sort=None,
+            include_total=False,
+            cursor="opaque-token",
+        )
+
+    def test_read_model_query_from_http_params_rejects_cursor_with_offset(self) -> None:
+        with pytest.raises(
+            ReadModelQueryError,
+            match="Cursor pagination cannot be combined with offset",
+        ):
+            read_model_query_from_http_params(
+                {"cursor": "opaque-token", "offset": "1"},
                 default_page_size=100,
                 max_page_size=1000,
             )
@@ -220,6 +251,7 @@ class TestReadModelQueryHelpers:
             filters={"network": "clearnet", "kind": ">:100"},
             sort="url:asc",
             include_total=True,
+            cursor=None,
         )
 
     def test_read_model_query_from_job_params_invalid_offset(self) -> None:
@@ -238,6 +270,34 @@ class TestReadModelQueryHelpers:
                 max_page_size=1000,
             )
 
+    def test_read_model_query_from_job_params_with_cursor(self) -> None:
+        query = read_model_query_from_job_params(
+            {"cursor": "opaque-token", "limit": "10"},
+            default_page_size=100,
+            max_page_size=1000,
+        )
+
+        assert query == ReadModelQuery(
+            limit=10,
+            offset=0,
+            max_page_size=1000,
+            filters=None,
+            sort=None,
+            include_total=False,
+            cursor="opaque-token",
+        )
+
+    def test_read_model_query_from_job_params_rejects_cursor_with_offset(self) -> None:
+        with pytest.raises(
+            ReadModelQueryError,
+            match="Cursor pagination cannot be combined with offset",
+        ):
+            read_model_query_from_job_params(
+                {"cursor": "opaque-token", "offset": "1"},
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
     def test_build_read_model_meta(self) -> None:
         meta = build_read_model_meta(
             QueryResult(
@@ -245,6 +305,7 @@ class TestReadModelQueryHelpers:
                 total=1,
                 limit=10,
                 offset=0,
+                next_cursor="opaque-token",
             ),
             read_model_id="relay",
         )
@@ -253,6 +314,7 @@ class TestReadModelQueryHelpers:
             "total": 1,
             "limit": 10,
             "offset": 0,
+            "next_cursor": "opaque-token",
             "read_model": "relay",
         }
 

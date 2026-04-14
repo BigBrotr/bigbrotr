@@ -365,6 +365,7 @@ class TestListRowsRoute:
             total=None,
             limit=10,
             offset=0,
+            next_cursor="opaque-token",
         )
         with patch.object(
             api_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
@@ -375,6 +376,7 @@ class TestListRowsRoute:
         body = resp.json()
         assert body["data"] == [{"url": "wss://relay.example.com", "network": "clearnet"}]
         assert "total" not in body["meta"]
+        assert body["meta"]["next_cursor"] == "opaque-token"
         assert body["meta"]["read_model"] == "relay"
 
     def test_include_total_param(self, test_client: TestClient, api_service: Api) -> None:
@@ -400,6 +402,23 @@ class TestListRowsRoute:
         _, kwargs = mock_query.call_args
         assert kwargs["sort"] == "url:asc"
         assert kwargs["include_total"] is False
+        assert kwargs["cursor"] is None
+
+    def test_with_cursor_param(self, test_client: TestClient, api_service: Api) -> None:
+        mock_result = QueryResult(rows=[], total=None, limit=10, offset=0)
+        with patch.object(
+            api_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+        ) as mock_query:
+            resp = test_client.get("/v1/relay?cursor=opaque-token")
+
+        assert resp.status_code == 200
+        _, kwargs = mock_query.call_args
+        assert kwargs["cursor"] == "opaque-token"
+
+    def test_cursor_and_offset_returns_400(self, test_client: TestClient) -> None:
+        resp = test_client.get("/v1/relay?cursor=opaque-token&offset=1")
+        assert resp.status_code == 400
+        assert "cursor pagination" in resp.json()["error"].lower()
 
     def test_catalog_error_returns_400(self, test_client: TestClient, api_service: Api) -> None:
         with patch.object(

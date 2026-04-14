@@ -755,6 +755,44 @@ class TestDvmRun:
         _, kwargs = mock_query.call_args
         assert kwargs["include_total"] is True
 
+    async def test_run_cursor_opt_in(self, dvm_service: Dvm) -> None:
+        event = _make_mock_event(
+            tags=[["param", "read_model", "relay"], ["param", "cursor", "opaque-token"]]
+        )
+        mock_client = _make_client_with_events([event])
+        dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
+
+        mock_result = QueryResult(rows=[], total=None, limit=100, offset=0)
+        with (
+            patch.object(
+                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+            ) as mock_query,
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(dvm_service, "inc_counter"),
+        ):
+            await dvm_service.run()
+
+        _, kwargs = mock_query.call_args
+        assert kwargs["cursor"] == "opaque-token"
+
+    async def test_run_rejects_cursor_with_offset(self, dvm_service: Dvm) -> None:
+        event = _make_mock_event(
+            tags=[
+                ["param", "read_model", "relay"],
+                ["param", "cursor", "opaque-token"],
+                ["param", "offset", "1"],
+            ]
+        )
+        mock_client = _make_client_with_events([event])
+        dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
+
+        with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
+            await dvm_service.run()
+
+        mock_client.send_event_builder.assert_called_once()
+
     async def test_run_invalid_limit(self, dvm_service: Dvm) -> None:
         event = _make_mock_event(
             tags=[["param", "read_model", "relay"], ["param", "limit", "not_a_number"]]
@@ -1243,7 +1281,13 @@ class TestBuildResultEvent:
         assert event.kind().as_u16() == 6050
 
     def test_content_contains_data_and_meta(self) -> None:
-        result = QueryResult(rows=[{"url": "wss://r.io"}], total=1, limit=10, offset=0)
+        result = QueryResult(
+            rows=[{"url": "wss://r.io"}],
+            total=1,
+            limit=10,
+            offset=0,
+            next_cursor="opaque-token",
+        )
         event = build_result_event(
             ResultEventRequest(5050, "eid", "pk", "relay"),
             result,
@@ -1255,6 +1299,7 @@ class TestBuildResultEvent:
             "total": 1,
             "limit": 10,
             "offset": 0,
+            "next_cursor": "opaque-token",
             "read_model": "relay",
         }
 
