@@ -20,6 +20,7 @@ from bigbrotr.services.common.catalog import (
     TableSchema,
 )
 from bigbrotr.services.common.configs import TableConfig
+from bigbrotr.services.common.types import Checkpoint
 from bigbrotr.services.dvm.configs import DvmConfig
 from bigbrotr.services.dvm.service import Dvm
 from bigbrotr.services.dvm.utils import (
@@ -289,6 +290,10 @@ class TestDvmLifecycle:
         mock_client.add_relay = AsyncMock()
         mock_client.connect = AsyncMock()
         mock_client.send_event_builder = AsyncMock()
+        mock_state_store = MagicMock()
+        mock_state_store.fetch_checkpoints = AsyncMock(
+            return_value=[Checkpoint(key="job_requests", timestamp=1234)]
+        )
 
         with (
             patch(
@@ -296,16 +301,45 @@ class TestDvmLifecycle:
                 new_callable=AsyncMock,
                 return_value=mock_client,
             ),
+            patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(dvm_service, "set_gauge"),
             patch.object(type(dvm_service), "__aexit__", new_callable=AsyncMock),
         ):
             await dvm_service.__aenter__()
 
             assert dvm_service._client is mock_client
-            assert dvm_service._last_fetch_ts > 0
+            assert dvm_service._last_fetch_ts == 1234
             mock_client.add_relay.assert_called_once()
             mock_client.connect.assert_called_once()
             mock_client.send_event_builder.assert_called_once()
+
+    async def test_aenter_initializes_fetch_checkpoint_when_missing(self, dvm_service: Dvm) -> None:
+        mock_client = MagicMock()
+        mock_client.add_relay = AsyncMock()
+        mock_client.connect = AsyncMock()
+        mock_client.send_event_builder = AsyncMock()
+        mock_state_store = MagicMock()
+        mock_state_store.fetch_checkpoints = AsyncMock(
+            return_value=[Checkpoint(key="job_requests", timestamp=0)]
+        )
+        mock_state_store.upsert_checkpoints = AsyncMock(return_value=1)
+
+        with (
+            patch(
+                "bigbrotr.services.dvm.service.create_client",
+                new_callable=AsyncMock,
+                return_value=mock_client,
+            ),
+            patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
+            patch("bigbrotr.services.dvm.service.time") as mock_time,
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(type(dvm_service), "__aexit__", new_callable=AsyncMock),
+        ):
+            mock_time.time.return_value = 4321
+            await dvm_service.__aenter__()
+
+        assert dvm_service._last_fetch_ts == 4321
+        mock_state_store.upsert_checkpoints.assert_awaited_once()
 
     async def test_aenter_skips_announcement_when_disabled(self, mock_brotr: Brotr) -> None:
         config = DvmConfig(
@@ -387,8 +421,11 @@ class TestDvmRun:
     async def test_run_no_events(self, dvm_service: Dvm) -> None:
         mock_client = _make_client_with_events([])
         dvm_service._client = mock_client
+        mock_state_store = MagicMock()
+        mock_state_store.upsert_checkpoints = AsyncMock(return_value=1)
 
         with (
+            patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(dvm_service, "set_gauge") as mock_gauge,
             patch.object(dvm_service, "inc_counter"),
         ):
@@ -402,8 +439,11 @@ class TestDvmRun:
     async def test_run_no_events_updates_fetch_ts(self, dvm_service: Dvm) -> None:
         mock_client = _make_client_with_events([])
         dvm_service._client = mock_client
+        mock_state_store = MagicMock()
+        mock_state_store.upsert_checkpoints = AsyncMock(return_value=1)
 
         with (
+            patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
             patch("bigbrotr.services.dvm.service.time") as mock_time,
@@ -412,11 +452,14 @@ class TestDvmRun:
             await dvm_service.run()
 
         assert dvm_service._last_fetch_ts == 5000
+        mock_state_store.upsert_checkpoints.assert_awaited_once()
 
     async def test_run_processes_job(self, dvm_service: Dvm) -> None:
         event = _make_mock_event(tags=[["param", "table", "relay"], ["param", "limit", "10"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        mock_state_store = MagicMock()
+        mock_state_store.upsert_checkpoints = AsyncMock(return_value=1)
 
         mock_result = QueryResult(
             rows=[{"url": "wss://x", "network": "clearnet"}],
@@ -425,6 +468,7 @@ class TestDvmRun:
             offset=0,
         )
         with (
+            patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(
                 dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
             ),
@@ -522,9 +566,12 @@ class TestDvmRun:
         event = _make_mock_event(tags=[["param", "table", "relay"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
+        mock_state_store = MagicMock()
+        mock_state_store.upsert_checkpoints = AsyncMock(return_value=1)
 
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
+            patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(
                 dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
             ),
@@ -537,6 +584,7 @@ class TestDvmRun:
             await dvm_service.run()
 
         assert dvm_service._last_fetch_ts == 1000
+        mock_state_store.upsert_checkpoints.assert_awaited_once()
 
     async def test_run_publish_error_failure_does_not_abort_batch(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()

@@ -54,6 +54,8 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.catalog import CatalogError
 from bigbrotr.services.common.mixins import CatalogAccessMixin
+from bigbrotr.services.common.state_store import ServiceStateStore
+from bigbrotr.services.common.types import Checkpoint
 from bigbrotr.utils.protocol import create_client
 
 from .configs import DvmConfig
@@ -76,6 +78,7 @@ if TYPE_CHECKING:
 
 _MAX_PROCESSED_IDS = 10_000
 _MIN_TAG_LEN = 2
+_REQUEST_CHECKPOINT_KEY = "job_requests"
 
 
 class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
@@ -132,7 +135,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             sum(1 for n in self._catalog.tables if self._is_table_enabled(n)),
         )
 
-        self._last_fetch_ts = int(time.time())
+        self._last_fetch_ts = await self._restore_fetch_checkpoint()
         return self
 
     async def __aexit__(
@@ -169,7 +172,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         fetch_ts = int(time.time())
         events = await self._fetch_job_requests()
         if not events:
-            self._last_fetch_ts = fetch_ts
+            await self._store_fetch_checkpoint(fetch_ts)
             self._report_metrics(0, 0, 0, 0)
             return
 
@@ -188,7 +191,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             payment_required += pr
 
         self._manage_dedup_set()
-        self._last_fetch_ts = fetch_ts
+        await self._store_fetch_checkpoint(fetch_ts)
         self._report_metrics(received, processed, failed, payment_required)
 
     # ── Event processing ──────────────────────────────────────────
@@ -352,6 +355,32 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         return policy.price
 
     # ── Event fetching ────────────────────────────────────────────
+
+    async def _restore_fetch_checkpoint(self) -> int:
+        """Load the persisted request boundary or initialize it from wall clock."""
+        checkpoint = (
+            await ServiceStateStore(self._brotr).fetch_checkpoints(
+                ServiceName.DVM,
+                [_REQUEST_CHECKPOINT_KEY],
+                Checkpoint,
+            )
+        )[0]
+        if checkpoint.timestamp > 0:
+            self._logger.info("request_checkpoint_restored", timestamp=checkpoint.timestamp)
+            return checkpoint.timestamp
+
+        timestamp = int(time.time())
+        await self._store_fetch_checkpoint(timestamp)
+        self._logger.info("request_checkpoint_initialized", timestamp=timestamp)
+        return timestamp
+
+    async def _store_fetch_checkpoint(self, timestamp: int) -> None:
+        """Persist the current request boundary after a successful cycle."""
+        self._last_fetch_ts = timestamp
+        await ServiceStateStore(self._brotr).upsert_checkpoints(
+            ServiceName.DVM,
+            [Checkpoint(key=_REQUEST_CHECKPOINT_KEY, timestamp=timestamp)],
+        )
 
     async def _fetch_job_requests(self) -> list[Any]:
         """Fetch new NIP-90 job request events since last timestamp."""
