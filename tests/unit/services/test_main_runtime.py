@@ -36,6 +36,33 @@ class TestRunService:
 
         assert result == 0
 
+    async def test_oneshot_runs_cleanup_before_run(self, mock_brotr_for_cli: Brotr) -> None:
+        from bigbrotr.services.seeder import Seeder
+
+        events: list[str] = []
+
+        async def cleanup_side_effect() -> int:
+            events.append("cleanup")
+            return 0
+
+        async def run_side_effect() -> None:
+            events.append("run")
+
+        with (
+            patch.object(Seeder, "cleanup", AsyncMock(side_effect=cleanup_side_effect)),
+            patch.object(Seeder, "run", AsyncMock(side_effect=run_side_effect)),
+        ):
+            result = await run_service(
+                service_name="seeder",
+                service_class=Seeder,
+                brotr=mock_brotr_for_cli,
+                service_dict={"seed": {"file_path": "nonexistent.txt"}},
+                once=True,
+            )
+
+        assert result == 0
+        assert events == ["cleanup", "run"]
+
     async def test_oneshot_failure(self, mock_brotr_for_cli: Brotr) -> None:
         from bigbrotr.services.seeder import Seeder
 
@@ -51,6 +78,26 @@ class TestRunService:
             )
 
         assert result == 1
+
+    async def test_oneshot_cleanup_failure_stops_before_run(
+        self, mock_brotr_for_cli: Brotr
+    ) -> None:
+        from bigbrotr.services.seeder import Seeder
+
+        with (
+            patch.object(Seeder, "cleanup", AsyncMock(side_effect=Exception("Cleanup error"))),
+            patch.object(Seeder, "run", AsyncMock()) as mock_run,
+        ):
+            result = await run_service(
+                service_name="seeder",
+                service_class=Seeder,
+                brotr=mock_brotr_for_cli,
+                service_dict={"seed": {"file_path": "nonexistent.txt"}},
+                once=True,
+            )
+
+        assert result == 1
+        mock_run.assert_not_awaited()
 
     async def test_continuous_success(self, mock_brotr_for_cli: Brotr) -> None:
         from bigbrotr.services.finder import Finder

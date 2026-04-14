@@ -175,9 +175,8 @@ class Ranker(BaseService[RankerConfig]):
         await asyncio.to_thread(self._store.ensure_initialized)
         self._reset_cycle_metrics()
 
-        cleanup_start = time.monotonic()
-        cleanup_removed = await self.cleanup()
-        cleanup_duration = time.monotonic() - cleanup_start
+        cleanup_removed = 0
+        cleanup_duration = 0.0
 
         sync_start = time.monotonic()
         sync_result = await self._sync_follow_graph(cycle_start)

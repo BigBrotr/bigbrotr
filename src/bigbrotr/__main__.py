@@ -100,6 +100,7 @@ async def run_service(
     if once:
         try:
             async with service:
+                await service.cleanup()
                 await service.run()
             logger.info(f"{service_name}_completed")
             return 0

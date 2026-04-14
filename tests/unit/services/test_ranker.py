@@ -724,6 +724,42 @@ class TestRankerService:
         mock_rank.assert_awaited_once_with()
 
     @pytest.mark.asyncio
+    async def test_rank_does_not_invoke_cleanup(
+        self,
+        mock_brotr: Brotr,
+        ranker_config: RankerConfig,
+    ) -> None:
+        from bigbrotr.services.ranker.service import _GraphSyncResult
+
+        ranker = Ranker(brotr=mock_brotr, config=ranker_config)
+        cycle_result = RankCycleResult(
+            rank_run_id=None,
+            checkpoint=GraphSyncCheckpoint(),
+            cutoff_reason="max_duration",
+        )
+
+        with (
+            patch.object(ranker, "cleanup", AsyncMock(return_value=3)) as mock_cleanup,
+            patch.object(ranker._store, "ensure_initialized"),
+            patch.object(ranker, "_reset_cycle_metrics"),
+            patch.object(
+                ranker,
+                "_sync_follow_graph",
+                AsyncMock(
+                    return_value=_GraphSyncResult(
+                        checkpoint=GraphSyncCheckpoint(),
+                        cutoff_reason="max_duration",
+                    )
+                ),
+            ),
+            patch.object(ranker, "_build_cycle_result", AsyncMock(return_value=cycle_result)),
+        ):
+            result = await ranker.rank()
+
+        assert result is cycle_result
+        mock_cleanup.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_run_syncs_changed_followers(
         self,
         mock_brotr: Brotr,
