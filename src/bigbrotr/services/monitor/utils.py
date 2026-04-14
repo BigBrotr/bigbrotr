@@ -1,6 +1,7 @@
 """Monitor service utility functions.
 
-Pure helpers for health check result inspection and retry logic.
+Pure helpers for health check result inspection, chunk classification,
+and retry logic.
 """
 
 from __future__ import annotations
@@ -8,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar
 
 from bigbrotr.models import Metadata, MetadataType, RelayMetadata
@@ -80,6 +82,29 @@ class CheckResult(NamedTuple):
                 self.nip66_http,
             )
         )
+
+
+@dataclass(frozen=True, slots=True)
+class MonitorChunkOutcome:
+    """Classification result for one processed monitor chunk."""
+
+    successful: tuple[tuple[Relay, CheckResult], ...] = ()
+    failed: tuple[Relay, ...] = ()
+
+    @property
+    def succeeded_count(self) -> int:
+        """Number of relays that produced at least one metadata document."""
+        return len(self.successful)
+
+    @property
+    def failed_count(self) -> int:
+        """Number of relays that produced no usable monitoring data."""
+        return len(self.failed)
+
+    @property
+    def checked_relays(self) -> tuple[Relay, ...]:
+        """All relays classified in this chunk, successful first then failed."""
+        return tuple(relay for relay, _ in self.successful) + self.failed
 
 
 def log_success(result: Any) -> bool:

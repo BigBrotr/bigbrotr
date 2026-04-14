@@ -124,6 +124,7 @@ from .queries import (
 )
 from .utils import (
     CheckResult,
+    MonitorChunkOutcome,
     collect_metadata,
     retry_fetch,
 )
@@ -136,6 +137,7 @@ if TYPE_CHECKING:
 
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
+    from bigbrotr.models.constants import NetworkType
 
 
 class Monitor(
@@ -429,35 +431,79 @@ class Monitor(
             if not self.is_running:
                 break
 
-            chunk_successful: list[tuple[Relay, CheckResult]] = []
-            chunk_failed: list[Relay] = []
+            chunk_outcome = await self._monitor_chunk(relays, networks)
+            await self._persist_chunk_outcome(chunk_outcome, checked_at=int(time.time()))
 
-            async for relay, result in self._iter_concurrent(
-                relays,
-                self._monitor_worker,
-                max_concurrency=self.network_semaphores.max_concurrency(networks),
-            ):
-                if result is not None:
-                    chunk_successful.append((relay, result))
-                    succeeded += 1
-                else:
-                    chunk_failed.append(relay)
-                    failed += 1
-                self.inc_gauge("succeeded" if result is not None else "failed")
-
-            metadata = collect_metadata(chunk_successful, self._config.processing.store)
-            await insert_relay_metadata(self._brotr, metadata)
-            all_checked = [relay for relay, _ in chunk_successful] + chunk_failed
-            await upsert_monitor_checkpoints(self._brotr, all_checked, int(time.time()))
-
-            self._logger.info(
-                "chunk_completed",
-                succeeded=len(chunk_successful),
-                failed=len(chunk_failed),
-                remaining=total - succeeded - failed,
+            succeeded += chunk_outcome.succeeded_count
+            failed += chunk_outcome.failed_count
+            self._log_chunk_outcome(
+                chunk_outcome,
+                total=total,
+                succeeded=succeeded,
+                failed=failed,
             )
 
         return succeeded + failed
+
+    async def _monitor_chunk(
+        self,
+        relays: list[Relay],
+        networks: list[NetworkType],
+    ) -> MonitorChunkOutcome:
+        """Run one page of relay checks and classify the results."""
+        chunk_successful: list[tuple[Relay, CheckResult]] = []
+        chunk_failed: list[Relay] = []
+
+        async for relay, result in self._iter_concurrent(
+            relays,
+            self._monitor_worker,
+            max_concurrency=self.network_semaphores.max_concurrency(networks),
+        ):
+            if result is not None:
+                chunk_successful.append((relay, result))
+                self.inc_gauge("succeeded")
+            else:
+                chunk_failed.append(relay)
+                self.inc_gauge("failed")
+
+        return MonitorChunkOutcome(
+            successful=tuple(chunk_successful),
+            failed=tuple(chunk_failed),
+        )
+
+    async def _persist_chunk_outcome(
+        self,
+        chunk_outcome: MonitorChunkOutcome,
+        *,
+        checked_at: int,
+    ) -> None:
+        """Persist one processed monitor chunk to metadata and service state."""
+        metadata = collect_metadata(
+            list(chunk_outcome.successful),
+            self._config.processing.store,
+        )
+        await insert_relay_metadata(self._brotr, metadata)
+        await upsert_monitor_checkpoints(
+            self._brotr,
+            list(chunk_outcome.checked_relays),
+            checked_at,
+        )
+
+    def _log_chunk_outcome(
+        self,
+        chunk_outcome: MonitorChunkOutcome,
+        *,
+        total: int,
+        succeeded: int,
+        failed: int,
+    ) -> None:
+        """Emit the standard monitor chunk completion log line."""
+        self._logger.info(
+            "chunk_completed",
+            succeeded=chunk_outcome.succeeded_count,
+            failed=chunk_outcome.failed_count,
+            remaining=total - succeeded - failed,
+        )
 
     async def _monitor_worker(
         self, relay: Relay

@@ -62,6 +62,7 @@ from bigbrotr.services.monitor.service import (
     Nip66SslMetadata,
 )
 from bigbrotr.services.monitor.utils import (
+    MonitorChunkOutcome,
     collect_metadata,
     extract_result,
     log_reason,
@@ -142,6 +143,9 @@ class _MonitorStub:
     _publish_context = Monitor._publish_context
     _check_context = Monitor._check_context
     _check_dependencies = Monitor._check_dependencies
+    _monitor_chunk = Monitor._monitor_chunk
+    _persist_chunk_outcome = Monitor._persist_chunk_outcome
+    _log_chunk_outcome = Monitor._log_chunk_outcome
     publish_announcement = Monitor.publish_announcement
     publish_profile = Monitor.publish_profile
     publish_relay_list = Monitor.publish_relay_list
@@ -1445,6 +1449,77 @@ class TestMonitorHelpers:
         assert deps.net_probe.__func__ is Nip66NetMetadata.probe.__func__
         assert deps.dns_probe.__func__ is Nip66DnsMetadata.probe.__func__
         assert deps.http_probe.__func__ is Nip66HttpMetadata.probe.__func__
+
+    async def test_monitor_chunk_classifies_results_and_updates_gauges(
+        self, mock_brotr: Brotr
+    ) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        relay1 = Relay("wss://ok.example.com")
+        relay2 = Relay("wss://fail.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
+
+        async def fake_iter_concurrent(
+            _relays: list[Relay],
+            _worker: Any,
+            *,
+            max_concurrency: int | None = None,
+        ):
+            assert max_concurrency is not None
+            yield relay1, result
+            yield relay2, None
+
+        with (
+            patch.object(monitor, "_iter_concurrent", side_effect=fake_iter_concurrent),
+            patch.object(monitor, "inc_gauge") as mock_inc,
+        ):
+            outcome = await monitor._monitor_chunk([relay1, relay2], [NetworkType.CLEARNET])
+
+        assert outcome.successful == ((relay1, result),)
+        assert outcome.failed == (relay2,)
+        mock_inc.assert_any_call("succeeded")
+        mock_inc.assert_any_call("failed")
+
+    async def test_persist_chunk_outcome_stores_metadata_and_checkpoints(
+        self, mock_brotr: Brotr
+    ) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        relay1 = Relay("wss://ok.example.com")
+        relay2 = Relay("wss://fail.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
+        outcome = MonitorChunkOutcome(successful=((relay1, result),), failed=(relay2,))
+
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.insert_relay_metadata",
+                new_callable=AsyncMock,
+            ) as mock_insert,
+            patch(
+                "bigbrotr.services.monitor.service.upsert_monitor_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_upsert,
+        ):
+            await monitor._persist_chunk_outcome(outcome, checked_at=123)
+
+        inserted_metadata = mock_insert.await_args.args[1]
+        assert len(inserted_metadata) == 1
+        assert inserted_metadata[0].relay == relay1
+        mock_upsert.assert_awaited_once_with(mock_brotr, [relay1, relay2], 123)
+
+    def test_log_chunk_outcome_uses_remaining_budget(self, mock_brotr: Brotr) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        relay = Relay("wss://ok.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=50))
+        outcome = MonitorChunkOutcome(successful=((relay, result),), failed=())
+
+        with patch.object(monitor._logger, "info") as mock_info:
+            monitor._log_chunk_outcome(outcome, total=10, succeeded=4, failed=1)
+
+        mock_info.assert_called_once_with(
+            "chunk_completed",
+            succeeded=1,
+            failed=0,
+            remaining=5,
+        )
 
 
 # ============================================================================
