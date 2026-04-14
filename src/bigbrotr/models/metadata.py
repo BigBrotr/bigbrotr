@@ -33,7 +33,12 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-from ._validation import deep_freeze, sanitize_data, validate_instance, validate_mapping
+from ._validation import (
+    deep_freeze,
+    sanitize_data,
+    validate_mapping,
+    validate_str_not_empty,
+)
 
 
 class MetadataType(StrEnum):
@@ -76,8 +81,10 @@ class MetadataDbParams(NamedTuple):
 
     Attributes:
         id: SHA-256 content hash (32 bytes), part of composite PK ``(id, type)``.
-        type: [MetadataType][bigbrotr.models.metadata.MetadataType] discriminator,
-            part of composite PK ``(id, type)``.
+        type: Metadata type identifier, part of composite PK ``(id, type)``.
+            Built-in callers typically use
+            [MetadataType][bigbrotr.models.metadata.MetadataType], but arbitrary
+            non-empty strings are accepted.
         data: Canonical JSON string for PostgreSQL JSONB storage.
 
     See Also:
@@ -86,7 +93,7 @@ class MetadataDbParams(NamedTuple):
     """
 
     id: bytes
-    type: MetadataType
+    type: str
     data: str
 
 
@@ -104,8 +111,9 @@ class Metadata:
     ``(id, type)`` in the database.
 
     Attributes:
-        type: The metadata classification
-            (see [MetadataType][bigbrotr.models.metadata.MetadataType]).
+        type: The metadata classification. Built-in callers use the
+            [MetadataType][bigbrotr.models.metadata.MetadataType] catalog, but
+            arbitrary non-empty string IDs are accepted for extensibility.
         data: Sanitized JSON-compatible dictionary.
 
     Examples:
@@ -150,7 +158,7 @@ class Metadata:
             linking a [Relay][bigbrotr.models.relay.Relay] to this metadata record.
     """
 
-    type: MetadataType
+    type: str
     data: Mapping[str, Any] = field(default_factory=dict)
 
     _canonical_json: str = field(default="", init=False, repr=False, compare=False)
@@ -165,7 +173,7 @@ class Metadata:
 
     def __post_init__(self) -> None:
         """Sanitize the data dict and compute the canonical JSON and hash."""
-        validate_instance(self.type, MetadataType, "type")
+        object.__setattr__(self, "type", _normalize_metadata_type(self.type))
         validate_mapping(self.data, "data")
         sanitized = sanitize_data(self.data, "data")
 
@@ -241,3 +249,10 @@ class Metadata:
             and the metadata type.
         """
         return self._db_params
+
+
+def _normalize_metadata_type(value: str | StrEnum) -> str:
+    """Normalize enum-backed or plain-string metadata identifiers."""
+    normalized = value.value if isinstance(value, StrEnum) else value
+    validate_str_not_empty(normalized, "type")
+    return normalized

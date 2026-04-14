@@ -76,6 +76,11 @@ class TestConstruction:
         rm = RelayMetadata(relay=relay, metadata=metadata)
         assert rm.metadata.type == mtype
 
+    def test_custom_metadata_type_allowed(self, relay):
+        metadata = Metadata(type="custom_metadata_type", data={"test": "data"})
+        rm = RelayMetadata(relay=relay, metadata=metadata)
+        assert rm.metadata.type == "custom_metadata_type"
+
 
 # =============================================================================
 # Immutability Tests
@@ -134,6 +139,12 @@ class TestToDbParams:
         assert parsed == {"name": "Test", "value": 42}
         assert result.metadata_type == "nip66_rtt"
         assert result.generated_at == 9999999999
+
+    def test_custom_metadata_type_round_trips(self, relay):
+        metadata = Metadata(type="custom_metadata_type", data={"name": "Test"})
+        rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=9999999999)
+        result = rm.to_db_params()
+        assert result.metadata_type == "custom_metadata_type"
 
     def test_with_tor_relay(self):
         from tests.fixtures.relays import ONION_HOST

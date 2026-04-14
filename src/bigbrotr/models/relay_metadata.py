@@ -25,7 +25,7 @@ from time import time
 from typing import NamedTuple
 
 from ._validation import validate_instance, validate_timestamp
-from .metadata import Metadata, MetadataType
+from .metadata import Metadata
 from .relay import Relay
 
 
@@ -43,7 +43,9 @@ class RelayMetadataDbParams(NamedTuple):
         relay_discovered_at: Unix timestamp of relay discovery.
         metadata_id: SHA-256 content hash (32 bytes,
             from [MetadataDbParams][bigbrotr.models.metadata.MetadataDbParams]).
-        metadata_type: [MetadataType][bigbrotr.models.metadata.MetadataType] discriminator.
+        metadata_type: Metadata type identifier. Built-in callers typically
+            use [MetadataType][bigbrotr.models.metadata.MetadataType], but
+            arbitrary non-empty strings are accepted.
         metadata_data: Canonical JSON string for JSONB storage.
         generated_at: Unix timestamp when the metadata was collected.
 
@@ -59,7 +61,7 @@ class RelayMetadataDbParams(NamedTuple):
     relay_network: str
     relay_discovered_at: int
     metadata_id: bytes
-    metadata_type: MetadataType
+    metadata_type: str
     metadata_data: str
     generated_at: int
 
@@ -69,7 +71,7 @@ class RelayMetadata:
     """Immutable junction linking a [Relay][bigbrotr.models.relay.Relay] to a
     [Metadata][bigbrotr.models.metadata.Metadata] record.
 
-    The [MetadataType][bigbrotr.models.metadata.MetadataType] is carried by the
+    The metadata type identifier is carried by the
     [Metadata][bigbrotr.models.metadata.Metadata] object and stored on both the
     ``metadata`` table (as part of the composite PK) and the ``relay_metadata``
     junction table (as part of the compound FK) for type-filtered queries.
@@ -103,8 +105,8 @@ class RelayMetadata:
         [Relay][bigbrotr.models.relay.Relay]: The relay half of this junction.
         [Metadata][bigbrotr.models.metadata.Metadata]: The metadata half of this
             junction.
-        [MetadataType][bigbrotr.models.metadata.MetadataType]: Enum of metadata
-            classifications used for filtering.
+        [MetadataType][bigbrotr.models.metadata.MetadataType]: Built-in catalog
+            of metadata classifications used by the current application.
         [RelayMetadataDbParams][bigbrotr.models.relay_metadata.RelayMetadataDbParams]:
             Database parameter container produced by
             [to_db_params()][bigbrotr.models.relay_metadata.RelayMetadata.to_db_params].

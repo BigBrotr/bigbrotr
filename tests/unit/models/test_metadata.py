@@ -65,7 +65,7 @@ class TestConstruction:
     def test_with_dict(self):
         m = Metadata(type=MetadataType.NIP11_INFO, data={"name": "test", "value": 123})
         assert m.data == {"name": "test", "value": 123}
-        assert m.type == MetadataType.NIP11_INFO
+        assert m.type == "nip11_info"
 
     def test_with_none_rejected(self):
         with pytest.raises(TypeError, match="data must be a Mapping"):
@@ -78,6 +78,10 @@ class TestConstruction:
     def test_with_empty_dict(self):
         m = Metadata(type=MetadataType.NIP11_INFO, data={})
         assert m.data == {}
+
+    def test_custom_type_allowed(self):
+        m = Metadata(type="custom_metadata_type", data={"name": "test"})
+        assert m.type == "custom_metadata_type"
 
     def test_with_nested(self):
         m = Metadata(type=MetadataType.NIP11_INFO, data={"outer": {"inner": "value"}})
@@ -242,7 +246,7 @@ class TestToDbParams:
         assert len(result) == 3
         assert isinstance(result.id, bytes)
         assert len(result.id) == 32
-        assert result.type == MetadataType.NIP11_INFO
+        assert result.type == "nip11_info"
 
     def test_valid_json(self):
         m = Metadata(type=MetadataType.NIP11_INFO, data={"name": "test", "value": 123})
@@ -456,10 +460,10 @@ class TestNormalization:
 class TestTypeValidation:
     """Runtime type validation in __post_init__."""
 
-    def test_type_non_enum_rejected(self):
-        with pytest.raises(TypeError, match="type must be a MetadataType"):
-            Metadata(type="nip11_info", data={"key": "value"})  # type: ignore[arg-type]
+    def test_type_empty_rejected(self):
+        with pytest.raises(ValueError, match="type must not be empty"):
+            Metadata(type="", data={"key": "value"})
 
     def test_type_int_rejected(self):
-        with pytest.raises(TypeError, match="type must be a MetadataType"):
+        with pytest.raises(TypeError, match="type must be a str"):
             Metadata(type=42, data={"key": "value"})  # type: ignore[arg-type]
