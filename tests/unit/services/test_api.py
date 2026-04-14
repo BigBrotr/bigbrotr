@@ -20,7 +20,7 @@ from bigbrotr.services.common.catalog import (
     TableSchema,
 )
 from bigbrotr.services.common.configs import TableConfig
-from bigbrotr.services.common.read_models import ReadModelEntry
+from bigbrotr.services.common.read_models import CatalogReadModelBackend, ReadModelEntry
 
 
 # ============================================================================
@@ -296,11 +296,13 @@ class TestApiBuildApp:
                 "relay": ReadModelEntry(
                     read_model_id="relay",
                     catalog_name="relay",
+                    backend=CatalogReadModelBackend("relay"),
                     surfaces=("api",),
                 ),
                 "missing_view": ReadModelEntry(
                     read_model_id="missing_view",
                     catalog_name="missing_view",
+                    backend=CatalogReadModelBackend("missing_view"),
                     surfaces=("api",),
                 ),
             },

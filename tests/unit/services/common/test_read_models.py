@@ -5,6 +5,7 @@ from bigbrotr.core.yaml import load_yaml
 from bigbrotr.services.common.catalog import Catalog, ColumnSchema, QueryResult, TableSchema
 from bigbrotr.services.common.read_models import (
     READ_MODEL_REGISTRY,
+    CatalogReadModelBackend,
     ReadModelEntry,
     ReadModelQuery,
     enabled_read_models_for_surface,
@@ -29,6 +30,8 @@ class TestReadModelRegistry:
         for read_model_id, entry in READ_MODEL_REGISTRY.items():
             assert entry.read_model_id == read_model_id
             assert entry.catalog_name == read_model_id
+            assert isinstance(entry.backend, CatalogReadModelBackend)
+            assert entry.backend.catalog_name == entry.catalog_name
             assert entry.surfaces
 
     def test_registry_covers_all_configured_api_tables(self) -> None:

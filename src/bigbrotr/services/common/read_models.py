@@ -8,7 +8,7 @@ cleaner boundary than calling ``Catalog`` directly for every request.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 
 if TYPE_CHECKING:
@@ -30,13 +30,31 @@ class ReadModelQuery:
     sort: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class ReadModelEntry:
-    """One built-in read model exposed by one or more public surfaces."""
+class ReadModelBackend(Protocol):
+    """Backend capable of serving one public read model."""
 
-    read_model_id: str
+    def schema(self, catalog: Catalog) -> TableSchema: ...
+
+    async def query(
+        self,
+        brotr: Brotr,
+        catalog: Catalog,
+        request: ReadModelQuery,
+    ) -> QueryResult: ...
+
+    async def get_by_pk(
+        self,
+        brotr: Brotr,
+        catalog: Catalog,
+        pk_values: dict[str, str],
+    ) -> dict[str, Any] | None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogReadModelBackend:
+    """Compatibility backend that serves one catalog-backed read model."""
+
     catalog_name: str
-    surfaces: tuple[ReadSurface, ...] = ("api", "dvm")
 
     def schema(self, catalog: Catalog) -> TableSchema:
         """Resolve the discovered schema backing this read model."""
@@ -73,13 +91,50 @@ class ReadModelEntry:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ReadModelEntry:
+    """One built-in read model exposed by one or more public surfaces."""
+
+    read_model_id: str
+    catalog_name: str
+    backend: ReadModelBackend
+    surfaces: tuple[ReadSurface, ...] = ("api", "dvm")
+
+    def schema(self, catalog: Catalog) -> TableSchema:
+        """Resolve the discovered schema backing this read model."""
+        return self.backend.schema(catalog)
+
+    async def query(
+        self,
+        brotr: Brotr,
+        catalog: Catalog,
+        request: ReadModelQuery,
+    ) -> QueryResult:
+        """Execute one paginated query through the registered backend."""
+        return await self.backend.query(brotr, catalog, request)
+
+    async def get_by_pk(
+        self,
+        brotr: Brotr,
+        catalog: Catalog,
+        pk_values: dict[str, str],
+    ) -> dict[str, Any] | None:
+        """Fetch one row by primary key through the registered backend."""
+        return await self.backend.get_by_pk(brotr, catalog, pk_values)
+
+
 def _table_read_model(
     name: str,
     *,
     surfaces: tuple[ReadSurface, ...] = ("api", "dvm"),
 ) -> ReadModelEntry:
     """Build a compatibility read model backed by one catalog table/view."""
-    return ReadModelEntry(read_model_id=name, catalog_name=name, surfaces=surfaces)
+    return ReadModelEntry(
+        read_model_id=name,
+        catalog_name=name,
+        backend=CatalogReadModelBackend(name),
+        surfaces=surfaces,
+    )
 
 
 READ_MODEL_REGISTRY: dict[str, ReadModelEntry] = {
