@@ -34,7 +34,7 @@ from bigbrotr.services.dvm.utils import (
     parse_job_params,
     parse_query_filters,
 )
-from bigbrotr.utils.protocol import ClientConnectResult
+from bigbrotr.utils.protocol import ClientConnectResult, ClientSession, NostrClientManager
 
 
 # Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
@@ -271,6 +271,7 @@ class TestDvm:
 
     def test_init(self, dvm_service: Dvm) -> None:
         assert dvm_service._client is None
+        assert dvm_service._client_manager is None
         assert dvm_service._last_fetch_ts == 0
         assert dvm_service._processed_ids == set()
 
@@ -320,23 +321,25 @@ class TestDvmLifecycle:
     async def test_aenter_creates_client_and_connects(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
         mock_client.send_event_builder = AsyncMock(return_value=_make_send_output())
+        mock_manager = MagicMock()
+        mock_manager.connect_session = AsyncMock(
+            return_value=ClientSession(
+                session_id="dvm-read-relays",
+                client=mock_client,
+                relay_urls=("wss://relay.example.com",),
+                connect_result=ClientConnectResult(
+                    connected=("wss://relay.example.com",),
+                    failed={},
+                ),
+            )
+        )
         mock_state_store = MagicMock()
         mock_state_store.fetch_checkpoints = AsyncMock(
             return_value=[Checkpoint(key="job_requests", timestamp=1234)]
         )
 
         with (
-            patch(
-                "bigbrotr.services.dvm.service.create_connected_client",
-                new_callable=AsyncMock,
-                return_value=(
-                    mock_client,
-                    ClientConnectResult(
-                        connected=("wss://relay.example.com",),
-                        failed={},
-                    ),
-                ),
-            ),
+            patch("bigbrotr.services.dvm.service.NostrClientManager", return_value=mock_manager),
             patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(dvm_service, "set_gauge"),
             patch.object(type(dvm_service), "__aexit__", new_callable=AsyncMock),
@@ -344,12 +347,30 @@ class TestDvmLifecycle:
             await dvm_service.__aenter__()
 
             assert dvm_service._client is mock_client
+            assert dvm_service._client_manager is mock_manager
             assert dvm_service._last_fetch_ts == 1234
+            mock_manager.connect_session.assert_awaited_once_with(
+                "dvm-read-relays",
+                dvm_service._config.relays,
+                timeout=dvm_service._config.fetch_timeout,
+            )
             mock_client.send_event_builder.assert_called_once()
 
     async def test_aenter_initializes_fetch_checkpoint_when_missing(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
         mock_client.send_event_builder = AsyncMock(return_value=_make_send_output())
+        mock_manager = MagicMock()
+        mock_manager.connect_session = AsyncMock(
+            return_value=ClientSession(
+                session_id="dvm-read-relays",
+                client=mock_client,
+                relay_urls=("wss://relay.example.com",),
+                connect_result=ClientConnectResult(
+                    connected=("wss://relay.example.com",),
+                    failed={},
+                ),
+            )
+        )
         mock_state_store = MagicMock()
         mock_state_store.fetch_checkpoints = AsyncMock(
             return_value=[Checkpoint(key="job_requests", timestamp=0)]
@@ -357,17 +378,7 @@ class TestDvmLifecycle:
         mock_state_store.upsert_checkpoints = AsyncMock(return_value=1)
 
         with (
-            patch(
-                "bigbrotr.services.dvm.service.create_connected_client",
-                new_callable=AsyncMock,
-                return_value=(
-                    mock_client,
-                    ClientConnectResult(
-                        connected=("wss://relay.example.com",),
-                        failed={},
-                    ),
-                ),
-            ),
+            patch("bigbrotr.services.dvm.service.NostrClientManager", return_value=mock_manager),
             patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch("bigbrotr.services.dvm.service.time") as mock_time,
             patch.object(dvm_service, "set_gauge"),
@@ -399,19 +410,21 @@ class TestDvmLifecycle:
 
         mock_client = MagicMock()
         mock_client.send_event_builder = AsyncMock(return_value=_make_send_output())
+        mock_manager = MagicMock()
+        mock_manager.connect_session = AsyncMock(
+            return_value=ClientSession(
+                session_id="dvm-read-relays",
+                client=mock_client,
+                relay_urls=("wss://relay.example.com",),
+                connect_result=ClientConnectResult(
+                    connected=("wss://relay.example.com",),
+                    failed={},
+                ),
+            )
+        )
 
         with (
-            patch(
-                "bigbrotr.services.dvm.service.create_connected_client",
-                new_callable=AsyncMock,
-                return_value=(
-                    mock_client,
-                    ClientConnectResult(
-                        connected=("wss://relay.example.com",),
-                        failed={},
-                    ),
-                ),
-            ),
+            patch("bigbrotr.services.dvm.service.NostrClientManager", return_value=mock_manager),
             patch.object(service, "set_gauge"),
             patch.object(type(service), "__aexit__", new_callable=AsyncMock),
         ):
@@ -421,27 +434,26 @@ class TestDvmLifecycle:
 
     async def test_aenter_fails_fast_when_no_relays_connect(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
+        mock_manager = MagicMock()
+        mock_manager.connect_session = AsyncMock(
+            return_value=ClientSession(
+                session_id="dvm-read-relays",
+                client=mock_client,
+                relay_urls=("wss://relay.example.com",),
+                connect_result=ClientConnectResult(
+                    connected=(),
+                    failed={"wss://relay.example.com": "timeout"},
+                ),
+            )
+        )
+        mock_manager.disconnect = AsyncMock()
         mock_state_store = MagicMock()
         mock_state_store.fetch_checkpoints = AsyncMock(
             return_value=[Checkpoint(key="job_requests", timestamp=1234)]
         )
 
         with (
-            patch(
-                "bigbrotr.services.dvm.service.create_connected_client",
-                new_callable=AsyncMock,
-                return_value=(
-                    mock_client,
-                    ClientConnectResult(
-                        connected=(),
-                        failed={"wss://relay.example.com": "timeout"},
-                    ),
-                ),
-            ),
-            patch(
-                "bigbrotr.utils.protocol.shutdown_client",
-                new_callable=AsyncMock,
-            ) as mock_shutdown,
+            patch("bigbrotr.services.dvm.service.NostrClientManager", return_value=mock_manager),
             patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(dvm_service, "set_gauge"),
             patch.object(type(dvm_service), "__aexit__", new_callable=AsyncMock),
@@ -449,26 +461,42 @@ class TestDvmLifecycle:
         ):
             await dvm_service.__aenter__()
 
-        mock_shutdown.assert_awaited_once_with(mock_client)
+        mock_manager.disconnect.assert_awaited_once()
         assert dvm_service._client is None
 
     async def test_aexit_shuts_down_client(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
-        mock_client.shutdown = AsyncMock()
+        dvm_service._client_manager = MagicMock(disconnect=AsyncMock())
         dvm_service._client = mock_client
 
         with patch.object(type(dvm_service).__mro__[2], "__aexit__", new_callable=AsyncMock):
             await dvm_service.__aexit__(None, None, None)
 
-        mock_client.shutdown.assert_awaited_once()
+        dvm_service._client_manager.disconnect.assert_awaited_once()
         assert dvm_service._client is None
 
     async def test_aexit_handles_shutdown_error(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
-        mock_client.shutdown = AsyncMock(side_effect=RuntimeError("FFI error"))
+        dvm_service._client_manager = NostrClientManager(keys=dvm_service._keys)
+        dvm_service._client_manager._sessions["dvm-read-relays"] = ClientSession(
+            session_id="dvm-read-relays",
+            client=mock_client,
+            relay_urls=("wss://relay.example.com",),
+            connect_result=ClientConnectResult(
+                connected=("wss://relay.example.com",),
+                failed={},
+            ),
+        )
         dvm_service._client = mock_client
 
-        with patch.object(type(dvm_service).__mro__[2], "__aexit__", new_callable=AsyncMock):
+        with (
+            patch.object(type(dvm_service).__mro__[2], "__aexit__", new_callable=AsyncMock),
+            patch(
+                "bigbrotr.utils.protocol.shutdown_client",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("FFI"),
+            ),
+        ):
             await dvm_service.__aexit__(None, None, None)
 
         assert dvm_service._client is None

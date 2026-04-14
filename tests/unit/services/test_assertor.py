@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
@@ -12,6 +11,7 @@ from pydantic import ValidationError
 from bigbrotr.models.constants import EventKind, ServiceName
 from bigbrotr.services.assertor.configs import AssertorConfig
 from bigbrotr.services.assertor.service import Assertor
+from bigbrotr.utils.protocol import ClientConnectResult, ClientSession, NostrClientManager
 from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 
@@ -20,8 +20,17 @@ VALID_HEX_KEY = (
 )
 
 
-def _connect_output() -> SimpleNamespace:
-    return SimpleNamespace(connected=("wss://relay.example",), failed={})
+def _connect_output() -> ClientConnectResult:
+    return ClientConnectResult(connected=("wss://relay.example",), failed={})
+
+
+def _session_output(mock_client: AsyncMock | MagicMock) -> ClientSession:
+    return ClientSession(
+        session_id="assertor-publish-relays",
+        client=mock_client,
+        relay_urls=("wss://relay.example",),
+        connect_result=_connect_output(),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -691,15 +700,17 @@ class TestAssertorCheckpointNamespacing:
 
 
 class TestAssertorLifecycle:
-    @patch("bigbrotr.services.assertor.service.create_connected_client", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.NostrClientManager")
     async def test_aenter_creates_client_and_connects(
         self,
-        mock_create_connected_client: AsyncMock,
+        mock_manager_cls: MagicMock,
     ) -> None:
         from bigbrotr.services.assertor.service import Assertor
 
         mock_client = AsyncMock()
-        mock_create_connected_client.return_value = (mock_client, _connect_output())
+        mock_manager = MagicMock()
+        mock_manager.connect_session = AsyncMock(return_value=_session_output(mock_client))
+        mock_manager_cls.return_value = mock_manager
         with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
             svc = Assertor.__new__(Assertor)
             svc._brotr = MagicMock()
@@ -717,7 +728,8 @@ class TestAssertorLifecycle:
                 result = await svc.__aenter__()
 
             assert svc._client is mock_client
-            mock_create_connected_client.assert_awaited_once()
+            assert svc._client_manager is mock_manager
+            mock_manager.connect_session.assert_awaited_once()
             assert result is svc
 
     async def test_aexit_shuts_down_client(self) -> None:
@@ -726,12 +738,14 @@ class TestAssertorLifecycle:
         with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
             svc = Assertor.__new__(Assertor)
             svc._client = AsyncMock()
+            svc._client_manager = MagicMock(disconnect=AsyncMock())
             svc._logger = MagicMock()
 
             with patch.object(type(svc).__bases__[0], "__aexit__", new_callable=AsyncMock):
                 await svc.__aexit__(None, None, None)
 
             assert svc._client is None
+            svc._client_manager.disconnect.assert_awaited_once()
             svc._logger.info.assert_any_call("client_disconnected")
 
     async def test_aexit_suppresses_ffi_shutdown_error(self) -> None:
@@ -740,10 +754,20 @@ class TestAssertorLifecycle:
         with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
             svc = Assertor.__new__(Assertor)
             svc._client = AsyncMock()
-            svc._client.shutdown = AsyncMock(side_effect=RuntimeError("FFI error"))
+            svc._config = AssertorConfig()
+            svc._keys = svc._config.keys.keys
+            svc._client_manager = NostrClientManager(keys=svc._keys)
+            svc._client_manager._sessions["assertor-publish-relays"] = _session_output(svc._client)
             svc._logger = MagicMock()
 
-            with patch.object(type(svc).__bases__[0], "__aexit__", new_callable=AsyncMock):
+            with (
+                patch.object(type(svc).__bases__[0], "__aexit__", new_callable=AsyncMock),
+                patch(
+                    "bigbrotr.utils.protocol.shutdown_client",
+                    new_callable=AsyncMock,
+                    side_effect=RuntimeError("FFI error"),
+                ),
+            ):
                 await svc.__aexit__(None, None, None)
 
             assert svc._client is None
@@ -770,15 +794,17 @@ class TestAssertorLifecycle:
 
 
 class TestAssertorKeyLifecycle:
-    @patch("bigbrotr.services.assertor.service.create_connected_client", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.NostrClientManager")
     async def test_aenter_uses_config_keys_to_create_client(
         self,
-        mock_create_connected_client: AsyncMock,
+        mock_manager_cls: MagicMock,
     ) -> None:
         from bigbrotr.services.assertor.service import Assertor
 
         mock_client = AsyncMock()
-        mock_create_connected_client.return_value = (mock_client, _connect_output())
+        mock_manager = MagicMock()
+        mock_manager.connect_session = AsyncMock(return_value=_session_output(mock_client))
+        mock_manager_cls.return_value = mock_manager
         with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
             svc = Assertor.__new__(Assertor)
             svc._brotr = MagicMock()
@@ -793,24 +819,29 @@ class TestAssertorKeyLifecycle:
             with patch.object(type(svc).__bases__[0], "__aenter__", new_callable=AsyncMock):
                 await svc.__aenter__()
 
-            mock_create_connected_client.assert_awaited_once_with(
-                svc._config.publishing.relays,
+            mock_manager_cls.assert_called_once_with(
                 keys=svc._config.keys.keys,
-                timeout=DEFAULT_TIMEOUT,
                 allow_insecure=svc._config.publishing.allow_insecure,
             )
+            mock_manager.connect_session.assert_awaited_once_with(
+                "assertor-publish-relays",
+                svc._config.publishing.relays,
+                timeout=DEFAULT_TIMEOUT,
+            )
 
-    @patch("bigbrotr.services.assertor.service.create_connected_client", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.NostrClientManager")
     async def test_aenter_uses_generated_config_keys_when_env_missing(
         self,
-        mock_create_connected_client: AsyncMock,
+        mock_manager_cls: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         from bigbrotr.services.assertor.service import Assertor
 
         monkeypatch.delenv("NOSTR_PRIVATE_KEY_ASSERTOR", raising=False)
         mock_client = AsyncMock()
-        mock_create_connected_client.return_value = (mock_client, _connect_output())
+        mock_manager = MagicMock()
+        mock_manager.connect_session = AsyncMock(return_value=_session_output(mock_client))
+        mock_manager_cls.return_value = mock_manager
         with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
             svc = Assertor.__new__(Assertor)
             svc._brotr = MagicMock()

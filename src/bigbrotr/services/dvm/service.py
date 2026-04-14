@@ -61,7 +61,7 @@ from bigbrotr.services.common.read_models import (
 )
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import Checkpoint
-from bigbrotr.utils.protocol import create_connected_client
+from bigbrotr.utils.protocol import NostrClientManager
 
 from .configs import DvmConfig
 from .utils import (
@@ -114,6 +114,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         super().__init__(brotr=brotr, config=config)
         self._config: DvmConfig
         self._client: Client | None = None
+        self._client_manager: NostrClientManager | None = None
         self._keys: Keys = self._config.keys.keys
         self._last_fetch_ts: int = 0
         self._processed_ids: set[str] = set()
@@ -121,13 +122,14 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
     async def __aenter__(self) -> Dvm:
         await super().__aenter__()
         keys = self._keys
-
-        client, connect_result = await create_connected_client(
+        manager = self._get_client_manager()
+        session = await manager.connect_session(
+            "dvm-read-relays",
             self._config.relays,
-            keys=keys,
             timeout=self._config.fetch_timeout,
-            allow_insecure=self._config.allow_insecure,
         )
+        client = session.client
+        connect_result = session.connect_result
         self._client = client
 
         pubkey = keys.public_key().to_hex()
@@ -137,9 +139,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         for relay_url, error in connect_result.failed.items():
             self._logger.warning("relay_connect_failed", url=relay_url, error=error)
         if not connect_result.connected:
-            from bigbrotr.utils.protocol import shutdown_client  # noqa: PLC0415
-
-            await shutdown_client(client)
+            await manager.disconnect()
             self._client = None
             raise TimeoutError("dvm could not connect to any relay")
 
@@ -161,9 +161,9 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         _exc_tb: TracebackType | None,
     ) -> None:
         if self._client is not None:
-            from bigbrotr.utils.protocol import shutdown_client  # noqa: PLC0415
-
-            await shutdown_client(self._client)
+            manager = self._client_manager
+            if manager is not None:
+                await manager.disconnect()
             self._client = None
             self._logger.info("client_disconnected")
         await super().__aexit__(_exc_type, _exc_val, _exc_tb)
@@ -171,6 +171,17 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
     async def cleanup(self) -> int:
         """No-op: Dvm does not use service state."""
         return 0
+
+    def _get_client_manager(self) -> NostrClientManager:
+        """Return the lazy-initialized nostr client manager for this service."""
+        manager = getattr(self, "_client_manager", None)
+        if manager is None:
+            manager = NostrClientManager(
+                keys=self._keys,
+                allow_insecure=self._config.allow_insecure,
+            )
+            self._client_manager = manager
+        return manager
 
     async def run(self) -> None:
         """Fetch and process NIP-90 job requests for one cycle.

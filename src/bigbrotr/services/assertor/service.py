@@ -32,7 +32,7 @@ from bigbrotr.nips.nip85.data import (
     UserAssertion,
 )
 from bigbrotr.services.common.state_store import ServiceStateStore
-from bigbrotr.utils.protocol import broadcast_events, create_connected_client
+from bigbrotr.utils.protocol import NostrClientManager, broadcast_events
 from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 from .configs import AssertorConfig
@@ -148,19 +148,21 @@ class Assertor(BaseService[AssertorConfig]):
         super().__init__(brotr=brotr, config=config)
         self._config: AssertorConfig
         self._client: Client | None = None
+        self._client_manager: NostrClientManager | None = None
         self._keys: Keys = self._config.keys.keys
         self._cycle_seen_state_keys: set[str] = set()
 
     async def __aenter__(self) -> Assertor:
         await super().__aenter__()
         keys = self._keys
-
-        client, connect_result = await create_connected_client(
+        manager = self._get_client_manager()
+        session = await manager.connect_session(
+            "assertor-publish-relays",
             self._config.publishing.relays,
-            keys=keys,
             timeout=DEFAULT_TIMEOUT,
-            allow_insecure=self._config.publishing.allow_insecure,
         )
+        client = session.client
+        connect_result = session.connect_result
         self._client = client
 
         pubkey = keys.public_key().to_hex()
@@ -177,9 +179,7 @@ class Assertor(BaseService[AssertorConfig]):
         for relay_url, error in connect_result.failed.items():
             self._logger.warning("relay_connect_failed", url=relay_url, error=error)
         if not connect_result.connected:
-            from bigbrotr.utils.protocol import shutdown_client  # noqa: PLC0415
-
-            await shutdown_client(client)
+            await manager.disconnect()
             self._client = None
             raise TimeoutError("assertor could not connect to any publishing relay")
 
@@ -192,9 +192,9 @@ class Assertor(BaseService[AssertorConfig]):
         _exc_tb: TracebackType | None,
     ) -> None:
         if self._client is not None:
-            from bigbrotr.utils.protocol import shutdown_client  # noqa: PLC0415
-
-            await shutdown_client(self._client)
+            manager = self._client_manager
+            if manager is not None:
+                await manager.disconnect()
             self._client = None
             self._logger.info("client_disconnected")
         await super().__aexit__(_exc_type, _exc_val, _exc_tb)
@@ -202,6 +202,17 @@ class Assertor(BaseService[AssertorConfig]):
     async def cleanup(self) -> int:
         """No-op: post-run checkpoint cleanup depends on current eligible subjects."""
         return 0
+
+    def _get_client_manager(self) -> NostrClientManager:
+        """Return the lazy-initialized nostr client manager for this service."""
+        manager = getattr(self, "_client_manager", None)
+        if manager is None:
+            manager = NostrClientManager(
+                keys=self._keys,
+                allow_insecure=self._config.publishing.allow_insecure,
+            )
+            self._client_manager = manager
+        return manager
 
     async def run(self) -> None:
         """Execute one assertion cycle."""

@@ -19,6 +19,8 @@ from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay
 from bigbrotr.utils.protocol import (
     ClientConnectResult,
+    ClientSession,
+    NostrClientManager,
     _is_ssl_error,
     create_client,
     create_connected_client,
@@ -241,6 +243,140 @@ class TestCreateConnectedClient:
         )
         assert mock_client.add_relay.await_count == 2
         mock_client.try_connect.assert_awaited_once()
+
+
+class TestNostrClientManagerRelayClients:
+    async def test_get_relay_client_caches_successful_connections(self) -> None:
+        networks = MagicMock()
+        network_cfg = MagicMock()
+        network_cfg.timeout = 12.0
+        networks.get.return_value = network_cfg
+        networks.get_proxy_url.return_value = None
+        relay = Relay("wss://relay.example.com")
+        mock_client = MagicMock()
+        manager = NostrClientManager(keys=MagicMock(), networks=networks)
+
+        with patch(
+            "bigbrotr.utils.protocol.connect_relay",
+            new_callable=AsyncMock,
+            return_value=mock_client,
+        ) as mock_connect:
+            first = await manager.get_relay_client(relay)
+            second = await manager.get_relay_client(relay)
+
+        assert first is mock_client
+        assert second is mock_client
+        mock_connect.assert_awaited_once_with(
+            relay,
+            keys=manager._keys,
+            proxy_url=None,
+            timeout=12.0,
+            allow_insecure=False,
+        )
+
+    async def test_get_relay_client_caches_failures(self) -> None:
+        networks = MagicMock()
+        network_cfg = MagicMock()
+        network_cfg.timeout = 9.0
+        networks.get.return_value = network_cfg
+        networks.get_proxy_url.return_value = None
+        relay = Relay("wss://relay.example.com")
+        manager = NostrClientManager(keys=MagicMock(), networks=networks)
+
+        with patch(
+            "bigbrotr.utils.protocol.connect_relay",
+            new_callable=AsyncMock,
+            side_effect=TimeoutError("timed out"),
+        ) as mock_connect:
+            first = await manager.get_relay_client(relay)
+            second = await manager.get_relay_client(relay)
+
+        assert first is None
+        assert second is None
+        mock_connect.assert_awaited_once()
+
+    async def test_get_relay_client_requires_networks(self) -> None:
+        manager = NostrClientManager(keys=MagicMock())
+
+        with pytest.raises(RuntimeError, match="networks configuration required"):
+            await manager.get_relay_client(Relay("wss://relay.example.com"))
+
+
+class TestNostrClientManagerSessions:
+    async def test_connect_session_creates_and_caches_named_session(self) -> None:
+        relays = [Relay("wss://relay1.example.com"), Relay("wss://relay2.example.com")]
+        mock_client = MagicMock()
+        result = ClientConnectResult(
+            connected=("wss://relay1.example.com",),
+            failed={"wss://relay2.example.com": "timeout"},
+        )
+        manager = NostrClientManager(keys=MagicMock(), allow_insecure=True)
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol.create_client",
+                new=AsyncMock(return_value=mock_client),
+            ) as mock_create,
+            patch(
+                "bigbrotr.utils.protocol._connect_client_relays",
+                new=AsyncMock(return_value=result),
+            ) as mock_connect,
+        ):
+            first = await manager.connect_session("read-session", relays, timeout=15.0)
+            second = await manager.connect_session("read-session", relays, timeout=1.0)
+
+        assert first == ClientSession(
+            session_id="read-session",
+            client=mock_client,
+            relay_urls=("wss://relay1.example.com", "wss://relay2.example.com"),
+            connect_result=result,
+        )
+        assert second is first
+        mock_create.assert_awaited_once_with(keys=manager._keys, allow_insecure=True)
+        mock_connect.assert_awaited_once_with(mock_client, relays, timeout=15.0)
+        assert manager.get_session("read-session") is first
+
+    async def test_connect_session_rejects_same_name_with_different_relays(self) -> None:
+        manager = NostrClientManager(keys=MagicMock())
+        manager._sessions["read-session"] = ClientSession(
+            session_id="read-session",
+            client=MagicMock(),
+            relay_urls=("wss://relay1.example.com",),
+            connect_result=ClientConnectResult(connected=("wss://relay1.example.com",), failed={}),
+        )
+
+        with pytest.raises(ValueError, match="already exists with different relays"):
+            await manager.connect_session(
+                "read-session",
+                [Relay("wss://relay2.example.com")],
+            )
+
+    async def test_disconnect_shuts_down_sessions_and_cached_relays_once(self) -> None:
+        shared_client = MagicMock()
+        cached_client = MagicMock()
+        manager = NostrClientManager(keys=MagicMock())
+        manager._sessions["session"] = ClientSession(
+            session_id="session",
+            client=shared_client,
+            relay_urls=("wss://relay1.example.com",),
+            connect_result=ClientConnectResult(connected=("wss://relay1.example.com",), failed={}),
+        )
+        manager._relay_clients["wss://relay1.example.com"] = shared_client
+        manager._relay_clients["wss://relay2.example.com"] = cached_client
+        manager._failed_relays.add("wss://relay3.example.com")
+
+        with patch(
+            "bigbrotr.utils.protocol.shutdown_client",
+            new_callable=AsyncMock,
+        ) as mock_shutdown:
+            await manager.disconnect()
+
+        assert mock_shutdown.await_count == 2
+        mock_shutdown.assert_any_await(shared_client)
+        mock_shutdown.assert_any_await(cached_client)
+        assert manager._sessions == {}
+        assert manager._relay_clients == {}
+        assert manager._failed_relays == set()
 
 
 # =============================================================================

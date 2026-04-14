@@ -313,7 +313,7 @@ class Clients:
             internally to establish each connection.
     """
 
-    __slots__ = ("_allow_insecure", "_clients", "_failed", "_keys", "_networks")
+    __slots__ = ("_allow_insecure", "_clients", "_failed", "_keys", "_manager", "_networks")
 
     def __init__(
         self,
@@ -325,8 +325,15 @@ class Clients:
         self._keys = keys
         self._networks = networks
         self._allow_insecure = allow_insecure
-        self._clients: dict[str, Client] = {}
-        self._failed: set[str] = set()
+        from bigbrotr.utils.protocol import NostrClientManager  # noqa: PLC0415
+
+        self._manager = NostrClientManager(
+            keys=keys,
+            networks=networks,
+            allow_insecure=allow_insecure,
+        )
+        self._clients = self._manager._relay_clients
+        self._failed = self._manager._failed_relays
 
     async def get(self, relay: Relay) -> Client | None:
         """Return a connected client for a relay, connecting lazily.
@@ -343,29 +350,7 @@ class Clients:
         Returns:
             Connected client, or ``None`` if the connection failed.
         """
-        if relay.url in self._clients:
-            return self._clients[relay.url]
-        if relay.url in self._failed:
-            return None
-
-        from bigbrotr.utils.protocol import connect_relay  # noqa: PLC0415
-
-        proxy_url = self._networks.get_proxy_url(relay.network)
-        timeout = self._networks.get(relay.network).timeout
-        try:
-            client = await connect_relay(
-                relay,
-                keys=self._keys,
-                proxy_url=proxy_url,
-                timeout=timeout,
-                allow_insecure=self._allow_insecure,
-            )
-            self._clients[relay.url] = client
-            return client
-        except (OSError, TimeoutError) as e:
-            logger.warning("connect_client_failed relay=%s error=%s", relay.url, e)
-            self._failed.add(relay.url)
-            return None
+        return await self._manager.get_relay_client(relay)
 
     async def get_many(self, relays: list[Relay]) -> list[Client]:
         """Return connected clients for multiple relays.
@@ -378,24 +363,11 @@ class Clients:
         Returns:
             Connected clients (order preserved, failed relays skipped).
         """
-        clients: list[Client] = []
-        for relay in relays:
-            client = await self.get(relay)
-            if client is not None:
-                clients.append(client)
-        return clients
+        return await self._manager.get_relay_clients(relays)
 
     async def disconnect(self) -> None:
         """Disconnect all clients and reset state."""
-        from bigbrotr.utils.protocol import shutdown_client  # noqa: PLC0415
-
-        for client in self._clients.values():
-            try:
-                await shutdown_client(client)
-            except (OSError, RuntimeError, TimeoutError) as e:
-                logger.debug("client_shutdown_error error=%s", e)
-        self._clients.clear()
-        self._failed.clear()
+        await self._manager.disconnect()
 
 
 class ClientsMixin:
