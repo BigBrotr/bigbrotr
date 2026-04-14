@@ -311,15 +311,15 @@ class TestNip66Create:
 
         with (
             patch.object(
-                Nip66DnsMetadata, "execute", new_callable=AsyncMock, return_value=dns_metadata
+                Nip66DnsMetadata, "probe", new_callable=AsyncMock, return_value=dns_metadata
             ),
             patch.object(
-                Nip66RttMetadata, "execute", new_callable=AsyncMock, return_value=rtt_metadata
+                Nip66RttMetadata, "probe", new_callable=AsyncMock, return_value=rtt_metadata
             ),
-            patch.object(Nip66SslMetadata, "execute", new_callable=AsyncMock, return_value=None),
-            patch.object(Nip66GeoMetadata, "execute", new_callable=AsyncMock, return_value=None),
-            patch.object(Nip66NetMetadata, "execute", new_callable=AsyncMock, return_value=None),
-            patch.object(Nip66HttpMetadata, "execute", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66SslMetadata, "probe", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66GeoMetadata, "probe", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66NetMetadata, "probe", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66HttpMetadata, "probe", new_callable=AsyncMock, return_value=None),
         ):
             result = await Nip66.create(relay, deps=deps)
 
@@ -340,12 +340,12 @@ class TestNip66Create:
         )
 
         with (
-            patch.object(Nip66DnsMetadata, "execute", new_callable=AsyncMock, return_value=None),
-            patch.object(Nip66RttMetadata, "execute", new_callable=AsyncMock, return_value=None),
-            patch.object(Nip66SslMetadata, "execute", new_callable=AsyncMock, return_value=None),
-            patch.object(Nip66GeoMetadata, "execute", new_callable=AsyncMock, return_value=None),
-            patch.object(Nip66NetMetadata, "execute", new_callable=AsyncMock, return_value=None),
-            patch.object(Nip66HttpMetadata, "execute", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66DnsMetadata, "probe", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66RttMetadata, "probe", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66SslMetadata, "probe", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66GeoMetadata, "probe", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66NetMetadata, "probe", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66HttpMetadata, "probe", new_callable=AsyncMock, return_value=None),
         ):
             result = await Nip66.create(relay, deps=deps)
 
@@ -367,11 +367,11 @@ class TestNip66Create:
 
         with (
             patch.object(
-                Nip66RttMetadata, "execute", new_callable=AsyncMock, return_value=rtt_metadata
+                Nip66RttMetadata, "probe", new_callable=AsyncMock, return_value=rtt_metadata
             ) as mock_rtt,
-            patch.object(Nip66DnsMetadata, "execute", new_callable=AsyncMock, return_value=None),
-            patch.object(Nip66SslMetadata, "execute", new_callable=AsyncMock, return_value=None),
-            patch.object(Nip66HttpMetadata, "execute", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66DnsMetadata, "probe", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66SslMetadata, "probe", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66HttpMetadata, "probe", new_callable=AsyncMock, return_value=None),
         ):
             result = await Nip66.create(relay, selection=selection)
 
@@ -379,19 +379,19 @@ class TestNip66Create:
         assert result.rtt is not None
         mock_rtt.assert_called_once()
 
-    async def test_probe_delegates_to_create(self, relay: Relay) -> None:
-        """probe() is a semantic alias for create()."""
+    async def test_create_delegates_to_probe(self, relay: Relay) -> None:
+        """create() is a compatibility alias for probe()."""
         expected = Nip66(relay=relay)
 
         with patch.object(
             Nip66,
-            "create",
+            "probe",
             new_callable=AsyncMock,
             return_value=expected,
-        ) as mock_create:
-            result = await Nip66.probe(relay)
+        ) as mock_probe:
+            result = await Nip66.create(relay)
 
-        mock_create.assert_awaited_once_with(
+        mock_probe.assert_awaited_once_with(
             relay,
             timeout=None,
             proxy_url=None,
@@ -410,7 +410,7 @@ class TestNip66Create:
         selection = Nip66Selection(rtt=False, ssl=False, geo=False, net=False, http=False)
 
         with patch.object(
-            Nip66DnsMetadata, "execute", new_callable=AsyncMock, return_value=dns_metadata
+            Nip66DnsMetadata, "probe", new_callable=AsyncMock, return_value=dns_metadata
         ):
             result = await Nip66.create(relay, selection=selection)
 
@@ -432,10 +432,10 @@ class TestNip66Create:
 
         with (
             patch.object(
-                Nip66DnsMetadata, "execute", new_callable=AsyncMock, return_value=dns_metadata
+                Nip66DnsMetadata, "probe", new_callable=AsyncMock, return_value=dns_metadata
             ),
-            patch.object(Nip66SslMetadata, "execute", new_callable=AsyncMock, return_value=None),
-            patch.object(Nip66HttpMetadata, "execute", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66SslMetadata, "probe", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66HttpMetadata, "probe", new_callable=AsyncMock, return_value=None),
         ):
             result = await Nip66.create(relay, selection=selection)
 
@@ -451,10 +451,10 @@ class TestNip66Create:
 
         with (
             patch.object(
-                Nip66DnsMetadata, "execute", new_callable=AsyncMock, return_value=dns_metadata
+                Nip66DnsMetadata, "probe", new_callable=AsyncMock, return_value=dns_metadata
             ),
-            patch.object(Nip66SslMetadata, "execute", new_callable=AsyncMock, return_value=None),
-            patch.object(Nip66HttpMetadata, "execute", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66SslMetadata, "probe", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66HttpMetadata, "probe", new_callable=AsyncMock, return_value=None),
         ):
             result = await Nip66.create(relay, selection=selection)
 
@@ -470,10 +470,10 @@ class TestNip66Create:
 
         with (
             patch.object(
-                Nip66DnsMetadata, "execute", new_callable=AsyncMock, return_value=dns_metadata
+                Nip66DnsMetadata, "probe", new_callable=AsyncMock, return_value=dns_metadata
             ),
-            patch.object(Nip66SslMetadata, "execute", new_callable=AsyncMock, return_value=None),
-            patch.object(Nip66HttpMetadata, "execute", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66SslMetadata, "probe", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66HttpMetadata, "probe", new_callable=AsyncMock, return_value=None),
         ):
             result = await Nip66.create(relay, timeout=None, selection=selection)
 
@@ -496,14 +496,14 @@ class TestNip66Create:
         )
 
         with (
-            patch.object(Nip66DnsMetadata, "execute", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66DnsMetadata, "probe", new_callable=AsyncMock, return_value=None),
             patch.object(
-                Nip66RttMetadata, "execute", new_callable=AsyncMock, return_value=rtt_metadata
+                Nip66RttMetadata, "probe", new_callable=AsyncMock, return_value=rtt_metadata
             ) as mock_rtt,
-            patch.object(Nip66SslMetadata, "execute", new_callable=AsyncMock, return_value=None),
-            patch.object(Nip66GeoMetadata, "execute", new_callable=AsyncMock, return_value=None),
-            patch.object(Nip66NetMetadata, "execute", new_callable=AsyncMock, return_value=None),
-            patch.object(Nip66HttpMetadata, "execute", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66SslMetadata, "probe", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66GeoMetadata, "probe", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66NetMetadata, "probe", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66HttpMetadata, "probe", new_callable=AsyncMock, return_value=None),
         ):
             await Nip66.create(relay, deps=deps, proxy_url="socks5://localhost:9050")
 
@@ -533,7 +533,7 @@ class TestNip66Create:
         assert result.http is None
 
     async def test_execute_exception_isolates_to_failed_test(self, relay: Relay) -> None:
-        """Exception in one execute() does not cancel other tests (defense-in-depth)."""
+        """Exception in one probe() does not cancel other tests (defense-in-depth)."""
         dns_metadata = Nip66DnsMetadata(
             data=Nip66DnsData(dns_ips=["8.8.8.8"], dns_ttl=300),
             logs=Nip66DnsLogs(success=True, reason=None),
@@ -542,15 +542,15 @@ class TestNip66Create:
 
         with (
             patch.object(
-                Nip66DnsMetadata, "execute", new_callable=AsyncMock, return_value=dns_metadata
+                Nip66DnsMetadata, "probe", new_callable=AsyncMock, return_value=dns_metadata
             ),
             patch.object(
                 Nip66SslMetadata,
-                "execute",
+                "probe",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("unexpected bug"),
             ),
-            patch.object(Nip66HttpMetadata, "execute", new_callable=AsyncMock, return_value=None),
+            patch.object(Nip66HttpMetadata, "probe", new_callable=AsyncMock, return_value=None),
         ):
             result = await Nip66.create(relay, selection=selection)
 
@@ -579,7 +579,7 @@ class TestNip66Create:
         selection = Nip66Selection(rtt=False, ssl=False, net=False, dns=False, http=False)
 
         with patch.object(
-            Nip66GeoMetadata, "execute", new_callable=AsyncMock, return_value=geo_metadata
+            Nip66GeoMetadata, "probe", new_callable=AsyncMock, return_value=geo_metadata
         ) as mock_geo:
             result = await Nip66.create(relay, selection=selection, deps=deps)
 
@@ -608,7 +608,7 @@ class TestNip66Create:
         selection = Nip66Selection(rtt=False, ssl=False, geo=False, dns=False, http=False)
 
         with patch.object(
-            Nip66NetMetadata, "execute", new_callable=AsyncMock, return_value=net_metadata
+            Nip66NetMetadata, "probe", new_callable=AsyncMock, return_value=net_metadata
         ) as mock_net:
             result = await Nip66.create(relay, selection=selection, deps=deps)
 
@@ -631,7 +631,7 @@ class TestNip66Create:
         with (
             patch.object(
                 Nip66DnsMetadata,
-                "execute",
+                "probe",
                 new_callable=AsyncMock,
                 side_effect=asyncio.CancelledError,
             ),

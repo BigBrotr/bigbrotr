@@ -54,7 +54,7 @@ logger = logging.getLogger("bigbrotr.nips.nip66")
 class Nip66HttpMetadata(BaseNipMetadata):
     """Container for HTTP header data and extraction logs.
 
-    Provides the ``execute()`` class method that initiates a WebSocket
+    Provides the semantic ``probe()`` class method that initiates a WebSocket
     connection and captures server identification headers from the
     upgrade response.
 
@@ -139,7 +139,7 @@ class Nip66HttpMetadata(BaseNipMetadata):
         return result
 
     @classmethod
-    async def execute(
+    async def probe(
         cls,
         relay: Relay,
         timeout: float | None = None,  # noqa: ASYNC109
@@ -196,7 +196,7 @@ class Nip66HttpMetadata(BaseNipMetadata):
         )
 
     @classmethod
-    async def probe(
+    async def execute(
         cls,
         relay: Relay,
         timeout: float | None = None,  # noqa: ASYNC109
@@ -204,8 +204,8 @@ class Nip66HttpMetadata(BaseNipMetadata):
         *,
         allow_insecure: bool = False,
     ) -> Self:
-        """Run the HTTP probe using the semantic entrypoint."""
-        return await cls.execute(
+        """Compatibility alias for the semantic ``probe()`` entrypoint."""
+        return await cls.probe(
             relay,
             timeout,
             proxy_url,

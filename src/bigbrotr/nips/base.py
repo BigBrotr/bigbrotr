@@ -339,10 +339,13 @@ class BaseNip(BaseModel, ABC):
 
     * ``to_relay_metadata_tuple()`` — converts results to database-ready
       [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] records.
-    * ``create()`` — async factory that performs I/O and returns a populated
-      instance. Must **never raise exceptions** — errors are captured in
-      the ``succeeded`` / ``failure_reason`` properties of each metadata
-      container.
+    * A semantic async factory such as ``fetch()`` or ``probe()`` that
+      performs I/O and returns a populated instance. Concrete subclasses
+      should treat that semantic entrypoint as the primary contract.
+    * ``create()`` — compatibility alias retained for generic call sites and
+      backwards compatibility. Must **never raise exceptions** — errors are
+      captured in the ``succeeded`` / ``failure_reason`` properties of each
+      metadata container.
 
     Note:
         ``BaseNip`` cannot be instantiated directly due to the ABC constraint.
@@ -378,4 +381,4 @@ class BaseNip(BaseModel, ABC):
     @classmethod
     @abstractmethod
     async def create(cls, relay: Relay, **kwargs: Any) -> Self:
-        """Async factory method. Never raises — check the result properties."""
+        """Compatibility factory alias. Never raises — check result properties."""

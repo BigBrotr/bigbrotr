@@ -54,7 +54,7 @@ logger = logging.getLogger("bigbrotr.nips.nip66")
 class Nip66NetMetadata(BaseNipMetadata):
     """Container for network/ASN data and lookup logs.
 
-    Provides the ``execute()`` class method that resolves the relay hostname
+    Provides the semantic ``probe()`` class method that resolves the relay hostname
     and performs GeoIP ASN lookups for both IPv4 and IPv6 addresses.
 
     See Also:
@@ -122,7 +122,7 @@ class Nip66NetMetadata(BaseNipMetadata):
         return result
 
     @classmethod
-    async def execute(
+    async def probe(
         cls,
         relay: Relay,
         asn_reader: geoip2.database.Reader,
@@ -192,11 +192,11 @@ class Nip66NetMetadata(BaseNipMetadata):
         )
 
     @classmethod
-    async def probe(
+    async def execute(
         cls,
         relay: Relay,
         asn_reader: geoip2.database.Reader,
         timeout: float | None = None,  # noqa: ASYNC109
     ) -> Self:
-        """Run the network probe using the semantic entrypoint."""
-        return await cls.execute(relay, asn_reader, timeout)
+        """Compatibility alias for the semantic ``probe()`` entrypoint."""
+        return await cls.probe(relay, asn_reader, timeout)

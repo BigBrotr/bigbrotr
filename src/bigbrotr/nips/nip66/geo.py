@@ -147,7 +147,7 @@ class GeoExtractor:
 class Nip66GeoMetadata(BaseNipMetadata):
     """Container for geolocation data and lookup logs.
 
-    Provides the ``execute()`` class method that resolves the relay hostname,
+    Provides the semantic ``probe()`` class method that resolves the relay hostname,
     performs a GeoIP City lookup, and extracts location fields.
 
     See Also:
@@ -184,7 +184,7 @@ class Nip66GeoMetadata(BaseNipMetadata):
         return GeoExtractor.extract_all(response, geohash_precision=geohash_precision)
 
     @classmethod
-    async def execute(
+    async def probe(
         cls,
         relay: Relay,
         city_reader: geoip2.database.Reader,
@@ -260,12 +260,12 @@ class Nip66GeoMetadata(BaseNipMetadata):
         )
 
     @classmethod
-    async def probe(
+    async def execute(
         cls,
         relay: Relay,
         city_reader: geoip2.database.Reader,
         geohash_precision: int = 9,
         timeout: float | None = None,  # noqa: ASYNC109
     ) -> Self:
-        """Run the GeoIP probe using the semantic entrypoint."""
-        return await cls.execute(relay, city_reader, geohash_precision, timeout)
+        """Compatibility alias for the semantic ``probe()`` entrypoint."""
+        return await cls.probe(relay, city_reader, geohash_precision, timeout)

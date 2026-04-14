@@ -115,7 +115,7 @@ class CertificateExtractor:
 class Nip66SslMetadata(BaseNipMetadata):
     """Container for SSL/TLS certificate data and inspection logs.
 
-    Provides the ``execute()`` class method that performs certificate
+    Provides the semantic ``probe()`` class method that performs certificate
     extraction and chain validation against a relay's TLS endpoint.
 
     Warning:
@@ -234,7 +234,7 @@ class Nip66SslMetadata(BaseNipMetadata):
             return False
 
     @classmethod
-    async def execute(
+    async def probe(
         cls,
         relay: Relay,
         timeout: float | None = None,  # noqa: ASYNC109
@@ -287,10 +287,10 @@ class Nip66SslMetadata(BaseNipMetadata):
         )
 
     @classmethod
-    async def probe(
+    async def execute(
         cls,
         relay: Relay,
         timeout: float | None = None,  # noqa: ASYNC109
     ) -> Self:
-        """Run the SSL probe using the semantic entrypoint."""
-        return await cls.execute(relay, timeout)
+        """Compatibility alias for the semantic ``probe()`` entrypoint."""
+        return await cls.probe(relay, timeout)

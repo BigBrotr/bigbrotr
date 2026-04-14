@@ -3,7 +3,7 @@ NIP-11 metadata container with HTTP info retrieval capabilities.
 
 Pairs [Nip11InfoData][bigbrotr.nips.nip11.data.Nip11InfoData] with
 [Nip11InfoLogs][bigbrotr.nips.nip11.logs.Nip11InfoLogs] and provides
-the ``execute()`` class method that performs the actual HTTP request to
+the semantic ``fetch()`` class method that performs the actual HTTP request to
 retrieve a relay's
 [NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md)
 information document.
@@ -184,7 +184,7 @@ class Nip11InfoMetadata(BaseNipMetadata):
             )
 
     @classmethod
-    async def execute(  # noqa: PLR0913
+    async def fetch(  # noqa: PLR0913
         cls,
         relay: Relay,
         timeout: float | None = None,  # noqa: ASYNC109
@@ -322,7 +322,7 @@ class Nip11InfoMetadata(BaseNipMetadata):
         return result
 
     @classmethod
-    async def fetch(  # noqa: PLR0913
+    async def execute(  # noqa: PLR0913
         cls,
         relay: Relay,
         timeout: float | None = None,  # noqa: ASYNC109
@@ -332,8 +332,8 @@ class Nip11InfoMetadata(BaseNipMetadata):
         *,
         allow_insecure: bool = False,
     ) -> Self:
-        """Fetch a relay's NIP-11 document using the semantic entrypoint."""
-        return await cls.execute(
+        """Compatibility alias for the semantic ``fetch()`` entrypoint."""
+        return await cls.fetch(
             relay,
             timeout,
             max_size,

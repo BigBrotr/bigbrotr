@@ -101,7 +101,7 @@ class Nip66RttMetadata(BaseNipMetadata):
     logs: Nip66RttMultiPhaseLogs
 
     @classmethod
-    async def execute(
+    async def probe(
         cls,
         relay: Relay,
         deps: Nip66RttDependencies,
@@ -186,7 +186,7 @@ class Nip66RttMetadata(BaseNipMetadata):
         return cls._build_result(rtt_data, logs)
 
     @classmethod
-    async def probe(
+    async def execute(
         cls,
         relay: Relay,
         deps: Nip66RttDependencies,
@@ -195,8 +195,8 @@ class Nip66RttMetadata(BaseNipMetadata):
         *,
         allow_insecure: bool = False,
     ) -> Self:
-        """Run the RTT probe using the semantic entrypoint."""
-        return await cls.execute(
+        """Compatibility alias for the semantic ``probe()`` entrypoint."""
+        return await cls.probe(
             relay,
             deps,
             timeout,

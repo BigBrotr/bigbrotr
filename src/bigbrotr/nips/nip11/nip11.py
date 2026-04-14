@@ -171,7 +171,7 @@ class Nip11(BaseNip):
         return RelayNip11MetadataTuple(nip11_info=nip11_info)
 
     @classmethod
-    async def create(  # type: ignore[override]  # noqa: PLR0913  # NIP-specific params widen base signature
+    async def fetch(  # noqa: PLR0913
         cls,
         relay: Relay,
         *,
@@ -211,7 +211,7 @@ class Nip11(BaseNip):
         options = options or Nip11Options()
         deps = deps or Nip11Dependencies()
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
-        logger.debug("create_started relay=%s timeout_s=%s", relay.url, timeout)
+        logger.debug("fetch_started relay=%s timeout_s=%s", relay.url, timeout)
 
         info = None
         if selection.info:
@@ -225,14 +225,14 @@ class Nip11(BaseNip):
             )
 
         logger.debug(
-            "create_completed relay=%s info=%s",
+            "fetch_completed relay=%s info=%s",
             relay.url,
             info is not None and info.succeeded if info else False,
         )
         return cls(relay=relay, info=info)
 
     @classmethod
-    async def fetch(  # noqa: PLR0913
+    async def create(  # type: ignore[override]  # noqa: PLR0913  # NIP-specific params widen base signature
         cls,
         relay: Relay,
         *,
@@ -243,8 +243,8 @@ class Nip11(BaseNip):
         options: Nip11Options | None = None,
         deps: Nip11Dependencies | None = None,
     ) -> Nip11:
-        """Fetch a relay's NIP-11 data using the semantic entrypoint."""
-        return await cls.create(
+        """Compatibility alias for the semantic ``fetch()`` entrypoint."""
+        return await cls.fetch(
             relay,
             timeout=timeout,
             proxy_url=proxy_url,

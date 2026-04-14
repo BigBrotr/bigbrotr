@@ -310,19 +310,19 @@ class TestNip11CreateSuccess:
         assert result.info.data.supported_nips == [1, 11, 42, 65]
         assert result.info.data.limitation.max_message_length == 65535
 
-    async def test_fetch_delegates_to_create(self, relay: Relay) -> None:
-        """fetch() is a semantic alias for create()."""
+    async def test_create_delegates_to_fetch(self, relay: Relay) -> None:
+        """create() is a compatibility alias for fetch()."""
         expected = Nip11(relay=relay)
 
         with patch.object(
             Nip11,
-            "create",
+            "fetch",
             new_callable=AsyncMock,
             return_value=expected,
-        ) as mock_create:
-            result = await Nip11.fetch(relay)
+        ) as mock_fetch:
+            result = await Nip11.create(relay)
 
-        mock_create.assert_awaited_once_with(
+        mock_fetch.assert_awaited_once_with(
             relay,
             timeout=None,
             proxy_url=None,
@@ -908,33 +908,33 @@ class TestNip11CreateOptions:
         assert result.info.logs.success is False
         assert "too large" in result.info.logs.reason
 
-    async def test_options_allow_insecure_passed_to_execute(self, relay: Relay):
-        """Nip11Options.allow_insecure is passed to execute."""
+    async def test_options_allow_insecure_passed_to_fetch(self, relay: Relay):
+        """Nip11Options.allow_insecure is passed to fetch."""
         with patch(
-            "bigbrotr.nips.nip11.info.Nip11InfoMetadata.execute",
+            "bigbrotr.nips.nip11.info.Nip11InfoMetadata.fetch",
             new_callable=AsyncMock,
-        ) as mock_execute:
-            mock_execute.return_value = Nip11InfoMetadata(
+        ) as mock_fetch:
+            mock_fetch.return_value = Nip11InfoMetadata(
                 data=Nip11InfoData(),
                 logs=Nip11InfoLogs(success=True),
             )
             await Nip11.create(relay, options=Nip11Options(allow_insecure=True))
 
-        mock_execute.assert_called_once()
-        call_kwargs = mock_execute.call_args
+        mock_fetch.assert_called_once()
+        call_kwargs = mock_fetch.call_args
         assert call_kwargs[1]["allow_insecure"] is True
 
     async def test_default_options_secure(self, relay: Relay):
         """Default options use secure mode."""
         with patch(
-            "bigbrotr.nips.nip11.info.Nip11InfoMetadata.execute",
+            "bigbrotr.nips.nip11.info.Nip11InfoMetadata.fetch",
             new_callable=AsyncMock,
-        ) as mock_execute:
-            mock_execute.return_value = Nip11InfoMetadata(
+        ) as mock_fetch:
+            mock_fetch.return_value = Nip11InfoMetadata(
                 data=Nip11InfoData(),
                 logs=Nip11InfoLogs(success=True),
             )
             await Nip11.create(relay)
 
-        call_kwargs = mock_execute.call_args
+        call_kwargs = mock_fetch.call_args
         assert call_kwargs[1]["allow_insecure"] is False

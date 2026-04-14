@@ -66,7 +66,7 @@ logger = logging.getLogger("bigbrotr.nips.nip66")
 class Nip66DnsMetadata(BaseNipMetadata):
     """Container for DNS resolution data and operation logs.
 
-    Provides the ``execute()`` class method that performs a comprehensive
+    Provides the semantic ``probe()`` class method that performs a comprehensive
     set of DNS queries (A, AAAA, CNAME, NS, reverse PTR) for a relay
     hostname.
 
@@ -151,7 +151,7 @@ class Nip66DnsMetadata(BaseNipMetadata):
         return result
 
     @classmethod
-    async def execute(
+    async def probe(
         cls,
         relay: Relay,
         timeout: float | None = None,  # noqa: ASYNC109
@@ -206,10 +206,10 @@ class Nip66DnsMetadata(BaseNipMetadata):
         )
 
     @classmethod
-    async def probe(
+    async def execute(
         cls,
         relay: Relay,
         timeout: float | None = None,  # noqa: ASYNC109
     ) -> Self:
-        """Run the DNS probe using the semantic entrypoint."""
-        return await cls.execute(relay, timeout)
+        """Compatibility alias for the semantic ``probe()`` entrypoint."""
+        return await cls.probe(relay, timeout)

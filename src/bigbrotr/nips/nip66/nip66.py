@@ -250,7 +250,7 @@ class Nip66(BaseNip):
         )
 
     @classmethod
-    async def create(  # type: ignore[override]  # noqa: PLR0913  # NIP-specific params widen base signature
+    async def probe(  # noqa: PLR0913
         cls,
         relay: Relay,
         *,
@@ -284,7 +284,7 @@ class Nip66(BaseNip):
         options = options or Nip66Options()
         deps = deps or Nip66Dependencies()
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
-        logger.debug("create_started relay=%s timeout_s=%s", relay.url, timeout)
+        logger.debug("probe_started relay=%s timeout_s=%s", relay.url, timeout)
 
         tasks: list[Any] = []
         task_names: list[str] = []
@@ -296,7 +296,7 @@ class Nip66(BaseNip):
                 read_filter=deps.read_filter,
             )
             tasks.append(
-                Nip66RttMetadata.execute(
+                Nip66RttMetadata.probe(
                     relay,
                     rtt_deps,
                     timeout,
@@ -307,30 +307,30 @@ class Nip66(BaseNip):
             task_names.append("rtt")
 
         if selection.ssl:
-            tasks.append(Nip66SslMetadata.execute(relay, timeout))
+            tasks.append(Nip66SslMetadata.probe(relay, timeout))
             task_names.append("ssl")
 
         if selection.geo and deps.city_reader:
-            tasks.append(Nip66GeoMetadata.execute(relay, deps.city_reader))
+            tasks.append(Nip66GeoMetadata.probe(relay, deps.city_reader))
             task_names.append("geo")
 
         if selection.net and deps.asn_reader:
-            tasks.append(Nip66NetMetadata.execute(relay, deps.asn_reader))
+            tasks.append(Nip66NetMetadata.probe(relay, deps.asn_reader))
             task_names.append("net")
 
         if selection.dns:
-            tasks.append(Nip66DnsMetadata.execute(relay, timeout))
+            tasks.append(Nip66DnsMetadata.probe(relay, timeout))
             task_names.append("dns")
 
         if selection.http:
             tasks.append(
-                Nip66HttpMetadata.execute(
+                Nip66HttpMetadata.probe(
                     relay, timeout, proxy_url, allow_insecure=options.allow_insecure
                 )
             )
             task_names.append("http")
 
-        logger.debug("create_running tests=%s", task_names)
+        logger.debug("probe_running tests=%s", task_names)
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Map each result to its corresponding metadata field
@@ -339,15 +339,15 @@ class Nip66(BaseNip):
             if isinstance(result, (asyncio.CancelledError, KeyboardInterrupt, SystemExit)):
                 raise result
             if isinstance(result, BaseException):
-                logger.error("create_task_failed test=%s error=%r", name, result)
+                logger.error("probe_task_failed test=%s error=%r", name, result)
                 metadata_map[name] = None
             else:
-                logger.debug("create_task_succeeded test=%s", name)
+                logger.debug("probe_task_succeeded test=%s", name)
                 metadata_map[name] = result
 
         nip66 = cls(relay=relay, **metadata_map)
         logger.debug(
-            "create_completed relay=%s rtt=%s ssl=%s geo=%s net=%s dns=%s http=%s",
+            "probe_completed relay=%s rtt=%s ssl=%s geo=%s net=%s dns=%s http=%s",
             relay.url,
             nip66.rtt is not None,
             nip66.ssl is not None,
@@ -359,7 +359,7 @@ class Nip66(BaseNip):
         return nip66
 
     @classmethod
-    async def probe(  # noqa: PLR0913
+    async def create(  # type: ignore[override]  # noqa: PLR0913  # NIP-specific params widen base signature
         cls,
         relay: Relay,
         *,
@@ -369,8 +369,8 @@ class Nip66(BaseNip):
         options: Nip66Options | None = None,
         deps: Nip66Dependencies | None = None,
     ) -> Nip66:
-        """Run the NIP-66 checks using the semantic entrypoint."""
-        return await cls.create(
+        """Compatibility alias for the semantic ``probe()`` entrypoint."""
+        return await cls.probe(
             relay,
             timeout=timeout,
             proxy_url=proxy_url,
