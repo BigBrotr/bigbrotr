@@ -23,8 +23,8 @@ Attributes:
         follow-graph facts and later computes/export ranks.
     Api: REST API for read-only database access via FastAPI with
         auto-generated paginated endpoints.
-    Dvm: NIP-90 Data Vending Machine exposing database queries via
-        the Nostr protocol with per-table pricing.
+    Dvm: NIP-90 Data Vending Machine exposing public read-model queries
+        via the Nostr protocol with per-read-model pricing.
     Assertor: NIP-85 Trusted Assertions publisher. Reads facts and rank
         snapshots and publishes kind 30382/30383/30384/30385 events.
 

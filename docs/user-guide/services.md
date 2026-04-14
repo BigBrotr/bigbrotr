@@ -533,23 +533,23 @@ Endpoints also include `/health` (readiness check), `GET /api/v1/read-models`, a
 
 ## Dvm
 
-**Purpose**: Serve database queries over the Nostr protocol as a NIP-90 Data Vending Machine.
+**Purpose**: Serve public BigBrotr read-model queries over the Nostr protocol as a NIP-90 Data Vending Machine.
 
 **Mode**: Continuous (`run_forever`, default interval 60 seconds)
 
-**Reads**: All tables, views, and materialized views (via Catalog)
+**Reads**: Public read models backed by Catalog-managed tables, views, and materialized views
 **Writes**: -- (publishes Nostr events: kind 6050 results, kind 7000 feedback)
 
 ### How It Works
 
-1. On startup (`__aenter__`), connect to configured relays and discover the database schema
-2. Optionally publish a NIP-89 handler announcement (kind 31990) advertising available tables
+1. On startup (`__aenter__`), connect to configured relays and discover the backing catalog
+2. Optionally publish a NIP-89 handler announcement (kind 31990) advertising available read models
 3. Each `run()` cycle fetches new kind 5050 job request events using a `since` timestamp filter
-4. Parse job parameters from event tags: `table`, `limit`, `offset`, `sort`, `filter`, `columns`
+4. Parse job parameters from event tags: `read_model`, `limit`, `offset`, `sort`, `filter`, `columns`
 5. Execute the query via the shared Catalog (same engine as the Api service)
 6. Publish the result as a kind 6050 event, or publish error/payment-required feedback (kind 7000)
 
-The Dvm supports per-table pricing via `TableConfig.price`. When a job's bid is below the required price, a payment-required feedback event is published instead of the query result.
+The Dvm supports per-read-model pricing via `TableConfig.price`. When a job's bid is below the required price, a payment-required feedback event is published instead of the query result.
 
 ### Configuration
 
@@ -558,7 +558,7 @@ The Dvm supports per-table pricing via `TableConfig.price`. When a job's bid is 
 | `relays` | list[string] | -- (required) | Relay URLs to listen on and publish to |
 | `kind` | int | `5050` | NIP-90 request event kind (result = kind + 1000) |
 | `max_page_size` | int | `1000` | Hard ceiling on query limit |
-| `tables` | dict | `{}` | Per-table policies: `enabled` (bool), `price` (int, millisats) |
+| `read_models` | dict | `{}` | Per-read-model policies: `enabled` (bool), `price` (int, millisats) |
 | `announce` | bool | `true` | Publish NIP-89 handler announcement at startup |
 | `fetch_timeout` | float | `30.0` | Timeout for relay event fetching |
 
@@ -634,7 +634,7 @@ For complete configuration details including all fields, defaults, constraints, 
 | Ranker | `algorithm_id`, `graph.*`, `export.batch_size` | PageRank namespace, graph behavior, and snapshot export throughput |
 | Assertor | `algorithm_id`, `selection.kinds`, `provider_profile.enabled` | Assertion namespace, publish scope, and provider identity |
 | Api | `read_models`, `max_page_size`, `cors_origins` | Which read models to expose and pagination limits |
-| Dvm | `relays`, `tables`, `kind` | Which relays to listen on and tables to serve |
+| Dvm | `relays`, `read_models`, `kind` | Which relays to listen on and read models to serve |
 
 ---
 

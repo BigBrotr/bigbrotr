@@ -26,6 +26,7 @@ from bigbrotr.services.common.types import Checkpoint
 from bigbrotr.services.dvm.configs import DvmConfig
 from bigbrotr.services.dvm.service import Dvm
 from bigbrotr.services.dvm.utils import (
+    ResultEventRequest,
     build_announcement_event,
     build_error_event,
     build_payment_required_event,
@@ -59,7 +60,7 @@ def dvm_config() -> DvmConfig:
         relays=["wss://relay.example.com"],
         kind=5050,
         max_page_size=100,
-        tables={
+        read_models={
             "relay": TableConfig(enabled=True),
             "event": TableConfig(enabled=True, price=5000),
         },
@@ -113,7 +114,7 @@ def _make_mock_event(
 
     if tags is None:
         tags = [
-            ["param", "table", "relay"],
+            ["param", "read_model", "relay"],
             ["param", "limit", "10"],
         ]
 
@@ -279,12 +280,12 @@ class TestDvm:
 # ============================================================================
 
 
-class TestDvmTableAccessPolicy:
+class TestDvmReadModelAccessPolicy:
     def test_enabled_in_config(self, dvm_service: Dvm) -> None:
-        assert dvm_service._is_table_enabled("relay") is True
+        assert dvm_service._is_read_model_enabled("relay") is True
 
     def test_not_in_config_disabled(self, dvm_service: Dvm) -> None:
-        assert dvm_service._is_table_enabled("service_state") is False
+        assert dvm_service._is_read_model_enabled("service_state") is False
 
     def test_configured_internal_table_still_disabled(self, mock_brotr: Brotr) -> None:
         with pytest.raises(ValueError, match=r"non-public DVM read models: service_state"):
@@ -297,17 +298,17 @@ class TestDvmTableAccessPolicy:
                 },
             )
 
-    def test_unknown_table_disabled(self, dvm_service: Dvm) -> None:
-        assert dvm_service._is_table_enabled("nonexistent") is False
+    def test_unknown_read_model_disabled(self, dvm_service: Dvm) -> None:
+        assert dvm_service._is_read_model_enabled("nonexistent") is False
 
     def test_free_price_default(self, dvm_service: Dvm) -> None:
-        assert dvm_service._get_table_price("relay") == 0
+        assert dvm_service._get_read_model_price("relay") == 0
 
     def test_paid_price(self, dvm_service: Dvm) -> None:
-        assert dvm_service._get_table_price("event") == 5000
+        assert dvm_service._get_read_model_price("event") == 5000
 
-    def test_unknown_table_price_returns_zero(self, dvm_service: Dvm) -> None:
-        assert dvm_service._get_table_price("nonexistent_table") == 0
+    def test_unknown_read_model_price_returns_zero(self, dvm_service: Dvm) -> None:
+        assert dvm_service._get_read_model_price("nonexistent_table") == 0
 
 
 # ============================================================================
@@ -383,7 +384,7 @@ class TestDvmLifecycle:
             interval=60.0,
             relays=["wss://relay.example.com"],
             announce=False,
-            tables={"relay": TableConfig(enabled=True)},
+            read_models={"relay": TableConfig(enabled=True)},
         )
         service = Dvm(brotr=mock_brotr, config=config)
         service._catalog = Catalog()
@@ -529,7 +530,7 @@ class TestDvmRun:
         mock_state_store.upsert_checkpoints.assert_awaited_once()
 
     async def test_run_processes_job(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "relay"], ["param", "limit", "10"]])
+        event = _make_mock_event(tags=[["param", "read_model", "relay"], ["param", "limit", "10"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
         mock_state_store = MagicMock()
@@ -556,7 +557,7 @@ class TestDvmRun:
     async def test_run_dedup(self, dvm_service: Dvm) -> None:
         event = _make_mock_event(
             event_id="dedup_id",
-            tags=[["param", "table", "relay"]],
+            tags=[["param", "read_model", "relay"]],
         )
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
@@ -567,8 +568,8 @@ class TestDvmRun:
 
         mock_client.send_event_builder.assert_not_called()
 
-    async def test_run_disabled_table(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "service_state"]])
+    async def test_run_disabled_read_model(self, dvm_service: Dvm) -> None:
+        event = _make_mock_event(tags=[["param", "read_model", "service_state"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
 
@@ -577,8 +578,8 @@ class TestDvmRun:
 
         mock_client.send_event_builder.assert_called_once()
 
-    async def test_run_empty_table_name(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", ""]])
+    async def test_run_empty_read_model_name(self, dvm_service: Dvm) -> None:
+        event = _make_mock_event(tags=[["param", "read_model", ""]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
 
@@ -587,7 +588,7 @@ class TestDvmRun:
 
         mock_client.send_event_builder.assert_called_once()
 
-    async def test_run_missing_table_param(self, dvm_service: Dvm) -> None:
+    async def test_run_missing_read_model_param(self, dvm_service: Dvm) -> None:
         event = _make_mock_event(tags=[["param", "limit", "10"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
@@ -598,7 +599,7 @@ class TestDvmRun:
         mock_client.send_event_builder.assert_called_once()
 
     async def test_run_payment_required(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "event"]])
+        event = _make_mock_event(tags=[["param", "read_model", "event"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
 
@@ -608,7 +609,7 @@ class TestDvmRun:
         mock_client.send_event_builder.assert_called_once()
 
     async def test_run_sufficient_bid(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "event"], ["bid", "10000"]])
+        event = _make_mock_event(tags=[["param", "read_model", "event"], ["bid", "10000"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
 
@@ -626,7 +627,7 @@ class TestDvmRun:
 
     async def test_run_invalid_limit(self, dvm_service: Dvm) -> None:
         event = _make_mock_event(
-            tags=[["param", "table", "relay"], ["param", "limit", "not_a_number"]]
+            tags=[["param", "read_model", "relay"], ["param", "limit", "not_a_number"]]
         )
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
@@ -637,7 +638,7 @@ class TestDvmRun:
         mock_client.send_event_builder.assert_called_once()
 
     async def test_run_updates_fetch_ts_before_processing(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "relay"]])
+        event = _make_mock_event(tags=[["param", "read_model", "relay"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
         mock_state_store = MagicMock()
@@ -668,11 +669,11 @@ class TestDvmRun:
 
         event1 = _make_mock_event(
             event_id="fail_pub",
-            tags=[["param", "table", "service_state"]],
+            tags=[["param", "read_model", "service_state"]],
         )
         event2 = _make_mock_event(
             event_id="ok_pub",
-            tags=[["param", "table", "relay"]],
+            tags=[["param", "read_model", "relay"]],
         )
         events_obj = MagicMock()
         events_obj.to_vec.return_value = [event1, event2]
@@ -694,7 +695,7 @@ class TestDvmRun:
     async def test_processed_ids_reset(self, dvm_service: Dvm) -> None:
         event = _make_mock_event(
             event_id="trigger",
-            tags=[["param", "table", "relay"]],
+            tags=[["param", "read_model", "relay"]],
         )
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
@@ -721,7 +722,7 @@ class TestDvmRun:
 
 class TestDvmPtagTargeting:
     async def test_p_tag_for_other_pubkey_skips_event(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["p", "other_pubkey_hex"], ["param", "table", "relay"]])
+        event = _make_mock_event(tags=[["p", "other_pubkey_hex"], ["param", "read_model", "relay"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
 
@@ -731,7 +732,7 @@ class TestDvmPtagTargeting:
         mock_client.send_event_builder.assert_not_called()
 
     async def test_no_p_tag_processes_event(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "relay"]])
+        event = _make_mock_event(tags=[["param", "read_model", "relay"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
 
@@ -767,7 +768,7 @@ class TestDvmJobErrorHandling:
     async def test_caught_error_publishes_error_and_increments_failed(
         self, dvm_service: Dvm, error: Exception
     ) -> None:
-        event = _make_mock_event(tags=[["param", "table", "relay"]])
+        event = _make_mock_event(tags=[["param", "read_model", "relay"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
 
@@ -787,7 +788,7 @@ class TestDvmJobErrorHandling:
         mock_client.send_event_builder.assert_called_once()
 
     async def test_result_publish_without_success_counts_as_failed(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "relay"]])
+        event = _make_mock_event(tags=[["param", "read_model", "relay"]])
         mock_client = _make_client_with_events([event])
         mock_client.send_event_builder = AsyncMock(
             side_effect=[
@@ -814,7 +815,7 @@ class TestDvmJobErrorHandling:
         assert mock_client.send_event_builder.call_count == 2
 
     async def test_error_event_publish_failure_suppressed(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "relay"]])
+        event = _make_mock_event(tags=[["param", "read_model", "relay"]])
         mock_client = _make_client_with_events([event])
         mock_client.send_event_builder = AsyncMock(side_effect=OSError("relay down"))
         dvm_service._client = mock_client
@@ -841,7 +842,7 @@ class TestDvmJobErrorHandling:
 
 class TestDvmMetrics:
     async def test_report_metrics_emits_requests_total(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "relay"], ["param", "limit", "5"]])
+        event = _make_mock_event(tags=[["param", "read_model", "relay"], ["param", "limit", "5"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
 
@@ -968,20 +969,20 @@ class TestParseJobParams:
     def test_basic_params(self) -> None:
         event = _make_utils_mock_event(
             tags=[
-                ["param", "table", "relay"],
+                ["param", "read_model", "relay"],
                 ["param", "limit", "50"],
                 ["param", "offset", "10"],
             ]
         )
         params = parse_job_params(event)
-        assert params["table"] == "relay"
+        assert params["read_model"] == "relay"
         assert params["limit"] == "50"
         assert params["offset"] == "10"
 
     def test_bid_tag(self) -> None:
         event = _make_utils_mock_event(
             tags=[
-                ["param", "table", "relay"],
+                ["param", "read_model", "relay"],
                 ["bid", "5000"],
             ]
         )
@@ -991,7 +992,7 @@ class TestParseJobParams:
     def test_invalid_bid_ignored(self) -> None:
         event = _make_utils_mock_event(
             tags=[
-                ["param", "table", "relay"],
+                ["param", "read_model", "relay"],
                 ["bid", "not_a_number"],
             ]
         )
@@ -1005,7 +1006,7 @@ class TestParseJobParams:
     def test_filter_and_sort(self) -> None:
         event = _make_utils_mock_event(
             tags=[
-                ["param", "table", "relay"],
+                ["param", "read_model", "relay"],
                 ["param", "filter", "network=clearnet"],
                 ["param", "sort", "url:asc"],
             ]
@@ -1019,7 +1020,7 @@ class TestParseJobParams:
         assert parse_job_params(event) == {}
 
     def test_param_with_only_two_elements_ignored(self) -> None:
-        event = _make_utils_mock_event(tags=[["param", "table"]])
+        event = _make_utils_mock_event(tags=[["param", "read_model"]])
         assert parse_job_params(event) == {}
 
 
@@ -1061,25 +1062,46 @@ class TestParseQueryFilters:
 class TestBuildResultEvent:
     def test_result_kind_is_request_plus_1000(self) -> None:
         result = QueryResult(rows=[], total=0, limit=10, offset=0)
-        event = build_result_event(5050, "eid", "pk", result, 0).sign_with_keys(_KEYS)
+        event = build_result_event(
+            ResultEventRequest(5050, "eid", "pk", "relay"),
+            result,
+            0,
+        ).sign_with_keys(_KEYS)
         assert event.kind().as_u16() == 6050
 
     def test_content_contains_data_and_meta(self) -> None:
         result = QueryResult(rows=[{"url": "wss://r.io"}], total=1, limit=10, offset=0)
-        event = build_result_event(5050, "eid", "pk", result, 0).sign_with_keys(_KEYS)
+        event = build_result_event(
+            ResultEventRequest(5050, "eid", "pk", "relay"),
+            result,
+            0,
+        ).sign_with_keys(_KEYS)
         content = json.loads(event.content())
         assert content["data"] == [{"url": "wss://r.io"}]
-        assert content["meta"] == {"total": 1, "limit": 10, "offset": 0}
+        assert content["meta"] == {
+            "total": 1,
+            "limit": 10,
+            "offset": 0,
+            "read_model": "relay",
+        }
 
     def test_amount_tag_included_when_price_positive(self) -> None:
         result = QueryResult(rows=[], total=0, limit=10, offset=0)
-        event = build_result_event(5050, "eid", "pk", result, 500).sign_with_keys(_KEYS)
+        event = build_result_event(
+            ResultEventRequest(5050, "eid", "pk", "relay"),
+            result,
+            500,
+        ).sign_with_keys(_KEYS)
         tags = _tags_dict(event)
         assert tags["amount"] == [["amount", "500"]]
 
     def test_no_amount_tag_when_price_zero(self) -> None:
         result = QueryResult(rows=[], total=0, limit=10, offset=0)
-        event = build_result_event(5050, "eid", "pk", result, 0).sign_with_keys(_KEYS)
+        event = build_result_event(
+            ResultEventRequest(5050, "eid", "pk", "relay"),
+            result,
+            0,
+        ).sign_with_keys(_KEYS)
         tags = _tags_dict(event)
         assert "amount" not in tags
 
@@ -1134,14 +1156,14 @@ class TestBuildAnnouncementEvent:
         )
         assert event.kind().as_u16() == 31990
 
-    def test_content_contains_name_about_tables(self) -> None:
+    def test_content_contains_name_about_read_models(self) -> None:
         event = build_announcement_event("dtag", 5050, "MyDVM", "desc", ["a", "b"]).sign_with_keys(
             _KEYS
         )
         content = json.loads(event.content())
         assert content["name"] == "MyDVM"
         assert content["about"] == "desc"
-        assert content["tables"] == ["a", "b"]
+        assert content["read_models"] == ["a", "b"]
 
     def test_d_and_k_tags(self) -> None:
         event = build_announcement_event("my-d", 5050, "n", "a", []).sign_with_keys(_KEYS)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from nostr_sdk import EventBuilder, Kind, Tag
@@ -20,6 +21,16 @@ if TYPE_CHECKING:
 # Minimum tag lengths for NIP-90 tag parsing
 _MIN_PARAM_TAG_LEN = 3
 _MIN_TAG_LEN = 2
+
+
+@dataclass(frozen=True, slots=True)
+class ResultEventRequest:
+    """Context needed to build one NIP-90 job-result event."""
+
+    request_kind: int
+    request_event_id: str
+    customer_pubkey: str
+    read_model_id: str
 
 
 def parse_job_params(event: Any) -> dict[str, Any]:
@@ -71,25 +82,21 @@ def parse_query_filters(filter_str: str) -> dict[str, str] | None:
 
 
 def build_result_event(
-    request_kind: int,
-    request_event_id: str,
-    customer_pubkey: str,
+    request: ResultEventRequest,
     result: QueryResult,
     price: int,
 ) -> EventBuilder:
     """Build a NIP-90 job result event (request kind + 1000).
 
     Args:
-        request_kind: The NIP-90 request kind (e.g. 5050).
-        request_event_id: Hex ID of the request event.
-        customer_pubkey: Hex pubkey of the requesting user.
+        request: Job request context for the result event.
         result: Query result to serialize as JSON content.
         price: Millisat price (included as ``amount`` tag if > 0).
 
     Returns:
         Unsigned ``EventBuilder`` ready for signing and sending.
     """
-    result_kind = request_kind + 1000
+    result_kind = request.request_kind + 1000
     content = json.dumps(
         {
             "data": result.rows,
@@ -97,18 +104,19 @@ def build_result_event(
                 "total": result.total,
                 "limit": result.limit,
                 "offset": result.offset,
+                "read_model": request.read_model_id,
             },
         },
         default=str,
     )
 
     tags = [
-        Tag.parse(["e", request_event_id]),
-        Tag.parse(["p", customer_pubkey]),
+        Tag.parse(["e", request.request_event_id]),
+        Tag.parse(["p", request.customer_pubkey]),
         Tag.parse(
             [
                 "request",
-                json.dumps({"id": request_event_id, "kind": request_kind}),
+                json.dumps({"id": request.request_event_id, "kind": request.request_kind}),
             ]
         ),
     ]
@@ -170,7 +178,7 @@ def build_announcement_event(
     kind: int,
     name: str,
     about: str,
-    tables: list[str],
+    read_models: list[str],
 ) -> EventBuilder:
     """Build a NIP-89 handler announcement event (kind 31990).
 
@@ -179,7 +187,7 @@ def build_announcement_event(
         kind: NIP-90 request kind this handler supports.
         name: Human-readable handler name.
         about: Handler description.
-        tables: List of enabled table names.
+        read_models: List of enabled public read-model IDs.
 
     Returns:
         Unsigned ``EventBuilder`` ready for signing and sending.
@@ -188,5 +196,5 @@ def build_announcement_event(
         Tag.parse(["d", d_tag]),
         Tag.parse(["k", str(kind)]),
     ]
-    content = json.dumps({"name": name, "about": about, "tables": tables})
+    content = json.dumps({"name": name, "about": about, "read_models": read_models})
     return EventBuilder(Kind(31990), content).tags(tags)

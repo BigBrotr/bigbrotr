@@ -1,9 +1,9 @@
-"""NIP-90 Data Vending Machine service for Nostr protocol database queries.
+"""NIP-90 Data Vending Machine service for Nostr read-model queries.
 
 Listens for NIP-90 job requests on configured relays, executes
 read-only queries via the shared
 [Catalog][bigbrotr.services.common.catalog.Catalog], and publishes
-results as job-result events (request kind + 1000).  Per-table pricing via
+results as job-result events (request kind + 1000). Read-model pricing via
 [TableConfig][bigbrotr.services.common.configs.TableConfig]
 enables the NIP-90 bid/payment-required mechanism.
 
@@ -65,6 +65,7 @@ from bigbrotr.utils.protocol import create_connected_client
 
 from .configs import DvmConfig
 from .utils import (
+    ResultEventRequest,
     build_announcement_event,
     build_error_event,
     build_payment_required_event,
@@ -87,11 +88,11 @@ _REQUEST_CHECKPOINT_KEY = "job_requests"
 
 
 class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
-    """NIP-90 Data Vending Machine for BigBrotr database queries.
+    """NIP-90 Data Vending Machine for BigBrotr read-model queries.
 
     Processes NIP-90 job requests (default Kind 5050) by executing
     read-only database queries and publishing results (Kind 6050).
-    Supports per-table pricing with bid/payment-required negotiation.
+    Supports per-read-model pricing with bid/payment-required negotiation.
 
     Lifecycle:
         1. ``__aenter__``: discover schema, create Nostr client, connect
@@ -239,17 +240,17 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
 
         customer_pubkey = event.author().to_hex()
         params = parse_job_params(event)
-        table = params.get("table", "")
+        read_model_id = params.get("read_model", "")
 
         self._logger.info(
             "job_received",
             event_id=event_id,
-            table=table,
+            read_model=read_model_id,
             customer=customer_pubkey,
         )
 
         try:
-            return await self._handle_job(event_id, customer_pubkey, params, table)
+            return await self._handle_job(event_id, customer_pubkey, params, read_model_id)
         except (CatalogError, OSError, TimeoutError, asyncpg.PostgresError) as e:
             with contextlib.suppress(OSError, TimeoutError):
                 await self._send_event(
@@ -264,22 +265,26 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         event_id: str,
         customer_pubkey: str,
         params: dict[str, Any],
-        table: str,
+        read_model_id: str,
     ) -> tuple[int, int, int, int]:
         """Handle a validated job request: check access, pricing, execute query.
 
         Returns:
             Tuple of (received, processed, failed, payment_required) deltas.
         """
-        read_model = self._enabled_read_models().get(table)
+        read_model = self._enabled_read_models().get(read_model_id)
         if read_model is None:
             await self._send_event(
-                build_error_event(event_id, customer_pubkey, f"Invalid or disabled table: {table}"),
+                build_error_event(
+                    event_id,
+                    customer_pubkey,
+                    f"Invalid or disabled read model: {read_model_id}",
+                ),
                 require_success=True,
             )
             return 1, 0, 1, 0
 
-        price = self._get_table_price(table)
+        price = self._get_read_model_price(read_model_id)
         if price > 0:
             bid = params.get("bid", 0)
             if bid < price:
@@ -321,9 +326,12 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
 
         await self._send_event(
             build_result_event(
-                self._config.kind,
-                event_id,
-                customer_pubkey,
+                ResultEventRequest(
+                    request_kind=self._config.kind,
+                    request_event_id=event_id,
+                    customer_pubkey=customer_pubkey,
+                    read_model_id=read_model_id,
+                ),
                 result,
                 price,
             ),
@@ -332,7 +340,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         self._logger.info(
             "job_completed",
             event_id=event_id,
-            table=table,
+            read_model=read_model_id,
             rows=len(result.rows),
             duration_ms=round(duration_ms, 1),
         )
@@ -372,14 +380,14 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             payment_required=payment_required,
         )
 
-    # ── Table policy helpers ──────────────────────────────────────
+    # ── Read-model policy helpers ─────────────────────────────────
 
-    def _is_table_enabled(self, name: str) -> bool:
+    def _is_read_model_enabled(self, name: str) -> bool:
         if name not in self._catalog.tables:
             return False
-        return super()._is_table_enabled(name)
+        return super()._is_read_model_enabled(name)
 
-    def _get_table_price(self, name: str) -> int:
+    def _get_read_model_price(self, name: str) -> int:
         policy = self._config.read_models.get(name)
         if policy is None:
             return 0
@@ -474,13 +482,13 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         if self._client is None:
             return
 
-        tables_info = self._enabled_read_model_names()
+        read_models = self._enabled_read_model_names()
         builder = build_announcement_event(
             d_tag=self._config.d_tag,
             kind=self._config.kind,
             name=self._config.name,
             about=self._config.about,
-            tables=tables_info,
+            read_models=read_models,
         )
         successful_relays, failed_relays = await self._send_event(builder)
         if successful_relays:
