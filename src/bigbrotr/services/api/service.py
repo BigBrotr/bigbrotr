@@ -205,9 +205,8 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         )
 
     def _set_read_model_exposure_metrics(self, count: int) -> None:
-        """Publish canonical and compatibility gauges for exposed read models."""
+        """Publish the exposure gauge for public read models."""
         self.set_gauge("read_models_exposed", count)
-        self.set_gauge("tables_exposed", count)
 
     def _add_middleware(self, app: FastAPI) -> None:
         """Register CORS and request-logging middleware."""

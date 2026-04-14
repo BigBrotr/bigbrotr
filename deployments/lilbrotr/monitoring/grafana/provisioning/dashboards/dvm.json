@@ -229,7 +229,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"dvm\", name=\"tables_exposed\"}",
+          "expr": "service_gauge{service=\"dvm\", name=\"read_models_exposed\"}",
           "refId": "A",
           "instant": true
         }

@@ -607,10 +607,6 @@ class TestDvmRun:
             "read_models_exposed",
             len(dvm_service._enabled_read_model_names()),
         )
-        mock_gauge.assert_any_call(
-            "tables_exposed",
-            len(dvm_service._enabled_read_model_names()),
-        )
 
     async def test_run_no_events_does_not_advance_cursor(self, dvm_service: Dvm) -> None:
         mock_client = _make_client_with_events([])
