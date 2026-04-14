@@ -63,6 +63,18 @@ class TestParseRelayUrl:
         """Test that invalid URL returns None."""
         assert parse_relay("not-a-valid-url") is None
 
+    def test_local_url_returns_none_by_default(self) -> None:
+        """Local relays are still rejected by the default application policy."""
+        assert parse_relay("wss://127.0.0.1") is None
+
+    def test_local_url_allowed_when_requested(self) -> None:
+        """Local relays can be enabled explicitly for library/dev use."""
+        result = parse_relay("wss://127.0.0.1", allow_local=True)
+
+        assert isinstance(result, Relay)
+        assert result.url == "wss://127.0.0.1"
+        assert result.network.value == "local"
+
     def test_discovered_at(self) -> None:
         """Test parsing with an explicit discovered_at timestamp."""
         result = parse_relay("wss://relay.example.com", discovered_at=1700000000)

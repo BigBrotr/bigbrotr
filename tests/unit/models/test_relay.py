@@ -173,6 +173,26 @@ class TestNetworkDetection:
     def test_detect_local_ipv6_loopback(self):
         assert _detect_network("::1") == NetworkType.LOCAL
 
+    def test_local_canonical_relay_preserves_wss_scheme(self):
+        relay = Relay("wss://localhost")
+        assert relay.network == NetworkType.LOCAL
+        assert relay.scheme == "wss"
+        assert relay.url == "wss://localhost"
+
+    def test_local_canonical_relay_preserves_ws_scheme(self):
+        relay = Relay("ws://127.0.0.1:7447")
+        assert relay.network == NetworkType.LOCAL
+        assert relay.scheme == "ws"
+        assert relay.url == "ws://127.0.0.1:7447"
+
+    def test_parse_local_relay_requires_explicit_policy(self):
+        with pytest.raises(ValueError, match="Local addresses"):
+            Relay.parse("wss://localhost")
+
+        relay = Relay.parse("wss://localhost", allow_local=True)
+        assert relay.network == NetworkType.LOCAL
+        assert relay.url == "wss://localhost"
+
     def test_detect_unknown_empty(self):
         assert _detect_network("") == NetworkType.UNKNOWN
 
@@ -239,9 +259,9 @@ class TestRejection:
             "wss://[fe80::1]",
         ],
     )
-    def test_local_addresses_rejected(self, url):
+    def test_local_addresses_rejected_by_default_parse_policy(self, url):
         with pytest.raises(ValueError, match="Local addresses"):
-            Relay(url)
+            Relay.parse(url)
 
     @pytest.mark.parametrize(
         "url",
@@ -599,6 +619,17 @@ class TestSanitizeRelayUrl:
     def test_strips_trailing_slash(self):
         result = sanitize_relay_url("wss://relay.example.com/")
         assert result == "wss://relay.example.com"
+
+    @pytest.mark.parametrize(
+        ("url", "expected"),
+        [
+            ("wss://localhost", "wss://localhost"),
+            ("ws://127.0.0.1:7447", "ws://127.0.0.1:7447"),
+            ("wss://[::1]:7447", "wss://[::1]:7447"),
+        ],
+    )
+    def test_allow_local_preserves_local_urls(self, url, expected):
+        assert sanitize_relay_url(url, allow_local=True) == expected
 
     def test_result_creates_valid_relay(self):
         dirty = "wss://relay.example.com/v1?secret=abc&lud16=user@host.com#top"

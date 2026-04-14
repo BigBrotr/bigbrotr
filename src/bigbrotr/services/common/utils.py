@@ -25,7 +25,12 @@ from bigbrotr.models.relay import sanitize_relay_url
 logger = logging.getLogger(__name__)
 
 
-def parse_relay(url: str, discovered_at: int | None = None) -> Relay | None:
+def parse_relay(
+    url: str,
+    discovered_at: int | None = None,
+    *,
+    allow_local: bool = False,
+) -> Relay | None:
     """Parse a relay URL string into a Relay object.
 
     Strips whitespace, rejects empty/non-string input, and delegates to the
@@ -36,6 +41,7 @@ def parse_relay(url: str, discovered_at: int | None = None) -> Relay | None:
         url: Potential relay URL string.
         discovered_at: Optional Unix timestamp of first discovery.  When
             ``None`` (default), ``Relay`` uses the current time.
+        allow_local: Whether local relay URLs are accepted.
 
     Returns:
         [Relay][bigbrotr.models.relay.Relay] object if valid, ``None``
@@ -45,7 +51,7 @@ def parse_relay(url: str, discovered_at: int | None = None) -> Relay | None:
         return None
 
     try:
-        url = sanitize_relay_url(url)
+        url = sanitize_relay_url(url, allow_local=allow_local)
     except ValueError:
         return None
 

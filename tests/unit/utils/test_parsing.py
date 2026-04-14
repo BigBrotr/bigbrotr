@@ -117,3 +117,8 @@ class TestParseRelayUrl:
     def test_local_address_raises(self):
         with pytest.raises(ValueError):
             parse_relay_url("wss://127.0.0.1")
+
+    def test_local_address_allowed_when_requested(self):
+        relay = parse_relay_url("wss://127.0.0.1", allow_local=True)
+        assert relay.url == "wss://127.0.0.1"
+        assert relay.network.value == "local"

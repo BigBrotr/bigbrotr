@@ -23,7 +23,6 @@ import logging
 from typing import TYPE_CHECKING, TypeVar
 
 from bigbrotr.models import Relay
-from bigbrotr.models.relay import sanitize_relay_url
 
 
 if TYPE_CHECKING:
@@ -53,7 +52,7 @@ def safe_parse(
     return results
 
 
-def parse_relay_url(url: str) -> Relay:
+def parse_relay_url(url: str, *, allow_local: bool = False) -> Relay:
     """Sanitize a raw relay URL and construct a Relay.
 
     Applies [sanitize_relay_url][bigbrotr.models.relay.sanitize_relay_url] to
@@ -64,6 +63,7 @@ def parse_relay_url(url: str) -> Relay:
 
     Args:
         url: Raw relay URL string.
+        allow_local: Whether local relay URLs are accepted.
 
     Returns:
         [Relay][bigbrotr.models.relay.Relay] in canonical form.
@@ -71,7 +71,7 @@ def parse_relay_url(url: str) -> Relay:
     Raises:
         ValueError: If the URL is structurally unrecoverable.
     """
-    return Relay(sanitize_relay_url(url))
+    return Relay.parse(url, allow_local=allow_local)
 
 
 __all__ = [

@@ -232,7 +232,8 @@ class Relay:
 
     Accepts only URLs already in canonical form.  If the input may be
     dirty (from Nostr events, relay lists, external APIs), pass it through
-    [sanitize_relay_url][bigbrotr.models.relay.sanitize_relay_url] first.
+    [sanitize_relay_url][bigbrotr.models.relay.sanitize_relay_url] or
+    [Relay.parse][bigbrotr.models.relay.Relay.parse] first.
 
     The canonical form enforces:
 
@@ -253,8 +254,7 @@ class Relay:
 
     Raises:
         ValueError: If the URL is not in canonical form, malformed,
-            uses an unsupported scheme, resolves to a local/private address,
-            or contains null bytes.
+            uses an unsupported scheme, or contains null bytes.
 
     Examples:
         ```python
@@ -284,6 +284,8 @@ class Relay:
     See Also:
         [sanitize_relay_url][bigbrotr.models.relay.sanitize_relay_url]: Pre-processor
             for untrusted relay URLs.
+        [Relay.parse][bigbrotr.models.relay.Relay.parse]: Higher-level parser
+            with explicit policy controls for local relay acceptance.
         [NetworkType][bigbrotr.models.constants.NetworkType]: Enum of supported network types.
         [RelayDbParams][bigbrotr.models.relay.RelayDbParams]: Database parameter container
             produced by [to_db_params()][bigbrotr.models.relay.Relay.to_db_params].
@@ -314,7 +316,7 @@ class Relay:
 
         Raises:
             TypeError: If field types are incorrect.
-            ValueError: If the URL is not canonical, invalid, local, or contains null bytes.
+            ValueError: If the URL is not canonical, invalid, or contains null bytes.
         """
         validate_str_no_null(self.url, "url")
         validate_timestamp(self.discovered_at, "discovered_at")
@@ -322,7 +324,7 @@ class Relay:
         # Defence in depth: re-sanitize to guarantee canonical form even though
         # callers should pre-sanitize.  This duplicates the RFC 3986 parse in
         # _parse() below -- a deliberate "never trust input" trade-off.
-        canonical = sanitize_relay_url(self.url)
+        canonical = sanitize_relay_url(self.url, allow_local=True)
         if canonical != self.url:
             raise ValueError(
                 f"Relay URL is not in canonical form: {self.url!r} (expected {canonical!r})"
@@ -337,6 +339,34 @@ class Relay:
         object.__setattr__(self, "path", parsed["path"])
 
         object.__setattr__(self, "_db_params", self._compute_db_params())
+
+    @classmethod
+    def parse(
+        cls,
+        raw: str,
+        *,
+        discovered_at: int | None = None,
+        allow_local: bool = False,
+    ) -> Relay:
+        """Parse raw input into a canonical Relay using an explicit policy.
+
+        Args:
+            raw: Raw relay URL string from untrusted input.
+            discovered_at: Optional discovery timestamp.
+            allow_local: When ``True``, accept canonical local relay URLs
+                such as ``ws://localhost`` or ``wss://127.0.0.1:7447``.
+
+        Returns:
+            Canonical [Relay][bigbrotr.models.relay.Relay].
+
+        Raises:
+            ValueError: If the raw URL is invalid or disallowed by policy.
+            TypeError: If field types are invalid.
+        """
+        canonical = sanitize_relay_url(raw, allow_local=allow_local)
+        if discovered_at is not None:
+            return cls(canonical, discovered_at)
+        return cls(canonical)
 
     @staticmethod
     def _parse(url: str) -> dict[str, Any]:
@@ -363,7 +393,7 @@ class Relay:
         path = uri.path or None
 
         network = _detect_network(host)
-        scheme = "wss" if network == NetworkType.CLEARNET else "ws"
+        scheme = uri.scheme.lower()
 
         return {
             "scheme": scheme,
@@ -486,7 +516,7 @@ def _sanitize_path(raw_path: str) -> str:
     return path
 
 
-def sanitize_relay_url(raw: str) -> str:
+def sanitize_relay_url(raw: str, *, allow_local: bool = False) -> str:
     """Normalize and canonicalize a raw relay URL from untrusted input.
 
     Applies the full normalization pipeline:
@@ -496,7 +526,7 @@ def sanitize_relay_url(raw: str) -> str:
        IDN-to-punycode conversion, whitespace/control-char rejection,
        IP address canonicalization (IPv6 compression, IPv4 validation).
     3. **Network detection** — overlay TLD matching (``.onion``, ``.i2p``,
-       ``.loki``), private/reserved IP rejection, hostname validation.
+       ``.loki``), optional private/reserved IP rejection, hostname validation.
     4. **Scheme enforcement** — ``wss://`` for clearnet, ``ws://`` for overlays.
     5. **Port normalization** — range validation (1-65535), default port
        omission (443 for ``wss``, 80 for ``ws``).
@@ -506,6 +536,8 @@ def sanitize_relay_url(raw: str) -> str:
 
     Args:
         raw: Raw URL string, potentially malformed.
+        allow_local: When ``True``, allow canonical local relay URLs instead
+            of rejecting them as a BigBrotr application policy violation.
 
     Returns:
         Canonical URL string suitable for :class:`Relay` construction.
@@ -537,13 +569,18 @@ def sanitize_relay_url(raw: str) -> str:
 
     # --- Network classification and rejection ---
     network = _detect_network(host)
-    if network == NetworkType.LOCAL:
+    if network == NetworkType.LOCAL and not allow_local:
         raise ValueError("Local addresses not allowed")
     if network == NetworkType.UNKNOWN:
         raise ValueError(f"Invalid host: '{host}'")
 
     host = _normalize_ip(host)
-    scheme = "wss" if network == NetworkType.CLEARNET else "ws"
+    if network == NetworkType.CLEARNET:
+        scheme = "wss"
+    elif network == NetworkType.LOCAL:
+        scheme = uri.scheme.lower()
+    else:
+        scheme = "ws"
 
     # --- Port validation ---
     port = int(uri.port) if uri.port else None
