@@ -6,12 +6,11 @@ import pytest
 from bigbrotr.__main__ import (
     CORE_CONFIG,
     DEFAULT_PROFILE,
-    SERVICE_REGISTRY,
-    ServiceEntry,
     _default_brotr_config_path,
     _default_service_config_path,
     parse_args,
 )
+from bigbrotr.services.registry import CONFIG_BASE, SERVICE_REGISTRY, ServiceEntry
 
 
 class TestServiceRegistry:
@@ -31,8 +30,6 @@ class TestServiceRegistry:
         assert set(SERVICE_REGISTRY.keys()) == expected
 
     def test_service_config_paths(self) -> None:
-        from bigbrotr.__main__ import CONFIG_BASE
-
         for name, (_, config_path) in SERVICE_REGISTRY.items():
             expected = CONFIG_BASE / "services" / f"{name}.yaml"
             assert config_path == expected, f"{name} config path mismatch"

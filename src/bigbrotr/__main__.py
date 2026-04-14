@@ -18,24 +18,15 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any
 
 from bigbrotr.core import Brotr, start_metrics_server
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.core.logger import Logger, StructuredFormatter
 from bigbrotr.core.service_runtime import ServiceProcessRunner
 from bigbrotr.core.yaml import load_yaml
-from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.api import Api
-from bigbrotr.services.assertor import Assertor
-from bigbrotr.services.dvm import Dvm
-from bigbrotr.services.finder import Finder
-from bigbrotr.services.monitor import Monitor
-from bigbrotr.services.ranker import Ranker
-from bigbrotr.services.refresher import Refresher
-from bigbrotr.services.seeder import Seeder
-from bigbrotr.services.synchronizer import Synchronizer
-from bigbrotr.services.validator import Validator
+from bigbrotr.services.registry import SERVICE_REGISTRY
+from bigbrotr.services.registry import ServiceEntry as _ServiceEntry
 
 
 CONFIG_BASE = Path("config")
@@ -43,29 +34,7 @@ CORE_CONFIG = CONFIG_BASE / "brotr.yaml"
 DEPLOYMENTS_BASE = Path("deployments")
 DEFAULT_PROFILE = "bigbrotr"
 DEPLOYMENT_PROFILES = ("bigbrotr", "lilbrotr")
-
-
-class ServiceEntry(NamedTuple):
-    """Registry entry mapping a service to its class and default config path."""
-
-    cls: type[BaseService[Any]]
-    config_path: Path
-
-
-SERVICE_REGISTRY: dict[str, ServiceEntry] = {
-    ServiceName.SEEDER: ServiceEntry(Seeder, CONFIG_BASE / "services" / "seeder.yaml"),
-    ServiceName.FINDER: ServiceEntry(Finder, CONFIG_BASE / "services" / "finder.yaml"),
-    ServiceName.VALIDATOR: ServiceEntry(Validator, CONFIG_BASE / "services" / "validator.yaml"),
-    ServiceName.MONITOR: ServiceEntry(Monitor, CONFIG_BASE / "services" / "monitor.yaml"),
-    ServiceName.REFRESHER: ServiceEntry(Refresher, CONFIG_BASE / "services" / "refresher.yaml"),
-    ServiceName.RANKER: ServiceEntry(Ranker, CONFIG_BASE / "services" / "ranker.yaml"),
-    ServiceName.SYNCHRONIZER: ServiceEntry(
-        Synchronizer, CONFIG_BASE / "services" / "synchronizer.yaml"
-    ),
-    ServiceName.API: ServiceEntry(Api, CONFIG_BASE / "services" / "api.yaml"),
-    ServiceName.DVM: ServiceEntry(Dvm, CONFIG_BASE / "services" / "dvm.yaml"),
-    ServiceName.ASSERTOR: ServiceEntry(Assertor, CONFIG_BASE / "services" / "assertor.yaml"),
-}
+ServiceEntry = _ServiceEntry
 
 logger = Logger("cli")
 
