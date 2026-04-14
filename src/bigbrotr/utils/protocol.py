@@ -203,7 +203,6 @@ class NostrClientManager:
 
     Supports two patterns used across the codebase:
 
-    - uncached relay-scoped clients (`connect_relay_once`)
     - cached per-relay publishing clients (`get_relay_client`)
     - named multi-relay sessions (`connect_session`)
     """
@@ -244,10 +243,6 @@ class NostrClientManager:
             timeout=timeout,
             allow_insecure=self._allow_insecure,
         )
-
-    async def connect_relay_once(self, relay: Relay) -> Client:
-        """Return one uncached relay-scoped client using shared policy."""
-        return await self._connect_relay_with_networks(relay)
 
     async def get_relay_client(self, relay: Relay) -> Client | None:
         """Return one lazily connected cached client for a single relay."""
