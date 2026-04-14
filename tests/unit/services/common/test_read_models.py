@@ -28,10 +28,7 @@ from bigbrotr.services.common.read_models import (
 
 def _configured_read_models(path: Path) -> set[str]:
     config = load_yaml(str(path))
-    read_models = config.get("read_models")
-    if read_models is None:
-        read_models = config.get("tables", {})
-    return set(read_models)
+    return set(config.get("read_models", {}))
 
 
 class TestReadModelRegistry:
@@ -49,7 +46,7 @@ class TestReadModelRegistry:
             for alias in entry.aliases:
                 assert resolve_read_model_id(alias) == read_model_id
 
-    def test_registry_covers_all_configured_api_tables(self) -> None:
+    def test_registry_covers_all_configured_api_read_models(self) -> None:
         api_configs = (
             Path("deployments/bigbrotr/config/services/api.yaml"),
             Path("deployments/lilbrotr/config/services/api.yaml"),
@@ -59,7 +56,7 @@ class TestReadModelRegistry:
 
         assert configured <= set(READ_MODEL_REGISTRY)
 
-    def test_registry_covers_all_configured_dvm_tables(self) -> None:
+    def test_registry_covers_all_configured_dvm_read_models(self) -> None:
         dvm_configs = (
             Path("deployments/bigbrotr/config/services/dvm.yaml"),
             Path("deployments/lilbrotr/config/services/dvm.yaml"),
@@ -69,7 +66,7 @@ class TestReadModelRegistry:
 
         assert configured <= set(READ_MODEL_REGISTRY)
 
-    def test_api_surface_matches_configured_api_tables(self) -> None:
+    def test_api_surface_matches_configured_api_read_models(self) -> None:
         api_configs = (
             Path("deployments/bigbrotr/config/services/api.yaml"),
             Path("deployments/lilbrotr/config/services/api.yaml"),
@@ -79,7 +76,7 @@ class TestReadModelRegistry:
 
         assert set(read_models_for_surface("api")) == expected
 
-    def test_dvm_surface_matches_configured_dvm_tables(self) -> None:
+    def test_dvm_surface_matches_configured_dvm_read_models(self) -> None:
         dvm_configs = (
             Path("deployments/bigbrotr/config/services/dvm.yaml"),
             Path("deployments/lilbrotr/config/services/dvm.yaml"),
