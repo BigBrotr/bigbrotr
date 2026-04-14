@@ -191,9 +191,12 @@ def setup_logging(level: str) -> None:
     plain ``logging.getLogger()`` calls in models/utils -- is unified as
     ``level name message key=value ...``.
     """
-    handler = logging.StreamHandler()
-    handler.setFormatter(StructuredFormatter())
-    logging.root.addHandler(handler)
+    if not any(
+        isinstance(handler.formatter, StructuredFormatter) for handler in logging.root.handlers
+    ):
+        handler = logging.StreamHandler()
+        handler.setFormatter(StructuredFormatter())
+        logging.root.addHandler(handler)
     logging.root.setLevel(getattr(logging, level))
 
 

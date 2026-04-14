@@ -43,6 +43,19 @@ class TestSetupLogging:
         assert all(isinstance(h, logging.StreamHandler) for h in structured_handlers)
         self._cleanup_root_handlers()
 
+    def test_structured_formatter_is_not_duplicated(self) -> None:
+        from bigbrotr.core.logger import StructuredFormatter
+
+        setup_logging("INFO")
+        setup_logging("DEBUG")
+
+        structured_handlers = [
+            h for h in logging.root.handlers if isinstance(h.formatter, StructuredFormatter)
+        ]
+        assert len(structured_handlers) == 1
+        assert logging.root.level == logging.DEBUG
+        self._cleanup_root_handlers()
+
 
 class TestLoadYamlDict:
     def test_load_from_existing_file(self, tmp_path: Path) -> None:
