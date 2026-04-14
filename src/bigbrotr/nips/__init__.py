@@ -32,6 +32,9 @@ Attributes:
         (provides the common ``allow_insecure`` option).
     BaseNipDependencies: Base for dependency containers holding external objects
         (keys, database readers) required by specific NIP tests.
+    NIP_REGISTRY: Static registry of built-in NIP capability bundles, including
+        the top-level models for NIP-11 and NIP-66 plus the event-builder-only
+        NIP-85 capability surface.
 
 See Also:
     [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
@@ -45,9 +48,12 @@ See Also:
 
 from .nip11 import Nip11
 from .nip66 import Nip66
+from .registry import NIP_REGISTRY, NipEntry
 
 
 __all__ = [
+    "NIP_REGISTRY",
     "Nip11",
     "Nip66",
+    "NipEntry",
 ]
