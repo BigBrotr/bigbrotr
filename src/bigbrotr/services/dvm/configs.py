@@ -19,6 +19,7 @@ from pydantic import BeforeValidator, Field, model_validator
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
 from bigbrotr.services.common.configs import TableConfig  # noqa: TC001 (Pydantic runtime)
+from bigbrotr.services.common.read_models import read_models_for_surface
 from bigbrotr.utils.keys import KeysConfig
 from bigbrotr.utils.parsing import parse_relay_url, safe_parse
 
@@ -119,4 +120,16 @@ class DvmConfig(BaseServiceConfig):
                 f"must not exceed max_page_size ({self.max_page_size})"
             )
             raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _validate_public_tables(self) -> DvmConfig:
+        allowed_tables = set(read_models_for_surface("dvm"))
+        invalid_tables = sorted(set(self.tables) - allowed_tables)
+        if invalid_tables:
+            invalid = ", ".join(invalid_tables)
+            allowed = ", ".join(sorted(allowed_tables))
+            raise ValueError(
+                f"tables contains non-public DVM read models: {invalid}. Allowed tables: {allowed}"
+            )
         return self

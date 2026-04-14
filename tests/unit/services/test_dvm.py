@@ -57,7 +57,7 @@ def dvm_config() -> DvmConfig:
         max_page_size=100,
         tables={
             "relay": TableConfig(enabled=True),
-            "premium_data": TableConfig(enabled=True, price=5000),
+            "event": TableConfig(enabled=True, price=5000),
         },
     )
 
@@ -81,9 +81,9 @@ def sample_dvm_catalog() -> Catalog:
             primary_key=("service_name",),
             is_view=False,
         ),
-        "premium_data": TableSchema(
-            name="premium_data",
-            columns=(ColumnSchema(name="id", pg_type="integer", nullable=False),),
+        "event": TableSchema(
+            name="event",
+            columns=(ColumnSchema(name="id", pg_type="text", nullable=False),),
             primary_key=("id",),
             is_view=False,
         ),
@@ -216,6 +216,13 @@ class TestDvmConfig:
         )
         assert config.default_page_size == config.max_page_size
 
+    def test_internal_table_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"non-public DVM read models: service_state"):
+            DvmConfig(
+                relays=["wss://relay.example.com"],
+                tables={"service_state": TableConfig(enabled=True)},
+            )
+
 
 # ============================================================================
 # Service Init
@@ -248,32 +255,15 @@ class TestDvmTableAccessPolicy:
         assert dvm_service._is_table_enabled("service_state") is False
 
     def test_configured_internal_table_still_disabled(self, mock_brotr: Brotr) -> None:
-        config = DvmConfig(
-            interval=60.0,
-            relays=["wss://relay.example.com"],
-            tables={
-                "relay": TableConfig(enabled=True),
-                "service_state": TableConfig(enabled=True),
-            },
-        )
-        service = Dvm(brotr=mock_brotr, config=config)
-        service._catalog = Catalog()
-        service._catalog._tables = {
-            "relay": TableSchema(
-                name="relay",
-                columns=(ColumnSchema(name="url", pg_type="text", nullable=False),),
-                primary_key=("url",),
-                is_view=False,
-            ),
-            "service_state": TableSchema(
-                name="service_state",
-                columns=(ColumnSchema(name="service_name", pg_type="text", nullable=False),),
-                primary_key=("service_name",),
-                is_view=False,
-            ),
-        }
-
-        assert service._is_table_enabled("service_state") is False
+        with pytest.raises(ValueError, match=r"non-public DVM read models: service_state"):
+            DvmConfig(
+                interval=60.0,
+                relays=["wss://relay.example.com"],
+                tables={
+                    "relay": TableConfig(enabled=True),
+                    "service_state": TableConfig(enabled=True),
+                },
+            )
 
     def test_unknown_table_disabled(self, dvm_service: Dvm) -> None:
         assert dvm_service._is_table_enabled("nonexistent") is False
@@ -282,7 +272,7 @@ class TestDvmTableAccessPolicy:
         assert dvm_service._get_table_price("relay") == 0
 
     def test_paid_price(self, dvm_service: Dvm) -> None:
-        assert dvm_service._get_table_price("premium_data") == 5000
+        assert dvm_service._get_table_price("event") == 5000
 
     def test_unknown_table_price_returns_zero(self, dvm_service: Dvm) -> None:
         assert dvm_service._get_table_price("nonexistent_table") == 0
@@ -490,7 +480,7 @@ class TestDvmRun:
         mock_client.send_event_builder.assert_called_once()
 
     async def test_run_payment_required(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "premium_data"]])
+        event = _make_mock_event(tags=[["param", "table", "event"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
 
@@ -500,7 +490,7 @@ class TestDvmRun:
         mock_client.send_event_builder.assert_called_once()
 
     async def test_run_sufficient_bid(self, dvm_service: Dvm) -> None:
-        event = _make_mock_event(tags=[["param", "table", "premium_data"], ["bid", "10000"]])
+        event = _make_mock_event(tags=[["param", "table", "event"], ["bid", "10000"]])
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
 

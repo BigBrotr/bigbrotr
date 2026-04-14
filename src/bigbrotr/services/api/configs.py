@@ -14,6 +14,7 @@ from pydantic import Field, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.services.common.configs import TableConfig  # noqa: TC001 (Pydantic runtime)
+from bigbrotr.services.common.read_models import read_models_for_surface
 
 
 class ApiConfig(BaseServiceConfig):
@@ -103,5 +104,17 @@ class ApiConfig(BaseServiceConfig):
         if self.metrics.enabled and self.metrics.port == self.port:
             raise ValueError(
                 f"metrics.port ({self.metrics.port}) must differ from HTTP port ({self.port})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_public_tables(self) -> ApiConfig:
+        allowed_tables = set(read_models_for_surface("api"))
+        invalid_tables = sorted(set(self.tables) - allowed_tables)
+        if invalid_tables:
+            invalid = ", ".join(invalid_tables)
+            allowed = ", ".join(sorted(allowed_tables))
+            raise ValueError(
+                f"tables contains non-public API read models: {invalid}. Allowed tables: {allowed}"
             )
         return self

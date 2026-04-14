@@ -167,6 +167,10 @@ class TestApiConfig:
         assert config.port == 8080
         assert config.metrics.port == 9090
 
+    def test_internal_table_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"non-public API read models: service_state"):
+            ApiConfig(tables={"service_state": TableConfig(enabled=True)})
+
 
 class TestApiConfigRoutePrefix:
     def test_default(self) -> None:
@@ -257,17 +261,13 @@ class TestApiBuildApp:
     def test_configured_internal_table_still_not_routed(
         self, mock_brotr: Brotr, sample_catalog: Catalog
     ) -> None:
-        config = ApiConfig(
-            tables={
-                "relay": TableConfig(enabled=True),
-                "service_state": TableConfig(enabled=True),
-            }
-        )
-        service = Api(brotr=mock_brotr, config=config)
-        service._catalog = sample_catalog
-        client = TestClient(service._build_app())
-
-        assert client.get("/v1/service_state").status_code in (404, 405)
+        with pytest.raises(ValueError, match=r"non-public API read models: service_state"):
+            ApiConfig(
+                tables={
+                    "relay": TableConfig(enabled=True),
+                    "service_state": TableConfig(enabled=True),
+                }
+            )
 
     def test_view_has_no_pk_route(self, test_client: TestClient) -> None:
         resp = test_client.get("/v1/relay_stats/something")
