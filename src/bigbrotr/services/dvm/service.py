@@ -55,8 +55,9 @@ from bigbrotr.services.common.catalog import CatalogError
 from bigbrotr.services.common.mixins import CatalogAccessMixin
 from bigbrotr.services.common.read_models import (
     ReadModelEntry,
-    ReadModelQuery,
+    ReadModelQueryError,
     enabled_read_models_for_surface,
+    read_model_query_from_job_params,
 )
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import DvmRequestCursor
@@ -70,7 +71,6 @@ from .utils import (
     build_payment_required_event,
     build_result_event,
     parse_job_params,
-    parse_query_filters,
 )
 
 
@@ -390,11 +390,14 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
                 return 1, 0, 0, 1
 
         try:
-            limit = int(params.get("limit", self._config.default_page_size))
-            offset = int(params.get("offset", 0))
-        except (ValueError, TypeError):
+            query = read_model_query_from_job_params(
+                params,
+                default_page_size=self._config.default_page_size,
+                max_page_size=self._config.max_page_size,
+            )
+        except ReadModelQueryError as e:
             await self._send_event(
-                build_error_event(event_id, customer_pubkey, "Invalid limit or offset value"),
+                build_error_event(event_id, customer_pubkey, e.client_message),
                 require_success=True,
             )
             return 1, 0, 1, 0
@@ -403,13 +406,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         result = await read_model.query(
             self._brotr,
             self._catalog,
-            ReadModelQuery(
-                limit=limit,
-                offset=offset,
-                max_page_size=self._config.max_page_size,
-                filters=parse_query_filters(params.get("filter", "")),
-                sort=params.get("sort") or None,
-            ),
+            query,
         )
         duration_ms = (time.monotonic() - start) * 1000
 

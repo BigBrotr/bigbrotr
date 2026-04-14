@@ -57,8 +57,10 @@ from bigbrotr.services.common.catalog import CatalogError
 from bigbrotr.services.common.mixins import CatalogAccessMixin
 from bigbrotr.services.common.read_models import (
     ReadModelEntry,
-    ReadModelQuery,
+    ReadModelQueryError,
+    build_read_model_meta,
     enabled_read_models_for_surface,
+    read_model_query_from_http_params,
 )
 
 from .configs import ApiConfig
@@ -343,30 +345,24 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
 
         @app.get(f"{self._config.route_prefix}/{read_model_id}")
         async def list_rows(request: Request) -> JSONResponse:
-            params = dict(request.query_params)
             try:
-                limit = int(params.pop("limit", self._config.default_page_size))
-                offset = int(params.pop("offset", 0))
-            except (ValueError, TypeError):
+                query = read_model_query_from_http_params(
+                    request.query_params,
+                    default_page_size=self._config.default_page_size,
+                    max_page_size=self._config.max_page_size,
+                )
+            except ReadModelQueryError as e:
                 return JSONResponse(
-                    {"error": "Invalid limit or offset"},
+                    {"error": e.client_message},
                     status_code=400,
                 )
-            sort = params.pop("sort", None)
-            filters = params or None
 
             try:
                 result = await asyncio.wait_for(
                     read_model.query(
                         self._brotr,
                         self._catalog,
-                        ReadModelQuery(
-                            limit=limit,
-                            offset=offset,
-                            max_page_size=self._config.max_page_size,
-                            filters=filters,
-                            sort=sort,
-                        ),
+                        query,
                     ),
                     timeout=self._config.request_timeout,
                 )
@@ -378,12 +374,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
             return JSONResponse(
                 {
                     "data": result.rows,
-                    "meta": {
-                        "total": result.total,
-                        "limit": result.limit,
-                        "offset": result.offset,
-                        "read_model": read_model_id,
-                    },
+                    "meta": build_read_model_meta(result, read_model_id=read_model_id),
                 }
             )
 

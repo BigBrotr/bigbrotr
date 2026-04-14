@@ -14,6 +14,11 @@ from typing import TYPE_CHECKING, Any
 
 from nostr_sdk import EventBuilder, Kind, Tag
 
+from bigbrotr.services.common.read_models import (
+    build_read_model_meta,
+    parse_read_model_filter_string,
+)
+
 
 if TYPE_CHECKING:
     from bigbrotr.services.common.catalog import QueryResult
@@ -69,16 +74,7 @@ def parse_query_filters(filter_str: str) -> dict[str, str] | None:
     Returns:
         Dict of column→value pairs, or ``None`` if empty or unparsable.
     """
-    if not filter_str:
-        return None
-    filters: dict[str, str] = {}
-    for raw_part in filter_str.split(","):
-        part = raw_part.strip()
-        if "=" not in part:
-            continue
-        key, _, value = part.partition("=")
-        filters[key.strip()] = value.strip()
-    return filters or None
+    return parse_read_model_filter_string(filter_str)
 
 
 def build_result_event(
@@ -100,12 +96,7 @@ def build_result_event(
     content = json.dumps(
         {
             "data": result.rows,
-            "meta": {
-                "total": result.total,
-                "limit": result.limit,
-                "offset": result.offset,
-                "read_model": request.read_model_id,
-            },
+            "meta": build_read_model_meta(result, read_model_id=request.read_model_id),
         },
         default=str,
     )

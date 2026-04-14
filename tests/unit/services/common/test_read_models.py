@@ -1,6 +1,8 @@
 from pathlib import Path
 from unittest.mock import AsyncMock
 
+import pytest
+
 from bigbrotr.core.yaml import load_yaml
 from bigbrotr.services.common.catalog import Catalog, ColumnSchema, QueryResult, TableSchema
 from bigbrotr.services.common.read_models import (
@@ -8,7 +10,12 @@ from bigbrotr.services.common.read_models import (
     CatalogReadModelBackend,
     ReadModelEntry,
     ReadModelQuery,
+    ReadModelQueryError,
+    build_read_model_meta,
     enabled_read_models_for_surface,
+    parse_read_model_filter_string,
+    read_model_query_from_http_params,
+    read_model_query_from_job_params,
     read_models_for_surface,
 )
 
@@ -142,3 +149,88 @@ class TestReadModelRegistry:
             "relay",
             pk_values,
         )
+
+
+class TestReadModelQueryHelpers:
+    def test_parse_read_model_filter_string_empty(self) -> None:
+        assert parse_read_model_filter_string("") is None
+
+    def test_parse_read_model_filter_string_trims_and_skips_invalid_parts(self) -> None:
+        assert parse_read_model_filter_string(" network = clearnet , invalid , kind = 1 ") == {
+            "network": "clearnet",
+            "kind": "1",
+        }
+
+    def test_read_model_query_from_http_params(self) -> None:
+        query = read_model_query_from_http_params(
+            {
+                "limit": "25",
+                "offset": "5",
+                "sort": "url:asc",
+                "network": "clearnet",
+            },
+            default_page_size=100,
+            max_page_size=1000,
+        )
+
+        assert query == ReadModelQuery(
+            limit=25,
+            offset=5,
+            max_page_size=1000,
+            filters={"network": "clearnet"},
+            sort="url:asc",
+        )
+
+    def test_read_model_query_from_http_params_invalid_limit(self) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid limit or offset"):
+            read_model_query_from_http_params(
+                {"limit": "oops"},
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
+    def test_read_model_query_from_job_params(self) -> None:
+        query = read_model_query_from_job_params(
+            {
+                "limit": "50",
+                "offset": "10",
+                "sort": "url:asc",
+                "filter": "network=clearnet,kind=>:100",
+            },
+            default_page_size=100,
+            max_page_size=1000,
+        )
+
+        assert query == ReadModelQuery(
+            limit=50,
+            offset=10,
+            max_page_size=1000,
+            filters={"network": "clearnet", "kind": ">:100"},
+            sort="url:asc",
+        )
+
+    def test_read_model_query_from_job_params_invalid_offset(self) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid limit or offset value"):
+            read_model_query_from_job_params(
+                {"offset": "oops"},
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
+    def test_build_read_model_meta(self) -> None:
+        meta = build_read_model_meta(
+            QueryResult(
+                rows=[{"url": "wss://relay.example.com"}],
+                total=1,
+                limit=10,
+                offset=0,
+            ),
+            read_model_id="relay",
+        )
+
+        assert meta == {
+            "total": 1,
+            "limit": 10,
+            "offset": 0,
+            "read_model": "relay",
+        }

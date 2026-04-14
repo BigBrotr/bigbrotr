@@ -12,11 +12,21 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.services.common.catalog import Catalog, QueryResult, TableSchema
 
 
 ReadSurface = Literal["api", "dvm"]
+
+
+class ReadModelQueryError(ValueError):
+    """Client-safe validation error raised while parsing public query params."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.client_message = message
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +38,83 @@ class ReadModelQuery:
     max_page_size: int = 1000
     filters: dict[str, str] | None = None
     sort: str | None = None
+
+
+def parse_read_model_filter_string(filter_str: str) -> dict[str, str] | None:
+    """Parse a compact comma-separated filter string into catalog-style filters."""
+    if not filter_str:
+        return None
+
+    filters: dict[str, str] = {}
+    for raw_part in filter_str.split(","):
+        part = raw_part.strip()
+        if "=" not in part:
+            continue
+        key, _, value = part.partition("=")
+        filters[key.strip()] = value.strip()
+    return filters or None
+
+
+def read_model_query_from_http_params(
+    params: Mapping[str, str],
+    *,
+    default_page_size: int,
+    max_page_size: int,
+) -> ReadModelQuery:
+    """Normalize one HTTP read-model request into the shared query contract."""
+    raw_params = dict(params)
+    try:
+        limit = int(raw_params.pop("limit", default_page_size))
+        offset = int(raw_params.pop("offset", 0))
+    except (TypeError, ValueError) as e:
+        raise ReadModelQueryError("Invalid limit or offset") from e
+
+    sort = raw_params.pop("sort", None)
+
+    return ReadModelQuery(
+        limit=limit,
+        offset=offset,
+        max_page_size=max_page_size,
+        filters=raw_params or None,
+        sort=sort,
+    )
+
+
+def read_model_query_from_job_params(
+    params: Mapping[str, Any],
+    *,
+    default_page_size: int,
+    max_page_size: int,
+) -> ReadModelQuery:
+    """Normalize one NIP-90 job request into the shared query contract."""
+    try:
+        limit = int(params.get("limit", default_page_size))
+        offset = int(params.get("offset", 0))
+    except (TypeError, ValueError) as e:
+        raise ReadModelQueryError("Invalid limit or offset value") from e
+
+    raw_sort = params.get("sort")
+    sort = raw_sort if isinstance(raw_sort, str) and raw_sort else None
+    raw_filter = params.get("filter", "")
+    filter_str = raw_filter if isinstance(raw_filter, str) else ""
+
+    return ReadModelQuery(
+        limit=limit,
+        offset=offset,
+        max_page_size=max_page_size,
+        filters=parse_read_model_filter_string(filter_str),
+        sort=sort,
+    )
+
+
+def build_read_model_meta(result: QueryResult, *, read_model_id: str) -> dict[str, Any]:
+    """Build the shared metadata envelope for HTTP and DVM list responses."""
+    return {
+        "total": result.total,
+        "limit": result.limit,
+        "offset": result.offset,
+        "read_model": read_model_id,
+    }
 
 
 class ReadModelBackend(Protocol):
