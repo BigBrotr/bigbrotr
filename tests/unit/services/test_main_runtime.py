@@ -169,6 +169,40 @@ class TestRunService:
             mock_start.assert_called_once()
             mock_metrics_server.stop.assert_called_once()
 
+    async def test_continuous_removes_signal_handlers_on_exit(
+        self, mock_brotr_for_cli: Brotr, mock_metrics_server: MagicMock
+    ) -> None:
+        from bigbrotr.services.finder import Finder
+
+        service_dict = {
+            "interval": 60.0,
+            "max_consecutive_failures": 5,
+            "discovery": {"enabled_sources": []},
+        }
+
+        removed: list[signal.Signals] = []
+        loop = asyncio.get_running_loop()
+
+        with (
+            patch.object(Finder, "run_forever", AsyncMock()),
+            patch(
+                "bigbrotr.__main__.start_metrics_server",
+                AsyncMock(return_value=mock_metrics_server),
+            ),
+            patch.object(loop, "remove_signal_handler", side_effect=removed.append),
+        ):
+            result = await run_service(
+                service_name="finder",
+                service_class=Finder,
+                brotr=mock_brotr_for_cli,
+                service_dict=service_dict,
+                once=False,
+            )
+
+        assert result == 0
+        assert signal.SIGINT in removed
+        assert signal.SIGTERM in removed
+
     async def test_continuous_stops_metrics_server_on_failure(
         self, mock_brotr_for_cli: Brotr, mock_metrics_server: MagicMock
     ) -> None:

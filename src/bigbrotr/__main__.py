@@ -16,7 +16,6 @@ Examples:
 import argparse
 import asyncio
 import logging
-import signal
 import sys
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -24,6 +23,7 @@ from typing import Any, NamedTuple
 from bigbrotr.core import Brotr, start_metrics_server
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.core.logger import Logger, StructuredFormatter
+from bigbrotr.core.service_runtime import ServiceProcessRunner
 from bigbrotr.core.yaml import load_yaml
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.api import Api
@@ -108,51 +108,13 @@ async def run_service(
         service = service_class.from_dict(service_dict, brotr=brotr)
     else:
         service = service_class(brotr=brotr)
-
-    # One-shot mode: single cycle, no metrics server
-    if once:
-        try:
-            async with service:
-                await service.cleanup()
-                await service.run()
-            logger.info(f"{service_name}_completed")
-            return 0
-        except Exception as e:  # Intentionally broad: CLI error boundary for one-shot mode
-            logger.error(f"{service_name}_failed", error=str(e))
-            return 1
-
-    # Continuous mode: metrics server + indefinite operation
-    metrics_config = service.config.metrics
-    metrics_server = await start_metrics_server(metrics_config)
-
-    if metrics_config.enabled:
-        logger.info(
-            "metrics_server_started",
-            host=metrics_config.host,
-            port=metrics_config.port,
-            path=metrics_config.path,
-        )
-
-    # Signal handling for graceful shutdown
-    def handle_signal(sig: signal.Signals) -> None:
-        logger.info("shutdown_signal", signal=sig.name)
-        service.request_shutdown()
-
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, handle_signal, sig)
-
-    try:
-        async with service:
-            await service.run_forever()
-        return 0
-    except Exception as e:  # Intentionally broad: CLI error boundary for continuous mode
-        logger.error(f"{service_name}_failed", error=str(e))
-        return 1
-    finally:
-        await metrics_server.stop()
-        if metrics_config.enabled:
-            logger.info("metrics_server_stopped")
+    runner = ServiceProcessRunner(
+        service,
+        logger=logger,
+        service_name=service_name,
+        start_metrics_server_fn=start_metrics_server,
+    )
+    return await runner.run(once=once)
 
 
 def parse_args() -> argparse.Namespace:
