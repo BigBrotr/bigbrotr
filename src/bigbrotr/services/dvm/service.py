@@ -54,6 +54,7 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.catalog import CatalogError
 from bigbrotr.services.common.mixins import CatalogAccessMixin
+from bigbrotr.services.common.read_models import read_models_for_surface
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import Checkpoint
 from bigbrotr.utils.protocol import create_connected_client
@@ -142,7 +143,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
 
         self.set_gauge(
             "tables_exposed",
-            sum(1 for n in self._catalog.tables if self._is_table_enabled(n)),
+            len(self._enabled_read_model_names()),
         )
 
         self._last_fetch_ts = await self._restore_fetch_checkpoint()
@@ -354,7 +355,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         self.inc_counter("requests_failed", failed)
         self.set_gauge(
             "tables_exposed",
-            sum(1 for n in self._catalog.tables if self._is_table_enabled(n)),
+            len(self._enabled_read_model_names()),
         )
         self._logger.info(
             "cycle_stats",
@@ -376,6 +377,15 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         if policy is None:
             return 0
         return policy.price
+
+    def _enabled_read_model_names(self) -> list[str]:
+        """Return enabled DVM read models that are present in the discovered catalog."""
+        read_models = read_models_for_surface("dvm")
+        return [
+            name
+            for name in sorted(read_models)
+            if name in self._catalog.tables and self._is_table_enabled(name)
+        ]
 
     # ── Event fetching ────────────────────────────────────────────
 
@@ -446,9 +456,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         if self._client is None:
             return
 
-        tables_info = [
-            name for name in sorted(self._catalog.tables) if self._is_table_enabled(name)
-        ]
+        tables_info = self._enabled_read_model_names()
         builder = build_announcement_event(
             d_tag=self._config.d_tag,
             kind=self._config.kind,

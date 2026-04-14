@@ -21,6 +21,7 @@ from bigbrotr.services.common.catalog import (
     TableSchema,
 )
 from bigbrotr.services.common.configs import TableConfig
+from bigbrotr.services.common.read_models import ReadModelEntry
 from bigbrotr.services.common.types import Checkpoint
 from bigbrotr.services.dvm.configs import DvmConfig
 from bigbrotr.services.dvm.service import Dvm
@@ -489,7 +490,7 @@ class TestDvmRun:
 
         mock_gauge.assert_any_call(
             "tables_exposed",
-            sum(1 for n in dvm_service._catalog.tables if dvm_service._is_table_enabled(n)),
+            len(dvm_service._enabled_read_model_names()),
         )
 
     async def test_run_no_events_updates_fetch_ts(self, dvm_service: Dvm) -> None:
@@ -873,6 +874,19 @@ class TestDvmPublishingGuards:
         await dvm_service._publish_announcement()
 
         mock_client.send_event_builder.assert_called_once()
+
+    def test_enabled_read_model_names_follow_registry(
+        self, dvm_service: Dvm, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "bigbrotr.services.dvm.service.read_models_for_surface",
+            lambda _surface: {
+                "relay": ReadModelEntry(catalog_name="relay", surfaces=("dvm",)),
+                "missing_view": ReadModelEntry(catalog_name="missing_view", surfaces=("dvm",)),
+            },
+        )
+
+        assert dvm_service._enabled_read_model_names() == ["relay"]
 
     async def test_publish_announcement_logs_warning_when_unaccepted(
         self, dvm_service: Dvm
