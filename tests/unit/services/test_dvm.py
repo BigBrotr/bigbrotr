@@ -1094,8 +1094,7 @@ class TestDvmPublishingGuards:
         self, dvm_service: Dvm, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            "bigbrotr.services.dvm.service.resolve_surface_read_model_names",
-            lambda *_args, **_kwargs: ["relays"],
+            dvm_service, "_enabled_read_model_names_for", lambda _surface: ["relays"]
         )
 
         assert dvm_service._enabled_read_model_names() == ["relays"]

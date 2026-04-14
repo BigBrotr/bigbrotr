@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 
     from .catalog import Catalog
     from .configs import NetworksConfig, ReadModelConfig
+    from .read_models import ReadModelEntry, ReadSurface
 
 
 #: Network types that support concurrent relay connections.
@@ -438,3 +439,49 @@ class CatalogAccessMixin:
         if policy is None:
             return False
         return policy.enabled
+
+    def _available_catalog_names(self) -> set[str]:
+        """Return the discovered catalog object names available to public surfaces."""
+        return set(self._catalog.tables)
+
+    def _read_model_policies(self) -> dict[str, ReadModelConfig]:
+        """Return per-read-model policies from the composed service config."""
+        policies = getattr(self._config, "read_models", {})  # type: ignore[attr-defined]
+        if not isinstance(policies, dict):
+            return {}
+        return cast("dict[str, ReadModelConfig]", policies)
+
+    def _enabled_read_model_names_for(self, surface: ReadSurface) -> list[str]:
+        """Return enabled read-model IDs for one public surface."""
+        from .read_models import resolve_surface_read_model_names  # noqa: PLC0415
+
+        return resolve_surface_read_model_names(
+            surface,
+            policies=self._read_model_policies(),
+            available_catalog_names=self._available_catalog_names(),
+        )
+
+    def _enabled_read_models_for(self, surface: ReadSurface) -> dict[str, ReadModelEntry]:
+        """Return enabled read-model entries for one public surface."""
+        from .read_models import resolve_surface_read_models  # noqa: PLC0415
+
+        return resolve_surface_read_models(
+            surface,
+            policies=self._read_model_policies(),
+            available_catalog_names=self._available_catalog_names(),
+        )
+
+    def _resolve_enabled_read_model_for(
+        self,
+        surface: ReadSurface,
+        name: str,
+    ) -> tuple[str, ReadModelEntry] | None:
+        """Resolve one public read-model name to an enabled entry for one surface."""
+        from .read_models import resolve_surface_read_model  # noqa: PLC0415
+
+        return resolve_surface_read_model(
+            surface,
+            name=name,
+            policies=self._read_model_policies(),
+            available_catalog_names=self._available_catalog_names(),
+        )

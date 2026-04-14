@@ -292,8 +292,7 @@ class TestApiBuildApp:
         self, api_service: Api, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            "bigbrotr.services.api.service.resolve_surface_read_model_names",
-            lambda *_args, **_kwargs: ["relays"],
+            api_service, "_enabled_read_model_names_for", lambda _surface: ["relays"]
         )
 
         assert api_service._enabled_read_model_names() == ["relays"]

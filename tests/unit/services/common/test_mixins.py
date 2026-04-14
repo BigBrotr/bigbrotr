@@ -463,6 +463,36 @@ class TestCatalogAccessMixinIsReadModelEnabled:
         assert svc._is_read_model_enabled("service_state") is False
 
 
+class TestCatalogAccessMixinReadModelResolution:
+    def test_available_catalog_names_returns_discovered_names(self) -> None:
+        svc = _TestCatalogService()
+        svc._catalog._tables = {"relay": MagicMock(), "event": MagicMock()}
+
+        assert svc._available_catalog_names() == {"relay", "event"}
+
+    def test_enabled_read_model_names_for_surface_uses_config_and_catalog(self) -> None:
+        svc = _TestCatalogService()
+        svc._config.read_models = {
+            "relays": MagicMock(enabled=True),
+            "events": MagicMock(enabled=False),
+        }
+        svc._catalog._tables = {"relay": MagicMock(), "event": MagicMock()}
+
+        assert svc._enabled_read_model_names_for("api") == ["relays"]
+
+    def test_resolve_enabled_read_model_for_surface_returns_entry(self) -> None:
+        svc = _TestCatalogService()
+        svc._config.read_models = {"relays": MagicMock(enabled=True)}
+        svc._catalog._tables = {"relay": MagicMock()}
+
+        resolved = svc._resolve_enabled_read_model_for("dvm", "relay")
+
+        assert resolved is not None
+        read_model_id, entry = resolved
+        assert read_model_id == "relays"
+        assert entry.read_model_id == "relays"
+
+
 # =============================================================================
 # ConcurrentStreamMixin: early break cancels runner (lines 180-183)
 # =============================================================================

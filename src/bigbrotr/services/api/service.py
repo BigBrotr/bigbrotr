@@ -61,8 +61,6 @@ from bigbrotr.services.common.read_models import (
     build_read_model_meta,
     read_model_query_from_http_params,
     resolve_read_model_id,
-    resolve_surface_read_model_names,
-    resolve_surface_read_models,
 )
 
 from .configs import ApiConfig
@@ -190,19 +188,11 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
 
     def _enabled_read_model_names(self) -> list[str]:
         """Return enabled API read models that are present in the discovered catalog."""
-        return resolve_surface_read_model_names(
-            "api",
-            policies=self._config.read_models,
-            available_catalog_names=set(self._catalog.tables),
-        )
+        return self._enabled_read_model_names_for("api")
 
     def _enabled_read_models(self) -> dict[str, ReadModelEntry]:
         """Return enabled API read models keyed by public read-model ID."""
-        return resolve_surface_read_models(
-            "api",
-            policies=self._config.read_models,
-            available_catalog_names=set(self._catalog.tables),
-        )
+        return self._enabled_read_models_for("api")
 
     def _set_read_model_exposure_metrics(self, count: int) -> None:
         """Publish the exposure gauge for public read models."""

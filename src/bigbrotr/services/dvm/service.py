@@ -58,9 +58,6 @@ from bigbrotr.services.common.read_models import (
     ReadModelQueryError,
     read_model_query_from_job_params,
     resolve_read_model_id,
-    resolve_surface_read_model,
-    resolve_surface_read_model_names,
-    resolve_surface_read_models,
 )
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import DvmRequestCursor
@@ -475,12 +472,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
 
     def _resolve_enabled_read_model(self, name: str) -> tuple[str, ReadModelEntry] | None:
         """Resolve one DVM read-model name to its enabled registered entry."""
-        return resolve_surface_read_model(
-            "dvm",
-            name=name,
-            policies=self._config.read_models,
-            available_catalog_names=set(self._catalog.tables),
-        )
+        return self._resolve_enabled_read_model_for("dvm", name)
 
     def _get_read_model_price(self, name: str) -> int:
         canonical_name = resolve_read_model_id(name) or name
@@ -491,19 +483,11 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
 
     def _enabled_read_model_names(self) -> list[str]:
         """Return enabled DVM read models that are present in the discovered catalog."""
-        return resolve_surface_read_model_names(
-            "dvm",
-            policies=self._config.read_models,
-            available_catalog_names=set(self._catalog.tables),
-        )
+        return self._enabled_read_model_names_for("dvm")
 
     def _enabled_read_models(self) -> dict[str, ReadModelEntry]:
         """Return enabled DVM read models keyed by public read-model ID."""
-        return resolve_surface_read_models(
-            "dvm",
-            policies=self._config.read_models,
-            available_catalog_names=set(self._catalog.tables),
-        )
+        return self._enabled_read_models_for("dvm")
 
     def _set_read_model_exposure_metrics(self, count: int) -> None:
         """Publish the exposure gauge for public read models."""
