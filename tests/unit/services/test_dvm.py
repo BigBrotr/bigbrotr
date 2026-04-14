@@ -388,6 +388,39 @@ class TestDvmLifecycle:
 
             mock_client.send_event_builder.assert_not_called()
 
+    async def test_aenter_fails_fast_when_no_relays_connect(self, dvm_service: Dvm) -> None:
+        mock_client = MagicMock()
+        mock_state_store = MagicMock()
+        mock_state_store.fetch_checkpoints = AsyncMock(
+            return_value=[Checkpoint(key="job_requests", timestamp=1234)]
+        )
+
+        with (
+            patch(
+                "bigbrotr.services.dvm.service.create_connected_client",
+                new_callable=AsyncMock,
+                return_value=(
+                    mock_client,
+                    ClientConnectResult(
+                        connected=(),
+                        failed={"wss://relay.example.com": "timeout"},
+                    ),
+                ),
+            ),
+            patch(
+                "bigbrotr.utils.protocol.shutdown_client",
+                new_callable=AsyncMock,
+            ) as mock_shutdown,
+            patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(type(dvm_service), "__aexit__", new_callable=AsyncMock),
+            pytest.raises(TimeoutError, match="dvm could not connect to any relay"),
+        ):
+            await dvm_service.__aenter__()
+
+        mock_shutdown.assert_awaited_once_with(mock_client)
+        assert dvm_service._client is None
+
     async def test_aexit_shuts_down_client(self, dvm_service: Dvm) -> None:
         mock_client = MagicMock()
         mock_client.shutdown = AsyncMock()

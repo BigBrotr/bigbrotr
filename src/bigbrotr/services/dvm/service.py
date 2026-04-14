@@ -130,6 +130,12 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             self._logger.info("relay_connected", url=relay_url)
         for relay_url, error in connect_result.failed.items():
             self._logger.warning("relay_connect_failed", url=relay_url, error=error)
+        if not connect_result.connected:
+            from bigbrotr.utils.protocol import shutdown_client  # noqa: PLC0415
+
+            await shutdown_client(client)
+            self._client = None
+            raise TimeoutError("dvm could not connect to any relay")
 
         if self._config.announce:
             await self._publish_announcement()
