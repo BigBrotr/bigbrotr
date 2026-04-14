@@ -58,7 +58,9 @@ from bigbrotr.services.common.mixins import CatalogAccessMixin
 from bigbrotr.services.common.read_models import (
     ReadModelEntry,
     ReadModelQueryError,
+    build_read_model_detail,
     build_read_model_meta,
+    build_read_model_summary,
     read_model_query_from_http_params,
     resolve_read_model_id,
 )
@@ -264,7 +266,12 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         @app.get(f"{prefix}/read-models")
         async def list_read_models() -> JSONResponse:
             read_models = [
-                self._build_read_model_summary(read_model_id, read_model)
+                build_read_model_summary(
+                    read_model_id,
+                    read_model,
+                    catalog=self._catalog,
+                    route_prefix=self._config.route_prefix,
+                )
                 for read_model_id, read_model in self._enabled_read_models().items()
             ]
             return JSONResponse({"data": read_models})
@@ -278,56 +285,16 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
                     {"error": f"read model not found: {read_model_id}"},
                     status_code=404,
                 )
-            return JSONResponse({"data": self._build_read_model_detail(canonical_id, read_model)})
-
-    def _build_read_model_summary(
-        self,
-        read_model_id: str,
-        read_model: ReadModelEntry,
-    ) -> dict[str, Any]:
-        """Build the public discovery payload for one read model."""
-        schema = read_model.schema(self._catalog)
-        supports_identity_lookup = bool(schema.primary_key)
-        return {
-            "id": read_model_id,
-            "path": f"{self._config.route_prefix}/{read_model_id}",
-            "legacy_aliases": list(read_model.aliases),
-            "field_count": len(schema.columns),
-            "supports_identity_lookup": supports_identity_lookup,
-            "default_pagination_mode": "cursor" if supports_identity_lookup else "offset",
-            "supports_cursor_pagination": supports_identity_lookup,
-        }
-
-    def _build_read_model_detail(
-        self,
-        read_model_id: str,
-        read_model: ReadModelEntry,
-    ) -> dict[str, Any]:
-        """Build the public detail payload for one read model."""
-        schema = read_model.schema(self._catalog)
-        supports_identity_lookup = bool(schema.primary_key)
-        return {
-            "id": read_model_id,
-            "path": f"{self._config.route_prefix}/{read_model_id}",
-            "legacy_aliases": list(read_model.aliases),
-            "fields": [
+            return JSONResponse(
                 {
-                    "name": c.name,
-                    "type": c.pg_type,
-                    "nullable": c.nullable,
+                    "data": build_read_model_detail(
+                        canonical_id,
+                        read_model,
+                        catalog=self._catalog,
+                        route_prefix=self._config.route_prefix,
+                    )
                 }
-                for c in schema.columns
-            ],
-            "identity_fields": list(schema.primary_key),
-            "pagination": {
-                "default_mode": "cursor" if supports_identity_lookup else "offset",
-                "supports_cursor": supports_identity_lookup,
-                "supports_offset": True,
-                "supports_total_opt_in": True,
-                "cursor_param": "cursor" if supports_identity_lookup else None,
-                "meta_cursor_field": "next_cursor" if supports_identity_lookup else None,
-            },
-        }
+            )
 
     def _add_read_model_data_routes(self, app: FastAPI) -> None:
         """Register list and detail data routes for enabled read models."""

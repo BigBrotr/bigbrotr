@@ -12,7 +12,9 @@ from bigbrotr.services.common.read_models import (
     ReadModelEntry,
     ReadModelQuery,
     ReadModelQueryError,
+    build_read_model_detail,
     build_read_model_meta,
+    build_read_model_summary,
     enabled_read_models_for_surface,
     normalize_read_model_policies,
     parse_read_model_filter_string,
@@ -214,6 +216,71 @@ class TestReadModelRegistry:
             "relay",
             pk_values,
         )
+
+    def test_build_read_model_summary_uses_registered_backend_schema(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {
+            "relay": TableSchema(
+                name="relay",
+                columns=(
+                    ColumnSchema(name="url", pg_type="text", nullable=False),
+                    ColumnSchema(name="network", pg_type="text", nullable=False),
+                ),
+                primary_key=("url",),
+                is_view=False,
+            )
+        }
+
+        summary = build_read_model_summary(
+            "relays",
+            READ_MODEL_REGISTRY["relays"],
+            catalog=catalog,
+            route_prefix="/v1",
+        )
+
+        assert summary == {
+            "id": "relays",
+            "path": "/v1/relays",
+            "legacy_aliases": ["relay"],
+            "field_count": 2,
+            "supports_identity_lookup": True,
+            "default_pagination_mode": "cursor",
+            "supports_cursor_pagination": True,
+        }
+
+    def test_build_read_model_detail_uses_registered_backend_schema(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {
+            "relay_stats": TableSchema(
+                name="relay_stats",
+                columns=(ColumnSchema(name="url", pg_type="text", nullable=False),),
+                primary_key=(),
+                is_view=True,
+            )
+        }
+
+        detail = build_read_model_detail(
+            "relay-stats",
+            READ_MODEL_REGISTRY["relay-stats"],
+            catalog=catalog,
+            route_prefix="/v1",
+        )
+
+        assert detail == {
+            "id": "relay-stats",
+            "path": "/v1/relay-stats",
+            "legacy_aliases": ["relay_stats"],
+            "fields": [{"name": "url", "type": "text", "nullable": False}],
+            "identity_fields": [],
+            "pagination": {
+                "default_mode": "offset",
+                "supports_cursor": False,
+                "supports_offset": True,
+                "supports_total_opt_in": True,
+                "cursor_param": None,
+                "meta_cursor_field": None,
+            },
+        }
 
 
 class TestReadModelQueryHelpers:

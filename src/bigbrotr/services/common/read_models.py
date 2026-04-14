@@ -158,6 +158,66 @@ def build_read_model_meta(result: QueryResult, *, read_model_id: str) -> dict[st
     return meta
 
 
+def _read_model_pagination_payload(schema: TableSchema) -> dict[str, Any]:
+    """Build the discovery-time pagination contract for one read model schema."""
+    supports_identity_lookup = bool(schema.primary_key)
+    return {
+        "default_mode": "cursor" if supports_identity_lookup else "offset",
+        "supports_cursor": supports_identity_lookup,
+        "supports_offset": True,
+        "supports_total_opt_in": True,
+        "cursor_param": "cursor" if supports_identity_lookup else None,
+        "meta_cursor_field": "next_cursor" if supports_identity_lookup else None,
+    }
+
+
+def build_read_model_summary(
+    read_model_id: str,
+    entry: ReadModelEntry,
+    *,
+    catalog: Catalog,
+    route_prefix: str,
+) -> dict[str, Any]:
+    """Build the public summary payload for one registered read model."""
+    schema = entry.schema(catalog)
+    pagination = _read_model_pagination_payload(schema)
+    return {
+        "id": read_model_id,
+        "path": f"{route_prefix}/{read_model_id}",
+        "legacy_aliases": list(entry.aliases),
+        "field_count": len(schema.columns),
+        "supports_identity_lookup": bool(schema.primary_key),
+        "default_pagination_mode": pagination["default_mode"],
+        "supports_cursor_pagination": pagination["supports_cursor"],
+    }
+
+
+def build_read_model_detail(
+    read_model_id: str,
+    entry: ReadModelEntry,
+    *,
+    catalog: Catalog,
+    route_prefix: str,
+) -> dict[str, Any]:
+    """Build the public detail payload for one registered read model."""
+    schema = entry.schema(catalog)
+    return {
+        "id": read_model_id,
+        "path": f"{route_prefix}/{read_model_id}",
+        "legacy_aliases": list(entry.aliases),
+        "fields": [
+            {
+                "name": column.name,
+                "type": column.pg_type,
+                "nullable": column.nullable,
+            }
+            for column in schema.columns
+        ],
+        "identity_fields": list(schema.primary_key),
+        "pagination": _read_model_pagination_payload(schema),
+    }
+
+
 class ReadModelBackend(Protocol):
     """Backend capable of serving one public read model."""
 
