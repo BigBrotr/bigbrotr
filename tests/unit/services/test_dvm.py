@@ -35,6 +35,7 @@ from bigbrotr.services.dvm.utils import (
     build_error_event,
     build_payment_required_event,
     build_result_event,
+    configured_read_model_price,
     parse_job_params,
     prepare_job_request,
 )
@@ -304,10 +305,10 @@ class TestDvm:
 
 class TestDvmReadModelAccessPolicy:
     def test_enabled_in_config(self, dvm_service: Dvm) -> None:
-        assert dvm_service._is_read_model_enabled("relays") is True
+        assert dvm_service._read_models.is_enabled("relays") is True
 
     def test_not_in_config_disabled(self, dvm_service: Dvm) -> None:
-        assert dvm_service._is_read_model_enabled("service_state") is False
+        assert dvm_service._read_models.is_enabled("service_state") is False
 
     def test_configured_internal_read_model_still_disabled(self, mock_brotr: Brotr) -> None:
         with pytest.raises(ValueError, match=r"non-public DVM read models: service_state"):
@@ -321,16 +322,24 @@ class TestDvmReadModelAccessPolicy:
             )
 
     def test_unknown_read_model_disabled(self, dvm_service: Dvm) -> None:
-        assert dvm_service._is_read_model_enabled("nonexistent") is False
+        assert dvm_service._read_models.is_enabled("nonexistent") is False
 
     def test_free_price_default(self, dvm_service: Dvm) -> None:
-        assert dvm_service._get_read_model_price("relays") == 0
+        assert configured_read_model_price("relays", policies=dvm_service._config.read_models) == 0
 
     def test_paid_price(self, dvm_service: Dvm) -> None:
-        assert dvm_service._get_read_model_price("events") == 5000
+        assert (
+            configured_read_model_price("events", policies=dvm_service._config.read_models) == 5000
+        )
 
     def test_unknown_read_model_price_returns_zero(self, dvm_service: Dvm) -> None:
-        assert dvm_service._get_read_model_price("nonexistent-read-model") == 0
+        assert (
+            configured_read_model_price(
+                "nonexistent-read-model",
+                policies=dvm_service._config.read_models,
+            )
+            == 0
+        )
 
 
 class TestPrepareJobRequest:

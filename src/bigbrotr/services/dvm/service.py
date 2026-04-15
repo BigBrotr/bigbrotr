@@ -52,10 +52,7 @@ from nostr_sdk import Client, Filter, Kind, RelayUrl, Timestamp
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.catalog import CatalogError
-from bigbrotr.services.common.read_models import (
-    ReadModelEntry,
-    ReadModelSurface,
-)
+from bigbrotr.services.common.read_models import ReadModelSurface
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import DvmRequestCursor
 from bigbrotr.utils.protocol import NostrClientManager, normalize_send_output
@@ -69,7 +66,6 @@ from .utils import (
     build_error_event,
     build_payment_required_event,
     build_result_event,
-    configured_read_model_price,
     parse_job_params,
     prepare_job_request,
 )
@@ -476,23 +472,9 @@ class Dvm(BaseService[DvmConfig]):
 
     # ── Read-model policy helpers ─────────────────────────────────
 
-    def _is_read_model_enabled(self, name: str) -> bool:
-        return self._read_models.is_enabled(name)
-
-    def _resolve_enabled_read_model(self, name: str) -> ReadModelEntry | None:
-        """Resolve one DVM read-model name to its enabled registered entry."""
-        return self._read_models.resolve("dvm", name)
-
-    def _get_read_model_price(self, name: str) -> int:
-        return configured_read_model_price(name, policies=self._config.read_models)
-
     def _enabled_read_model_names(self) -> list[str]:
         """Return enabled DVM read models that are present in the discovered catalog."""
         return self._read_models.enabled_names("dvm")
-
-    def _enabled_read_models(self) -> dict[str, ReadModelEntry]:
-        """Return enabled DVM read models keyed by public read-model ID."""
-        return self._read_models.enabled_entries("dvm")
 
     def _set_read_model_exposure_metrics(self, count: int) -> None:
         """Publish the exposure gauge for public read models."""
