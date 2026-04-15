@@ -499,6 +499,55 @@ class TestValidatorRun:
 
 
 # ============================================================================
+# Validator planning helpers
+# ============================================================================
+
+
+class TestValidationPlanning:
+    def test_build_validation_cycle_plan_returns_none_when_no_networks_enabled(
+        self,
+        validator_brotr: Brotr,
+    ) -> None:
+        cfg = ValidatorConfig(networks=NetworksConfig(clearnet=ClearnetConfig(enabled=False)))
+        assert Validator(validator_brotr, config=cfg)._build_validation_cycle_plan() is None
+
+    def test_build_validation_cycle_plan_computes_budget_and_cutoff(
+        self,
+        validator_brotr: Brotr,
+    ) -> None:
+        cfg = ValidatorConfig(
+            processing={"chunk_size": 250, "max_candidates": 500, "interval": 120.0},
+            networks=NetworksConfig(
+                clearnet=ClearnetConfig(enabled=True, max_tasks=7),
+                tor=TorConfig(enabled=True, max_tasks=5),
+            ),
+        )
+        validator = Validator(validator_brotr, config=cfg)
+
+        plan = validator._build_validation_cycle_plan(now=1_000)
+
+        assert plan is not None
+        assert plan.networks == (NetworkType.CLEARNET, NetworkType.TOR)
+        assert plan.attempted_before == 880
+        assert plan.chunk_size == 250
+        assert plan.max_candidates == 500
+        assert plan.max_concurrency == 12
+
+    def test_candidate_page_limit_respects_remaining_budget(self) -> None:
+        plan = Validator.ValidationCyclePlan(
+            networks=(NetworkType.CLEARNET,),
+            attempted_before=0,
+            chunk_size=100,
+            max_candidates=250,
+            max_concurrency=10,
+        )
+
+        assert Validator._candidate_page_limit(plan, processed=0) == 100
+        assert Validator._candidate_page_limit(plan, processed=175) == 75
+        assert Validator._candidate_page_limit(plan, processed=250) is None
+
+
+# ============================================================================
 # Validator.validate
 # ============================================================================
 

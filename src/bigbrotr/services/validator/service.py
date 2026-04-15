@@ -51,10 +51,11 @@ Examples:
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from bigbrotr.core.base_service import BaseService
-from bigbrotr.models.constants import ServiceName
+from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.relay import Relay
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin, NetworkSemaphoresMixin
 
@@ -113,6 +114,47 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
         super().__init__(brotr=brotr, config=config, networks=config.networks)
         self._config: ValidatorConfig
 
+    @dataclass(frozen=True, slots=True)
+    class ValidationCyclePlan:
+        """Computed inputs for one validation cycle."""
+
+        networks: tuple[NetworkType, ...]
+        attempted_before: int
+        chunk_size: int
+        max_candidates: int | None
+        max_concurrency: int
+
+    def _build_validation_cycle_plan(self, now: int | None = None) -> ValidationCyclePlan | None:
+        """Return the computed network and budget inputs for one validation cycle."""
+        networks = tuple(self._config.networks.get_enabled_networks())
+        if not networks:
+            return None
+
+        attempted_before = int(
+            (now if now is not None else time.time()) - self._config.processing.interval
+        )
+        return self.ValidationCyclePlan(
+            networks=networks,
+            attempted_before=attempted_before,
+            chunk_size=self._config.processing.chunk_size,
+            max_candidates=self._config.processing.max_candidates,
+            max_concurrency=self.network_semaphores.max_concurrency(list(networks)),
+        )
+
+    @staticmethod
+    def _candidate_page_limit(
+        plan: ValidationCyclePlan,
+        processed: int,
+    ) -> int | None:
+        """Return the next candidate page size allowed by the cycle budget."""
+        if plan.max_candidates is None:
+            return plan.chunk_size
+
+        budget = plan.max_candidates - processed
+        if budget <= 0:
+            return None
+        return min(plan.chunk_size, budget)
+
     async def run(self) -> None:
         """Execute one complete validation cycle."""
         await self.validate()
@@ -137,14 +179,12 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
         Returns:
             Total number of candidates processed (valid + invalid).
         """
-        networks = self._config.networks.get_enabled_networks()
-        if not networks:
+        plan = self._build_validation_cycle_plan()
+        if plan is None:
             self._logger.warning("no_networks_enabled")
             return 0
 
-        attempted_before = int(time.time() - self._config.processing.interval)
-
-        total = await count_candidates(self._brotr, networks, attempted_before)
+        total = await count_candidates(self._brotr, list(plan.networks), plan.attempted_before)
         validated = 0
         not_validated = 0
 
@@ -154,19 +194,17 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
 
         self._logger.info("candidates_available", total=total)
 
-        chunk_size = self._config.processing.chunk_size
-        max_candidates = self._config.processing.max_candidates
-
         while self.is_running:
-            if max_candidates is not None:
-                budget = max_candidates - validated - not_validated
-                if budget <= 0:
-                    break
-                limit = min(chunk_size, budget)
-            else:
-                limit = chunk_size
+            limit = self._candidate_page_limit(plan, validated + not_validated)
+            if limit is None:
+                break
 
-            candidates = await fetch_candidates(self._brotr, networks, attempted_before, limit)
+            candidates = await fetch_candidates(
+                self._brotr,
+                list(plan.networks),
+                plan.attempted_before,
+                limit,
+            )
             if not candidates:
                 break
 
@@ -176,7 +214,7 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
             async for candidate, is_valid in self._iter_concurrent(
                 candidates,
                 self._validate_worker,
-                max_concurrency=self.network_semaphores.max_concurrency(networks),
+                max_concurrency=plan.max_concurrency,
             ):
                 if is_valid:
                     chunk_valid.append(candidate)
