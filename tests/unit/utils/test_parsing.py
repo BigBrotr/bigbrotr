@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from bigbrotr.models import Relay
-from bigbrotr.utils.parsing import parse_relay_url, safe_parse
+from bigbrotr.utils.parsing import safe_parse
 
 
 # ============================================================================
@@ -66,59 +66,59 @@ class TestSafeParse:
 
 
 # ============================================================================
-# TestParseRelayUrl
+# TestRelayParse
 # ============================================================================
 
 
-class TestParseRelayUrl:
-    """Tests for parse_relay_url factory function."""
+class TestRelayParse:
+    """Tests for using Relay.parse as a tolerant parsing factory."""
 
     def test_clean_url_returns_relay(self):
-        relay = parse_relay_url("wss://relay.example.com")
+        relay = Relay.parse("wss://relay.example.com")
         assert isinstance(relay, Relay)
         assert relay.url == "wss://relay.example.com"
 
     def test_dirty_url_sanitized(self):
-        relay = parse_relay_url("wss://relay.example.com?key=val#frag")
+        relay = Relay.parse("wss://relay.example.com?key=val#frag")
         assert relay.url == "wss://relay.example.com"
 
     def test_scheme_corrected_for_overlay(self):
         from tests.fixtures.relays import ONION_HOST
 
-        relay = parse_relay_url(f"wss://{ONION_HOST}.onion")
+        relay = Relay.parse(f"wss://{ONION_HOST}.onion")
         assert relay.url == f"ws://{ONION_HOST}.onion"
         assert relay.scheme == "ws"
 
     def test_uppercase_host_lowered(self):
-        relay = parse_relay_url("wss://RELAY.EXAMPLE.COM")
+        relay = Relay.parse("wss://RELAY.EXAMPLE.COM")
         assert relay.url == "wss://relay.example.com"
 
     def test_default_port_stripped(self):
-        relay = parse_relay_url("wss://relay.example.com:443")
+        relay = Relay.parse("wss://relay.example.com:443")
         assert relay.url == "wss://relay.example.com"
 
     def test_explicit_port_preserved(self):
-        relay = parse_relay_url("wss://relay.example.com:8080")
+        relay = Relay.parse("wss://relay.example.com:8080")
         assert relay.url == "wss://relay.example.com:8080"
         assert relay.port == 8080
 
     def test_path_preserved(self):
-        relay = parse_relay_url("wss://relay.example.com/nostr")
+        relay = Relay.parse("wss://relay.example.com/nostr")
         assert relay.path == "/nostr"
 
     def test_invalid_scheme_raises(self):
         with pytest.raises(ValueError):
-            parse_relay_url("http://relay.example.com")
+            Relay.parse("http://relay.example.com")
 
     def test_no_host_raises(self):
         with pytest.raises(ValueError):
-            parse_relay_url("wss://")
+            Relay.parse("wss://")
 
     def test_local_address_raises(self):
         with pytest.raises(ValueError):
-            parse_relay_url("wss://127.0.0.1")
+            Relay.parse("wss://127.0.0.1")
 
     def test_local_address_allowed_when_requested(self):
-        relay = parse_relay_url("wss://127.0.0.1", allow_local=True)
+        relay = Relay.parse("wss://127.0.0.1", allow_local=True)
         assert relay.url == "wss://127.0.0.1"
         assert relay.network.value == "local"
