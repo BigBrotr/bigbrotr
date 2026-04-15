@@ -250,6 +250,121 @@ class TestAssertorRun:
         assert result.checkpoint_cleanup_removed == 0
         service._delete_stale_checkpoints.assert_not_awaited()
 
+    async def test_run_selected_publishers_only_runs_enabled_kinds(
+        self,
+        mock_brotr: MagicMock,
+    ) -> None:
+        from bigbrotr.services.assertor.service import PublishKindResult
+
+        service = _assertor_harness(
+            mock_brotr,
+            config=AssertorConfig(
+                selection={
+                    "kinds": [
+                        EventKind.NIP85_USER_ASSERTION,
+                        EventKind.NIP85_EVENT_ASSERTION,
+                    ]
+                },
+                metrics={"enabled": False},
+            ),
+        )
+        service._publish_user_assertions = AsyncMock()
+        service._publish_event_assertions = AsyncMock()
+        service._publish_addressable_assertions = AsyncMock()
+        service._publish_identifier_assertions = AsyncMock()
+        service._publish_provider_profile = AsyncMock()
+        service._publish_timed = AsyncMock(  # type: ignore[method-assign]
+            side_effect=[
+                PublishKindResult(published=2),
+                PublishKindResult(failed=1),
+            ]
+        )
+
+        result = await service._run_selected_publishers()
+
+        assert result == (
+            PublishKindResult(published=2),
+            PublishKindResult(failed=1),
+            PublishKindResult(),
+            PublishKindResult(),
+            PublishKindResult(),
+        )
+        assert [call.args[0] for call in service._publish_timed.await_args_list] == [
+            service._publish_user_assertions,
+            service._publish_event_assertions,
+        ]
+
+    async def test_run_selected_publishers_runs_provider_profile_when_enabled(
+        self,
+        mock_brotr: MagicMock,
+    ) -> None:
+        from bigbrotr.services.assertor.service import PublishKindResult
+
+        service = _assertor_harness(
+            mock_brotr,
+            config=AssertorConfig(
+                selection={"kinds": [EventKind.NIP85_IDENTIFIER_ASSERTION]},
+                provider_profile={"enabled": True},
+                metrics={"enabled": False},
+            ),
+        )
+        service._publish_user_assertions = AsyncMock()
+        service._publish_event_assertions = AsyncMock()
+        service._publish_addressable_assertions = AsyncMock()
+        service._publish_identifier_assertions = AsyncMock()
+        service._publish_provider_profile = AsyncMock()
+        service._publish_timed = AsyncMock(  # type: ignore[method-assign]
+            side_effect=[
+                PublishKindResult(skipped=3),
+                PublishKindResult(published=1),
+            ]
+        )
+
+        result = await service._run_selected_publishers()
+
+        assert result == (
+            PublishKindResult(),
+            PublishKindResult(),
+            PublishKindResult(),
+            PublishKindResult(skipped=3),
+            PublishKindResult(published=1),
+        )
+        assert [call.args[0] for call in service._publish_timed.await_args_list] == [
+            service._publish_identifier_assertions,
+            service._publish_provider_profile,
+        ]
+
+    async def test_run_checkpoint_cleanup_obeys_cleanup_toggle(self, mock_brotr: MagicMock) -> None:
+        disabled_service = _assertor_harness(
+            mock_brotr,
+            config=AssertorConfig(
+                cleanup={"remove_stale_checkpoints": False},
+                metrics={"enabled": False},
+            ),
+        )
+        disabled_service._delete_stale_checkpoints = AsyncMock(return_value=99)
+
+        disabled_removed, disabled_duration = await disabled_service._run_checkpoint_cleanup()
+
+        assert disabled_removed == 0
+        assert disabled_duration >= 0.0
+        disabled_service._delete_stale_checkpoints.assert_not_awaited()
+
+        enabled_service = _assertor_harness(
+            mock_brotr,
+            config=AssertorConfig(
+                cleanup={"remove_stale_checkpoints": True},
+                metrics={"enabled": False},
+            ),
+        )
+        enabled_service._delete_stale_checkpoints = AsyncMock(return_value=7)
+
+        enabled_removed, enabled_duration = await enabled_service._run_checkpoint_cleanup()
+
+        assert enabled_removed == 7
+        assert enabled_duration >= 0.0
+        enabled_service._delete_stale_checkpoints.assert_awaited_once_with()
+
     def test_mark_seen_state_key_initializes_missing_set(self, mock_brotr: MagicMock) -> None:
         service = _assertor_harness(mock_brotr)
         del service._cycle_seen_state_keys

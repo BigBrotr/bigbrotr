@@ -221,32 +221,15 @@ class Assertor(BaseService[AssertorConfig]):
 
         self._cycle_seen_state_keys = set()
 
-        user_result = PublishKindResult()
-        event_result = PublishKindResult()
-        addressable_result = PublishKindResult()
-        identifier_result = PublishKindResult()
-        provider_profile_result = PublishKindResult()
+        (
+            user_result,
+            event_result,
+            addressable_result,
+            identifier_result,
+            provider_profile_result,
+        ) = await self._run_selected_publishers()
 
-        if EventKind.NIP85_USER_ASSERTION in self._config.selection.kinds:
-            user_result = await self._publish_timed(self._publish_user_assertions)
-
-        if EventKind.NIP85_EVENT_ASSERTION in self._config.selection.kinds:
-            event_result = await self._publish_timed(self._publish_event_assertions)
-
-        if EventKind.NIP85_ADDRESSABLE_ASSERTION in self._config.selection.kinds:
-            addressable_result = await self._publish_timed(self._publish_addressable_assertions)
-
-        if EventKind.NIP85_IDENTIFIER_ASSERTION in self._config.selection.kinds:
-            identifier_result = await self._publish_timed(self._publish_identifier_assertions)
-
-        if self._provider_profile_enabled():
-            provider_profile_result = await self._publish_timed(self._publish_provider_profile)
-
-        cleanup_start = time.monotonic()
-        removed = 0
-        if self._config.cleanup.remove_stale_checkpoints:
-            removed = await self._delete_stale_checkpoints()
-        cleanup_duration = time.monotonic() - cleanup_start
+        removed, cleanup_duration = await self._run_checkpoint_cleanup()
 
         result = PublishCycleResult(
             user=user_result,
@@ -270,6 +253,53 @@ class Assertor(BaseService[AssertorConfig]):
         )
 
         return result
+
+    async def _run_selected_publishers(
+        self,
+    ) -> tuple[
+        PublishKindResult,
+        PublishKindResult,
+        PublishKindResult,
+        PublishKindResult,
+        PublishKindResult,
+    ]:
+        """Run the enabled publish branches for this cycle."""
+        user_result = PublishKindResult()
+        event_result = PublishKindResult()
+        addressable_result = PublishKindResult()
+        identifier_result = PublishKindResult()
+        provider_profile_result = PublishKindResult()
+
+        if EventKind.NIP85_USER_ASSERTION in self._config.selection.kinds:
+            user_result = await self._publish_timed(self._publish_user_assertions)
+
+        if EventKind.NIP85_EVENT_ASSERTION in self._config.selection.kinds:
+            event_result = await self._publish_timed(self._publish_event_assertions)
+
+        if EventKind.NIP85_ADDRESSABLE_ASSERTION in self._config.selection.kinds:
+            addressable_result = await self._publish_timed(self._publish_addressable_assertions)
+
+        if EventKind.NIP85_IDENTIFIER_ASSERTION in self._config.selection.kinds:
+            identifier_result = await self._publish_timed(self._publish_identifier_assertions)
+
+        if self._provider_profile_enabled():
+            provider_profile_result = await self._publish_timed(self._publish_provider_profile)
+
+        return (
+            user_result,
+            event_result,
+            addressable_result,
+            identifier_result,
+            provider_profile_result,
+        )
+
+    async def _run_checkpoint_cleanup(self) -> tuple[int, float]:
+        """Remove stale checkpoints when configured and report elapsed time."""
+        cleanup_start = time.monotonic()
+        removed = 0
+        if self._config.cleanup.remove_stale_checkpoints:
+            removed = await self._delete_stale_checkpoints()
+        return removed, time.monotonic() - cleanup_start
 
     async def _publish_timed(
         self,
