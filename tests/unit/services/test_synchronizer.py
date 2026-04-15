@@ -505,6 +505,8 @@ class TestSynchronize:
         assert plan is not None
         assert plan.networks == (NetworkType.CLEARNET,)
         assert plan.total_relays == 11
+        assert plan.batch_size == 100
+        assert plan.max_concurrency == 150
         assert plan.page_size == 150
         assert plan.deadline == 700.0
         mock_count.assert_awaited_once_with(
@@ -741,7 +743,15 @@ class TestSynchronize:
                 ],
                 buffer,  # type: ignore[arg-type]
                 pending_cursors,
-                deadline=time.monotonic() + 60,
+                plan=sync.SyncCyclePlan(
+                    networks=(NetworkType.CLEARNET,),
+                    end_time=0,
+                    total_relays=1,
+                    batch_size=100,
+                    max_concurrency=5,
+                    page_size=100,
+                    deadline=time.monotonic() + 60,
+                ),
             )
 
         assert synced == 2

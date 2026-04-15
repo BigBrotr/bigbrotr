@@ -176,6 +176,8 @@ class Synchronizer(
         networks: tuple[NetworkType, ...]
         end_time: int
         total_relays: int
+        batch_size: int
+        max_concurrency: int
         page_size: int
         deadline: float
 
@@ -187,15 +189,15 @@ class Synchronizer(
 
         end_time = self._config.processing.get_end_time()
         total_relays = await count_cursors_to_sync(self._brotr, end_time, list(networks))
-        page_size = max(
-            self._config.processing.batch_size,
-            self.network_semaphores.max_concurrency(list(networks)),
-        )
+        batch_size = self._config.processing.batch_size
+        max_concurrency = self.network_semaphores.max_concurrency(list(networks))
         return self.SyncCyclePlan(
             networks=networks,
             end_time=end_time,
             total_relays=total_relays,
-            page_size=page_size,
+            batch_size=batch_size,
+            max_concurrency=max_concurrency,
+            page_size=max(batch_size, max_concurrency),
             deadline=time.monotonic() + self._config.timeouts.max_duration,
         )
 
@@ -238,7 +240,7 @@ class Synchronizer(
                 cursors,
                 buffer,
                 pending_cursors,
-                deadline=plan.deadline,
+                plan=plan,
             )
             events_synced += page_events_synced
             if timed_out:
@@ -258,19 +260,15 @@ class Synchronizer(
         buffer: list[EventRelay],
         pending_cursors: dict[str, SyncCursor],
         *,
-        deadline: float,
+        plan: SyncCyclePlan,
     ) -> tuple[int, bool]:
         """Scan one page of relay cursors and flush when the batch budget is reached."""
         events_synced = 0
-        batch_size = self._config.processing.batch_size
-        max_concurrency = self.network_semaphores.max_concurrency(
-            self._config.networks.get_enabled_networks()
-        )
 
         async for event, relay in self._iter_concurrent(
             cursors,
             self._synchronize_worker,
-            max_concurrency=max_concurrency,
+            max_concurrency=plan.max_concurrency,
         ):
             buffer.append(EventRelay(event, relay))
             pending_cursors[relay.url] = SyncCursor(
@@ -279,9 +277,9 @@ class Synchronizer(
                 id=event.id,
             )
             self.inc_gauge("events_seen")
-            if len(buffer) == batch_size:
+            if len(buffer) == plan.batch_size:
                 events_synced += await self._flush_sync_batch(buffer, pending_cursors)
-                if time.monotonic() > deadline:
+                if time.monotonic() > plan.deadline:
                     self._logger.info("sync_timeout", events_synced=events_synced)
                     return events_synced, True
 
