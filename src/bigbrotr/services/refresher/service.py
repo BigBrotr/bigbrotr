@@ -97,7 +97,16 @@ class Refresher(BaseService[RefresherConfig]):
     def __init__(self, brotr: Brotr, config: RefresherConfig | None = None) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: RefresherConfig
+        self._state_store: ServiceStateStore | None = None
         self._last_cleanup_removed = 0
+
+    def _get_state_store(self) -> ServiceStateStore:
+        """Return the lazy-initialized state store for refresher checkpoints."""
+        store = getattr(self, "_state_store", None)
+        if store is None:
+            store = ServiceStateStore(self._brotr)
+            self._state_store = store
+        return store
 
     async def cleanup(self) -> int:
         """Remove stale checkpoints for targets no longer configured."""
@@ -107,7 +116,7 @@ class Refresher(BaseService[RefresherConfig]):
             return 0
 
         configured = {target.value for target in self._incremental_targets()}
-        store = ServiceStateStore(self._brotr)
+        store = self._get_state_store()
         states = await store.get(
             ServiceName.REFRESHER,
             ServiceStateType.CHECKPOINT,
@@ -366,7 +375,7 @@ class Refresher(BaseService[RefresherConfig]):
 
     async def _read_checkpoint(self, target: str) -> int:
         """Read the stored checkpoint for one incremental target."""
-        states = await ServiceStateStore(self._brotr).get(
+        states = await self._get_state_store().get(
             ServiceName.REFRESHER,
             ServiceStateType.CHECKPOINT,
             target,
@@ -375,7 +384,7 @@ class Refresher(BaseService[RefresherConfig]):
 
     async def _write_checkpoint(self, target: str, timestamp: int) -> None:
         """Persist the checkpoint for one successfully refreshed target."""
-        await ServiceStateStore(self._brotr).upsert_checkpoints(
+        await self._get_state_store().upsert_checkpoints(
             ServiceName.REFRESHER,
             [Checkpoint(key=target, timestamp=timestamp)],
         )
