@@ -179,6 +179,25 @@ class TestServiceStateStore:
         assert deleted == 3
         assert query_brotr.delete_service_state.await_count == 2
 
+    async def test_delete_states_works_with_minimal_brotr_mock(self) -> None:
+        brotr = MagicMock()
+        del brotr.config
+        brotr.delete_service_state = AsyncMock(return_value=1)
+
+        deleted = await ServiceStateStore(brotr).delete_states(
+            [
+                ServiceState(
+                    service_name=ServiceName.REFRESHER,
+                    state_type=ServiceStateType.CHECKPOINT,
+                    state_key="target",
+                    state_value={"timestamp": 1},
+                )
+            ]
+        )
+
+        assert deleted == 1
+        brotr.delete_service_state.assert_awaited_once()
+
     async def test_fetch_hash_returns_string_only(self, query_brotr: MagicMock) -> None:
         query_brotr.get_service_state = AsyncMock(
             return_value=[

@@ -8,7 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import asyncpg
 import pytest
 
-from bigbrotr.core.brotr import Brotr, BrotrConfig
+from bigbrotr.core.brotr import Brotr
+from bigbrotr.core.brotr_config import BrotrConfig
 from bigbrotr.models import Relay
 from bigbrotr.services.seeder import SeedConfig, Seeder, SeederConfig
 from bigbrotr.services.seeder.queries import insert_relays

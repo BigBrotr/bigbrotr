@@ -1,5 +1,5 @@
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -8,10 +8,10 @@ from bigbrotr.services.common.catalog import Catalog, ColumnSchema, QueryResult,
 from bigbrotr.services.common.configs import ReadModelConfig
 from bigbrotr.services.common.read_models import (
     READ_MODEL_REGISTRY,
-    CatalogReadModelBackend,
     ReadModelEntry,
     ReadModelQuery,
     ReadModelQueryError,
+    ReadModelSurface,
     build_read_model_detail,
     build_read_model_meta,
     build_read_model_summary,
@@ -41,8 +41,6 @@ class TestReadModelRegistry:
     def test_all_entries_are_catalog_compatibility_read_models(self) -> None:
         for read_model_id, entry in READ_MODEL_REGISTRY.items():
             assert entry.read_model_id == read_model_id
-            assert isinstance(entry.backend, CatalogReadModelBackend)
-            assert entry.backend.catalog_name == entry.catalog_name
             assert entry.surfaces
             assert resolve_read_model_id(read_model_id) == read_model_id
             for alias in entry.aliases:
@@ -281,6 +279,218 @@ class TestReadModelRegistry:
                 "meta_cursor_field": None,
             },
         }
+
+
+class TestReadModelSurface:
+    def _surface(
+        self,
+        *,
+        policies: dict[str, ReadModelConfig] | None = None,
+        catalog: Catalog | None = None,
+    ) -> ReadModelSurface:
+        surface = ReadModelSurface(policy_source=lambda: policies or {})
+        if catalog is not None:
+            surface.catalog = catalog
+        return surface
+
+    def test_init_creates_empty_catalog(self) -> None:
+        surface = self._surface()
+
+        assert isinstance(surface.catalog, Catalog)
+        assert surface.catalog.tables == {}
+
+    async def test_discover_uses_catalog_and_logs_shape(self) -> None:
+        surface = self._surface()
+        catalog = MagicMock()
+        catalog.discover = AsyncMock()
+        table = MagicMock(is_view=False)
+        view = MagicMock(is_view=True)
+        catalog.tables.values.return_value = [table, table, view]
+        surface.catalog = catalog
+        logger = MagicMock()
+        brotr = MagicMock()
+
+        await surface.discover(brotr, logger=logger)
+
+        catalog.discover.assert_awaited_once_with(brotr)
+        logger.info.assert_called_once_with("schema_discovered", tables=2, views=1)
+
+    def test_is_enabled_filters_unknown_and_disabled_read_models(self) -> None:
+        disabled = self._surface(policies={"relays": ReadModelConfig(enabled=False)})
+        enabled = self._surface(policies={"relays": ReadModelConfig(enabled=True)})
+
+        assert disabled.is_enabled("relays") is False
+        assert enabled.is_enabled("relay") is True
+        assert enabled.is_enabled("service_state") is False
+
+    def test_available_and_enabled_names_follow_catalog_and_policy(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {"relay": MagicMock(), "event": MagicMock()}
+        surface = self._surface(
+            policies={
+                "relays": ReadModelConfig(enabled=True),
+                "events": ReadModelConfig(enabled=False),
+            },
+            catalog=catalog,
+        )
+
+        assert surface.available_catalog_names() == {"relay", "event"}
+        assert surface.enabled_names("api") == ["relays"]
+
+    def test_resolve_accepts_legacy_alias(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {"relay": MagicMock()}
+        surface = self._surface(
+            policies={"relays": ReadModelConfig(enabled=True)},
+            catalog=catalog,
+        )
+
+        resolved = surface.resolve("dvm", "relay")
+
+        assert resolved is not None
+        read_model_id, entry = resolved
+        assert read_model_id == "relays"
+        assert entry.read_model_id == "relays"
+
+    async def test_query_entry_uses_catalog_context(self) -> None:
+        catalog = Catalog()
+        request = ReadModelQuery(limit=10, offset=0)
+        result = MagicMock()
+        catalog.query = AsyncMock(return_value=result)  # type: ignore[method-assign]
+        brotr = MagicMock()
+        surface = self._surface(catalog=catalog)
+        read_model = ReadModelEntry(
+            read_model_id="relays",
+            catalog_name="relay",
+        )
+
+        resolved = await surface.query_entry(brotr, read_model, request)
+
+        assert resolved is result
+        catalog.query.assert_awaited_once_with(  # type: ignore[attr-defined]
+            brotr,
+            "relay",
+            limit=10,
+            offset=0,
+            max_page_size=1000,
+            filters=None,
+            sort=None,
+            include_total=False,
+            cursor=None,
+            prefer_keyset=True,
+        )
+
+    async def test_get_entry_by_pk_uses_catalog_context(self) -> None:
+        catalog = Catalog()
+        row = {"url": "wss://relay.example.com"}
+        catalog.get_by_pk = AsyncMock(return_value=row)  # type: ignore[method-assign]
+        brotr = MagicMock()
+        surface = self._surface(catalog=catalog)
+        read_model = ReadModelEntry(
+            read_model_id="relays",
+            catalog_name="relay",
+        )
+
+        resolved = await surface.get_entry_by_pk(brotr, read_model, {"url": row["url"]})
+
+        assert resolved == row
+        catalog.get_by_pk.assert_awaited_once_with(  # type: ignore[attr-defined]
+            brotr,
+            "relay",
+            {"url": row["url"]},
+        )
+
+    async def test_query_enabled_returns_canonical_name_and_result(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {"relay": MagicMock()}
+        result = QueryResult(rows=[], total=None, limit=5, offset=0)
+        catalog.query = AsyncMock(return_value=result)  # type: ignore[method-assign]
+        surface = self._surface(
+            policies={"relays": ReadModelConfig(enabled=True)},
+            catalog=catalog,
+        )
+
+        resolved = await surface.query_enabled(
+            MagicMock(),
+            "api",
+            "relay",
+            ReadModelQuery(limit=5, offset=0),
+        )
+
+        assert resolved == ("relays", result)
+
+    async def test_get_enabled_row_returns_canonical_name_and_row(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {"relay": MagicMock()}
+        row = {"url": "wss://relay.example.com"}
+        catalog.get_by_pk = AsyncMock(return_value=row)  # type: ignore[method-assign]
+        surface = self._surface(
+            policies={"relays": ReadModelConfig(enabled=True)},
+            catalog=catalog,
+        )
+
+        resolved = await surface.get_enabled_row(
+            MagicMock(),
+            "api",
+            "relay",
+            {"url": row["url"]},
+        )
+
+        assert resolved == ("relays", row)
+
+    def test_build_summaries_and_detail_use_enabled_surface(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {
+            "relay": TableSchema(
+                name="relay",
+                columns=(
+                    ColumnSchema(name="url", pg_type="text", nullable=False),
+                    ColumnSchema(name="network", pg_type="text", nullable=False),
+                ),
+                primary_key=("url",),
+                is_view=False,
+            )
+        }
+        surface = self._surface(
+            policies={"relays": ReadModelConfig(enabled=True)},
+            catalog=catalog,
+        )
+
+        summaries = surface.build_summaries("api", route_prefix="/v1")
+        detail = surface.build_detail("api", "relay", route_prefix="/v1")
+
+        assert summaries == [
+            {
+                "id": "relays",
+                "path": "/v1/relays",
+                "legacy_aliases": ["relay"],
+                "field_count": 2,
+                "supports_identity_lookup": True,
+                "default_pagination_mode": "cursor",
+                "supports_cursor_pagination": True,
+            }
+        ]
+        assert detail == (
+            "relays",
+            {
+                "id": "relays",
+                "path": "/v1/relays",
+                "legacy_aliases": ["relay"],
+                "fields": [
+                    {"name": "url", "type": "text", "nullable": False},
+                    {"name": "network", "type": "text", "nullable": False},
+                ],
+                "identity_fields": ["url"],
+                "pagination": {
+                    "default_mode": "cursor",
+                    "supports_cursor": True,
+                    "supports_offset": True,
+                    "supports_total_opt_in": True,
+                    "cursor_param": "cursor",
+                    "meta_cursor_field": "next_cursor",
+                },
+            },
+        )
 
 
 class TestReadModelQueryHelpers:

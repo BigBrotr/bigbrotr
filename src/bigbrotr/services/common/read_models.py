@@ -8,13 +8,14 @@ cleaner boundary than calling ``Catalog`` directly for every request.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal
 
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from bigbrotr.core.brotr import Brotr
+    from bigbrotr.core.logger import Logger
     from bigbrotr.services.common.catalog import Catalog, QueryResult, TableSchema
     from bigbrotr.services.common.configs import ReadModelConfig
 
@@ -218,31 +219,180 @@ def build_read_model_detail(
     }
 
 
-class ReadModelBackend(Protocol):
-    """Backend capable of serving one public read model."""
+class ReadModelSurface:
+    """Resolve and execute the public read-model surface for one service."""
 
-    def schema(self, catalog: Catalog) -> TableSchema: ...
+    __slots__ = ("_catalog", "_policy_source")
 
-    async def query(
+    def __init__(self, *, policy_source: Callable[[], Mapping[str, ReadModelConfig]]) -> None:
+        from .catalog import Catalog  # noqa: PLC0415
+
+        self._catalog = Catalog()
+        self._policy_source = policy_source
+
+    @property
+    def catalog(self) -> Catalog:
+        """Return the discovered catalog backing this public read surface."""
+        return self._catalog
+
+    @catalog.setter
+    def catalog(self, catalog: Catalog) -> None:
+        """Replace the backing catalog, mainly for tests or prebuilt surfaces."""
+        self._catalog = catalog
+
+    async def discover(self, brotr: Brotr, *, logger: Logger | None = None) -> None:
+        """Discover catalog tables and optionally log the resulting surface size."""
+        await self._catalog.discover(brotr)
+        if logger is not None:
+            logger.info(
+                "schema_discovered",
+                tables=sum(1 for t in self._catalog.tables.values() if not t.is_view),
+                views=sum(1 for t in self._catalog.tables.values() if t.is_view),
+            )
+
+    def available_catalog_names(self) -> set[str]:
+        """Return discovered catalog object names available to the public surface."""
+        return set(self._catalog.tables)
+
+    def policies(self) -> dict[str, ReadModelConfig]:
+        """Return the current read-model policies from the owning service config."""
+        policies = self._policy_source()
+        if not isinstance(policies, dict):
+            return {}
+        return dict(policies)
+
+    def is_enabled(self, name: str) -> bool:
+        """Check whether a public read model is registered and enabled in config."""
+        canonical_name = resolve_read_model_id(name) or name
+        if canonical_name not in READ_MODEL_REGISTRY:
+            return False
+        policy = self.policies().get(canonical_name)
+        return bool(policy and policy.enabled)
+
+    def enabled_names(self, surface: ReadSurface) -> list[str]:
+        """Return enabled read-model IDs for one public surface."""
+        return resolve_surface_read_model_names(
+            surface,
+            policies=self.policies(),
+            available_catalog_names=self.available_catalog_names(),
+        )
+
+    def enabled_entries(self, surface: ReadSurface) -> dict[str, ReadModelEntry]:
+        """Return enabled read-model entries for one public surface."""
+        return resolve_surface_read_models(
+            surface,
+            policies=self.policies(),
+            available_catalog_names=self.available_catalog_names(),
+        )
+
+    def resolve(self, surface: ReadSurface, name: str) -> tuple[str, ReadModelEntry] | None:
+        """Resolve one public read-model name to an enabled entry for one surface."""
+        return resolve_surface_read_model(
+            surface,
+            name=name,
+            policies=self.policies(),
+            available_catalog_names=self.available_catalog_names(),
+        )
+
+    async def query_entry(
         self,
         brotr: Brotr,
-        catalog: Catalog,
+        read_model: ReadModelEntry,
         request: ReadModelQuery,
-    ) -> QueryResult: ...
+    ) -> QueryResult:
+        """Execute one resolved read-model query through the shared catalog context."""
+        return await read_model.query(brotr, self._catalog, request)
 
-    async def get_by_pk(
+    async def get_entry_by_pk(
         self,
         brotr: Brotr,
-        catalog: Catalog,
+        read_model: ReadModelEntry,
         pk_values: dict[str, str],
-    ) -> dict[str, Any] | None: ...
+    ) -> dict[str, Any] | None:
+        """Fetch one resolved read-model row by primary key."""
+        return await read_model.get_by_pk(brotr, self._catalog, pk_values)
+
+    async def query_enabled(
+        self,
+        brotr: Brotr,
+        surface: ReadSurface,
+        name: str,
+        request: ReadModelQuery,
+    ) -> tuple[str, QueryResult] | None:
+        """Resolve and execute one enabled public read model for a surface."""
+        resolved = self.resolve(surface, name)
+        if resolved is None:
+            return None
+        read_model_id, read_model = resolved
+        return read_model_id, await self.query_entry(brotr, read_model, request)
+
+    async def get_enabled_row(
+        self,
+        brotr: Brotr,
+        surface: ReadSurface,
+        name: str,
+        pk_values: dict[str, str],
+    ) -> tuple[str, dict[str, Any] | None] | None:
+        """Resolve and fetch one row from an enabled public read model for a surface."""
+        resolved = self.resolve(surface, name)
+        if resolved is None:
+            return None
+        read_model_id, read_model = resolved
+        return read_model_id, await self.get_entry_by_pk(brotr, read_model, pk_values)
+
+    def build_summaries(
+        self,
+        surface: ReadSurface,
+        *,
+        route_prefix: str,
+    ) -> list[dict[str, Any]]:
+        """Build discovery summaries for enabled public read models on one surface."""
+        return [
+            build_read_model_summary(
+                read_model_id,
+                read_model,
+                catalog=self._catalog,
+                route_prefix=route_prefix,
+            )
+            for read_model_id, read_model in self.enabled_entries(surface).items()
+        ]
+
+    def build_detail(
+        self,
+        surface: ReadSurface,
+        name: str,
+        *,
+        route_prefix: str,
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Build the discovery detail payload for one enabled public read model."""
+        resolved = self.resolve(surface, name)
+        if resolved is None:
+            return None
+        read_model_id, read_model = resolved
+        return (
+            read_model_id,
+            build_read_model_detail(
+                read_model_id,
+                read_model,
+                catalog=self._catalog,
+                route_prefix=route_prefix,
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
-class CatalogReadModelBackend:
-    """Compatibility backend that serves one catalog-backed read model."""
+class ReadModelEntry:
+    """One built-in read model exposed by one or more public surfaces."""
 
+    read_model_id: str
     catalog_name: str
+    aliases: tuple[str, ...] = ()
+    surfaces: tuple[ReadSurface, ...] = ("api", "dvm")
+
+    @property
+    def all_public_ids(self) -> tuple[str, ...]:
+        """Return canonical and legacy public IDs for this read model."""
+        return (self.read_model_id, *self.aliases)
 
     def schema(self, catalog: Catalog) -> TableSchema:
         """Resolve the discovered schema backing this read model."""
@@ -254,7 +404,7 @@ class CatalogReadModelBackend:
         catalog: Catalog,
         request: ReadModelQuery,
     ) -> QueryResult:
-        """Execute one paginated query through the catalog compatibility backend."""
+        """Execute one paginated query through the shared catalog context."""
         return await catalog.query(
             brotr,
             self.catalog_name,
@@ -274,50 +424,12 @@ class CatalogReadModelBackend:
         catalog: Catalog,
         pk_values: dict[str, str],
     ) -> dict[str, Any] | None:
-        """Fetch one row by primary key through the catalog compatibility backend."""
+        """Fetch one row by primary key through the shared catalog context."""
         return await catalog.get_by_pk(
             brotr,
             self.catalog_name,
             pk_values,
         )
-
-
-@dataclass(frozen=True, slots=True)
-class ReadModelEntry:
-    """One built-in read model exposed by one or more public surfaces."""
-
-    read_model_id: str
-    catalog_name: str
-    backend: ReadModelBackend
-    aliases: tuple[str, ...] = ()
-    surfaces: tuple[ReadSurface, ...] = ("api", "dvm")
-
-    @property
-    def all_public_ids(self) -> tuple[str, ...]:
-        """Return canonical and legacy public IDs for this read model."""
-        return (self.read_model_id, *self.aliases)
-
-    def schema(self, catalog: Catalog) -> TableSchema:
-        """Resolve the discovered schema backing this read model."""
-        return self.backend.schema(catalog)
-
-    async def query(
-        self,
-        brotr: Brotr,
-        catalog: Catalog,
-        request: ReadModelQuery,
-    ) -> QueryResult:
-        """Execute one paginated query through the registered backend."""
-        return await self.backend.query(brotr, catalog, request)
-
-    async def get_by_pk(
-        self,
-        brotr: Brotr,
-        catalog: Catalog,
-        pk_values: dict[str, str],
-    ) -> dict[str, Any] | None:
-        """Fetch one row by primary key through the registered backend."""
-        return await self.backend.get_by_pk(brotr, catalog, pk_values)
 
 
 def _catalog_read_model(
@@ -331,7 +443,6 @@ def _catalog_read_model(
     return ReadModelEntry(
         read_model_id=read_model_id,
         catalog_name=catalog_name,
-        backend=CatalogReadModelBackend(catalog_name),
         aliases=aliases,
         surfaces=surfaces,
     )

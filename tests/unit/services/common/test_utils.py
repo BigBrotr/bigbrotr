@@ -8,9 +8,25 @@ Tests:
 from __future__ import annotations
 
 import logging
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from bigbrotr.models import Relay
-from bigbrotr.services.common.utils import parse_relay, parse_relay_row
+from bigbrotr.services.common.utils import (
+    batch_size_for,
+    batched_insert,
+    parse_relay,
+    parse_relay_row,
+)
+
+
+@pytest.fixture
+def query_brotr() -> MagicMock:
+    """Create a mock Brotr with a configurable batch size."""
+    brotr = MagicMock()
+    brotr.config.batch.max_size = 1000
+    return brotr
 
 
 # ============================================================================
@@ -102,6 +118,62 @@ class TestParseRelayUrl:
         result = parse_relay("wss://relay.example.com", discovered_at="not_an_int")  # type: ignore[arg-type]
 
         assert result is None
+
+
+class TestBatchedInsert:
+    """Tests for the shared batching helper."""
+
+    async def test_empty_returns_zero(self, query_brotr: MagicMock) -> None:
+        method = AsyncMock(return_value=5)
+
+        result = await batched_insert(query_brotr, [], method)
+
+        assert result == 0
+        method.assert_not_called()
+
+    async def test_under_limit_single_call(self, query_brotr: MagicMock) -> None:
+        query_brotr.config.batch.max_size = 100
+        method = AsyncMock(return_value=3)
+
+        result = await batched_insert(query_brotr, [1, 2, 3], method)
+
+        assert result == 3
+        method.assert_awaited_once_with([1, 2, 3])
+
+    async def test_over_limit_splits(self, query_brotr: MagicMock) -> None:
+        query_brotr.config.batch.max_size = 2
+        method = AsyncMock(return_value=2)
+
+        result = await batched_insert(query_brotr, [1, 2, 3, 4, 5], method)
+
+        assert result == 6
+        assert method.await_count == 3
+        method.assert_any_await([1, 2])
+        method.assert_any_await([3, 4])
+        method.assert_any_await([5])
+
+    async def test_exact_multiple(self, query_brotr: MagicMock) -> None:
+        query_brotr.config.batch.max_size = 2
+        method = AsyncMock(return_value=2)
+
+        result = await batched_insert(query_brotr, [1, 2, 3, 4], method)
+
+        assert result == 4
+        assert method.await_count == 2
+
+
+class TestBatchSizeFor:
+    def test_reads_configured_batch_size(self, query_brotr: MagicMock) -> None:
+        query_brotr.config.batch.max_size = 7
+
+        assert batch_size_for(query_brotr, 3) == 7
+
+    def test_falls_back_to_record_count_for_lightweight_mocks(self) -> None:
+        brotr = MagicMock()
+        del brotr.config
+
+        assert batch_size_for(brotr, 3) == 3
+        assert batch_size_for(brotr, 0) == 1
 
 
 # ============================================================================

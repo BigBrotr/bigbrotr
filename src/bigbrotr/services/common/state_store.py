@@ -9,6 +9,7 @@ from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 
 from .types import CandidateCheckpoint, Checkpoint, Cursor
+from .utils import batch_size_for, batched_insert
 
 
 if TYPE_CHECKING:
@@ -111,13 +112,6 @@ class ServiceStateStore:
     def __init__(self, brotr: Brotr) -> None:
         self._brotr = brotr
 
-    def _batch_size(self) -> int:
-        batch = getattr(getattr(self._brotr, "config", None), "batch", None)
-        size = getattr(batch, "max_size", None)
-        if isinstance(size, int) and size > 0:
-            return size
-        return 1000
-
     async def get(
         self,
         service_name: str,
@@ -127,13 +121,7 @@ class ServiceStateStore:
         return await self._brotr.get_service_state(service_name, state_type, key)
 
     async def upsert(self, records: list[ServiceState]) -> int:
-        if not records:
-            return 0
-        total = 0
-        batch_size = self._batch_size()
-        for i in range(0, len(records), batch_size):
-            total += await self._brotr.upsert_service_state(records[i : i + batch_size])
-        return total
+        return await batched_insert(self._brotr, records, self._brotr.upsert_service_state)
 
     async def delete_keys(
         self,
@@ -144,7 +132,7 @@ class ServiceStateStore:
         if not keys:
             return 0
         total = 0
-        batch_size = self._batch_size()
+        batch_size = batch_size_for(self._brotr, len(keys))
         for i in range(0, len(keys), batch_size):
             chunk = keys[i : i + batch_size]
             total += await self._brotr.delete_service_state(
@@ -158,7 +146,7 @@ class ServiceStateStore:
         if not states:
             return 0
         total = 0
-        batch_size = self._batch_size()
+        batch_size = batch_size_for(self._brotr, len(states))
         for i in range(0, len(states), batch_size):
             chunk = states[i : i + batch_size]
             total += await self._brotr.delete_service_state(

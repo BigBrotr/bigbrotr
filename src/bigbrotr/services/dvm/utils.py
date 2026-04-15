@@ -20,7 +20,6 @@ from bigbrotr.services.common.read_models import (
     ReadModelQuery,
     ReadModelQueryError,
     build_read_model_meta,
-    parse_read_model_filter_string,
     read_model_query_from_job_params,
     resolve_read_model_id,
     resolve_surface_read_model,
@@ -109,21 +108,6 @@ def parse_job_params(event: Any) -> dict[str, Any]:
             with contextlib.suppress(ValueError):
                 params["bid"] = int(values[1])
     return params
-
-
-def parse_query_filters(filter_str: str) -> dict[str, str] | None:
-    """Parse a comma-separated filter string into a dict.
-
-    Format: ``"column=value,column=op:value"`` where ``op`` is one of
-    ``=``, ``>``, ``<``, ``>=``, ``<=``, ``ILIKE``.
-
-    Args:
-        filter_str: Raw filter string from a NIP-90 ``param`` tag.
-
-    Returns:
-        Dict of column→value pairs, or ``None`` if empty or unparsable.
-    """
-    return parse_read_model_filter_string(filter_str)
 
 
 def configured_read_model_price(

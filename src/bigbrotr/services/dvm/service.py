@@ -52,9 +52,9 @@ from nostr_sdk import Client, Filter, Kind, RelayUrl, Timestamp
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.catalog import CatalogError
-from bigbrotr.services.common.mixins import CatalogAccessMixin
 from bigbrotr.services.common.read_models import (
     ReadModelEntry,
+    ReadModelSurface,
     resolve_read_model_id,
 )
 from bigbrotr.services.common.state_store import ServiceStateStore
@@ -139,7 +139,7 @@ class _RequestNotificationBuffer:
         self._loop.call_soon_threadsafe(self._queue.put_nowait, event)
 
 
-class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
+class Dvm(BaseService[DvmConfig]):
     """NIP-90 Data Vending Machine for BigBrotr read-model queries.
 
     Processes NIP-90 job requests (default Kind 5050) by executing
@@ -165,6 +165,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
     def __init__(self, brotr: Brotr, config: DvmConfig | None = None) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: DvmConfig
+        self._read_models = ReadModelSurface(policy_source=lambda: self._config.read_models)
         self._client: Client | None = None
         self._client_manager: NostrClientManager | None = None
         self._notification_task: asyncio.Task[None] | None = None
@@ -178,6 +179,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
 
     async def __aenter__(self) -> Dvm:
         await super().__aenter__()
+        await self._read_models.discover(self._brotr, logger=self._logger)
         keys = self._keys
         manager = self._get_client_manager()
         session = await manager.connect_session(
@@ -376,7 +378,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             params,
             context=JobPreparationContext(
                 policies=self._config.read_models,
-                available_catalog_names=self._available_catalog_names(),
+                available_catalog_names=self._read_models.available_catalog_names(),
                 default_page_size=self._config.default_page_size,
                 max_page_size=self._config.max_page_size,
             ),
@@ -415,7 +417,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         read_model = prepared_job.read_model
 
         start = time.monotonic()
-        result = await self._query_read_model_entry(read_model, prepared_job.query)
+        result = await self._read_models.query_entry(self._brotr, read_model, prepared_job.query)
         duration_ms = (time.monotonic() - start) * 1000
 
         await self._send_event(
@@ -476,22 +478,22 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
     # ── Read-model policy helpers ─────────────────────────────────
 
     def _is_read_model_enabled(self, name: str) -> bool:
-        return self._resolve_enabled_read_model(name) is not None
+        return self._read_models.is_enabled(name)
 
     def _resolve_enabled_read_model(self, name: str) -> tuple[str, ReadModelEntry] | None:
         """Resolve one DVM read-model name to its enabled registered entry."""
-        return self._resolve_enabled_read_model_for("dvm", name)
+        return self._read_models.resolve("dvm", name)
 
     def _get_read_model_price(self, name: str) -> int:
         return configured_read_model_price(name, policies=self._config.read_models)
 
     def _enabled_read_model_names(self) -> list[str]:
         """Return enabled DVM read models that are present in the discovered catalog."""
-        return self._enabled_read_model_names_for("dvm")
+        return self._read_models.enabled_names("dvm")
 
     def _enabled_read_models(self) -> dict[str, ReadModelEntry]:
         """Return enabled DVM read models keyed by public read-model ID."""
-        return self._enabled_read_models_for("dvm")
+        return self._read_models.enabled_entries("dvm")
 
     def _set_read_model_exposure_metrics(self, count: int) -> None:
         """Publish the exposure gauge for public read models."""

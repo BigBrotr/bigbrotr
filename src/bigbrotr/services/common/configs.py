@@ -66,10 +66,6 @@ class ReadModelConfig(BaseModel):
     price: int = Field(default=0, ge=0, description="Price in millisats (0 = free)")
 
 
-# Backward-compatible alias for older imports and test fixtures.
-TableConfig = ReadModelConfig
-
-
 class ClearnetConfig(BaseModel):
     """Configuration for clearnet (standard internet) relays.
 

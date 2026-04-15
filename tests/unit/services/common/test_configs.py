@@ -21,7 +21,6 @@ from bigbrotr.services.common.configs import (
     NetworksConfig,
     NetworkTypeConfig,
     ReadModelConfig,
-    TableConfig,
     TorConfig,
 )
 
@@ -60,9 +59,6 @@ class TestReadModelConfig:
         config = ReadModelConfig(enabled=False, price=100)
         assert config.enabled is False
         assert config.price == 100
-
-    def test_table_config_alias_points_to_read_model_config(self) -> None:
-        assert TableConfig is ReadModelConfig
 
 
 # =============================================================================

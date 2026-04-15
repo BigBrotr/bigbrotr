@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING, Any
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.common.paging import iter_keyset_pages
-from bigbrotr.services.common.queries import batched_insert
 from bigbrotr.services.common.state_store import ServiceStateStore, cursor_from_payload
 from bigbrotr.services.common.types import SyncCursor
+from bigbrotr.services.common.utils import batched_insert
 
 
 if TYPE_CHECKING:

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .utils import batched_insert
+
 
 if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
@@ -16,22 +18,8 @@ class ArtifactStore:
     def __init__(self, brotr: Brotr) -> None:
         self._brotr = brotr
 
-    def _batch_size(self) -> int:
-        batch = getattr(getattr(self._brotr, "config", None), "batch", None)
-        size = getattr(batch, "max_size", None)
-        if isinstance(size, int) and size > 0:
-            return size
-        return 1000
-
     async def insert_metadata(self, records: list[Metadata]) -> int:
-        if not records:
-            return 0
-
-        total = 0
-        batch_size = self._batch_size()
-        for i in range(0, len(records), batch_size):
-            total += await self._brotr.insert_metadata(records[i : i + batch_size])
-        return total
+        return await batched_insert(self._brotr, records, self._brotr.insert_metadata)
 
     async def insert_relay_metadata(
         self,
@@ -39,14 +27,8 @@ class ArtifactStore:
         *,
         cascade: bool = True,
     ) -> int:
-        if not records:
-            return 0
-
-        total = 0
-        batch_size = self._batch_size()
-        for i in range(0, len(records), batch_size):
-            total += await self._brotr.insert_relay_metadata(
-                records[i : i + batch_size],
-                cascade=cascade,
-            )
-        return total
+        return await batched_insert(
+            self._brotr,
+            records,
+            lambda chunk: self._brotr.insert_relay_metadata(chunk, cascade=cascade),
+        )

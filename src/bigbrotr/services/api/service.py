@@ -54,10 +54,10 @@ from fastapi.responses import JSONResponse
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.catalog import CatalogError
-from bigbrotr.services.common.mixins import CatalogAccessMixin
 from bigbrotr.services.common.read_models import (
     ReadModelEntry,
     ReadModelQueryError,
+    ReadModelSurface,
     build_read_model_meta,
     read_model_query_from_http_params,
 )
@@ -73,7 +73,7 @@ if TYPE_CHECKING:
 _HTTP_ERROR_THRESHOLD = 400
 
 
-class Api(CatalogAccessMixin, BaseService[ApiConfig]):
+class Api(BaseService[ApiConfig]):
     """REST API service exposing BigBrotr read models over HTTP.
 
     Registers paginated GET endpoints for each enabled public read
@@ -98,6 +98,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
     def __init__(self, brotr: Brotr, config: ApiConfig | None = None) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: ApiConfig
+        self._read_models = ReadModelSurface(policy_source=lambda: self._config.read_models)
         self._server: uvicorn.Server | None = None
         self._server_task: asyncio.Task[None] | None = None
         self._requests_total = 0
@@ -105,6 +106,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
 
     async def __aenter__(self) -> Api:
         await super().__aenter__()
+        await self._read_models.discover(self._brotr, logger=self._logger)
 
         app = self._build_app()
         read_model_count = len(self._enabled_read_model_names())
@@ -187,11 +189,11 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
 
     def _enabled_read_model_names(self) -> list[str]:
         """Return enabled API read models that are present in the discovered catalog."""
-        return self._enabled_read_model_names_for("api")
+        return self._read_models.enabled_names("api")
 
     def _enabled_read_models(self) -> dict[str, ReadModelEntry]:
         """Return enabled API read models keyed by public read-model ID."""
-        return self._enabled_read_models_for("api")
+        return self._read_models.enabled_entries("api")
 
     def _set_read_model_exposure_metrics(self, count: int) -> None:
         """Publish the exposure gauge for public read models."""
@@ -264,7 +266,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         async def list_read_models() -> JSONResponse:
             return JSONResponse(
                 {
-                    "data": self._build_enabled_read_model_summaries(
+                    "data": self._read_models.build_summaries(
                         "api",
                         route_prefix=self._config.route_prefix,
                     )
@@ -273,7 +275,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
 
         @app.get(f"{prefix}/read-models/{{read_model_id}}")
         async def get_read_model(read_model_id: str) -> JSONResponse:
-            resolved = self._build_enabled_read_model_detail_for(
+            resolved = self._read_models.build_detail(
                 "api",
                 read_model_id,
                 route_prefix=self._config.route_prefix,
@@ -302,7 +304,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
         Each call creates a new scope, so closures safely capture
         ``read_model_id`` and ``pk_cols`` without the loop-variable gotcha.
         """
-        schema = read_model.schema(self._catalog)
+        schema = read_model.schema(self._read_models.catalog)
         pk_cols = schema.primary_key
 
         async def list_rows(request: Request) -> JSONResponse:
@@ -320,7 +322,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
 
             try:
                 result = await asyncio.wait_for(
-                    self._query_read_model_entry(read_model, query),
+                    self._read_models.query_entry(self._brotr, read_model, query),
                     timeout=self._config.request_timeout,
                 )
             except TimeoutError:
@@ -352,7 +354,7 @@ class Api(CatalogAccessMixin, BaseService[ApiConfig]):
             pk_values = {col: request.path_params[col] for col in pk_cols}
             try:
                 row = await asyncio.wait_for(
-                    self._get_read_model_entry_by_pk(read_model, pk_values),
+                    self._read_models.get_entry_by_pk(self._brotr, read_model, pk_values),
                     timeout=self._config.request_timeout,
                 )
             except TimeoutError:

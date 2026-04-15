@@ -11,6 +11,7 @@ import asyncpg
 import pytest
 from nostr_sdk import Keys
 
+from bigbrotr.core.base_service import BaseService
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import ServiceName
@@ -35,7 +36,6 @@ from bigbrotr.services.dvm.utils import (
     build_payment_required_event,
     build_result_event,
     parse_job_params,
-    parse_query_filters,
     prepare_job_request,
 )
 from bigbrotr.utils.protocol import ClientConnectResult, ClientSession, NostrClientManager
@@ -103,7 +103,7 @@ def sample_dvm_catalog() -> Catalog:
 @pytest.fixture
 def dvm_service(mock_brotr: Brotr, dvm_config: DvmConfig, sample_dvm_catalog: Catalog) -> Dvm:
     service = Dvm(brotr=mock_brotr, config=dvm_config)
-    service._catalog = sample_dvm_catalog
+    service._read_models.catalog = sample_dvm_catalog
     return service
 
 
@@ -503,8 +503,8 @@ class TestDvmLifecycle:
             read_models={"relay": ReadModelConfig(enabled=True)},
         )
         service = Dvm(brotr=mock_brotr, config=config)
-        service._catalog = Catalog()
-        service._catalog._tables = {
+        service._read_models.catalog = Catalog()
+        service._read_models.catalog._tables = {
             "relay": TableSchema(
                 name="relay",
                 columns=(ColumnSchema(name="url", pg_type="text", nullable=False),),
@@ -616,7 +616,7 @@ class TestDvmLifecycle:
         dvm_service._stop_request_subscription = AsyncMock()  # type: ignore[method-assign]
         dvm_service._client = mock_client
 
-        with patch.object(type(dvm_service).__mro__[2], "__aexit__", new_callable=AsyncMock):
+        with patch.object(BaseService, "__aexit__", new_callable=AsyncMock):
             await dvm_service.__aexit__(None, None, None)
 
         dvm_service._stop_request_subscription.assert_awaited_once()  # type: ignore[attr-defined]
@@ -639,7 +639,7 @@ class TestDvmLifecycle:
         dvm_service._stop_request_subscription = AsyncMock()  # type: ignore[method-assign]
 
         with (
-            patch.object(type(dvm_service).__mro__[2], "__aexit__", new_callable=AsyncMock),
+            patch.object(BaseService, "__aexit__", new_callable=AsyncMock),
             patch(
                 "bigbrotr.utils.protocol.shutdown_client",
                 new_callable=AsyncMock,
@@ -654,7 +654,7 @@ class TestDvmLifecycle:
     async def test_aexit_noop_when_no_client(self, dvm_service: Dvm) -> None:
         dvm_service._client = None
 
-        with patch.object(type(dvm_service).__mro__[2], "__aexit__", new_callable=AsyncMock):
+        with patch.object(BaseService, "__aexit__", new_callable=AsyncMock):
             await dvm_service.__aexit__(None, None, None)
 
     async def test_cleanup_returns_zero(self, dvm_service: Dvm) -> None:
@@ -733,7 +733,10 @@ class TestDvmRun:
         with (
             patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(
-                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+                dvm_service._read_models.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
             ),
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
@@ -816,7 +819,7 @@ class TestDvmRun:
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._catalog,
+                dvm_service._read_models.catalog,
                 "query",
                 new_callable=AsyncMock,
                 return_value=mock_result,
@@ -841,7 +844,10 @@ class TestDvmRun:
         mock_result = QueryResult(rows=[], total=1, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+                dvm_service._read_models.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
             ) as mock_query,
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
@@ -862,7 +868,10 @@ class TestDvmRun:
         mock_result = QueryResult(rows=[], total=None, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+                dvm_service._read_models.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
             ) as mock_query,
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
@@ -914,7 +923,10 @@ class TestDvmRun:
         with (
             patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(
-                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+                dvm_service._read_models.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
             ),
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
@@ -945,7 +957,10 @@ class TestDvmRun:
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+                dvm_service._read_models.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
             ),
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
@@ -968,7 +983,10 @@ class TestDvmRun:
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+                dvm_service._read_models.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
             ),
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
@@ -1006,7 +1024,10 @@ class TestDvmPtagTargeting:
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+                dvm_service._read_models.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
             ),
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
@@ -1042,7 +1063,7 @@ class TestDvmJobErrorHandling:
 
         with (
             patch.object(
-                dvm_service._catalog,
+                dvm_service._read_models.catalog,
                 "query",
                 new_callable=AsyncMock,
                 side_effect=error,
@@ -1073,7 +1094,10 @@ class TestDvmJobErrorHandling:
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+                dvm_service._read_models.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
             ),
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter") as mock_counter,
@@ -1092,7 +1116,7 @@ class TestDvmJobErrorHandling:
 
         with (
             patch.object(
-                dvm_service._catalog,
+                dvm_service._read_models.catalog,
                 "query",
                 new_callable=AsyncMock,
                 side_effect=CatalogError("query failed"),
@@ -1126,7 +1150,10 @@ class TestDvmMetrics:
 
         with (
             patch.object(
-                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+                dvm_service._read_models.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
             ),
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter") as mock_counter,
@@ -1177,14 +1204,8 @@ class TestDvmPublishingGuards:
 
         mock_client.send_event_builder.assert_called_once()
 
-    def test_enabled_read_model_names_follow_registry(
-        self, dvm_service: Dvm, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(
-            dvm_service, "_enabled_read_model_names_for", lambda _surface: ["relays"]
-        )
-
-        assert dvm_service._enabled_read_model_names() == ["relays"]
+    def test_enabled_read_model_names_follow_registry(self, dvm_service: Dvm) -> None:
+        assert dvm_service._enabled_read_model_names() == ["events", "relays"]
 
     async def test_publish_announcement_logs_warning_when_unaccepted(
         self, dvm_service: Dvm
@@ -1221,7 +1242,10 @@ class TestDvmPublishingGuards:
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._catalog, "query", new_callable=AsyncMock, return_value=mock_result
+                dvm_service._read_models.catalog,
+                "query",
+                new_callable=AsyncMock,
+                return_value=mock_result,
             ),
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
@@ -1317,36 +1341,6 @@ class TestParseJobParams:
     def test_param_with_only_two_elements_ignored(self) -> None:
         event = _make_utils_mock_event(tags=[["param", "read_model"]])
         assert parse_job_params(event) == {}
-
-
-# ============================================================================
-# Parse Query Filters
-# ============================================================================
-
-
-class TestParseQueryFilters:
-    def test_empty_string(self) -> None:
-        assert parse_query_filters("") is None
-
-    def test_single_filter(self) -> None:
-        assert parse_query_filters("network=clearnet") == {"network": "clearnet"}
-
-    def test_multiple_filters(self) -> None:
-        result = parse_query_filters("network=clearnet,kind=>:100")
-        assert result is not None
-        assert result["network"] == "clearnet"
-        assert result["kind"] == ">:100"
-
-    def test_no_equals(self) -> None:
-        assert parse_query_filters("invalid") is None
-
-    def test_whitespace_trimmed(self) -> None:
-        result = parse_query_filters(" network = clearnet , kind = 1 ")
-        assert result == {"network": "clearnet", "kind": "1"}
-
-    def test_mixed_valid_and_invalid_parts(self) -> None:
-        result = parse_query_filters("network=clearnet,invalid,kind=1")
-        assert result == {"network": "clearnet", "kind": "1"}
 
 
 # ============================================================================

@@ -9,12 +9,12 @@ from typing import TYPE_CHECKING
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.relay import Relay
 from bigbrotr.models.service_state import ServiceStateType
-from bigbrotr.services.common.queries import batched_insert
 from bigbrotr.services.common.state_store import (
     ServiceStateStore,
     candidate_from_payload,
     candidate_state,
 )
+from bigbrotr.services.common.utils import batched_insert
 
 
 if TYPE_CHECKING:

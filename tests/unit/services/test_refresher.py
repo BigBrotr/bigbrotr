@@ -9,7 +9,8 @@ import asyncpg
 import pytest
 from pydantic import ValidationError
 
-from bigbrotr.core.brotr import Brotr, BrotrConfig
+from bigbrotr.core.brotr import Brotr
+from bigbrotr.core.brotr_config import BrotrConfig
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.refresher import (

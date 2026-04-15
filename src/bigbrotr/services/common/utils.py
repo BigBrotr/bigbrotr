@@ -16,13 +16,44 @@ See Also:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from bigbrotr.models import Relay
 from bigbrotr.models.relay import sanitize_relay_url
 
 
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from bigbrotr.core.brotr import Brotr
+
+
 logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
+
+
+def batch_size_for(brotr: object, record_count: int) -> int:
+    """Return the configured batch size, or a safe fallback for lightweight test doubles."""
+    batch_config = getattr(getattr(brotr, "config", None), "batch", None)
+    max_size = getattr(batch_config, "max_size", None)
+    if isinstance(max_size, int) and max_size > 0:
+        return max_size
+    return max(record_count, 1)
+
+
+async def batched_insert(
+    brotr: Brotr,
+    records: list[_T],
+    method: Callable[[list[_T]], Awaitable[int]],
+) -> int:
+    """Split ``records`` into ``batch.max_size`` chunks and sum the inserted count."""
+    if not records:
+        return 0
+    total = 0
+    batch_size = batch_size_for(brotr, len(records))
+    for i in range(0, len(records), batch_size):
+        total += await method(records[i : i + batch_size])
+    return total
 
 
 def parse_relay(

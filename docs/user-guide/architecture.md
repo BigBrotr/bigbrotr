@@ -198,7 +198,7 @@ class BrotrConfig(BaseModel):
 |--------|----------------------|
 | `delete_orphan_event()` | `orphan_event_delete` |
 | `delete_orphan_metadata()` | `orphan_metadata_delete` |
-| `refresh_materialized_view(name)` | `{name}_refresh` |
+| `run_refresh_procedure(name)` | `{name}_refresh` |
 
 **Generic query facade** (used by services for ad-hoc queries):
 
@@ -435,17 +435,18 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 
 | Module | Purpose |
 |--------|---------|
-| `queries.py` | Batch insert utilities and cross-service state operations |
-| `mixins.py` | `ConcurrentStreamMixin`, `NetworkSemaphoresMixin`, `GeoReaderMixin`, `ClientsMixin`, `CatalogAccessMixin` — cooperative-inheritance mixins |
+| `queries.py` | Shared cross-service query helpers |
+| `utils.py` | Relay parsing helpers and batch insert helper |
+| `mixins.py` | `ConcurrentStreamMixin`, `NetworkSemaphoresMixin`, `GeoReaderMixin`, `ClientsMixin` — cooperative-inheritance mixins |
 | `catalog.py` | Schema-driven `Catalog` for table discovery (Api, Dvm) and `CatalogError` |
 | `configs.py` | Per-network and per-table Pydantic config models |
+| `read_models.py` | Public read-model registry and `ReadModelSurface` helpers |
 
-**Common Query Utilities** (`common/queries.py`):
+**Common Query Utilities** (`common/queries.py`, `common/utils.py`):
 
 | Function | Purpose |
 |----------|---------|
 | `batched_insert(brotr, records, method)` | Split records into chunks of `batch.max_size`, call method per chunk |
-| `upsert_service_states(brotr, records)` | Batch-upsert `ServiceState` via `batched_insert` |
 | `insert_relays_as_candidates(brotr, relays)` | Filter new URLs (via `_filter_new_relays`), create CHECKPOINT records |
 
 Each service also has its own `queries.py` module with domain-specific queries:
@@ -643,7 +644,7 @@ Services use mixins from `services/common/mixins.py` to compose shared behavior:
 - `NetworkSemaphoresMixin` -- per-network concurrency (Validator, Monitor, Synchronizer)
 - `GeoReaderMixin` -- GeoIP database lifecycle (Monitor)
 - `ClientsMixin` -- managed pool of Nostr clients for event broadcasting (Monitor)
-- `CatalogAccessMixin` -- schema-driven table catalog (Api, Dvm)
+- `ReadModelSurface` -- read-model resolution and execution boundary (Api, Dvm)
 
 ### Content-Addressed Deduplication
 

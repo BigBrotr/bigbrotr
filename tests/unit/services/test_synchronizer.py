@@ -8,8 +8,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from nostr_sdk import Filter, NostrSdkError
 
-from bigbrotr.core.brotr import Brotr, BrotrConfig
-from bigbrotr.core.brotr import TimeoutsConfig as BrotrTimeoutsConfig
+from bigbrotr.core.brotr import Brotr
+from bigbrotr.core.brotr_config import BrotrConfig
+from bigbrotr.core.brotr_config import TimeoutsConfig as BrotrTimeoutsConfig
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceStateType
@@ -19,7 +20,9 @@ from bigbrotr.services.synchronizer import (
     ProcessingConfig,
     Synchronizer,
     SynchronizerConfig,
-    TimeoutsConfig,
+)
+from bigbrotr.services.synchronizer import (
+    TimeoutsConfig as SyncTimeoutsConfig,
 )
 from bigbrotr.services.synchronizer.queries import (
     count_cursors_to_sync,
@@ -143,34 +146,34 @@ class TestFilterParsing:
 
 class TestTimeoutsConfig:
     def test_default_values(self) -> None:
-        config = TimeoutsConfig()
+        config = SyncTimeoutsConfig()
 
         assert config.idle == 300.0
         assert config.max_duration == 14_400.0
 
     def test_idle_custom(self) -> None:
-        config = TimeoutsConfig(idle=60.0)
+        config = SyncTimeoutsConfig(idle=60.0)
         assert config.idle == 60.0
 
     def test_idle_below_minimum_raises(self) -> None:
         with pytest.raises(ValueError, match="greater than or equal to 10"):
-            TimeoutsConfig(idle=5.0)
+            SyncTimeoutsConfig(idle=5.0)
 
     def test_idle_above_maximum_raises(self) -> None:
         with pytest.raises(ValueError, match="less than or equal to 3600"):
-            TimeoutsConfig(idle=7200.0)
+            SyncTimeoutsConfig(idle=7200.0)
 
     def test_max_duration_valid(self) -> None:
-        config = TimeoutsConfig(max_duration=3600.0)
+        config = SyncTimeoutsConfig(max_duration=3600.0)
         assert config.max_duration == 3600.0
 
     def test_max_duration_below_minimum_raises(self) -> None:
         with pytest.raises(ValueError, match="greater than or equal to 60"):
-            TimeoutsConfig(max_duration=1.0)
+            SyncTimeoutsConfig(max_duration=1.0)
 
     def test_max_duration_above_upper_bound_raises(self) -> None:
         with pytest.raises(ValueError, match="less than or equal to 86400"):
-            TimeoutsConfig(max_duration=100_000.0)
+            SyncTimeoutsConfig(max_duration=100_000.0)
 
 
 class TestSynchronizerConfig:
@@ -487,7 +490,7 @@ class TestSynchronize:
             brotr=mock_synchronizer_brotr,
             config=SynchronizerConfig(
                 processing=ProcessingConfig(batch_size=100),
-                timeouts=TimeoutsConfig(max_duration=600.0),
+                timeouts=SyncTimeoutsConfig(max_duration=600.0),
             ),
         )
 
@@ -773,7 +776,7 @@ class TestSynchronize:
 
         config = SynchronizerConfig(
             processing=ProcessingConfig(batch_size=200),
-            timeouts=TimeoutsConfig(max_duration=1800.0),
+            timeouts=SyncTimeoutsConfig(max_duration=1800.0),
         )
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
         sync.set_gauge = MagicMock()  # type: ignore[method-assign]
@@ -1056,7 +1059,7 @@ class TestSyncWorker:
     async def test_passes_idle_timeout_to_stream_events(
         self, mock_synchronizer_brotr: Brotr
     ) -> None:
-        config = SynchronizerConfig(timeouts=TimeoutsConfig(idle=90.0))
+        config = SynchronizerConfig(timeouts=SyncTimeoutsConfig(idle=90.0))
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
         cursor = SyncCursor(key="wss://relay.example.com")
