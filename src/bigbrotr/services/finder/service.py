@@ -171,13 +171,26 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
             pending_checkpoints.append(checkpoint)
             self.inc_gauge("sources_fetched")
 
-        if pending_checkpoints:
-            await upsert_api_checkpoints(self._brotr, pending_checkpoints)
-
-        found = await insert_relays_as_candidates(self._brotr, buffer)
-        self.set_gauge("candidates_found_from_api", found)
+        found = await self._persist_api_discovery_results(buffer, pending_checkpoints)
 
         self._logger.info("api_completed", found=found, collected=len(buffer))
+        return found
+
+    async def _persist_api_discovery_results(
+        self,
+        buffer: list[Relay],
+        pending_checkpoints: list[ApiCheckpoint],
+    ) -> int:
+        """Persist one API discovery cycle and clear its in-memory state."""
+        if pending_checkpoints:
+            checkpoints_batch = list(pending_checkpoints)
+            await upsert_api_checkpoints(self._brotr, checkpoints_batch)
+            pending_checkpoints.clear()
+
+        relays_batch = list(buffer)
+        found = await insert_relays_as_candidates(self._brotr, relays_batch)
+        self.set_gauge("candidates_found_from_api", found)
+        buffer.clear()
         return found
 
     async def _find_from_api_worker(

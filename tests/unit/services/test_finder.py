@@ -1237,6 +1237,37 @@ class TestFinderFindFromApi:
             relays = mock_insert.call_args[0][1]
             assert len(relays) == 4
 
+    async def test_persist_api_discovery_results_saves_and_clears_state(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        finder = Finder(brotr=mock_brotr)
+        finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+        relay = Relay("wss://relay.example.com")
+        checkpoint = ApiCheckpoint(key="https://api.example.com", timestamp=1700000000)
+        buffer = [relay]
+        pending_checkpoints = [checkpoint]
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.upsert_api_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_upsert,
+            patch(
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
+                return_value=1,
+            ) as mock_insert,
+        ):
+            found = await finder._persist_api_discovery_results(buffer, pending_checkpoints)
+
+        assert found == 1
+        assert buffer == []
+        assert pending_checkpoints == []
+        mock_upsert.assert_awaited_once_with(mock_brotr, [checkpoint])
+        mock_insert.assert_awaited_once_with(mock_brotr, [relay])
+        finder.set_gauge.assert_any_call("candidates_found_from_api", 1)
+
     async def test_emits_gauge_and_counter(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(
             api=ApiConfig(
