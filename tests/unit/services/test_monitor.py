@@ -148,6 +148,7 @@ class _MonitorStub:
     _monitor_chunk = Monitor._monitor_chunk
     _persist_chunk_outcome = Monitor._persist_chunk_outcome
     _log_chunk_outcome = Monitor._log_chunk_outcome
+    _run_cycle_operations = Monitor._run_cycle_operations
     publish_announcement = Monitor.publish_announcement
     publish_profile = Monitor.publish_profile
     publish_relay_list = Monitor.publish_relay_list
@@ -1591,6 +1592,54 @@ class TestMonitorRun:
 
         mock_count.assert_awaited_once()
         mock_iter_pages.assert_called_once()
+
+    async def test_run_cycle_operations_calls_publish_then_monitor(
+        self,
+        stub: _MonitorStub,
+    ) -> None:
+        calls: list[str] = []
+
+        async def publish_profile() -> None:
+            calls.append("profile")
+
+        async def publish_relay_list() -> None:
+            calls.append("relay_list")
+
+        async def publish_announcement() -> None:
+            calls.append("announcement")
+
+        async def monitor_cycle() -> None:
+            calls.append("monitor")
+
+        stub.publish_profile = AsyncMock(side_effect=publish_profile)
+        stub.publish_relay_list = AsyncMock(side_effect=publish_relay_list)
+        stub.publish_announcement = AsyncMock(side_effect=publish_announcement)
+        stub.monitor = AsyncMock(side_effect=monitor_cycle)
+
+        await stub._run_cycle_operations()
+
+        assert calls == ["profile", "relay_list", "announcement", "monitor"]
+
+    async def test_run_uses_cycle_operations_helper(self, mock_brotr: Brotr) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        monitor.clients = MagicMock()
+        monitor.clients.disconnect = AsyncMock()
+
+        with (
+            patch.object(type(monitor.geo_readers), "open", new_callable=AsyncMock) as mock_open,
+            patch.object(type(monitor.geo_readers), "close") as mock_close,
+            patch.object(
+                monitor,
+                "_run_cycle_operations",
+                new_callable=AsyncMock,
+            ) as mock_cycle,
+        ):
+            await monitor.run()
+
+        mock_open.assert_awaited_once_with(city_path=None, asn_path=None)
+        mock_cycle.assert_awaited_once()
+        monitor.clients.disconnect.assert_awaited_once()
+        mock_close.assert_called_once()
 
     async def test_monitor_no_networks_enabled_returns_zero(self, mock_brotr: Brotr) -> None:
         no_clearnet = MetadataFlags(

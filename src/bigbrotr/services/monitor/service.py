@@ -215,10 +215,7 @@ class Monitor(
         )
 
         try:
-            await self.publish_profile()
-            await self.publish_relay_list()
-            await self.publish_announcement()
-            await self.monitor()
+            await self._run_cycle_operations()
         finally:
             await self.clients.disconnect()
             self.geo_readers.close()
@@ -289,6 +286,13 @@ class Monitor(
             result=result,
             build_discovery=build_relay_discovery,
         )
+
+    async def _run_cycle_operations(self) -> None:
+        """Execute the publish and monitoring steps for one cycle."""
+        await self.publish_profile()
+        await self.publish_relay_list()
+        await self.publish_announcement()
+        await self.monitor()
 
     async def check_relay(self, relay: Relay) -> CheckResult:
         """Perform all configured health checks on a single relay.
