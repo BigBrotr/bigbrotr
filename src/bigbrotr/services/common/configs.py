@@ -78,8 +78,8 @@ def parse_relay_list(raw: object) -> list[Relay] | None:
     return relays
 
 
-class KeysConfig(BaseModel):
-    """Shared service-key config that loads from env or generates one ephemeral keypair."""
+class NostrKeysConfig(BaseModel):
+    """Shared Nostr signing-key config for services that publish or authenticate."""
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -96,9 +96,9 @@ class KeysConfig(BaseModel):
         """Redact private key material and show whether keys are configured."""
         keys = getattr(self, "keys", None)
         if keys is None:
-            return f"KeysConfig(keys_env={self.keys_env!r}, pubkey=None)"
+            return f"NostrKeysConfig(keys_env={self.keys_env!r}, pubkey=None)"
         pubkey = keys.public_key().to_hex()
-        return f"KeysConfig(keys_env={self.keys_env!r}, pubkey={pubkey!r})"
+        return f"NostrKeysConfig(keys_env={self.keys_env!r}, pubkey={pubkey!r})"
 
     def __str__(self) -> str:
         """Redact private key material — show only the public key."""

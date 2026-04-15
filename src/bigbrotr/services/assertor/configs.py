@@ -6,8 +6,8 @@ See Also:
     [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
         Base class providing ``interval``, ``max_consecutive_failures``,
         and ``metrics`` fields.
-    [KeysConfig][bigbrotr.services.common.configs.KeysConfig]: Mixin providing
-        Nostr key management fields.
+    [NostrKeysConfig][bigbrotr.services.common.configs.NostrKeysConfig]:
+        Shared Nostr key configuration.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_valida
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import EventKind
-from bigbrotr.services.common.configs import KeysConfig, parse_relay_list
+from bigbrotr.services.common.configs import NostrKeysConfig, parse_relay_list
 
 
 _SUPPORTED_KINDS = frozenset(
@@ -163,7 +163,7 @@ class AssertorConfig(BaseServiceConfig):
     """Configuration for the Assertor service.
 
     Embeds key management via
-    [KeysConfig][bigbrotr.services.common.configs.KeysConfig] for Nostr signing.
+    [NostrKeysConfig][bigbrotr.services.common.configs.NostrKeysConfig] for Nostr signing.
 
     Attributes:
         algorithm_id: Stable identifier of the ranking/assertion algorithm.
@@ -182,8 +182,8 @@ class AssertorConfig(BaseServiceConfig):
         max_length=128,
         description="Stable identifier for the assertion algorithm/service key namespace",
     )
-    keys: KeysConfig = Field(
-        default_factory=lambda: KeysConfig(keys_env="NOSTR_PRIVATE_KEY_ASSERTOR"),
+    keys: NostrKeysConfig = Field(
+        default_factory=lambda: NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_ASSERTOR"),
         description="Nostr key configuration for the assertor identity",
     )
     selection: AssertorSelectionConfig = Field(

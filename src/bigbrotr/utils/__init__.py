@@ -10,7 +10,7 @@ Attributes:
         resolver. Used by NIP-66 DNS tests.
     keys: Low-level Nostr key loading from environment variables (nsec1 bech32
         or hex format). Shared service-key policy now lives in
-        ``bigbrotr.services.common.configs.KeysConfig``.
+        ``bigbrotr.services.common.configs.NostrKeysConfig``.
     protocol: High-level Nostr client operations -- relay connection, event
         broadcasting, relay validation, and event fetching. Built on top of
         WebSocket transport primitives.
@@ -35,6 +35,6 @@ See Also:
 Examples:
     ```python
     from bigbrotr.utils.protocol import create_client
-    from bigbrotr.services.common.configs import KeysConfig
+    from bigbrotr.services.common.configs import NostrKeysConfig
     ```
 """

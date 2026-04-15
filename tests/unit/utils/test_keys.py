@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 from nostr_sdk import Keys
 
-from bigbrotr.services.common.configs import KeysConfig
+from bigbrotr.services.common.configs import NostrKeysConfig
 from bigbrotr.utils.keys import load_keys_from_env
 
 
@@ -65,52 +65,54 @@ class TestLoadKeysFromEnv:
             load_keys_from_env("NOSTR_PRIVATE_KEY_MONITOR")
 
 
-class TestKeysConfig:
+class TestNostrKeysConfig:
     def test_default_without_keys_env_generates_ephemeral_keys(self) -> None:
-        config = KeysConfig.model_validate({})
+        config = NostrKeysConfig.model_validate({})
         assert config.keys_env is None
         assert isinstance(config.keys, Keys)
 
     def test_unset_env_generates_ephemeral_keys(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
-            config = KeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
+            config = NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
         assert isinstance(config.keys, Keys)
 
     def test_blank_env_generates_ephemeral_keys(self) -> None:
         with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": ""}):
-            config = KeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
+            config = NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
         assert isinstance(config.keys, Keys)
 
     def test_loads_hex_key_from_env(self) -> None:
         with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": VALID_HEX_KEY}):
-            config = KeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
+            config = NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
         assert isinstance(config.keys, Keys)
         assert config.keys.secret_key().to_hex() == VALID_HEX_KEY
 
     def test_explicit_keys_override_env(self) -> None:
         explicit_keys = Keys.generate()
         with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": VALID_HEX_KEY}):
-            config = KeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR", keys=explicit_keys)
+            config = NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR", keys=explicit_keys)
         assert config.keys is explicit_keys
 
     def test_model_validate_uses_custom_env(self) -> None:
         with patch.dict(os.environ, {"CUSTOM_KEY": VALID_HEX_KEY}):
-            config = KeysConfig.model_validate({"keys_env": "CUSTOM_KEY"})
+            config = NostrKeysConfig.model_validate({"keys_env": "CUSTOM_KEY"})
         assert isinstance(config.keys, Keys)
 
     def test_repr_redacts_secret_and_shows_none_for_uninitialized_model(self) -> None:
-        config = KeysConfig.model_construct(keys_env="NOSTR_PRIVATE_KEY_MONITOR", keys=None)
-        assert repr(config) == ("KeysConfig(keys_env='NOSTR_PRIVATE_KEY_MONITOR', pubkey=None)")
+        config = NostrKeysConfig.model_construct(keys_env="NOSTR_PRIVATE_KEY_MONITOR", keys=None)
+        assert repr(config) == (
+            "NostrKeysConfig(keys_env='NOSTR_PRIVATE_KEY_MONITOR', pubkey=None)"
+        )
 
     def test_repr_redacts_secret_and_shows_pubkey(self) -> None:
         with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": VALID_HEX_KEY}):
-            config = KeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
+            config = NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
         rendered = repr(config)
         assert VALID_HEX_KEY not in rendered
         assert "pubkey=" in rendered
 
     def test_model_dump_includes_resolved_keys_field(self) -> None:
-        config = KeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
+        config = NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
         dump = config.model_dump()
         assert "keys" in dump
         assert dump["keys"] is not None

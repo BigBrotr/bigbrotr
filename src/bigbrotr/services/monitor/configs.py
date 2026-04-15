@@ -25,8 +25,8 @@ from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.configs import (
-    KeysConfig,
     NetworksConfig,
+    NostrKeysConfig,
     parse_relay_list,
 )
 
@@ -374,15 +374,15 @@ class MonitorConfig(BaseServiceConfig):
             that consumes this configuration.
         [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
             Base class providing ``interval``, ``max_consecutive_failures``, and ``metrics`` fields.
-        [KeysConfig][bigbrotr.services.common.configs.KeysConfig]: Nostr key
+        [NostrKeysConfig][bigbrotr.services.common.configs.NostrKeysConfig]: Nostr key
             management for event signing.
     """
 
     networks: NetworksConfig = Field(
         default_factory=NetworksConfig, description="Per-network connection settings"
     )
-    keys: KeysConfig = Field(
-        default_factory=lambda: KeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR"),
+    keys: NostrKeysConfig = Field(
+        default_factory=lambda: NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR"),
         description="Nostr key configuration for event signing",
     )
     processing: ProcessingConfig = Field(

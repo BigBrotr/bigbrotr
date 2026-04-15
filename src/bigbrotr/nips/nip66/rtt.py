@@ -29,7 +29,7 @@ See Also:
         Multi-phase log model with per-phase success/reason.
     [bigbrotr.utils.protocol.connect_relay][bigbrotr.utils.protocol.connect_relay]:
         Transport function used for the open phase.
-    [bigbrotr.services.common.configs.KeysConfig][bigbrotr.services.common.configs.KeysConfig]:
+    [bigbrotr.services.common.configs.NostrKeysConfig][bigbrotr.services.common.configs.NostrKeysConfig]:
         Key management -- RTT probes require signing keys for the write phase.
 """
 

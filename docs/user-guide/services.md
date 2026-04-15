@@ -597,7 +597,7 @@ cursor-based contract as the API:
 !!! note "Nostr Keys"
     The Dvm uses `NOSTR_PRIVATE_KEY_DVM` (secp256k1 hex or `nsec1...`). If the
     variable is blank or unset, the config generates one ephemeral key once at
-    startup. See [KeysConfig](../reference/services/common/configs.md) for details.
+    startup. See [NostrKeysConfig](../reference/services/common/configs.md) for details.
 
 !!! tip "API Reference"
     See [`bigbrotr.services.dvm`](../reference/services/dvm/index.md) for the complete Dvm service API.
