@@ -242,6 +242,16 @@ class NostrClientManager:
         """Return a previously opened session, if present."""
         return self._sessions.get(session_id)
 
+    @property
+    def relay_clients(self) -> dict[str, Client]:
+        """Expose the cached per-relay clients managed by this instance."""
+        return self._relay_clients
+
+    @property
+    def failed_relays(self) -> set[str]:
+        """Expose relay URLs that failed to connect and are currently skipped."""
+        return self._failed_relays
+
     async def disconnect(self) -> None:
         """Disconnect all managed clients and clear cached state."""
         seen: set[int] = set()

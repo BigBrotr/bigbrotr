@@ -312,7 +312,7 @@ class Clients:
             internally to establish each connection.
     """
 
-    __slots__ = ("_allow_insecure", "_clients", "_failed", "_keys", "_manager", "_networks")
+    __slots__ = ("_allow_insecure", "_keys", "_manager", "_networks")
 
     def __init__(
         self,
@@ -331,8 +331,16 @@ class Clients:
             networks=networks,
             allow_insecure=allow_insecure,
         )
-        self._clients = self._manager._relay_clients
-        self._failed = self._manager._failed_relays
+
+    @property
+    def connected_relays(self) -> dict[str, Client]:
+        """Return the cached connected clients keyed by relay URL."""
+        return self._manager.relay_clients
+
+    @property
+    def failed_relays(self) -> set[str]:
+        """Return relay URLs that have already failed to connect."""
+        return self._manager.failed_relays
 
     async def get(self, relay: Relay) -> Client | None:
         """Return a connected client for a relay, connecting lazily.
