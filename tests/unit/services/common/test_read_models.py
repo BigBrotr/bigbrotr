@@ -13,7 +13,6 @@ from bigbrotr.services.common.read_models import (
     ReadModelQueryError,
     ReadModelSurface,
     build_read_model_meta,
-    enabled_read_models_for_surface,
     normalize_read_model_policies,
     parse_read_model_filter_string,
     read_model_query_from_http_params,
@@ -83,11 +82,14 @@ class TestReadModelRegistry:
     def test_internal_state_tables_are_not_public_read_models(self) -> None:
         assert "service_state" not in READ_MODEL_REGISTRY
 
-    def test_enabled_read_models_filter_by_config_and_catalog(self) -> None:
-        enabled = enabled_read_models_for_surface(
+    def test_resolve_surface_read_models_filters_by_config_and_catalog(self) -> None:
+        enabled = resolve_surface_read_models(
             "api",
+            policies={
+                "relays": ReadModelPolicy(enabled=True),
+                "metadata-documents": ReadModelPolicy(enabled=True),
+            },
             available_catalog_names={"relay", "event"},
-            enabled_names={"relays", "metadata-documents"},
         )
 
         assert set(enabled) == {"relays"}

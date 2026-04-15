@@ -455,20 +455,6 @@ def read_models_for_surface(surface: ReadSurface) -> dict[str, ReadModelEntry]:
     return dict(READ_MODELS_BY_SURFACE[surface])
 
 
-def enabled_read_models_for_surface(
-    surface: ReadSurface,
-    *,
-    available_catalog_names: set[str],
-    enabled_names: set[str],
-) -> dict[str, ReadModelEntry]:
-    """Return surface read models that are both configured and discoverable."""
-    return {
-        read_model_id: entry
-        for read_model_id, entry in sorted(read_models_for_surface(surface).items())
-        if entry.catalog_name in available_catalog_names and read_model_id in enabled_names
-    }
-
-
 def resolve_surface_read_models(
     surface: ReadSurface,
     *,
@@ -477,11 +463,11 @@ def resolve_surface_read_models(
 ) -> dict[str, ReadModelEntry]:
     """Resolve one public surface to enabled, discoverable read-model entries."""
     enabled_names = {name for name, policy in policies.items() if policy.enabled}
-    return enabled_read_models_for_surface(
-        surface,
-        available_catalog_names=available_catalog_names,
-        enabled_names=enabled_names,
-    )
+    return {
+        read_model_id: entry
+        for read_model_id, entry in sorted(read_models_for_surface(surface).items())
+        if entry.catalog_name in available_catalog_names and read_model_id in enabled_names
+    }
 
 
 def resolve_surface_read_model(
