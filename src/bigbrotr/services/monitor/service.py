@@ -125,6 +125,7 @@ from .queries import (
 from .utils import (
     CheckResult,
     MonitorChunkOutcome,
+    MonitorCyclePlan,
     collect_metadata,
     retry_fetch,
 )
@@ -399,51 +400,68 @@ class Monitor(
         Returns:
             Total number of relays processed (succeeded + failed).
         """
-        networks = self._config.networks.get_enabled_networks()
-        if not networks:
-            self._logger.warning("no_networks_enabled")
+        plan = await self._build_monitor_cycle_plan()
+        if plan is None:
             return 0
 
-        monitored_before = int(time.time() - self._config.discovery.interval)
-        max_relays = self._config.processing.max_relays
-
-        total = await count_relays_to_monitor(self._brotr, monitored_before, networks)
-        if max_relays is not None:
-            total = min(total, max_relays)
         succeeded = 0
         failed = 0
 
-        self.set_gauge("total", total)
+        self.set_gauge("total", plan.total)
         self.set_gauge("succeeded", 0)
         self.set_gauge("failed", 0)
 
-        self._logger.info("relays_available", total=total)
-
-        chunk_size = self._config.processing.chunk_size
+        self._logger.info("relays_available", total=plan.total)
 
         async for relays in iter_relays_to_monitor_pages(
             self._brotr,
-            monitored_before,
-            networks,
-            page_size=chunk_size,
-            max_relays=max_relays,
+            plan.monitored_before,
+            list(plan.networks),
+            page_size=plan.chunk_size,
+            max_relays=plan.max_relays,
         ):
             if not self.is_running:
                 break
 
-            chunk_outcome = await self._monitor_chunk(relays, networks)
+            chunk_outcome = await self._monitor_chunk(relays, list(plan.networks))
             await self._persist_chunk_outcome(chunk_outcome, checked_at=int(time.time()))
 
             succeeded += chunk_outcome.succeeded_count
             failed += chunk_outcome.failed_count
             self._log_chunk_outcome(
                 chunk_outcome,
-                total=total,
+                total=plan.total,
                 succeeded=succeeded,
                 failed=failed,
             )
 
         return succeeded + failed
+
+    async def _build_monitor_cycle_plan(
+        self,
+        *,
+        now: int | None = None,
+    ) -> MonitorCyclePlan | None:
+        """Build the relay-selection plan for one monitor cycle."""
+        networks = self._config.networks.get_enabled_networks()
+        if not networks:
+            self._logger.warning("no_networks_enabled")
+            return None
+
+        current_time = int(time.time()) if now is None else now
+        monitored_before = int(current_time - self._config.discovery.interval)
+        max_relays = self._config.processing.max_relays
+        total = await count_relays_to_monitor(self._brotr, monitored_before, networks)
+        if max_relays is not None:
+            total = min(total, max_relays)
+
+        return MonitorCyclePlan(
+            networks=tuple(networks),
+            monitored_before=monitored_before,
+            max_relays=max_relays,
+            total=total,
+            chunk_size=self._config.processing.chunk_size,
+        )
 
     async def _monitor_chunk(
         self,

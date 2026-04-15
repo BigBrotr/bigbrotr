@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
 
     from bigbrotr.models import Relay
+    from bigbrotr.models.constants import NetworkType
     from bigbrotr.nips.base import BaseNipMetadata
     from bigbrotr.nips.nip11.info import Nip11InfoMetadata
     from bigbrotr.nips.nip66 import (
@@ -105,6 +106,17 @@ class MonitorChunkOutcome:
     def checked_relays(self) -> tuple[Relay, ...]:
         """All relays classified in this chunk, successful first then failed."""
         return tuple(relay for relay, _ in self.successful) + self.failed
+
+
+@dataclass(frozen=True, slots=True)
+class MonitorCyclePlan:
+    """Execution plan for one monitor cycle."""
+
+    networks: tuple[NetworkType, ...]
+    monitored_before: int
+    max_relays: int | None
+    total: int
+    chunk_size: int
 
 
 def log_success(result: Any) -> bool:

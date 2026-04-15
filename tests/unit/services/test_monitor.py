@@ -63,6 +63,7 @@ from bigbrotr.services.monitor.service import (
 )
 from bigbrotr.services.monitor.utils import (
     MonitorChunkOutcome,
+    MonitorCyclePlan,
     collect_metadata,
     extract_result,
     log_reason,
@@ -1450,6 +1451,35 @@ class TestMonitorHelpers:
         assert deps.dns_probe.__func__ is Nip66DnsMetadata.probe.__func__
         assert deps.http_probe.__func__ is Nip66HttpMetadata.probe.__func__
 
+    @patch(
+        "bigbrotr.services.monitor.service.count_relays_to_monitor",
+        new_callable=AsyncMock,
+        return_value=25,
+    )
+    async def test_build_monitor_cycle_plan_caps_total_to_max_relays(
+        self,
+        mock_count: AsyncMock,
+        mock_brotr: Brotr,
+    ) -> None:
+        config = _make_config(processing=ProcessingConfig(max_relays=10, chunk_size=10))
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        monitored_before = int(1000 - config.discovery.interval)
+
+        plan = await monitor._build_monitor_cycle_plan(now=1000)
+
+        assert plan == MonitorCyclePlan(
+            networks=(NetworkType.CLEARNET,),
+            monitored_before=monitored_before,
+            max_relays=10,
+            total=10,
+            chunk_size=10,
+        )
+        mock_count.assert_awaited_once_with(
+            mock_brotr,
+            monitored_before,
+            [NetworkType.CLEARNET],
+        )
+
     async def test_monitor_chunk_classifies_results_and_updates_gauges(
         self, mock_brotr: Brotr
     ) -> None:
@@ -1581,6 +1611,57 @@ class TestMonitorRun:
         result = await monitor.monitor()
 
         assert result == 0
+
+    @patch(
+        "bigbrotr.services.monitor.service.iter_relays_to_monitor_pages",
+        return_value=_mock_pages(),
+    )
+    async def test_monitor_uses_cycle_plan_values(
+        self,
+        mock_iter_pages: MagicMock,
+        mock_brotr: Brotr,
+    ) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        plan = MonitorCyclePlan(
+            networks=(NetworkType.CLEARNET,),
+            monitored_before=123,
+            max_relays=5,
+            total=3,
+            chunk_size=2,
+        )
+
+        with (
+            patch.object(
+                monitor,
+                "_build_monitor_cycle_plan",
+                new_callable=AsyncMock,
+                return_value=plan,
+            ),
+            patch.object(
+                monitor,
+                "_monitor_chunk",
+                new_callable=AsyncMock,
+                return_value=MonitorChunkOutcome(),
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.insert_relay_metadata",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.upsert_monitor_checkpoints",
+                new_callable=AsyncMock,
+            ),
+        ):
+            result = await monitor.monitor()
+
+        assert result == 0
+        mock_iter_pages.assert_called_once_with(
+            mock_brotr,
+            123,
+            [NetworkType.CLEARNET],
+            page_size=2,
+            max_relays=5,
+        )
 
 
 # ============================================================================
