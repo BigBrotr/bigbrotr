@@ -236,19 +236,6 @@ class Brotr:
     # Pattern for valid SQL identifiers (prevents injection in procedure calls)
     _VALID_PROCEDURE_NAME: ClassVar[re.Pattern[str]] = re.compile(r"^[a-z_][a-z0-9_]*$")
 
-    def _prepare_record_columns(
-        self,
-        records: Sequence[_DbParamRecord],
-        operation: str,
-    ) -> tuple[list[tuple[Any, ...]], tuple[list[Any], ...]] | None:
-        """Validate a typed record batch and transpose it to procedure columns."""
-        if not records:
-            return None
-
-        self._validate_batch_size(records, operation)
-        params = [record.to_db_params() for record in records]
-        return params, self._transpose_to_columns(params)
-
     async def _call_procedure(
         self,
         procedure_name: str,
@@ -331,14 +318,14 @@ class Brotr:
         **fields: Any,
     ) -> int:
         """Run a standard bulk insert for record models with ``to_db_params()``."""
-        prepared = self._prepare_record_columns(records, operation)
-        if prepared is None:
+        if not records:
             return 0
 
-        params, columns = prepared
+        self._validate_batch_size(records, operation)
+        params = [record.to_db_params() for record in records]
         return await self._call_counting_procedure(
             procedure_name,
-            *columns,
+            *self._transpose_to_columns(params),
             timeout=self._config.timeouts.batch,
             log_event=log_event,
             attempted=len(params),
