@@ -258,14 +258,3 @@ class Nip66GeoMetadata(BaseNipMetadata):
             data=Nip66GeoData.model_validate(data_report.parsed),
             logs=Nip66GeoLogs.model_validate(logs),
         )
-
-    @classmethod
-    async def execute(
-        cls,
-        relay: Relay,
-        city_reader: geoip2.database.Reader,
-        geohash_precision: int = 9,
-        timeout: float | None = None,  # noqa: ASYNC109
-    ) -> Self:
-        """Compatibility alias for the semantic ``probe()`` entrypoint."""
-        return await cls.probe(relay, city_reader, geohash_precision, timeout)

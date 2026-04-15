@@ -7,7 +7,7 @@ Tests:
 - GeoExtractor.extract_location() - lat, lon, accuracy, tz, geohash
 - GeoExtractor.extract_all() - combines all extraction methods
 - Nip66GeoMetadata._geo() - synchronous lookup
-- Nip66GeoMetadata.execute() - async lookup with clearnet validation
+- Nip66GeoMetadata.probe() - async lookup with clearnet validation
 """
 
 from __future__ import annotations
@@ -386,7 +386,7 @@ class TestNip66GeoMetadataGeoSync:
 
 
 class TestNip66GeoMetadataGeoAsync:
-    """Test Nip66GeoMetadata.execute() async class method."""
+    """Test Nip66GeoMetadata.probe() async class method."""
 
     async def test_clearnet_with_reader_returns_geo_metadata(
         self,
@@ -414,7 +414,7 @@ class TestNip66GeoMetadataGeoAsync:
             ),
             patch.object(Nip66GeoMetadata, "_geo", return_value=geo_result),
         ):
-            result = await Nip66GeoMetadata.execute(relay, mock_city_reader)
+            result = await Nip66GeoMetadata.probe(relay, mock_city_reader)
 
         assert isinstance(result, Nip66GeoMetadata)
         assert result.data.geo_country == "US"
@@ -427,7 +427,7 @@ class TestNip66GeoMetadataGeoAsync:
         mock_city_reader: MagicMock,
     ) -> None:
         """Returns failure for Tor relay (geo not applicable)."""
-        result = await Nip66GeoMetadata.execute(tor_relay, mock_city_reader)
+        result = await Nip66GeoMetadata.probe(tor_relay, mock_city_reader)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
@@ -437,7 +437,7 @@ class TestNip66GeoMetadataGeoAsync:
         mock_city_reader: MagicMock,
     ) -> None:
         """Returns failure for I2P relay (geo not applicable)."""
-        result = await Nip66GeoMetadata.execute(i2p_relay, mock_city_reader)
+        result = await Nip66GeoMetadata.probe(i2p_relay, mock_city_reader)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
@@ -447,7 +447,7 @@ class TestNip66GeoMetadataGeoAsync:
         mock_city_reader: MagicMock,
     ) -> None:
         """Returns failure for Lokinet relay (geo not applicable)."""
-        result = await Nip66GeoMetadata.execute(loki_relay, mock_city_reader)
+        result = await Nip66GeoMetadata.probe(loki_relay, mock_city_reader)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
@@ -466,7 +466,7 @@ class TestNip66GeoMetadataGeoAsync:
             new_callable=AsyncMock,
             return_value=mock_resolved,
         ):
-            result = await Nip66GeoMetadata.execute(relay, mock_city_reader)
+            result = await Nip66GeoMetadata.probe(relay, mock_city_reader)
 
         assert isinstance(result, Nip66GeoMetadata)
         assert result.logs.success is False
@@ -490,7 +490,7 @@ class TestNip66GeoMetadataGeoAsync:
             ),
             patch.object(Nip66GeoMetadata, "_geo", return_value={}),
         ):
-            result = await Nip66GeoMetadata.execute(relay, mock_city_reader)
+            result = await Nip66GeoMetadata.probe(relay, mock_city_reader)
 
         assert isinstance(result, Nip66GeoMetadata)
         assert result.logs.success is False
@@ -514,7 +514,7 @@ class TestNip66GeoMetadataGeoAsync:
             ),
             patch.object(Nip66GeoMetadata, "_geo", side_effect=ValueError("Database error")),
         ):
-            result = await Nip66GeoMetadata.execute(relay, mock_city_reader)
+            result = await Nip66GeoMetadata.probe(relay, mock_city_reader)
 
         assert isinstance(result, Nip66GeoMetadata)
         assert result.logs.success is False
@@ -540,7 +540,7 @@ class TestNip66GeoMetadataGeoAsync:
             ),
             patch.object(Nip66GeoMetadata, "_geo", return_value=geo_result) as mock_geo,
         ):
-            await Nip66GeoMetadata.execute(relay, mock_city_reader)
+            await Nip66GeoMetadata.probe(relay, mock_city_reader)
 
         mock_geo.assert_called_once_with("8.8.8.8", mock_city_reader, 9)
 
@@ -564,7 +564,7 @@ class TestNip66GeoMetadataGeoAsync:
             ),
             patch.object(Nip66GeoMetadata, "_geo", return_value=geo_result) as mock_geo,
         ):
-            await Nip66GeoMetadata.execute(relay, mock_city_reader)
+            await Nip66GeoMetadata.probe(relay, mock_city_reader)
 
         mock_geo.assert_called_once_with("2001:4860:4860::8888", mock_city_reader, 9)
 
@@ -579,7 +579,7 @@ class TestNip66GeoMetadataGeoAsync:
             new_callable=AsyncMock,
             side_effect=TimeoutError,
         ):
-            result = await Nip66GeoMetadata.execute(relay, mock_city_reader, timeout=0.1)
+            result = await Nip66GeoMetadata.probe(relay, mock_city_reader, timeout=0.1)
 
         assert result.logs.success is False
         assert "timeout" in result.logs.reason
@@ -605,6 +605,6 @@ class TestNip66GeoMetadataGeoAsync:
             ),
             patch("bigbrotr.nips.nip66.geo.asyncio.to_thread", side_effect=slow_thread),
         ):
-            result = await Nip66GeoMetadata.execute(relay, mock_city_reader, timeout=0.1)
+            result = await Nip66GeoMetadata.probe(relay, mock_city_reader, timeout=0.1)
 
         assert result.logs.success is False

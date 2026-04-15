@@ -320,24 +320,3 @@ class Nip11InfoMetadata(BaseNipMetadata):
             logger.debug("nip11_failed relay=%s error=%s", relay.url, logs["reason"])
 
         return result
-
-    @classmethod
-    async def execute(  # noqa: PLR0913
-        cls,
-        relay: Relay,
-        timeout: float | None = None,  # noqa: ASYNC109
-        max_size: int | None = None,
-        proxy_url: str | None = None,
-        session: aiohttp.ClientSession | None = None,
-        *,
-        allow_insecure: bool = False,
-    ) -> Self:
-        """Compatibility alias for the semantic ``fetch()`` entrypoint."""
-        return await cls.fetch(
-            relay,
-            timeout,
-            max_size,
-            proxy_url,
-            session,
-            allow_insecure=allow_insecure,
-        )

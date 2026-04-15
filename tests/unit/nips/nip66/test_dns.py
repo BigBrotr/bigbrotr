@@ -3,7 +3,7 @@ Unit tests for models.nips.nip66.dns module.
 
 Tests:
 - Nip66DnsMetadata._dns() - synchronous DNS resolution
-- Nip66DnsMetadata.execute() - async DNS resolution with clearnet validation
+- Nip66DnsMetadata.probe() - async DNS resolution with clearnet validation
 - DNS record type extraction (A, AAAA, CNAME, NS, PTR)
 """
 
@@ -302,7 +302,7 @@ class TestNip66DnsMetadataDnsSync:
 
 
 class TestNip66DnsMetadataDnsAsync:
-    """Test Nip66DnsMetadata.execute() async class method."""
+    """Test Nip66DnsMetadata.probe() async class method."""
 
     async def test_clearnet_returns_dns_metadata(self, relay: Relay) -> None:
         """Returns Nip66DnsMetadata for clearnet relay."""
@@ -312,7 +312,7 @@ class TestNip66DnsMetadataDnsAsync:
         }
 
         with patch.object(Nip66DnsMetadata, "_dns", return_value=dns_result):
-            result = await Nip66DnsMetadata.execute(relay, 5.0)
+            result = await Nip66DnsMetadata.probe(relay, 5.0)
 
         assert isinstance(result, Nip66DnsMetadata)
         assert result.data.dns_ips == ["8.8.8.8"]
@@ -321,26 +321,26 @@ class TestNip66DnsMetadataDnsAsync:
 
     async def test_tor_returns_failure(self, tor_relay: Relay) -> None:
         """Returns failure for Tor relay (DNS not applicable)."""
-        result = await Nip66DnsMetadata.execute(tor_relay, 5.0)
+        result = await Nip66DnsMetadata.probe(tor_relay, 5.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
     async def test_i2p_returns_failure(self, i2p_relay: Relay) -> None:
         """Returns failure for I2P relay (DNS not applicable)."""
-        result = await Nip66DnsMetadata.execute(i2p_relay, 5.0)
+        result = await Nip66DnsMetadata.probe(i2p_relay, 5.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
     async def test_loki_returns_failure(self, loki_relay: Relay) -> None:
         """Returns failure for Lokinet relay (DNS not applicable)."""
-        result = await Nip66DnsMetadata.execute(loki_relay, 5.0)
+        result = await Nip66DnsMetadata.probe(loki_relay, 5.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
     async def test_no_records_returns_failure(self, relay: Relay) -> None:
         """No DNS records returns failure logs."""
         with patch.object(Nip66DnsMetadata, "_dns", return_value={}):
-            result = await Nip66DnsMetadata.execute(relay, 5.0)
+            result = await Nip66DnsMetadata.probe(relay, 5.0)
 
         assert isinstance(result, Nip66DnsMetadata)
         assert result.logs.success is False
@@ -349,7 +349,7 @@ class TestNip66DnsMetadataDnsAsync:
     async def test_exception_returns_failure(self, relay: Relay) -> None:
         """Exception during DNS resolution returns failure logs."""
         with patch.object(Nip66DnsMetadata, "_dns", side_effect=OSError("DNS error")):
-            result = await Nip66DnsMetadata.execute(relay, 5.0)
+            result = await Nip66DnsMetadata.probe(relay, 5.0)
 
         assert isinstance(result, Nip66DnsMetadata)
         assert result.logs.success is False
@@ -360,7 +360,7 @@ class TestNip66DnsMetadataDnsAsync:
         dns_result = {"dns_ips": ["8.8.8.8"]}
 
         with patch.object(Nip66DnsMetadata, "_dns", return_value=dns_result) as mock_dns:
-            await Nip66DnsMetadata.execute(relay, None)
+            await Nip66DnsMetadata.probe(relay, None)
 
         mock_dns.assert_called_once()
         call_args = mock_dns.call_args
@@ -371,7 +371,7 @@ class TestNip66DnsMetadataDnsAsync:
         dns_result = {"dns_ips": ["8.8.8.8"]}
 
         with patch.object(Nip66DnsMetadata, "_dns", return_value=dns_result) as mock_dns:
-            await Nip66DnsMetadata.execute(relay, 5.0)
+            await Nip66DnsMetadata.probe(relay, 5.0)
 
         mock_dns.assert_called_once()
         call_args = mock_dns.call_args
@@ -387,7 +387,7 @@ class TestNip66DnsMetadataDnsAsync:
         }
 
         with patch.object(Nip66DnsMetadata, "_dns", return_value=dns_result):
-            result = await Nip66DnsMetadata.execute(relay, 5.0)
+            result = await Nip66DnsMetadata.probe(relay, 5.0)
 
         assert result.logs.success is True
         assert result.logs.reason is None
@@ -403,7 +403,7 @@ class TestNip66DnsMetadataDnsAsync:
             return {}
 
         with patch("bigbrotr.nips.nip66.dns.asyncio.to_thread", side_effect=_hang):
-            result = await Nip66DnsMetadata.execute(relay, 0.1)
+            result = await Nip66DnsMetadata.probe(relay, 0.1)
 
         assert result.logs.success is False
         assert result.logs.reason == "TimeoutError"

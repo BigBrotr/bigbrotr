@@ -8,7 +8,7 @@ Tests:
 - Nip66RttMetadata._test_write() - write phase
 - Nip66RttMetadata._verify_write() - write verification
 - Nip66RttMetadata._cleanup() - client disconnection
-- Nip66RttMetadata.execute() - full RTT test
+- Nip66RttMetadata.probe() - full RTT test
 """
 
 from __future__ import annotations
@@ -388,7 +388,7 @@ class TestNip66RttMetadataCleanup:
 
 
 class TestNip66RttMetadataRtt:
-    """Test Nip66RttMetadata.execute() main entry point."""
+    """Test Nip66RttMetadata.probe() main entry point."""
 
     async def test_clearnet_returns_rtt_metadata(
         self,
@@ -407,7 +407,7 @@ class TestNip66RttMetadataRtt:
             return mock_nostr_client
 
         with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
-            result = await Nip66RttMetadata.execute(relay, deps, timeout=10.0)
+            result = await Nip66RttMetadata.probe(relay, deps, timeout=10.0)
 
         assert isinstance(result, Nip66RttMetadata)
         assert result.data.rtt_open is not None
@@ -429,7 +429,7 @@ class TestNip66RttMetadataRtt:
             raise TimeoutError("Connection refused")
 
         with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
-            result = await Nip66RttMetadata.execute(relay, deps, timeout=10.0)
+            result = await Nip66RttMetadata.probe(relay, deps, timeout=10.0)
 
         assert isinstance(result, Nip66RttMetadata)
         assert result.logs.open_success is False
@@ -447,7 +447,7 @@ class TestNip66RttMetadataRtt:
         deps = Nip66RttDependencies(
             keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
         )
-        result = await Nip66RttMetadata.execute(tor_relay, deps, timeout=10.0, proxy_url=None)
+        result = await Nip66RttMetadata.probe(tor_relay, deps, timeout=10.0, proxy_url=None)
         assert result.logs.open_success is False
         assert "overlay network tor requires proxy" in result.logs.open_reason
         assert result.logs.read_success is False
@@ -470,7 +470,7 @@ class TestNip66RttMetadataRtt:
             return mock_nostr_client
 
         with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
-            result = await Nip66RttMetadata.execute(
+            result = await Nip66RttMetadata.probe(
                 tor_relay, deps, timeout=10.0, proxy_url="socks5://localhost:9050"
             )
 
@@ -493,7 +493,7 @@ class TestNip66RttMetadataRtt:
             return mock_nostr_client
 
         with patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect):
-            result = await Nip66RttMetadata.execute(relay, deps, timeout=None)
+            result = await Nip66RttMetadata.probe(relay, deps, timeout=None)
 
         assert isinstance(result, Nip66RttMetadata)
 
@@ -517,7 +517,7 @@ class TestNip66RttMetadataRtt:
             patch("bigbrotr.utils.protocol.connect_relay", side_effect=mock_connect),
             patch.object(Nip66RttMetadata, "_cleanup", new_callable=AsyncMock) as mock_cleanup,
         ):
-            await Nip66RttMetadata.execute(relay, deps, timeout=10.0)
+            await Nip66RttMetadata.probe(relay, deps, timeout=10.0)
 
         mock_cleanup.assert_called_once_with(mock_nostr_client)
 

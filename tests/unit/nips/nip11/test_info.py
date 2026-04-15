@@ -1,4 +1,4 @@
-"""Unit tests for Nip11InfoMetadata container and execute() HTTP operations."""
+"""Unit tests for Nip11InfoMetadata container and fetch() HTTP operations."""
 
 import asyncio
 import ssl
@@ -131,12 +131,12 @@ class TestNip11InfoMetadataFrozen:
 
 
 # =============================================================================
-# execute() Method - Success Scenarios
+# fetch() Method - Success Scenarios
 # =============================================================================
 
 
 class TestNip11InfoMetadataSuccess:
-    """Test Nip11InfoMetadata.execute() success scenarios."""
+    """Test Nip11InfoMetadata.fetch() success scenarios."""
 
     async def test_info_success(self, relay: Relay, mock_session_factory):
         """Successful retrieval returns metadata with data."""
@@ -150,7 +150,7 @@ class TestNip11InfoMetadataSuccess:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(relay)
+            result = await Nip11InfoMetadata.fetch(relay)
 
         assert result.logs.success is True
         assert result.data.name == "Test Relay"
@@ -173,7 +173,7 @@ class TestNip11InfoMetadataSuccess:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(relay)
+            result = await Nip11InfoMetadata.fetch(relay)
 
         assert result.logs.success is True
         assert result.data.name == "Test Relay"
@@ -192,19 +192,19 @@ class TestNip11InfoMetadataSuccess:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(relay)
+            result = await Nip11InfoMetadata.fetch(relay)
 
         assert result.logs.success is True
         assert result.data.name is None
 
 
 # =============================================================================
-# execute() Method - Content-Type Validation
+# fetch() Method - Content-Type Validation
 # =============================================================================
 
 
 class TestNip11InfoMetadataContentType:
-    """Test Content-Type validation in execute()."""
+    """Test Content-Type validation in fetch()."""
 
     async def test_info_accepts_nostr_json(self, relay: Relay, mock_session_factory):
         """application/nostr+json is accepted."""
@@ -218,7 +218,7 @@ class TestNip11InfoMetadataContentType:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(relay)
+            result = await Nip11InfoMetadata.fetch(relay)
 
         assert result.logs.success is True
 
@@ -234,7 +234,7 @@ class TestNip11InfoMetadataContentType:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(relay)
+            result = await Nip11InfoMetadata.fetch(relay)
 
         assert result.logs.success is True
 
@@ -250,7 +250,7 @@ class TestNip11InfoMetadataContentType:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(relay)
+            result = await Nip11InfoMetadata.fetch(relay)
 
         assert result.logs.success is True
 
@@ -266,7 +266,7 @@ class TestNip11InfoMetadataContentType:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(relay)
+            result = await Nip11InfoMetadata.fetch(relay)
 
         assert result.logs.success is False
         assert "Content-Type" in result.logs.reason
@@ -283,19 +283,19 @@ class TestNip11InfoMetadataContentType:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(relay)
+            result = await Nip11InfoMetadata.fetch(relay)
 
         assert result.logs.success is False
         assert "Content-Type" in result.logs.reason
 
 
 # =============================================================================
-# execute() Method - HTTP Error Handling
+# fetch() Method - HTTP Error Handling
 # =============================================================================
 
 
 class TestNip11InfoMetadataHttpErrors:
-    """Test HTTP error handling in execute()."""
+    """Test HTTP error handling in fetch()."""
 
     async def test_info_404_returns_failure(self, relay: Relay, mock_session_factory):
         """HTTP 404 returns failure."""
@@ -307,7 +307,7 @@ class TestNip11InfoMetadataHttpErrors:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(relay)
+            result = await Nip11InfoMetadata.fetch(relay)
 
         assert result.logs.success is False
         assert "404" in result.logs.reason
@@ -322,7 +322,7 @@ class TestNip11InfoMetadataHttpErrors:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(relay)
+            result = await Nip11InfoMetadata.fetch(relay)
 
         assert result.logs.success is False
         assert "500" in result.logs.reason
@@ -335,7 +335,7 @@ class TestNip11InfoMetadataHttpErrors:
         session.__aexit__ = AsyncMock(return_value=None)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(relay)
+            result = await Nip11InfoMetadata.fetch(relay)
 
         assert result.logs.success is False
         assert "Connection refused" in result.logs.reason
@@ -349,13 +349,13 @@ class TestNip11InfoMetadataHttpErrors:
         session.__aexit__ = AsyncMock(return_value=None)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(relay)
+            result = await Nip11InfoMetadata.fetch(relay)
 
         assert result.logs.success is False
 
 
 # =============================================================================
-# execute() Method - Response Size Limits
+# fetch() Method - Response Size Limits
 # =============================================================================
 
 
@@ -374,7 +374,7 @@ class TestNip11InfoMetadataResponseSize:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(relay, max_size=1000)
+            result = await Nip11InfoMetadata.fetch(relay, max_size=1000)
 
         assert result.logs.success is False
         assert "too large" in result.logs.reason
@@ -391,13 +391,13 @@ class TestNip11InfoMetadataResponseSize:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(relay, max_size=65536)
+            result = await Nip11InfoMetadata.fetch(relay, max_size=65536)
 
         assert result.logs.success is True
 
 
 # =============================================================================
-# execute() Method - JSON Parsing Errors
+# fetch() Method - JSON Parsing Errors
 # =============================================================================
 
 
@@ -416,7 +416,7 @@ class TestNip11InfoMetadataJsonParsing:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(relay)
+            result = await Nip11InfoMetadata.fetch(relay)
 
         assert result.logs.success is False
 
@@ -432,7 +432,7 @@ class TestNip11InfoMetadataJsonParsing:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(relay)
+            result = await Nip11InfoMetadata.fetch(relay)
 
         assert result.logs.success is False
         assert "dict" in result.logs.reason
@@ -449,7 +449,7 @@ class TestNip11InfoMetadataJsonParsing:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(relay)
+            result = await Nip11InfoMetadata.fetch(relay)
 
         assert result.logs.success is False
         assert "dict" in result.logs.reason
@@ -466,18 +466,18 @@ class TestNip11InfoMetadataJsonParsing:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(relay)
+            result = await Nip11InfoMetadata.fetch(relay)
 
         assert result.logs.success is False
 
 
 # =============================================================================
-# execute() Method - URL Construction
+# fetch() Method - URL Construction
 # =============================================================================
 
 
 class TestNip11InfoMetadataUrlConstruction:
-    """Test URL construction in execute()."""
+    """Test URL construction in fetch()."""
 
     async def test_info_wss_uses_https(self, relay: Relay, mock_session_factory):
         """wss:// relay uses https://."""
@@ -491,7 +491,7 @@ class TestNip11InfoMetadataUrlConstruction:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            await Nip11InfoMetadata.execute(relay)
+            await Nip11InfoMetadata.fetch(relay)
 
         call_args = session.get.call_args
         url = call_args[0][0]
@@ -509,7 +509,7 @@ class TestNip11InfoMetadataUrlConstruction:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            await Nip11InfoMetadata.execute(tor_relay)
+            await Nip11InfoMetadata.fetch(tor_relay)
 
         call_args = session.get.call_args
         url = call_args[0][0]
@@ -527,7 +527,7 @@ class TestNip11InfoMetadataUrlConstruction:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            await Nip11InfoMetadata.execute(relay_with_port)
+            await Nip11InfoMetadata.fetch(relay_with_port)
 
         call_args = session.get.call_args
         url = call_args[0][0]
@@ -545,7 +545,7 @@ class TestNip11InfoMetadataUrlConstruction:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            await Nip11InfoMetadata.execute(relay_with_path)
+            await Nip11InfoMetadata.fetch(relay_with_path)
 
         call_args = session.get.call_args
         url = call_args[0][0]
@@ -563,7 +563,7 @@ class TestNip11InfoMetadataUrlConstruction:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            await Nip11InfoMetadata.execute(ipv6_relay)
+            await Nip11InfoMetadata.fetch(ipv6_relay)
 
         call_args = session.get.call_args
         url = call_args[0][0]
@@ -571,12 +571,12 @@ class TestNip11InfoMetadataUrlConstruction:
 
 
 # =============================================================================
-# execute() Method - Accept Header
+# fetch() Method - Accept Header
 # =============================================================================
 
 
 class TestNip11InfoMetadataAcceptHeader:
-    """Test Accept header in execute()."""
+    """Test Accept header in fetch()."""
 
     async def test_info_sends_accept_header(self, relay: Relay, mock_session_factory):
         """Request includes Accept: application/nostr+json header."""
@@ -590,7 +590,7 @@ class TestNip11InfoMetadataAcceptHeader:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            await Nip11InfoMetadata.execute(relay)
+            await Nip11InfoMetadata.fetch(relay)
 
         call_args = session.get.call_args
         headers = call_args[1]["headers"]
@@ -598,12 +598,12 @@ class TestNip11InfoMetadataAcceptHeader:
 
 
 # =============================================================================
-# execute() Method - Network-Specific Behavior
+# fetch() Method - Network-Specific Behavior
 # =============================================================================
 
 
 class TestNip11InfoMetadataNetworkBehavior:
-    """Test network-specific behavior in execute()."""
+    """Test network-specific behavior in fetch()."""
 
     async def test_info_tor_relay(self, tor_relay: Relay, mock_session_factory):
         """Tor relay retrieval uses http:// (overlay handles encryption)."""
@@ -617,7 +617,7 @@ class TestNip11InfoMetadataNetworkBehavior:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(tor_relay)
+            result = await Nip11InfoMetadata.fetch(tor_relay)
 
         assert result.logs.success is True
         call_args = session.get.call_args
@@ -637,7 +637,7 @@ class TestNip11InfoMetadataNetworkBehavior:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(i2p_relay)
+            result = await Nip11InfoMetadata.fetch(i2p_relay)
 
         assert result.logs.success is True
         call_args = session.get.call_args
@@ -657,7 +657,7 @@ class TestNip11InfoMetadataNetworkBehavior:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(loki_relay)
+            result = await Nip11InfoMetadata.fetch(loki_relay)
 
         assert result.logs.success is True
         call_args = session.get.call_args
@@ -667,12 +667,12 @@ class TestNip11InfoMetadataNetworkBehavior:
 
 
 # =============================================================================
-# execute() Method - Timeout Configuration
+# fetch() Method - Timeout Configuration
 # =============================================================================
 
 
 class TestNip11InfoMetadataTimeout:
-    """Test timeout configuration in execute()."""
+    """Test timeout configuration in fetch()."""
 
     async def test_info_uses_default_timeout(self, relay: Relay, mock_session_factory):
         """Retrieval uses default timeout when not specified."""
@@ -686,7 +686,7 @@ class TestNip11InfoMetadataTimeout:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            await Nip11InfoMetadata.execute(relay)
+            await Nip11InfoMetadata.fetch(relay)
 
         call_args = session.get.call_args
         timeout = call_args[1]["timeout"]
@@ -704,7 +704,7 @@ class TestNip11InfoMetadataTimeout:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            await Nip11InfoMetadata.execute(relay, timeout=30.0)
+            await Nip11InfoMetadata.fetch(relay, timeout=30.0)
 
         call_args = session.get.call_args
         timeout = call_args[1]["timeout"]
@@ -712,12 +712,12 @@ class TestNip11InfoMetadataTimeout:
 
 
 # =============================================================================
-# execute() Method - Data Parsing with Invalid Fields
+# fetch() Method - Data Parsing with Invalid Fields
 # =============================================================================
 
 
 class TestNip11InfoMetadataDataParsing:
-    """Test data parsing in execute() with invalid fields."""
+    """Test data parsing in fetch() with invalid fields."""
 
     async def test_info_filters_invalid_fields(self, relay: Relay, mock_session_factory, caplog):
         """Retrieval filters invalid fields from response."""
@@ -736,7 +736,7 @@ class TestNip11InfoMetadataDataParsing:
             caplog.at_level("WARNING", logger="bigbrotr.nips.nip11"),
             patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session),
         ):
-            result = await Nip11InfoMetadata.execute(relay)
+            result = await Nip11InfoMetadata.fetch(relay)
 
         assert result.logs.success is True
         assert result.data.name == "Test"
@@ -761,7 +761,7 @@ class TestNip11InfoMetadataDataParsing:
             caplog.at_level("WARNING", logger="bigbrotr.nips.nip11"),
             patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session),
         ):
-            result = await Nip11InfoMetadata.execute(relay)
+            result = await Nip11InfoMetadata.fetch(relay)
 
         assert result.logs.success is True
         assert result.data.name == "Test"
@@ -869,14 +869,14 @@ class TestNip11InfoMetadataDirectInfo:
 
 
 # =============================================================================
-# execute() Method - Session Reuse (line 161)
+# fetch() Method - Session Reuse (line 161)
 # =============================================================================
 
 
 class TestNip11InfoMetadataSessionReuse:
-    """Test execute() with a pre-existing session passed in."""
+    """Test fetch() with a pre-existing session passed in."""
 
-    async def test_execute_with_session_reuses_it(self, relay: Relay):
+    async def test_fetch_with_session_reuses_it(self, relay: Relay):
         """When session is provided, _info uses it directly without creating a new one."""
         response = AsyncMock()
         response.status = 200
@@ -888,13 +888,13 @@ class TestNip11InfoMetadataSessionReuse:
         session = MagicMock()
         session.get = MagicMock(return_value=response)
 
-        result = await Nip11InfoMetadata.execute(relay, session=session)
+        result = await Nip11InfoMetadata.fetch(relay, session=session)
 
         assert result.logs.success is True
         assert result.data.name == "Reused"
         session.get.assert_called_once()
 
-    async def test_execute_with_session_does_not_create_new_session(self, relay: Relay):
+    async def test_fetch_with_session_does_not_create_new_session(self, relay: Relay):
         """When session is provided, no new ClientSession is created."""
         response = AsyncMock()
         response.status = 200
@@ -907,7 +907,7 @@ class TestNip11InfoMetadataSessionReuse:
         session.get = MagicMock(return_value=response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession") as mock_cls:
-            await Nip11InfoMetadata.execute(relay, session=session)
+            await Nip11InfoMetadata.fetch(relay, session=session)
             mock_cls.assert_not_called()
 
 
@@ -948,10 +948,10 @@ class TestNip11InfoMetadataProxyConnector:
         assert result == {"name": "Proxy"}
         mock_from_url.assert_called_once_with("socks5://127.0.0.1:9050", ssl=False)
 
-    async def test_execute_tor_relay_with_proxy_uses_proxy_connector(
+    async def test_fetch_tor_relay_with_proxy_uses_proxy_connector(
         self, tor_relay: Relay, mock_session_factory
     ):
-        """execute() for tor relay with proxy_url passes proxy to _info."""
+        """fetch() for tor relay with proxy_url passes proxy to _info."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
@@ -967,21 +967,21 @@ class TestNip11InfoMetadataProxyConnector:
                 "bigbrotr.nips.nip11.info.ProxyConnector.from_url", return_value=MagicMock()
             ) as mock_from_url,
         ):
-            result = await Nip11InfoMetadata.execute(tor_relay, proxy_url="socks5://127.0.0.1:9050")
+            result = await Nip11InfoMetadata.fetch(tor_relay, proxy_url="socks5://127.0.0.1:9050")
 
         assert result.logs.success is True
         mock_from_url.assert_called_once()
 
 
 # =============================================================================
-# execute() Method - Plain HTTP / ws:// relay (line 258)
+# fetch() Method - Plain HTTP / ws:// relay (line 258)
 # =============================================================================
 
 
 class TestNip11InfoMetadataPlainHttp:
-    """Test execute() with ws:// non-overlay relay takes the http:// (no SSL) path."""
+    """Test fetch() with ws:// non-overlay relay takes the http:// (no SSL) path."""
 
-    async def test_execute_ws_relay_uses_http_no_ssl(self, mock_session_factory):
+    async def test_fetch_ws_relay_uses_http_no_ssl(self, mock_session_factory):
         """Non-overlay relay with scheme=ws uses http:// with ssl_context=False."""
         ws_relay = MagicMock(spec=Relay)
         ws_relay.scheme = "ws"
@@ -1001,7 +1001,7 @@ class TestNip11InfoMetadataPlainHttp:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11InfoMetadata.execute(ws_relay)
+            result = await Nip11InfoMetadata.fetch(ws_relay)
 
         assert result.logs.success is True
         assert result.data.name == "Plain HTTP"
@@ -1013,7 +1013,7 @@ class TestNip11InfoMetadataPlainHttp:
 
 
 # =============================================================================
-# execute() Method - SSL Fallback (lines 281-287)
+# fetch() Method - SSL Fallback (lines 281-287)
 # =============================================================================
 
 
@@ -1047,7 +1047,7 @@ class TestNip11InfoMetadataSslFallback:
             return {"name": "Fallback"}
 
         with patch.object(Nip11InfoMetadata, "_info", side_effect=mock_info):
-            result = await Nip11InfoMetadata.execute(relay, allow_insecure=True)
+            result = await Nip11InfoMetadata.fetch(relay, allow_insecure=True)
 
         assert result.logs.success is True
         assert result.data.name == "Fallback"
@@ -1062,13 +1062,13 @@ class TestNip11InfoMetadataSslFallback:
             raise aiohttp.ClientConnectorCertificateError(MagicMock(), MagicMock())
 
         with patch.object(Nip11InfoMetadata, "_info", side_effect=mock_info):
-            result = await Nip11InfoMetadata.execute(relay, allow_insecure=False)
+            result = await Nip11InfoMetadata.fetch(relay, allow_insecure=False)
 
         assert result.logs.success is False
 
 
 # =============================================================================
-# execute() Method - CancelledError Re-raise (line 300)
+# fetch() Method - CancelledError Re-raise (line 300)
 # =============================================================================
 
 
@@ -1076,7 +1076,7 @@ class TestNip11InfoMetadataCancelledError:
     """Test CancelledError is re-raised, not swallowed."""
 
     async def test_cancelled_error_propagates(self, relay: Relay):
-        """asyncio.CancelledError propagates out of execute()."""
+        """asyncio.CancelledError propagates out of fetch()."""
 
         async def mock_info(
             http_url, headers, timeout, max_size, ssl_context, proxy_url=None, session=None
@@ -1087,4 +1087,4 @@ class TestNip11InfoMetadataCancelledError:
             patch.object(Nip11InfoMetadata, "_info", side_effect=mock_info),
             pytest.raises(asyncio.CancelledError),
         ):
-            await Nip11InfoMetadata.execute(relay)
+            await Nip11InfoMetadata.fetch(relay)

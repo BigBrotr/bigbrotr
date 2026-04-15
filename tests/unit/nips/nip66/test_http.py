@@ -3,7 +3,7 @@ Unit tests for models.nips.nip66.http module.
 
 Tests:
 - Nip66HttpMetadata._http() - async HTTP header capture
-- Nip66HttpMetadata.execute() - async HTTP check with proxy support
+- Nip66HttpMetadata.probe() - async HTTP check with proxy support
 - Server and X-Powered-By header extraction
 """
 
@@ -26,7 +26,7 @@ class TestNip66HttpMetadataHttpAsync:
         http_result = {"http_server": "nginx/1.24.0"}
 
         with patch.object(Nip66HttpMetadata, "_http", return_value=http_result):
-            result = await Nip66HttpMetadata.execute(relay, 10.0)
+            result = await Nip66HttpMetadata.probe(relay, 10.0)
 
         assert isinstance(result, Nip66HttpMetadata)
         assert result.data.http_server == "nginx/1.24.0"
@@ -40,21 +40,21 @@ class TestNip66HttpMetadataHttpAsync:
         }
 
         with patch.object(Nip66HttpMetadata, "_http", return_value=http_result):
-            result = await Nip66HttpMetadata.execute(relay, 10.0)
+            result = await Nip66HttpMetadata.probe(relay, 10.0)
 
         assert result.data.http_powered_by == "Strfry"
 
     async def test_empty_headers_returns_empty_dict(self, relay: Relay) -> None:
         """Empty headers returns empty dict."""
         with patch.object(Nip66HttpMetadata, "_http", return_value={}):
-            result = await Nip66HttpMetadata.execute(relay, 10.0)
+            result = await Nip66HttpMetadata.probe(relay, 10.0)
 
         assert result.data.http_server is None
         assert result.data.http_powered_by is None
 
 
 class TestNip66HttpMetadataHttp:
-    """Test Nip66HttpMetadata.execute() async class method."""
+    """Test Nip66HttpMetadata.probe() async class method."""
 
     async def test_clearnet_returns_http_metadata(self, relay: Relay) -> None:
         """Returns Nip66HttpMetadata for clearnet relay."""
@@ -64,7 +64,7 @@ class TestNip66HttpMetadataHttp:
         }
 
         with patch.object(Nip66HttpMetadata, "_http", return_value=http_result):
-            result = await Nip66HttpMetadata.execute(relay, 10.0)
+            result = await Nip66HttpMetadata.probe(relay, 10.0)
 
         assert isinstance(result, Nip66HttpMetadata)
         assert result.data.http_server == "nginx/1.24.0"
@@ -73,19 +73,19 @@ class TestNip66HttpMetadataHttp:
 
     async def test_tor_without_proxy_returns_failure(self, tor_relay: Relay) -> None:
         """Returns failure for Tor relay without proxy."""
-        result = await Nip66HttpMetadata.execute(tor_relay, 10.0)
+        result = await Nip66HttpMetadata.probe(tor_relay, 10.0)
         assert result.logs.success is False
         assert "overlay network tor requires proxy" in result.logs.reason
 
     async def test_i2p_without_proxy_returns_failure(self, i2p_relay: Relay) -> None:
         """Returns failure for I2P relay without proxy."""
-        result = await Nip66HttpMetadata.execute(i2p_relay, 10.0)
+        result = await Nip66HttpMetadata.probe(i2p_relay, 10.0)
         assert result.logs.success is False
         assert "overlay network i2p requires proxy" in result.logs.reason
 
     async def test_loki_without_proxy_returns_failure(self, loki_relay: Relay) -> None:
         """Returns failure for Lokinet relay without proxy."""
-        result = await Nip66HttpMetadata.execute(loki_relay, 10.0)
+        result = await Nip66HttpMetadata.probe(loki_relay, 10.0)
         assert result.logs.success is False
         assert "overlay network loki requires proxy" in result.logs.reason
 
@@ -94,7 +94,7 @@ class TestNip66HttpMetadataHttp:
         http_result = {"http_server": "nginx/1.24.0"}
 
         with patch.object(Nip66HttpMetadata, "_http", return_value=http_result):
-            result = await Nip66HttpMetadata.execute(
+            result = await Nip66HttpMetadata.probe(
                 tor_relay, 10.0, proxy_url="socks5://localhost:9050"
             )
 
@@ -106,16 +106,14 @@ class TestNip66HttpMetadataHttp:
         http_result = {"http_server": "nginx/1.24.0"}
 
         with patch.object(Nip66HttpMetadata, "_http", return_value=http_result):
-            result = await Nip66HttpMetadata.execute(
-                relay, 10.0, proxy_url="socks5://localhost:9050"
-            )
+            result = await Nip66HttpMetadata.probe(relay, 10.0, proxy_url="socks5://localhost:9050")
 
         assert isinstance(result, Nip66HttpMetadata)
 
     async def test_no_headers_returns_failure(self, relay: Relay) -> None:
         """No HTTP headers returns failure logs."""
         with patch.object(Nip66HttpMetadata, "_http", return_value={}):
-            result = await Nip66HttpMetadata.execute(relay, 10.0)
+            result = await Nip66HttpMetadata.probe(relay, 10.0)
 
         assert isinstance(result, Nip66HttpMetadata)
         assert result.logs.success is False
@@ -124,7 +122,7 @@ class TestNip66HttpMetadataHttp:
     async def test_exception_returns_failure(self, relay: Relay) -> None:
         """Exception during HTTP check returns failure logs."""
         with patch.object(Nip66HttpMetadata, "_http", side_effect=OSError("Connection timeout")):
-            result = await Nip66HttpMetadata.execute(relay, 10.0)
+            result = await Nip66HttpMetadata.probe(relay, 10.0)
 
         assert isinstance(result, Nip66HttpMetadata)
         assert result.logs.success is False
@@ -135,7 +133,7 @@ class TestNip66HttpMetadataHttp:
         http_result = {"http_server": "nginx/1.24.0"}
 
         with patch.object(Nip66HttpMetadata, "_http", return_value=http_result) as mock_http:
-            await Nip66HttpMetadata.execute(relay, None)
+            await Nip66HttpMetadata.probe(relay, None)
 
         mock_http.assert_called_once()
         call_args = mock_http.call_args
@@ -147,7 +145,7 @@ class TestNip66HttpMetadataHttp:
         proxy_url = "socks5://localhost:9050"
 
         with patch.object(Nip66HttpMetadata, "_http", return_value=http_result) as mock_http:
-            await Nip66HttpMetadata.execute(relay, 10.0, proxy_url=proxy_url)
+            await Nip66HttpMetadata.probe(relay, 10.0, proxy_url=proxy_url)
 
         mock_http.assert_called_once()
         call_args = mock_http.call_args
@@ -158,7 +156,7 @@ class TestNip66HttpMetadataHttp:
         http_result = {"http_server": "apache/2.4.41"}
 
         with patch.object(Nip66HttpMetadata, "_http", return_value=http_result):
-            result = await Nip66HttpMetadata.execute(relay, 10.0)
+            result = await Nip66HttpMetadata.probe(relay, 10.0)
 
         assert result.logs.success is True
         assert result.data.http_server == "apache/2.4.41"
@@ -169,7 +167,7 @@ class TestNip66HttpMetadataHttp:
         http_result = {"http_powered_by": "Express"}
 
         with patch.object(Nip66HttpMetadata, "_http", return_value=http_result):
-            result = await Nip66HttpMetadata.execute(relay, 10.0)
+            result = await Nip66HttpMetadata.probe(relay, 10.0)
 
         assert result.logs.success is True
         assert result.data.http_server is None
@@ -187,7 +185,7 @@ class TestNip66HttpMetadataHttp:
             caplog.at_level("WARNING", logger="bigbrotr.nips.nip66"),
             patch.object(Nip66HttpMetadata, "_http", return_value=http_result),
         ):
-            result = await Nip66HttpMetadata.execute(relay, 10.0)
+            result = await Nip66HttpMetadata.probe(relay, 10.0)
 
         assert result.logs.success is True
         assert result.data.http_server is None
@@ -201,7 +199,7 @@ class TestNip66HttpMetadataHttp:
         http_result = {"http_server": "nginx/1.24.0"}
 
         with patch.object(Nip66HttpMetadata, "_http", return_value=http_result):
-            result = await Nip66HttpMetadata.execute(
+            result = await Nip66HttpMetadata.probe(
                 tor_relay, 10.0, proxy_url="socks5://localhost:9050"
             )
 
@@ -210,7 +208,7 @@ class TestNip66HttpMetadataHttp:
 
 
 class TestNip66HttpMetadataInternalHttp:
-    """Test _http() internals via execute() without mocking _http itself."""
+    """Test _http() internals via probe() without mocking _http itself."""
 
     @staticmethod
     def _make_session_mock(
@@ -256,7 +254,7 @@ class TestNip66HttpMetadataInternalHttp:
         _, factory = self._make_session_mock({"Server": "nginx/1.24.0"})
 
         with patch("bigbrotr.nips.nip66.http.aiohttp.ClientSession", side_effect=factory):
-            result = await Nip66HttpMetadata.execute(relay, 10.0)
+            result = await Nip66HttpMetadata.probe(relay, 10.0)
 
         assert result.data.http_server == "nginx/1.24.0"
         assert result.logs.success is True
@@ -266,7 +264,7 @@ class TestNip66HttpMetadataInternalHttp:
         _, factory = self._make_session_mock({"X-Powered-By": "Strfry"})
 
         with patch("bigbrotr.nips.nip66.http.aiohttp.ClientSession", side_effect=factory):
-            result = await Nip66HttpMetadata.execute(relay, 10.0)
+            result = await Nip66HttpMetadata.probe(relay, 10.0)
 
         assert result.data.http_powered_by == "Strfry"
         assert result.logs.success is True
@@ -276,7 +274,7 @@ class TestNip66HttpMetadataInternalHttp:
         _, factory = self._make_session_mock({})
 
         with patch("bigbrotr.nips.nip66.http.aiohttp.ClientSession", side_effect=factory):
-            result = await Nip66HttpMetadata.execute(relay, 10.0)
+            result = await Nip66HttpMetadata.probe(relay, 10.0)
 
         assert result.data.http_server is None
         assert result.data.http_powered_by is None
@@ -291,7 +289,7 @@ class TestNip66HttpMetadataInternalHttp:
             patch("bigbrotr.nips.nip66.http.aiohttp.ClientSession", side_effect=factory),
             patch("bigbrotr.nips.nip66.http.aiohttp.TCPConnector") as mock_tcp,
         ):
-            await Nip66HttpMetadata.execute(relay, 10.0)
+            await Nip66HttpMetadata.probe(relay, 10.0)
 
         mock_tcp.assert_called_once()
         ssl_ctx = mock_tcp.call_args[1]["ssl"]
@@ -307,7 +305,7 @@ class TestNip66HttpMetadataInternalHttp:
             patch("bigbrotr.nips.nip66.http.ProxyConnector.from_url") as mock_proxy,
         ):
             mock_proxy.return_value = MagicMock()
-            await Nip66HttpMetadata.execute(tor_relay, 10.0, proxy_url="socks5://localhost:9050")
+            await Nip66HttpMetadata.probe(tor_relay, 10.0, proxy_url="socks5://localhost:9050")
 
         mock_proxy.assert_called_once()
         ssl_ctx = mock_proxy.call_args[1]["ssl"]
@@ -323,7 +321,7 @@ class TestNip66HttpMetadataInternalHttp:
             patch("bigbrotr.nips.nip66.http.ProxyConnector.from_url") as mock_proxy,
         ):
             mock_proxy.return_value = MagicMock()
-            await Nip66HttpMetadata.execute(relay, 10.0, proxy_url="socks5://localhost:9050")
+            await Nip66HttpMetadata.probe(relay, 10.0, proxy_url="socks5://localhost:9050")
 
         mock_proxy.assert_called_once_with(
             "socks5://localhost:9050", ssl=mock_proxy.call_args[1]["ssl"]

@@ -3,7 +3,7 @@ Unit tests for models.nips.nip66.net module.
 
 Tests:
 - Nip66NetMetadata._net() - synchronous ASN lookup
-- Nip66NetMetadata.execute() - async network lookup with clearnet validation
+- Nip66NetMetadata.probe() - async network lookup with clearnet validation
 - IPv4 and IPv6 ASN resolution
 - Dual-stack handling
 """
@@ -219,7 +219,7 @@ class TestNip66NetMetadataNetSync:
 
 
 class TestNip66NetMetadataNetAsync:
-    """Test Nip66NetMetadata.execute() async class method."""
+    """Test Nip66NetMetadata.probe() async class method."""
 
     async def test_clearnet_returns_net_metadata(
         self,
@@ -247,7 +247,7 @@ class TestNip66NetMetadataNetAsync:
             ),
             patch.object(Nip66NetMetadata, "_net", return_value=net_result),
         ):
-            result = await Nip66NetMetadata.execute(relay, mock_asn_reader)
+            result = await Nip66NetMetadata.probe(relay, mock_asn_reader)
 
         assert isinstance(result, Nip66NetMetadata)
         assert result.data.net_ip == "8.8.8.8"
@@ -260,7 +260,7 @@ class TestNip66NetMetadataNetAsync:
         mock_asn_reader: MagicMock,
     ) -> None:
         """Returns failure for Tor relay (net not applicable)."""
-        result = await Nip66NetMetadata.execute(tor_relay, mock_asn_reader)
+        result = await Nip66NetMetadata.probe(tor_relay, mock_asn_reader)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
@@ -270,7 +270,7 @@ class TestNip66NetMetadataNetAsync:
         mock_asn_reader: MagicMock,
     ) -> None:
         """Returns failure for I2P relay (net not applicable)."""
-        result = await Nip66NetMetadata.execute(i2p_relay, mock_asn_reader)
+        result = await Nip66NetMetadata.probe(i2p_relay, mock_asn_reader)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
@@ -280,7 +280,7 @@ class TestNip66NetMetadataNetAsync:
         mock_asn_reader: MagicMock,
     ) -> None:
         """Returns failure for Lokinet relay (net not applicable)."""
-        result = await Nip66NetMetadata.execute(loki_relay, mock_asn_reader)
+        result = await Nip66NetMetadata.probe(loki_relay, mock_asn_reader)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
@@ -300,7 +300,7 @@ class TestNip66NetMetadataNetAsync:
             new_callable=AsyncMock,
             return_value=mock_resolved,
         ):
-            result = await Nip66NetMetadata.execute(relay, mock_asn_reader)
+            result = await Nip66NetMetadata.probe(relay, mock_asn_reader)
 
         assert isinstance(result, Nip66NetMetadata)
         assert result.logs.success is False
@@ -325,7 +325,7 @@ class TestNip66NetMetadataNetAsync:
             ),
             patch.object(Nip66NetMetadata, "_net", return_value={}),
         ):
-            result = await Nip66NetMetadata.execute(relay, mock_asn_reader)
+            result = await Nip66NetMetadata.probe(relay, mock_asn_reader)
 
         assert isinstance(result, Nip66NetMetadata)
         assert result.logs.success is False
@@ -356,7 +356,7 @@ class TestNip66NetMetadataNetAsync:
             ),
             patch.object(Nip66NetMetadata, "_net", return_value=net_result) as mock_net,
         ):
-            await Nip66NetMetadata.execute(relay, mock_asn_reader)
+            await Nip66NetMetadata.probe(relay, mock_asn_reader)
 
         mock_net.assert_called_once_with("8.8.8.8", "2001:4860:4860::8888", mock_asn_reader)
 
@@ -385,7 +385,7 @@ class TestNip66NetMetadataNetAsync:
             ),
             patch.object(Nip66NetMetadata, "_net", return_value=net_result),
         ):
-            result = await Nip66NetMetadata.execute(relay, mock_asn_reader)
+            result = await Nip66NetMetadata.probe(relay, mock_asn_reader)
 
         assert result.logs.success is True
         assert result.data.net_asn == 15169
@@ -402,7 +402,7 @@ class TestNip66NetMetadataNetAsync:
             new_callable=AsyncMock,
             side_effect=TimeoutError,
         ):
-            result = await Nip66NetMetadata.execute(relay, mock_asn_reader, timeout=0.1)
+            result = await Nip66NetMetadata.probe(relay, mock_asn_reader, timeout=0.1)
 
         assert result.logs.success is False
         assert "timeout" in result.logs.reason
@@ -429,6 +429,6 @@ class TestNip66NetMetadataNetAsync:
             ),
             patch("bigbrotr.nips.nip66.net.asyncio.to_thread", side_effect=slow_thread),
         ):
-            result = await Nip66NetMetadata.execute(relay, mock_asn_reader, timeout=0.1)
+            result = await Nip66NetMetadata.probe(relay, mock_asn_reader, timeout=0.1)
 
         assert result.logs.success is False

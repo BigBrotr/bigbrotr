@@ -194,20 +194,3 @@ class Nip66HttpMetadata(BaseNipMetadata):
             data=Nip66HttpData.model_validate(data_report.parsed),
             logs=Nip66HttpLogs.model_validate(logs),
         )
-
-    @classmethod
-    async def execute(
-        cls,
-        relay: Relay,
-        timeout: float | None = None,  # noqa: ASYNC109
-        proxy_url: str | None = None,
-        *,
-        allow_insecure: bool = False,
-    ) -> Self:
-        """Compatibility alias for the semantic ``probe()`` entrypoint."""
-        return await cls.probe(
-            relay,
-            timeout,
-            proxy_url,
-            allow_insecure=allow_insecure,
-        )

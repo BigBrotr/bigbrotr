@@ -185,25 +185,6 @@ class Nip66RttMetadata(BaseNipMetadata):
         )
         return cls._build_result(rtt_data, logs)
 
-    @classmethod
-    async def execute(
-        cls,
-        relay: Relay,
-        deps: Nip66RttDependencies,
-        timeout: float | None = None,  # noqa: ASYNC109
-        proxy_url: str | None = None,
-        *,
-        allow_insecure: bool = False,
-    ) -> Self:
-        """Compatibility alias for the semantic ``probe()`` entrypoint."""
-        return await cls.probe(
-            relay,
-            deps,
-            timeout,
-            proxy_url,
-            allow_insecure=allow_insecure,
-        )
-
     @staticmethod
     def _empty_rtt_data() -> dict[str, Any]:
         """Return an initialized RTT data dictionary with all fields set to None."""

@@ -4,7 +4,7 @@ Unit tests for models.nips.nip66.ssl module.
 Tests:
 - CertificateExtractor.extract_fingerprint() - SHA-256 fingerprint
 - Nip66SslMetadata._ssl() - synchronous SSL check
-- Nip66SslMetadata.execute() - async SSL check with clearnet validation
+- Nip66SslMetadata.probe() - async SSL check with clearnet validation
 """
 
 from __future__ import annotations
@@ -156,7 +156,7 @@ class TestNip66SslMetadataSslSync:
 
 
 class TestNip66SslMetadataSslAsync:
-    """Test Nip66SslMetadata.execute() async class method."""
+    """Test Nip66SslMetadata.probe() async class method."""
 
     async def test_clearnet_wss_returns_ssl_metadata(self, relay: Relay) -> None:
         """Returns Nip66SslMetadata for clearnet wss:// relay."""
@@ -167,7 +167,7 @@ class TestNip66SslMetadataSslAsync:
         }
 
         with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result):
-            result = await Nip66SslMetadata.execute(relay, 10.0)
+            result = await Nip66SslMetadata.probe(relay, 10.0)
 
         assert isinstance(result, Nip66SslMetadata)
         assert result.data.ssl_valid is True
@@ -177,7 +177,7 @@ class TestNip66SslMetadataSslAsync:
     async def test_ssl_failure_returns_metadata_with_failure(self, relay: Relay) -> None:
         """SSL check failure returns Nip66SslMetadata with success=False."""
         with patch.object(Nip66SslMetadata, "_ssl", return_value={}):
-            result = await Nip66SslMetadata.execute(relay, 10.0)
+            result = await Nip66SslMetadata.probe(relay, 10.0)
 
         assert isinstance(result, Nip66SslMetadata)
         assert result.logs.success is False
@@ -185,19 +185,19 @@ class TestNip66SslMetadataSslAsync:
 
     async def test_tor_returns_failure(self, tor_relay: Relay) -> None:
         """Returns failure for Tor relay (SSL not applicable)."""
-        result = await Nip66SslMetadata.execute(tor_relay, 10.0)
+        result = await Nip66SslMetadata.probe(tor_relay, 10.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
     async def test_i2p_returns_failure(self, i2p_relay: Relay) -> None:
         """Returns failure for I2P relay (SSL not applicable)."""
-        result = await Nip66SslMetadata.execute(i2p_relay, 10.0)
+        result = await Nip66SslMetadata.probe(i2p_relay, 10.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
     async def test_loki_returns_failure(self, loki_relay: Relay) -> None:
         """Returns failure for Lokinet relay (SSL not applicable)."""
-        result = await Nip66SslMetadata.execute(loki_relay, 10.0)
+        result = await Nip66SslMetadata.probe(loki_relay, 10.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
 
@@ -206,7 +206,7 @@ class TestNip66SslMetadataSslAsync:
         ssl_result = {"ssl_valid": True}
 
         with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result) as mock_ssl:
-            await Nip66SslMetadata.execute(relay, 10.0)
+            await Nip66SslMetadata.probe(relay, 10.0)
 
         mock_ssl.assert_called_once()
         call_args = mock_ssl.call_args
@@ -217,7 +217,7 @@ class TestNip66SslMetadataSslAsync:
         ssl_result = {"ssl_valid": True}
 
         with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result) as mock_ssl:
-            await Nip66SslMetadata.execute(relay_with_port, 10.0)
+            await Nip66SslMetadata.probe(relay_with_port, 10.0)
 
         mock_ssl.assert_called_once()
         call_args = mock_ssl.call_args
@@ -226,7 +226,7 @@ class TestNip66SslMetadataSslAsync:
     async def test_exception_returns_failure(self, relay: Relay) -> None:
         """Exception during SSL check returns failure logs."""
         with patch.object(Nip66SslMetadata, "_ssl", side_effect=OSError("Network error")):
-            result = await Nip66SslMetadata.execute(relay, 10.0)
+            result = await Nip66SslMetadata.probe(relay, 10.0)
 
         assert isinstance(result, Nip66SslMetadata)
         assert result.logs.success is False
@@ -237,7 +237,7 @@ class TestNip66SslMetadataSslAsync:
         ssl_result = {"ssl_valid": True}
 
         with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result) as mock_ssl:
-            await Nip66SslMetadata.execute(relay, None)
+            await Nip66SslMetadata.probe(relay, None)
 
         mock_ssl.assert_called_once()
         call_args = mock_ssl.call_args
