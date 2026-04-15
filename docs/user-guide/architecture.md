@@ -61,7 +61,7 @@ class Relay:
     def __post_init__(self) -> None:
         # Validate and compute derived fields
         parsed = rfc3986.uri_reference(self.url)
-        network = _detect_network(parsed.host)
+        network = detect_relay_network(parsed.host)
         object.__setattr__(self, "network", network)
         object.__setattr__(self, "_db_params", self._compute_db_params())
 

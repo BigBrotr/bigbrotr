@@ -53,13 +53,13 @@ def safe_parse(
 
 
 def parse_relay_url(url: str, *, allow_local: bool = False) -> Relay:
-    """Sanitize a raw relay URL and construct a Relay.
+    """Normalize a raw relay URL and construct a Relay.
 
-    Applies [sanitize_relay_url][bigbrotr.models.relay.sanitize_relay_url] to
-    canonicalize the input, then constructs a [Relay][bigbrotr.models.relay.Relay].
-    Intended as a factory for [safe_parse][bigbrotr.utils.parsing.safe_parse]
-    when parsing relay URLs from untrusted sources (config files, Nostr events,
-    API responses).
+    Delegates to [Relay.parse][bigbrotr.models.relay.Relay.parse], which
+    normalizes the raw input and constructs a canonical
+    [Relay][bigbrotr.models.relay.Relay]. Intended as a factory for
+    [safe_parse][bigbrotr.utils.parsing.safe_parse] when parsing relay URLs
+    from untrusted sources (config files, Nostr events, API responses).
 
     Args:
         url: Raw relay URL string.

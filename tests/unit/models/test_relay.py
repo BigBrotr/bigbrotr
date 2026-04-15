@@ -6,7 +6,12 @@ from time import time
 import pytest
 
 from bigbrotr.models.constants import NetworkType
-from bigbrotr.models.relay import Relay, RelayDbParams, _detect_network, sanitize_relay_url
+from bigbrotr.models.relay import Relay, RelayDbParams
+from bigbrotr.models.relay_url import (
+    _MAX_URL_LENGTH,
+    detect_relay_network,
+    normalize_relay_url,
+)
 from tests.fixtures.relays import LOKI_HOST, ONION_HOST
 
 
@@ -119,7 +124,7 @@ class TestUrlParsing:
 
 
 class TestNetworkDetection:
-    """Network type detection via _detect_network."""
+    """Network type detection via detect_relay_network()."""
 
     def test_tor_onion(self):
         r = Relay(f"ws://{ONION_HOST}.onion")
@@ -149,29 +154,29 @@ class TestNetworkDetection:
         assert r.scheme == "wss"
 
     def test_case_insensitive_tld(self):
-        assert _detect_network(ONION_HOST.upper() + ".ONION") == NetworkType.TOR
-        assert _detect_network("RELAY.I2P") == NetworkType.I2P
-        assert _detect_network(LOKI_HOST.upper() + ".LOKI") == NetworkType.LOKI
+        assert detect_relay_network(ONION_HOST.upper() + ".ONION") == NetworkType.TOR
+        assert detect_relay_network("RELAY.I2P") == NetworkType.I2P
+        assert detect_relay_network(LOKI_HOST.upper() + ".LOKI") == NetworkType.LOKI
 
     def test_detect_local_localhost(self):
-        assert _detect_network("localhost") == NetworkType.LOCAL
-        assert _detect_network("localhost.localdomain") == NetworkType.LOCAL
+        assert detect_relay_network("localhost") == NetworkType.LOCAL
+        assert detect_relay_network("localhost.localdomain") == NetworkType.LOCAL
 
     def test_detect_local_loopback_ipv4(self):
-        assert _detect_network("127.0.0.1") == NetworkType.LOCAL
-        assert _detect_network("127.0.0.254") == NetworkType.LOCAL
+        assert detect_relay_network("127.0.0.1") == NetworkType.LOCAL
+        assert detect_relay_network("127.0.0.254") == NetworkType.LOCAL
 
     def test_detect_local_private_ipv4(self):
-        assert _detect_network("10.0.0.1") == NetworkType.LOCAL
-        assert _detect_network("172.16.0.1") == NetworkType.LOCAL
-        assert _detect_network("172.31.255.255") == NetworkType.LOCAL
-        assert _detect_network("192.168.1.1") == NetworkType.LOCAL
+        assert detect_relay_network("10.0.0.1") == NetworkType.LOCAL
+        assert detect_relay_network("172.16.0.1") == NetworkType.LOCAL
+        assert detect_relay_network("172.31.255.255") == NetworkType.LOCAL
+        assert detect_relay_network("192.168.1.1") == NetworkType.LOCAL
 
     def test_detect_local_link_local(self):
-        assert _detect_network("169.254.0.1") == NetworkType.LOCAL
+        assert detect_relay_network("169.254.0.1") == NetworkType.LOCAL
 
     def test_detect_local_ipv6_loopback(self):
-        assert _detect_network("::1") == NetworkType.LOCAL
+        assert detect_relay_network("::1") == NetworkType.LOCAL
 
     def test_local_canonical_relay_preserves_wss_scheme(self):
         relay = Relay("wss://localhost")
@@ -194,43 +199,43 @@ class TestNetworkDetection:
         assert relay.url == "wss://localhost"
 
     def test_detect_unknown_empty(self):
-        assert _detect_network("") == NetworkType.UNKNOWN
+        assert detect_relay_network("") == NetworkType.UNKNOWN
 
     def test_detect_unknown_single_label(self):
-        assert _detect_network("singlehost") == NetworkType.UNKNOWN
+        assert detect_relay_network("singlehost") == NetworkType.UNKNOWN
 
     def test_detect_unknown_invalid_label(self):
-        assert _detect_network("invalid-host-") == NetworkType.UNKNOWN
-        assert _detect_network("-invalid.host") == NetworkType.UNKNOWN
+        assert detect_relay_network("invalid-host-") == NetworkType.UNKNOWN
+        assert detect_relay_network("-invalid.host") == NetworkType.UNKNOWN
 
     def test_detect_clearnet_public_ip(self):
-        assert _detect_network("8.8.8.8") == NetworkType.CLEARNET
-        assert _detect_network("1.1.1.1") == NetworkType.CLEARNET
+        assert detect_relay_network("8.8.8.8") == NetworkType.CLEARNET
+        assert detect_relay_network("1.1.1.1") == NetworkType.CLEARNET
 
     def test_tor_subdomain_accepted(self):
         host = f"relay.{ONION_HOST}.onion"
-        assert _detect_network(host) == NetworkType.TOR
+        assert detect_relay_network(host) == NetworkType.TOR
 
     def test_tor_multi_subdomain_accepted(self):
         host = f"a.b.{ONION_HOST}.onion"
-        assert _detect_network(host) == NetworkType.TOR
+        assert detect_relay_network(host) == NetworkType.TOR
 
     def test_tor_invalid_subdomain_rejected(self):
         host = f"-bad.{ONION_HOST}.onion"
-        assert _detect_network(host) == NetworkType.UNKNOWN
+        assert detect_relay_network(host) == NetworkType.UNKNOWN
 
     def test_tor_fake_hash_rejected(self):
-        assert _detect_network("dmsupermax.onion") == NetworkType.UNKNOWN
-        assert _detect_network("nostr-relay.onion") == NetworkType.UNKNOWN
+        assert detect_relay_network("dmsupermax.onion") == NetworkType.UNKNOWN
+        assert detect_relay_network("nostr-relay.onion") == NetworkType.UNKNOWN
 
     def test_bare_overlay_tld_rejected(self):
-        assert _detect_network(".onion") == NetworkType.UNKNOWN
-        assert _detect_network(".i2p") == NetworkType.UNKNOWN
-        assert _detect_network(".loki") == NetworkType.UNKNOWN
+        assert detect_relay_network(".onion") == NetworkType.UNKNOWN
+        assert detect_relay_network(".i2p") == NetworkType.UNKNOWN
+        assert detect_relay_network(".loki") == NetworkType.UNKNOWN
 
     def test_underscore_in_hostname_accepted(self):
-        assert _detect_network("test_room.spaces.coracle.social") == NetworkType.CLEARNET
-        assert _detect_network("a_b.example.com") == NetworkType.CLEARNET
+        assert detect_relay_network("test_room.spaces.coracle.social") == NetworkType.CLEARNET
+        assert detect_relay_network("a_b.example.com") == NetworkType.CLEARNET
 
 
 # =============================================================================
@@ -539,35 +544,35 @@ class TestTypeValidation:
 
 
 # =============================================================================
-# sanitize_relay_url Tests
+# normalize_relay_url Tests
 # =============================================================================
 
 
-class TestSanitizeRelayUrl:
-    """sanitize_relay_url() strips garbage while preserving valid components."""
+class TestNormalizeRelayUrl:
+    """normalize_relay_url() strips garbage while preserving valid components."""
 
     def test_clean_url_unchanged(self):
-        assert sanitize_relay_url("wss://relay.example.com") == "wss://relay.example.com"
+        assert normalize_relay_url("wss://relay.example.com") == "wss://relay.example.com"
 
     def test_clean_url_with_path_unchanged(self):
         assert (
-            sanitize_relay_url("wss://relay.example.com/inbox") == "wss://relay.example.com/inbox"
+            normalize_relay_url("wss://relay.example.com/inbox") == "wss://relay.example.com/inbox"
         )
 
     def test_strips_query_string(self):
-        result = sanitize_relay_url("wss://relay.example.com?key=value")
+        result = normalize_relay_url("wss://relay.example.com?key=value")
         assert result == "wss://relay.example.com"
 
     def test_strips_query_preserves_path(self):
-        result = sanitize_relay_url("wss://relay.example.com/v1?secret=abc123")
+        result = normalize_relay_url("wss://relay.example.com/v1?secret=abc123")
         assert result == "wss://relay.example.com/v1"
 
     def test_strips_fragment(self):
-        result = sanitize_relay_url("wss://relay.example.com#section")
+        result = normalize_relay_url("wss://relay.example.com#section")
         assert result == "wss://relay.example.com"
 
     def test_strips_query_and_fragment(self):
-        result = sanitize_relay_url("wss://relay.example.com/v1?key=val#top")
+        result = normalize_relay_url("wss://relay.example.com/v1?key=val#top")
         assert result == "wss://relay.example.com/v1"
 
     @pytest.mark.parametrize(
@@ -580,7 +585,7 @@ class TestSanitizeRelayUrl:
         ],
     )
     def test_strips_path_with_control_characters(self, url, expected):
-        assert sanitize_relay_url(url) == expected
+        assert normalize_relay_url(url) == expected
 
     @pytest.mark.parametrize(
         ("url", "expected"),
@@ -590,7 +595,7 @@ class TestSanitizeRelayUrl:
         ],
     )
     def test_strips_path_with_whitespace(self, url, expected):
-        assert sanitize_relay_url(url) == expected
+        assert normalize_relay_url(url) == expected
 
     @pytest.mark.parametrize(
         ("url", "expected"),
@@ -602,22 +607,22 @@ class TestSanitizeRelayUrl:
         ],
     )
     def test_strips_path_with_embedded_uri_scheme(self, url, expected):
-        assert sanitize_relay_url(url) == expected
+        assert normalize_relay_url(url) == expected
 
     def test_preserves_port(self):
-        result = sanitize_relay_url("wss://relay.example.com:8080?q=1")
+        result = normalize_relay_url("wss://relay.example.com:8080?q=1")
         assert result == "wss://relay.example.com:8080"
 
     def test_preserves_port_and_path(self):
-        result = sanitize_relay_url("wss://relay.example.com:8080/nostr?q=1")
+        result = normalize_relay_url("wss://relay.example.com:8080/nostr?q=1")
         assert result == "wss://relay.example.com:8080/nostr"
 
     def test_collapses_double_slashes_in_path(self):
-        result = sanitize_relay_url("wss://relay.example.com//nostr//")
+        result = normalize_relay_url("wss://relay.example.com//nostr//")
         assert result == "wss://relay.example.com/nostr"
 
     def test_strips_trailing_slash(self):
-        result = sanitize_relay_url("wss://relay.example.com/")
+        result = normalize_relay_url("wss://relay.example.com/")
         assert result == "wss://relay.example.com"
 
     @pytest.mark.parametrize(
@@ -629,33 +634,33 @@ class TestSanitizeRelayUrl:
         ],
     )
     def test_allow_local_preserves_local_urls(self, url, expected):
-        assert sanitize_relay_url(url, allow_local=True) == expected
+        assert normalize_relay_url(url, allow_local=True) == expected
 
     def test_result_creates_valid_relay(self):
         dirty = "wss://relay.example.com/v1?secret=abc&lud16=user@host.com#top"
-        clean = sanitize_relay_url(dirty)
+        clean = normalize_relay_url(dirty)
         r = Relay(clean)
         assert r.url == "wss://relay.example.com/v1"
         assert r.path == "/v1"
 
     def test_garbage_path_result_creates_valid_relay(self):
         dirty = "wss://relay.damus.io/%0Awss://nos.lol"
-        clean = sanitize_relay_url(dirty)
+        clean = normalize_relay_url(dirty)
         r = Relay(clean)
         assert r.url == "wss://relay.damus.io"
         assert r.path is None
 
     def test_invalid_scheme_raises(self):
         with pytest.raises(ValueError, match="Invalid scheme"):
-            sanitize_relay_url("http://relay.example.com")
+            normalize_relay_url("http://relay.example.com")
 
     def test_missing_host_raises(self):
         with pytest.raises(ValueError):
-            sanitize_relay_url("wss://")
+            normalize_relay_url("wss://")
 
     def test_no_scheme_raises(self):
         with pytest.raises(ValueError):
-            sanitize_relay_url("relay.example.com")
+            normalize_relay_url("relay.example.com")
 
     @pytest.mark.parametrize(
         ("url", "expected"),
@@ -668,19 +673,17 @@ class TestSanitizeRelayUrl:
         ],
     )
     def test_overlay_network_sanitization(self, url, expected):
-        assert sanitize_relay_url(url) == expected
+        assert normalize_relay_url(url) == expected
 
     def test_url_exceeding_max_length_rejected(self):
         long_path = "/" + "a" * 2048
         with pytest.raises(ValueError, match="exceeds maximum length"):
-            sanitize_relay_url(f"wss://relay.example.com{long_path}")
+            normalize_relay_url(f"wss://relay.example.com{long_path}")
 
     def test_url_at_max_length_accepted(self):
-        from bigbrotr.models.relay import _MAX_URL_LENGTH
-
         base = "wss://relay.example.com/"
         url = base + "a" * (_MAX_URL_LENGTH - len(base))
-        result = sanitize_relay_url(url)
+        result = normalize_relay_url(url)
         assert len(result) == _MAX_URL_LENGTH
 
     # --- IDN to Punycode ---
@@ -694,18 +697,18 @@ class TestSanitizeRelayUrl:
         ],
     )
     def test_idn_to_punycode(self, url, expected):
-        assert sanitize_relay_url(url) == expected
+        assert normalize_relay_url(url) == expected
 
     def test_idn_non_ascii_path_stripped(self):
-        assert sanitize_relay_url("wss://relay.com/café") == "wss://relay.com"
+        assert normalize_relay_url("wss://relay.com/café") == "wss://relay.com"
 
     def test_idn_without_scheme_rejected(self):
         with pytest.raises(ValueError):
-            sanitize_relay_url("café.com")
+            normalize_relay_url("café.com")
 
     def test_idn_invalid_label_rejected(self):
         with pytest.raises(ValueError, match="Invalid internationalized"):
-            sanitize_relay_url("wss://\udcff.com")
+            normalize_relay_url("wss://\udcff.com")
 
     # --- Trailing dot ---
 
@@ -717,12 +720,12 @@ class TestSanitizeRelayUrl:
         ],
     )
     def test_trailing_dot_stripped(self, url, expected):
-        assert sanitize_relay_url(url) == expected
+        assert normalize_relay_url(url) == expected
 
     # --- IP normalization ---
 
     def test_ipv6_compressed(self):
-        result = sanitize_relay_url("wss://[2606:4700:4700:0000:0000:0000:0000:1111]:8080")
+        result = normalize_relay_url("wss://[2606:4700:4700:0000:0000:0000:0000:1111]:8080")
         assert result == "wss://[2606:4700:4700::1111]:8080"
 
     # --- Dot segment resolution ---
@@ -737,14 +740,14 @@ class TestSanitizeRelayUrl:
         ],
     )
     def test_dot_segments_resolved(self, url, expected):
-        assert sanitize_relay_url(url) == expected
+        assert normalize_relay_url(url) == expected
 
     # --- Port range ---
 
     @pytest.mark.parametrize("port", [0, 65536, 99999])
     def test_port_out_of_range_rejected(self, port):
         with pytest.raises(ValueError):
-            sanitize_relay_url(f"wss://relay.com:{port}")
+            normalize_relay_url(f"wss://relay.com:{port}")
 
     @pytest.mark.parametrize(
         ("port", "expected"),
@@ -755,15 +758,15 @@ class TestSanitizeRelayUrl:
         ],
     )
     def test_port_in_range_accepted(self, port, expected):
-        assert sanitize_relay_url(f"wss://relay.com:{port}") == expected
+        assert normalize_relay_url(f"wss://relay.com:{port}") == expected
 
     # --- Overlay hostname edge cases ---
 
     def test_i2p_b32_accepted(self):
         b32 = "a" * 52
         url = f"ws://{b32}.b32.i2p"
-        assert sanitize_relay_url(url) == url
+        assert normalize_relay_url(url) == url
 
     def test_i2p_b32_wrong_length_rejected(self):
         with pytest.raises(ValueError):
-            sanitize_relay_url("ws://tooshort.b32.i2p")
+            normalize_relay_url("ws://tooshort.b32.i2p")

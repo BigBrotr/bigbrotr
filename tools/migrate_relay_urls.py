@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-shot migration: re-normalize all relay URLs using sanitize_relay_url.
+"""One-shot migration: re-normalize all relay URLs using normalize_relay_url.
 
 Run against a live PostgreSQL (services stopped, only postgres running):
 
@@ -8,7 +8,7 @@ Run against a live PostgreSQL (services stopped, only postgres running):
 Five phases:
 
 Phase 1 — Relay table:
-    For each URL in the relay table, apply sanitize_relay_url + Relay().
+    For each URL in the relay table, apply normalize_relay_url + Relay().
     - Unchanged: skip.
     - Renormalized: DELETE old (CASCADE cleans event_relay, relay_metadata),
       INSERT canonical as validator candidate.
@@ -57,7 +57,7 @@ sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1]
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import Relay
-from bigbrotr.models.relay import sanitize_relay_url
+from bigbrotr.models.relay_url import normalize_relay_url
 
 
 try:
@@ -87,7 +87,7 @@ class MigrationResult:
 def _normalize(raw_url: str) -> str | None:
     """Return canonical URL, or None if the URL is irrecoverable."""
     try:
-        canonical = sanitize_relay_url(raw_url)
+        canonical = normalize_relay_url(raw_url)
         Relay(canonical)
         return canonical
     except (ValueError, TypeError):

@@ -19,7 +19,7 @@ import logging
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from bigbrotr.models import Relay
-from bigbrotr.models.relay import sanitize_relay_url
+from bigbrotr.models.relay_url import normalize_relay_url
 
 
 if TYPE_CHECKING:
@@ -82,7 +82,7 @@ def parse_relay(
         return None
 
     try:
-        url = sanitize_relay_url(url, allow_local=allow_local)
+        url = normalize_relay_url(url, allow_local=allow_local)
     except ValueError:
         return None
 

@@ -35,7 +35,8 @@ class NetworkType(StrEnum):
 
     Examples:
         Network detection is performed by
-        ``Relay._detect_network()``:
+        ``detect_relay_network()`` in
+        [bigbrotr.models.relay_url][]:
 
         ```python
         Relay("wss://relay.damus.io").network   # NetworkType.CLEARNET
