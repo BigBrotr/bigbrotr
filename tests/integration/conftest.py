@@ -25,8 +25,10 @@ from docker.errors import DockerException
 from pydantic import SecretStr
 from testcontainers.postgres import PostgresContainer
 
-from bigbrotr.core.brotr import Brotr, BrotrConfig
-from bigbrotr.core.pool import DatabaseConfig, Pool, PoolConfig
+from bigbrotr.core.brotr import Brotr
+from bigbrotr.core.brotr_config import BrotrConfig
+from bigbrotr.core.pool import Pool
+from bigbrotr.core.pool_config import DatabaseConfig, PoolConfig
 
 
 # ---------------------------------------------------------------------------

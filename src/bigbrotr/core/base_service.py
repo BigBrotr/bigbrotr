@@ -35,7 +35,7 @@ from .metrics import (
     SERVICE_GAUGE,
     MetricsConfig,
 )
-from .service_runtime import ServiceCycleRunner, ServiceRuntimeState
+from .service_runtime import ServiceLoopRunner, ServiceRunState
 from .yaml import load_yaml
 
 
@@ -127,8 +127,8 @@ class BaseService(ABC, Generic[ConfigT]):
             config if config is not None else cast("ConfigT", self.CONFIG_CLASS())
         )
         self._logger = Logger(self.SERVICE_NAME)
-        self._runtime_state = ServiceRuntimeState()
-        self._cycle_runner = ServiceCycleRunner(self)
+        self._runtime_state = ServiceRunState()
+        self._cycle_runner = ServiceLoopRunner(self)
         self._shutdown_event = self._runtime_state.shutdown_event
 
     @property

@@ -23,7 +23,7 @@ from typing import Any
 from bigbrotr.core import Brotr, start_metrics_server
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.core.logger import Logger, StructuredFormatter
-from bigbrotr.core.service_runtime import ServiceProcessRunner
+from bigbrotr.core.service_runtime import ServiceCliRunner
 from bigbrotr.core.yaml import load_yaml
 from bigbrotr.services.registry import SERVICE_REGISTRY
 from bigbrotr.services.registry import ServiceEntry as _ServiceEntry
@@ -77,7 +77,7 @@ async def run_service(
         service = service_class.from_dict(service_dict, brotr=brotr)
     else:
         service = service_class(brotr=brotr)
-    runner = ServiceProcessRunner(
+    runner = ServiceCliRunner(
         service,
         logger=logger,
         service_name=service_name,

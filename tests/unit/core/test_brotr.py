@@ -20,12 +20,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
-from bigbrotr.core.brotr import (
-    BatchConfig,
-    Brotr,
-    BrotrConfig,
-    TimeoutsConfig,
-)
+from bigbrotr.core.brotr import Brotr
+from bigbrotr.core.brotr_config import BatchConfig, BrotrConfig, TimeoutsConfig
 from bigbrotr.core.pool import Pool
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
@@ -840,13 +836,6 @@ class TestRunRefreshProcedure:
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
         call_kwargs = mock_conn.execute.call_args
         assert call_kwargs[1]["timeout"] is None  # refresh default is None
-
-    async def test_legacy_alias_delegates(self, mock_brotr: Brotr) -> None:
-        """Test that the legacy alias still delegates to the generic helper."""
-        with patch.object(mock_brotr, "run_refresh_procedure", AsyncMock()) as mock_run:
-            await mock_brotr.refresh_materialized_view("relay_stats")
-
-        mock_run.assert_awaited_once_with("relay_stats")
 
 
 class TestBrotrTransaction:

@@ -45,10 +45,8 @@ from .base_service import (
     BaseServiceConfig,
     ConfigT,
 )
-from .brotr import (
-    Brotr,
-    BrotrConfig,
-)
+from .brotr import Brotr
+from .brotr_config import BrotrConfig
 from .logger import Logger, StructuredFormatter, format_kv_pairs
 from .metrics import (
     CYCLE_DURATION_SECONDS,
@@ -58,10 +56,8 @@ from .metrics import (
     MetricsServer,
     start_metrics_server,
 )
-from .pool import (
-    Pool,
-    PoolConfig,
-)
+from .pool import Pool
+from .pool_config import PoolConfig
 from .yaml import load_yaml
 
 

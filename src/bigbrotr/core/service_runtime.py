@@ -22,8 +22,8 @@ from .metrics import (
 )
 
 
-class RuntimeConfig(Protocol):
-    """Configuration attributes required by the shared service runtime."""
+class ServiceLoopConfig(Protocol):
+    """Configuration attributes required by the shared service loop."""
 
     interval: float
     max_consecutive_failures: int
@@ -32,8 +32,8 @@ class RuntimeConfig(Protocol):
     def model_dump(self) -> dict[str, object]: ...
 
 
-class RuntimeManagedService(Protocol):
-    """Protocol for services that can be executed by the shared runtime."""
+class LoopService(Protocol):
+    """Protocol for a service that can run repeated cleanup + work cycles."""
 
     _logger: Logger
 
@@ -41,7 +41,7 @@ class RuntimeManagedService(Protocol):
     def service_name(self) -> str: ...
 
     @property
-    def config(self) -> RuntimeConfig: ...
+    def config(self) -> ServiceLoopConfig: ...
 
     @property
     def is_running(self) -> bool: ...
@@ -52,15 +52,19 @@ class RuntimeManagedService(Protocol):
 
     async def wait(self, delay: float) -> bool: ...
 
-    def request_shutdown(self) -> None: ...
-
     def inc_counter(self, name: str, value: float = 1) -> None: ...
 
     def set_gauge(self, name: str, value: float) -> None: ...
 
+
+class HostedService(LoopService, Protocol):
+    """Protocol for a service that can be hosted by the CLI runtime."""
+
+    def request_shutdown(self) -> None: ...
+
     async def run_forever(self) -> None: ...
 
-    async def __aenter__(self) -> RuntimeManagedService: ...
+    async def __aenter__(self) -> HostedService: ...
 
     async def __aexit__(
         self,
@@ -73,7 +77,7 @@ class RuntimeManagedService(Protocol):
 StartMetricsServer = Callable[[MetricsConfig | None], Awaitable[MetricsServer]]
 
 
-class ServiceRuntimeState:
+class ServiceRunState:
     """Tracks shutdown state and interruptible waits for a service."""
 
     def __init__(self) -> None:
@@ -110,10 +114,10 @@ class ServiceRuntimeState:
             return False
 
 
-class ServiceCycleRunner:
+class ServiceLoopRunner:
     """Runs the continuous cycle loop for a service."""
 
-    def __init__(self, service: RuntimeManagedService) -> None:
+    def __init__(self, service: LoopService) -> None:
         self._service = service
 
     async def run_forever(self) -> None:
@@ -190,12 +194,12 @@ class ServiceCycleRunner:
         self._service._logger.info("run_forever_stopped")
 
 
-class ServiceProcessRunner:
+class ServiceCliRunner:
     """Runs a service in one-shot or continuous CLI mode."""
 
     def __init__(
         self,
-        service: RuntimeManagedService,
+        service: HostedService,
         *,
         logger: Logger | None = None,
         service_name: str | None = None,

@@ -36,16 +36,33 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from collections.abc import AsyncIterator  # noqa: TC003
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Literal, cast
 
 import asyncpg
-from pydantic import BaseModel, Field, SecretStr, ValidationInfo, field_validator, model_validator
 
 from .logger import Logger
+from .pool_config import (
+    DatabaseConfig,
+    LimitsConfig,
+    PoolConfig,
+    RetryConfig,
+    ServerSettingsConfig,
+    TimeoutsConfig,
+)
 from .yaml import load_yaml
+
+
+__all__ = [
+    "DatabaseConfig",
+    "LimitsConfig",
+    "Pool",
+    "PoolConfig",
+    "RetryConfig",
+    "ServerSettingsConfig",
+    "TimeoutsConfig",
+]
 
 
 def _json_encode(value: Any) -> str:
@@ -90,204 +107,6 @@ async def _init_connection(conn: asyncpg.Connection[asyncpg.Record]) -> None:
         encoder=_json_encode,
         decoder=json.loads,
         schema="pg_catalog",
-    )
-
-
-class DatabaseConfig(BaseModel):
-    """PostgreSQL connection parameters.
-
-    The password is loaded from the environment variable named by
-    ``password_env`` (default: ``DB_ADMIN_PASSWORD``). It is never read from
-    configuration files directly.
-
-    Warning:
-        The ``password`` field is a ``SecretStr`` and will never appear in
-        string representations or serialized output. Ensure the environment
-        variable named by ``password_env`` is set before constructing this
-        model.
-
-    See Also:
-        [PoolConfig][bigbrotr.core.pool.PoolConfig]: Parent configuration that
-            embeds this model.
-    """
-
-    host: str = Field(default="localhost", min_length=1, description="Database hostname")
-    port: int = Field(default=5432, ge=1, le=65535, description="Database port")
-    database: str = Field(default="bigbrotr", min_length=1, description="Database name")
-    user: str = Field(default="admin", min_length=1, description="Database user")
-    password_env: str = Field(
-        default="DB_ADMIN_PASSWORD",  # pragma: allowlist secret
-        min_length=1,
-        description="Environment variable name for database password",
-    )
-    password: SecretStr = Field(description="Database password (loaded from password_env)")
-
-    @model_validator(mode="before")
-    @classmethod
-    def resolve_password(cls, data: dict[str, Any]) -> dict[str, Any]:
-        """Resolve the database password from the environment variable."""
-        if isinstance(data, dict) and "password" not in data:
-            env_var = data.get("password_env", "DB_ADMIN_PASSWORD")  # pragma: allowlist secret
-            value = os.getenv(env_var)
-            if not value:
-                raise ValueError(f"{env_var} environment variable not set")
-            data["password"] = SecretStr(value)
-        return data
-
-
-class LimitsConfig(BaseModel):
-    """Connection pool size and resource limits.
-
-    Controls the minimum and maximum number of connections maintained by
-    the pool, the query count before a connection is recycled, and the
-    idle timeout before an unused connection is closed.
-
-    Note:
-        ``max_queries`` triggers connection recycling to prevent memory leaks in
-        long-lived connections. The default of 50,000 queries balances connection
-        reuse against the overhead of establishing new connections.
-
-    See Also:
-        [PoolConfig][bigbrotr.core.pool.PoolConfig]: Parent configuration that
-            embeds this model.
-    """
-
-    min_size: int = Field(default=1, ge=1, le=100, description="Minimum connections")
-    max_size: int = Field(default=5, ge=1, le=200, description="Maximum connections")
-    max_queries: int = Field(default=50_000, ge=100, description="Queries before recycling")
-    max_inactive_connection_lifetime: float = Field(
-        default=300.0, ge=0.0, description="Idle timeout (seconds)"
-    )
-
-    @field_validator("max_size")
-    @classmethod
-    def validate_max_size(cls, v: int, info: ValidationInfo) -> int:
-        """Ensure max_size >= min_size."""
-        min_size = info.data.get("min_size", 1)
-        if v < min_size:
-            raise ValueError(f"max_size ({v}) must be >= min_size ({min_size})")
-        return v
-
-
-class TimeoutsConfig(BaseModel):
-    """Timeout settings for pool operations (in seconds).
-
-    See Also:
-        [TimeoutsConfig][bigbrotr.core.brotr.TimeoutsConfig]: Higher-level
-            timeouts for query, batch, cleanup, and refresh operations.
-        [PoolConfig][bigbrotr.core.pool.PoolConfig]: Parent configuration that
-            embeds this model.
-    """
-
-    acquisition: float = Field(default=10.0, ge=0.1, description="Connection acquisition timeout")
-
-
-class RetryConfig(BaseModel):
-    """Retry strategy for failed connection attempts.
-
-    Supports both exponential and linear backoff between retries.
-
-    Note:
-        Exponential backoff (the default) doubles the delay each attempt:
-        ``initial_delay * 2^attempt``, capped at ``max_delay``. Linear backoff
-        increases linearly: ``initial_delay * (attempt + 1)``. Exponential
-        backoff is preferred for production to reduce thundering-herd effects
-        during database recovery.
-
-    See Also:
-        [PoolConfig][bigbrotr.core.pool.PoolConfig]: Parent configuration that
-            embeds this model.
-    """
-
-    max_attempts: int = Field(default=3, ge=1, le=10, description="Max retry attempts")
-    initial_delay: float = Field(default=1.0, ge=0.1, description="Initial retry delay")
-    max_delay: float = Field(default=10.0, ge=0.1, description="Maximum retry delay")
-    exponential_backoff: bool = Field(default=True, description="Use exponential backoff")
-
-    @field_validator("max_delay")
-    @classmethod
-    def validate_max_delay(cls, v: float, info: ValidationInfo) -> float:
-        """Ensure max_delay >= initial_delay."""
-        initial_delay = info.data.get("initial_delay", 1.0)
-        if v < initial_delay:
-            raise ValueError(f"max_delay ({v}) must be >= initial_delay ({initial_delay})")
-        return v
-
-
-class ServerSettingsConfig(BaseModel):
-    """PostgreSQL server-side session settings.
-
-    These are sent as ``server_settings`` when creating the asyncpg pool
-    and apply to every connection in the pool.
-
-    Note:
-        When using PgBouncer in ``transaction`` pooling mode,
-        ``statement_timeout`` is stripped by ``ignore_startup_parameters``
-        and never reaches PostgreSQL. Set to ``0`` (default) to avoid
-        sending a parameter that has no effect. Use PgBouncer's
-        ``query_timeout`` as the server-side safety net instead.
-
-        Timeout cascade (tightest wins):
-
-        1. asyncpg client-side via ``TimeoutsConfig``
-           (query=60s, batch=120s, cleanup=90s).
-        2. PgBouncer ``query_timeout`` (300s safety net for crashed clients).
-        3. PostgreSQL ``statement_timeout`` in ``postgresql.conf``
-           (0 = disabled; handled by layers above).
-
-    See Also:
-        [PoolConfig][bigbrotr.core.pool.PoolConfig]: Parent configuration that
-            embeds this model.
-    """
-
-    application_name: str = Field(default="bigbrotr", min_length=1, description="Application name")
-    timezone: str = Field(default="UTC", min_length=1, description="Timezone")
-    statement_timeout: int = Field(
-        default=0,
-        ge=0,
-        description=(
-            "Server-side query timeout in milliseconds. Set to 0 (default) when using "
-            "PgBouncer in transaction mode, as it is stripped by ignore_startup_parameters."
-        ),
-    )
-
-
-class PoolConfig(BaseModel):
-    """Aggregate configuration for the connection pool.
-
-    Groups all pool-related settings: database credentials, connection
-    limits, timeouts, retry strategy, and PostgreSQL server settings.
-
-    See Also:
-        [DatabaseConfig][bigbrotr.core.pool.DatabaseConfig]: PostgreSQL
-            connection credentials.
-        [LimitsConfig][bigbrotr.core.pool.LimitsConfig]: Min/max connections and
-            recycling thresholds.
-        [TimeoutsConfig][bigbrotr.core.pool.TimeoutsConfig]: Acquisition
-            and health-check timeouts.
-        [RetryConfig][bigbrotr.core.pool.RetryConfig]: Backoff strategy
-            for connection failures.
-        [ServerSettingsConfig][bigbrotr.core.pool.ServerSettingsConfig]: PostgreSQL
-            session-level settings.
-        [Pool][bigbrotr.core.pool.Pool]: The pool class that consumes this
-            configuration.
-    """
-
-    database: DatabaseConfig = Field(
-        default_factory=lambda: DatabaseConfig.model_validate({}),
-        description="PostgreSQL connection credentials",
-    )
-    limits: LimitsConfig = Field(
-        default_factory=LimitsConfig, description="Connection pool size and resource limits"
-    )
-    timeouts: TimeoutsConfig = Field(
-        default_factory=TimeoutsConfig, description="Pool operation timeouts"
-    )
-    retry: RetryConfig = Field(
-        default_factory=RetryConfig, description="Retry strategy for failed connections"
-    )
-    server_settings: ServerSettingsConfig = Field(
-        default_factory=ServerSettingsConfig, description="PostgreSQL session-level settings"
     )
 
 
@@ -350,7 +169,6 @@ class Pool:
         """
         self._config = config or PoolConfig()
         self._pool: asyncpg.Pool[asyncpg.Record] | None = None
-        self._is_connected: bool = False
         self._connection_lock = asyncio.Lock()
         self._logger = Logger("pool")
 
@@ -400,6 +218,41 @@ class Pool:
             delay = retry.initial_delay * (attempt + 1)
         return float(min(delay, retry.max_delay))
 
+    def _server_settings(self) -> dict[str, str]:
+        """Build asyncpg server settings from the pool configuration."""
+        settings = {
+            "application_name": self._config.server_settings.application_name,
+            "timezone": self._config.server_settings.timezone,
+        }
+        if self._config.server_settings.statement_timeout > 0:
+            settings["statement_timeout"] = str(self._config.server_settings.statement_timeout)
+        return settings
+
+    async def _open_pool(self) -> asyncpg.Pool[asyncpg.Record]:
+        """Create a configured asyncpg pool instance."""
+        db = self._config.database
+        return await asyncpg.create_pool(
+            host=db.host,
+            port=db.port,
+            database=db.database,
+            user=db.user,
+            password=db.password.get_secret_value(),
+            min_size=self._config.limits.min_size,
+            max_size=self._config.limits.max_size,
+            max_queries=self._config.limits.max_queries,
+            max_inactive_connection_lifetime=self._config.limits.max_inactive_connection_lifetime,
+            timeout=self._config.timeouts.acquisition,
+            statement_cache_size=0,
+            init=_init_connection,
+            server_settings=self._server_settings(),
+        )
+
+    def _require_pool(self) -> asyncpg.Pool[asyncpg.Record]:
+        """Return the live asyncpg pool or raise if the pool is disconnected."""
+        if self._pool is None:
+            raise RuntimeError("Pool not connected. Call connect() first.")
+        return self._pool
+
     async def connect(self) -> None:
         """Create the asyncpg connection pool with retry on failure.
 
@@ -419,7 +272,7 @@ class Pool:
             for transparent dict serialization.
         """
         async with self._connection_lock:
-            if self._is_connected:
+            if self.is_connected:
                 return
 
             db = self._config.database
@@ -433,31 +286,7 @@ class Pool:
 
             for attempt in range(self._config.retry.max_attempts):
                 try:
-                    server_settings: dict[str, str] = {
-                        "application_name": self._config.server_settings.application_name,
-                        "timezone": self._config.server_settings.timezone,
-                    }
-                    if self._config.server_settings.statement_timeout > 0:
-                        server_settings["statement_timeout"] = str(
-                            self._config.server_settings.statement_timeout
-                        )
-
-                    self._pool = await asyncpg.create_pool(
-                        host=db.host,
-                        port=db.port,
-                        database=db.database,
-                        user=db.user,
-                        password=db.password.get_secret_value(),
-                        min_size=self._config.limits.min_size,
-                        max_size=self._config.limits.max_size,
-                        max_queries=self._config.limits.max_queries,
-                        max_inactive_connection_lifetime=self._config.limits.max_inactive_connection_lifetime,
-                        timeout=self._config.timeouts.acquisition,
-                        statement_cache_size=0,
-                        init=_init_connection,
-                        server_settings=server_settings,
-                    )
-                    self._is_connected = True
+                    self._pool = await self._open_pool()
                     self._logger.info("connection_established")
                     return
 
@@ -494,7 +323,6 @@ class Pool:
                     self._logger.info("connection_closed")
                 finally:
                     self._pool = None
-                    self._is_connected = False
 
     def acquire(self) -> AbstractAsyncContextManager[asyncpg.Connection[asyncpg.Record]]:
         """Acquire a connection from the pool.
@@ -519,12 +347,10 @@ class Pool:
             [transaction()][bigbrotr.core.pool.Pool.transaction]: Acquire
                 with an active database transaction.
         """
-        if not self._is_connected or self._pool is None:
-            raise RuntimeError("Pool not connected. Call connect() first.")
         # asyncpg's PoolAcquireContext is duck-type compatible with AbstractAsyncContextManager
         return cast(
             "AbstractAsyncContextManager[asyncpg.Connection[asyncpg.Record]]",
-            self._pool.acquire(),
+            self._require_pool().acquire(),
         )
 
     @asynccontextmanager
@@ -559,7 +385,7 @@ class Pool:
         async with self.acquire() as conn, conn.transaction():
             yield conn
 
-    async def _execute_with_retry(
+    async def _run_query_with_retry(
         self,
         operation: Literal["fetch", "fetchrow", "fetchval", "execute"],
         query: str,
@@ -630,7 +456,7 @@ class Pool:
         # Unreachable in practice, but satisfies the type checker
         if last_error:
             raise ConnectionError(str(last_error)) from last_error
-        raise RuntimeError("Unexpected state in _execute_with_retry")
+        raise RuntimeError("Unexpected state in _run_query_with_retry")
 
     async def fetch(
         self,
@@ -648,7 +474,7 @@ class Pool:
         Returns:
             List of asyncpg Record objects. Empty list if no rows match.
         """
-        result = await self._execute_with_retry("fetch", query, args, timeout)
+        result = await self._run_query_with_retry("fetch", query, args, timeout)
         # Dynamic dispatch returns Any; narrow to the actual fetch() return type
         return cast("list[asyncpg.Record]", result)
 
@@ -668,7 +494,7 @@ class Pool:
         Returns:
             A single asyncpg Record, or None if the query returns no rows.
         """
-        result = await self._execute_with_retry("fetchrow", query, args, timeout)
+        result = await self._run_query_with_retry("fetchrow", query, args, timeout)
         # Dynamic dispatch returns Any; narrow to the actual fetchrow() return type
         return cast("asyncpg.Record | None", result)
 
@@ -691,7 +517,7 @@ class Pool:
             The value from the specified column of the first row,
             or None if the query returns no rows.
         """
-        return await self._execute_with_retry("fetchval", query, args, timeout, column=column)
+        return await self._run_query_with_retry("fetchval", query, args, timeout, column=column)
 
     async def execute(self, query: str, *args: Any, timeout: float | None = None) -> str:  # noqa: ASYNC109
         """Execute a query and return the command status tag.
@@ -704,14 +530,14 @@ class Pool:
         Returns:
             PostgreSQL command status string (e.g. "INSERT 0 1", "UPDATE 5").
         """
-        result = await self._execute_with_retry("execute", query, args, timeout)
+        result = await self._run_query_with_retry("execute", query, args, timeout)
         # Dynamic dispatch returns Any; narrow to the actual execute() return type
         return cast("str", result)
 
     @property
     def is_connected(self) -> bool:
         """Whether the pool has an active connection to the database."""
-        return self._is_connected
+        return self._pool is not None
 
     @property
     def config(self) -> PoolConfig:
@@ -735,4 +561,4 @@ class Pool:
     def __repr__(self) -> str:
         """Return a human-readable representation with host and connection status."""
         db = self._config.database
-        return f"Pool(host={db.host}, database={db.database}, connected={self._is_connected})"
+        return f"Pool(host={db.host}, database={db.database}, connected={self.is_connected})"

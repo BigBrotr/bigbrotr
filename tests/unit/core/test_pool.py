@@ -22,16 +22,14 @@ import asyncpg
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from bigbrotr.core.pool import (
+from bigbrotr.core.pool import Pool, _init_connection, _json_encode
+from bigbrotr.core.pool_config import (
     DatabaseConfig,
     LimitsConfig,
-    Pool,
     PoolConfig,
     RetryConfig,
     ServerSettingsConfig,
     TimeoutsConfig,
-    _init_connection,
-    _json_encode,
 )
 
 
@@ -937,7 +935,6 @@ class TestPoolQueryRetry:
         # Use the function directly so each call creates a new context manager
         mock_asyncpg_pool.acquire = mock_acquire
         pool._pool = mock_asyncpg_pool
-        pool._is_connected = True
 
         with patch("bigbrotr.core.pool.asyncio.sleep", AsyncMock()):
             result = await pool.fetch("SELECT 1")
@@ -972,7 +969,6 @@ class TestPoolQueryRetry:
         # Use the function directly so each call creates a new context manager
         mock_asyncpg_pool.acquire = mock_acquire
         pool._pool = mock_asyncpg_pool
-        pool._is_connected = True
 
         with patch("bigbrotr.core.pool.asyncio.sleep", AsyncMock()):
             result = await pool.execute("INSERT INTO test VALUES (1)")

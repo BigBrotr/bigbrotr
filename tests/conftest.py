@@ -20,6 +20,7 @@ from nostr_sdk import Keys
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.core.pool import Pool
+from bigbrotr.core.pool_config import DatabaseConfig, PoolConfig
 from bigbrotr.models import EventRelay, Relay, RelayMetadata
 from bigbrotr.models.event import Event
 from bigbrotr.models.metadata import Metadata, MetadataType
@@ -93,8 +94,6 @@ def mock_pool(
     mock_db_password: str,
 ) -> Pool:
     """Create a Pool with mocked internals."""
-    from bigbrotr.core.pool import DatabaseConfig, PoolConfig
-
     config = PoolConfig(
         database=DatabaseConfig(
             host="localhost",
@@ -105,7 +104,6 @@ def mock_pool(
     )
     pool = Pool(config=config)
     pool._pool = mock_asyncpg_pool
-    pool._is_connected = True
 
     # Store mock connection for easy access in tests
     pool._mock_connection = mock_connection  # type: ignore[attr-defined]

@@ -1,12 +1,12 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from bigbrotr.core.service_runtime import ServiceProcessRunner, ServiceRuntimeState
+from bigbrotr.core.service_runtime import ServiceCliRunner, ServiceRunState
 
 
-class TestServiceRuntimeState:
+class TestServiceRunState:
     async def test_wait_is_interruptible(self) -> None:
-        state = ServiceRuntimeState()
+        state = ServiceRunState()
 
         async def shutdown_later() -> None:
             await asyncio.sleep(0.01)
@@ -20,7 +20,7 @@ class TestServiceRuntimeState:
         assert state.is_running is False
 
     async def test_wait_times_out_when_running(self) -> None:
-        state = ServiceRuntimeState()
+        state = ServiceRunState()
 
         result = await state.wait(0.01)
 
@@ -28,7 +28,7 @@ class TestServiceRuntimeState:
         assert state.is_running is True
 
 
-class TestServiceProcessRunner:
+class TestServiceCliRunner:
     async def test_removes_registered_signal_handlers(self) -> None:
         service = MagicMock()
         service.service_name = "runtime_test"
@@ -47,7 +47,7 @@ class TestServiceProcessRunner:
             patch.object(loop, "add_signal_handler"),
             patch.object(loop, "remove_signal_handler", side_effect=removed.append),
         ):
-            runner = ServiceProcessRunner(
+            runner = ServiceCliRunner(
                 service,
                 logger=service._logger,
                 start_metrics_server_fn=AsyncMock(return_value=metrics_server),
@@ -75,7 +75,7 @@ class TestServiceProcessRunner:
             patch.object(loop, "add_signal_handler", side_effect=NotImplementedError),
             patch.object(service._logger, "warning") as mock_warning,
         ):
-            runner = ServiceProcessRunner(
+            runner = ServiceCliRunner(
                 service,
                 logger=service._logger,
                 start_metrics_server_fn=AsyncMock(return_value=metrics_server),

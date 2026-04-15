@@ -31,19 +31,19 @@ See Also:
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
 import asyncpg  # noqa: TC002
-from pydantic import BaseModel, Field, field_validator
 
 from bigbrotr.models.service_state import ServiceState
 
+from .brotr_config import BatchConfig, BrotrConfig, TimeoutsConfig
 from .logger import Logger
 from .pool import Pool
 from .yaml import load_yaml
 
 
-_MIN_TIMEOUT_SECONDS = 0.1  # Floor for all configurable timeouts
+__all__ = ["BatchConfig", "Brotr", "BrotrConfig", "TimeoutsConfig"]
 
 
 if TYPE_CHECKING:
@@ -54,87 +54,10 @@ if TYPE_CHECKING:
     from bigbrotr.models import Event, EventRelay, Metadata, Relay, RelayMetadata
 
 
-class BatchConfig(BaseModel):
-    """Controls the maximum number of records per bulk insert operation.
+class _DbParamRecord(Protocol):
+    """Model contract for Brotr bulk-insert helpers."""
 
-    Note:
-        The batch size limit prevents excessively large array parameters
-        from consuming too much memory in PostgreSQL. All insert methods
-        on [Brotr][bigbrotr.core.brotr.Brotr] validate against this limit
-        before executing.
-
-    See Also:
-        [BrotrConfig][bigbrotr.core.brotr.BrotrConfig]: Parent configuration
-            that embeds this model.
-    """
-
-    max_size: int = Field(
-        default=1000, ge=1, le=100_000, description="Maximum items per batch operation"
-    )
-
-
-class TimeoutsConfig(BaseModel):
-    """Timeout settings for [Brotr][bigbrotr.core.brotr.Brotr] operations (in seconds).
-
-    Each timeout can be set to ``None`` for no limit (infinite wait) or to a
-    float >= 0.1 seconds. Different categories allow tuning timeouts for
-    fast queries vs. slow bulk inserts vs. long-running maintenance tasks.
-
-    Note:
-        These timeouts are enforced client-side by asyncpg and are separate
-        from the server-side ``statement_timeout`` configured in
-        [ServerSettingsConfig][bigbrotr.core.pool.ServerSettingsConfig]. The
-        ``refresh`` timeout defaults to ``None`` (infinite) because
-        long-running refresh procedures may process large derived tables
-        or reporting views.
-
-    See Also:
-        [BrotrConfig][bigbrotr.core.brotr.BrotrConfig]: Parent configuration
-            that embeds this model.
-        [TimeoutsConfig][bigbrotr.core.pool.TimeoutsConfig]:
-            Lower-level pool acquisition and health-check timeouts.
-    """
-
-    query: float | None = Field(
-        default=60.0, le=3600.0, description="Query timeout (seconds, None=infinite)"
-    )
-    batch: float | None = Field(
-        default=120.0, le=3600.0, description="Batch insert timeout (seconds, None=infinite)"
-    )
-    cleanup: float | None = Field(
-        default=90.0, le=3600.0, description="Cleanup procedure timeout (seconds, None=infinite)"
-    )
-    refresh: float | None = Field(
-        default=None,
-        description="Long-running refresh procedure timeout (seconds, None=infinite)",
-    )
-
-    @field_validator("query", "batch", "cleanup", "refresh", mode="after")
-    @classmethod
-    def validate_timeout(cls, v: float | None) -> float | None:
-        """Validate timeout: None (infinite) or >= 0.1 seconds."""
-        if v is not None and v < _MIN_TIMEOUT_SECONDS:
-            raise ValueError(
-                f"Timeout must be None (infinite) or >= {_MIN_TIMEOUT_SECONDS} seconds"
-            )
-        return v
-
-
-class BrotrConfig(BaseModel):
-    """Aggregate configuration for the [Brotr][bigbrotr.core.brotr.Brotr] database interface.
-
-    See Also:
-        [BatchConfig][bigbrotr.core.brotr.BatchConfig]: Bulk insert size limits.
-        [TimeoutsConfig][bigbrotr.core.brotr.TimeoutsConfig]: Per-category
-            timeout settings.
-        [Brotr][bigbrotr.core.brotr.Brotr]: The database interface class that
-            consumes this configuration.
-    """
-
-    batch: BatchConfig = Field(default_factory=BatchConfig, description="Bulk insert size limits")
-    timeouts: TimeoutsConfig = Field(
-        default_factory=TimeoutsConfig, description="Per-category timeout settings"
-    )
+    def to_db_params(self) -> tuple[Any, ...]: ...
 
 
 class Brotr:
@@ -270,7 +193,7 @@ class Brotr:
 
         return cls(pool=pool, config=config)
 
-    def _validate_batch_size(self, batch: list[Any], operation: str) -> None:
+    def _validate_batch_size(self, batch: Sequence[Any], operation: str) -> None:
         """Raise ValueError if batch exceeds the configured maximum size."""
         if len(batch) > self._config.batch.max_size:
             max_size = self._config.batch.max_size
@@ -312,6 +235,19 @@ class Brotr:
 
     # Pattern for valid SQL identifiers (prevents injection in procedure calls)
     _VALID_PROCEDURE_NAME: ClassVar[re.Pattern[str]] = re.compile(r"^[a-z_][a-z0-9_]*$")
+
+    def _prepare_record_columns(
+        self,
+        records: Sequence[_DbParamRecord],
+        operation: str,
+    ) -> tuple[list[tuple[Any, ...]], tuple[list[Any], ...]] | None:
+        """Validate a typed record batch and transpose it to procedure columns."""
+        if not records:
+            return None
+
+        self._validate_batch_size(records, operation)
+        params = [record.to_db_params() for record in records]
+        return params, self._transpose_to_columns(params)
 
     async def _call_procedure(
         self,
@@ -361,6 +297,53 @@ class Brotr:
             return result if result is not None else 0
         await self._pool.execute(query, *args, timeout=timeout)
         return None
+
+    async def _call_counting_procedure(
+        self,
+        procedure_name: str,
+        *args: Any,
+        timeout: float | None,  # noqa: ASYNC109
+        log_event: str | None = None,
+        attempted: int | None = None,
+        **fields: Any,
+    ) -> int:
+        """Call a procedure that returns a count and optionally emit a debug log."""
+        count: int = await self._call_procedure(
+            procedure_name,
+            *args,
+            fetch_result=True,
+            timeout=timeout,
+        )
+        if log_event is not None:
+            log_fields: dict[str, Any] = {"count": count, **fields}
+            if attempted is not None:
+                log_fields["attempted"] = attempted
+            self._logger.debug(log_event, **log_fields)
+        return count
+
+    async def _insert_record_batch(
+        self,
+        operation: str,
+        procedure_name: str,
+        records: Sequence[_DbParamRecord],
+        *,
+        log_event: str,
+        **fields: Any,
+    ) -> int:
+        """Run a standard bulk insert for record models with ``to_db_params()``."""
+        prepared = self._prepare_record_columns(records, operation)
+        if prepared is None:
+            return 0
+
+        params, columns = prepared
+        return await self._call_counting_procedure(
+            procedure_name,
+            *columns,
+            timeout=self._config.timeouts.batch,
+            log_event=log_event,
+            attempted=len(params),
+            **fields,
+        )
 
     async def fetch(
         self,
@@ -468,23 +451,12 @@ class Brotr:
             [insert_event_relay()][bigbrotr.core.brotr.Brotr.insert_event_relay]:
                 Cascade insert that also creates relay records.
         """
-        if not records:
-            return 0
-
-        self._validate_batch_size(records, "insert_relay")
-
-        params = [relay.to_db_params() for relay in records]
-        columns = self._transpose_to_columns(params)
-
-        inserted: int = await self._call_procedure(
+        return await self._insert_record_batch(
+            "insert_relay",
             "relay_insert",
-            *columns,
-            fetch_result=True,
-            timeout=self._config.timeouts.batch,
+            records,
+            log_event="relay_inserted",
         )
-
-        self._logger.debug("relay_inserted", count=inserted, attempted=len(params))
-        return inserted
 
     async def insert_event(self, records: list[Event]) -> int:
         """Bulk-insert event records into the ``event`` table only.
@@ -510,23 +482,12 @@ class Brotr:
                 Cascade insert that creates events, relays, and junction records
                 in a single stored procedure call.
         """
-        if not records:
-            return 0
-
-        self._validate_batch_size(records, "insert_event")
-
-        params = [event.to_db_params() for event in records]
-        columns = self._transpose_to_columns(params)
-
-        inserted: int = await self._call_procedure(
+        return await self._insert_record_batch(
+            "insert_event",
             "event_insert",
-            *columns,
-            fetch_result=True,
-            timeout=self._config.timeouts.batch,
+            records,
+            log_event="event_inserted",
         )
-
-        self._logger.debug("event_inserted", count=inserted, attempted=len(params))
-        return inserted
 
     async def insert_event_relay(self, records: list[EventRelay], *, cascade: bool = True) -> int:
         """Bulk-insert event-relay junction records.
@@ -578,17 +539,14 @@ class Brotr:
             procedure = "event_relay_insert"
             columns = (event_ids, relay_urls, seen_ats)
 
-        inserted: int = await self._call_procedure(
+        return await self._call_counting_procedure(
             procedure,
             *columns,
-            fetch_result=True,
             timeout=self._config.timeouts.batch,
+            log_event="event_relay_inserted",
+            attempted=len(params),
+            cascade=cascade,
         )
-
-        self._logger.debug(
-            "event_relay_inserted", count=inserted, attempted=len(params), cascade=cascade
-        )
-        return inserted
 
     async def insert_metadata(self, records: list[Metadata]) -> int:
         """Bulk-insert metadata records into the ``metadata`` table.
@@ -626,23 +584,12 @@ class Brotr:
             [insert_relay_metadata()][bigbrotr.core.brotr.Brotr.insert_relay_metadata]:
                 Cascade insert that also creates relay-metadata junction records.
         """
-        if not records:
-            return 0
-
-        self._validate_batch_size(records, "insert_metadata")
-
-        params = [metadata.to_db_params() for metadata in records]
-        columns = self._transpose_to_columns(params)
-
-        inserted: int = await self._call_procedure(
+        return await self._insert_record_batch(
+            "insert_metadata",
             "metadata_insert",
-            *columns,
-            fetch_result=True,
-            timeout=self._config.timeouts.batch,
+            records,
+            log_event="metadata_inserted",
         )
-
-        self._logger.debug("metadata_inserted", count=inserted, attempted=len(params))
-        return inserted
 
     async def insert_relay_metadata(
         self, records: list[RelayMetadata], *, cascade: bool = True
@@ -699,20 +646,14 @@ class Brotr:
             procedure = "relay_metadata_insert"
             columns = (relay_urls, metadata_ids, metadata_types, generated_ats)
 
-        inserted: int = await self._call_procedure(
+        return await self._call_counting_procedure(
             procedure,
             *columns,
-            fetch_result=True,
             timeout=self._config.timeouts.batch,
-        )
-
-        self._logger.debug(
-            "relay_metadata_inserted",
-            count=inserted,
+            log_event="relay_metadata_inserted",
             attempted=len(params),
             cascade=cascade,
         )
-        return inserted
 
     async def delete_orphan_event(self) -> int:
         """Delete events that have no associated relay in the junction table.
@@ -732,12 +673,10 @@ class Brotr:
             [delete_orphan_metadata()][bigbrotr.core.brotr.Brotr.delete_orphan_metadata]:
                 Companion cleanup for orphaned metadata records.
         """
-        result: int = await self._call_procedure(
+        return await self._call_counting_procedure(
             "orphan_event_delete",
-            fetch_result=True,
             timeout=self._config.timeouts.cleanup,
         )
-        return result
 
     async def delete_orphan_metadata(self) -> int:
         """Delete metadata records that have no associated relay in the junction table.
@@ -757,12 +696,10 @@ class Brotr:
             [delete_orphan_event()][bigbrotr.core.brotr.Brotr.delete_orphan_event]:
                 Companion cleanup for orphaned event records.
         """
-        result: int = await self._call_procedure(
+        return await self._call_counting_procedure(
             "orphan_metadata_delete",
-            fetch_result=True,
             timeout=self._config.timeouts.cleanup,
         )
-        return result
 
     async def upsert_service_state(self, records: list[ServiceState]) -> int:
         """Atomically upsert service state records using bulk array parameters.
@@ -786,23 +723,12 @@ class Brotr:
             [delete_service_state()][bigbrotr.core.brotr.Brotr.delete_service_state]:
                 Remove persisted state records.
         """
-        if not records:
-            return 0
-
-        self._validate_batch_size(records, "upsert_service_state")
-
-        params = [r.to_db_params() for r in records]
-        columns = self._transpose_to_columns(params)
-
-        upserted: int = await self._call_procedure(
+        return await self._insert_record_batch(
+            "upsert_service_state",
             "service_state_upsert",
-            *columns,
-            fetch_result=True,
-            timeout=self._config.timeouts.batch,
+            records,
+            log_event="service_state_upserted",
         )
-
-        self._logger.debug("service_state_upserted", count=upserted)
-        return upserted
 
     async def get_service_state(
         self,
@@ -890,21 +816,15 @@ class Brotr:
 
         self._validate_batch_size(service_names, "delete_service_state")
 
-        deleted: int = await self._call_procedure(
+        return await self._call_counting_procedure(
             "service_state_delete",
             service_names,
             state_types,
             state_keys,
-            fetch_result=True,
             timeout=self._config.timeouts.batch,
-        )
-
-        self._logger.debug(
-            "service_state_deleted",
-            count=deleted,
+            log_event="service_state_deleted",
             attempted=len(service_names),
         )
-        return deleted
 
     async def run_refresh_procedure(self, target_name: str) -> None:
         """Run a long-running ``{target_name}_refresh`` stored procedure.
@@ -925,10 +845,6 @@ class Brotr:
             timeout=self._config.timeouts.refresh,
         )
         self._logger.debug("refresh_procedure_completed", target=target_name)
-
-    async def refresh_materialized_view(self, view_name: str) -> None:
-        """Compatibility alias for view-specific refresh procedures."""
-        await self.run_refresh_procedure(view_name)
 
     async def connect(self) -> None:
         """Connect the underlying pool. Idempotent."""
