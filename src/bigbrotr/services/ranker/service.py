@@ -127,6 +127,14 @@ class _ExportResult:
 
 
 @dataclass(frozen=True, slots=True)
+class _ExportStageSpec:
+    """Internal specification for exporting one rank subject type."""
+
+    subject_type: RankSubjectType
+    fetch_batch: Callable[..., list[RankExportRow]]
+
+
+@dataclass(frozen=True, slots=True)
 class _CycleBuildInput:
     """Fields needed to build the public cycle result."""
 
@@ -681,56 +689,71 @@ class Ranker(BaseService[RankerConfig]):
         async with self._brotr.transaction() as conn:
             await create_rank_stages(conn)
 
-            pubkey_result = await self._populate_rank_stage(
-                conn,
-                subject_type="pubkey",
-                fetch_batch=self._store.fetch_pubkey_rank_batch,
-                cycle_start=cycle_start,
-                computed_at=computed_at,
-            )
-            if pubkey_result.cutoff_reason is not None:
-                return _ExportResult(RankRowCounts(), pubkey_result.cutoff_reason)
+            counts = RankRowCounts()
+            specs = self._export_stage_specs()
+            for spec in specs:
+                subject_result = await self._populate_rank_stage(
+                    conn,
+                    subject_type=spec.subject_type,
+                    fetch_batch=spec.fetch_batch,
+                    cycle_start=cycle_start,
+                    computed_at=computed_at,
+                )
+                if subject_result.cutoff_reason is not None:
+                    return _ExportResult(counts, subject_result.cutoff_reason)
+                counts = self._with_subject_count(
+                    counts,
+                    spec.subject_type,
+                    subject_result.rows,
+                )
 
-            event_result = await self._populate_rank_stage(
-                conn,
-                subject_type="event",
-                fetch_batch=self._store.fetch_event_rank_batch,
-                cycle_start=cycle_start,
-                computed_at=computed_at,
-            )
-            if event_result.cutoff_reason is not None:
-                return _ExportResult(RankRowCounts(), event_result.cutoff_reason)
+            for spec in specs:
+                await merge_rank_stage(conn, spec.subject_type, self._config.algorithm_id)
 
-            addressable_result = await self._populate_rank_stage(
-                conn,
-                subject_type="addressable",
-                fetch_batch=self._store.fetch_addressable_rank_batch,
-                cycle_start=cycle_start,
-                computed_at=computed_at,
-            )
-            if addressable_result.cutoff_reason is not None:
-                return _ExportResult(RankRowCounts(), addressable_result.cutoff_reason)
+        return _ExportResult(counts)
 
-            identifier_result = await self._populate_rank_stage(
-                conn,
-                subject_type="identifier",
-                fetch_batch=self._store.fetch_identifier_rank_batch,
-                cycle_start=cycle_start,
-                computed_at=computed_at,
-            )
-            if identifier_result.cutoff_reason is not None:
-                return _ExportResult(RankRowCounts(), identifier_result.cutoff_reason)
+    def _export_stage_specs(self) -> tuple[_ExportStageSpec, ...]:
+        """Return the deterministic export order for public rank snapshots."""
+        return (
+            _ExportStageSpec("pubkey", self._store.fetch_pubkey_rank_batch),
+            _ExportStageSpec("event", self._store.fetch_event_rank_batch),
+            _ExportStageSpec("addressable", self._store.fetch_addressable_rank_batch),
+            _ExportStageSpec("identifier", self._store.fetch_identifier_rank_batch),
+        )
 
-            for subject_type in ("pubkey", "event", "addressable", "identifier"):
-                await merge_rank_stage(conn, subject_type, self._config.algorithm_id)
-
-        return _ExportResult(
-            RankRowCounts(
-                pubkey=pubkey_result.rows,
-                event=event_result.rows,
-                addressable=addressable_result.rows,
-                identifier=identifier_result.rows,
+    @staticmethod
+    def _with_subject_count(
+        counts: RankRowCounts,
+        subject_type: RankSubjectType,
+        rows: int,
+    ) -> RankRowCounts:
+        """Return updated rank row counts after exporting one subject stage."""
+        if subject_type == "pubkey":
+            return RankRowCounts(
+                pubkey=rows,
+                event=counts.event,
+                addressable=counts.addressable,
+                identifier=counts.identifier,
             )
+        if subject_type == "event":
+            return RankRowCounts(
+                pubkey=counts.pubkey,
+                event=rows,
+                addressable=counts.addressable,
+                identifier=counts.identifier,
+            )
+        if subject_type == "addressable":
+            return RankRowCounts(
+                pubkey=counts.pubkey,
+                event=counts.event,
+                addressable=rows,
+                identifier=counts.identifier,
+            )
+        return RankRowCounts(
+            pubkey=counts.pubkey,
+            event=counts.event,
+            addressable=counts.addressable,
+            identifier=rows,
         )
 
     async def _populate_rank_stage(
