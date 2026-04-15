@@ -255,7 +255,35 @@ class Ranker(BaseService[RankerConfig]):
         cycle_start = time.monotonic()
         await self._run_store(self._store.ensure_initialized)
         self._reset_cycle_metrics()
+        cycle_input = await self._run_rank_cycle_phases(cycle_start)
+        result = await self._build_cycle_result(cycle_input)
 
+        if cycle_input.cutoff_reason is None and cycle_input.rank_run_id is not None:
+            self._logger.info(
+                "ranker_cycle_completed",
+                algorithm_id=self._config.algorithm_id,
+                run_id=cycle_input.rank_run_id,
+                graph_nodes=result.graph_nodes,
+                graph_edges=result.graph_edges,
+                changed_followers_synced=result.changed_followers_synced,
+                sync_batches_processed=result.sync_batches_processed,
+                event_stats_staged=result.non_user_staged.event,
+                addressable_stats_staged=result.non_user_staged.addressable,
+                identifier_stats_staged=result.non_user_staged.identifier,
+                pubkey_ranks_written=result.rank_counts.pubkey,
+                event_ranks_written=result.rank_counts.event,
+                addressable_ranks_written=result.rank_counts.addressable,
+                identifier_ranks_written=result.rank_counts.identifier,
+                non_user_ranks_written=result.rank_counts.non_user,
+                checkpoint_seen_at=result.checkpoint.source_seen_at,
+                checkpoint_follower_pubkey=result.checkpoint.follower_pubkey,
+                checkpoint_lag_seconds=result.checkpoint_lag_seconds,
+                duckdb_file_size_bytes=result.duckdb_file_size_bytes,
+            )
+        return result
+
+    async def _run_rank_cycle_phases(self, cycle_start: float) -> _CycleBuildInput:
+        """Run the mutable phases of one ranker cycle and return typed build input."""
         cleanup_removed = 0
         cleanup_duration = 0.0
 
@@ -268,14 +296,12 @@ class Ranker(BaseService[RankerConfig]):
             sync_seconds=sync_duration,
         )
         if sync_result.cutoff_reason is not None:
-            return await self._build_cycle_result(
-                _CycleBuildInput(
-                    rank_run_id=None,
-                    sync_result=sync_result,
-                    cleanup_removed=cleanup_removed,
-                    phase_durations=phase_durations,
-                    cutoff_reason=sync_result.cutoff_reason,
-                )
+            return _CycleBuildInput(
+                rank_run_id=None,
+                sync_result=sync_result,
+                cleanup_removed=cleanup_removed,
+                phase_durations=phase_durations,
+                cutoff_reason=sync_result.cutoff_reason,
             )
 
         facts_start = time.monotonic()
@@ -287,27 +313,23 @@ class Ranker(BaseService[RankerConfig]):
             facts_stage_seconds=facts_duration,
         )
         if stage_result.cutoff_reason is not None:
-            return await self._build_cycle_result(
-                _CycleBuildInput(
-                    rank_run_id=None,
-                    sync_result=sync_result,
-                    non_user_staged=stage_result.counts,
-                    cleanup_removed=cleanup_removed,
-                    phase_durations=phase_durations,
-                    cutoff_reason=stage_result.cutoff_reason,
-                )
+            return _CycleBuildInput(
+                rank_run_id=None,
+                sync_result=sync_result,
+                non_user_staged=stage_result.counts,
+                cleanup_removed=cleanup_removed,
+                phase_durations=phase_durations,
+                cutoff_reason=stage_result.cutoff_reason,
             )
 
         if cutoff_reason := self._cycle_cutoff_reason(cycle_start):
-            return await self._build_cycle_result(
-                _CycleBuildInput(
-                    rank_run_id=None,
-                    sync_result=sync_result,
-                    non_user_staged=stage_result.counts,
-                    cleanup_removed=cleanup_removed,
-                    phase_durations=phase_durations,
-                    cutoff_reason=cutoff_reason,
-                )
+            return _CycleBuildInput(
+                rank_run_id=None,
+                sync_result=sync_result,
+                non_user_staged=stage_result.counts,
+                cleanup_removed=cleanup_removed,
+                phase_durations=phase_durations,
+                cutoff_reason=cutoff_reason,
             )
 
         compute_export_result = await self._compute_and_export_ranks(
@@ -319,49 +341,23 @@ class Ranker(BaseService[RankerConfig]):
             ),
         )
         if compute_export_result.cutoff_reason is not None:
-            return await self._build_cycle_result(
-                _CycleBuildInput(
-                    rank_run_id=compute_export_result.rank_run_id,
-                    sync_result=sync_result,
-                    non_user_staged=stage_result.counts,
-                    cleanup_removed=cleanup_removed,
-                    phase_durations=compute_export_result.phase_durations,
-                    cutoff_reason=compute_export_result.cutoff_reason,
-                )
-            )
-
-        result = await self._build_cycle_result(
-            _CycleBuildInput(
+            return _CycleBuildInput(
                 rank_run_id=compute_export_result.rank_run_id,
                 sync_result=sync_result,
                 non_user_staged=stage_result.counts,
-                rank_counts=compute_export_result.rank_counts,
                 cleanup_removed=cleanup_removed,
                 phase_durations=compute_export_result.phase_durations,
+                cutoff_reason=compute_export_result.cutoff_reason,
             )
+
+        return _CycleBuildInput(
+            rank_run_id=compute_export_result.rank_run_id,
+            sync_result=sync_result,
+            non_user_staged=stage_result.counts,
+            rank_counts=compute_export_result.rank_counts,
+            cleanup_removed=cleanup_removed,
+            phase_durations=compute_export_result.phase_durations,
         )
-        self._logger.info(
-            "ranker_cycle_completed",
-            algorithm_id=self._config.algorithm_id,
-            run_id=compute_export_result.rank_run_id,
-            graph_nodes=result.graph_nodes,
-            graph_edges=result.graph_edges,
-            changed_followers_synced=result.changed_followers_synced,
-            sync_batches_processed=result.sync_batches_processed,
-            event_stats_staged=result.non_user_staged.event,
-            addressable_stats_staged=result.non_user_staged.addressable,
-            identifier_stats_staged=result.non_user_staged.identifier,
-            pubkey_ranks_written=compute_export_result.rank_counts.pubkey,
-            event_ranks_written=compute_export_result.rank_counts.event,
-            addressable_ranks_written=compute_export_result.rank_counts.addressable,
-            identifier_ranks_written=compute_export_result.rank_counts.identifier,
-            non_user_ranks_written=compute_export_result.rank_counts.non_user,
-            checkpoint_seen_at=result.checkpoint.source_seen_at,
-            checkpoint_follower_pubkey=result.checkpoint.follower_pubkey,
-            checkpoint_lag_seconds=result.checkpoint_lag_seconds,
-            duckdb_file_size_bytes=result.duckdb_file_size_bytes,
-        )
-        return result
 
     async def _compute_and_export_ranks(
         self,
