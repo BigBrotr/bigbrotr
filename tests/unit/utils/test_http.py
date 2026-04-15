@@ -191,6 +191,18 @@ class TestDownloadBoundedFileSuccess:
         assert dest.read_bytes() == data
         assert dest.parent.is_dir()
 
+    async def test_writes_chunked_download(self, tmp_path: Path) -> None:
+        """Chunked downloads are streamed to disk and reassembled correctly."""
+        dest = tmp_path / "chunked.dat"
+
+        with patch(
+            "bigbrotr.utils.http.aiohttp.ClientSession",
+            return_value=_mock_session(b"hello ", b"world"),
+        ):
+            await download_bounded_file("https://example.com/file", dest, max_size=1024)
+
+        assert dest.read_bytes() == b"hello world"
+
     async def test_first_read_requests_max_size_plus_one(self, tmp_path: Path) -> None:
         """First read() call requests max_size + 1 bytes to detect oversized bodies."""
         data = b"small"
@@ -240,6 +252,21 @@ class TestDownloadBoundedFileSizeLimit:
             await download_bounded_file("https://example.com/file", dest, max_size=10)
 
         assert not dest.exists()
+
+    async def test_preserves_existing_file_on_oversized_download(self, tmp_path: Path) -> None:
+        """Oversized downloads do not clobber an existing destination file."""
+        dest = tmp_path / "existing.dat"
+        dest.write_bytes(b"previous")
+
+        with (
+            patch(
+                "bigbrotr.utils.http.aiohttp.ClientSession", return_value=_mock_session(b"x" * 101)
+            ),
+            pytest.raises(ValueError, match="Response body too large"),
+        ):
+            await download_bounded_file("https://example.com/file", dest, max_size=100)
+
+        assert dest.read_bytes() == b"previous"
 
 
 # =============================================================================
