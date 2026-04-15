@@ -132,6 +132,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
 
         relay_count: int
         batch_size: int
+        max_concurrency: int
         page_size: int
         phase_start: float
 
@@ -332,7 +333,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
                 cursors,
                 buffer,
                 pending_cursors,
-                batch_size=plan.batch_size,
+                plan=plan,
             )
 
         total_found += await self._flush_event_scan_batch(buffer, pending_cursors)
@@ -347,10 +348,12 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
             return None
 
         batch_size = self._config.events.batch_size
+        max_concurrency = self._config.events.parallel_relays
         return self.EventScanPlan(
             relay_count=relay_count,
             batch_size=batch_size,
-            page_size=max(batch_size, self._config.events.parallel_relays),
+            max_concurrency=max_concurrency,
+            page_size=max(batch_size, max_concurrency),
             phase_start=time.monotonic(),
         )
 
@@ -360,7 +363,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         buffer: list[Relay],
         pending_cursors: dict[str, FinderCursor],
         *,
-        batch_size: int,
+        plan: EventScanPlan,
     ) -> int:
         """Scan one page of source relays and flush when the batch budget is reached."""
         total_found = 0
@@ -368,12 +371,12 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         async for relays, cursor in self._iter_concurrent(
             cursors,
             self._find_from_events_worker,
-            max_concurrency=self._config.events.parallel_relays,
+            max_concurrency=plan.max_concurrency,
         ):
             buffer.extend(relays)
             pending_cursors[cursor.key] = cursor
             self.inc_gauge("rows_seen")
-            if len(buffer) >= batch_size:
+            if len(buffer) >= plan.batch_size:
                 total_found += await self._flush_event_scan_batch(buffer, pending_cursors)
 
         return total_found

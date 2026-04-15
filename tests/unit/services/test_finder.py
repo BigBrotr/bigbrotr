@@ -1568,6 +1568,7 @@ class TestFinderFindFromEvents:
         assert plan is not None
         assert plan.relay_count == 17
         assert plan.batch_size == 250
+        assert plan.max_concurrency == 80
         assert plan.page_size == 250
         assert plan.phase_start == 123.0
         mock_count.assert_awaited_once_with(mock_brotr)
@@ -1773,7 +1774,13 @@ class TestFinderFindFromEvents:
                 ],
                 buffer,
                 pending_cursors,
-                batch_size=2,
+                plan=finder.EventScanPlan(
+                    relay_count=2,
+                    batch_size=2,
+                    max_concurrency=finder._config.events.parallel_relays,
+                    page_size=10,
+                    phase_start=0.0,
+                ),
             )
 
         assert found == 2
