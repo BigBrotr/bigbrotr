@@ -27,7 +27,7 @@ from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.configs import (
     NetworksConfig,
     NostrKeysConfig,
-    parse_relay_list,
+    parse_relay_list_fail_soft,
 )
 
 
@@ -240,7 +240,7 @@ class PublishingConfig(BaseModel):
 
     relays: Annotated[
         list[Relay],
-        BeforeValidator(parse_relay_list),
+        BeforeValidator(parse_relay_list_fail_soft),
     ] = Field(
         default_factory=lambda: [
             Relay("wss://relay.mostr.pub"),
@@ -273,7 +273,7 @@ class DiscoveryConfig(BaseModel):
     )
     relays: Annotated[
         list[Relay] | None,
-        BeforeValidator(parse_relay_list),
+        BeforeValidator(parse_relay_list_fail_soft),
     ] = Field(default=None, description="Override relay list (None = use publishing default)")
 
 
@@ -302,7 +302,7 @@ class AnnouncementConfig(BaseModel):
     )
     relays: Annotated[
         list[Relay] | None,
-        BeforeValidator(parse_relay_list),
+        BeforeValidator(parse_relay_list_fail_soft),
     ] = Field(default=None, description="Override relay list (None = use publishing default)")
 
 
@@ -323,7 +323,7 @@ class ProfileConfig(BaseModel):
     )
     relays: Annotated[
         list[Relay] | None,
-        BeforeValidator(parse_relay_list),
+        BeforeValidator(parse_relay_list_fail_soft),
     ] = Field(default=None, description="Override relay list (None = use publishing default)")
     name: str | None = Field(
         default="BigBrotr Monitor", description="Display name for the monitor profile"
@@ -350,7 +350,7 @@ class RelayListConfig(BaseModel):
     )
     relays: Annotated[
         list[Relay] | None,
-        BeforeValidator(parse_relay_list),
+        BeforeValidator(parse_relay_list_fail_soft),
     ] = Field(default=None, description="Override relay list (None = use publishing default)")
 
 

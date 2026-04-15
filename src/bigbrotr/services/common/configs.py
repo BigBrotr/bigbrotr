@@ -54,8 +54,8 @@ from bigbrotr.utils.keys import load_keys_from_env
 logger = logging.getLogger(__name__)
 
 
-def parse_relay_list(raw: object) -> list[Relay] | None:
-    """Parse one config value into canonical relays, preserving ``None`` when omitted."""
+def parse_relay_list_fail_soft(raw: object) -> list[Relay] | None:
+    """Parse one config value into canonical relays, skipping invalid entries."""
     if raw is None:
         return None
     if isinstance(raw, Relay):

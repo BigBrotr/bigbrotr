@@ -24,7 +24,7 @@ from bigbrotr.services.common.configs import (
     NetworkTypeConfig,
     ReadModelPolicy,
     TorConfig,
-    parse_relay_list,
+    parse_relay_list_fail_soft,
 )
 
 
@@ -65,9 +65,12 @@ class TestReadModelPolicy:
 
 
 class TestRelayListParsing:
-    def test_parse_relay_list_normalizes_strings(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_parse_relay_list_fail_soft_normalizes_strings(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
         with caplog.at_level("WARNING", logger="bigbrotr.services.common.configs"):
-            relays = parse_relay_list(
+            relays = parse_relay_list_fail_soft(
                 [
                     "wss://relay.example.com",
                     "wss://relay.example.com:443",
@@ -81,25 +84,25 @@ class TestRelayListParsing:
         ]
         assert "invalid_relay_config_entry" in caplog.text
 
-    def test_parse_relay_list_preserves_relay_instances(self) -> None:
+    def test_parse_relay_list_fail_soft_preserves_relay_instances(self) -> None:
         relay = Relay("wss://relay.example.com")
-        assert parse_relay_list([relay]) == [relay]
+        assert parse_relay_list_fail_soft([relay]) == [relay]
 
-    def test_parse_relay_list_skips_non_string_items(
+    def test_parse_relay_list_fail_soft_skips_non_string_items(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         with caplog.at_level("WARNING", logger="bigbrotr.services.common.configs"):
-            relays = parse_relay_list(["wss://relay.example.com", 123])
+            relays = parse_relay_list_fail_soft(["wss://relay.example.com", 123])
 
         assert [relay.url for relay in relays] == ["wss://relay.example.com"]
         assert "item_type=int" in caplog.text
 
-    def test_parse_relay_list_rejects_scalar_values(self) -> None:
+    def test_parse_relay_list_fail_soft_rejects_scalar_values(self) -> None:
         with pytest.raises(TypeError, match="Relay list must be a sequence"):
-            parse_relay_list("wss://relay.example.com")
+            parse_relay_list_fail_soft("wss://relay.example.com")
 
-    def test_parse_relay_list_preserves_none(self) -> None:
-        assert parse_relay_list(None) is None
+    def test_parse_relay_list_fail_soft_preserves_none(self) -> None:
+        assert parse_relay_list_fail_soft(None) is None
 
 
 # =============================================================================

@@ -21,7 +21,7 @@ from bigbrotr.models import Relay
 from bigbrotr.services.common.configs import (
     NostrKeysConfig,
     ReadModelPolicy,
-    parse_relay_list,
+    parse_relay_list_fail_soft,
 )
 from bigbrotr.services.common.read_models import normalize_read_model_policies
 
@@ -64,7 +64,7 @@ class DvmConfig(BaseServiceConfig):
     )
     relays: Annotated[
         list[Relay],
-        BeforeValidator(parse_relay_list),
+        BeforeValidator(parse_relay_list_fail_soft),
     ] = Field(
         default_factory=lambda: [
             Relay("wss://relay.mostr.pub"),
