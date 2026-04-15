@@ -17,8 +17,8 @@ BigBrotr uses hierarchical YAML configuration with Pydantic model validation:
 
 ```mermaid
 flowchart TD
-    A["CLI invocation<br/><small>python -m bigbrotr &lt;service&gt;</small>"] --> B["Brotr.from_yaml<br/><small>config/brotr.yaml</small>"]
-    B --> C["Service.from_yaml<br/><small>config/services/&lt;service&gt;.yaml</small>"]
+    A["CLI invocation<br/><small>python -m bigbrotr &lt;service&gt; --profile bigbrotr</small>"] --> B["Brotr.from_yaml<br/><small>deployments/&lt;profile&gt;/config/brotr.yaml</small>"]
+    B --> C["Service.from_yaml<br/><small>deployments/&lt;profile&gt;/config/services/&lt;service&gt;.yaml</small>"]
     C --> D["Pydantic validation<br/><small>field constraints, cross-field checks</small>"]
     D --> E["Environment variable resolution<br/><small>DB_*_PASSWORD, NOSTR_PRIVATE_KEY_&lt;SERVICE&gt;</small>"]
     E --> F["Service starts<br/><small>validated configuration</small>"]
@@ -123,8 +123,9 @@ positional arguments:
   service                 seeder | finder | validator | monitor | synchronizer | refresher | ranker | assertor | api | dvm
 
 options:
-  --config PATH           Service config path (overrides default)
-  --brotr-config PATH     Brotr config path (default: config/brotr.yaml)
+  --config PATH           Service config path (overrides deployments/<profile>/config/services/<service>.yaml)
+  --brotr-config PATH     Brotr config path (overrides deployments/<profile>/config/brotr.yaml)
+  --profile PROFILE       Built-in deployment profile: bigbrotr | lilbrotr
   --log-level LEVEL       DEBUG | INFO | WARNING | ERROR (default: INFO)
   --once                  Run one cycle and exit
 ```

@@ -220,12 +220,17 @@ graph TD
 
 2. Service class inherits `BaseService[MyServiceConfig]` and implements `async def run()`
 
-3. Register in `src/bigbrotr/__main__.py`:
+3. Register in `src/bigbrotr/services/registry.py`:
 
     ```python
-    SERVICE_REGISTRY[ServiceName.MYSERVICE] = ServiceEntry(
-        cls=MyService,
-        config_path=Path("config/services/myservice.yaml"),
+    from .myservice import MyService
+
+    SERVICE_REGISTRY: dict[str, ServiceEntry] = dict(
+        _service_entry(service_class)
+        for service_class in (
+            # ... existing built-ins ...
+            MyService,
+        )
     )
     ```
 

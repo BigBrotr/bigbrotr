@@ -10,7 +10,7 @@ Every BigBrotr service follows the same pattern:
 
 1. A **config class** (Pydantic model extending `BaseServiceConfig`)
 2. A **service class** (extending `BaseService[ConfigT]`)
-3. A **registry entry** in `__main__.py`
+3. A **registry entry** in `src/bigbrotr/services/registry.py`
 4. A **YAML config file** per deployment
 5. **Tests** in `tests/unit/services/`
 
@@ -68,19 +68,20 @@ class ServiceName(StrEnum):
     PRUNER = "pruner"  # new
 ```
 
-## Step 3: Register in `__main__.py`
+## Step 3: Register in `services/registry.py`
 
-Add the import and registry entry to `src/bigbrotr/__main__.py`:
+Add the import and built-in registry entry to `src/bigbrotr/services/registry.py`:
 
 ```python
-from bigbrotr.services.pruner import Pruner
+from .pruner import Pruner
 
-SERVICE_REGISTRY: dict[str, ServiceEntry] = {
-    # ... existing entries ...
-    ServiceName.PRUNER: ServiceEntry(
-        Pruner, CONFIG_BASE / "services" / "pruner.yaml"
-    ),
-}
+SERVICE_REGISTRY: dict[str, ServiceEntry] = dict(
+    _service_entry(service_class)
+    for service_class in (
+        # ... existing built-ins ...
+        Pruner,
+    )
+)
 ```
 
 ## Step 4: Create the YAML Config File
@@ -101,6 +102,21 @@ metrics:
 
 !!! tip
     Copy the config to every deployment that needs the service.
+
+When running the service locally, prefer the built-in deployment profiles:
+
+```bash
+python -m bigbrotr pruner --profile bigbrotr --once
+```
+
+For custom deployment names, pass explicit config paths:
+
+```bash
+python -m bigbrotr pruner \
+  --brotr-config deployments/myproject/config/brotr.yaml \
+  --config deployments/myproject/config/services/pruner.yaml \
+  --once
+```
 
 ## Step 5: Write Tests
 

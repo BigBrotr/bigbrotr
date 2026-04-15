@@ -7,9 +7,9 @@ Prometheus metrics server.
 Examples:
     ```bash
     python -m bigbrotr <service> [options]
-    python -m bigbrotr seeder --once
-    python -m bigbrotr finder --log-level DEBUG
-    python -m bigbrotr monitor --config config/services/monitor.yaml
+    python -m bigbrotr seeder --profile bigbrotr --once
+    python -m bigbrotr finder --profile bigbrotr --log-level DEBUG
+    python -m bigbrotr monitor --config deployments/bigbrotr/config/services/monitor.yaml
     ```
 """
 

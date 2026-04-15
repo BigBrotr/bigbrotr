@@ -64,8 +64,8 @@ Nine **independent** async services share a PostgreSQL database. Each runs on it
 | **Refresher** | Refreshes current-state tables, analytics facts, and periodic reconciliations | None |
 | **Ranker** | Computes deterministic NIP-85 rank snapshots in private DuckDB and exports them | PostgreSQL + DuckDB |
 | **Assertor** | Publishes NIP-85 trusted assertion events for users, events, addressables, and identifiers | WebSocket (Nostr) |
-| **Api** | Read-only REST API with auto-generated paginated endpoints | HTTP (FastAPI) |
-| **Dvm** | NIP-90 Data Vending Machine for database queries over Nostr | WebSocket (Nostr) |
+| **Api** | Read-only REST API exposing registered read models over HTTP | HTTP (FastAPI) |
+| **Dvm** | NIP-90 Data Vending Machine serving registered read models over Nostr | WebSocket (Nostr) |
 
 Cycle intervals are service-specific and configurable per deployment. Discovery and ingestion services default to short cadences, while `refresher`, `ranker`, and `assertor` default to longer intervals.
 
@@ -215,13 +215,21 @@ This starts PostgreSQL 18, PGBouncer, Tor proxy, all 10 services, Prometheus, Al
 
 ```bash
 uv sync --group dev
-cd deployments/bigbrotr
 
-# One cycle
-python -m bigbrotr seeder --once
+# One cycle using the built-in bigbrotr deployment profile
+python -m bigbrotr seeder --profile bigbrotr --once
 
 # Continuous with debug logging
-python -m bigbrotr finder --log-level DEBUG
+python -m bigbrotr finder --profile bigbrotr --log-level DEBUG
+```
+
+If you prefer to run from a custom deployment directory, pass explicit config
+paths instead of relying on the built-in profile defaults:
+
+```bash
+python -m bigbrotr monitor \
+  --brotr-config deployments/bigbrotr/config/brotr.yaml \
+  --config deployments/bigbrotr/config/services/monitor.yaml
 ```
 
 ---

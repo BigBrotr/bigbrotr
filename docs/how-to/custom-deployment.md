@@ -42,7 +42,7 @@ Edit `config/brotr.yaml` with shared connection settings:
 pool:
   database:
     host: pgbouncer       # Use 'localhost' for manual deployment
-    database: myproject    # Your database name
+    database: myproject   # Your database name
 ```
 
 Per-service pool settings (user, password, pool sizing) are configured in each service's YAML file. See Step 4.
@@ -75,6 +75,17 @@ Service files to customize:
 
 !!! tip
     See the [Configuration](../user-guide/configuration.md) reference for all available fields and their defaults.
+
+!!! note
+    The built-in CLI `--profile` flag only knows the shipped `bigbrotr` and
+    `lilbrotr` deployments. For a custom deployment like `myproject`, run
+    services with explicit config paths:
+
+    ```bash
+    python -m bigbrotr finder \
+      --brotr-config deployments/myproject/config/brotr.yaml \
+      --config deployments/myproject/config/services/finder.yaml
+    ```
 
 ## Step 5: Choose a Schema
 

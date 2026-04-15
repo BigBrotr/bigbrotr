@@ -49,7 +49,8 @@ BigBrotr answers four operational questions:
 
 ## 2. Runtime Topology
 
-The runtime currently exposes 10 services through `SERVICE_REGISTRY`:
+The runtime currently exposes 10 built-in services through the registry in
+`src/bigbrotr/services/registry.py`:
 
 | Service | Purpose | External I/O |
 |---------|---------|--------------|
@@ -60,8 +61,8 @@ The runtime currently exposes 10 services through `SERVICE_REGISTRY`:
 | `synchronizer` | Archive events from validated relays with cursor resumption | WebSocket |
 | `refresher` | Maintain current-state tables, analytics tables, and NIP-85 facts | PostgreSQL |
 | `ranker` | Compute NIP-85 rank snapshots in private DuckDB and export them | PostgreSQL, DuckDB |
-| `api` | Expose read-only database access over HTTP | FastAPI/HTTP |
-| `dvm` | Serve read-only database queries through NIP-90 | WebSocket/Nostr |
+| `api` | Expose registered read-only read models over HTTP | FastAPI/HTTP |
+| `dvm` | Serve registered read-only read models through NIP-90 | WebSocket/Nostr |
 | `assertor` | Publish NIP-85 trusted assertion events | WebSocket/Nostr |
 
 All services communicate through PostgreSQL. There is no direct service-to-
@@ -79,7 +80,7 @@ relay -> Synchronizer -> event + event_relay
 event/metadata/relay state -> Refresher -> current + analytics + NIP-85 fact tables
 current + NIP-85 facts -> Ranker -> NIP-85 rank tables
 NIP-85 facts + ranks -> Assertor -> NIP-85 assertion events
-database catalog -> Api/Dvm -> user-facing query surfaces
+registered read models -> Api/Dvm -> user-facing query surfaces
 ```
 
 ---
@@ -124,6 +125,7 @@ The CLI entry point is `src/bigbrotr/__main__.py`.
 The default invocation shape is:
 
 ```bash
+python -m bigbrotr <service> --profile <bigbrotr|lilbrotr>
 python -m bigbrotr <service> --config <service-config.yaml> --brotr-config <brotr.yaml>
 ```
 
@@ -131,12 +133,12 @@ Important runtime components:
 
 | Component | Location | Role |
 |-----------|----------|------|
-| `SERVICE_REGISTRY` | `src/bigbrotr/__main__.py` | maps service names to classes and default config paths |
+| `SERVICE_REGISTRY` | `src/bigbrotr/services/registry.py` | maps built-in service names to classes and default config paths |
 | `Brotr` | `src/bigbrotr/core/brotr.py` | high-level database facade over stored functions and queries |
 | `BaseService` | `src/bigbrotr/core/base_service.py` | async lifecycle, `run_forever`, metrics, shutdown handling |
 | `Logger` | `src/bigbrotr/core/logger.py` | structured log formatting |
 | `MetricsServer` | `src/bigbrotr/core/metrics.py` | Prometheus metrics endpoint |
-| YAML config loader | `src/bigbrotr/core/config.py` | config loading and validation |
+| YAML config loader | `src/bigbrotr/core/yaml.py` | config loading and validation |
 
 `BaseService` provides:
 
@@ -760,7 +762,7 @@ When adding a service:
    `utils.py` where needed
 3. subclass `BaseService[YourConfig]`
 4. set `SERVICE_NAME` and `CONFIG_CLASS`
-5. register the service in `SERVICE_REGISTRY`
+5. register the service in `src/bigbrotr/services/registry.py`
 6. add deployment YAML for BigBrotr and LilBrotr if it runs in containers
 7. add metrics and Grafana panels
 8. add unit and integration tests
