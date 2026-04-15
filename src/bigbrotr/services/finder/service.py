@@ -7,7 +7,7 @@ Discovers Nostr relay URLs from two sources:
    response (flat array, nested path, object keys, etc.) via
    [ApiSourceConfig][bigbrotr.services.finder.ApiSourceConfig].
 2. **Database events** -- Tag values from all stored events are parsed via
-   [parse_relay][bigbrotr.services.common.utils.parse_relay]; only
+   [try_parse_relay][bigbrotr.services.common.utils.try_parse_relay]; only
    valid ``wss://`` / ``ws://`` URLs pass validation. This is kind-agnostic:
    any event whose ``tagvalues`` column contains relay-like strings will
    contribute discovered URLs.

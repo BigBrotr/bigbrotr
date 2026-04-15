@@ -1,7 +1,7 @@
 """Unit tests for services.common.utils module.
 
 Tests:
-- parse_relay: valid URLs, whitespace handling, invalid inputs, edge cases
+- try_parse_relay: valid URLs, whitespace handling, invalid inputs, edge cases
 - parse_relay_row: DB row construction, network cross-check, invalid rows
 """
 
@@ -16,8 +16,8 @@ from bigbrotr.models import Relay
 from bigbrotr.services.common.utils import (
     batch_size_for,
     batched_insert,
-    parse_relay,
     parse_relay_row,
+    try_parse_relay,
 )
 
 
@@ -30,23 +30,23 @@ def query_brotr() -> MagicMock:
 
 
 # ============================================================================
-# parse_relay Tests
+# try_parse_relay Tests
 # ============================================================================
 
 
 class TestParseRelayUrl:
-    """Tests for parse_relay function."""
+    """Tests for try_parse_relay function."""
 
     def test_valid_wss(self) -> None:
         """Test parsing a valid wss:// URL."""
-        result = parse_relay("wss://relay.example.com")
+        result = try_parse_relay("wss://relay.example.com")
 
         assert isinstance(result, Relay)
         assert result.url == "wss://relay.example.com"
 
     def test_valid_ws_clearnet_sanitized(self) -> None:
         """Test that ws:// clearnet URL is sanitized to wss://."""
-        result = parse_relay("ws://relay.example.com")
+        result = try_parse_relay("ws://relay.example.com")
 
         assert result is not None
         assert result.url == "wss://relay.example.com"
@@ -54,38 +54,38 @@ class TestParseRelayUrl:
 
     def test_strips_whitespace(self) -> None:
         """Test that leading/trailing whitespace is stripped."""
-        result = parse_relay("  wss://relay.example.com  ")
+        result = try_parse_relay("  wss://relay.example.com  ")
 
         assert isinstance(result, Relay)
         assert result.url == "wss://relay.example.com"
 
     def test_empty_returns_none(self) -> None:
         """Test that empty string returns None."""
-        assert parse_relay("") is None
+        assert try_parse_relay("") is None
 
     def test_whitespace_only_returns_none(self) -> None:
         """Test that whitespace-only string returns None."""
-        assert parse_relay("   ") is None
+        assert try_parse_relay("   ") is None
 
     def test_none_input_returns_none(self) -> None:
         """Test that None input returns None."""
-        assert parse_relay(None) is None  # type: ignore[arg-type]
+        assert try_parse_relay(None) is None  # type: ignore[arg-type]
 
     def test_non_string_returns_none(self) -> None:
         """Test that non-string input returns None."""
-        assert parse_relay(12345) is None  # type: ignore[arg-type]
+        assert try_parse_relay(12345) is None  # type: ignore[arg-type]
 
     def test_invalid_url_returns_none(self) -> None:
         """Test that invalid URL returns None."""
-        assert parse_relay("not-a-valid-url") is None
+        assert try_parse_relay("not-a-valid-url") is None
 
     def test_local_url_returns_none_by_default(self) -> None:
         """Local relays are still rejected by the default application policy."""
-        assert parse_relay("wss://127.0.0.1") is None
+        assert try_parse_relay("wss://127.0.0.1") is None
 
     def test_local_url_allowed_when_requested(self) -> None:
         """Local relays can be enabled explicitly for library/dev use."""
-        result = parse_relay("wss://127.0.0.1", allow_local=True)
+        result = try_parse_relay("wss://127.0.0.1", allow_local=True)
 
         assert isinstance(result, Relay)
         assert result.url == "wss://127.0.0.1"
@@ -93,14 +93,14 @@ class TestParseRelayUrl:
 
     def test_discovered_at(self) -> None:
         """Test parsing with an explicit discovered_at timestamp."""
-        result = parse_relay("wss://relay.example.com", discovered_at=1700000000)
+        result = try_parse_relay("wss://relay.example.com", discovered_at=1700000000)
 
         assert isinstance(result, Relay)
         assert result.discovered_at == 1700000000
 
     def test_discovered_at_none_uses_default(self) -> None:
         """Test that discovered_at=None lets Relay use current time."""
-        result = parse_relay("wss://relay.example.com")
+        result = try_parse_relay("wss://relay.example.com")
 
         assert isinstance(result, Relay)
         assert result.discovered_at > 0
@@ -108,14 +108,14 @@ class TestParseRelayUrl:
     def test_tor_url(self) -> None:
         """Test parsing a valid .onion relay URL."""
         url = "ws://juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion"
-        result = parse_relay(url)
+        result = try_parse_relay(url)
 
         assert isinstance(result, Relay)
         assert result.url == url
 
     def test_invalid_discovered_at_type_returns_none(self) -> None:
         """Test that TypeError from Relay constructor returns None."""
-        result = parse_relay("wss://relay.example.com", discovered_at="not_an_int")  # type: ignore[arg-type]
+        result = try_parse_relay("wss://relay.example.com", discovered_at="not_an_int")  # type: ignore[arg-type]
 
         assert result is None
 

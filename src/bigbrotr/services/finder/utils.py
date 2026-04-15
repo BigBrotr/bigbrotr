@@ -12,7 +12,7 @@ import aiohttp
 import jmespath
 
 from bigbrotr.services.common.types import FinderCursor
-from bigbrotr.services.common.utils import parse_relay
+from bigbrotr.services.common.utils import try_parse_relay
 from bigbrotr.utils.http import read_bounded_json
 
 from .queries import scan_event_relay
@@ -58,7 +58,7 @@ def extract_relays_from_response(data: Any, expression: str) -> list[Relay]:
 
     Applies *expression* to the parsed JSON *data*, filters to string
     values, validates each through
-    [parse_relay][bigbrotr.services.common.utils.parse_relay],
+    [try_parse_relay][bigbrotr.services.common.utils.try_parse_relay],
     and returns a deduplicated list of Relay objects.
 
     Args:
@@ -76,7 +76,7 @@ def extract_relays_from_response(data: Any, expression: str) -> list[Relay]:
     relays: list[Relay] = []
     for item in result:
         if isinstance(item, str):
-            validated = parse_relay(item)
+            validated = try_parse_relay(item)
             if validated and validated.url not in seen:
                 seen.add(validated.url)
                 relays.append(validated)
@@ -124,9 +124,9 @@ def extract_relays_from_tagvalues(rows: list[dict[str, Any]]) -> list[Relay]:
     """Extract and deduplicate relay URLs from event tagvalues.
 
     Strips the tag prefix (everything up to the first ``:``) from each
-    value and passes the remainder to ``parse_relay``.  All tag
+    value and passes the remainder to ``try_parse_relay``.  All tag
     types are examined -- not just ``r:`` -- since relay URLs can appear
-    in any tag.  Invalid values are rejected by ``parse_relay``.
+    in any tag.  Invalid values are rejected by ``try_parse_relay``.
 
     Args:
         rows: Event rows with ``tagvalues`` key (from
@@ -146,7 +146,7 @@ def extract_relays_from_tagvalues(rows: list[dict[str, Any]]) -> list[Relay]:
             if not isinstance(val, str):
                 continue
             _, _, raw_val = val.partition(":")
-            validated = parse_relay(raw_val)
+            validated = try_parse_relay(raw_val)
             if validated and validated.url not in seen:
                 seen.add(validated.url)
                 relays.append(validated)

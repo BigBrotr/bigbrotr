@@ -19,7 +19,6 @@ import logging
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from bigbrotr.models import Relay
-from bigbrotr.models.relay_url import normalize_relay_url
 
 
 if TYPE_CHECKING:
@@ -56,17 +55,17 @@ async def batched_insert(
     return total
 
 
-def parse_relay(
+def try_parse_relay(
     url: str,
     discovered_at: int | None = None,
     *,
     allow_local: bool = False,
 ) -> Relay | None:
-    """Parse a relay URL string into a Relay object.
+    """Parse a relay URL string into a Relay object, returning ``None`` on failure.
 
     Strips whitespace, rejects empty/non-string input, and delegates to the
-    [Relay][bigbrotr.models.relay.Relay] constructor for RFC 3986 validation
-    and network detection.
+    [Relay.parse][bigbrotr.models.relay.Relay.parse] parser for RFC 3986
+    validation and network detection.
 
     Args:
         url: Potential relay URL string.
@@ -82,14 +81,11 @@ def parse_relay(
         return None
 
     try:
-        url = normalize_relay_url(url, allow_local=allow_local)
-    except ValueError:
-        return None
-
-    try:
-        if discovered_at is not None:
-            return Relay(url, discovered_at)
-        return Relay(url)
+        return Relay.parse(
+            url,
+            discovered_at=discovered_at,
+            allow_local=allow_local,
+        )
     except (ValueError, TypeError):
         return None
 
