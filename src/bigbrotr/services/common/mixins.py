@@ -231,8 +231,8 @@ class GeoReaders:
         asn: GeoLite2-ASN reader for network info lookups, or ``None``.
 
     See Also:
-        [GeoReaderMixin][bigbrotr.services.common.mixins.GeoReaderMixin]:
-            Mixin that exposes a ``geo_readers`` attribute of this type.
+        [Monitor][bigbrotr.services.monitor.Monitor]: Service that owns and
+            manages these readers directly for NIP-66 geo/net checks.
     """
 
     __slots__ = ("asn", "city")
@@ -270,27 +270,6 @@ class GeoReaders:
             self.asn = None
 
 
-class GeoReaderMixin:
-    """Mixin providing GeoIP database reader lifecycle management.
-
-    Exposes a ``geo_readers`` attribute of type
-    [GeoReaders][bigbrotr.services.common.mixins.GeoReaders].
-
-    Note:
-        Call ``geo_readers.close()`` in a ``finally`` block or ``__aexit__``.
-
-    See Also:
-        [Monitor][bigbrotr.services.monitor.Monitor]: The service that
-            composes this mixin for NIP-66 geo/net checks.
-    """
-
-    geo_readers: GeoReaders
-
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.geo_readers = GeoReaders()
-
-
 class Clients:
     """Lazy pool of Nostr clients for event broadcasting.
 
@@ -306,8 +285,8 @@ class Clients:
             on SSL failure.
 
     See Also:
-        [ClientsMixin][bigbrotr.services.common.mixins.ClientsMixin]:
-            Mixin that exposes a ``clients`` attribute of this type.
+        [Monitor][bigbrotr.services.monitor.Monitor]: Service that owns this
+            relay-client pool for event publishing.
         [connect_relay][bigbrotr.utils.protocol.connect_relay]: Used
             internally to establish each connection.
     """
@@ -375,22 +354,3 @@ class Clients:
     async def disconnect(self) -> None:
         """Disconnect all clients and reset state."""
         await self._manager.disconnect()
-
-
-class ClientsMixin:
-    """Mixin providing managed Nostr client pool for event broadcasting.
-
-    Exposes a ``clients`` attribute of type
-    [Clients][bigbrotr.services.common.mixins.Clients]. Pops a
-    pre-constructed ``clients`` instance from kwargs.
-
-    See Also:
-        [Monitor][bigbrotr.services.monitor.Monitor]: The service that
-            composes this mixin for Kind 0/10166/30166 event publishing.
-    """
-
-    clients: Clients
-
-    def __init__(self, **kwargs: Any) -> None:
-        self.clients = kwargs.pop("clients")
-        super().__init__(**kwargs)

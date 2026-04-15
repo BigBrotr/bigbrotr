@@ -11,9 +11,7 @@ Attributes:
         [LokiConfig][bigbrotr.services.common.configs.LokiConfig]) with
         sensible defaults for timeouts, proxy URLs, and max concurrent tasks.
     mixins: [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin]
-        for per-network concurrency control, and
-        [GeoReaders][bigbrotr.services.common.mixins.GeoReaders] for GeoIP
-        database reader lifecycle management.
+        for per-network concurrency control.
     paging: Keyset-pagination helpers for bounded page scans in service
         query modules.
     read_models: Static registry of built-in read models currently exposed by

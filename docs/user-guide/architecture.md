@@ -437,7 +437,7 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 |--------|---------|
 | `queries.py` | Shared cross-service query helpers |
 | `utils.py` | Relay parsing helpers and batch insert helper |
-| `mixins.py` | `ConcurrentStreamMixin`, `NetworkSemaphoresMixin`, `GeoReaderMixin`, `ClientsMixin` — cooperative-inheritance mixins |
+| `mixins.py` | `ConcurrentStreamMixin`, `NetworkSemaphoresMixin`, `GeoReaders`, `Clients` — shared concurrency and monitor support helpers |
 | `catalog.py` | Schema-driven `Catalog` for table discovery (Api, Dvm) and `CatalogError` |
 | `configs.py` | Per-network and per-table Pydantic config models |
 | `read_models.py` | Public read-model registry and `ReadModelSurface` helpers |
@@ -642,8 +642,8 @@ Services use mixins from `services/common/mixins.py` to compose shared behavior:
 
 - `ConcurrentStreamMixin` -- concurrent item processing with streaming results (Finder, Validator, Monitor, Synchronizer)
 - `NetworkSemaphoresMixin` -- per-network concurrency (Validator, Monitor, Synchronizer)
-- `GeoReaderMixin` -- GeoIP database lifecycle (Monitor)
-- `ClientsMixin` -- managed pool of Nostr clients for event broadcasting (Monitor)
+- `GeoReaders` -- GeoIP database lifecycle helper owned by Monitor
+- `Clients` -- managed pool of Nostr clients for Monitor event broadcasting
 - `ReadModelSurface` -- read-model resolution and execution boundary (Api, Dvm)
 
 ### Content-Addressed Deduplication

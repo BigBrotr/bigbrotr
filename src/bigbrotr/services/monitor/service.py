@@ -80,9 +80,8 @@ from bigbrotr.nips.nip66 import (
 )
 from bigbrotr.services.common.mixins import (
     Clients,
-    ClientsMixin,
     ConcurrentStreamMixin,
-    GeoReaderMixin,
+    GeoReaders,
     NetworkSemaphoresMixin,
 )
 from bigbrotr.utils.http import download_bounded_file
@@ -147,8 +146,6 @@ if TYPE_CHECKING:
 class Monitor(
     ConcurrentStreamMixin,
     NetworkSemaphoresMixin,
-    GeoReaderMixin,
-    ClientsMixin,
     BaseService[MonitorConfig],
 ):
     """Relay health monitoring service with NIP-66 compliance.
@@ -188,14 +185,15 @@ class Monitor(
             brotr=brotr,
             config=config,
             networks=config.networks,
-            clients=Clients(
-                keys=resolved_keys,
-                networks=config.networks,
-                allow_insecure=config.processing.allow_insecure,
-            ),
         )
         self._config: MonitorConfig
         self._keys: Keys = resolved_keys
+        self.clients = Clients(
+            keys=resolved_keys,
+            networks=config.networks,
+            allow_insecure=config.processing.allow_insecure,
+        )
+        self.geo_readers = GeoReaders()
 
     async def run(self) -> None:
         """Execute one complete monitoring cycle.
