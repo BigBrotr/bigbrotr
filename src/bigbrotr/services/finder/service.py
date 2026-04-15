@@ -271,31 +271,59 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         page_size = max(self._config.events.batch_size, self._config.events.parallel_relays)
 
         async for cursors in iter_cursors_to_find_pages(self._brotr, page_size=page_size):
-            async for relays, cursor in self._iter_concurrent(
+            total_found += await self._scan_event_cursor_page(
                 cursors,
-                self._find_from_events_worker,
-                max_concurrency=self._config.events.parallel_relays,
-            ):
-                buffer.extend(relays)
-                pending_cursors[cursor.key] = cursor
-                self.inc_gauge("rows_seen")
-                if len(buffer) >= batch_size:
-                    found = await insert_relays_as_candidates(self._brotr, buffer)
-                    total_found += found
-                    self.inc_gauge("candidates_found_from_events", found)
-                    buffer = []
-                    await upsert_finder_cursors(self._brotr, pending_cursors.values())
-                    pending_cursors = {}
+                buffer,
+                pending_cursors,
+                batch_size=batch_size,
+            )
 
-        if buffer:
-            found = await insert_relays_as_candidates(self._brotr, buffer)
-            total_found += found
-            self.inc_gauge("candidates_found_from_events", found)
-        if pending_cursors:
-            await upsert_finder_cursors(self._brotr, pending_cursors.values())
+        total_found += await self._flush_event_scan_batch(buffer, pending_cursors)
 
         self._logger.info("scan_completed", found=total_found)
         return total_found
+
+    async def _scan_event_cursor_page(
+        self,
+        cursors: list[FinderCursor],
+        buffer: list[Relay],
+        pending_cursors: dict[str, FinderCursor],
+        *,
+        batch_size: int,
+    ) -> int:
+        """Scan one page of source relays and flush when the batch budget is reached."""
+        total_found = 0
+
+        async for relays, cursor in self._iter_concurrent(
+            cursors,
+            self._find_from_events_worker,
+            max_concurrency=self._config.events.parallel_relays,
+        ):
+            buffer.extend(relays)
+            pending_cursors[cursor.key] = cursor
+            self.inc_gauge("rows_seen")
+            if len(buffer) >= batch_size:
+                total_found += await self._flush_event_scan_batch(buffer, pending_cursors)
+
+        return total_found
+
+    async def _flush_event_scan_batch(
+        self,
+        buffer: list[Relay],
+        pending_cursors: dict[str, FinderCursor],
+    ) -> int:
+        """Persist one accumulated event-scan batch and clear in-memory state."""
+        found = 0
+        if buffer:
+            relays_batch = list(buffer)
+            found = await insert_relays_as_candidates(self._brotr, relays_batch)
+            self.inc_gauge("candidates_found_from_events", found)
+            buffer.clear()
+        if pending_cursors:
+            cursors_batch = tuple(pending_cursors.values())
+            await upsert_finder_cursors(self._brotr, cursors_batch)
+            pending_cursors.clear()
+        return found
 
     async def _find_from_events_worker(
         self, cursor: FinderCursor

@@ -1572,6 +1572,90 @@ class TestFinderFindFromEvents:
             assert result == 25
             assert mock_insert.call_count >= 2
 
+    async def test_flush_event_scan_batch_persists_and_clears_state(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        finder = Finder(brotr=mock_brotr)
+        finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
+        relay = Relay("wss://relay.example.com")
+        buffer = [relay]
+        pending_cursors = {"wss://source.relay.com": FinderCursor(key="wss://source.relay.com")}
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
+                return_value=1,
+            ) as mock_insert,
+            patch(
+                "bigbrotr.services.finder.service.upsert_finder_cursors",
+                new_callable=AsyncMock,
+            ) as mock_upsert,
+        ):
+            found = await finder._flush_event_scan_batch(buffer, pending_cursors)
+
+        assert found == 1
+        assert buffer == []
+        assert pending_cursors == {}
+        mock_insert.assert_awaited_once_with(mock_brotr, [relay])
+        mock_upsert.assert_awaited_once()
+        finder.inc_gauge.assert_any_call("candidates_found_from_events", 1)
+
+    async def test_scan_event_cursor_page_flushes_when_batch_limit_reached(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        finder = Finder(brotr=mock_brotr, config=FinderConfig(events=EventsConfig(batch_size=10)))
+        finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
+
+        relay1 = Relay("wss://relay1.example.com")
+        relay2 = Relay("wss://relay2.example.com")
+        cursor1 = FinderCursor(key="wss://source1.relay.com", timestamp=1, id="01" * 32)
+        cursor2 = FinderCursor(key="wss://source2.relay.com", timestamp=2, id="02" * 32)
+        buffer: list[Relay] = []
+        pending_cursors: dict[str, FinderCursor] = {}
+
+        async def fake_iter_concurrent(
+            cursors: list[FinderCursor],
+            worker: Any,
+            *,
+            max_concurrency: int,
+        ) -> AsyncGenerator[tuple[list[Relay], FinderCursor], None]:
+            assert len(cursors) == 2
+            assert max_concurrency == finder._config.events.parallel_relays
+            yield [relay1], cursor1
+            yield [relay2], cursor2
+
+        with (
+            patch.object(finder, "_iter_concurrent", side_effect=fake_iter_concurrent),
+            patch.object(
+                finder,
+                "_flush_event_scan_batch",
+                new_callable=AsyncMock,
+                return_value=2,
+            ) as mock_flush,
+        ):
+            found = await finder._scan_event_cursor_page(
+                [
+                    FinderCursor(key="wss://source1.relay.com"),
+                    FinderCursor(key="wss://source2.relay.com"),
+                ],
+                buffer,
+                pending_cursors,
+                batch_size=2,
+            )
+
+        assert found == 2
+        assert buffer == [relay1, relay2]
+        assert pending_cursors == {
+            "wss://source1.relay.com": cursor1,
+            "wss://source2.relay.com": cursor2,
+        }
+        mock_flush.assert_awaited_once_with(buffer, pending_cursors)
+        rows_seen_calls = [c for c in finder.inc_gauge.call_args_list if c.args == ("rows_seen",)]
+        assert len(rows_seen_calls) == 2
+
     async def test_phase_duration_exceeded_stops_workers(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(events=EventsConfig(max_duration=60))
         finder = Finder(brotr=mock_brotr, config=config)
