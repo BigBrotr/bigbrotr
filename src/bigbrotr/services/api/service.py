@@ -1,7 +1,7 @@
 """REST API service for read-only read-model exposure via FastAPI.
 
 Registers paginated endpoints for all enabled public read models.
-[ReadModelConfig][bigbrotr.services.common.configs.ReadModelConfig] remains the
+[ReadModelPolicy][bigbrotr.services.common.configs.ReadModelPolicy] remains the
 shared access-policy model, but the public HTTP contract is expressed in
 terms of named read models rather than raw database tables.
 

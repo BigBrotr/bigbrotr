@@ -19,7 +19,7 @@ from bigbrotr.services.common.catalog import (
     QueryResult,
     TableSchema,
 )
-from bigbrotr.services.common.configs import ReadModelConfig
+from bigbrotr.services.common.configs import ReadModelPolicy
 
 
 # ============================================================================
@@ -36,8 +36,8 @@ def api_config() -> ApiConfig:
         max_page_size=100,
         default_page_size=10,
         read_models={
-            "relays": ReadModelConfig(enabled=True),
-            "relay-stats": ReadModelConfig(enabled=True),
+            "relays": ReadModelPolicy(enabled=True),
+            "relay-stats": ReadModelPolicy(enabled=True),
         },
     )
 
@@ -129,7 +129,7 @@ class TestApiConfig:
             port=9000,
             max_page_size=500,
             request_timeout=60.0,
-            read_models={"events": ReadModelConfig(enabled=True)},
+            read_models={"events": ReadModelPolicy(enabled=True)},
         )
         assert config.title == "LilBrotr API"
         assert config.port == 9000
@@ -142,17 +142,17 @@ class TestApiConfig:
             ValueError,
             match=r"read_models contains non-public API read models: event",
         ):
-            ApiConfig(read_models={"event": ReadModelConfig(enabled=True)})
+            ApiConfig(read_models={"event": ReadModelPolicy(enabled=True)})
 
         with pytest.raises(
             ValueError,
             match=r"read_models contains non-public API read models: relay",
         ):
-            ApiConfig(read_models={"relay": ReadModelConfig(enabled=True)})
+            ApiConfig(read_models={"relay": ReadModelPolicy(enabled=True)})
 
     def test_tables_key_rejected(self) -> None:
         with pytest.raises(ValueError, match="Use read_models instead of tables"):
-            ApiConfig(tables={"relay": ReadModelConfig(enabled=True)})
+            ApiConfig(tables={"relay": ReadModelPolicy(enabled=True)})
 
     def test_inherits_base_service_config(self) -> None:
         config = ApiConfig(interval=120.0)
@@ -186,7 +186,7 @@ class TestApiConfig:
 
     def test_internal_read_model_rejected(self) -> None:
         with pytest.raises(ValueError, match=r"non-public API read models: service_state"):
-            ApiConfig(read_models={"service_state": ReadModelConfig(enabled=True)})
+            ApiConfig(read_models={"service_state": ReadModelPolicy(enabled=True)})
 
 
 class TestApiConfigRoutePrefix:
@@ -219,7 +219,7 @@ class TestApiBuildApp:
     def test_app_title_from_config(self, mock_brotr: Brotr, sample_catalog: Catalog) -> None:
         config = ApiConfig(
             title="LilBrotr API",
-            read_models={"relays": ReadModelConfig(enabled=True)},
+            read_models={"relays": ReadModelPolicy(enabled=True)},
         )
         service = Api(brotr=mock_brotr, config=config)
         service._read_models.catalog = sample_catalog
@@ -235,7 +235,7 @@ class TestApiBuildApp:
     ) -> None:
         config = ApiConfig(
             cors_origins=["https://example.com"],
-            read_models={"relays": ReadModelConfig(enabled=True)},
+            read_models={"relays": ReadModelPolicy(enabled=True)},
         )
         service = Api(brotr=mock_brotr, config=config)
         service._read_models.catalog = sample_catalog
@@ -254,7 +254,7 @@ class TestApiBuildApp:
             host="127.0.0.1",
             port=9999,
             route_prefix="/api/v2",
-            read_models={"relays": ReadModelConfig(enabled=True)},
+            read_models={"relays": ReadModelPolicy(enabled=True)},
         )
         service = Api(brotr=mock_brotr, config=config)
         service._read_models.catalog = sample_catalog
@@ -267,7 +267,7 @@ class TestApiBuildApp:
     def test_composite_pk_route_generated(
         self, mock_brotr: Brotr, composite_pk_catalog: Catalog
     ) -> None:
-        config = ApiConfig(read_models={"relay-metadata-history": ReadModelConfig(enabled=True)})
+        config = ApiConfig(read_models={"relay-metadata-history": ReadModelPolicy(enabled=True)})
         service = Api(brotr=mock_brotr, config=config)
         service._read_models.catalog = composite_pk_catalog
         app = service._build_app()
@@ -284,8 +284,8 @@ class TestApiBuildApp:
         with pytest.raises(ValueError, match=r"non-public API read models: service_state"):
             ApiConfig(
                 read_models={
-                    "relays": ReadModelConfig(enabled=True),
-                    "service_state": ReadModelConfig(enabled=True),
+                    "relays": ReadModelPolicy(enabled=True),
+                    "service_state": ReadModelPolicy(enabled=True),
                 }
             )
 

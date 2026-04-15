@@ -127,7 +127,7 @@ class NostrKeysConfig(BaseModel):
         return data
 
 
-class ReadModelConfig(BaseModel):
+class ReadModelPolicy(BaseModel):
     """Per-read-model access and pricing policy for API and DVM services.
 
     Read models default to disabled (not exposed). Only read models explicitly

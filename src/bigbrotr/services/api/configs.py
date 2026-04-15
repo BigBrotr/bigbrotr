@@ -15,7 +15,7 @@ from typing import Any
 from pydantic import Field, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
-from bigbrotr.services.common.configs import ReadModelConfig  # noqa: TC001 (Pydantic runtime)
+from bigbrotr.services.common.configs import ReadModelPolicy  # noqa: TC001 (Pydantic runtime)
 from bigbrotr.services.common.read_models import normalize_read_model_policies
 
 
@@ -67,7 +67,7 @@ class ApiConfig(BaseServiceConfig):
         le=10000,
         description="Default limit when not specified",
     )
-    read_models: dict[str, ReadModelConfig] = Field(
+    read_models: dict[str, ReadModelPolicy] = Field(
         default_factory=dict,
         description="Per-read-model access policies",
     )

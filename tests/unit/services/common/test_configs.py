@@ -2,7 +2,7 @@
 Unit tests for services.common.configs module.
 
 Tests:
-- ReadModelConfig - Per-read-model access and pricing policy
+- ReadModelPolicy - Per-read-model access and pricing policy
 - Relay list parsing helpers
 - ClearnetConfig - Configuration for clearnet (standard internet) relays
 - TorConfig - Configuration for Tor (.onion) relays
@@ -22,44 +22,44 @@ from bigbrotr.services.common.configs import (
     LokiConfig,
     NetworksConfig,
     NetworkTypeConfig,
-    ReadModelConfig,
+    ReadModelPolicy,
     TorConfig,
     parse_relay_list,
 )
 
 
 # =============================================================================
-# ReadModelConfig Tests
+# ReadModelPolicy Tests
 # =============================================================================
 
 
-class TestReadModelConfig:
-    """Tests for ReadModelConfig Pydantic model."""
+class TestReadModelPolicy:
+    """Tests for ReadModelPolicy Pydantic model."""
 
     def test_default_disabled(self) -> None:
-        config = ReadModelConfig()
+        config = ReadModelPolicy()
         assert config.enabled is False
         assert config.price == 0
 
     def test_enabled(self) -> None:
-        config = ReadModelConfig(enabled=True)
+        config = ReadModelPolicy(enabled=True)
         assert config.enabled is True
 
     def test_from_dict(self) -> None:
-        config = ReadModelConfig.model_validate({"enabled": True})
+        config = ReadModelPolicy.model_validate({"enabled": True})
         assert config.enabled is True
 
     def test_with_price(self) -> None:
-        config = ReadModelConfig(enabled=True, price=5000)
+        config = ReadModelPolicy(enabled=True, price=5000)
         assert config.price == 5000
         assert config.enabled is True
 
     def test_negative_price_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            ReadModelConfig(price=-1)
+            ReadModelPolicy(price=-1)
 
     def test_disabled_with_price(self) -> None:
-        config = ReadModelConfig(enabled=False, price=100)
+        config = ReadModelPolicy(enabled=False, price=100)
         assert config.enabled is False
         assert config.price == 100
 

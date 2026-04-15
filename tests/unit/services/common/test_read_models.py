@@ -5,7 +5,7 @@ import pytest
 
 from bigbrotr.core.yaml import load_yaml
 from bigbrotr.services.common.catalog import Catalog, ColumnSchema, QueryResult, TableSchema
-from bigbrotr.services.common.configs import ReadModelConfig
+from bigbrotr.services.common.configs import ReadModelPolicy
 from bigbrotr.services.common.read_models import (
     READ_MODEL_REGISTRY,
     ReadModelEntry,
@@ -96,9 +96,9 @@ class TestReadModelRegistry:
         resolved = resolve_surface_read_models(
             "api",
             policies={
-                "relays": ReadModelConfig(enabled=True),
-                "events": ReadModelConfig(enabled=False),
-                "metadata-documents": ReadModelConfig(enabled=True),
+                "relays": ReadModelPolicy(enabled=True),
+                "events": ReadModelPolicy(enabled=False),
+                "metadata-documents": ReadModelPolicy(enabled=True),
             },
             available_catalog_names={"relay"},
         )
@@ -109,8 +109,8 @@ class TestReadModelRegistry:
         resolved = resolve_surface_read_model_names(
             "dvm",
             policies={
-                "events": ReadModelConfig(enabled=True),
-                "relays": ReadModelConfig(enabled=True),
+                "events": ReadModelPolicy(enabled=True),
+                "relays": ReadModelPolicy(enabled=True),
             },
             available_catalog_names={"relay", "event"},
         )
@@ -121,7 +121,7 @@ class TestReadModelRegistry:
         resolved = resolve_surface_read_model(
             "dvm",
             name="relays",
-            policies={"relays": ReadModelConfig(enabled=True)},
+            policies={"relays": ReadModelPolicy(enabled=True)},
             available_catalog_names={"event"},
         )
 
@@ -245,7 +245,7 @@ class TestReadModelSurface:
     def _surface(
         self,
         *,
-        policies: dict[str, ReadModelConfig] | None = None,
+        policies: dict[str, ReadModelPolicy] | None = None,
         catalog: Catalog | None = None,
     ) -> ReadModelSurface:
         surface = ReadModelSurface(policy_source=lambda: policies or {})
@@ -276,8 +276,8 @@ class TestReadModelSurface:
         logger.info.assert_called_once_with("schema_discovered", tables=2, views=1)
 
     def test_is_enabled_filters_unknown_and_disabled_read_models(self) -> None:
-        disabled = self._surface(policies={"relays": ReadModelConfig(enabled=False)})
-        enabled = self._surface(policies={"relays": ReadModelConfig(enabled=True)})
+        disabled = self._surface(policies={"relays": ReadModelPolicy(enabled=False)})
+        enabled = self._surface(policies={"relays": ReadModelPolicy(enabled=True)})
 
         assert disabled.is_enabled("relays") is False
         assert enabled.is_enabled("relays") is True
@@ -288,8 +288,8 @@ class TestReadModelSurface:
         catalog._tables = {"relay": MagicMock(), "event": MagicMock()}
         surface = self._surface(
             policies={
-                "relays": ReadModelConfig(enabled=True),
-                "events": ReadModelConfig(enabled=False),
+                "relays": ReadModelPolicy(enabled=True),
+                "events": ReadModelPolicy(enabled=False),
             },
             catalog=catalog,
         )
@@ -351,7 +351,7 @@ class TestReadModelSurface:
         result = QueryResult(rows=[], total=None, limit=5, offset=0)
         catalog.query = AsyncMock(return_value=result)  # type: ignore[method-assign]
         surface = self._surface(
-            policies={"relays": ReadModelConfig(enabled=True)},
+            policies={"relays": ReadModelPolicy(enabled=True)},
             catalog=catalog,
         )
 
@@ -370,7 +370,7 @@ class TestReadModelSurface:
         row = {"url": "wss://relay.example.com"}
         catalog.get_by_pk = AsyncMock(return_value=row)  # type: ignore[method-assign]
         surface = self._surface(
-            policies={"relays": ReadModelConfig(enabled=True)},
+            policies={"relays": ReadModelPolicy(enabled=True)},
             catalog=catalog,
         )
 
@@ -397,7 +397,7 @@ class TestReadModelSurface:
             )
         }
         surface = self._surface(
-            policies={"relays": ReadModelConfig(enabled=True)},
+            policies={"relays": ReadModelPolicy(enabled=True)},
             catalog=catalog,
         )
 
@@ -621,8 +621,8 @@ class TestReadModelQueryHelpers:
         ):
             normalize_read_model_policies(
                 {
-                    "relay": ReadModelConfig(enabled=True),
-                    "relay_stats": ReadModelConfig(enabled=True),
+                    "relay": ReadModelPolicy(enabled=True),
+                    "relay_stats": ReadModelPolicy(enabled=True),
                 },
                 surface="api",
             )

@@ -570,7 +570,7 @@ For read models without a stable primary key, the API falls back to offset pagin
 6. Execute the query via the shared Catalog (same engine as the Api service)
 7. Publish the result as a kind 6050 event, or publish error/payment-required feedback (kind 7000)
 
-The Dvm supports per-read-model pricing via `ReadModelConfig.price`. When a job's bid is below the required price, a payment-required feedback event is published instead of the query result.
+The Dvm supports per-read-model pricing via `ReadModelPolicy.price`. When a job's bid is below the required price, a payment-required feedback event is published instead of the query result.
 
 As with the HTTP API, DVM announcements and deployment config should use the canonical
 read-model IDs (`relays`, `relay-stats`, `relay-metadata-current`, ...). Legacy

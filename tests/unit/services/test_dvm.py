@@ -22,7 +22,7 @@ from bigbrotr.services.common.catalog import (
     QueryResult,
     TableSchema,
 )
-from bigbrotr.services.common.configs import ReadModelConfig
+from bigbrotr.services.common.configs import ReadModelPolicy
 from bigbrotr.services.common.types import DvmRequestCursor
 from bigbrotr.services.dvm.configs import DvmConfig
 from bigbrotr.services.dvm.service import Dvm
@@ -65,8 +65,8 @@ def dvm_config() -> DvmConfig:
         kind=5050,
         max_page_size=100,
         read_models={
-            "relays": ReadModelConfig(enabled=True),
-            "events": ReadModelConfig(enabled=True, price=5000),
+            "relays": ReadModelPolicy(enabled=True),
+            "events": ReadModelPolicy(enabled=True, price=5000),
         },
     )
 
@@ -215,7 +215,7 @@ class TestDvmConfig:
     def test_custom_read_models(self) -> None:
         config = DvmConfig(
             relays=["wss://relay.example.com"],
-            read_models={"relays": ReadModelConfig(enabled=True, price=1000)},
+            read_models={"relays": ReadModelPolicy(enabled=True, price=1000)},
         )
         assert config.read_models["relays"].price == 1000
         assert config.read_models["relays"].enabled is True
@@ -227,14 +227,14 @@ class TestDvmConfig:
         ):
             DvmConfig(
                 relays=["wss://relay.example.com"],
-                read_models={"relay": ReadModelConfig(enabled=True, price=1000)},
+                read_models={"relay": ReadModelPolicy(enabled=True, price=1000)},
             )
 
     def test_tables_key_rejected(self) -> None:
         with pytest.raises(ValueError, match="Use read_models instead of tables"):
             DvmConfig(
                 relays=["wss://relay.example.com"],
-                tables={"relay": ReadModelConfig(enabled=True)},
+                tables={"relay": ReadModelPolicy(enabled=True)},
             )
 
     def test_inherits_base_service_config(self) -> None:
@@ -270,7 +270,7 @@ class TestDvmConfig:
         with pytest.raises(ValueError, match=r"non-public DVM read models: service_state"):
             DvmConfig(
                 relays=["wss://relay.example.com"],
-                read_models={"service_state": ReadModelConfig(enabled=True)},
+                read_models={"service_state": ReadModelPolicy(enabled=True)},
             )
 
 
@@ -315,8 +315,8 @@ class TestDvmReadModelAccessPolicy:
                 interval=60.0,
                 relays=["wss://relay.example.com"],
                 read_models={
-                    "relays": ReadModelConfig(enabled=True),
-                    "service_state": ReadModelConfig(enabled=True),
+                    "relays": ReadModelPolicy(enabled=True),
+                    "service_state": ReadModelPolicy(enabled=True),
                 },
             )
 
@@ -499,7 +499,7 @@ class TestDvmLifecycle:
             interval=60.0,
             relays=["wss://relay.example.com"],
             announce=False,
-            read_models={"relays": ReadModelConfig(enabled=True)},
+            read_models={"relays": ReadModelPolicy(enabled=True)},
         )
         service = Dvm(brotr=mock_brotr, config=config)
         service._read_models.catalog = Catalog()

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.core.logger import Logger
     from bigbrotr.services.common.catalog import Catalog, QueryResult, TableSchema
-    from bigbrotr.services.common.configs import ReadModelConfig
+    from bigbrotr.services.common.configs import ReadModelPolicy
 
 
 ReadSurface = Literal["api", "dvm"]
@@ -165,7 +165,7 @@ class ReadModelSurface:
 
     __slots__ = ("_catalog", "_policy_source")
 
-    def __init__(self, *, policy_source: Callable[[], Mapping[str, ReadModelConfig]]) -> None:
+    def __init__(self, *, policy_source: Callable[[], Mapping[str, ReadModelPolicy]]) -> None:
         from .catalog import Catalog  # noqa: PLC0415
 
         self._catalog = Catalog()
@@ -195,7 +195,7 @@ class ReadModelSurface:
         """Return discovered catalog object names available to the public surface."""
         return set(self._catalog.tables)
 
-    def policies(self) -> dict[str, ReadModelConfig]:
+    def policies(self) -> dict[str, ReadModelPolicy]:
         """Return the current read-model policies from the owning service config."""
         policies = self._policy_source()
         if not isinstance(policies, dict):
@@ -456,10 +456,10 @@ READ_MODELS_BY_SURFACE: dict[ReadSurface, dict[str, ReadModelEntry]] = {
 
 
 def normalize_read_model_policies(
-    policies: Mapping[str, ReadModelConfig],
+    policies: Mapping[str, ReadModelPolicy],
     *,
     surface: ReadSurface,
-) -> dict[str, ReadModelConfig]:
+) -> dict[str, ReadModelPolicy]:
     """Validate config policies against the canonical public read-model IDs."""
     normalized = dict(policies)
     allowed = set(read_models_for_surface(surface))
@@ -498,7 +498,7 @@ def enabled_read_models_for_surface(
 def resolve_surface_read_models(
     surface: ReadSurface,
     *,
-    policies: Mapping[str, ReadModelConfig],
+    policies: Mapping[str, ReadModelPolicy],
     available_catalog_names: set[str],
 ) -> dict[str, ReadModelEntry]:
     """Resolve one public surface to enabled, discoverable read-model entries."""
@@ -514,7 +514,7 @@ def resolve_surface_read_model(
     surface: ReadSurface,
     *,
     name: str,
-    policies: Mapping[str, ReadModelConfig],
+    policies: Mapping[str, ReadModelPolicy],
     available_catalog_names: set[str],
 ) -> ReadModelEntry | None:
     """Resolve one public read-model name to an enabled, discoverable entry."""
@@ -528,7 +528,7 @@ def resolve_surface_read_model(
 def resolve_surface_read_model_names(
     surface: ReadSurface,
     *,
-    policies: Mapping[str, ReadModelConfig],
+    policies: Mapping[str, ReadModelPolicy],
     available_catalog_names: set[str],
 ) -> list[str]:
     """Resolve one public surface to the ordered list of enabled read-model IDs."""

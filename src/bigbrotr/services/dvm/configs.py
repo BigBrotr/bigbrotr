@@ -20,7 +20,7 @@ from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
 from bigbrotr.services.common.configs import (
     NostrKeysConfig,
-    ReadModelConfig,
+    ReadModelPolicy,
     parse_relay_list,
 )
 from bigbrotr.services.common.read_models import normalize_read_model_policies
@@ -94,7 +94,7 @@ class DvmConfig(BaseServiceConfig):
         le=10000,
         description="Hard ceiling on query limit",
     )
-    read_models: dict[str, ReadModelConfig] = Field(
+    read_models: dict[str, ReadModelPolicy] = Field(
         default_factory=dict,
         description="Per-read-model access and pricing policies",
     )

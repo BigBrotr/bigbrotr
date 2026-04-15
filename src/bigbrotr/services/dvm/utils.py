@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from bigbrotr.services.common.catalog import QueryResult
-    from bigbrotr.services.common.configs import ReadModelConfig
+    from bigbrotr.services.common.configs import ReadModelPolicy
 
 # Minimum tag lengths for NIP-90 tag parsing
 _MIN_PARAM_TAG_LEN = 3
@@ -79,7 +79,7 @@ class RejectedJobRequest:
 class JobPreparationContext:
     """Pure inputs needed to validate one job request."""
 
-    policies: Mapping[str, ReadModelConfig]
+    policies: Mapping[str, ReadModelPolicy]
     available_catalog_names: set[str]
     default_page_size: int
     max_page_size: int
@@ -112,7 +112,7 @@ def parse_job_params(event: Any) -> dict[str, Any]:
 def configured_read_model_price(
     name: str,
     *,
-    policies: Mapping[str, ReadModelConfig],
+    policies: Mapping[str, ReadModelPolicy],
 ) -> int:
     """Return the configured millisat price for one canonical read model."""
     policy = policies.get(name)
