@@ -59,7 +59,7 @@ from bigbrotr.services.common.read_models import (
 )
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import DvmRequestCursor
-from bigbrotr.utils.protocol import NostrClientManager
+from bigbrotr.utils.protocol import NostrClientManager, normalize_send_output
 
 from .configs import DvmConfig
 from .utils import (
@@ -553,8 +553,7 @@ class Dvm(BaseService[DvmConfig]):
         )
         urls = [RelayUrl.parse(url) for url in connected_relays]
         output = await self._client.subscribe_to(urls, filter_)
-        successful_relays = tuple(str(relay_url) for relay_url in output.success)
-        failed_relays = {str(relay_url): str(error) for relay_url, error in output.failed.items()}
+        successful_relays, failed_relays = normalize_send_output(output)
 
         for relay_url, error in failed_relays.items():
             self._logger.warning(
@@ -637,8 +636,7 @@ class Dvm(BaseService[DvmConfig]):
             return (), {}
 
         output = await self._client.send_event_builder(builder)
-        successful_relays = tuple(str(relay_url) for relay_url in output.success)
-        failed_relays = {str(relay_url): str(error) for relay_url, error in output.failed.items()}
+        successful_relays, failed_relays = normalize_send_output(output)
 
         if require_success and not successful_relays:
             raise OSError("event was not accepted by any relay")

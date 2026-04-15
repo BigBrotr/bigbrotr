@@ -23,6 +23,7 @@ from bigbrotr.utils.protocol import (
     _is_ssl_error,
     create_client,
     create_connected_client,
+    normalize_send_output,
     summarize_broadcast_results,
 )
 
@@ -767,6 +768,18 @@ class TestSummarizeBroadcastResults:
             "wss://relay.c": "timeout",
             "wss://relay.d": "rejected",
         }
+
+
+class TestNormalizeSendOutput:
+    def test_normalizes_success_and_failure_relays(self) -> None:
+        output = MagicMock()
+        output.success = ["wss://relay.a", "wss://relay.b"]
+        output.failed = {"wss://relay.c": RuntimeError("boom")}
+
+        successful_relays, failed_relays = normalize_send_output(output)
+
+        assert successful_relays == ("wss://relay.a", "wss://relay.b")
+        assert failed_relays == {"wss://relay.c": "boom"}
 
 
 # =============================================================================

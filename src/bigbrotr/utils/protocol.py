@@ -614,6 +614,15 @@ def summarize_broadcast_results(
     return successful_relays, failed_relays
 
 
+def normalize_send_output(output: object) -> tuple[tuple[str, ...], dict[str, str]]:
+    """Normalize one nostr-sdk send/subscribe output into relay-level outcomes."""
+    successful_relays = tuple(str(relay_url) for relay_url in getattr(output, "success", ()))
+    failed_relays = {
+        str(relay_url): str(error) for relay_url, error in getattr(output, "failed", {}).items()
+    }
+    return successful_relays, failed_relays
+
+
 async def is_nostr_relay(
     relay: Relay,
     proxy_url: str | None = None,
