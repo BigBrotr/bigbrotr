@@ -661,6 +661,14 @@ class TestDvmLifecycle:
         result = await dvm_service.cleanup()
         assert result == 0
 
+    def test_get_state_store_reuses_instance(self, dvm_service: Dvm) -> None:
+        with patch("bigbrotr.services.dvm.service.ServiceStateStore") as mock_store_cls:
+            first = dvm_service._get_state_store()
+            second = dvm_service._get_state_store()
+
+        assert first is second
+        mock_store_cls.assert_called_once_with(dvm_service._brotr)
+
 
 # ============================================================================
 # Run

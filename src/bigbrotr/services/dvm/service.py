@@ -170,6 +170,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         self._notification_task: asyncio.Task[None] | None = None
         self._request_events: asyncio.Queue[Any] | None = None
         self._request_subscription_id: str | None = None
+        self._state_store: ServiceStateStore | None = None
         self._keys: Keys = self._config.keys.keys
         self._last_fetch_ts: int = 0
         self._last_fetch_id: str = _REQUEST_CURSOR_DEFAULT_ID
@@ -243,6 +244,14 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
             )
             self._client_manager = manager
         return manager
+
+    def _get_state_store(self) -> ServiceStateStore:
+        """Return the lazy-initialized state store for DVM request cursors."""
+        store = getattr(self, "_state_store", None)
+        if store is None:
+            store = ServiceStateStore(self._brotr)
+            self._state_store = store
+        return store
 
     def _ensure_request_subscription_healthy(self) -> None:
         """Raise if the background notification loop has stopped unexpectedly."""
@@ -493,7 +502,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
     async def _restore_request_cursor(self) -> tuple[int, str]:
         """Load the persisted request cursor or initialize it from wall clock."""
         cursor = (
-            await ServiceStateStore(self._brotr).fetch_cursors(
+            await self._get_state_store().fetch_cursors(
                 ServiceName.DVM,
                 [_REQUEST_CURSOR_KEY],
                 DvmRequestCursor,
@@ -520,7 +529,7 @@ class Dvm(CatalogAccessMixin, BaseService[DvmConfig]):
         """Persist the current request cursor after a successful cycle."""
         self._last_fetch_ts = timestamp
         self._last_fetch_id = event_id
-        await ServiceStateStore(self._brotr).upsert_cursors(
+        await self._get_state_store().upsert_cursors(
             ServiceName.DVM,
             [
                 DvmRequestCursor(
