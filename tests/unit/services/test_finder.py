@@ -946,6 +946,39 @@ class TestFinderFindFromApi:
             "https://api3.example.com",
         ]
 
+    def test_build_api_source_attempts_filters_sources_within_cooldown(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                cooldown=3600.0,
+                sources=[
+                    ApiSourceConfig(url="https://api1.example.com", expression="[*]"),
+                    ApiSourceConfig(url="https://api2.example.com", expression="[*]"),
+                ],
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+
+        attempts = finder._build_api_source_attempts(
+            list(config.api.sources),
+            checkpoint_map={
+                "https://api1.example.com": ApiCheckpoint(
+                    key="https://api1.example.com", timestamp=900
+                ),
+                "https://api2.example.com": ApiCheckpoint(
+                    key="https://api2.example.com", timestamp=9_900
+                ),
+            },
+            now=10_000,
+        )
+
+        assert len(attempts) == 1
+        assert attempts[0].source.url == "https://api1.example.com"
+        assert attempts[0].last_checked == 900
+
     async def test_all_sources_disabled(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(
             api=ApiConfig(

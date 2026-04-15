@@ -146,6 +146,13 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
             """Number of enabled API sources in this cycle."""
             return len(self.sources)
 
+    @dataclass(frozen=True, slots=True)
+    class ApiSourceAttempt:
+        """One API source that is eligible to be fetched in the current cycle."""
+
+        source: ApiSourceConfig
+        last_checked: int
+
     async def find(self) -> int:
         """Discover relay URLs from all configured sources.
 
@@ -236,21 +243,13 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         checkpoints = await fetch_api_checkpoints(self._brotr, source_urls)
         checkpoint_map = {cp.key: cp for cp in checkpoints}
         now = int(time.time())
+        attempts = self._build_api_source_attempts(sources, checkpoint_map, now)
 
         async with aiohttp.ClientSession() as session:
-            for i, source in enumerate(sources):
+            for i, attempt in enumerate(attempts):
+                source = attempt.source
                 if not self.is_running:
                     return
-
-                cooldown = self._config.api.cooldown
-                last_checked = checkpoint_map[source.url].timestamp
-                if now - last_checked < cooldown:
-                    self._logger.debug(
-                        "api_skipped",
-                        url=source.url,
-                        seconds_left=cooldown - (now - last_checked),
-                    )
-                    continue
 
                 try:
                     relays = await fetch_api(session, source, self._config.api.max_response_size)
@@ -266,10 +265,31 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
 
                 if (
                     self._config.api.request_delay > 0
-                    and i < len(sources) - 1
+                    and i < len(attempts) - 1
                     and await self.wait(self._config.api.request_delay)
                 ):
                     return
+
+    def _build_api_source_attempts(
+        self,
+        sources: list[ApiSourceConfig],
+        checkpoint_map: dict[str, ApiCheckpoint],
+        now: int,
+    ) -> tuple[ApiSourceAttempt, ...]:
+        """Return the enabled API sources whose cooldown has elapsed for this cycle."""
+        cooldown = int(self._config.api.cooldown)
+        attempts: list[Finder.ApiSourceAttempt] = []
+        for source in sources:
+            last_checked = checkpoint_map[source.url].timestamp
+            if now - last_checked < cooldown:
+                self._logger.debug(
+                    "api_skipped",
+                    url=source.url,
+                    seconds_left=cooldown - (now - last_checked),
+                )
+                continue
+            attempts.append(self.ApiSourceAttempt(source=source, last_checked=last_checked))
+        return tuple(attempts)
 
     # ── Event discovery ────────────────────────────────────────────
 
