@@ -145,6 +145,7 @@ class Assertor(BaseService[AssertorConfig]):
         self._config: AssertorConfig
         self._client: Client | None = None
         self._client_manager: NostrClientManager | None = None
+        self._state_store: ServiceStateStore | None = None
         self._keys: Keys = self._config.keys.keys
         self._cycle_seen_state_keys: set[str] = set()
 
@@ -209,6 +210,14 @@ class Assertor(BaseService[AssertorConfig]):
             )
             self._client_manager = manager
         return manager
+
+    def _get_state_store(self) -> ServiceStateStore:
+        """Return the lazy-initialized service state store for assertor checkpoints."""
+        store = getattr(self, "_state_store", None)
+        if store is None:
+            store = ServiceStateStore(self._brotr)
+            self._state_store = store
+        return store
 
     async def run(self) -> None:
         """Execute one assertion cycle."""
@@ -497,7 +506,7 @@ class Assertor(BaseService[AssertorConfig]):
 
     async def _delete_stale_checkpoints(self) -> int:
         """Delete non-canonical or current-algorithm checkpoints that are no longer eligible."""
-        store = ServiceStateStore(self._brotr)
+        store = self._get_state_store()
         states = await store.get(ServiceName.ASSERTOR, ServiceStateType.CHECKPOINT)
         configured_kinds = {int(kind) for kind in self._config.selection.kinds}
         if self._provider_profile_enabled():
@@ -529,12 +538,12 @@ class Assertor(BaseService[AssertorConfig]):
 
     async def _is_unchanged(self, subject: str, current_hash: str) -> bool:
         """Check if the assertion/profile for this subject has the same hash as last published."""
-        saved_hash = await ServiceStateStore(self._brotr).fetch_hash(ServiceName.ASSERTOR, subject)
+        saved_hash = await self._get_state_store().fetch_hash(ServiceName.ASSERTOR, subject)
         return saved_hash == current_hash
 
     async def _save_hash(self, subject: str, hash_value: str) -> None:
         """Persist the published object hash for change detection."""
-        await ServiceStateStore(self._brotr).upsert_hash(
+        await self._get_state_store().upsert_hash(
             ServiceName.ASSERTOR,
             subject,
             hash_value,

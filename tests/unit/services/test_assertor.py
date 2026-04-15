@@ -365,6 +365,14 @@ class TestAssertorRun:
         assert enabled_duration >= 0.0
         enabled_service._delete_stale_checkpoints.assert_awaited_once_with()
 
+    def test_get_state_store_reuses_instance(self, mock_brotr: MagicMock) -> None:
+        service = _assertor_harness(mock_brotr)
+
+        first_store = service._get_state_store()
+        second_store = service._get_state_store()
+
+        assert first_store is second_store
+
     def test_mark_seen_state_key_initializes_missing_set(self, mock_brotr: MagicMock) -> None:
         service = _assertor_harness(mock_brotr)
         del service._cycle_seen_state_keys
