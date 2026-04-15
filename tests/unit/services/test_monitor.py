@@ -148,6 +148,8 @@ class _MonitorStub:
     _monitor_chunk = Monitor._monitor_chunk
     _persist_chunk_outcome = Monitor._persist_chunk_outcome
     _log_chunk_outcome = Monitor._log_chunk_outcome
+    _open_cycle_resources = Monitor._open_cycle_resources
+    _close_cycle_resources = Monitor._close_cycle_resources
     _run_cycle_operations = Monitor._run_cycle_operations
     publish_announcement = Monitor.publish_announcement
     publish_profile = Monitor.publish_profile
@@ -1620,26 +1622,76 @@ class TestMonitorRun:
 
         assert calls == ["profile", "relay_list", "announcement", "monitor"]
 
-    async def test_run_uses_cycle_operations_helper(self, mock_brotr: Brotr) -> None:
+    async def test_open_cycle_resources_uses_enabled_geo_readers(
+        self,
+        mock_brotr: Brotr,
+        tmp_path: Path,
+    ) -> None:
+        config = _make_config(
+            processing=ProcessingConfig(
+                compute=MetadataFlags(nip66_geo=True, nip66_net=True),
+                store=MetadataFlags(nip66_geo=True, nip66_net=True),
+            ),
+            geo=GeoConfig(
+                city_database_path=str(tmp_path / "city.mmdb"),
+                asn_database_path=str(tmp_path / "asn.mmdb"),
+                city_download_url="https://example.com/city.mmdb",
+                asn_download_url="https://example.com/asn.mmdb",
+            ),
+        )
+        monitor = Monitor(brotr=mock_brotr, config=config)
+
+        with (
+            patch.object(monitor, "update_geo_databases", new_callable=AsyncMock) as mock_update,
+            patch.object(type(monitor.geo_readers), "open", new_callable=AsyncMock) as mock_open,
+        ):
+            await monitor._open_cycle_resources()
+
+        mock_update.assert_awaited_once()
+        mock_open.assert_awaited_once_with(
+            city_path=str(tmp_path / "city.mmdb"),
+            asn_path=str(tmp_path / "asn.mmdb"),
+        )
+
+    async def test_close_cycle_resources_disconnects_clients_and_closes_readers(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
         monitor = Monitor(brotr=mock_brotr, config=_make_config())
         monitor.clients = MagicMock()
         monitor.clients.disconnect = AsyncMock()
 
+        with patch.object(type(monitor.geo_readers), "close") as mock_close:
+            await monitor._close_cycle_resources()
+
+        monitor.clients.disconnect.assert_awaited_once()
+        mock_close.assert_called_once()
+
+    async def test_run_uses_cycle_operations_helper(self, mock_brotr: Brotr) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+
         with (
-            patch.object(type(monitor.geo_readers), "open", new_callable=AsyncMock) as mock_open,
-            patch.object(type(monitor.geo_readers), "close") as mock_close,
+            patch.object(
+                monitor,
+                "_open_cycle_resources",
+                new_callable=AsyncMock,
+            ) as mock_open,
             patch.object(
                 monitor,
                 "_run_cycle_operations",
                 new_callable=AsyncMock,
             ) as mock_cycle,
+            patch.object(
+                monitor,
+                "_close_cycle_resources",
+                new_callable=AsyncMock,
+            ) as mock_close,
         ):
             await monitor.run()
 
-        mock_open.assert_awaited_once_with(city_path=None, asn_path=None)
+        mock_open.assert_awaited_once()
         mock_cycle.assert_awaited_once()
-        monitor.clients.disconnect.assert_awaited_once()
-        mock_close.assert_called_once()
+        mock_close.assert_awaited_once()
 
     async def test_monitor_no_networks_enabled_returns_zero(self, mock_brotr: Brotr) -> None:
         no_clearnet = MetadataFlags(

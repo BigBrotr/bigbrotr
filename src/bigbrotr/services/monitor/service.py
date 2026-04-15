@@ -206,19 +206,12 @@ class Monitor(
         via ``clients.get()`` and torn down in the ``finally``
         block.
         """
-        await self.update_geo_databases()
-
-        compute = self._config.processing.compute
-        await self.geo_readers.open(
-            city_path=self._config.geo.city_database_path if compute.nip66_geo else None,
-            asn_path=self._config.geo.asn_database_path if compute.nip66_net else None,
-        )
+        await self._open_cycle_resources()
 
         try:
             await self._run_cycle_operations()
         finally:
-            await self.clients.disconnect()
-            self.geo_readers.close()
+            await self._close_cycle_resources()
 
     async def cleanup(self) -> int:
         """Remove stale relay checkpoints and orphaned publishing state."""
@@ -243,6 +236,21 @@ class Monitor(
             logger=self._logger,
             download=download_bounded_file,
         )
+
+    async def _open_cycle_resources(self) -> None:
+        """Prepare shared resources needed for one monitor cycle."""
+        await self.update_geo_databases()
+
+        compute = self._config.processing.compute
+        await self.geo_readers.open(
+            city_path=self._config.geo.city_database_path if compute.nip66_geo else None,
+            asn_path=self._config.geo.asn_database_path if compute.nip66_net else None,
+        )
+
+    async def _close_cycle_resources(self) -> None:
+        """Release shared resources owned by one monitor cycle."""
+        await self.clients.disconnect()
+        self.geo_readers.close()
 
     async def publish_profile(self) -> None:
         """Publish Kind 0 profile metadata if the configured interval has elapsed."""
