@@ -39,7 +39,7 @@ _StoreResult = TypeVar("_StoreResult")
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
     from types import TracebackType
 
     import asyncpg
@@ -147,6 +147,18 @@ class _ComputeExportResult:
     rank_counts: RankRowCounts = field(default_factory=RankRowCounts)
     phase_durations: RankPhaseDurations = field(default_factory=RankPhaseDurations)
     cutoff_reason: str | None = None
+
+
+_StageFactRow = TypeVar("_StageFactRow", EventStatFact, AddressableStatFact, IdentifierStatFact)
+
+
+@dataclass(frozen=True, slots=True)
+class _FactStageSpec:
+    """Internal specification for staging one fact stream."""
+
+    max_rows: int | None
+    budget_cutoff_reason: str
+    cursor_attr: str
 
 
 class Ranker(BaseService[RankerConfig]):
@@ -589,92 +601,74 @@ class Ranker(BaseService[RankerConfig]):
 
     async def _stage_event_stats(self, cycle_start: float) -> tuple[int, str | None]:
         """Stage event facts from PostgreSQL into DuckDB with a row budget."""
-        rows_staged = 0
-        after_event_id = ""
-        while True:
-            if cutoff_reason := self._cycle_cutoff_reason(cycle_start):
-                return rows_staged, cutoff_reason
-            limit = self._next_limited_batch_size(
-                self._config.facts_stage.batch_size,
-                rows_staged,
-                self._config.facts_stage.max_event_rows,
-            )
-            if limit == 0:
-                probe_rows = await fetch_event_stats(self._brotr, after_event_id, 1)
-                return rows_staged, "facts_stage_event_rows" if probe_rows else None
-            event_rows: list[EventStatFact] = await fetch_event_stats(
-                self._brotr, after_event_id, limit
-            )
-            if not event_rows:
-                return rows_staged, None
-
-            await self._run_store(self._store.append_event_stats_stage_batch, event_rows)
-            rows_staged += len(event_rows)
-            after_event_id = event_rows[-1].event_id
-
-            if len(event_rows) < limit:
-                return rows_staged, None
+        return await self._stage_fact_rows(
+            cycle_start=cycle_start,
+            spec=_FactStageSpec(
+                max_rows=self._config.facts_stage.max_event_rows,
+                budget_cutoff_reason="facts_stage_event_rows",
+                cursor_attr="event_id",
+            ),
+            fetch_rows=fetch_event_stats,
+            append_stage_batch=self._store.append_event_stats_stage_batch,
+        )
 
     async def _stage_addressable_stats(self, cycle_start: float) -> tuple[int, str | None]:
         """Stage addressable facts from PostgreSQL into DuckDB with a row budget."""
-        rows_staged = 0
-        after_event_address = ""
-        while True:
-            if cutoff_reason := self._cycle_cutoff_reason(cycle_start):
-                return rows_staged, cutoff_reason
-            limit = self._next_limited_batch_size(
-                self._config.facts_stage.batch_size,
-                rows_staged,
-                self._config.facts_stage.max_addressable_rows,
-            )
-            if limit == 0:
-                probe_rows = await fetch_addressable_stats(self._brotr, after_event_address, 1)
-                return rows_staged, "facts_stage_addressable_rows" if probe_rows else None
-            addressable_rows: list[AddressableStatFact] = await fetch_addressable_stats(
-                self._brotr, after_event_address, limit
-            )
-            if not addressable_rows:
-                return rows_staged, None
-
-            await self._run_store(
-                self._store.append_addressable_stats_stage_batch,
-                addressable_rows,
-            )
-            rows_staged += len(addressable_rows)
-            after_event_address = addressable_rows[-1].event_address
-
-            if len(addressable_rows) < limit:
-                return rows_staged, None
+        return await self._stage_fact_rows(
+            cycle_start=cycle_start,
+            spec=_FactStageSpec(
+                max_rows=self._config.facts_stage.max_addressable_rows,
+                budget_cutoff_reason="facts_stage_addressable_rows",
+                cursor_attr="event_address",
+            ),
+            fetch_rows=fetch_addressable_stats,
+            append_stage_batch=self._store.append_addressable_stats_stage_batch,
+        )
 
     async def _stage_identifier_stats(self, cycle_start: float) -> tuple[int, str | None]:
         """Stage identifier facts from PostgreSQL into DuckDB with a row budget."""
+        return await self._stage_fact_rows(
+            cycle_start=cycle_start,
+            spec=_FactStageSpec(
+                max_rows=self._config.facts_stage.max_identifier_rows,
+                budget_cutoff_reason="facts_stage_identifier_rows",
+                cursor_attr="identifier",
+            ),
+            fetch_rows=fetch_identifier_stats,
+            append_stage_batch=self._store.append_identifier_stats_stage_batch,
+        )
+
+    async def _stage_fact_rows(
+        self,
+        *,
+        cycle_start: float,
+        spec: _FactStageSpec,
+        fetch_rows: Callable[[Brotr, str, int], Awaitable[list[_StageFactRow]]],
+        append_stage_batch: Callable[[list[_StageFactRow]], None],
+    ) -> tuple[int, str | None]:
+        """Stage one non-user fact stream from PostgreSQL into DuckDB."""
         rows_staged = 0
-        after_identifier = ""
+        after_cursor = ""
         while True:
             if cutoff_reason := self._cycle_cutoff_reason(cycle_start):
                 return rows_staged, cutoff_reason
             limit = self._next_limited_batch_size(
                 self._config.facts_stage.batch_size,
                 rows_staged,
-                self._config.facts_stage.max_identifier_rows,
+                spec.max_rows,
             )
             if limit == 0:
-                probe_rows = await fetch_identifier_stats(self._brotr, after_identifier, 1)
-                return rows_staged, "facts_stage_identifier_rows" if probe_rows else None
-            identifier_rows: list[IdentifierStatFact] = await fetch_identifier_stats(
-                self._brotr, after_identifier, limit
-            )
-            if not identifier_rows:
+                probe_rows = await fetch_rows(self._brotr, after_cursor, 1)
+                return rows_staged, spec.budget_cutoff_reason if probe_rows else None
+            rows = await fetch_rows(self._brotr, after_cursor, limit)
+            if not rows:
                 return rows_staged, None
 
-            await self._run_store(
-                self._store.append_identifier_stats_stage_batch,
-                identifier_rows,
-            )
-            rows_staged += len(identifier_rows)
-            after_identifier = identifier_rows[-1].identifier
+            await self._run_store(append_stage_batch, rows)
+            rows_staged += len(rows)
+            after_cursor = str(getattr(rows[-1], spec.cursor_attr))
 
-            if len(identifier_rows) < limit:
+            if len(rows) < limit:
                 return rows_staged, None
 
     async def _export_rank_snapshots(
