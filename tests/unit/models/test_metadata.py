@@ -205,28 +205,28 @@ class TestImmutability:
 
 
 class TestSanitize:
-    """JSON sanitization via _sanitize and __post_init__."""
+    """Strict validation plus normalization in __post_init__."""
 
-    def test_non_string_keys_skipped(self):
-        m = Metadata(type=MetadataType.NIP11_INFO, data={"key": "value"})
-        params = m.to_db_params()
-        parsed = json.loads(params.data)
-        assert parsed == {"key": "value"}
+    def test_non_string_keys_rejected(self):
+        with pytest.raises(TypeError, match="data keys must be str, got int"):
+            Metadata(type=MetadataType.NIP11_INFO, data={1: "value", "key": "value"})
 
-    def test_non_serializable_filtered_out(self):
+    def test_non_serializable_value_rejected(self):
         class Custom:
             pass
 
-        m = Metadata(type=MetadataType.NIP11_INFO, data={"valid": "ok", "invalid": Custom()})
-        params = m.to_db_params()
-        parsed = json.loads(params.data)
-        assert parsed == {"valid": "ok"}
+        with pytest.raises(TypeError, match="data contains unsupported type Custom"):
+            Metadata(type=MetadataType.NIP11_INFO, data={"valid": "ok", "invalid": Custom()})
+
+    def test_non_finite_float_rejected(self):
+        with pytest.raises(ValueError, match="data contains a non-finite float"):
+            Metadata(type=MetadataType.NIP11_INFO, data={"value": float("inf")})
 
     def test_null_bytes_rejected(self):
         with pytest.raises(ValueError, match="null bytes"):
             Metadata(type=MetadataType.NIP11_INFO, data={"text": "hello\x00world"})
 
-    def test_deeply_nested_sanitization(self):
+    def test_deeply_nested_normalization(self):
         m = Metadata(type=MetadataType.NIP11_INFO, data={"l1": {"l2": {"l3": {"l4": "value"}}}})
         assert m.data["l1"]["l2"]["l3"]["l4"] == "value"
 

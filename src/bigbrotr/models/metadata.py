@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 from ._validation import (
     deep_freeze,
-    sanitize_data,
+    normalize_json_data,
     validate_mapping,
     validate_str_not_empty,
 )
@@ -101,10 +101,11 @@ class MetadataDbParams(NamedTuple):
 class Metadata:
     """Immutable metadata with deterministic content hashing.
 
-    On construction, the ``data`` dict is sanitized (null values and
-    empty containers removed, keys sorted) and a canonical JSON string
-    is produced. The SHA-256 hash of that string serves as a
-    content-addressed identifier for deduplication.
+    On construction, the ``data`` dict is validated for strict JSON
+    compatibility, normalized (null values and empty containers removed,
+    keys sorted), and a canonical JSON string is produced. The SHA-256
+    hash of that string serves as a content-addressed identifier for
+    deduplication.
 
     The hash is derived from ``data`` only -- ``type`` is not included in
     the hash computation but is part of the composite primary key
@@ -114,7 +115,7 @@ class Metadata:
         type: The metadata classification. Built-in callers use the
             [MetadataType][bigbrotr.models.metadata.MetadataType] catalog, but
             arbitrary non-empty string IDs are accepted for extensibility.
-        data: Sanitized JSON-compatible dictionary.
+        data: Normalized JSON-compatible dictionary.
 
     Examples:
         ```python
@@ -145,8 +146,8 @@ class Metadata:
 
     Warning:
         String data containing null bytes (``\\x00``) will raise ``ValueError``
-        during sanitization. PostgreSQL TEXT and JSONB columns do not support null
-        bytes.
+        during validation. PostgreSQL TEXT and JSONB columns do not support null
+        bytes, and unsupported JSON values are rejected before hashing.
 
     See Also:
         [MetadataType][bigbrotr.models.metadata.MetadataType]: Enum of supported
@@ -172,13 +173,13 @@ class Metadata:
     )
 
     def __post_init__(self) -> None:
-        """Sanitize the data dict and compute the canonical JSON and hash."""
+        """Validate, normalize, and hash the data dictionary."""
         object.__setattr__(self, "type", _normalize_metadata_type(self.type))
         validate_mapping(self.data, "data")
-        sanitized = sanitize_data(self.data, "data")
+        normalized = normalize_json_data(self.data, "data")
 
         canonical = json.dumps(
-            sanitized,
+            normalized,
             sort_keys=True,
             ensure_ascii=False,
             separators=(",", ":"),
@@ -188,7 +189,7 @@ class Metadata:
         content_hash = hashlib.sha256(canonical.encode("utf-8")).digest()
         object.__setattr__(self, "_content_hash", content_hash)
 
-        object.__setattr__(self, "data", deep_freeze(sanitized))
+        object.__setattr__(self, "data", deep_freeze(normalized))
         object.__setattr__(self, "_db_params", self._compute_db_params())
 
     @property
@@ -215,7 +216,7 @@ class Metadata:
         Format: sorted keys, compact separators, UTF-8 encoding.
 
         Returns:
-            Deterministic JSON string of the sanitized value.
+            Deterministic JSON string of the normalized value.
         """
         return self._canonical_json
 

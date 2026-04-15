@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 from ._validation import (
     deep_freeze,
-    sanitize_data,
+    normalize_json_data,
     validate_mapping,
     validate_str_not_empty,
 )
@@ -102,8 +102,8 @@ class ServiceState:
             catalog, but arbitrary non-empty string IDs are accepted.
         state_key: Application-defined key within the service and type
             (e.g., a relay URL for cursor state).
-        state_value: Arbitrary JSON-compatible dictionary with service-specific
-            data.  Each state type stores its own business timestamp inside
+        state_value: Arbitrary normalized JSON-compatible dictionary with
+            service-specific data. Each state type stores its own business timestamp inside
             this dict (e.g. ``{"timestamp": 1700000000}`` for checkpoints).
 
     Examples:
@@ -152,9 +152,9 @@ class ServiceState:
         validate_str_not_empty(self.state_key, "state_key")
         validate_mapping(self.state_value, "state_value")
 
-        sanitized = sanitize_data(self.state_value, "state_value")
-        object.__setattr__(self, "_json_value", json.dumps(sanitized))
-        object.__setattr__(self, "state_value", deep_freeze(sanitized))
+        normalized = normalize_json_data(self.state_value, "state_value")
+        object.__setattr__(self, "_json_value", json.dumps(normalized))
+        object.__setattr__(self, "state_value", deep_freeze(normalized))
         object.__setattr__(self, "_db_params", self._compute_db_params())
 
     def _compute_db_params(self) -> ServiceStateDbParams:

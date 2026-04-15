@@ -9,8 +9,9 @@ import pytest
 from bigbrotr.models._validation import (
     _is_empty,
     deep_freeze,
-    sanitize_data,
+    normalize_json_data,
     validate_instance,
+    validate_json_data,
     validate_mapping,
     validate_str_no_null,
     validate_str_not_empty,
@@ -170,154 +171,169 @@ class TestIsEmpty:
         assert _is_empty("hello") is False
 
 
-class TestSanitizeData:
-    """sanitize_data: recursive normalization with null byte and type safety."""
+class TestValidateJsonData:
+    """validate_json_data: strict JSON compatibility with no lossy fallback."""
 
-    # --- Primitives ---
+    def test_string_accepted(self) -> None:
+        validate_json_data("hello", "d")
 
-    def test_preserves_string(self) -> None:
-        assert sanitize_data("hello", "d") == "hello"
+    def test_int_accepted(self) -> None:
+        validate_json_data(42, "d")
 
-    def test_preserves_int(self) -> None:
-        assert sanitize_data(42, "d") == 42
+    def test_bool_accepted(self) -> None:
+        validate_json_data(True, "d")
 
-    def test_preserves_bool(self) -> None:
-        assert sanitize_data(True, "d") is True
+    def test_false_accepted(self) -> None:
+        validate_json_data(False, "d")
 
-    def test_preserves_false(self) -> None:
-        assert sanitize_data(False, "d") is False
+    def test_finite_float_accepted(self) -> None:
+        validate_json_data(3.14, "d")
 
-    def test_preserves_finite_float(self) -> None:
-        assert sanitize_data(3.14, "d") == 3.14
+    def test_infinite_float_rejected(self) -> None:
+        with pytest.raises(ValueError, match="d contains a non-finite float"):
+            validate_json_data(float("inf"), "d")
 
-    def test_infinite_float_becomes_none(self) -> None:
-        assert sanitize_data(float("inf"), "d") is None
+    def test_negative_infinite_float_rejected(self) -> None:
+        with pytest.raises(ValueError, match="d contains a non-finite float"):
+            validate_json_data(float("-inf"), "d")
 
-    def test_negative_infinite_float_becomes_none(self) -> None:
-        assert sanitize_data(float("-inf"), "d") is None
+    def test_nan_rejected(self) -> None:
+        with pytest.raises(ValueError, match="d contains a non-finite float"):
+            validate_json_data(float("nan"), "d")
 
-    def test_nan_becomes_none(self) -> None:
-        assert sanitize_data(float("nan"), "d") is None
-
-    def test_none_preserved(self) -> None:
-        assert sanitize_data(None, "d") is None
-
-    # --- Null bytes ---
+    def test_none_accepted(self) -> None:
+        validate_json_data(None, "d")
 
     def test_null_byte_in_string_rejected(self) -> None:
         with pytest.raises(ValueError, match="data contains null bytes"):
-            sanitize_data("hello\x00", "data")
+            validate_json_data("hello\x00", "data")
 
     def test_null_byte_in_dict_value_rejected(self) -> None:
         with pytest.raises(ValueError, match="data contains null bytes"):
-            sanitize_data({"key": "val\x00ue"}, "data")
+            validate_json_data({"key": "val\x00ue"}, "data")
 
     def test_null_byte_in_dict_key_rejected(self) -> None:
         with pytest.raises(ValueError, match="data key contains null bytes"):
-            sanitize_data({"ke\x00y": "value"}, "data")
+            validate_json_data({"ke\x00y": "value"}, "data")
 
     def test_null_byte_in_nested_dict_rejected(self) -> None:
         with pytest.raises(ValueError, match="data contains null bytes"):
-            sanitize_data({"outer": {"inner": "val\x00"}}, "data")
+            validate_json_data({"outer": {"inner": "val\x00"}}, "data")
 
     def test_null_byte_in_list_rejected(self) -> None:
         with pytest.raises(ValueError, match="data contains null bytes"):
-            sanitize_data(["ok", "bad\x00"], "data")
+            validate_json_data(["ok", "bad\x00"], "data")
 
     def test_null_byte_in_nested_list_rejected(self) -> None:
         with pytest.raises(ValueError, match="data contains null bytes"):
-            sanitize_data({"key": ["ok", "bad\x00"]}, "data")
+            validate_json_data({"key": ["ok", "bad\x00"]}, "data")
 
-    # --- Dict normalization ---
+    def test_non_string_keys_rejected(self) -> None:
+        with pytest.raises(TypeError, match="d keys must be str, got int"):
+            validate_json_data({1: "int_key", "ok": "str_key"}, "d")
 
-    def test_sorts_keys(self) -> None:
-        result = sanitize_data({"b": 2, "a": 1}, "d")
-        assert list(result.keys()) == ["a", "b"]
-
-    def test_removes_none_values(self) -> None:
-        result = sanitize_data({"a": 1, "b": None}, "d")
-        assert result == {"a": 1}
-
-    def test_removes_empty_dict(self) -> None:
-        result = sanitize_data({"a": 1, "b": {}}, "d")
-        assert result == {"a": 1}
-
-    def test_removes_empty_list(self) -> None:
-        result = sanitize_data({"a": 1, "b": []}, "d")
-        assert result == {"a": 1}
-
-    def test_non_string_keys_skipped(self) -> None:
-        result = sanitize_data({1: "int_key", "ok": "str_key"}, "d")
-        assert result == {"ok": "str_key"}
-
-    def test_non_serializable_filtered_out(self) -> None:
+    def test_non_serializable_value_rejected(self) -> None:
         class Custom:
             pass
 
-        result = sanitize_data({"valid": "ok", "invalid": Custom()}, "d")
-        assert result == {"valid": "ok"}
-
-    def test_empty_dict_returns_empty(self) -> None:
-        assert sanitize_data({}, "d") == {}
-
-    # --- List normalization ---
-
-    def test_list_cleaned(self) -> None:
-        result = sanitize_data([1, None, "hello", {}], "d")
-        assert result == [1, "hello"]
-
-    def test_empty_list_returns_empty(self) -> None:
-        assert sanitize_data([], "d") == []
-
-    # --- Tuple rejection ---
+        with pytest.raises(TypeError, match="d contains unsupported type Custom"):
+            validate_json_data({"valid": "ok", "invalid": Custom()}, "d")
 
     def test_tuple_raises_type_error(self) -> None:
         with pytest.raises(TypeError, match="contains a tuple"):
-            sanitize_data((1, 2, 3), "data")
+            validate_json_data((1, 2, 3), "data")
 
     def test_tuple_in_dict_raises_type_error(self) -> None:
         with pytest.raises(TypeError, match="contains a tuple"):
-            sanitize_data({"key": (1, 2)}, "data")
+            validate_json_data({"key": (1, 2)}, "data")
 
-    # --- Nested structures ---
+    def test_exceeds_max_depth_rejected(self) -> None:
+        with pytest.raises(ValueError, match="d exceeds max depth of 1"):
+            validate_json_data({"a": {"nested": "deep"}}, "d", max_depth=1)
 
-    def test_deeply_nested(self) -> None:
-        result = sanitize_data({"l1": {"l2": {"l3": "value"}}}, "d")
-        assert result == {"l1": {"l2": {"l3": "value"}}}
+    def test_within_max_depth_accepted(self) -> None:
+        validate_json_data({"a": {"nested": "deep"}}, "d", max_depth=2)
 
-    def test_list_inside_dict(self) -> None:
-        result = sanitize_data({"items": [1, 2, 3]}, "d")
-        assert result == {"items": [1, 2, 3]}
-
-    def test_dict_inside_list(self) -> None:
-        result = sanitize_data([{"a": 1}, {"b": 2}], "d")
-        assert result == [{"a": 1}, {"b": 2}]
-
-    # --- Max depth ---
-
-    def test_exceeds_max_depth_truncates(self) -> None:
-        result = sanitize_data({"a": {"nested": "deep"}}, "d", max_depth=1)
-        assert result == {}
-
-    def test_within_max_depth_preserved(self) -> None:
-        result = sanitize_data({"a": {"nested": "deep"}}, "d", max_depth=2)
-        assert result == {"a": {"nested": "deep"}}
-
-    def test_max_depth_zero_truncates_values(self) -> None:
-        # depth 0: outer dict processed; depth 1 > max_depth → values become None → pruned
-        result = sanitize_data({"a": 1}, "d", max_depth=0)
-        assert result == {}
-
-    # --- MappingProxyType (roundtrip) ---
+    def test_max_depth_zero_rejected(self) -> None:
+        with pytest.raises(ValueError, match="d exceeds max depth of 0"):
+            validate_json_data({"a": 1}, "d", max_depth=0)
 
     def test_mapping_proxy_traversed(self) -> None:
         proxy = MappingProxyType({"key": "val\x00ue"})
         with pytest.raises(ValueError, match="data contains null bytes"):
-            sanitize_data(proxy, "data")
+            validate_json_data(proxy, "data")
 
-    def test_mapping_proxy_sanitized(self) -> None:
+    def test_mapping_proxy_accepted(self) -> None:
         proxy = MappingProxyType({"b": 2, "a": 1, "c": None})
-        result = sanitize_data(proxy, "d")
+        validate_json_data(proxy, "d")
+
+
+class TestNormalizeJsonData:
+    """normalize_json_data: deterministic normalization after validation."""
+
+    def test_preserves_string(self) -> None:
+        assert normalize_json_data("hello", "d") == "hello"
+
+    def test_preserves_int(self) -> None:
+        assert normalize_json_data(42, "d") == 42
+
+    def test_preserves_bool(self) -> None:
+        assert normalize_json_data(True, "d") is True
+
+    def test_preserves_false(self) -> None:
+        assert normalize_json_data(False, "d") is False
+
+    def test_preserves_finite_float(self) -> None:
+        assert normalize_json_data(3.14, "d") == 3.14
+
+    def test_none_preserved(self) -> None:
+        assert normalize_json_data(None, "d") is None
+
+    def test_sorts_keys(self) -> None:
+        result = normalize_json_data({"b": 2, "a": 1}, "d")
+        assert list(result.keys()) == ["a", "b"]
+
+    def test_removes_none_values(self) -> None:
+        result = normalize_json_data({"a": 1, "b": None}, "d")
+        assert result == {"a": 1}
+
+    def test_removes_empty_dict(self) -> None:
+        result = normalize_json_data({"a": 1, "b": {}}, "d")
+        assert result == {"a": 1}
+
+    def test_removes_empty_list(self) -> None:
+        result = normalize_json_data({"a": 1, "b": []}, "d")
+        assert result == {"a": 1}
+
+    def test_empty_dict_returns_empty(self) -> None:
+        assert normalize_json_data({}, "d") == {}
+
+    def test_list_cleaned(self) -> None:
+        result = normalize_json_data([1, None, "hello", {}], "d")
+        assert result == [1, "hello"]
+
+    def test_empty_list_returns_empty(self) -> None:
+        assert normalize_json_data([], "d") == []
+
+    def test_deeply_nested(self) -> None:
+        result = normalize_json_data({"l1": {"l2": {"l3": "value"}}}, "d")
+        assert result == {"l1": {"l2": {"l3": "value"}}}
+
+    def test_list_inside_dict(self) -> None:
+        result = normalize_json_data({"items": [1, 2, 3]}, "d")
+        assert result == {"items": [1, 2, 3]}
+
+    def test_dict_inside_list(self) -> None:
+        result = normalize_json_data([{"a": 1}, {"b": 2}], "d")
+        assert result == [{"a": 1}, {"b": 2}]
+
+    def test_within_max_depth_preserved(self) -> None:
+        result = normalize_json_data({"a": {"nested": "deep"}}, "d", max_depth=2)
+        assert result == {"a": {"nested": "deep"}}
+
+    def test_mapping_proxy_normalized(self) -> None:
+        proxy = MappingProxyType({"b": 2, "a": 1, "c": None})
+        result = normalize_json_data(proxy, "d")
         assert result == {"a": 1, "b": 2}
         assert list(result.keys()) == ["a", "b"]
 

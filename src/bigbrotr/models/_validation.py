@@ -1,8 +1,9 @@
-"""Shared validation helpers for frozen dataclass models.
+"""Shared validation and normalization helpers for frozen dataclass models.
 
 Private module — not part of the public API. Used exclusively by
 ``__post_init__`` methods in sibling model modules to enforce runtime
-type constraints, null-byte safety, and deep immutability.
+type constraints, strict JSON compatibility, null-byte safety, and deep
+immutability.
 """
 
 from __future__ import annotations
@@ -52,71 +53,118 @@ def validate_mapping(value: Any, name: str) -> None:
         raise TypeError(f"{name} must be a Mapping, got {type(value).__name__}")
 
 
-def sanitize_data(
+def validate_json_data(
     obj: Any,
     name: str,
     *,
     max_depth: int = _DEFAULT_MAX_DEPTH,
     _depth: int = 0,
-) -> Any:
-    """Recursively normalize an object for deterministic JSON serialization.
-
-    * Removes ``None`` values and empty containers (``{}``, ``[]``).
-    * Sorts dictionary keys for consistent ordering.
-    * Rejects strings and dict keys containing null bytes (PostgreSQL incompatible).
-    * Non-serializable types are replaced with ``None``.
+) -> None:
+    """Validate that a value is strictly JSON-compatible.
 
     Args:
-        obj: The value to sanitize.
+        obj: The value to validate.
         name: Field name for error messages.
         max_depth: Maximum recursion depth (defaults to 50).
         _depth: Current recursion depth (internal use).
 
-    Returns:
-        The sanitized object, or ``None`` for unserializable values.
-
     Raises:
-        ValueError: If any string value or dict key contains null bytes.
+        TypeError: If the value contains unsupported JSON types.
+        ValueError: If the value contains null bytes or non-finite floats.
     """
     if _depth > max_depth:
-        return None
+        raise ValueError(f"{name} exceeds max depth of {max_depth}")
 
     if (
         obj is None
         or isinstance(obj, bool | int)
         or (isinstance(obj, float) and math.isfinite(obj))
     ):
-        return obj
+        return
+
+    if isinstance(obj, float):
+        raise ValueError(f"{name} contains a non-finite float")
 
     if isinstance(obj, str):
         if "\x00" in obj:
             raise ValueError(f"{name} contains null bytes")
+        return
+
+    if isinstance(obj, Mapping):
+        for key, value in obj.items():
+            if not isinstance(key, str):
+                raise TypeError(f"{name} keys must be str, got {type(key).__name__}")
+            if "\x00" in key:
+                raise ValueError(f"{name} key contains null bytes")
+            validate_json_data(value, name, max_depth=max_depth, _depth=_depth + 1)
+        return
+
+    if isinstance(obj, list):
+        for item in obj:
+            validate_json_data(item, name, max_depth=max_depth, _depth=_depth + 1)
+        return
+
+    if isinstance(obj, tuple):
+        raise TypeError(f"{name} contains a tuple; use list for JSON-serializable sequences")
+
+    raise TypeError(f"{name} contains unsupported type {type(obj).__name__}")
+
+
+def normalize_json_data(
+    obj: Any,
+    name: str,
+    *,
+    max_depth: int = _DEFAULT_MAX_DEPTH,
+) -> Any:
+    """Normalize a validated JSON-compatible value for deterministic serialization.
+
+    The value is validated first, then normalized by:
+
+    * removing ``None`` values and empty containers (``{}``, ``[]``)
+    * sorting dictionary keys for consistent ordering
+    * preserving only valid JSON-compatible values
+    """
+    validate_json_data(obj, name, max_depth=max_depth)
+    return _normalize_json_data(obj, max_depth=max_depth)
+
+
+def _normalize_json_data(
+    obj: Any,
+    *,
+    max_depth: int,
+    _depth: int = 0,
+) -> Any:
+    """Normalize a JSON-compatible value after validation has succeeded."""
+    if _depth > max_depth:
+        raise ValueError(f"value exceeds max depth of {max_depth}")
+
+    if (
+        obj is None
+        or isinstance(obj, bool | int)
+        or (isinstance(obj, float) and math.isfinite(obj))
+        or isinstance(obj, str)
+    ):
         return obj
 
     if isinstance(obj, Mapping):
         result: dict[str, Any] = {}
-        for key in sorted(k for k in obj if isinstance(k, str)):
-            if "\x00" in key:
-                raise ValueError(f"{name} key contains null bytes")
-            v = sanitize_data(obj[key], name, max_depth=max_depth, _depth=_depth + 1)
-            if _is_empty(v):
+        for key in sorted(obj):
+            value = _normalize_json_data(obj[key], max_depth=max_depth, _depth=_depth + 1)
+            if _is_empty(value):
                 continue
-            result[key] = v
+            result[key] = value
         return result
 
     if isinstance(obj, list):
         result_list: list[Any] = []
         for item in obj:
-            v = sanitize_data(item, name, max_depth=max_depth, _depth=_depth + 1)
-            if _is_empty(v):
+            value = _normalize_json_data(item, max_depth=max_depth, _depth=_depth + 1)
+            if _is_empty(value):
                 continue
-            result_list.append(v)
+            result_list.append(value)
         return result_list
 
-    if isinstance(obj, tuple):
-        raise TypeError(f"{name} contains a tuple; use list for JSON-serializable sequences")
-
-    return None
+    raise TypeError(f"value contains unsupported type {type(obj).__name__}")
 
 
 def _is_empty(v: Any) -> bool:

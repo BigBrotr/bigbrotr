@@ -174,7 +174,7 @@ class TestToDbParams:
 
 
 class TestSanitization:
-    """state_value sanitization via sanitize_data and deep_freeze."""
+    """state_value validation plus normalization via normalize_json_data."""
 
     def test_none_values_filtered(self):
         state = ServiceState(
@@ -212,6 +212,27 @@ class TestSanitization:
                 state_type=ServiceStateType.CURSOR,
                 state_key="key",
                 state_value={"bad\x00key": "value"},
+            )
+
+    def test_non_string_keys_rejected(self):
+        with pytest.raises(TypeError, match="state_value keys must be str, got int"):
+            ServiceState(
+                service_name=ServiceName.MONITOR,
+                state_type=ServiceStateType.CURSOR,
+                state_key="key",
+                state_value={1: "value", "ok": "value"},
+            )
+
+    def test_non_serializable_value_rejected(self):
+        class Custom:
+            pass
+
+        with pytest.raises(TypeError, match="state_value contains unsupported type Custom"):
+            ServiceState(
+                service_name=ServiceName.MONITOR,
+                state_type=ServiceStateType.CURSOR,
+                state_key="key",
+                state_value={"ok": "value", "bad": Custom()},
             )
 
 
