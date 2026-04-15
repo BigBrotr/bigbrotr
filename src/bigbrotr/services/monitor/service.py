@@ -139,7 +139,6 @@ if TYPE_CHECKING:
 
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
-    from bigbrotr.models.constants import NetworkType
 
 
 class Monitor(
@@ -445,13 +444,14 @@ class Monitor(
             monitored_before=monitored_before,
             max_relays=max_relays,
             total=total,
+            max_concurrency=self.network_semaphores.max_concurrency(networks),
             chunk_size=self._config.processing.chunk_size,
         )
 
     async def _monitor_chunk(
         self,
         relays: list[Relay],
-        networks: list[NetworkType],
+        plan: MonitorCyclePlan,
     ) -> MonitorChunkOutcome:
         """Run one page of relay checks and classify the results."""
         chunk_successful: list[tuple[Relay, CheckResult]] = []
@@ -460,7 +460,7 @@ class Monitor(
         async for relay, result in self._iter_concurrent(
             relays,
             self._monitor_worker,
-            max_concurrency=self.network_semaphores.max_concurrency(networks),
+            max_concurrency=plan.max_concurrency,
         ):
             if result is not None:
                 chunk_successful.append((relay, result))
@@ -493,7 +493,7 @@ class Monitor(
 
             progress = await self._process_monitor_page(
                 relays,
-                list(plan.networks),
+                plan,
                 progress,
             )
 
@@ -515,11 +515,11 @@ class Monitor(
     async def _process_monitor_page(
         self,
         relays: list[Relay],
-        networks: list[NetworkType],
+        plan: MonitorCyclePlan,
         progress: MonitorProgress,
     ) -> MonitorProgress:
         """Process one relay page and return updated cycle progress."""
-        chunk_outcome = await self._monitor_chunk(relays, networks)
+        chunk_outcome = await self._monitor_chunk(relays, plan)
         await self._persist_chunk_outcome(chunk_outcome, checked_at=int(time.time()))
 
         next_progress = progress.advance(chunk_outcome)

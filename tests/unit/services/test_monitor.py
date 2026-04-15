@@ -1478,6 +1478,7 @@ class TestMonitorHelpers:
             monitored_before=monitored_before,
             max_relays=10,
             total=10,
+            max_concurrency=monitor.network_semaphores.max_concurrency([NetworkType.CLEARNET]),
             chunk_size=10,
         )
         mock_count.assert_awaited_once_with(
@@ -1508,7 +1509,17 @@ class TestMonitorHelpers:
             patch.object(monitor, "_iter_concurrent", side_effect=fake_iter_concurrent),
             patch.object(monitor, "inc_gauge") as mock_inc,
         ):
-            outcome = await monitor._monitor_chunk([relay1, relay2], [NetworkType.CLEARNET])
+            outcome = await monitor._monitor_chunk(
+                [relay1, relay2],
+                MonitorCyclePlan(
+                    networks=(NetworkType.CLEARNET,),
+                    monitored_before=0,
+                    max_relays=None,
+                    total=2,
+                    max_concurrency=5,
+                    chunk_size=2,
+                ),
+            )
 
         assert outcome.successful == ((relay1, result),)
         assert outcome.failed == (relay2,)
@@ -1731,6 +1742,7 @@ class TestMonitorRun:
             monitored_before=123,
             max_relays=5,
             total=3,
+            max_concurrency=5,
             chunk_size=2,
         )
 
@@ -1795,6 +1807,7 @@ class TestMonitorRun:
             monitored_before=123,
             max_relays=None,
             total=4,
+            max_concurrency=5,
             chunk_size=2,
         )
         outcome = MonitorChunkOutcome(
@@ -1845,6 +1858,7 @@ class TestMonitorRun:
             monitored_before=123,
             max_relays=7,
             total=4,
+            max_concurrency=5,
             chunk_size=2,
         )
 
@@ -1886,12 +1900,19 @@ class TestMonitorRun:
         ):
             progress = await monitor._process_monitor_page(
                 [relay],
-                [NetworkType.CLEARNET],
+                MonitorCyclePlan(
+                    networks=(NetworkType.CLEARNET,),
+                    monitored_before=0,
+                    max_relays=None,
+                    total=4,
+                    max_concurrency=5,
+                    chunk_size=2,
+                ),
                 MonitorProgress(total=4),
             )
 
         assert progress == MonitorProgress(total=4, succeeded=1, failed=0)
-        mock_chunk.assert_awaited_once_with([relay], [NetworkType.CLEARNET])
+        mock_chunk.assert_awaited_once()
         mock_persist.assert_awaited_once()
         mock_log.assert_called_once_with(outcome, total=4, succeeded=1, failed=0)
 

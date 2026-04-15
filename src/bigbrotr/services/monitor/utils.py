@@ -116,6 +116,7 @@ class MonitorCyclePlan:
     monitored_before: int
     max_relays: int | None
     total: int
+    max_concurrency: int
     chunk_size: int
 
 
