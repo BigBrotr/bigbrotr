@@ -40,13 +40,44 @@ Examples:
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 
 from pydantic import BaseModel, Field
 
+from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType
 
 
 logger = logging.getLogger(__name__)
+
+
+def parse_relay_list(raw: object) -> list[Relay]:
+    """Parse one config value into canonical relays, skipping invalid entries."""
+    if isinstance(raw, Relay):
+        return [raw]
+    if isinstance(raw, (str, bytes, bytearray)) or not isinstance(raw, Sequence):
+        raise TypeError("Relay list must be a sequence of relay URLs")
+
+    relays: list[Relay] = []
+    for item in raw:
+        if isinstance(item, Relay):
+            relays.append(item)
+            continue
+        if not isinstance(item, str):
+            logger.warning("invalid_relay_config_entry item_type=%s", type(item).__name__)
+            continue
+        try:
+            relays.append(Relay.parse(item))
+        except (TypeError, ValueError) as e:
+            logger.warning("invalid_relay_config_entry relay=%s error=%s", item, e)
+    return relays
+
+
+def parse_optional_relay_list(raw: object) -> list[Relay] | None:
+    """Parse an optional relay list, preserving ``None`` when omitted."""
+    if raw is None:
+        return None
+    return parse_relay_list(raw)
 
 
 class ReadModelConfig(BaseModel):

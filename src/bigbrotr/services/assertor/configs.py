@@ -20,6 +20,7 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_valida
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import EventKind
+from bigbrotr.services.common.configs import parse_relay_list
 from bigbrotr.utils.keys import KeysConfig
 
 
@@ -132,7 +133,7 @@ class AssertorPublishingConfig(BaseModel):
 
     relays: Annotated[
         list[Relay],
-        BeforeValidator(lambda v: [Relay(url) if isinstance(url, str) else url for url in v]),
+        BeforeValidator(parse_relay_list),
     ] = Field(
         default_factory=lambda: [
             Relay("wss://relay.damus.io"),

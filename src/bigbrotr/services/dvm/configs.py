@@ -18,10 +18,12 @@ from pydantic import BeforeValidator, Field, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
-from bigbrotr.services.common.configs import ReadModelConfig  # noqa: TC001 (Pydantic runtime)
+from bigbrotr.services.common.configs import (
+    ReadModelConfig,
+    parse_relay_list,
+)
 from bigbrotr.services.common.read_models import normalize_read_model_policies
 from bigbrotr.utils.keys import KeysConfig
-from bigbrotr.utils.parsing import safe_parse
 
 
 class DvmConfig(BaseServiceConfig):
@@ -62,7 +64,7 @@ class DvmConfig(BaseServiceConfig):
     )
     relays: Annotated[
         list[Relay],
-        BeforeValidator(lambda v: safe_parse(v, Relay.parse)),
+        BeforeValidator(parse_relay_list),
     ] = Field(
         default_factory=lambda: [
             Relay("wss://relay.mostr.pub"),

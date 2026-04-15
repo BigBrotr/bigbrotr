@@ -3,6 +3,7 @@ Unit tests for services.common.configs module.
 
 Tests:
 - ReadModelConfig - Per-read-model access and pricing policy
+- Relay list parsing helpers
 - ClearnetConfig - Configuration for clearnet (standard internet) relays
 - TorConfig - Configuration for Tor (.onion) relays
 - I2pConfig - Configuration for I2P (.i2p) relays
@@ -13,6 +14,7 @@ Tests:
 import pytest
 from pydantic import ValidationError
 
+from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.configs import (
     ClearnetConfig,
@@ -22,6 +24,8 @@ from bigbrotr.services.common.configs import (
     NetworkTypeConfig,
     ReadModelConfig,
     TorConfig,
+    parse_optional_relay_list,
+    parse_relay_list,
 )
 
 
@@ -59,6 +63,44 @@ class TestReadModelConfig:
         config = ReadModelConfig(enabled=False, price=100)
         assert config.enabled is False
         assert config.price == 100
+
+
+class TestRelayListParsing:
+    def test_parse_relay_list_normalizes_strings(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level("WARNING", logger="bigbrotr.services.common.configs"):
+            relays = parse_relay_list(
+                [
+                    "wss://relay.example.com",
+                    "wss://relay.example.com:443",
+                    "bad relay",
+                ]
+            )
+
+        assert [relay.url for relay in relays] == [
+            "wss://relay.example.com",
+            "wss://relay.example.com",
+        ]
+        assert "invalid_relay_config_entry" in caplog.text
+
+    def test_parse_relay_list_preserves_relay_instances(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        assert parse_relay_list([relay]) == [relay]
+
+    def test_parse_relay_list_skips_non_string_items(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level("WARNING", logger="bigbrotr.services.common.configs"):
+            relays = parse_relay_list(["wss://relay.example.com", 123])
+
+        assert [relay.url for relay in relays] == ["wss://relay.example.com"]
+        assert "item_type=int" in caplog.text
+
+    def test_parse_relay_list_rejects_scalar_values(self) -> None:
+        with pytest.raises(TypeError, match="Relay list must be a sequence"):
+            parse_relay_list("wss://relay.example.com")
+
+    def test_parse_optional_relay_list_preserves_none(self) -> None:
+        assert parse_optional_relay_list(None) is None
 
 
 # =============================================================================
