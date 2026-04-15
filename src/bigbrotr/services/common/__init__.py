@@ -14,8 +14,6 @@ Attributes:
         for per-network concurrency control, and
         [GeoReaders][bigbrotr.services.common.mixins.GeoReaders] for GeoIP
         database reader lifecycle management.
-    artifact_store: Typed persistence boundary for metadata-backed artifacts
-        on ``metadata`` and ``relay_metadata`` tables.
     paging: Keyset-pagination helpers for bounded page scans in service
         query modules.
     read_models: Static registry of built-in read models currently exposed by

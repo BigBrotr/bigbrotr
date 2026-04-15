@@ -8,11 +8,10 @@ from typing import TYPE_CHECKING
 
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceStateType
-from bigbrotr.services.common.artifact_store import ArtifactStore
 from bigbrotr.services.common.paging import iter_keyset_pages
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import MonitorCheckpoint, PublishCheckpoint
-from bigbrotr.services.common.utils import parse_relay_row
+from bigbrotr.services.common.utils import batched_insert, parse_relay_row
 
 
 if TYPE_CHECKING:
@@ -229,7 +228,11 @@ async def insert_relay_metadata(brotr: Brotr, records: list[RelayMetadata]) -> i
     Returns:
         Number of new relay-metadata records inserted.
     """
-    return await ArtifactStore(brotr).insert_relay_metadata(records)
+    return await batched_insert(
+        brotr,
+        records,
+        lambda chunk: brotr.insert_relay_metadata(chunk, cascade=True),
+    )
 
 
 async def upsert_monitor_checkpoints(brotr: Brotr, relays: list[Relay], now: int) -> None:
