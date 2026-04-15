@@ -191,10 +191,6 @@ class Api(BaseService[ApiConfig]):
         """Return enabled API read models that are present in the discovered catalog."""
         return self._read_models.enabled_names("api")
 
-    def _enabled_read_models(self) -> dict[str, ReadModelEntry]:
-        """Return enabled API read models keyed by public read-model ID."""
-        return self._read_models.enabled_entries("api")
-
     def _set_read_model_exposure_metrics(self, count: int) -> None:
         """Publish the exposure gauge for public read models."""
         self.set_gauge("read_models_exposed", count)
@@ -289,7 +285,7 @@ class Api(BaseService[ApiConfig]):
 
     def _add_read_model_data_routes(self, app: FastAPI) -> None:
         """Register list and detail data routes for enabled read models."""
-        for read_model_id, read_model in self._enabled_read_models().items():
+        for read_model_id, read_model in self._read_models.enabled_entries("api").items():
             self._register_read_model_data_routes(app, read_model_id, read_model)
 
     def _register_read_model_data_routes(
