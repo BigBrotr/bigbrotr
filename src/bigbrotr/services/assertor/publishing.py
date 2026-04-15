@@ -9,6 +9,7 @@ import asyncpg
 
 from bigbrotr.models.constants import EventKind
 from bigbrotr.services.assertor.utils import PROVIDER_PROFILE_SUBJECT_ID
+from bigbrotr.utils.protocol import summarize_broadcast_results
 
 
 if TYPE_CHECKING:
@@ -82,18 +83,6 @@ class ProviderProfileRuntime:
     content_hash: Callable[[dict[str, Any]], str]
 
 
-def _summarize_publish_results(
-    results: list[BroadcastClientResult],
-) -> tuple[tuple[str, ...], dict[str, str]]:
-    successful_relays = tuple(
-        sorted({relay_url for result in results for relay_url in result.successful_relays})
-    )
-    failed_relays: dict[str, str] = {}
-    for result in results:
-        failed_relays.update(result.failed_relays)
-    return successful_relays, failed_relays
-
-
 async def publish_assertion_rows(
     plan: PublishPlan[AssertionT],
     runtime: PublishRuntime,
@@ -126,7 +115,7 @@ async def publish_assertion_rows(
 
             try:
                 builder = plan.builder_from_assertion(assertion)
-                successful_relays, failed_relays = _summarize_publish_results(
+                successful_relays, failed_relays = summarize_broadcast_results(
                     await runtime.publish_events([builder], [runtime.client])
                 )
                 if successful_relays:
@@ -201,7 +190,7 @@ async def publish_provider_profile(runtime: ProviderProfileRuntime) -> tuple[int
             lud16=kind0.lud16,
             extra_fields=extra_fields,
         )
-        successful_relays, failed_relays = _summarize_publish_results(
+        successful_relays, failed_relays = summarize_broadcast_results(
             await runtime.publish_events([builder], [runtime.client])
         )
         if successful_relays:

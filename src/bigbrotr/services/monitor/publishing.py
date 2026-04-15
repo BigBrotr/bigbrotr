@@ -9,6 +9,7 @@ from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.nips.nip11 import Nip11, Nip11Selection
 from bigbrotr.nips.nip66 import Nip66, Nip66Selection
+from bigbrotr.utils.protocol import summarize_broadcast_results
 
 
 if TYPE_CHECKING:
@@ -56,18 +57,6 @@ def _resolve_publish_relays(
     return override_relays if override_relays is not None else default_relays
 
 
-def _summarize_broadcast_results(
-    results: list[BroadcastClientResult],
-) -> tuple[tuple[str, ...], dict[str, str]]:
-    successful_relays = tuple(
-        sorted({relay_url for result in results for relay_url in result.successful_relays})
-    )
-    failed_relays: dict[str, str] = {}
-    for result in results:
-        failed_relays.update(result.failed_relays)
-    return successful_relays, failed_relays
-
-
 async def publish_profile(
     *,
     context: PublishContext,
@@ -87,7 +76,7 @@ async def publish_profile(
         context.logger.warning("publish_failed", event="profile", error="no relays reachable")
         return
 
-    successful_relays, failed_relays = _summarize_broadcast_results(
+    successful_relays, failed_relays = summarize_broadcast_results(
         await context.broadcast(
             [
                 build_profile(
@@ -144,7 +133,7 @@ async def publish_relay_list(
         )
         return
 
-    successful_relays, failed_relays = _summarize_broadcast_results(
+    successful_relays, failed_relays = summarize_broadcast_results(
         await context.broadcast([build_relay_list(relays)], connected_clients)
     )
     if not successful_relays:
@@ -193,7 +182,7 @@ async def publish_announcement(
         )
         return
 
-    successful_relays, failed_relays = _summarize_broadcast_results(
+    successful_relays, failed_relays = summarize_broadcast_results(
         await context.broadcast(
             [
                 build_announcement(
@@ -273,7 +262,7 @@ async def publish_discovery(
         context.logger.debug("build_30166_failed", url=relay.url, error=str(e))
         return
 
-    successful_relays, failed_relays = _summarize_broadcast_results(
+    successful_relays, failed_relays = summarize_broadcast_results(
         await context.broadcast([builder], connected_clients)
     )
     if not successful_relays:

@@ -601,6 +601,19 @@ async def broadcast_events_detailed(
     return results
 
 
+def summarize_broadcast_results(
+    results: list[BroadcastClientResult],
+) -> tuple[tuple[str, ...], dict[str, str]]:
+    """Collapse detailed per-client publish results into relay-level outcomes."""
+    successful_relays = tuple(
+        sorted({relay_url for result in results for relay_url in result.successful_relays})
+    )
+    failed_relays: dict[str, str] = {}
+    for result in results:
+        failed_relays.update(result.failed_relays)
+    return successful_relays, failed_relays
+
+
 async def is_nostr_relay(
     relay: Relay,
     proxy_url: str | None = None,

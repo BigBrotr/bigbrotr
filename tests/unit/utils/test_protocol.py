@@ -23,6 +23,7 @@ from bigbrotr.utils.protocol import (
     _is_ssl_error,
     create_client,
     create_connected_client,
+    summarize_broadcast_results,
 )
 
 
@@ -740,6 +741,32 @@ class TestBroadcastEvents:
         assert results[0].event_ids == ("evt-1", "evt-2")
         assert results[0].successful_relays == ("wss://relay.b",)
         assert results[0].failed_relays == {"wss://relay.a": "rejected"}
+
+
+class TestSummarizeBroadcastResults:
+    def test_merges_successful_and_failed_relays(self) -> None:
+        from bigbrotr.utils.protocol import BroadcastClientResult
+
+        successful_relays, failed_relays = summarize_broadcast_results(
+            [
+                BroadcastClientResult(
+                    event_ids=("evt-1",),
+                    successful_relays=("wss://relay.a", "wss://relay.b"),
+                    failed_relays={"wss://relay.c": "timeout"},
+                ),
+                BroadcastClientResult(
+                    event_ids=("evt-2",),
+                    successful_relays=("wss://relay.b",),
+                    failed_relays={"wss://relay.d": "rejected"},
+                ),
+            ]
+        )
+
+        assert successful_relays == ("wss://relay.a", "wss://relay.b")
+        assert failed_relays == {
+            "wss://relay.c": "timeout",
+            "wss://relay.d": "rejected",
+        }
 
 
 # =============================================================================
