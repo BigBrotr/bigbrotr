@@ -8,10 +8,8 @@ from unittest.mock import patch
 import pytest
 from nostr_sdk import Keys
 
-from bigbrotr.utils.keys import (
-    KeysConfig,
-    load_keys_from_env,
-)
+from bigbrotr.services.common.configs import KeysConfig
+from bigbrotr.utils.keys import load_keys_from_env
 
 
 VALID_HEX_KEY = (

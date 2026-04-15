@@ -8,8 +8,9 @@ cryptographic utilities used by [bigbrotr.nips][bigbrotr.nips] and
 Attributes:
     dns: Async DNS resolution of A, AAAA, and CNAME records via the system
         resolver. Used by NIP-66 DNS tests.
-    keys: Nostr key pair loading from environment variables (nsec1 bech32 or
-        hex format) with Pydantic validation. Required by Monitor for signing.
+    keys: Low-level Nostr key loading from environment variables (nsec1 bech32
+        or hex format). Shared service-key policy now lives in
+        ``bigbrotr.services.common.configs.KeysConfig``.
     protocol: High-level Nostr client operations -- relay connection, event
         broadcasting, relay validation, and event fetching. Built on top of
         WebSocket transport primitives.
@@ -34,6 +35,6 @@ See Also:
 Examples:
     ```python
     from bigbrotr.utils.protocol import create_client
-    from bigbrotr.utils.keys import KeysConfig
+    from bigbrotr.services.common.configs import KeysConfig
     ```
 """

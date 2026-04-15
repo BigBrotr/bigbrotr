@@ -6,7 +6,7 @@ See Also:
     [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
         Base class providing ``interval``, ``max_consecutive_failures``,
         and ``metrics`` fields.
-    [KeysConfig][bigbrotr.utils.keys.KeysConfig]: Mixin providing
+    [KeysConfig][bigbrotr.services.common.configs.KeysConfig]: Mixin providing
         Nostr key management fields.
 """
 
@@ -19,18 +19,18 @@ from pydantic import BeforeValidator, Field, model_validator
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
 from bigbrotr.services.common.configs import (
+    KeysConfig,
     ReadModelConfig,
     parse_relay_list,
 )
 from bigbrotr.services.common.read_models import normalize_read_model_policies
-from bigbrotr.utils.keys import KeysConfig
 
 
 class DvmConfig(BaseServiceConfig):
     """Configuration for the DVM service.
 
     Embeds key management via
-    [KeysConfig][bigbrotr.utils.keys.KeysConfig] for Nostr signing.
+    [KeysConfig][bigbrotr.services.common.configs.KeysConfig] for Nostr signing.
 
     Attributes:
         relays: Relay URLs to listen on and publish to.

@@ -41,11 +41,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from typing import Any
 
-from pydantic import BaseModel, Field
+from nostr_sdk import Keys
+from pydantic import BaseModel, Field, model_validator
 
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType
+from bigbrotr.utils.keys import load_keys_from_env
 
 
 logger = logging.getLogger(__name__)
@@ -78,6 +81,55 @@ def parse_optional_relay_list(raw: object) -> list[Relay] | None:
     if raw is None:
         return None
     return parse_relay_list(raw)
+
+
+class KeysConfig(BaseModel):
+    """Shared service-key config that loads from env or generates one ephemeral keypair."""
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    keys_env: str | None = Field(
+        default=None,
+        description="Environment variable name for private key",
+    )
+    keys: Keys = Field(
+        default_factory=Keys.generate,
+        description="Keys loaded from keys_env, or generated when unset/blank",
+    )
+
+    def __repr__(self) -> str:
+        """Redact private key material and show whether keys are configured."""
+        keys = getattr(self, "keys", None)
+        if keys is None:
+            return f"KeysConfig(keys_env={self.keys_env!r}, pubkey=None)"
+        pubkey = keys.public_key().to_hex()
+        return f"KeysConfig(keys_env={self.keys_env!r}, pubkey={pubkey!r})"
+
+    def __str__(self) -> str:
+        """Redact private key material — show only the public key."""
+        return self.__repr__()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _load_keys_from_env(cls, data: Any) -> Any:
+        """Resolve ``keys`` from ``keys_env`` when the caller did not provide them."""
+        if not isinstance(data, dict):
+            return data
+
+        if data.get("keys") is not None:
+            return data
+
+        data = dict(data)
+        data.pop("keys", None)
+
+        env_var = data.get("keys_env")
+        if not isinstance(env_var, str) or not env_var.strip():
+            return data
+
+        keys = load_keys_from_env(env_var)
+        if keys is not None:
+            data["keys"] = keys
+        return data
 
 
 class ReadModelConfig(BaseModel):

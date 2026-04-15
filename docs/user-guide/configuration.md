@@ -929,7 +929,7 @@ Some models enforce relationships between fields:
 - `LimitsConfig`: `max_size` must be >= `min_size`
 - `RetryConfig`: `max_delay` must be >= `initial_delay`
 - `ProcessingConfig`: `store` flags must be a subset of `compute` flags
-- `KeysConfig`: validates hex string length (64 chars) or nsec1 bech32 format
+- `KeysConfig`: shared service-key config that loads from env and falls back to an ephemeral keypair when unset
 
 !!! warning
     Cross-field validation errors surface at startup. The Monitor's `store` flags must be a subset of `compute` -- you cannot store metadata that is not computed.

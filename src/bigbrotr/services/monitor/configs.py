@@ -25,11 +25,11 @@ from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.configs import (
+    KeysConfig,
     NetworksConfig,
     parse_optional_relay_list,
     parse_relay_list,
 )
-from bigbrotr.utils.keys import KeysConfig
 
 
 _CLEARNET_ONLY_FLAGS: Final[tuple[str, ...]] = (
@@ -375,7 +375,7 @@ class MonitorConfig(BaseServiceConfig):
             that consumes this configuration.
         [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
             Base class providing ``interval``, ``max_consecutive_failures``, and ``metrics`` fields.
-        [KeysConfig][bigbrotr.utils.keys.KeysConfig]: Nostr key
+        [KeysConfig][bigbrotr.services.common.configs.KeysConfig]: Nostr key
             management for event signing.
     """
 

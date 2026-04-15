@@ -372,7 +372,7 @@ flowchart LR
 | Module | Key Exports | Purpose |
 |--------|-------------|---------|
 | `transport.py` | `connect_relay()`, `is_nostr_relay()`, `create_client()`, `create_insecure_client()` | WebSocket/HTTP transport with SOCKS5 proxy and SSL fallback |
-| `keys.py` | `load_keys_from_env()`, `KeysConfig` | Nostr key management (hex/nsec loading from env) |
+| `keys.py` | `load_keys_from_env()` | Low-level Nostr key loading from env |
 | `dns.py` | DNS resolution utilities | dnspython wrapper |
 
 ### Transport SSL Fallback

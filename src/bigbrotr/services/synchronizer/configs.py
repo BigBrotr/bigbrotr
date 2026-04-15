@@ -17,8 +17,7 @@ from nostr_sdk import Filter
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
-from bigbrotr.services.common.configs import NetworksConfig
-from bigbrotr.utils.keys import KeysConfig
+from bigbrotr.services.common.configs import KeysConfig, NetworksConfig
 
 
 def _parse_filter(raw: Any, index: int) -> Filter:
@@ -162,7 +161,7 @@ class SynchronizerConfig(BaseServiceConfig):
             Base class providing ``interval``, ``max_consecutive_failures``, and ``metrics`` fields.
         [NetworksConfig][bigbrotr.services.common.configs.NetworksConfig]:
             Per-network timeout and proxy settings.
-        [KeysConfig][bigbrotr.utils.keys.KeysConfig]: Nostr key management
+        [KeysConfig][bigbrotr.services.common.configs.KeysConfig]: Nostr key management
             for NIP-42 authentication during event fetching.
     """
 

@@ -6,7 +6,7 @@ See Also:
     [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
         Base class providing ``interval``, ``max_consecutive_failures``,
         and ``metrics`` fields.
-    [KeysConfig][bigbrotr.utils.keys.KeysConfig]: Mixin providing
+    [KeysConfig][bigbrotr.services.common.configs.KeysConfig]: Mixin providing
         Nostr key management fields.
 """
 
@@ -20,8 +20,7 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_valida
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import EventKind
-from bigbrotr.services.common.configs import parse_relay_list
-from bigbrotr.utils.keys import KeysConfig
+from bigbrotr.services.common.configs import KeysConfig, parse_relay_list
 
 
 _SUPPORTED_KINDS = frozenset(
@@ -164,7 +163,7 @@ class AssertorConfig(BaseServiceConfig):
     """Configuration for the Assertor service.
 
     Embeds key management via
-    [KeysConfig][bigbrotr.utils.keys.KeysConfig] for Nostr signing.
+    [KeysConfig][bigbrotr.services.common.configs.KeysConfig] for Nostr signing.
 
     Attributes:
         algorithm_id: Stable identifier of the ranking/assertion algorithm.
