@@ -170,43 +170,18 @@ class Refresher(BaseService[RefresherConfig]):
 
         target_results: list[RefreshTargetResult] = []
         source_checkpoints: dict[WatermarkSource, int] = {}
-        cutoff_reason: str | None = None
-
-        for target in plan.incremental_targets:
-            cutoff_reason = self._cycle_cutoff_reason(plan.cycle_start, len(target_results))
-            if cutoff_reason is not None:
-                break
-
-            result, source, checkpoint = await self._run_incremental_target(target)
-            target_results.append(result)
-            source_checkpoints[source] = max(source_checkpoints.get(source, 0), checkpoint)
-            if not result.succeeded and not self._config.processing.continue_on_target_error:
-                cycle_result = await self._build_cycle_result(
-                    totals=plan.totals,
-                    target_results=target_results,
-                    source_checkpoints=source_checkpoints,
-                    cutoff_reason=None,
-                )
-                self._emit_cycle_metrics(cycle_result)
-                raise RuntimeError(f"refresher target failed: {result.name}: {result.error}")
+        cutoff_reason = await self._run_incremental_cycle_targets(
+            plan=plan,
+            target_results=target_results,
+            source_checkpoints=source_checkpoints,
+        )
 
         if cutoff_reason is None:
-            for periodic_target in plan.periodic_targets:
-                cutoff_reason = self._cycle_cutoff_reason(plan.cycle_start, len(target_results))
-                if cutoff_reason is not None:
-                    break
-
-                result = await self._run_periodic_target(periodic_target)
-                target_results.append(result)
-                if not result.succeeded and not self._config.processing.continue_on_target_error:
-                    cycle_result = await self._build_cycle_result(
-                        totals=plan.totals,
-                        target_results=target_results,
-                        source_checkpoints=source_checkpoints,
-                        cutoff_reason=None,
-                    )
-                    self._emit_cycle_metrics(cycle_result)
-                    raise RuntimeError(f"refresher target failed: {result.name}: {result.error}")
+            cutoff_reason = await self._run_periodic_cycle_targets(
+                plan=plan,
+                target_results=target_results,
+                source_checkpoints=source_checkpoints,
+            )
 
         cycle_result = await self._build_cycle_result(
             totals=plan.totals,
@@ -238,6 +213,61 @@ class Refresher(BaseService[RefresherConfig]):
         max_duration = self._config.processing.max_duration
         if max_duration is not None and time.monotonic() - cycle_start >= max_duration:
             return "max_duration"
+
+        return None
+
+    async def _run_incremental_cycle_targets(
+        self,
+        *,
+        plan: RefreshCyclePlan,
+        target_results: list[RefreshTargetResult],
+        source_checkpoints: dict[WatermarkSource, int],
+    ) -> str | None:
+        """Run configured incremental targets until completion or cycle cutoff."""
+        for target in plan.incremental_targets:
+            cutoff_reason = self._cycle_cutoff_reason(plan.cycle_start, len(target_results))
+            if cutoff_reason is not None:
+                return cutoff_reason
+
+            result, source, checkpoint = await self._run_incremental_target(target)
+            target_results.append(result)
+            source_checkpoints[source] = max(source_checkpoints.get(source, 0), checkpoint)
+            if not result.succeeded and not self._config.processing.continue_on_target_error:
+                cycle_result = await self._build_cycle_result(
+                    totals=plan.totals,
+                    target_results=target_results,
+                    source_checkpoints=source_checkpoints,
+                    cutoff_reason=None,
+                )
+                self._emit_cycle_metrics(cycle_result)
+                raise RuntimeError(f"refresher target failed: {result.name}: {result.error}")
+
+        return None
+
+    async def _run_periodic_cycle_targets(
+        self,
+        *,
+        plan: RefreshCyclePlan,
+        target_results: list[RefreshTargetResult],
+        source_checkpoints: dict[WatermarkSource, int],
+    ) -> str | None:
+        """Run configured periodic targets until completion or cycle cutoff."""
+        for target in plan.periodic_targets:
+            cutoff_reason = self._cycle_cutoff_reason(plan.cycle_start, len(target_results))
+            if cutoff_reason is not None:
+                return cutoff_reason
+
+            result = await self._run_periodic_target(target)
+            target_results.append(result)
+            if not result.succeeded and not self._config.processing.continue_on_target_error:
+                cycle_result = await self._build_cycle_result(
+                    totals=plan.totals,
+                    target_results=target_results,
+                    source_checkpoints=source_checkpoints,
+                    cutoff_reason=None,
+                )
+                self._emit_cycle_metrics(cycle_result)
+                raise RuntimeError(f"refresher target failed: {result.name}: {result.error}")
 
         return None
 

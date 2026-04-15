@@ -36,7 +36,7 @@ from bigbrotr.services.refresher.queries import (
     get_periodic_target_spec,
     get_relay_metadata_watermark,
 )
-from bigbrotr.services.refresher.service import RefreshCycleTotals
+from bigbrotr.services.refresher.service import RefreshCycleTotals, RefreshTargetResult
 
 
 def _periodic_config(enabled: bool = False) -> dict[str, bool]:
@@ -407,6 +407,68 @@ class TestRefresherRun:
 
         mock_generated.assert_awaited_once_with(mock_refresher_brotr, 0)
         mock_seen.assert_not_called()
+
+    async def test_run_incremental_cycle_targets_updates_source_checkpoints(
+        self,
+        mock_refresher_brotr: Brotr,
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(current=["events_replaceable_current"]),
+        )
+        plan = refresher._build_refresh_cycle_plan(cycle_start=123.0)
+        target_results: list[RefreshTargetResult] = []
+        source_checkpoints: dict[WatermarkSource, int] = {}
+        result = RefreshTargetResult(
+            name="events_replaceable_current",
+            target_group="current",
+            rows=4,
+        )
+
+        with patch.object(
+            refresher,
+            "_run_incremental_target",
+            AsyncMock(
+                return_value=(
+                    result,
+                    WatermarkSource.EVENT_RELAY,
+                    11,
+                )
+            ),
+        ) as mock_run:
+            cutoff_reason = await refresher._run_incremental_cycle_targets(
+                plan=plan,
+                target_results=target_results,
+                source_checkpoints=source_checkpoints,
+            )
+
+        assert cutoff_reason is None
+        mock_run.assert_awaited_once_with(CurrentRefreshTarget.EVENTS_REPLACEABLE_CURRENT)
+        assert target_results == [result]
+        assert source_checkpoints == {WatermarkSource.EVENT_RELAY: 11}
+
+    async def test_run_periodic_cycle_targets_respects_cutoff_budget(
+        self,
+        mock_refresher_brotr: Brotr,
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(periodic=True, processing={"max_targets_per_cycle": 1}),
+        )
+        plan = refresher._build_refresh_cycle_plan(cycle_start=123.0)
+        target_results = [
+            RefreshTargetResult(name="already-run", target_group="incremental", rows=1),
+        ]
+
+        with patch.object(refresher, "_run_periodic_target", AsyncMock()) as mock_periodic:
+            cutoff_reason = await refresher._run_periodic_cycle_targets(
+                plan=plan,
+                target_results=target_results,
+                source_checkpoints={},
+            )
+
+        assert cutoff_reason == "max_targets_per_cycle"
+        mock_periodic.assert_not_awaited()
 
     async def test_no_new_data_skips_incremental_sql(self, mock_refresher_brotr: Brotr) -> None:
         refresher = Refresher(
