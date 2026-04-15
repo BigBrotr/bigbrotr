@@ -88,6 +88,16 @@ class RefreshCycleResult:
         return max(0, self.targets_total - self.targets_attempted)
 
 
+@dataclass(frozen=True, slots=True)
+class RefreshCyclePlan:
+    """Computed targets and budgets for one refresher cycle."""
+
+    cycle_start: float
+    totals: RefreshCycleTotals
+    incremental_targets: tuple[IncrementalRefreshTarget, ...]
+    periodic_targets: tuple[PeriodicRefreshTarget, ...]
+
+
 class Refresher(BaseService[RefresherConfig]):
     """Current-state and analytics refresh service."""
 
@@ -136,27 +146,34 @@ class Refresher(BaseService[RefresherConfig]):
         """Execute one refresh cycle."""
         await self.refresh()
 
-    async def refresh(self) -> RefreshCycleResult:
-        """Refresh configured targets while respecting cycle budgets."""
-        cycle_start = time.monotonic()
-        current_targets = self._config.current.targets
-        analytics_targets = self._config.analytics.targets
-        periodic_targets = self._config.periodic.enabled_targets()
-
+    def _build_refresh_cycle_plan(self, cycle_start: float | None = None) -> RefreshCyclePlan:
+        """Return the configured targets and totals for one refresh cycle."""
+        incremental_targets = tuple(self._incremental_targets())
+        periodic_targets = tuple(self._config.periodic.enabled_targets())
         totals = RefreshCycleTotals(
-            total=len(current_targets) + len(analytics_targets) + len(periodic_targets),
-            current=len(current_targets),
-            analytics=len(analytics_targets),
+            total=len(incremental_targets) + len(periodic_targets),
+            current=len(self._config.current.targets),
+            analytics=len(self._config.analytics.targets),
             periodic=len(periodic_targets),
         )
-        self._reset_cycle_metrics(totals)
+        return RefreshCyclePlan(
+            cycle_start=time.monotonic() if cycle_start is None else cycle_start,
+            totals=totals,
+            incremental_targets=incremental_targets,
+            periodic_targets=periodic_targets,
+        )
+
+    async def refresh(self) -> RefreshCycleResult:
+        """Refresh configured targets while respecting cycle budgets."""
+        plan = self._build_refresh_cycle_plan()
+        self._reset_cycle_metrics(plan.totals)
 
         target_results: list[RefreshTargetResult] = []
         source_checkpoints: dict[WatermarkSource, int] = {}
         cutoff_reason: str | None = None
 
-        for target in self._incremental_targets():
-            cutoff_reason = self._cycle_cutoff_reason(cycle_start, len(target_results))
+        for target in plan.incremental_targets:
+            cutoff_reason = self._cycle_cutoff_reason(plan.cycle_start, len(target_results))
             if cutoff_reason is not None:
                 break
 
@@ -165,7 +182,7 @@ class Refresher(BaseService[RefresherConfig]):
             source_checkpoints[source] = max(source_checkpoints.get(source, 0), checkpoint)
             if not result.succeeded and not self._config.processing.continue_on_target_error:
                 cycle_result = await self._build_cycle_result(
-                    totals=totals,
+                    totals=plan.totals,
                     target_results=target_results,
                     source_checkpoints=source_checkpoints,
                     cutoff_reason=None,
@@ -174,8 +191,8 @@ class Refresher(BaseService[RefresherConfig]):
                 raise RuntimeError(f"refresher target failed: {result.name}: {result.error}")
 
         if cutoff_reason is None:
-            for periodic_target in periodic_targets:
-                cutoff_reason = self._cycle_cutoff_reason(cycle_start, len(target_results))
+            for periodic_target in plan.periodic_targets:
+                cutoff_reason = self._cycle_cutoff_reason(plan.cycle_start, len(target_results))
                 if cutoff_reason is not None:
                     break
 
@@ -183,7 +200,7 @@ class Refresher(BaseService[RefresherConfig]):
                 target_results.append(result)
                 if not result.succeeded and not self._config.processing.continue_on_target_error:
                     cycle_result = await self._build_cycle_result(
-                        totals=totals,
+                        totals=plan.totals,
                         target_results=target_results,
                         source_checkpoints=source_checkpoints,
                         cutoff_reason=None,
@@ -192,7 +209,7 @@ class Refresher(BaseService[RefresherConfig]):
                     raise RuntimeError(f"refresher target failed: {result.name}: {result.error}")
 
         cycle_result = await self._build_cycle_result(
-            totals=totals,
+            totals=plan.totals,
             target_results=target_results,
             source_checkpoints=source_checkpoints,
             cutoff_reason=cutoff_reason,

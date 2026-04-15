@@ -36,6 +36,7 @@ from bigbrotr.services.refresher.queries import (
     get_periodic_target_spec,
     get_relay_metadata_watermark,
 )
+from bigbrotr.services.refresher.service import RefreshCycleTotals
 
 
 def _periodic_config(enabled: bool = False) -> dict[str, bool]:
@@ -344,6 +345,38 @@ class TestRefresherRun:
             await refresher.run()
 
         mock_refresh.assert_awaited_once_with()
+
+    def test_build_refresh_cycle_plan_collects_targets_and_totals(
+        self,
+        mock_refresher_brotr: Brotr,
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(
+                current=["events_replaceable_current"],
+                analytics=["pubkey_kind_stats"],
+                periodic=True,
+            ),
+        )
+
+        plan = refresher._build_refresh_cycle_plan(cycle_start=123.0)
+
+        assert plan.cycle_start == 123.0
+        assert [target.value for target in plan.incremental_targets] == [
+            "events_replaceable_current",
+            "pubkey_kind_stats",
+        ]
+        assert [target.value for target in plan.periodic_targets] == [
+            "rolling_windows",
+            "relay_stats_metadata",
+            "nip85_followers",
+        ]
+        assert plan.totals == RefreshCycleTotals(
+            total=5,
+            current=1,
+            analytics=1,
+            periodic=3,
+        )
 
     async def test_uses_relay_metadata_watermark_for_metadata_targets(
         self, mock_refresher_brotr: Brotr
