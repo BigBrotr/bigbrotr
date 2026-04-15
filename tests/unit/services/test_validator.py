@@ -727,6 +727,52 @@ class TestValidate:
 
 
 # ============================================================================
+# Validator chunk helpers
+# ============================================================================
+
+
+class TestValidationChunks:
+    async def test_validate_candidate_page_classifies_results(
+        self,
+        validator_brotr: Brotr,
+    ) -> None:
+        validator = Validator(validator_brotr)
+        good = _candidate("wss://good.com")
+        bad = _candidate("wss://bad.com")
+
+        async def relay_check(relay, proxy, timeout, **kwargs):
+            return "good" in relay.url
+
+        with patch(f"{_SVC}.validate_candidate", side_effect=relay_check):
+            outcome = await validator._validate_candidate_page(
+                [good, bad],
+                max_concurrency=2,
+            )
+
+        assert outcome.valid == (good,)
+        assert outcome.invalid == (bad,)
+
+    async def test_persist_validation_chunk_promotes_and_fails(
+        self,
+        validator_brotr: Brotr,
+    ) -> None:
+        validator = Validator(validator_brotr)
+        outcome = Validator.ValidationChunkOutcome(
+            valid=(_candidate("wss://good.com"),),
+            invalid=(_candidate("wss://bad.com"),),
+        )
+
+        with (
+            patch(f"{_SVC}.promote_candidates", new_callable=AsyncMock) as promote,
+            patch(f"{_SVC}.fail_candidates", new_callable=AsyncMock) as fail,
+        ):
+            await validator._persist_validation_chunk(outcome)
+
+        promote.assert_awaited_once_with(validator_brotr, [_candidate("wss://good.com")])
+        fail.assert_awaited_once_with(validator_brotr, [_candidate("wss://bad.com")])
+
+
+# ============================================================================
 # Validator._validate_worker
 # ============================================================================
 

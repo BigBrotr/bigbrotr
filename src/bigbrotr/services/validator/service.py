@@ -124,6 +124,23 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
         max_candidates: int | None
         max_concurrency: int
 
+    @dataclass(frozen=True, slots=True)
+    class ValidationChunkOutcome:
+        """Classification result for one validated candidate page."""
+
+        valid: tuple[CandidateCheckpoint, ...] = ()
+        invalid: tuple[CandidateCheckpoint, ...] = ()
+
+        @property
+        def validated_count(self) -> int:
+            """Number of candidates promoted from this page."""
+            return len(self.valid)
+
+        @property
+        def not_validated_count(self) -> int:
+            """Number of candidates marked failed from this page."""
+            return len(self.invalid)
+
     def _build_validation_cycle_plan(self, now: int | None = None) -> ValidationCyclePlan | None:
         """Return the computed network and budget inputs for one validation cycle."""
         networks = tuple(self._config.networks.get_enabled_networks())
@@ -154,6 +171,37 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
         if budget <= 0:
             return None
         return min(plan.chunk_size, budget)
+
+    async def _validate_candidate_page(
+        self,
+        candidates: list[CandidateCheckpoint],
+        *,
+        max_concurrency: int,
+    ) -> ValidationChunkOutcome:
+        """Validate one fetched candidate page and classify its results."""
+        chunk_valid: list[CandidateCheckpoint] = []
+        chunk_invalid: list[CandidateCheckpoint] = []
+
+        async for candidate, is_valid in self._iter_concurrent(
+            candidates,
+            self._validate_worker,
+            max_concurrency=max_concurrency,
+        ):
+            if is_valid:
+                chunk_valid.append(candidate)
+            else:
+                chunk_invalid.append(candidate)
+            self.inc_gauge("validated" if is_valid else "not_validated")
+
+        return self.ValidationChunkOutcome(
+            valid=tuple(chunk_valid),
+            invalid=tuple(chunk_invalid),
+        )
+
+    async def _persist_validation_chunk(self, outcome: ValidationChunkOutcome) -> None:
+        """Persist one validated page by promoting and failing candidates."""
+        await promote_candidates(self._brotr, list(outcome.valid))
+        await fail_candidates(self._brotr, list(outcome.invalid))
 
     async def run(self) -> None:
         """Execute one complete validation cycle."""
@@ -208,29 +256,18 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
             if not candidates:
                 break
 
-            chunk_valid: list[CandidateCheckpoint] = []
-            chunk_invalid: list[CandidateCheckpoint] = []
-
-            async for candidate, is_valid in self._iter_concurrent(
+            outcome = await self._validate_candidate_page(
                 candidates,
-                self._validate_worker,
                 max_concurrency=plan.max_concurrency,
-            ):
-                if is_valid:
-                    chunk_valid.append(candidate)
-                    validated += 1
-                else:
-                    chunk_invalid.append(candidate)
-                    not_validated += 1
-                self.inc_gauge("validated" if is_valid else "not_validated")
-
-            await promote_candidates(self._brotr, chunk_valid)
-            await fail_candidates(self._brotr, chunk_invalid)
+            )
+            validated += outcome.validated_count
+            not_validated += outcome.not_validated_count
+            await self._persist_validation_chunk(outcome)
 
             self._logger.info(
                 "chunk_completed",
-                validated=len(chunk_valid),
-                not_validated=len(chunk_invalid),
+                validated=outcome.validated_count,
+                not_validated=outcome.not_validated_count,
                 remaining=total - validated - not_validated,
             )
 
