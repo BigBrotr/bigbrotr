@@ -402,6 +402,42 @@ async def create_connected_client(
     return client, await _connect_client_relays(client, relays, timeout=timeout)
 
 
+async def _try_connect_single_relay(
+    client: Client,
+    relay_url: RelayUrl,
+    *,
+    connect_timeout: float,
+) -> str | None:
+    """Try one single-relay client connection and return the failure message, if any."""
+    await client.add_relay(relay_url)
+    output = await client.try_connect(timedelta(seconds=connect_timeout))
+    if relay_url in output.success:
+        return None
+    return str(output.failed.get(relay_url, "Unknown error"))
+
+
+async def _connect_overlay_relay(
+    relay: Relay,
+    relay_url: RelayUrl,
+    *,
+    keys: Keys | None,
+    proxy_url: str,
+    connect_timeout: float,
+) -> Client:
+    """Connect one overlay relay through a configured proxy."""
+    client = await create_client(keys, proxy_url)
+    await client.add_relay(relay_url)
+    await client.connect()
+    await client.wait_for_connection(timedelta(seconds=connect_timeout))
+
+    relay_obj = await client.relay(relay_url)
+    if not relay_obj.is_connected():
+        await shutdown_client(client)
+        raise TimeoutError(f"Connection timeout: {relay.url}")
+
+    return client
+
+
 async def connect_relay(
     relay: Relay,
     keys: Keys | None = None,
@@ -449,32 +485,28 @@ async def connect_relay(
     if is_overlay:
         if proxy_url is None:
             raise ValueError(f"proxy_url required for {relay.network} relay: {relay.url}")
-
-        client = await create_client(keys, proxy_url)
-        await client.add_relay(relay_url)
-        await client.connect()
-        await client.wait_for_connection(timedelta(seconds=timeout))
-
-        relay_obj = await client.relay(relay_url)
-        if not relay_obj.is_connected():
-            await shutdown_client(client)
-            raise TimeoutError(f"Connection timeout: {relay.url}")
-
-        return client
+        return await _connect_overlay_relay(
+            relay,
+            relay_url,
+            keys=keys,
+            proxy_url=proxy_url,
+            connect_timeout=timeout,
+        )
 
     # Clearnet: try SSL first, then fall back to insecure if allowed
     logger.debug("ssl_connecting relay=%s", relay.url)
 
     client = await create_client(keys)
-    await client.add_relay(relay_url)
-    output = await client.try_connect(timedelta(seconds=timeout))
-
-    if relay_url in output.success:
+    error_message = await _try_connect_single_relay(
+        client,
+        relay_url,
+        connect_timeout=timeout,
+    )
+    if error_message is None:
         logger.debug("ssl_connected relay=%s", relay.url)
         return client
 
     await shutdown_client(client)
-    error_message = output.failed.get(relay_url, "Unknown error")
     logger.debug("connect_failed relay=%s error=%s", relay.url, error_message)
 
     if not _is_ssl_error(error_message):
@@ -491,11 +523,12 @@ async def connect_relay(
     uniffi_set_event_loop(asyncio.get_running_loop())
 
     client = await create_client(keys, allow_insecure=True)
-    await client.add_relay(relay_url)
-    output = await client.try_connect(timedelta(seconds=timeout))
-
-    if relay_url not in output.success:
-        error_message = output.failed.get(relay_url, "Unknown error")
+    error_message = await _try_connect_single_relay(
+        client,
+        relay_url,
+        connect_timeout=timeout,
+    )
+    if error_message is not None:
         await shutdown_client(client)
         raise OSError(f"Connection failed (insecure): {relay.url} ({error_message})")
 
