@@ -54,8 +54,10 @@ from bigbrotr.utils.keys import load_keys_from_env
 logger = logging.getLogger(__name__)
 
 
-def parse_relay_list(raw: object) -> list[Relay]:
-    """Parse one config value into canonical relays, skipping invalid entries."""
+def parse_relay_list(raw: object) -> list[Relay] | None:
+    """Parse one config value into canonical relays, preserving ``None`` when omitted."""
+    if raw is None:
+        return None
     if isinstance(raw, Relay):
         return [raw]
     if isinstance(raw, (str, bytes, bytearray)) or not isinstance(raw, Sequence):
@@ -74,13 +76,6 @@ def parse_relay_list(raw: object) -> list[Relay]:
         except (TypeError, ValueError) as e:
             logger.warning("invalid_relay_config_entry relay=%s error=%s", item, e)
     return relays
-
-
-def parse_optional_relay_list(raw: object) -> list[Relay] | None:
-    """Parse an optional relay list, preserving ``None`` when omitted."""
-    if raw is None:
-        return None
-    return parse_relay_list(raw)
 
 
 class KeysConfig(BaseModel):

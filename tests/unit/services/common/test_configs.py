@@ -24,7 +24,6 @@ from bigbrotr.services.common.configs import (
     NetworkTypeConfig,
     ReadModelConfig,
     TorConfig,
-    parse_optional_relay_list,
     parse_relay_list,
 )
 
@@ -99,8 +98,8 @@ class TestRelayListParsing:
         with pytest.raises(TypeError, match="Relay list must be a sequence"):
             parse_relay_list("wss://relay.example.com")
 
-    def test_parse_optional_relay_list_preserves_none(self) -> None:
-        assert parse_optional_relay_list(None) is None
+    def test_parse_relay_list_preserves_none(self) -> None:
+        assert parse_relay_list(None) is None
 
 
 # =============================================================================
