@@ -273,34 +273,44 @@ class Assertor(BaseService[AssertorConfig]):
         PublishKindResult,
     ]:
         """Run the enabled publish branches for this cycle."""
-        user_result = PublishKindResult()
-        event_result = PublishKindResult()
-        addressable_result = PublishKindResult()
-        identifier_result = PublishKindResult()
-        provider_profile_result = PublishKindResult()
+        results = {
+            "user": PublishKindResult(),
+            "event": PublishKindResult(),
+            "addressable": PublishKindResult(),
+            "identifier": PublishKindResult(),
+            "provider_profile": PublishKindResult(),
+        }
 
-        if EventKind.NIP85_USER_ASSERTION in self._config.selection.kinds:
-            user_result = await self._publish_timed(self._publish_user_assertions)
-
-        if EventKind.NIP85_EVENT_ASSERTION in self._config.selection.kinds:
-            event_result = await self._publish_timed(self._publish_event_assertions)
-
-        if EventKind.NIP85_ADDRESSABLE_ASSERTION in self._config.selection.kinds:
-            addressable_result = await self._publish_timed(self._publish_addressable_assertions)
-
-        if EventKind.NIP85_IDENTIFIER_ASSERTION in self._config.selection.kinds:
-            identifier_result = await self._publish_timed(self._publish_identifier_assertions)
-
-        if self._provider_profile_enabled():
-            provider_profile_result = await self._publish_timed(self._publish_provider_profile)
+        for result_name, publish_func in self._selected_publishers():
+            results[result_name] = await self._publish_timed(publish_func)
 
         return (
-            user_result,
-            event_result,
-            addressable_result,
-            identifier_result,
-            provider_profile_result,
+            results["user"],
+            results["event"],
+            results["addressable"],
+            results["identifier"],
+            results["provider_profile"],
         )
+
+    def _selected_publishers(
+        self,
+    ) -> tuple[
+        tuple[str, Callable[[], Awaitable[tuple[int, int, int]]]],
+        ...,
+    ]:
+        """Return the enabled publish branches for the current config."""
+        selected: list[tuple[str, Callable[[], Awaitable[tuple[int, int, int]]]]] = []
+        if EventKind.NIP85_USER_ASSERTION in self._config.selection.kinds:
+            selected.append(("user", self._publish_user_assertions))
+        if EventKind.NIP85_EVENT_ASSERTION in self._config.selection.kinds:
+            selected.append(("event", self._publish_event_assertions))
+        if EventKind.NIP85_ADDRESSABLE_ASSERTION in self._config.selection.kinds:
+            selected.append(("addressable", self._publish_addressable_assertions))
+        if EventKind.NIP85_IDENTIFIER_ASSERTION in self._config.selection.kinds:
+            selected.append(("identifier", self._publish_identifier_assertions))
+        if self._provider_profile_enabled():
+            selected.append(("provider_profile", self._publish_provider_profile))
+        return tuple(selected)
 
     async def _run_checkpoint_cleanup(self) -> tuple[int, float]:
         """Remove stale checkpoints when configured and report elapsed time."""
@@ -342,12 +352,7 @@ class Assertor(BaseService[AssertorConfig]):
         self.set_gauge("stale_checkpoints_removed", result.checkpoint_cleanup_removed)
         self.set_gauge("phase_duration_cleanup_seconds", cleanup_duration)
 
-        for subject_kind, kind_result in (
-            ("user", result.user),
-            ("event", result.event),
-            ("addressable", result.addressable),
-            ("identifier", result.identifier),
-        ):
+        for subject_kind, kind_result in self._assertion_kind_results(result):
             self.set_gauge(f"{subject_kind}_assertions_eligible", kind_result.eligible)
             self.set_gauge(f"{subject_kind}_assertions_published", kind_result.published)
             self.set_gauge(f"{subject_kind}_assertions_skipped", kind_result.skipped)
@@ -363,6 +368,18 @@ class Assertor(BaseService[AssertorConfig]):
         self.set_gauge(
             "phase_duration_provider_profile_seconds",
             result.provider_profile.duration_seconds,
+        )
+
+    @staticmethod
+    def _assertion_kind_results(
+        result: PublishCycleResult,
+    ) -> tuple[tuple[str, PublishKindResult], ...]:
+        """Return per-assertion-kind publish results in metric order."""
+        return (
+            ("user", result.user),
+            ("event", result.event),
+            ("addressable", result.addressable),
+            ("identifier", result.identifier),
         )
 
     async def _publish_user_assertions(self) -> tuple[int, int, int]:
