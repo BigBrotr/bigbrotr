@@ -9,13 +9,13 @@ Attributes:
     DEFAULT_TIMEOUT: Default timeout for network operations (10 seconds).
     InsecureWebSocketAdapter: aiohttp WebSocket adapter with SSL disabled.
     InsecureWebSocketTransport: nostr-sdk custom transport wrapping the adapter.
+    suppress_nostr_sdk_stderr: Narrow context manager for short validation windows.
 
 Note:
     The ``_NostrSdkStderrFilter`` is installed globally at import time to
-    suppress UniFFI traceback noise from nostr-sdk's Rust layer. This is
-    separate from the ``_StderrSuppressor`` in
-    [bigbrotr.utils.protocol][bigbrotr.utils.protocol] which provides
-    batch-level suppression during relay validation.
+    suppress UniFFI traceback noise from nostr-sdk's Rust layer.
+    ``suppress_nostr_sdk_stderr()`` provides the narrower batch-level
+    suppression used during relay validation.
 
 See Also:
     [bigbrotr.utils.protocol][bigbrotr.utils.protocol]: Higher-level Nostr
@@ -27,7 +27,9 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import os
 import ssl
 import sys
 from typing import TYPE_CHECKING, Final, TextIO
@@ -43,6 +45,7 @@ from nostr_sdk import (
 
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
     from datetime import timedelta as Duration  # noqa: N812
 
 
@@ -115,6 +118,54 @@ class _NostrSdkStderrFilter:
 # the only way to suppress it.
 if not isinstance(sys.stderr, _NostrSdkStderrFilter):
     sys.stderr = _NostrSdkStderrFilter(sys.stderr)
+
+
+class _ScopedStderrSuppressor:
+    """Reference-counted stderr suppressor for short validation windows.
+
+    ``nostr-sdk`` can also write diagnostics directly to the process stderr
+    file descriptor from native threads. When a caller needs a short
+    "drop everything" window, this suppressor redirects ``sys.stderr`` to
+    ``/dev/null`` for the duration of the outermost context.
+
+    Trade-off: while the suppressor is active, all stderr output is discarded.
+    The shared helper below deliberately keeps the scope narrow.
+    """
+
+    __slots__ = ("_devnull", "_refcount", "_saved_stderr")
+
+    def __init__(self) -> None:
+        self._refcount = 0
+        self._saved_stderr: TextIO | None = None
+        self._devnull: TextIO | None = None
+
+    @contextlib.contextmanager
+    def __call__(self) -> Generator[None, None, None]:
+        if self._refcount == 0:
+            self._saved_stderr = sys.stderr
+            self._devnull = open(os.devnull, "w")  # noqa: PTH123, SIM115
+        self._refcount += 1
+        sys.stderr = self._devnull
+        try:
+            yield
+        finally:
+            self._refcount -= 1
+            if self._refcount == 0:
+                sys.stderr = self._saved_stderr
+                if self._devnull is not None:
+                    self._devnull.close()
+                self._saved_stderr = None
+                self._devnull = None
+
+
+_stderr_suppressor = _ScopedStderrSuppressor()
+
+
+@contextlib.contextmanager
+def suppress_nostr_sdk_stderr() -> Generator[None, None, None]:
+    """Suppress process stderr for a short ``nostr-sdk`` operation window."""
+    with _stderr_suppressor():
+        yield
 
 
 _WS_RECV_TIMEOUT = 60.0

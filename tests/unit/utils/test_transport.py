@@ -4,10 +4,12 @@ Unit tests for utils.transport module.
 Tests:
 - DEFAULT_TIMEOUT constant
 - _NostrSdkStderrFilter - Stderr suppression for UniFFI tracebacks
+- suppress_nostr_sdk_stderr() - Narrow stderr suppression context
 - InsecureWebSocketAdapter - WebSocket adapter for insecure connections
 - InsecureWebSocketTransport - Custom transport with SSL disabled
 """
 
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -17,6 +19,7 @@ from bigbrotr.utils.transport import (
     InsecureWebSocketAdapter,
     InsecureWebSocketTransport,
     _NostrSdkStderrFilter,
+    _ScopedStderrSuppressor,
 )
 
 
@@ -130,6 +133,29 @@ class TestNostrSdkStderrFilterGetattr:
         original.fileno.return_value = 2
         f = _NostrSdkStderrFilter(original)
         assert f.fileno() == 2
+
+
+class TestScopedStderrSuppressor:
+    def test_single_context_restores_stderr(self) -> None:
+        suppressor = _ScopedStderrSuppressor()
+        original = sys.stderr
+        with suppressor():
+            assert sys.stderr is not original
+        assert sys.stderr is original
+
+    def test_nested_contexts_restore_on_last_exit(self) -> None:
+        suppressor = _ScopedStderrSuppressor()
+        original = sys.stderr
+        with suppressor():
+            with suppressor():
+                assert suppressor._refcount == 2
+            assert sys.stderr is not original
+        assert sys.stderr is original
+        assert suppressor._refcount == 0
+
+    def test_refcount_starts_at_zero(self) -> None:
+        suppressor = _ScopedStderrSuppressor()
+        assert suppressor._refcount == 0
 
 
 # =============================================================================

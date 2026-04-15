@@ -10,7 +10,6 @@ Tests:
 """
 
 import ssl
-import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -741,43 +740,6 @@ class TestBroadcastEvents:
         assert results[0].event_ids == ("evt-1", "evt-2")
         assert results[0].successful_relays == ("wss://relay.b",)
         assert results[0].failed_relays == {"wss://relay.a": "rejected"}
-
-
-# =============================================================================
-# _StderrSuppressor Tests
-# =============================================================================
-
-
-class TestStderrSuppressor:
-    """Tests for _StderrSuppressor reference-counted stderr suppression."""
-
-    def test_single_context_restores_stderr(self) -> None:
-        from bigbrotr.utils.protocol import _StderrSuppressor
-
-        suppressor = _StderrSuppressor()
-        original = sys.stderr
-        with suppressor():
-            assert sys.stderr is not original
-        assert sys.stderr is original
-
-    def test_nested_contexts_restore_on_last_exit(self) -> None:
-        from bigbrotr.utils.protocol import _StderrSuppressor
-
-        suppressor = _StderrSuppressor()
-        original = sys.stderr
-        with suppressor():
-            with suppressor():
-                assert suppressor._refcount == 2
-            # Still suppressed (refcount=1)
-            assert sys.stderr is not original
-        assert sys.stderr is original
-        assert suppressor._refcount == 0
-
-    def test_refcount_starts_at_zero(self) -> None:
-        from bigbrotr.utils.protocol import _StderrSuppressor
-
-        suppressor = _StderrSuppressor()
-        assert suppressor._refcount == 0
 
 
 # =============================================================================

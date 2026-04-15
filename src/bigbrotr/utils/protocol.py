@@ -47,14 +47,12 @@ import asyncio
 import contextlib
 import inspect
 import logging
-import os
 import socket
 import ssl
-import sys
 from dataclasses import dataclass
 from datetime import timedelta
 from ipaddress import AddressValueError, IPv4Address, IPv6Address
-from typing import TYPE_CHECKING, TextIO
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from nostr_sdk import (
@@ -75,12 +73,10 @@ from nostr_sdk import (
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 
-from .transport import DEFAULT_TIMEOUT, InsecureWebSocketTransport
+from .transport import DEFAULT_TIMEOUT, InsecureWebSocketTransport, suppress_nostr_sdk_stderr
 
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
-
     from nostr_sdk import EventBuilder, Keys
 
     from bigbrotr.services.common.configs import NetworksConfig
@@ -115,60 +111,6 @@ def _is_ssl_error(error_message: str) -> bool:
     """Check if an error message indicates an SSL/TLS certificate error."""
     error_lower = error_message.lower()
     return any(pattern in error_lower for pattern in _SSL_ERROR_PATTERNS)
-
-
-class _StderrSuppressor:
-    """Reference-counted stderr suppressor for async-safe batch suppression.
-
-    nostr-sdk's Rust FFI layer writes diagnostic output directly to the
-    process stderr file descriptor from arbitrary native threads.  Because
-    these writes bypass Python's I/O stack and are not associated with any
-    Python thread, there is no way to selectively suppress only nostr-sdk
-    output while preserving stderr from other libraries.
-
-    Trade-off: while the suppressor is active, ALL stderr output -- including
-    from unrelated libraries -- is redirected to ``/dev/null``.  This is an
-    intentional choice: the alternative (e.g. dup2 tricks or pty-based
-    filtering) would be significantly more complex and fragile for negligible
-    benefit.
-
-    Mitigation: the suppression scope is deliberately narrow, wrapping only
-    the short ``is_nostr_relay`` validation window (connect + single event
-    fetch).  Any stderr produced outside that window is unaffected.
-
-    Multiple concurrent async tasks can enter suppression without blocking
-    the event loop.  A ``threading.Lock`` would deadlock here because the
-    context manager ``yield`` crosses ``await`` boundaries; instead, a
-    simple reference count tracks active suppressors.
-    """
-
-    __slots__ = ("_devnull", "_refcount", "_saved_stderr")
-
-    def __init__(self) -> None:
-        self._refcount = 0
-        self._saved_stderr: TextIO | None = None
-        self._devnull: TextIO | None = None
-
-    @contextlib.contextmanager
-    def __call__(self) -> Generator[None, None, None]:
-        if self._refcount == 0:
-            self._saved_stderr = sys.stderr
-            self._devnull = open(os.devnull, "w")  # noqa: PTH123, SIM115  # os.devnull requires built-in open()
-        self._refcount += 1
-        sys.stderr = self._devnull
-        try:
-            yield
-        finally:
-            self._refcount -= 1
-            if self._refcount == 0:
-                sys.stderr = self._saved_stderr
-                if self._devnull is not None:
-                    self._devnull.close()
-                self._saved_stderr = None
-                self._devnull = None
-
-
-_suppress_stderr = _StderrSuppressor()
 
 
 @dataclass(frozen=True, slots=True)
@@ -654,7 +596,7 @@ async def is_nostr_relay(
 
     logger.debug("validation_started relay=%s timeout_s=%s", relay.url, timeout)
 
-    with _suppress_stderr():
+    with suppress_nostr_sdk_stderr():
         client = None
         try:
             async with asyncio.timeout(effective_overall):
