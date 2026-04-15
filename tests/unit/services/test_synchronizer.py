@@ -468,6 +468,49 @@ class TestSynchronize:
 
         assert result == 0
 
+    async def test_build_sync_cycle_plan_returns_none_when_no_networks_enabled(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        config = SynchronizerConfig(
+            networks=NetworksConfig(clearnet=ClearnetConfig(enabled=False)),
+        )
+        sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
+
+        plan = await sync._build_sync_cycle_plan()
+
+        assert plan is None
+
+    async def test_build_sync_cycle_plan_computes_budget_and_deadline(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        sync = Synchronizer(
+            brotr=mock_synchronizer_brotr,
+            config=SynchronizerConfig(
+                processing=ProcessingConfig(batch_size=100),
+                timeouts=TimeoutsConfig(max_duration=600.0),
+            ),
+        )
+
+        with (
+            patch(
+                "bigbrotr.services.synchronizer.service.count_cursors_to_sync",
+                new_callable=AsyncMock,
+                return_value=11,
+            ) as mock_count,
+            patch.object(type(sync.network_semaphores), "max_concurrency", return_value=150),
+            patch("bigbrotr.services.synchronizer.service.time.monotonic", return_value=100.0),
+        ):
+            plan = await sync._build_sync_cycle_plan()
+
+        assert plan is not None
+        assert plan.networks == (NetworkType.CLEARNET,)
+        assert plan.total_relays == 11
+        assert plan.page_size == 150
+        assert plan.deadline == 700.0
+        mock_count.assert_awaited_once_with(
+            mock_synchronizer_brotr, plan.end_time, [NetworkType.CLEARNET]
+        )
+
     async def test_returns_zero_when_no_cursors(self, mock_synchronizer_brotr: Brotr) -> None:
         sync = Synchronizer(brotr=mock_synchronizer_brotr)
 

@@ -62,13 +62,14 @@ Examples:
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from nostr_sdk import NostrSdkError
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models import EventRelay, Relay
-from bigbrotr.models.constants import ServiceName
+from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin, NetworkSemaphoresMixin
 from bigbrotr.services.common.types import SyncCursor
 from bigbrotr.utils.protocol import NostrClientManager
@@ -168,6 +169,36 @@ class Synchronizer(
         """Remove stale cursor state for relays that no longer exist."""
         return await delete_stale_cursors(self._brotr)
 
+    @dataclass(frozen=True, slots=True)
+    class SyncCyclePlan:
+        """Computed inputs for one synchronization cycle."""
+
+        networks: tuple[NetworkType, ...]
+        end_time: int
+        total_relays: int
+        page_size: int
+        deadline: float
+
+    async def _build_sync_cycle_plan(self) -> SyncCyclePlan | None:
+        """Compute the enabled networks and batching budget for one cycle."""
+        networks = tuple(self._config.networks.get_enabled_networks())
+        if not networks:
+            return None
+
+        end_time = self._config.processing.get_end_time()
+        total_relays = await count_cursors_to_sync(self._brotr, end_time, list(networks))
+        page_size = max(
+            self._config.processing.batch_size,
+            self.network_semaphores.max_concurrency(list(networks)),
+        )
+        return self.SyncCyclePlan(
+            networks=networks,
+            end_time=end_time,
+            total_relays=total_relays,
+            page_size=page_size,
+            deadline=time.monotonic() + self._config.timeouts.max_duration,
+        )
+
     async def synchronize(self) -> int:
         """Fetch cursors and sync events from all relays concurrently.
 
@@ -181,43 +212,33 @@ class Synchronizer(
         Returns:
             Total events synced across all relays.
         """
-        networks = self._config.networks.get_enabled_networks()
-        if not networks:
+        plan = await self._build_sync_cycle_plan()
+        if plan is None:
             self._logger.warning("no_networks_enabled")
             return 0
-
-        end_time = self._config.processing.get_end_time()
-        total_relays = await count_cursors_to_sync(self._brotr, end_time, networks)
 
         events_synced = 0
         buffer: list[EventRelay] = []
         pending_cursors: dict[str, SyncCursor] = {}
 
-        self.set_gauge("total_relays", total_relays)
+        self.set_gauge("total_relays", plan.total_relays)
         self.set_gauge("relays_seen", 0)
         self.set_gauge("events_seen", 0)
 
-        deadline = time.monotonic() + self._config.timeouts.max_duration
-
-        self._logger.info("sync_started", relay_count=total_relays)
-
-        page_size = max(
-            self._config.processing.batch_size,
-            self.network_semaphores.max_concurrency(networks),
-        )
+        self._logger.info("sync_started", relay_count=plan.total_relays)
 
         timed_out = False
         async for cursors in iter_cursors_to_sync_pages(
             self._brotr,
-            end_time,
-            networks,
-            page_size=page_size,
+            plan.end_time,
+            list(plan.networks),
+            page_size=plan.page_size,
         ):
             page_events_synced, timed_out = await self._synchronize_cursor_page(
                 cursors,
                 buffer,
                 pending_cursors,
-                deadline=deadline,
+                deadline=plan.deadline,
             )
             events_synced += page_events_synced
             if timed_out:
