@@ -135,6 +135,17 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         page_size: int
         phase_start: float
 
+    @dataclass(frozen=True, slots=True)
+    class ApiDiscoveryPlan:
+        """Computed inputs for one API discovery cycle."""
+
+        sources: tuple[ApiSourceConfig, ...]
+
+        @property
+        def source_count(self) -> int:
+            """Number of enabled API sources in this cycle."""
+            return len(self.sources)
+
     async def find(self) -> int:
         """Discover relay URLs from all configured sources.
 
@@ -165,18 +176,18 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         if not self._config.api.enabled:
             return 0
 
-        enabled = [s for s in self._config.api.sources if s.enabled]
+        plan = self._build_api_discovery_plan()
 
         buffer: list[Relay] = []
         pending_checkpoints: list[ApiCheckpoint] = []
 
-        self.set_gauge("total_sources", len(enabled))
+        self.set_gauge("total_sources", plan.source_count)
         self.set_gauge("sources_fetched", 0)
         self.set_gauge("candidates_found_from_api", 0)
 
-        self._logger.info("api_started", source_count=len(enabled))
+        self._logger.info("api_started", source_count=plan.source_count)
 
-        async for relays, checkpoint in self._find_from_api_worker(enabled):
+        async for relays, checkpoint in self._find_from_api_worker(list(plan.sources)):
             buffer.extend(relays)
             pending_checkpoints.append(checkpoint)
             self.inc_gauge("sources_fetched")
@@ -185,6 +196,12 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
 
         self._logger.info("api_completed", found=found, collected=len(buffer))
         return found
+
+    def _build_api_discovery_plan(self) -> ApiDiscoveryPlan:
+        """Select the enabled API sources for one discovery cycle."""
+        return self.ApiDiscoveryPlan(
+            sources=tuple(source for source in self._config.api.sources if source.enabled)
+        )
 
     async def _persist_api_discovery_results(
         self,

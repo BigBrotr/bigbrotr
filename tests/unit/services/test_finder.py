@@ -921,6 +921,31 @@ class TestFinderFindFromApi:
         assert result == 0
         finder.set_gauge.assert_not_called()
 
+    def test_build_api_discovery_plan_keeps_only_enabled_sources(self, mock_brotr: Brotr) -> None:
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                sources=[
+                    ApiSourceConfig(url="https://api1.example.com", expression="[*]"),
+                    ApiSourceConfig(
+                        url="https://api2.example.com",
+                        expression="[*]",
+                        enabled=False,
+                    ),
+                    ApiSourceConfig(url="https://api3.example.com", expression="[*]"),
+                ],
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+
+        plan = finder._build_api_discovery_plan()
+
+        assert plan.source_count == 2
+        assert [source.url for source in plan.sources] == [
+            "https://api1.example.com",
+            "https://api3.example.com",
+        ]
+
     async def test_all_sources_disabled(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(
             api=ApiConfig(
