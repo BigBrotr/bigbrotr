@@ -198,6 +198,35 @@ class TestServiceStateStore:
         assert deleted == 1
         brotr.delete_service_state.assert_awaited_once()
 
+    async def test_delete_states_batches(self, query_brotr: MagicMock) -> None:
+        query_brotr.delete_service_state = AsyncMock(side_effect=[2, 1])
+
+        deleted = await ServiceStateStore(query_brotr).delete_states(
+            [
+                ServiceState(
+                    service_name=ServiceName.FINDER,
+                    state_type=ServiceStateType.CURSOR,
+                    state_key="a",
+                    state_value={"timestamp": 1, "id": "0" * 64},
+                ),
+                ServiceState(
+                    service_name=ServiceName.FINDER,
+                    state_type=ServiceStateType.CURSOR,
+                    state_key="b",
+                    state_value={"timestamp": 2, "id": "1" * 64},
+                ),
+                ServiceState(
+                    service_name=ServiceName.FINDER,
+                    state_type=ServiceStateType.CURSOR,
+                    state_key="c",
+                    state_value={"timestamp": 3, "id": "2" * 64},
+                ),
+            ]
+        )
+
+        assert deleted == 3
+        assert query_brotr.delete_service_state.await_count == 2
+
     async def test_fetch_hash_returns_string_only(self, query_brotr: MagicMock) -> None:
         query_brotr.get_service_state = AsyncMock(
             return_value=[

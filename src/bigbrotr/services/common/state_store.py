@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
 
 from bigbrotr.models.constants import NetworkType, ServiceName
@@ -20,7 +20,16 @@ if TYPE_CHECKING:
 
 _CheckpointT = TypeVar("_CheckpointT", bound=Checkpoint)
 _CursorT = TypeVar("_CursorT", bound=Cursor)
+_StateT = TypeVar("_StateT")
 MappingLike: TypeAlias = Mapping[str, Any]
+
+_FETCH_STATE_ROWS_SQL = """
+    SELECT state_key, state_value
+    FROM service_state
+    WHERE service_name = $1
+      AND state_type = $2
+      AND state_key = ANY($3::text[])
+    """
 
 
 def checkpoint_from_payload(
@@ -131,28 +140,34 @@ class ServiceStateStore:
     ) -> int:
         if not keys:
             return 0
-        total = 0
-        batch_size = batch_size_for(self._brotr, len(keys))
-        for i in range(0, len(keys), batch_size):
-            chunk = keys[i : i + batch_size]
-            total += await self._brotr.delete_service_state(
-                [service_name] * len(chunk),
-                [state_type] * len(chunk),
-                chunk,
-            )
-        return total
+        return await self._delete_chunked(
+            [service_name] * len(keys),
+            [state_type] * len(keys),
+            keys,
+        )
 
     async def delete_states(self, states: list[ServiceState]) -> int:
         if not states:
             return 0
+        return await self._delete_chunked(
+            [state.service_name for state in states],
+            [state.state_type for state in states],
+            [state.state_key for state in states],
+        )
+
+    async def _delete_chunked(
+        self,
+        service_names: list[str],
+        state_types: list[str],
+        state_keys: list[str],
+    ) -> int:
         total = 0
-        batch_size = batch_size_for(self._brotr, len(states))
-        for i in range(0, len(states), batch_size):
-            chunk = states[i : i + batch_size]
+        batch_size = batch_size_for(self._brotr, len(state_keys))
+        for i in range(0, len(state_keys), batch_size):
             total += await self._brotr.delete_service_state(
-                [state.service_name for state in chunk],
-                [state.state_type for state in chunk],
-                [state.state_key for state in chunk],
+                service_names[i : i + batch_size],
+                state_types[i : i + batch_size],
+                state_keys[i : i + batch_size],
             )
         return total
 
@@ -162,31 +177,13 @@ class ServiceStateStore:
         keys: list[str],
         checkpoint_type: type[_CheckpointT],
     ) -> list[_CheckpointT]:
-        if not keys:
-            return []
-        rows = await self._brotr.fetch(
-            """
-            SELECT state_key, state_value
-            FROM service_state
-            WHERE service_name = $1
-              AND state_type = $2
-              AND state_key = ANY($3::text[])
-            """,
+        return await self._fetch_typed_states(
             service_name,
             ServiceStateType.CHECKPOINT,
             keys,
+            lambda key, payload: checkpoint_from_payload(key, payload, checkpoint_type),
+            lambda key: checkpoint_type(key=key),
         )
-        stored: dict[str, _CheckpointT] = {}
-        for row in rows:
-            try:
-                stored[row["state_key"]] = checkpoint_from_payload(
-                    row["state_key"],
-                    row["state_value"],
-                    checkpoint_type,
-                )
-            except (KeyError, TypeError, ValueError):
-                continue
-        return [stored.get(key, checkpoint_type(key=key)) for key in keys]
 
     async def upsert_checkpoints(
         self,
@@ -204,29 +201,37 @@ class ServiceStateStore:
     ) -> list[_CursorT]:
         if not keys:
             return []
-        rows = await self._brotr.fetch(
-            """
-            SELECT state_key, state_value
-            FROM service_state
-            WHERE service_name = $1
-              AND state_type = $2
-              AND state_key = ANY($3::text[])
-            """,
+        return await self._fetch_typed_states(
             service_name,
             ServiceStateType.CURSOR,
             keys,
+            lambda key, payload: cursor_from_payload(key, payload, cursor_type),
+            lambda key: cursor_type(key=key),
         )
-        stored: dict[str, _CursorT] = {}
+
+    async def _fetch_typed_states(
+        self,
+        service_name: str,
+        state_type: str,
+        keys: list[str],
+        decode: Callable[[str, MappingLike], _StateT],
+        default_factory: Callable[[str], _StateT],
+    ) -> list[_StateT]:
+        if not keys:
+            return []
+        rows = await self._brotr.fetch(
+            _FETCH_STATE_ROWS_SQL,
+            service_name,
+            state_type,
+            keys,
+        )
+        stored: dict[str, _StateT] = {}
         for row in rows:
             try:
-                stored[row["state_key"]] = cursor_from_payload(
-                    row["state_key"],
-                    row["state_value"],
-                    cursor_type,
-                )
+                stored[row["state_key"]] = decode(row["state_key"], row["state_value"])
             except (KeyError, TypeError, ValueError):
                 continue
-        return [stored.get(key, cursor_type(key=key)) for key in keys]
+        return [stored.get(key, default_factory(key)) for key in keys]
 
     async def upsert_cursors(
         self,
