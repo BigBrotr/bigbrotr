@@ -631,6 +631,86 @@ class TestSynchronize:
         assert result == 300
         assert mock_insert.await_count == 2
 
+    async def test_flush_sync_batch_persists_and_clears_state(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        record = MagicMock()
+        cursor = SyncCursor(key="wss://relay1.example.com", timestamp=100, id="01" * 32)
+        buffer = [record]
+        pending_cursors = {cursor.key: cursor}
+
+        with (
+            patch(
+                "bigbrotr.services.synchronizer.service.insert_event_relays",
+                new_callable=AsyncMock,
+                return_value=1,
+            ) as mock_insert,
+            patch(
+                "bigbrotr.services.synchronizer.service.upsert_sync_cursors",
+                new_callable=AsyncMock,
+            ) as mock_upsert,
+        ):
+            synced = await sync._flush_sync_batch(buffer, pending_cursors)
+
+        assert synced == 1
+        assert buffer == []
+        assert pending_cursors == {}
+        mock_insert.assert_awaited_once_with(mock_synchronizer_brotr, [record])
+        mock_upsert.assert_awaited_once_with(mock_synchronizer_brotr, (cursor,))
+
+    async def test_synchronize_cursor_page_flushes_when_batch_limit_reached(
+        self, mock_synchronizer_brotr: Brotr
+    ) -> None:
+        sync = Synchronizer(
+            brotr=mock_synchronizer_brotr,
+            config=SynchronizerConfig(processing=ProcessingConfig(batch_size=100)),
+        )
+        sync.inc_gauge = MagicMock()  # type: ignore[method-assign]
+
+        relay = Relay("wss://relay1.example.com")
+        events = [_make_mock_event(i) for i in range(100)]
+        buffer: list[object] = []
+        pending_cursors: dict[str, SyncCursor] = {}
+
+        async def fake_iter_concurrent(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+            assert kwargs["max_concurrency"] == 5
+            for event in events:
+                yield event, relay
+
+        with (
+            patch.object(sync, "_iter_concurrent", side_effect=fake_iter_concurrent),
+            patch.object(type(sync.network_semaphores), "max_concurrency", return_value=5),
+            patch(
+                "bigbrotr.services.synchronizer.service.EventRelay",
+                side_effect=lambda event, relay: (event, relay),
+            ),
+            patch.object(
+                sync,
+                "_flush_sync_batch",
+                new_callable=AsyncMock,
+                return_value=2,
+            ) as mock_flush,
+        ):
+            synced, timed_out = await sync._synchronize_cursor_page(
+                [
+                    SyncCursor(key=relay.url),
+                ],
+                buffer,  # type: ignore[arg-type]
+                pending_cursors,
+                deadline=time.monotonic() + 60,
+            )
+
+        assert synced == 2
+        assert timed_out is False
+        assert buffer == [(event, relay) for event in events]
+        assert pending_cursors == {
+            relay.url: SyncCursor(key=relay.url, timestamp=events[-1].created_at, id=events[-1].id),
+        }
+        mock_flush.assert_awaited_once_with(buffer, pending_cursors)
+        events_seen_calls = [c for c in sync.inc_gauge.call_args_list if c.args[0] == "events_seen"]
+        assert len(events_seen_calls) == len(events)
+
     async def test_max_duration_exceeded_breaks_after_flush(
         self, mock_synchronizer_brotr: Brotr
     ) -> None:

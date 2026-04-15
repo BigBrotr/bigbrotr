@@ -192,7 +192,6 @@ class Synchronizer(
         events_synced = 0
         buffer: list[EventRelay] = []
         pending_cursors: dict[str, SyncCursor] = {}
-        batch_size = self._config.processing.batch_size
 
         self.set_gauge("total_relays", total_relays)
         self.set_gauge("relays_seen", 0)
@@ -214,39 +213,74 @@ class Synchronizer(
             networks,
             page_size=page_size,
         ):
-            async for event, relay in self._iter_concurrent(
+            page_events_synced, timed_out = await self._synchronize_cursor_page(
                 cursors,
-                self._synchronize_worker,
-                max_concurrency=self.network_semaphores.max_concurrency(networks),
-            ):
-                buffer.append(EventRelay(event, relay))
-                pending_cursors[relay.url] = SyncCursor(
-                    key=relay.url,
-                    timestamp=event.created_at,
-                    id=event.id,
-                )
-                self.inc_gauge("events_seen")
-                if len(buffer) == batch_size:
-                    events_synced += await insert_event_relays(self._brotr, buffer)
-                    buffer = []
-                    await upsert_sync_cursors(self._brotr, pending_cursors.values())
-                    pending_cursors = {}
-                    if time.monotonic() > deadline:
-                        self._logger.info("sync_timeout", events_synced=events_synced)
-                        timed_out = True
-                        break
+                buffer,
+                pending_cursors,
+                deadline=deadline,
+            )
+            events_synced += page_events_synced
             if timed_out:
                 break
 
-        if buffer:
-            events_synced += await insert_event_relays(self._brotr, buffer)
-        if pending_cursors:
-            await upsert_sync_cursors(self._brotr, pending_cursors.values())
+        events_synced += await self._flush_sync_batch(buffer, pending_cursors)
 
         self._logger.info(
             "sync_completed",
             events_synced=events_synced,
         )
+        return events_synced
+
+    async def _synchronize_cursor_page(
+        self,
+        cursors: list[SyncCursor],
+        buffer: list[EventRelay],
+        pending_cursors: dict[str, SyncCursor],
+        *,
+        deadline: float,
+    ) -> tuple[int, bool]:
+        """Scan one page of relay cursors and flush when the batch budget is reached."""
+        events_synced = 0
+        batch_size = self._config.processing.batch_size
+        max_concurrency = self.network_semaphores.max_concurrency(
+            self._config.networks.get_enabled_networks()
+        )
+
+        async for event, relay in self._iter_concurrent(
+            cursors,
+            self._synchronize_worker,
+            max_concurrency=max_concurrency,
+        ):
+            buffer.append(EventRelay(event, relay))
+            pending_cursors[relay.url] = SyncCursor(
+                key=relay.url,
+                timestamp=event.created_at,
+                id=event.id,
+            )
+            self.inc_gauge("events_seen")
+            if len(buffer) == batch_size:
+                events_synced += await self._flush_sync_batch(buffer, pending_cursors)
+                if time.monotonic() > deadline:
+                    self._logger.info("sync_timeout", events_synced=events_synced)
+                    return events_synced, True
+
+        return events_synced, False
+
+    async def _flush_sync_batch(
+        self,
+        buffer: list[EventRelay],
+        pending_cursors: dict[str, SyncCursor],
+    ) -> int:
+        """Persist one accumulated sync batch and clear in-memory state."""
+        events_synced = 0
+        if buffer:
+            records_batch = list(buffer)
+            events_synced = await insert_event_relays(self._brotr, records_batch)
+            buffer.clear()
+        if pending_cursors:
+            cursors_batch = tuple(pending_cursors.values())
+            await upsert_sync_cursors(self._brotr, cursors_batch)
+            pending_cursors.clear()
         return events_synced
 
     # ── Workers ────────────────────────────────────────────────────
