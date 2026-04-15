@@ -55,7 +55,6 @@ from bigbrotr.services.common.catalog import CatalogError
 from bigbrotr.services.common.read_models import (
     ReadModelEntry,
     ReadModelSurface,
-    resolve_read_model_id,
 )
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import DvmRequestCursor
@@ -340,7 +339,7 @@ class Dvm(BaseService[DvmConfig]):
         customer_pubkey = event.author().to_hex()
         params = parse_job_params(event)
         raw_read_model_id = params.get("read_model", "")
-        read_model_id = resolve_read_model_id(raw_read_model_id) or raw_read_model_id
+        read_model_id = raw_read_model_id
 
         self._logger.info(
             "job_received",

@@ -137,13 +137,18 @@ class TestApiConfig:
         assert config.request_timeout == 60.0
         assert config.read_models["events"].enabled is True
 
-    def test_read_models_alias_accepted(self) -> None:
-        config = ApiConfig(read_models={"event": ReadModelConfig(enabled=True)})
-        assert config.read_models["events"].enabled is True
+    def test_read_models_require_canonical_names(self) -> None:
+        with pytest.raises(
+            ValueError,
+            match=r"read_models contains non-public API read models: event",
+        ):
+            ApiConfig(read_models={"event": ReadModelConfig(enabled=True)})
 
-    def test_legacy_read_model_names_are_canonicalized(self) -> None:
-        config = ApiConfig(read_models={"relay": ReadModelConfig(enabled=True)})
-        assert config.read_models == {"relays": ReadModelConfig(enabled=True)}
+        with pytest.raises(
+            ValueError,
+            match=r"read_models contains non-public API read models: relay",
+        ):
+            ApiConfig(read_models={"relay": ReadModelConfig(enabled=True)})
 
     def test_tables_key_rejected(self) -> None:
         with pytest.raises(ValueError, match="Use read_models instead of tables"):
@@ -319,7 +324,6 @@ class TestReadModelRoutes:
         assert relay["default_pagination_mode"] == "cursor"
         assert relay["supports_identity_lookup"] is True
         assert relay["supports_cursor_pagination"] is True
-        assert relay["legacy_aliases"] == ["relay"]
 
         relay_stats = next(item for item in data if item["id"] == "relay-stats")
         assert relay_stats["default_pagination_mode"] == "offset"
@@ -334,7 +338,6 @@ class TestReadModelRoutes:
         assert data["path"] == "/v1/relays"
         assert len(data["fields"]) == 2
         assert data["identity_fields"] == ["url"]
-        assert data["legacy_aliases"] == ["relay"]
         assert data["pagination"] == {
             "default_mode": "cursor",
             "supports_cursor": True,
@@ -343,11 +346,6 @@ class TestReadModelRoutes:
             "cursor_param": "cursor",
             "meta_cursor_field": "next_cursor",
         }
-
-    def test_read_model_detail_accepts_legacy_alias(self, test_client: TestClient) -> None:
-        resp = test_client.get("/v1/read-models/relay")
-        assert resp.status_code == 200
-        assert resp.json()["data"]["id"] == "relays"
 
     @pytest.mark.parametrize("read_model", ["service_state", "nonexistent"])
     def test_read_model_detail_not_found(self, test_client: TestClient, read_model: str) -> None:
@@ -384,18 +382,10 @@ class TestListRowsRoute:
         assert body["meta"]["next_cursor"] == "opaque-token"
         assert body["meta"]["read_model"] == "relays"
 
-    def test_legacy_alias_path_still_works(self, test_client: TestClient, api_service: Api) -> None:
-        mock_result = QueryResult(rows=[], total=None, limit=10, offset=0)
-        with patch.object(
-            api_service._read_models.catalog,
-            "query",
-            new_callable=AsyncMock,
-            return_value=mock_result,
-        ):
-            resp = test_client.get("/v1/relay?limit=10")
+    def test_legacy_alias_path_is_not_exposed(self, test_client: TestClient) -> None:
+        resp = test_client.get("/v1/relay?limit=10")
 
-        assert resp.status_code == 200
-        assert resp.json()["meta"]["read_model"] == "relays"
+        assert resp.status_code == 404
 
     def test_include_total_param(self, test_client: TestClient, api_service: Api) -> None:
         mock_result = QueryResult(rows=[], total=5, limit=10, offset=0)

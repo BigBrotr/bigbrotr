@@ -21,7 +21,6 @@ from bigbrotr.services.common.read_models import (
     ReadModelQueryError,
     build_read_model_meta,
     read_model_query_from_job_params,
-    resolve_read_model_id,
     resolve_surface_read_model,
 )
 
@@ -115,9 +114,8 @@ def configured_read_model_price(
     *,
     policies: Mapping[str, ReadModelConfig],
 ) -> int:
-    """Return the configured millisat price for one canonical or legacy read model."""
-    canonical_name = resolve_read_model_id(name) or name
-    policy = policies.get(canonical_name)
+    """Return the configured millisat price for one canonical read model."""
+    policy = policies.get(name)
     if policy is None:
         return 0
     return policy.price

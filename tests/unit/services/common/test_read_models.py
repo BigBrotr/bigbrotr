@@ -19,7 +19,6 @@ from bigbrotr.services.common.read_models import (
     read_model_query_from_http_params,
     read_model_query_from_job_params,
     read_models_for_surface,
-    resolve_read_model_id,
     resolve_surface_read_model,
     resolve_surface_read_model_names,
     resolve_surface_read_models,
@@ -40,9 +39,6 @@ class TestReadModelRegistry:
         for read_model_id, entry in READ_MODEL_REGISTRY.items():
             assert entry.read_model_id == read_model_id
             assert entry.surfaces
-            assert resolve_read_model_id(read_model_id) == read_model_id
-            for alias in entry.aliases:
-                assert resolve_read_model_id(alias) == read_model_id
 
     def test_registry_covers_all_configured_api_read_models(self) -> None:
         api_configs = (
@@ -96,15 +92,6 @@ class TestReadModelRegistry:
 
         assert set(enabled) == {"relays"}
 
-    def test_enabled_read_models_accept_legacy_enabled_names(self) -> None:
-        enabled = enabled_read_models_for_surface(
-            "api",
-            available_catalog_names={"relay", "event"},
-            enabled_names={"relay", "metadata"},
-        )
-
-        assert set(enabled) == {"relays"}
-
     def test_resolve_surface_read_models_filters_disabled_and_missing_catalog_entries(self) -> None:
         resolved = resolve_surface_read_models(
             "api",
@@ -130,23 +117,10 @@ class TestReadModelRegistry:
 
         assert resolved == ["events", "relays"]
 
-    def test_resolve_surface_read_model_accepts_legacy_public_name(self) -> None:
-        resolved = resolve_surface_read_model(
-            "dvm",
-            name="relay",
-            policies={"relays": ReadModelConfig(enabled=True)},
-            available_catalog_names={"relay"},
-        )
-
-        assert resolved is not None
-        canonical_name, entry = resolved
-        assert canonical_name == "relays"
-        assert entry.read_model_id == "relays"
-
     def test_resolve_surface_read_model_filters_out_missing_catalog_entries(self) -> None:
         resolved = resolve_surface_read_model(
             "dvm",
-            name="relay",
+            name="relays",
             policies={"relays": ReadModelConfig(enabled=True)},
             available_catalog_names={"event"},
         )
@@ -232,7 +206,6 @@ class TestReadModelRegistry:
         assert summary == {
             "id": "relays",
             "path": "/v1/relays",
-            "legacy_aliases": ["relay"],
             "field_count": 2,
             "supports_identity_lookup": True,
             "default_pagination_mode": "cursor",
@@ -255,7 +228,6 @@ class TestReadModelRegistry:
         assert detail == {
             "id": "relay-stats",
             "path": "/v1/relay-stats",
-            "legacy_aliases": ["relay_stats"],
             "fields": [{"name": "url", "type": "text", "nullable": False}],
             "identity_fields": [],
             "pagination": {
@@ -308,7 +280,7 @@ class TestReadModelSurface:
         enabled = self._surface(policies={"relays": ReadModelConfig(enabled=True)})
 
         assert disabled.is_enabled("relays") is False
-        assert enabled.is_enabled("relay") is True
+        assert enabled.is_enabled("relays") is True
         assert enabled.is_enabled("service_state") is False
 
     def test_available_and_enabled_names_follow_catalog_and_policy(self) -> None:
@@ -324,21 +296,6 @@ class TestReadModelSurface:
 
         assert surface.available_catalog_names() == {"relay", "event"}
         assert surface.enabled_names("api") == ["relays"]
-
-    def test_resolve_accepts_legacy_alias(self) -> None:
-        catalog = Catalog()
-        catalog._tables = {"relay": MagicMock()}
-        surface = self._surface(
-            policies={"relays": ReadModelConfig(enabled=True)},
-            catalog=catalog,
-        )
-
-        resolved = surface.resolve("dvm", "relay")
-
-        assert resolved is not None
-        read_model_id, entry = resolved
-        assert read_model_id == "relays"
-        assert entry.read_model_id == "relays"
 
     async def test_query_entry_uses_catalog_context(self) -> None:
         catalog = Catalog()
@@ -401,7 +358,7 @@ class TestReadModelSurface:
         resolved = await surface.query_enabled(
             MagicMock(),
             "api",
-            "relay",
+            "relays",
             ReadModelQuery(limit=5, offset=0),
         )
 
@@ -420,7 +377,7 @@ class TestReadModelSurface:
         resolved = await surface.get_enabled_row(
             MagicMock(),
             "api",
-            "relay",
+            "relays",
             {"url": row["url"]},
         )
 
@@ -445,13 +402,12 @@ class TestReadModelSurface:
         )
 
         summaries = surface.build_summaries("api", route_prefix="/v1")
-        detail = surface.build_detail("api", "relay", route_prefix="/v1")
+        detail = surface.build_detail("api", "relays", route_prefix="/v1")
 
         assert summaries == [
             {
                 "id": "relays",
                 "path": "/v1/relays",
-                "legacy_aliases": ["relay"],
                 "field_count": 2,
                 "supports_identity_lookup": True,
                 "default_pagination_mode": "cursor",
@@ -463,7 +419,6 @@ class TestReadModelSurface:
             {
                 "id": "relays",
                 "path": "/v1/relays",
-                "legacy_aliases": ["relay"],
                 "fields": [
                     {"name": "url", "type": "text", "nullable": False},
                     {"name": "network", "type": "text", "nullable": False},
@@ -662,23 +617,15 @@ class TestReadModelQueryHelpers:
             "read_model": "relays",
         }
 
-    def test_normalize_read_model_policies_canonicalizes_legacy_names(self) -> None:
-        policies = normalize_read_model_policies(
-            {
-                "relay": ReadModelConfig(enabled=True),
-                "relay_stats": ReadModelConfig(enabled=True),
-            },
-            surface="api",
-        )
-
-        assert set(policies) == {"relays", "relay-stats"}
-
-    def test_normalize_read_model_policies_rejects_duplicate_aliases(self) -> None:
-        with pytest.raises(ValueError, match="Duplicate read model policy for relays"):
+    def test_normalize_read_model_policies_rejects_non_canonical_names(self) -> None:
+        with pytest.raises(
+            ValueError,
+            match=r"read_models contains non-public API read models: relay, relay_stats",
+        ):
             normalize_read_model_policies(
                 {
                     "relay": ReadModelConfig(enabled=True),
-                    "relays": ReadModelConfig(enabled=True),
+                    "relay_stats": ReadModelConfig(enabled=True),
                 },
                 surface="api",
             )

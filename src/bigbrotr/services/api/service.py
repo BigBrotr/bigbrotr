@@ -337,8 +337,7 @@ class Api(BaseService[ApiConfig]):
                 }
             )
 
-        for public_id in read_model.all_public_ids:
-            app.get(f"{self._config.route_prefix}/{public_id}")(list_rows)
+        app.get(f"{self._config.route_prefix}/{read_model_id}")(list_rows)
 
         # PK-based detail route (only for read models with a primary key)
         if not pk_cols:
@@ -371,8 +370,7 @@ class Api(BaseService[ApiConfig]):
                 return JSONResponse({"error": "not found"}, status_code=404)
             return JSONResponse({"data": row})
 
-        for public_id in read_model.all_public_ids:
-            app.get(f"{self._config.route_prefix}/{public_id}/{pk_path}")(get_row)
+        app.get(f"{self._config.route_prefix}/{read_model_id}/{pk_path}")(get_row)
 
     # ── Server lifecycle ──────────────────────────────────────────
 

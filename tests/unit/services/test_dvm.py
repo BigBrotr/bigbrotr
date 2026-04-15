@@ -220,12 +220,15 @@ class TestDvmConfig:
         assert config.read_models["relays"].price == 1000
         assert config.read_models["relays"].enabled is True
 
-    def test_read_models_alias_accepted(self) -> None:
-        config = DvmConfig(
-            relays=["wss://relay.example.com"],
-            read_models={"relay": ReadModelConfig(enabled=True, price=1000)},
-        )
-        assert config.read_models["relays"].price == 1000
+    def test_read_models_require_canonical_names(self) -> None:
+        with pytest.raises(
+            ValueError,
+            match=r"read_models contains non-public DVM read models: relay",
+        ):
+            DvmConfig(
+                relays=["wss://relay.example.com"],
+                read_models={"relay": ReadModelConfig(enabled=True, price=1000)},
+            )
 
     def test_tables_key_rejected(self) -> None:
         with pytest.raises(ValueError, match="Use read_models instead of tables"):
@@ -303,14 +306,6 @@ class TestDvmReadModelAccessPolicy:
     def test_enabled_in_config(self, dvm_service: Dvm) -> None:
         assert dvm_service._is_read_model_enabled("relays") is True
 
-    def test_resolve_enabled_read_model_accepts_legacy_alias(self, dvm_service: Dvm) -> None:
-        resolved = dvm_service._resolve_enabled_read_model("relay")
-
-        assert resolved is not None
-        read_model_id, read_model = resolved
-        assert read_model_id == "relays"
-        assert read_model.read_model_id == "relays"
-
     def test_not_in_config_disabled(self, dvm_service: Dvm) -> None:
         assert dvm_service._is_read_model_enabled("service_state") is False
 
@@ -339,9 +334,13 @@ class TestDvmReadModelAccessPolicy:
 
 
 class TestPrepareJobRequest:
-    def test_accepts_legacy_alias(self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog) -> None:
+    def test_accepts_canonical_read_model(
+        self,
+        dvm_config: DvmConfig,
+        sample_dvm_catalog: Catalog,
+    ) -> None:
         prepared = prepare_job_request(
-            "relay",
+            "relays",
             {"limit": "5"},
             context=JobPreparationContext(
                 policies=dvm_config.read_models,
@@ -500,7 +499,7 @@ class TestDvmLifecycle:
             interval=60.0,
             relays=["wss://relay.example.com"],
             announce=False,
-            read_models={"relay": ReadModelConfig(enabled=True)},
+            read_models={"relays": ReadModelConfig(enabled=True)},
         )
         service = Dvm(brotr=mock_brotr, config=config)
         service._read_models.catalog = Catalog()
