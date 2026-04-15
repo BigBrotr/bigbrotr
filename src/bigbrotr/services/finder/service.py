@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 import aiohttp
@@ -124,6 +125,15 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         active_urls = [s.url for s in self._config.api.sources]
         removed += await delete_stale_api_checkpoints(self._brotr, active_urls)
         return removed
+
+    @dataclass(frozen=True, slots=True)
+    class EventScanPlan:
+        """Computed inputs for one event-discovery cycle."""
+
+        relay_count: int
+        batch_size: int
+        page_size: int
+        phase_start: float
 
     async def find(self) -> int:
         """Discover relay URLs from all configured sources.
@@ -262,39 +272,50 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         if not self._config.events.enabled:
             return 0
 
-        relay_count = await count_relays_to_find(self._brotr)
-        if relay_count == 0:
+        plan = await self._build_event_scan_plan()
+        if plan is None:
             self._logger.debug("no_relays_to_scan")
             return 0
 
         self._event_semaphore = asyncio.Semaphore(self._config.events.parallel_relays)
-        self._phase_start = time.monotonic()
+        self._phase_start = plan.phase_start
 
         total_found = 0
         buffer: list[Relay] = []
         pending_cursors: dict[str, FinderCursor] = {}
-        batch_size = self._config.events.batch_size
 
         self.set_gauge("relays_seen", 0)
         self.set_gauge("rows_seen", 0)
         self.set_gauge("candidates_found_from_events", 0)
 
-        self._logger.info("scan_started", relay_count=relay_count)
+        self._logger.info("scan_started", relay_count=plan.relay_count)
 
-        page_size = max(self._config.events.batch_size, self._config.events.parallel_relays)
-
-        async for cursors in iter_cursors_to_find_pages(self._brotr, page_size=page_size):
+        async for cursors in iter_cursors_to_find_pages(self._brotr, page_size=plan.page_size):
             total_found += await self._scan_event_cursor_page(
                 cursors,
                 buffer,
                 pending_cursors,
-                batch_size=batch_size,
+                batch_size=plan.batch_size,
             )
 
         total_found += await self._flush_event_scan_batch(buffer, pending_cursors)
 
         self._logger.info("scan_completed", found=total_found)
         return total_found
+
+    async def _build_event_scan_plan(self) -> EventScanPlan | None:
+        """Compute the batching budget and progress totals for one event scan cycle."""
+        relay_count = await count_relays_to_find(self._brotr)
+        if relay_count == 0:
+            return None
+
+        batch_size = self._config.events.batch_size
+        return self.EventScanPlan(
+            relay_count=relay_count,
+            batch_size=batch_size,
+            page_size=max(batch_size, self._config.events.parallel_relays),
+            phase_start=time.monotonic(),
+        )
 
     async def _scan_event_cursor_page(
         self,

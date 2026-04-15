@@ -1473,6 +1473,47 @@ class TestFinderFindFromEvents:
         assert result == 0
         finder.set_gauge.assert_not_called()
 
+    async def test_build_event_scan_plan_returns_none_when_no_relays(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        finder = Finder(brotr=mock_brotr)
+
+        with patch(
+            "bigbrotr.services.finder.service.count_relays_to_find",
+            new_callable=AsyncMock,
+            return_value=0,
+        ):
+            plan = await finder._build_event_scan_plan()
+
+        assert plan is None
+
+    async def test_build_event_scan_plan_computes_batching_budget(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        finder = Finder(
+            brotr=mock_brotr,
+            config=FinderConfig(events=EventsConfig(batch_size=250, parallel_relays=80)),
+        )
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.count_relays_to_find",
+                new_callable=AsyncMock,
+                return_value=17,
+            ) as mock_count,
+            patch("bigbrotr.services.finder.service.time.monotonic", return_value=123.0),
+        ):
+            plan = await finder._build_event_scan_plan()
+
+        assert plan is not None
+        assert plan.relay_count == 17
+        assert plan.batch_size == 250
+        assert plan.page_size == 250
+        assert plan.phase_start == 123.0
+        mock_count.assert_awaited_once_with(mock_brotr)
+
     async def test_empty_database_returns_zero(self, mock_brotr: Brotr) -> None:
         finder = Finder(brotr=mock_brotr)
         with patch(
