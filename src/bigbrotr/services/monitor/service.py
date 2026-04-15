@@ -133,7 +133,7 @@ from .utils import (
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, AsyncIterator
 
     from nostr_sdk import Keys
 
@@ -487,28 +487,49 @@ class Monitor(
         progress: MonitorProgress,
     ) -> MonitorProgress:
         """Process all eligible relay pages for one monitor cycle."""
-        async for relays in iter_relays_to_monitor_pages(
+        async for relays in self._iter_monitor_pages(plan):
+            if not self.is_running:
+                break
+
+            progress = await self._process_monitor_page(
+                relays,
+                list(plan.networks),
+                progress,
+            )
+
+        return progress
+
+    def _iter_monitor_pages(
+        self,
+        plan: MonitorCyclePlan,
+    ) -> AsyncIterator[list[Relay]]:
+        """Yield relay pages selected for one monitor cycle."""
+        return iter_relays_to_monitor_pages(
             self._brotr,
             plan.monitored_before,
             list(plan.networks),
             page_size=plan.chunk_size,
             max_relays=plan.max_relays,
-        ):
-            if not self.is_running:
-                break
+        )
 
-            chunk_outcome = await self._monitor_chunk(relays, list(plan.networks))
-            await self._persist_chunk_outcome(chunk_outcome, checked_at=int(time.time()))
+    async def _process_monitor_page(
+        self,
+        relays: list[Relay],
+        networks: list[NetworkType],
+        progress: MonitorProgress,
+    ) -> MonitorProgress:
+        """Process one relay page and return updated cycle progress."""
+        chunk_outcome = await self._monitor_chunk(relays, networks)
+        await self._persist_chunk_outcome(chunk_outcome, checked_at=int(time.time()))
 
-            progress = progress.advance(chunk_outcome)
-            self._log_chunk_outcome(
-                chunk_outcome,
-                total=progress.total,
-                succeeded=progress.succeeded,
-                failed=progress.failed,
-            )
-
-        return progress
+        next_progress = progress.advance(chunk_outcome)
+        self._log_chunk_outcome(
+            chunk_outcome,
+            total=next_progress.total,
+            succeeded=next_progress.succeeded,
+            failed=next_progress.failed,
+        )
+        return next_progress
 
     async def _persist_chunk_outcome(
         self,

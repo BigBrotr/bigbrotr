@@ -151,6 +151,8 @@ class _MonitorStub:
     _open_cycle_resources = Monitor._open_cycle_resources
     _close_cycle_resources = Monitor._close_cycle_resources
     _run_cycle_operations = Monitor._run_cycle_operations
+    _iter_monitor_pages = Monitor._iter_monitor_pages
+    _process_monitor_page = Monitor._process_monitor_page
     publish_announcement = Monitor.publish_announcement
     publish_profile = Monitor.publish_profile
     publish_relay_list = Monitor.publish_relay_list
@@ -1825,6 +1827,71 @@ class TestMonitorRun:
             max_relays=None,
         )
         mock_chunk.assert_awaited_once()
+        mock_persist.assert_awaited_once()
+        mock_log.assert_called_once_with(outcome, total=4, succeeded=1, failed=0)
+
+    @patch(
+        "bigbrotr.services.monitor.service.iter_relays_to_monitor_pages",
+        return_value=_mock_pages([Relay("wss://relay.example.com")]),
+    )
+    async def test_iter_monitor_pages_uses_cycle_plan_values(
+        self,
+        mock_iter_pages: MagicMock,
+        mock_brotr: Brotr,
+    ) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        plan = MonitorCyclePlan(
+            networks=(NetworkType.CLEARNET,),
+            monitored_before=123,
+            max_relays=7,
+            total=4,
+            chunk_size=2,
+        )
+
+        pages = [page async for page in monitor._iter_monitor_pages(plan)]
+
+        assert len(pages) == 1
+        mock_iter_pages.assert_called_once_with(
+            mock_brotr,
+            123,
+            [NetworkType.CLEARNET],
+            page_size=2,
+            max_relays=7,
+        )
+
+    async def test_process_monitor_page_advances_progress(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        relay = Relay("wss://relay.example.com")
+        outcome = MonitorChunkOutcome(
+            successful=((relay, _make_check_result()),),
+            failed=(),
+        )
+
+        with (
+            patch.object(
+                monitor,
+                "_monitor_chunk",
+                new_callable=AsyncMock,
+                return_value=outcome,
+            ) as mock_chunk,
+            patch.object(
+                monitor,
+                "_persist_chunk_outcome",
+                new_callable=AsyncMock,
+            ) as mock_persist,
+            patch.object(monitor, "_log_chunk_outcome") as mock_log,
+        ):
+            progress = await monitor._process_monitor_page(
+                [relay],
+                [NetworkType.CLEARNET],
+                MonitorProgress(total=4),
+            )
+
+        assert progress == MonitorProgress(total=4, succeeded=1, failed=0)
+        mock_chunk.assert_awaited_once_with([relay], [NetworkType.CLEARNET])
         mock_persist.assert_awaited_once()
         mock_log.assert_called_once_with(outcome, total=4, succeeded=1, failed=0)
 
