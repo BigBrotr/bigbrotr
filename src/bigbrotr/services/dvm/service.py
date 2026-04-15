@@ -479,7 +479,7 @@ class Dvm(BaseService[DvmConfig]):
     def _is_read_model_enabled(self, name: str) -> bool:
         return self._read_models.is_enabled(name)
 
-    def _resolve_enabled_read_model(self, name: str) -> tuple[str, ReadModelEntry] | None:
+    def _resolve_enabled_read_model(self, name: str) -> ReadModelEntry | None:
         """Resolve one DVM read-model name to its enabled registered entry."""
         return self._read_models.resolve("dvm", name)
 

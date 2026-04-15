@@ -345,7 +345,7 @@ class TestReadModelSurface:
             {"url": row["url"]},
         )
 
-    async def test_query_enabled_returns_canonical_name_and_result(self) -> None:
+    async def test_query_enabled_returns_result(self) -> None:
         catalog = Catalog()
         catalog._tables = {"relay": MagicMock()}
         result = QueryResult(rows=[], total=None, limit=5, offset=0)
@@ -362,9 +362,9 @@ class TestReadModelSurface:
             ReadModelQuery(limit=5, offset=0),
         )
 
-        assert resolved == ("relays", result)
+        assert resolved == result
 
-    async def test_get_enabled_row_returns_canonical_name_and_row(self) -> None:
+    async def test_get_enabled_row_returns_row(self) -> None:
         catalog = Catalog()
         catalog._tables = {"relay": MagicMock()}
         row = {"url": "wss://relay.example.com"}
@@ -381,7 +381,7 @@ class TestReadModelSurface:
             {"url": row["url"]},
         )
 
-        assert resolved == ("relays", row)
+        assert resolved == row
 
     def test_build_summaries_and_detail_use_enabled_surface(self) -> None:
         catalog = Catalog()
@@ -414,26 +414,23 @@ class TestReadModelSurface:
                 "supports_cursor_pagination": True,
             }
         ]
-        assert detail == (
-            "relays",
-            {
-                "id": "relays",
-                "path": "/v1/relays",
-                "fields": [
-                    {"name": "url", "type": "text", "nullable": False},
-                    {"name": "network", "type": "text", "nullable": False},
-                ],
-                "identity_fields": ["url"],
-                "pagination": {
-                    "default_mode": "cursor",
-                    "supports_cursor": True,
-                    "supports_offset": True,
-                    "supports_total_opt_in": True,
-                    "cursor_param": "cursor",
-                    "meta_cursor_field": "next_cursor",
-                },
+        assert detail == {
+            "id": "relays",
+            "path": "/v1/relays",
+            "fields": [
+                {"name": "url", "type": "text", "nullable": False},
+                {"name": "network", "type": "text", "nullable": False},
+            ],
+            "identity_fields": ["url"],
+            "pagination": {
+                "default_mode": "cursor",
+                "supports_cursor": True,
+                "supports_offset": True,
+                "supports_total_opt_in": True,
+                "cursor_param": "cursor",
+                "meta_cursor_field": "next_cursor",
             },
-        )
+        }
 
 
 class TestReadModelQueryHelpers:

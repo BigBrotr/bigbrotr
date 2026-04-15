@@ -275,17 +275,16 @@ class Api(BaseService[ApiConfig]):
 
         @app.get(f"{prefix}/read-models/{{read_model_id}}")
         async def get_read_model(read_model_id: str) -> JSONResponse:
-            resolved = self._read_models.build_detail(
+            detail = self._read_models.build_detail(
                 "api",
                 read_model_id,
                 route_prefix=self._config.route_prefix,
             )
-            if resolved is None:
+            if detail is None:
                 return JSONResponse(
                     {"error": f"read model not found: {read_model_id}"},
                     status_code=404,
                 )
-            _canonical_id, detail = resolved
             return JSONResponse({"data": detail})
 
     def _add_read_model_data_routes(self, app: FastAPI) -> None:

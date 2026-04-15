@@ -139,7 +139,8 @@ def prepare_job_request(
             error_message=f"Invalid or disabled read model: {requested_read_model_id}"
         )
 
-    read_model_id, read_model = resolved_read_model
+    read_model = resolved_read_model
+    read_model_id = read_model.read_model_id
     price = configured_read_model_price(read_model_id, policies=context.policies)
     raw_bid = params.get("bid", 0)
     bid = raw_bid if isinstance(raw_bid, int) else 0

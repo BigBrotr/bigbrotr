@@ -225,7 +225,7 @@ class ReadModelSurface:
             available_catalog_names=self.available_catalog_names(),
         )
 
-    def resolve(self, surface: ReadSurface, name: str) -> tuple[str, ReadModelEntry] | None:
+    def resolve(self, surface: ReadSurface, name: str) -> ReadModelEntry | None:
         """Resolve one public read-model name to an enabled entry for one surface."""
         return resolve_surface_read_model(
             surface,
@@ -258,13 +258,12 @@ class ReadModelSurface:
         surface: ReadSurface,
         name: str,
         request: ReadModelQuery,
-    ) -> tuple[str, QueryResult] | None:
+    ) -> QueryResult | None:
         """Resolve and execute one enabled public read model for a surface."""
-        resolved = self.resolve(surface, name)
-        if resolved is None:
+        read_model = self.resolve(surface, name)
+        if read_model is None:
             return None
-        read_model_id, read_model = resolved
-        return read_model_id, await self.query_entry(brotr, read_model, request)
+        return await self.query_entry(brotr, read_model, request)
 
     async def get_enabled_row(
         self,
@@ -272,13 +271,12 @@ class ReadModelSurface:
         surface: ReadSurface,
         name: str,
         pk_values: dict[str, str],
-    ) -> tuple[str, dict[str, Any] | None] | None:
+    ) -> dict[str, Any] | None:
         """Resolve and fetch one row from an enabled public read model for a surface."""
-        resolved = self.resolve(surface, name)
-        if resolved is None:
+        read_model = self.resolve(surface, name)
+        if read_model is None:
             return None
-        read_model_id, read_model = resolved
-        return read_model_id, await self.get_entry_by_pk(brotr, read_model, pk_values)
+        return await self.get_entry_by_pk(brotr, read_model, pk_values)
 
     def build_summaries(
         self,
@@ -298,16 +296,12 @@ class ReadModelSurface:
         name: str,
         *,
         route_prefix: str,
-    ) -> tuple[str, dict[str, Any]] | None:
+    ) -> dict[str, Any] | None:
         """Build the discovery detail payload for one enabled public read model."""
-        resolved = self.resolve(surface, name)
-        if resolved is None:
+        read_model = self.resolve(surface, name)
+        if read_model is None:
             return None
-        read_model_id, read_model = resolved
-        return (
-            read_model_id,
-            read_model.detail(catalog=self._catalog, route_prefix=route_prefix),
-        )
+        return read_model.detail(catalog=self._catalog, route_prefix=route_prefix)
 
 
 @dataclass(frozen=True, slots=True)
@@ -522,16 +516,13 @@ def resolve_surface_read_model(
     name: str,
     policies: Mapping[str, ReadModelConfig],
     available_catalog_names: set[str],
-) -> tuple[str, ReadModelEntry] | None:
+) -> ReadModelEntry | None:
     """Resolve one public read-model name to an enabled, discoverable entry."""
-    read_model = resolve_surface_read_models(
+    return resolve_surface_read_models(
         surface,
         policies=policies,
         available_catalog_names=available_catalog_names,
     ).get(name)
-    if read_model is None:
-        return None
-    return name, read_model
 
 
 def resolve_surface_read_model_names(
