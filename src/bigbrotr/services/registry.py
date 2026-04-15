@@ -31,17 +31,11 @@ class ServiceEntry(NamedTuple):
     config_path: Path
 
 
-def _service_entry(service_class: type[BaseService[Any]]) -> tuple[str, ServiceEntry]:
-    """Build a registry entry from a built-in service class."""
-    service_name = str(service_class.SERVICE_NAME)
-    return service_name, ServiceEntry(
+SERVICE_REGISTRY: dict[str, ServiceEntry] = {
+    str(service_class.SERVICE_NAME): ServiceEntry(
         service_class,
-        CONFIG_BASE / "services" / f"{service_name}.yaml",
+        CONFIG_BASE / "services" / f"{service_class.SERVICE_NAME}.yaml",
     )
-
-
-SERVICE_REGISTRY: dict[str, ServiceEntry] = dict(
-    _service_entry(service_class)
     for service_class in (
         Seeder,
         Finder,
@@ -54,4 +48,4 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = dict(
         Dvm,
         Assertor,
     )
-)
+}
