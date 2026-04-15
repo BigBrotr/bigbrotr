@@ -208,7 +208,7 @@ class Dvm(BaseService[DvmConfig]):
             self._client = None
             raise
 
-        self._set_read_model_exposure_metrics(len(self._enabled_read_model_names()))
+        self.set_gauge("read_models_exposed", len(self._enabled_read_model_names()))
 
         return self
 
@@ -460,7 +460,7 @@ class Dvm(BaseService[DvmConfig]):
         read_models_exposed = len(self._enabled_read_model_names())
         self.inc_counter("requests_total", received)
         self.inc_counter("requests_failed", failed)
-        self._set_read_model_exposure_metrics(read_models_exposed)
+        self.set_gauge("read_models_exposed", read_models_exposed)
         self._logger.info(
             "cycle_stats",
             jobs_received=received,
@@ -475,10 +475,6 @@ class Dvm(BaseService[DvmConfig]):
     def _enabled_read_model_names(self) -> list[str]:
         """Return enabled DVM read models that are present in the discovered catalog."""
         return self._read_models.enabled_names("dvm")
-
-    def _set_read_model_exposure_metrics(self, count: int) -> None:
-        """Publish the exposure gauge for public read models."""
-        self.set_gauge("read_models_exposed", count)
 
     # ── Event fetching ────────────────────────────────────────────
 
