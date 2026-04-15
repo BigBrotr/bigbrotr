@@ -357,24 +357,3 @@ class Nip66(BaseNip):
             nip66.http is not None,
         )
         return nip66
-
-    @classmethod
-    async def create(  # type: ignore[override]  # noqa: PLR0913  # NIP-specific params widen base signature
-        cls,
-        relay: Relay,
-        *,
-        timeout: float | None = None,  # noqa: ASYNC109
-        proxy_url: str | None = None,
-        selection: Nip66Selection | None = None,
-        options: Nip66Options | None = None,
-        deps: Nip66Dependencies | None = None,
-    ) -> Nip66:
-        """Compatibility alias for the semantic ``probe()`` entrypoint."""
-        return await cls.probe(
-            relay,
-            timeout=timeout,
-            proxy_url=proxy_url,
-            selection=selection,
-            options=options,
-            deps=deps,
-        )

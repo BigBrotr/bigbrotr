@@ -230,26 +230,3 @@ class Nip11(BaseNip):
             info is not None and info.succeeded if info else False,
         )
         return cls(relay=relay, info=info)
-
-    @classmethod
-    async def create(  # type: ignore[override]  # noqa: PLR0913  # NIP-specific params widen base signature
-        cls,
-        relay: Relay,
-        *,
-        timeout: float | None = None,  # noqa: ASYNC109
-        proxy_url: str | None = None,
-        session: aiohttp.ClientSession | None = None,
-        selection: Nip11Selection | None = None,
-        options: Nip11Options | None = None,
-        deps: Nip11Dependencies | None = None,
-    ) -> Nip11:
-        """Compatibility alias for the semantic ``fetch()`` entrypoint."""
-        return await cls.fetch(
-            relay,
-            timeout=timeout,
-            proxy_url=proxy_url,
-            session=session,
-            selection=selection,
-            options=options,
-            deps=deps,
-        )

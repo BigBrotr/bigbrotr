@@ -23,9 +23,9 @@ Attributes:
         with the appropriate [MetadataType][bigbrotr.models.metadata.MetadataType].
     BaseData, BaseLogs, BaseNipMetadata: Shared abstract base classes inherited by
         all NIP data, log, and metadata models.
-    BaseNip: Abstract base class for top-level NIP models with ``relay``,
-        ``generated_at``, semantic ``fetch()`` / ``probe()`` entrypoints,
-        and a compatibility ``create()`` alias.
+    BaseNip: Abstract base class for top-level NIP models with ``relay``
+        and ``generated_at`` plus semantic ``fetch()`` / ``probe()``
+        entrypoints on concrete subclasses.
     BaseNipSelection: Base for selection models controlling which metadata types
         to retrieve.
     BaseNipOptions: Base for options models controlling how metadata is retrieved

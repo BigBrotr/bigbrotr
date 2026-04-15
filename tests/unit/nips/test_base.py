@@ -678,10 +678,6 @@ class TestBaseNip:
         """BaseNip declares to_relay_metadata_tuple as abstract."""
         assert "to_relay_metadata_tuple" in BaseNip.__abstractmethods__
 
-    def test_has_abstract_create(self):
-        """BaseNip declares create as abstract."""
-        assert "create" in BaseNip.__abstractmethods__
-
 
 # =============================================================================
 # Nip11 Inheritance Tests

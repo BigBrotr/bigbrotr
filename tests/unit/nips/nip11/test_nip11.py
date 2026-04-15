@@ -1,4 +1,4 @@
-"""Unit tests for Nip11 class, Nip11.create() factory, and RelayNip11MetadataTuple."""
+"""Unit tests for Nip11 class, Nip11.fetch(), and RelayNip11MetadataTuple."""
 
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -33,7 +33,7 @@ class TestNip11Construction:
         relay: Relay,
         info_metadata: Nip11InfoMetadata,
     ):
-        """Constructor creates Nip11 with info."""
+        """Constructor builds Nip11 with info."""
         nip11 = Nip11(
             relay=relay,
             info=info_metadata,
@@ -255,15 +255,15 @@ class TestRelayNip11MetadataTuple:
 
 
 # =============================================================================
-# Nip11.create() Tests - Success Scenarios
+# Nip11.fetch() Tests - Success Scenarios
 # =============================================================================
 
 
-class TestNip11CreateSuccess:
-    """Test Nip11.create() success scenarios."""
+class TestNip11FetchSuccess:
+    """Test Nip11.fetch() success scenarios."""
 
-    async def test_create_success(self, relay: Relay, mock_session_factory):
-        """Successful create returns Nip11 with data."""
+    async def test_fetch_success(self, relay: Relay, mock_session_factory):
+        """Successful fetch returns Nip11 with data."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/nostr+json"}
@@ -274,7 +274,7 @@ class TestNip11CreateSuccess:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(relay)
+            result = await Nip11.fetch(relay)
 
         assert isinstance(result, Nip11)
         assert result.relay == relay
@@ -282,13 +282,13 @@ class TestNip11CreateSuccess:
         assert result.info.data.name == "Test Relay"
         assert result.generated_at > 0
 
-    async def test_create_with_complete_data(
+    async def test_fetch_with_complete_data(
         self,
         relay: Relay,
         complete_nip11_data: dict[str, Any],
         mock_session_factory,
     ):
-        """Create parses complete NIP-11 data."""
+        """Fetch parses complete NIP-11 data."""
         import json
 
         response = AsyncMock()
@@ -303,46 +303,23 @@ class TestNip11CreateSuccess:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(relay)
+            result = await Nip11.fetch(relay)
 
         assert result.info.logs.success is True
         assert result.info.data.name == "Test Relay"
         assert result.info.data.supported_nips == [1, 11, 42, 65]
         assert result.info.data.limitation.max_message_length == 65535
 
-    async def test_create_delegates_to_fetch(self, relay: Relay) -> None:
-        """create() is a compatibility alias for fetch()."""
-        expected = Nip11(relay=relay)
-
-        with patch.object(
-            Nip11,
-            "fetch",
-            new_callable=AsyncMock,
-            return_value=expected,
-        ) as mock_fetch:
-            result = await Nip11.create(relay)
-
-        mock_fetch.assert_awaited_once_with(
-            relay,
-            timeout=None,
-            proxy_url=None,
-            session=None,
-            selection=None,
-            options=None,
-            deps=None,
-        )
-        assert result is expected
-
 
 # =============================================================================
-# Nip11.create() Tests - Error Handling
+# Nip11.fetch() Tests - Error Handling
 # =============================================================================
 
 
-class TestNip11CreateErrors:
-    """Test Nip11.create() error handling."""
+class TestNip11FetchErrors:
+    """Test Nip11.fetch() error handling."""
 
-    async def test_create_404_returns_failure(self, relay: Relay, mock_session_factory):
+    async def test_fetch_404_returns_failure(self, relay: Relay, mock_session_factory):
         """HTTP 404 returns Nip11 with success=False."""
         response = AsyncMock()
         response.status = 404
@@ -352,13 +329,13 @@ class TestNip11CreateErrors:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(relay)
+            result = await Nip11.fetch(relay)
 
         assert isinstance(result, Nip11)
         assert result.info.logs.success is False
         assert "404" in result.info.logs.reason
 
-    async def test_create_connection_error_returns_failure(self, relay: Relay):
+    async def test_fetch_connection_error_returns_failure(self, relay: Relay):
         """Connection error returns Nip11 with success=False."""
         session = MagicMock()
         session.get = MagicMock(side_effect=ConnectionError("Connection refused"))
@@ -366,13 +343,13 @@ class TestNip11CreateErrors:
         session.__aexit__ = AsyncMock(return_value=None)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(relay)
+            result = await Nip11.fetch(relay)
 
         assert isinstance(result, Nip11)
         assert result.info.logs.success is False
         assert "Connection refused" in result.info.logs.reason
 
-    async def test_create_invalid_content_type(self, relay: Relay, mock_session_factory):
+    async def test_fetch_invalid_content_type(self, relay: Relay, mock_session_factory):
         """Invalid Content-Type returns Nip11 with success=False."""
         response = AsyncMock()
         response.status = 200
@@ -384,12 +361,12 @@ class TestNip11CreateErrors:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(relay)
+            result = await Nip11.fetch(relay)
 
         assert result.info.logs.success is False
         assert "Content-Type" in result.info.logs.reason
 
-    async def test_create_response_too_large(self, relay: Relay, mock_session_factory):
+    async def test_fetch_response_too_large(self, relay: Relay, mock_session_factory):
         """Response exceeding max_size returns failure."""
         response = AsyncMock()
         response.status = 200
@@ -401,12 +378,12 @@ class TestNip11CreateErrors:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(relay, options=Nip11Options(max_size=1000))
+            result = await Nip11.fetch(relay, options=Nip11Options(max_size=1000))
 
         assert result.info.logs.success is False
         assert "too large" in result.info.logs.reason
 
-    async def test_create_invalid_json(self, relay: Relay, mock_session_factory):
+    async def test_fetch_invalid_json(self, relay: Relay, mock_session_factory):
         """Invalid JSON returns failure."""
         response = AsyncMock()
         response.status = 200
@@ -418,11 +395,11 @@ class TestNip11CreateErrors:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(relay)
+            result = await Nip11.fetch(relay)
 
         assert result.info.logs.success is False
 
-    async def test_create_non_dict_json(self, relay: Relay, mock_session_factory):
+    async def test_fetch_non_dict_json(self, relay: Relay, mock_session_factory):
         """JSON that's not a dict returns failure."""
         response = AsyncMock()
         response.status = 200
@@ -434,21 +411,21 @@ class TestNip11CreateErrors:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(relay)
+            result = await Nip11.fetch(relay)
 
         assert result.info.logs.success is False
         assert "dict" in result.info.logs.reason
 
 
 # =============================================================================
-# Nip11.create() Tests - URL Scheme Handling
+# Nip11.fetch() Tests - URL Scheme Handling
 # =============================================================================
 
 
-class TestNip11CreateUrlScheme:
-    """Test URL scheme handling in Nip11.create()."""
+class TestNip11FetchUrlScheme:
+    """Test URL scheme handling in Nip11.fetch()."""
 
-    async def test_create_wss_uses_https(self, relay: Relay, mock_session_factory):
+    async def test_fetch_wss_uses_https(self, relay: Relay, mock_session_factory):
         """wss:// relay uses https://."""
         response = AsyncMock()
         response.status = 200
@@ -460,13 +437,13 @@ class TestNip11CreateUrlScheme:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            await Nip11.create(relay)
+            await Nip11.fetch(relay)
 
         call_args = session.get.call_args
         url = call_args[0][0]
         assert url.startswith("https://")
 
-    async def test_create_ws_uses_http(self, tor_relay: Relay, mock_session_factory):
+    async def test_fetch_ws_uses_http(self, tor_relay: Relay, mock_session_factory):
         """ws:// relay (Tor) uses http://."""
         response = AsyncMock()
         response.status = 200
@@ -478,7 +455,7 @@ class TestNip11CreateUrlScheme:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            await Nip11.create(tor_relay)
+            await Nip11.fetch(tor_relay)
 
         call_args = session.get.call_args
         url = call_args[0][0]
@@ -486,14 +463,14 @@ class TestNip11CreateUrlScheme:
 
 
 # =============================================================================
-# Nip11.create() Tests - Accept Header
+# Nip11.fetch() Tests - Accept Header
 # =============================================================================
 
 
-class TestNip11CreateAcceptHeader:
-    """Test Accept header in Nip11.create()."""
+class TestNip11FetchAcceptHeader:
+    """Test Accept header in Nip11.fetch()."""
 
-    async def test_create_sends_accept_header(self, relay: Relay, mock_session_factory):
+    async def test_fetch_sends_accept_header(self, relay: Relay, mock_session_factory):
         """Request includes Accept: application/nostr+json header."""
         response = AsyncMock()
         response.status = 200
@@ -505,7 +482,7 @@ class TestNip11CreateAcceptHeader:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            await Nip11.create(relay)
+            await Nip11.fetch(relay)
 
         call_args = session.get.call_args
         headers = call_args[1]["headers"]
@@ -513,14 +490,14 @@ class TestNip11CreateAcceptHeader:
 
 
 # =============================================================================
-# Nip11.create() Tests - Content-Type Validation
+# Nip11.fetch() Tests - Content-Type Validation
 # =============================================================================
 
 
-class TestNip11CreateContentType:
-    """Test Content-Type validation in Nip11.create()."""
+class TestNip11FetchContentType:
+    """Test Content-Type validation in Nip11.fetch()."""
 
-    async def test_create_accepts_nostr_json(self, relay: Relay, mock_session_factory):
+    async def test_fetch_accepts_nostr_json(self, relay: Relay, mock_session_factory):
         """application/nostr+json is accepted."""
         response = AsyncMock()
         response.status = 200
@@ -532,11 +509,11 @@ class TestNip11CreateContentType:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(relay)
+            result = await Nip11.fetch(relay)
 
         assert result.info.logs.success is True
 
-    async def test_create_accepts_json(self, relay: Relay, mock_session_factory):
+    async def test_fetch_accepts_json(self, relay: Relay, mock_session_factory):
         """application/json is accepted."""
         response = AsyncMock()
         response.status = 200
@@ -548,11 +525,11 @@ class TestNip11CreateContentType:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(relay)
+            result = await Nip11.fetch(relay)
 
         assert result.info.logs.success is True
 
-    async def test_create_accepts_json_with_charset(self, relay: Relay, mock_session_factory):
+    async def test_fetch_accepts_json_with_charset(self, relay: Relay, mock_session_factory):
         """application/json; charset=utf-8 is accepted."""
         response = AsyncMock()
         response.status = 200
@@ -564,20 +541,20 @@ class TestNip11CreateContentType:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(relay)
+            result = await Nip11.fetch(relay)
 
         assert result.info.logs.success is True
 
 
 # =============================================================================
-# Nip11.create() Tests - Network Types
+# Nip11.fetch() Tests - Network Types
 # =============================================================================
 
 
-class TestNip11CreateNetworkTypes:
-    """Test Nip11.create() with different network types."""
+class TestNip11FetchNetworkTypes:
+    """Test Nip11.fetch() with different network types."""
 
-    async def test_create_tor_relay(self, tor_relay: Relay, mock_session_factory):
+    async def test_fetch_tor_relay(self, tor_relay: Relay, mock_session_factory):
         """Create works with Tor relay."""
         response = AsyncMock()
         response.status = 200
@@ -589,12 +566,12 @@ class TestNip11CreateNetworkTypes:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(tor_relay)
+            result = await Nip11.fetch(tor_relay)
 
         assert result.relay == tor_relay
         assert result.info.logs.success is True
 
-    async def test_create_i2p_relay(self, i2p_relay: Relay, mock_session_factory):
+    async def test_fetch_i2p_relay(self, i2p_relay: Relay, mock_session_factory):
         """Create works with I2P relay."""
         response = AsyncMock()
         response.status = 200
@@ -606,12 +583,12 @@ class TestNip11CreateNetworkTypes:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(i2p_relay)
+            result = await Nip11.fetch(i2p_relay)
 
         assert result.relay == i2p_relay
         assert result.info.logs.success is True
 
-    async def test_create_loki_relay(self, loki_relay: Relay, mock_session_factory):
+    async def test_fetch_loki_relay(self, loki_relay: Relay, mock_session_factory):
         """Create works with Lokinet relay."""
         response = AsyncMock()
         response.status = 200
@@ -623,21 +600,21 @@ class TestNip11CreateNetworkTypes:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(loki_relay)
+            result = await Nip11.fetch(loki_relay)
 
         assert result.relay == loki_relay
         assert result.info.logs.success is True
 
 
 # =============================================================================
-# Nip11.create() Tests - Parameters
+# Nip11.fetch() Tests - Parameters
 # =============================================================================
 
 
-class TestNip11CreateParameters:
-    """Test Nip11.create() parameter handling."""
+class TestNip11FetchParameters:
+    """Test Nip11.fetch() parameter handling."""
 
-    async def test_create_custom_timeout(self, relay: Relay, mock_session_factory):
+    async def test_fetch_custom_timeout(self, relay: Relay, mock_session_factory):
         """Create with custom timeout uses specified value."""
         response = AsyncMock()
         response.status = 200
@@ -649,13 +626,13 @@ class TestNip11CreateParameters:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            await Nip11.create(relay, timeout=30.0)
+            await Nip11.fetch(relay, timeout=30.0)
 
         call_args = session.get.call_args
         timeout = call_args[1]["timeout"]
         assert timeout.total == 30.0
 
-    async def test_create_custom_max_size_via_options(self, relay: Relay, mock_session_factory):
+    async def test_fetch_custom_max_size_via_options(self, relay: Relay, mock_session_factory):
         """Create with Nip11Options max_size applies limit."""
         response = AsyncMock()
         response.status = 200
@@ -667,12 +644,12 @@ class TestNip11CreateParameters:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(relay, options=Nip11Options(max_size=1000))
+            result = await Nip11.fetch(relay, options=Nip11Options(max_size=1000))
 
         assert result.info.logs.success is False
         assert "too large" in result.info.logs.reason
 
-    async def test_create_default_timeout(self, relay: Relay, mock_session_factory):
+    async def test_fetch_default_timeout(self, relay: Relay, mock_session_factory):
         """Create without timeout uses DEFAULT_TIMEOUT."""
         response = AsyncMock()
         response.status = 200
@@ -684,7 +661,7 @@ class TestNip11CreateParameters:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            await Nip11.create(relay)
+            await Nip11.fetch(relay)
 
         call_args = session.get.call_args
         timeout = call_args[1]["timeout"]
@@ -835,16 +812,16 @@ class TestNip11Dependencies:
 
 
 # =============================================================================
-# Nip11.create() Tests - Selection
+# Nip11.fetch() Tests - Selection
 # =============================================================================
 
 
-class TestNip11CreateSelection:
-    """Test Nip11.create() with Nip11Selection."""
+class TestNip11FetchSelection:
+    """Test Nip11.fetch() with Nip11Selection."""
 
     async def test_info_disabled_returns_none(self, relay: Relay):
         """selection=Nip11Selection(info=False) returns info=None."""
-        result = await Nip11.create(relay, selection=Nip11Selection(info=False))
+        result = await Nip11.fetch(relay, selection=Nip11Selection(info=False))
         assert isinstance(result, Nip11)
         assert result.info is None
         assert result.relay == relay
@@ -861,7 +838,7 @@ class TestNip11CreateSelection:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(relay, selection=Nip11Selection(info=True))
+            result = await Nip11.fetch(relay, selection=Nip11Selection(info=True))
 
         assert result.info is not None
         assert result.info.logs.success is True
@@ -878,18 +855,18 @@ class TestNip11CreateSelection:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(relay)
+            result = await Nip11.fetch(relay)
 
         assert result.info is not None
 
 
 # =============================================================================
-# Nip11.create() Tests - Options
+# Nip11.fetch() Tests - Options
 # =============================================================================
 
 
-class TestNip11CreateOptions:
-    """Test Nip11.create() with Nip11Options."""
+class TestNip11FetchOptions:
+    """Test Nip11.fetch() with Nip11Options."""
 
     async def test_options_max_size_passed_to_execute(self, relay: Relay, mock_session_factory):
         """Nip11Options.max_size is passed to execute."""
@@ -903,7 +880,7 @@ class TestNip11CreateOptions:
         session = mock_session_factory(response)
 
         with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
-            result = await Nip11.create(relay, options=Nip11Options(max_size=1000))
+            result = await Nip11.fetch(relay, options=Nip11Options(max_size=1000))
 
         assert result.info.logs.success is False
         assert "too large" in result.info.logs.reason
@@ -918,7 +895,7 @@ class TestNip11CreateOptions:
                 data=Nip11InfoData(),
                 logs=Nip11InfoLogs(success=True),
             )
-            await Nip11.create(relay, options=Nip11Options(allow_insecure=True))
+            await Nip11.fetch(relay, options=Nip11Options(allow_insecure=True))
 
         mock_fetch.assert_called_once()
         call_kwargs = mock_fetch.call_args
@@ -934,7 +911,7 @@ class TestNip11CreateOptions:
                 data=Nip11InfoData(),
                 logs=Nip11InfoLogs(success=True),
             )
-            await Nip11.create(relay)
+            await Nip11.fetch(relay)
 
         call_kwargs = mock_fetch.call_args
         assert call_kwargs[1]["allow_insecure"] is False

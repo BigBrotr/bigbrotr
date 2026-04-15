@@ -4,7 +4,7 @@ Unit tests for models.nips.nip66.nip66 module.
 Tests:
 - Nip66 construction and validation
 - Nip66.to_relay_metadata_tuple() conversion
-- Nip66.create() async factory method
+- Nip66.probe()
 - RelayNip66MetadataTuple named tuple
 """
 
@@ -286,8 +286,8 @@ class TestNip66ToRelayMetadataTuple:
         assert result.http is None
 
 
-class TestNip66Create:
-    """Test Nip66.create() class method."""
+class TestNip66Probe:
+    """Test Nip66.probe() class method."""
 
     async def test_returns_nip66_on_success(
         self,
@@ -296,7 +296,7 @@ class TestNip66Create:
         mock_event_builder: MagicMock,
         mock_read_filter: MagicMock,
     ) -> None:
-        """Returns Nip66 instance on successful create."""
+        """Returns Nip66 instance on successful probe."""
         rtt_metadata = Nip66RttMetadata(
             data=Nip66RttData(rtt_open=100, rtt_read=150),
             logs=Nip66RttMultiPhaseLogs(open_success=True, read_success=True),
@@ -321,7 +321,7 @@ class TestNip66Create:
             patch.object(Nip66NetMetadata, "probe", new_callable=AsyncMock, return_value=None),
             patch.object(Nip66HttpMetadata, "probe", new_callable=AsyncMock, return_value=None),
         ):
-            result = await Nip66.create(relay, deps=deps)
+            result = await Nip66.probe(relay, deps=deps)
 
         assert isinstance(result, Nip66)
         assert result.rtt.data.rtt_open == 100
@@ -334,7 +334,7 @@ class TestNip66Create:
         mock_event_builder: MagicMock,
         mock_read_filter: MagicMock,
     ) -> None:
-        """All tests returning None creates Nip66 with None metadata."""
+        """All tests returning None leave Nip66 with no metadata."""
         deps = Nip66Dependencies(
             keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
         )
@@ -347,7 +347,7 @@ class TestNip66Create:
             patch.object(Nip66NetMetadata, "probe", new_callable=AsyncMock, return_value=None),
             patch.object(Nip66HttpMetadata, "probe", new_callable=AsyncMock, return_value=None),
         ):
-            result = await Nip66.create(relay, deps=deps)
+            result = await Nip66.probe(relay, deps=deps)
 
         assert isinstance(result, Nip66)
         assert result.rtt is None
@@ -373,33 +373,11 @@ class TestNip66Create:
             patch.object(Nip66SslMetadata, "probe", new_callable=AsyncMock, return_value=None),
             patch.object(Nip66HttpMetadata, "probe", new_callable=AsyncMock, return_value=None),
         ):
-            result = await Nip66.create(relay, selection=selection)
+            result = await Nip66.probe(relay, selection=selection)
 
         assert isinstance(result, Nip66)
         assert result.rtt is not None
         mock_rtt.assert_called_once()
-
-    async def test_create_delegates_to_probe(self, relay: Relay) -> None:
-        """create() is a compatibility alias for probe()."""
-        expected = Nip66(relay=relay)
-
-        with patch.object(
-            Nip66,
-            "probe",
-            new_callable=AsyncMock,
-            return_value=expected,
-        ) as mock_probe:
-            result = await Nip66.create(relay)
-
-        mock_probe.assert_awaited_once_with(
-            relay,
-            timeout=None,
-            proxy_url=None,
-            selection=None,
-            options=None,
-            deps=None,
-        )
-        assert result is expected
 
     async def test_can_skip_all_except_dns(self, relay: Relay) -> None:
         """Can skip all tests except DNS."""
@@ -412,7 +390,7 @@ class TestNip66Create:
         with patch.object(
             Nip66DnsMetadata, "probe", new_callable=AsyncMock, return_value=dns_metadata
         ):
-            result = await Nip66.create(relay, selection=selection)
+            result = await Nip66.probe(relay, selection=selection)
 
         assert isinstance(result, Nip66)
         assert result.dns.data.dns_ips == ["8.8.8.8"]
@@ -437,7 +415,7 @@ class TestNip66Create:
             patch.object(Nip66SslMetadata, "probe", new_callable=AsyncMock, return_value=None),
             patch.object(Nip66HttpMetadata, "probe", new_callable=AsyncMock, return_value=None),
         ):
-            result = await Nip66.create(relay, selection=selection)
+            result = await Nip66.probe(relay, selection=selection)
 
         assert result.geo is None  # Skipped
 
@@ -456,7 +434,7 @@ class TestNip66Create:
             patch.object(Nip66SslMetadata, "probe", new_callable=AsyncMock, return_value=None),
             patch.object(Nip66HttpMetadata, "probe", new_callable=AsyncMock, return_value=None),
         ):
-            result = await Nip66.create(relay, selection=selection)
+            result = await Nip66.probe(relay, selection=selection)
 
         assert result.net is None  # Skipped
 
@@ -475,7 +453,7 @@ class TestNip66Create:
             patch.object(Nip66SslMetadata, "probe", new_callable=AsyncMock, return_value=None),
             patch.object(Nip66HttpMetadata, "probe", new_callable=AsyncMock, return_value=None),
         ):
-            result = await Nip66.create(relay, timeout=None, selection=selection)
+            result = await Nip66.probe(relay, timeout=None, selection=selection)
 
         assert isinstance(result, Nip66)
 
@@ -505,7 +483,7 @@ class TestNip66Create:
             patch.object(Nip66NetMetadata, "probe", new_callable=AsyncMock, return_value=None),
             patch.object(Nip66HttpMetadata, "probe", new_callable=AsyncMock, return_value=None),
         ):
-            await Nip66.create(relay, deps=deps, proxy_url="socks5://localhost:9050")
+            await Nip66.probe(relay, deps=deps, proxy_url="socks5://localhost:9050")
 
         mock_rtt.assert_called_once()
         call_args = mock_rtt.call_args
@@ -522,7 +500,7 @@ class TestNip66Create:
             dns=False,
             http=False,
         )
-        result = await Nip66.create(relay, selection=selection)
+        result = await Nip66.probe(relay, selection=selection)
 
         assert isinstance(result, Nip66)
         assert result.rtt is None
@@ -552,7 +530,7 @@ class TestNip66Create:
             ),
             patch.object(Nip66HttpMetadata, "probe", new_callable=AsyncMock, return_value=None),
         ):
-            result = await Nip66.create(relay, selection=selection)
+            result = await Nip66.probe(relay, selection=selection)
 
         assert isinstance(result, Nip66)
         assert result.ssl is None  # Failed test mapped to None
@@ -581,7 +559,7 @@ class TestNip66Create:
         with patch.object(
             Nip66GeoMetadata, "probe", new_callable=AsyncMock, return_value=geo_metadata
         ) as mock_geo:
-            result = await Nip66.create(relay, selection=selection, deps=deps)
+            result = await Nip66.probe(relay, selection=selection, deps=deps)
 
         assert result.geo is not None
         assert result.geo.data.geo_country == "US"
@@ -610,7 +588,7 @@ class TestNip66Create:
         with patch.object(
             Nip66NetMetadata, "probe", new_callable=AsyncMock, return_value=net_metadata
         ) as mock_net:
-            result = await Nip66.create(relay, selection=selection, deps=deps)
+            result = await Nip66.probe(relay, selection=selection, deps=deps)
 
         assert result.net is not None
         assert result.net.data.net_ip == "93.184.216.34"
@@ -637,7 +615,7 @@ class TestNip66Create:
             ),
             pytest.raises(asyncio.CancelledError),
         ):
-            await Nip66.create(relay, selection=selection, deps=deps)
+            await Nip66.probe(relay, selection=selection, deps=deps)
 
 
 class TestRelayNip66MetadataTuple:
@@ -654,8 +632,8 @@ class TestRelayNip66MetadataTuple:
         assert "http" in fields
         assert len(fields) == 6
 
-    def test_can_create_with_all_none(self) -> None:
-        """Can create tuple with all None values."""
+    def test_can_build_tuple_with_all_none(self) -> None:
+        """Can build tuple with all None values."""
         result = RelayNip66MetadataTuple(
             rtt=None,
             ssl=None,

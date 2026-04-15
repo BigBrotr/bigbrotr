@@ -12,8 +12,7 @@ inherited by NIP-11 and NIP-66 model hierarchies:
     [BaseLogs][bigbrotr.nips.base.BaseLogs]
         Operation log with success/reason semantic validation.
     [BaseNip][bigbrotr.nips.base.BaseNip]
-        Abstract top-level NIP model with relay, generated_at, and
-        semantic entrypoints plus a compatibility ``create()`` alias.
+        Abstract top-level NIP model with relay and generated_at.
     [BaseNipSelection][bigbrotr.nips.base.BaseNipSelection]
         Base for selection models controlling which metadata types
         to retrieve.
@@ -341,9 +340,8 @@ class BaseNip(BaseModel, ABC):
       [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] records.
     * A semantic async factory such as ``fetch()`` or ``probe()`` that
       performs I/O and returns a populated instance. Concrete subclasses
-      should treat that semantic entrypoint as the primary contract.
-    * ``create()`` — compatibility alias retained for generic call sites and
-      backwards compatibility. Must **never raise exceptions** — errors are
+      should treat that semantic entrypoint as the public contract. These
+      semantic entrypoints must **never raise exceptions** — errors are
       captured in the ``succeeded`` / ``failure_reason`` properties of each
       metadata container.
 
@@ -377,8 +375,3 @@ class BaseNip(BaseModel, ABC):
     @abstractmethod
     def to_relay_metadata_tuple(self) -> tuple[Any, ...]:
         """Convert to a database-ready tuple of RelayMetadata records."""
-
-    @classmethod
-    @abstractmethod
-    async def create(cls, relay: Relay, **kwargs: Any) -> Self:
-        """Compatibility factory alias. Never raises — check result properties."""
