@@ -20,10 +20,10 @@ if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.core.logger import Logger
     from bigbrotr.models import Relay
-    from bigbrotr.services.common.mixins import Clients
     from bigbrotr.utils.protocol import BroadcastClientResult
 
     from .configs import MonitorConfig
+    from .resources import RelayClients
     from .utils import CheckResult
 
 
@@ -33,7 +33,7 @@ class PublishContext:
 
     brotr: Brotr
     config: MonitorConfig
-    clients: Clients
+    clients: RelayClients
     logger: Logger
     is_due: Callable[[Brotr, str, float], Awaitable[bool]]
     broadcast: Callable[[list[EventBuilder], list[Client]], Awaitable[list[BroadcastClientResult]]]
@@ -45,7 +45,7 @@ class DiscoveryContext:
     """Dependencies for per-relay discovery publishing."""
 
     config: MonitorConfig
-    clients: Clients
+    clients: RelayClients
     logger: Logger
     broadcast: Callable[[list[EventBuilder], list[Client]], Awaitable[list[BroadcastClientResult]]]
 

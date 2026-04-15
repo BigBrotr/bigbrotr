@@ -437,7 +437,7 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 |--------|---------|
 | `queries.py` | Shared cross-service query helpers |
 | `utils.py` | Relay parsing helpers and batch insert helper |
-| `mixins.py` | `ConcurrentStreamMixin`, `NetworkSemaphoresMixin`, `GeoReaders`, `Clients` — shared concurrency and monitor support helpers |
+| `mixins.py` | `ConcurrentStreamMixin`, `NetworkSemaphoresMixin` — shared concurrency helpers |
 | `catalog.py` | Schema-driven `Catalog` for table discovery (Api, Dvm) and `CatalogError` |
 | `configs.py` | Per-network and per-table Pydantic config models |
 | `read_models.py` | Public read-model registry and `ReadModelSurface` helpers |
@@ -520,7 +520,7 @@ async for result in self._iter_concurrent(items, worker):
 
 **NetworkSemaphores** (`mixins.py`): creates one `asyncio.Semaphore` per enabled network, limiting concurrency to `max_tasks`.
 
-**GeoReaders** (`mixins.py`): lifecycle manager for GeoIP2 database readers (city + ASN), with `open()` and `close()` methods.
+**GeoReaders** (`monitor/resources.py`): lifecycle manager for GeoIP2 database readers (city + ASN), with `open()` and `close()` methods.
 
 ---
 
@@ -643,7 +643,7 @@ Services use mixins from `services/common/mixins.py` to compose shared behavior:
 - `ConcurrentStreamMixin` -- concurrent item processing with streaming results (Finder, Validator, Monitor, Synchronizer)
 - `NetworkSemaphoresMixin` -- per-network concurrency (Validator, Monitor, Synchronizer)
 - `GeoReaders` -- GeoIP database lifecycle helper owned by Monitor
-- `Clients` -- managed pool of Nostr clients for Monitor event broadcasting
+- `RelayClients` -- managed pool of Nostr clients for Monitor event broadcasting
 - `ReadModelSurface` -- read-model resolution and execution boundary (Api, Dvm)
 
 ### Content-Addressed Deduplication

@@ -17,13 +17,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import logging
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from bigbrotr.models.constants import NetworkType
 
-
-logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -32,11 +29,7 @@ R = TypeVar("R")
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Sequence
 
-    import geoip2.database
-    from nostr_sdk import Client, Keys
-
     from bigbrotr.core.logger import Logger
-    from bigbrotr.models import Relay
 
     from .configs import NetworksConfig
 
@@ -217,140 +210,3 @@ class ConcurrentStreamMixin:
                 runner.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await runner
-
-
-class GeoReaders:
-    """GeoIP database reader container for city and ASN lookups.
-
-    Manages the lifecycle of ``geoip2.database.Reader`` instances.
-    Reader initialization is offloaded to a thread via ``open()`` to
-    avoid blocking the event loop.
-
-    Attributes:
-        city: GeoLite2-City reader for geolocation lookups, or ``None``.
-        asn: GeoLite2-ASN reader for network info lookups, or ``None``.
-
-    See Also:
-        [Monitor][bigbrotr.services.monitor.Monitor]: Service that owns and
-            manages these readers directly for NIP-66 geo/net checks.
-    """
-
-    __slots__ = ("asn", "city")
-
-    def __init__(self) -> None:
-        self.city: geoip2.database.Reader | None = None
-        self.asn: geoip2.database.Reader | None = None
-
-    async def open(
-        self,
-        *,
-        city_path: str | None = None,
-        asn_path: str | None = None,
-    ) -> None:
-        """Open GeoIP readers from file paths via ``asyncio.to_thread``.
-
-        Args:
-            city_path: Path to GeoLite2-City database. ``None`` to skip.
-            asn_path: Path to GeoLite2-ASN database. ``None`` to skip.
-        """
-        import geoip2.database as geoip2_db  # noqa: PLC0415  # runtime import
-
-        if city_path:
-            self.city = await asyncio.to_thread(geoip2_db.Reader, city_path)
-        if asn_path:
-            self.asn = await asyncio.to_thread(geoip2_db.Reader, asn_path)
-
-    def close(self) -> None:
-        """Close readers and set to ``None``. Idempotent."""
-        if self.city:
-            self.city.close()
-            self.city = None
-        if self.asn:
-            self.asn.close()
-            self.asn = None
-
-
-class Clients:
-    """Lazy pool of Nostr clients for event broadcasting.
-
-    Each relay is connected on first access via ``get()`` and cached
-    for subsequent calls. Failed connections are remembered so that
-    the same relay is never retried within a cycle.
-
-    Args:
-        keys: Signing keys for event publishing and authenticated relay access.
-        networks: Network configuration for proxy URL resolution and
-            per-network connection timeouts.
-        allow_insecure: If ``True``, fall back to insecure transport
-            on SSL failure.
-
-    See Also:
-        [Monitor][bigbrotr.services.monitor.Monitor]: Service that owns this
-            relay-client pool for event publishing.
-        [connect_relay][bigbrotr.utils.protocol.connect_relay]: Used
-            internally to establish each connection.
-    """
-
-    __slots__ = ("_allow_insecure", "_keys", "_manager", "_networks")
-
-    def __init__(
-        self,
-        keys: Keys,
-        networks: NetworksConfig,
-        *,
-        allow_insecure: bool = False,
-    ) -> None:
-        self._keys = keys
-        self._networks = networks
-        self._allow_insecure = allow_insecure
-        from bigbrotr.utils.protocol import NostrClientManager  # noqa: PLC0415
-
-        self._manager = NostrClientManager(
-            keys=keys,
-            networks=networks,
-            allow_insecure=allow_insecure,
-        )
-
-    @property
-    def connected_relays(self) -> dict[str, Client]:
-        """Return the cached connected clients keyed by relay URL."""
-        return self._manager.relay_clients
-
-    @property
-    def failed_relays(self) -> set[str]:
-        """Return relay URLs that have already failed to connect."""
-        return self._manager.failed_relays
-
-    async def get(self, relay: Relay) -> Client | None:
-        """Return a connected client for a relay, connecting lazily.
-
-        Three states per relay URL:
-
-        - **Unknown** — connect now, cache on success, mark failed otherwise.
-        - **Connected** — return the cached client immediately.
-        - **Failed** — return ``None`` without retrying.
-
-        Args:
-            relay: Relay to get a client for.
-
-        Returns:
-            Connected client, or ``None`` if the connection failed.
-        """
-        return await self._manager.get_relay_client(relay)
-
-    async def get_many(self, relays: list[Relay]) -> list[Client]:
-        """Return connected clients for multiple relays.
-
-        Calls ``get()`` for each relay and filters out failures.
-
-        Args:
-            relays: Relays to get clients for.
-
-        Returns:
-            Connected clients (order preserved, failed relays skipped).
-        """
-        return await self._manager.get_relay_clients(relays)
-
-    async def disconnect(self) -> None:
-        """Disconnect all clients and reset state."""
-        await self._manager.disconnect()

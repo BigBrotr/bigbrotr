@@ -78,12 +78,7 @@ from bigbrotr.nips.nip66 import (
     Nip66RttMetadata,
     Nip66SslMetadata,
 )
-from bigbrotr.services.common.mixins import (
-    Clients,
-    ConcurrentStreamMixin,
-    GeoReaders,
-    NetworkSemaphoresMixin,
-)
+from bigbrotr.services.common.mixins import ConcurrentStreamMixin, NetworkSemaphoresMixin
 from bigbrotr.utils.http import download_bounded_file
 from bigbrotr.utils.protocol import broadcast_events_detailed
 
@@ -124,6 +119,7 @@ from .queries import (
     upsert_monitor_checkpoints,
     upsert_publish_checkpoints,
 )
+from .resources import GeoReaders, RelayClients
 from .utils import (
     CheckResult,
     MonitorChunkOutcome,
@@ -188,7 +184,7 @@ class Monitor(
         )
         self._config: MonitorConfig
         self._keys: Keys = resolved_keys
-        self.clients = Clients(
+        self.clients = RelayClients(
             keys=resolved_keys,
             networks=config.networks,
             allow_insecure=config.processing.allow_insecure,
