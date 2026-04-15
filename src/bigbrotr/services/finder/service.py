@@ -42,8 +42,8 @@ Examples:
     from bigbrotr.core import Brotr
     from bigbrotr.services import Finder
 
-    brotr = Brotr.from_yaml("config/brotr.yaml")
-    finder = Finder.from_yaml("config/services/finder.yaml", brotr=brotr)
+    brotr = Brotr.from_yaml("deployments/bigbrotr/config/brotr.yaml")
+    finder = Finder.from_yaml("deployments/bigbrotr/config/services/finder.yaml", brotr=brotr)
 
     async with brotr:
         async with finder:

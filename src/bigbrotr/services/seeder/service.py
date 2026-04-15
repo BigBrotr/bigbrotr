@@ -32,8 +32,8 @@ Examples:
     from bigbrotr.core import Brotr
     from bigbrotr.services import Seeder
 
-    brotr = Brotr.from_yaml("config/brotr.yaml")
-    seeder = Seeder.from_yaml("config/services/seeder.yaml", brotr=brotr)
+    brotr = Brotr.from_yaml("deployments/bigbrotr/config/brotr.yaml")
+    seeder = Seeder.from_yaml("deployments/bigbrotr/config/services/seeder.yaml", brotr=brotr)
 
     async with brotr:
         await seeder.run()

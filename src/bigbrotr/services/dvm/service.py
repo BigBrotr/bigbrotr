@@ -30,8 +30,8 @@ Examples:
     from bigbrotr.core import Brotr
     from bigbrotr.services import Dvm
 
-    brotr = Brotr.from_yaml("config/brotr.yaml")
-    dvm = Dvm.from_yaml("config/services/dvm.yaml", brotr=brotr)
+    brotr = Brotr.from_yaml("deployments/bigbrotr/config/brotr.yaml")
+    dvm = Dvm.from_yaml("deployments/bigbrotr/config/services/dvm.yaml", brotr=brotr)
 
     async with brotr:
         async with dvm:

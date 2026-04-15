@@ -39,8 +39,11 @@ Examples:
     from bigbrotr.core import Brotr
     from bigbrotr.services import Validator
 
-    brotr = Brotr.from_yaml("config/brotr.yaml")
-    validator = Validator.from_yaml("config/services/validator.yaml", brotr=brotr)
+    brotr = Brotr.from_yaml("deployments/bigbrotr/config/brotr.yaml")
+    validator = Validator.from_yaml(
+        "deployments/bigbrotr/config/services/validator.yaml",
+        brotr=brotr,
+    )
 
     async with brotr:
         async with validator:

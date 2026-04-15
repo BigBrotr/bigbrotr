@@ -50,8 +50,11 @@ Examples:
     from bigbrotr.core import Brotr
     from bigbrotr.services import Synchronizer
 
-    brotr = Brotr.from_yaml("config/brotr.yaml")
-    sync = Synchronizer.from_yaml("config/services/synchronizer.yaml", brotr=brotr)
+    brotr = Brotr.from_yaml("deployments/bigbrotr/config/brotr.yaml")
+    sync = Synchronizer.from_yaml(
+        "deployments/bigbrotr/config/services/synchronizer.yaml",
+        brotr=brotr,
+    )
 
     async with brotr:
         async with sync:

@@ -44,8 +44,11 @@ Examples:
     from bigbrotr.core import Brotr
     from bigbrotr.services import Monitor
 
-    brotr = Brotr.from_yaml("config/brotr.yaml")
-    monitor = Monitor.from_yaml("config/services/monitor.yaml", brotr=brotr)
+    brotr = Brotr.from_yaml("deployments/bigbrotr/config/brotr.yaml")
+    monitor = Monitor.from_yaml(
+        "deployments/bigbrotr/config/services/monitor.yaml",
+        brotr=brotr,
+    )
 
     async with brotr:
         async with monitor:

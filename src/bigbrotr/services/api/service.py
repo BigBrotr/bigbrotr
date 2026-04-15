@@ -30,8 +30,8 @@ Examples:
     from bigbrotr.core import Brotr
     from bigbrotr.services import Api
 
-    brotr = Brotr.from_yaml("config/brotr.yaml")
-    api = Api.from_yaml("config/services/api.yaml", brotr=brotr)
+    brotr = Brotr.from_yaml("deployments/bigbrotr/config/brotr.yaml")
+    api = Api.from_yaml("deployments/bigbrotr/config/services/api.yaml", brotr=brotr)
 
     async with brotr:
         async with api:

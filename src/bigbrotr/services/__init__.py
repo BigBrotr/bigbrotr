@@ -47,7 +47,7 @@ Examples:
     from bigbrotr.core import Brotr
     from bigbrotr.services import Seeder, Finder
 
-    brotr = Brotr.from_yaml("config/brotr.yaml")
+    brotr = Brotr.from_yaml("deployments/bigbrotr/config/brotr.yaml")
     async with brotr:
         seeder = Seeder(brotr=brotr)
         await seeder.run()
