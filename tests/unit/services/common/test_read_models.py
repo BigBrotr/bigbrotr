@@ -345,7 +345,7 @@ class TestReadModelSurface:
             {"url": row["url"]},
         )
 
-    async def test_query_enabled_returns_result(self) -> None:
+    async def test_resolve_plus_query_entry_returns_result(self) -> None:
         catalog = Catalog()
         catalog._tables = {"relay": MagicMock()}
         result = QueryResult(rows=[], total=None, limit=5, offset=0)
@@ -354,17 +354,18 @@ class TestReadModelSurface:
             policies={"relays": ReadModelPolicy(enabled=True)},
             catalog=catalog,
         )
+        read_model = surface.resolve("api", "relays")
 
-        resolved = await surface.query_enabled(
+        assert read_model is not None
+        resolved = await surface.query_entry(
             MagicMock(),
-            "api",
-            "relays",
+            read_model,
             ReadModelQuery(limit=5, offset=0),
         )
 
         assert resolved == result
 
-    async def test_get_enabled_row_returns_row(self) -> None:
+    async def test_resolve_plus_get_entry_by_pk_returns_row(self) -> None:
         catalog = Catalog()
         catalog._tables = {"relay": MagicMock()}
         row = {"url": "wss://relay.example.com"}
@@ -373,11 +374,12 @@ class TestReadModelSurface:
             policies={"relays": ReadModelPolicy(enabled=True)},
             catalog=catalog,
         )
+        read_model = surface.resolve("api", "relays")
 
-        resolved = await surface.get_enabled_row(
+        assert read_model is not None
+        resolved = await surface.get_entry_by_pk(
             MagicMock(),
-            "api",
-            "relays",
+            read_model,
             {"url": row["url"]},
         )
 

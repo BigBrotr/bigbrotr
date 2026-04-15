@@ -252,32 +252,6 @@ class ReadModelSurface:
         """Fetch one resolved read-model row by primary key."""
         return await read_model.get_by_pk(brotr, self._catalog, pk_values)
 
-    async def query_enabled(
-        self,
-        brotr: Brotr,
-        surface: ReadSurface,
-        name: str,
-        request: ReadModelQuery,
-    ) -> QueryResult | None:
-        """Resolve and execute one enabled public read model for a surface."""
-        read_model = self.resolve(surface, name)
-        if read_model is None:
-            return None
-        return await self.query_entry(brotr, read_model, request)
-
-    async def get_enabled_row(
-        self,
-        brotr: Brotr,
-        surface: ReadSurface,
-        name: str,
-        pk_values: dict[str, str],
-    ) -> dict[str, Any] | None:
-        """Resolve and fetch one row from an enabled public read model for a surface."""
-        read_model = self.resolve(surface, name)
-        if read_model is None:
-            return None
-        return await self.get_entry_by_pk(brotr, read_model, pk_values)
-
     def build_summaries(
         self,
         surface: ReadSurface,
