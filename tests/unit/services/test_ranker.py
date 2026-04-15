@@ -32,6 +32,7 @@ from bigbrotr.services.ranker.queries import (
     insert_rank_stage_batch,
     merge_rank_stage,
 )
+from bigbrotr.services.ranker.service import RankPhaseDurations
 from bigbrotr.services.ranker.utils import RankerStore
 
 
@@ -1530,6 +1531,45 @@ class TestRankerService:
 
         assert result.cutoff_reason == "max_duration"
         assert result.rank_run_id == 7
+        ranker._store.finish_rank_run.assert_called_once_with(7, status="cutoff")
+
+    @pytest.mark.asyncio
+    async def test_compute_and_export_ranks_returns_cutoff_after_compute(
+        self,
+        mock_brotr: Brotr,
+        ranker_config: RankerConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from bigbrotr.services.ranker.utils import GraphStats
+
+        ranker = Ranker(brotr=mock_brotr, config=ranker_config)
+        monkeypatch.setattr(
+            ranker._store,
+            "get_graph_stats_for_ranking",
+            MagicMock(return_value=GraphStats(node_count=1, edge_count=0)),
+        )
+        monkeypatch.setattr(
+            ranker._store,
+            "start_rank_run",
+            MagicMock(return_value=MagicMock(run_id=7)),
+        )
+        monkeypatch.setattr(ranker._store, "compute_pubkey_pagerank", MagicMock())
+        monkeypatch.setattr(ranker._store, "compute_non_user_ranks", MagicMock())
+        monkeypatch.setattr(ranker._store, "finish_rank_run", MagicMock())
+        monkeypatch.setattr(ranker, "_cycle_cutoff_reason", MagicMock(return_value="max_duration"))
+        monkeypatch.setattr(
+            ranker,
+            "_export_rank_snapshots",
+            AsyncMock(side_effect=AssertionError("export should not run")),
+        )
+
+        result = await ranker._compute_and_export_ranks(
+            cycle_start=time.monotonic(),
+            phase_durations=RankPhaseDurations(),
+        )
+
+        assert result.rank_run_id == 7
+        assert result.cutoff_reason == "max_duration"
         ranker._store.finish_rank_run.assert_called_once_with(7, status="cutoff")
 
     @pytest.mark.asyncio

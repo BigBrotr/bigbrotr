@@ -139,6 +139,16 @@ class _CycleBuildInput:
     cutoff_reason: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _ComputeExportResult:
+    """Internal result of the compute+export phase after graph sync and staging."""
+
+    rank_run_id: int
+    rank_counts: RankRowCounts = field(default_factory=RankRowCounts)
+    phase_durations: RankPhaseDurations = field(default_factory=RankPhaseDurations)
+    cutoff_reason: str | None = None
+
+
 class Ranker(BaseService[RankerConfig]):
     """Private DuckDB-backed ranker for the NIP-85 ranking pipeline."""
 
@@ -280,6 +290,66 @@ class Ranker(BaseService[RankerConfig]):
                 )
             )
 
+        compute_export_result = await self._compute_and_export_ranks(
+            cycle_start=cycle_start,
+            phase_durations=RankPhaseDurations(
+                cleanup_seconds=cleanup_duration,
+                sync_seconds=sync_duration,
+                facts_stage_seconds=facts_duration,
+            ),
+        )
+        if compute_export_result.cutoff_reason is not None:
+            return await self._build_cycle_result(
+                _CycleBuildInput(
+                    rank_run_id=compute_export_result.rank_run_id,
+                    sync_result=sync_result,
+                    non_user_staged=stage_result.counts,
+                    cleanup_removed=cleanup_removed,
+                    phase_durations=compute_export_result.phase_durations,
+                    cutoff_reason=compute_export_result.cutoff_reason,
+                )
+            )
+
+        result = await self._build_cycle_result(
+            _CycleBuildInput(
+                rank_run_id=compute_export_result.rank_run_id,
+                sync_result=sync_result,
+                non_user_staged=stage_result.counts,
+                rank_counts=compute_export_result.rank_counts,
+                cleanup_removed=cleanup_removed,
+                phase_durations=compute_export_result.phase_durations,
+            )
+        )
+        self._logger.info(
+            "ranker_cycle_completed",
+            algorithm_id=self._config.algorithm_id,
+            run_id=compute_export_result.rank_run_id,
+            graph_nodes=result.graph_nodes,
+            graph_edges=result.graph_edges,
+            changed_followers_synced=result.changed_followers_synced,
+            sync_batches_processed=result.sync_batches_processed,
+            event_stats_staged=result.non_user_staged.event,
+            addressable_stats_staged=result.non_user_staged.addressable,
+            identifier_stats_staged=result.non_user_staged.identifier,
+            pubkey_ranks_written=compute_export_result.rank_counts.pubkey,
+            event_ranks_written=compute_export_result.rank_counts.event,
+            addressable_ranks_written=compute_export_result.rank_counts.addressable,
+            identifier_ranks_written=compute_export_result.rank_counts.identifier,
+            non_user_ranks_written=compute_export_result.rank_counts.non_user,
+            checkpoint_seen_at=result.checkpoint.source_seen_at,
+            checkpoint_follower_pubkey=result.checkpoint.follower_pubkey,
+            checkpoint_lag_seconds=result.checkpoint_lag_seconds,
+            duckdb_file_size_bytes=result.duckdb_file_size_bytes,
+        )
+        return result
+
+    async def _compute_and_export_ranks(
+        self,
+        *,
+        cycle_start: float,
+        phase_durations: RankPhaseDurations,
+    ) -> _ComputeExportResult:
+        """Compute private ranks and export public snapshots for one cycle."""
         compute_start = time.monotonic()
         graph_stats = await self._run_store(
             self._store.get_graph_stats_for_ranking,
@@ -293,7 +363,6 @@ class Ranker(BaseService[RankerConfig]):
             edge_count=graph_stats.edge_count,
         )
 
-        rank_counts = RankRowCounts()
         try:
             await self._run_store(
                 self._store.compute_pubkey_pagerank,
@@ -303,6 +372,12 @@ class Ranker(BaseService[RankerConfig]):
             )
             await self._run_store(self._store.compute_non_user_ranks)
             compute_duration = time.monotonic() - compute_start
+            compute_phase_durations = RankPhaseDurations(
+                cleanup_seconds=phase_durations.cleanup_seconds,
+                sync_seconds=phase_durations.sync_seconds,
+                facts_stage_seconds=phase_durations.facts_stage_seconds,
+                compute_seconds=compute_duration,
+            )
 
             if cutoff_reason := self._cycle_cutoff_reason(cycle_start):
                 await self._run_store(
@@ -310,21 +385,10 @@ class Ranker(BaseService[RankerConfig]):
                     rank_run.run_id,
                     status="cutoff",
                 )
-                phase_durations = RankPhaseDurations(
-                    cleanup_seconds=cleanup_duration,
-                    sync_seconds=sync_duration,
-                    facts_stage_seconds=facts_duration,
-                    compute_seconds=compute_duration,
-                )
-                return await self._build_cycle_result(
-                    _CycleBuildInput(
-                        rank_run_id=rank_run.run_id,
-                        sync_result=sync_result,
-                        non_user_staged=stage_result.counts,
-                        cleanup_removed=cleanup_removed,
-                        phase_durations=phase_durations,
-                        cutoff_reason=cutoff_reason,
-                    )
+                return _ComputeExportResult(
+                    rank_run_id=rank_run.run_id,
+                    phase_durations=compute_phase_durations,
+                    cutoff_reason=cutoff_reason,
                 )
 
             export_start = time.monotonic()
@@ -333,35 +397,34 @@ class Ranker(BaseService[RankerConfig]):
                 computed_at=int(time.time()),
             )
             export_duration = time.monotonic() - export_start
+            full_phase_durations = RankPhaseDurations(
+                cleanup_seconds=compute_phase_durations.cleanup_seconds,
+                sync_seconds=compute_phase_durations.sync_seconds,
+                facts_stage_seconds=compute_phase_durations.facts_stage_seconds,
+                compute_seconds=compute_phase_durations.compute_seconds,
+                export_seconds=export_duration,
+            )
             if export_result.cutoff_reason is not None:
                 await self._run_store(
                     self._store.finish_rank_run,
                     rank_run.run_id,
                     status="cutoff",
                 )
-                phase_durations = RankPhaseDurations(
-                    cleanup_seconds=cleanup_duration,
-                    sync_seconds=sync_duration,
-                    facts_stage_seconds=facts_duration,
-                    compute_seconds=compute_duration,
-                    export_seconds=export_duration,
-                )
-                return await self._build_cycle_result(
-                    _CycleBuildInput(
-                        rank_run_id=rank_run.run_id,
-                        sync_result=sync_result,
-                        non_user_staged=stage_result.counts,
-                        cleanup_removed=cleanup_removed,
-                        phase_durations=phase_durations,
-                        cutoff_reason=export_result.cutoff_reason,
-                    )
+                return _ComputeExportResult(
+                    rank_run_id=rank_run.run_id,
+                    phase_durations=full_phase_durations,
+                    cutoff_reason=export_result.cutoff_reason,
                 )
 
-            rank_counts = export_result.counts
             await self._run_store(
                 self._store.finish_rank_run,
                 rank_run.run_id,
                 status="success",
+            )
+            return _ComputeExportResult(
+                rank_run_id=rank_run.run_id,
+                rank_counts=export_result.counts,
+                phase_durations=full_phase_durations,
             )
         except Exception:
             await self._run_store(
@@ -372,46 +435,6 @@ class Ranker(BaseService[RankerConfig]):
             failed_total = await self._run_store(self._store.count_rank_runs, status="failed")
             self.set_gauge("rank_runs_failed_total", failed_total)
             raise
-
-        phase_durations = RankPhaseDurations(
-            cleanup_seconds=cleanup_duration,
-            sync_seconds=sync_duration,
-            facts_stage_seconds=facts_duration,
-            compute_seconds=compute_duration,
-            export_seconds=export_duration,
-        )
-        result = await self._build_cycle_result(
-            _CycleBuildInput(
-                rank_run_id=rank_run.run_id,
-                sync_result=sync_result,
-                non_user_staged=stage_result.counts,
-                rank_counts=rank_counts,
-                cleanup_removed=cleanup_removed,
-                phase_durations=phase_durations,
-            )
-        )
-        self._logger.info(
-            "ranker_cycle_completed",
-            algorithm_id=self._config.algorithm_id,
-            run_id=rank_run.run_id,
-            graph_nodes=result.graph_nodes,
-            graph_edges=result.graph_edges,
-            changed_followers_synced=result.changed_followers_synced,
-            sync_batches_processed=result.sync_batches_processed,
-            event_stats_staged=result.non_user_staged.event,
-            addressable_stats_staged=result.non_user_staged.addressable,
-            identifier_stats_staged=result.non_user_staged.identifier,
-            pubkey_ranks_written=rank_counts.pubkey,
-            event_ranks_written=rank_counts.event,
-            addressable_ranks_written=rank_counts.addressable,
-            identifier_ranks_written=rank_counts.identifier,
-            non_user_ranks_written=rank_counts.non_user,
-            checkpoint_seen_at=result.checkpoint.source_seen_at,
-            checkpoint_follower_pubkey=result.checkpoint.follower_pubkey,
-            checkpoint_lag_seconds=result.checkpoint_lag_seconds,
-            duckdb_file_size_bytes=result.duckdb_file_size_bytes,
-        )
-        return result
 
     async def _build_cycle_result(
         self,
