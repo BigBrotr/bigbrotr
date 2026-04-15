@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 
 ReadSurface = Literal["api", "dvm"]
+_READ_SURFACES: tuple[ReadSurface, ...] = ("api", "dvm")
 
 
 class ReadModelQueryError(ValueError):
@@ -159,66 +160,6 @@ def build_read_model_meta(result: QueryResult, *, read_model_id: str) -> dict[st
     return meta
 
 
-def _read_model_pagination_payload(schema: TableSchema) -> dict[str, Any]:
-    """Build the discovery-time pagination contract for one read model schema."""
-    supports_identity_lookup = bool(schema.primary_key)
-    return {
-        "default_mode": "cursor" if supports_identity_lookup else "offset",
-        "supports_cursor": supports_identity_lookup,
-        "supports_offset": True,
-        "supports_total_opt_in": True,
-        "cursor_param": "cursor" if supports_identity_lookup else None,
-        "meta_cursor_field": "next_cursor" if supports_identity_lookup else None,
-    }
-
-
-def build_read_model_summary(
-    read_model_id: str,
-    entry: ReadModelEntry,
-    *,
-    catalog: Catalog,
-    route_prefix: str,
-) -> dict[str, Any]:
-    """Build the public summary payload for one registered read model."""
-    schema = entry.schema(catalog)
-    pagination = _read_model_pagination_payload(schema)
-    return {
-        "id": read_model_id,
-        "path": f"{route_prefix}/{read_model_id}",
-        "legacy_aliases": list(entry.aliases),
-        "field_count": len(schema.columns),
-        "supports_identity_lookup": bool(schema.primary_key),
-        "default_pagination_mode": pagination["default_mode"],
-        "supports_cursor_pagination": pagination["supports_cursor"],
-    }
-
-
-def build_read_model_detail(
-    read_model_id: str,
-    entry: ReadModelEntry,
-    *,
-    catalog: Catalog,
-    route_prefix: str,
-) -> dict[str, Any]:
-    """Build the public detail payload for one registered read model."""
-    schema = entry.schema(catalog)
-    return {
-        "id": read_model_id,
-        "path": f"{route_prefix}/{read_model_id}",
-        "legacy_aliases": list(entry.aliases),
-        "fields": [
-            {
-                "name": column.name,
-                "type": column.pg_type,
-                "nullable": column.nullable,
-            }
-            for column in schema.columns
-        ],
-        "identity_fields": list(schema.primary_key),
-        "pagination": _read_model_pagination_payload(schema),
-    }
-
-
 class ReadModelSurface:
     """Resolve and execute the public read-model surface for one service."""
 
@@ -348,12 +289,7 @@ class ReadModelSurface:
     ) -> list[dict[str, Any]]:
         """Build discovery summaries for enabled public read models on one surface."""
         return [
-            build_read_model_summary(
-                read_model_id,
-                read_model,
-                catalog=self._catalog,
-                route_prefix=route_prefix,
-            )
+            read_model.summary(catalog=self._catalog, route_prefix=route_prefix)
             for read_model_id, read_model in self.enabled_entries(surface).items()
         ]
 
@@ -371,12 +307,7 @@ class ReadModelSurface:
         read_model_id, read_model = resolved
         return (
             read_model_id,
-            build_read_model_detail(
-                read_model_id,
-                read_model,
-                catalog=self._catalog,
-                route_prefix=route_prefix,
-            ),
+            read_model.detail(catalog=self._catalog, route_prefix=route_prefix),
         )
 
 
@@ -397,6 +328,51 @@ class ReadModelEntry:
     def schema(self, catalog: Catalog) -> TableSchema:
         """Resolve the discovered schema backing this read model."""
         return catalog.tables[self.catalog_name]
+
+    def pagination(self, catalog: Catalog) -> dict[str, Any]:
+        """Build the discovery-time pagination contract for this read model."""
+        supports_identity_lookup = bool(self.schema(catalog).primary_key)
+        return {
+            "default_mode": "cursor" if supports_identity_lookup else "offset",
+            "supports_cursor": supports_identity_lookup,
+            "supports_offset": True,
+            "supports_total_opt_in": True,
+            "cursor_param": "cursor" if supports_identity_lookup else None,
+            "meta_cursor_field": "next_cursor" if supports_identity_lookup else None,
+        }
+
+    def summary(self, *, catalog: Catalog, route_prefix: str) -> dict[str, Any]:
+        """Build the public summary payload for this read model."""
+        schema = self.schema(catalog)
+        pagination = self.pagination(catalog)
+        return {
+            "id": self.read_model_id,
+            "path": f"{route_prefix}/{self.read_model_id}",
+            "legacy_aliases": list(self.aliases),
+            "field_count": len(schema.columns),
+            "supports_identity_lookup": bool(schema.primary_key),
+            "default_pagination_mode": pagination["default_mode"],
+            "supports_cursor_pagination": pagination["supports_cursor"],
+        }
+
+    def detail(self, *, catalog: Catalog, route_prefix: str) -> dict[str, Any]:
+        """Build the public detail payload for this read model."""
+        schema = self.schema(catalog)
+        return {
+            "id": self.read_model_id,
+            "path": f"{route_prefix}/{self.read_model_id}",
+            "legacy_aliases": list(self.aliases),
+            "fields": [
+                {
+                    "name": column.name,
+                    "type": column.pg_type,
+                    "nullable": column.nullable,
+                }
+                for column in schema.columns
+            ],
+            "identity_fields": list(schema.primary_key),
+            "pagination": self.pagination(catalog),
+        }
 
     async def query(
         self,
@@ -538,6 +514,15 @@ READ_MODEL_ALIASES: dict[str, str] = {
     for public_id in entry.all_public_ids
 }
 
+READ_MODELS_BY_SURFACE: dict[ReadSurface, dict[str, ReadModelEntry]] = {
+    surface: {
+        read_model_id: entry
+        for read_model_id, entry in READ_MODEL_REGISTRY.items()
+        if surface in entry.surfaces
+    }
+    for surface in _READ_SURFACES
+}
+
 
 def resolve_read_model_id(name: str) -> str | None:
     """Resolve one canonical or legacy public name to the canonical read-model ID."""
@@ -582,11 +567,7 @@ def normalize_read_model_policies(
 
 def read_models_for_surface(surface: ReadSurface) -> dict[str, ReadModelEntry]:
     """Return the built-in read models exposed by one public surface."""
-    return {
-        read_model_id: entry
-        for read_model_id, entry in READ_MODEL_REGISTRY.items()
-        if surface in entry.surfaces
-    }
+    return dict(READ_MODELS_BY_SURFACE[surface])
 
 
 def enabled_read_models_for_surface(

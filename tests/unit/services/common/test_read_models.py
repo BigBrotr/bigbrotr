@@ -12,9 +12,7 @@ from bigbrotr.services.common.read_models import (
     ReadModelQuery,
     ReadModelQueryError,
     ReadModelSurface,
-    build_read_model_detail,
     build_read_model_meta,
-    build_read_model_summary,
     enabled_read_models_for_surface,
     normalize_read_model_policies,
     parse_read_model_filter_string,
@@ -215,7 +213,7 @@ class TestReadModelRegistry:
             pk_values,
         )
 
-    def test_build_read_model_summary_uses_registered_backend_schema(self) -> None:
+    def test_entry_summary_uses_registered_backend_schema(self) -> None:
         catalog = Catalog()
         catalog._tables = {
             "relay": TableSchema(
@@ -229,12 +227,7 @@ class TestReadModelRegistry:
             )
         }
 
-        summary = build_read_model_summary(
-            "relays",
-            READ_MODEL_REGISTRY["relays"],
-            catalog=catalog,
-            route_prefix="/v1",
-        )
+        summary = READ_MODEL_REGISTRY["relays"].summary(catalog=catalog, route_prefix="/v1")
 
         assert summary == {
             "id": "relays",
@@ -246,7 +239,7 @@ class TestReadModelRegistry:
             "supports_cursor_pagination": True,
         }
 
-    def test_build_read_model_detail_uses_registered_backend_schema(self) -> None:
+    def test_entry_detail_uses_registered_backend_schema(self) -> None:
         catalog = Catalog()
         catalog._tables = {
             "relay_stats": TableSchema(
@@ -257,12 +250,7 @@ class TestReadModelRegistry:
             )
         }
 
-        detail = build_read_model_detail(
-            "relay-stats",
-            READ_MODEL_REGISTRY["relay-stats"],
-            catalog=catalog,
-            route_prefix="/v1",
-        )
+        detail = READ_MODEL_REGISTRY["relay-stats"].detail(catalog=catalog, route_prefix="/v1")
 
         assert detail == {
             "id": "relay-stats",
