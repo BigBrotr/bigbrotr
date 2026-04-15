@@ -126,6 +126,7 @@ from .utils import (
     CheckResult,
     MonitorChunkOutcome,
     MonitorCyclePlan,
+    MonitorProgress,
     collect_metadata,
     retry_fetch,
 )
@@ -404,38 +405,10 @@ class Monitor(
         if plan is None:
             return 0
 
-        succeeded = 0
-        failed = 0
-
-        self.set_gauge("total", plan.total)
-        self.set_gauge("succeeded", 0)
-        self.set_gauge("failed", 0)
-
+        progress = self._start_monitor_progress(plan.total)
         self._logger.info("relays_available", total=plan.total)
-
-        async for relays in iter_relays_to_monitor_pages(
-            self._brotr,
-            plan.monitored_before,
-            list(plan.networks),
-            page_size=plan.chunk_size,
-            max_relays=plan.max_relays,
-        ):
-            if not self.is_running:
-                break
-
-            chunk_outcome = await self._monitor_chunk(relays, list(plan.networks))
-            await self._persist_chunk_outcome(chunk_outcome, checked_at=int(time.time()))
-
-            succeeded += chunk_outcome.succeeded_count
-            failed += chunk_outcome.failed_count
-            self._log_chunk_outcome(
-                chunk_outcome,
-                total=plan.total,
-                succeeded=succeeded,
-                failed=failed,
-            )
-
-        return succeeded + failed
+        progress = await self._process_monitor_pages(plan, progress)
+        return progress.processed
 
     async def _build_monitor_cycle_plan(
         self,
@@ -488,6 +461,42 @@ class Monitor(
             successful=tuple(chunk_successful),
             failed=tuple(chunk_failed),
         )
+
+    def _start_monitor_progress(self, total: int) -> MonitorProgress:
+        """Initialize gauges and progress totals for one monitor cycle."""
+        self.set_gauge("total", total)
+        self.set_gauge("succeeded", 0)
+        self.set_gauge("failed", 0)
+        return MonitorProgress(total=total)
+
+    async def _process_monitor_pages(
+        self,
+        plan: MonitorCyclePlan,
+        progress: MonitorProgress,
+    ) -> MonitorProgress:
+        """Process all eligible relay pages for one monitor cycle."""
+        async for relays in iter_relays_to_monitor_pages(
+            self._brotr,
+            plan.monitored_before,
+            list(plan.networks),
+            page_size=plan.chunk_size,
+            max_relays=plan.max_relays,
+        ):
+            if not self.is_running:
+                break
+
+            chunk_outcome = await self._monitor_chunk(relays, list(plan.networks))
+            await self._persist_chunk_outcome(chunk_outcome, checked_at=int(time.time()))
+
+            progress = progress.advance(chunk_outcome)
+            self._log_chunk_outcome(
+                chunk_outcome,
+                total=progress.total,
+                succeeded=progress.succeeded,
+                failed=progress.failed,
+            )
+
+        return progress
 
     async def _persist_chunk_outcome(
         self,

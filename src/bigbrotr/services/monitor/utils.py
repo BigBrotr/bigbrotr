@@ -119,6 +119,28 @@ class MonitorCyclePlan:
     chunk_size: int
 
 
+@dataclass(frozen=True, slots=True)
+class MonitorProgress:
+    """Running totals for one monitor cycle."""
+
+    total: int
+    succeeded: int = 0
+    failed: int = 0
+
+    def advance(self, outcome: MonitorChunkOutcome) -> MonitorProgress:
+        """Return updated totals after one processed chunk."""
+        return MonitorProgress(
+            total=self.total,
+            succeeded=self.succeeded + outcome.succeeded_count,
+            failed=self.failed + outcome.failed_count,
+        )
+
+    @property
+    def processed(self) -> int:
+        """Total number of relays processed so far."""
+        return self.succeeded + self.failed
+
+
 def log_success(result: Any) -> bool:
     """Extract semantic success status from a metadata result."""
     success = getattr(result, "succeeded", None)
