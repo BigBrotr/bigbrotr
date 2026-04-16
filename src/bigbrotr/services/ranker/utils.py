@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import threading
 import time
 from dataclasses import dataclass
@@ -10,6 +9,7 @@ from typing import TYPE_CHECKING, Final
 
 import duckdb
 
+from . import store_graph
 from .queries import (
     AddressableStatFact,
     ContactListFact,
@@ -25,16 +25,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-_DEFAULT_CHECKPOINT: Final[GraphSyncCheckpoint] = GraphSyncCheckpoint()
-_GRAPH_CHECKPOINT_NAME: Final[str] = "graph"
-
-
-@dataclass(frozen=True, slots=True)
-class GraphStats:
-    """Current follow-graph size in DuckDB."""
-
-    node_count: int
-    edge_count: int
+GraphStats = store_graph.GraphStats
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,14 +64,17 @@ class RankerStore:
         conn = self._connection()
         for statement in _SCHEMA_STATEMENTS:
             conn.execute(statement)
-        if self._load_checkpoint_from_db(conn) is None:
-            self._upsert_checkpoint(conn, self._load_legacy_checkpoint())
+        if store_graph.load_checkpoint_from_db(conn) is None:
+            store_graph.upsert_checkpoint(
+                conn,
+                store_graph.load_legacy_checkpoint(self._checkpoint_path),
+            )
 
     def load_checkpoint(self) -> GraphSyncCheckpoint:
         """Read the canonical lexicographic follow-graph checkpoint from DuckDB."""
         self.ensure_initialized()
-        checkpoint = self._load_checkpoint_from_db(self._connection())
-        return checkpoint if checkpoint is not None else _DEFAULT_CHECKPOINT
+        checkpoint = store_graph.load_checkpoint_from_db(self._connection())
+        return checkpoint if checkpoint is not None else GraphSyncCheckpoint()
 
     def apply_follow_graph_delta(
         self,
@@ -90,96 +84,25 @@ class RankerStore:
     ) -> None:
         """Apply one incremental follow-graph batch and persist the checkpoint."""
         self.ensure_initialized()
-
-        if not changed_lists:
-            self._upsert_checkpoint(self._connection(), checkpoint)
-            return
-
-        pubkeys = (
-            {fact.follower_pubkey for fact in changed_lists}
-            | {fact.follower_pubkey for fact in edges}
-            | {fact.followed_pubkey for fact in edges}
+        store_graph.apply_follow_graph_delta(
+            self._connection(),
+            changed_lists=changed_lists,
+            edges=edges,
+            checkpoint=checkpoint,
         )
-
-        conn = self._connection()
-        try:
-            conn.execute("BEGIN TRANSACTION")
-            node_ids = self._ensure_node_ids(conn, sorted(pubkeys))
-            follower_node_ids = [node_ids[fact.follower_pubkey] for fact in changed_lists]
-
-            self._delete_followers(conn, follower_node_ids)
-
-            conn.executemany(
-                """
-                INSERT INTO contact_lists_current (
-                    follower_node_id,
-                    source_event_id,
-                    source_created_at,
-                    source_seen_at,
-                    follow_count
-                ) VALUES (?, ?, ?, ?, ?)
-                """,
-                [
-                    (
-                        node_ids[fact.follower_pubkey],
-                        fact.source_event_id,
-                        fact.source_created_at,
-                        fact.source_seen_at,
-                        fact.follow_count,
-                    )
-                    for fact in changed_lists
-                ],
-            )
-
-            if edges:
-                conn.executemany(
-                    """
-                    INSERT INTO follow_edges_current (
-                        follower_node_id,
-                        followed_node_id
-                    ) VALUES (?, ?)
-                    """,
-                    [
-                        (node_ids[fact.follower_pubkey], node_ids[fact.followed_pubkey])
-                        for fact in edges
-                    ],
-                )
-
-            self._upsert_checkpoint(conn, checkpoint)
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
 
     def get_graph_stats(self) -> GraphStats:
         """Return the current node/edge counts stored in DuckDB."""
         self.ensure_initialized()
-
-        conn = self._connection()
-        node_count_row = conn.execute(_ACTIVE_NODE_COUNT_QUERY).fetchone()
-        edge_count_row = conn.execute(_ACTIVE_EDGE_COUNT_QUERY).fetchone()
-
-        node_count = int(node_count_row[0]) if node_count_row is not None else 0
-        edge_count = int(edge_count_row[0]) if edge_count_row is not None else 0
-
-        return GraphStats(node_count=node_count, edge_count=edge_count)
+        return store_graph.get_graph_stats(self._connection())
 
     def get_graph_stats_for_ranking(self, *, ignore_self_follows: bool) -> GraphStats:
         """Return graph counts for the effective edge set used by PageRank."""
         self.ensure_initialized()
-
-        edge_query = (
-            _ACTIVE_EDGE_COUNT_NO_SELF_QUERY if ignore_self_follows else _ACTIVE_EDGE_COUNT_QUERY
+        return store_graph.get_graph_stats_for_ranking(
+            self._connection(),
+            ignore_self_follows=ignore_self_follows,
         )
-
-        conn = self._connection()
-        node_count_row = conn.execute(_ACTIVE_NODE_COUNT_QUERY).fetchone()
-        edge_count_row = conn.execute(edge_query).fetchone()
-
-        node_count = int(node_count_row[0]) if node_count_row is not None else 0
-        edge_count = int(edge_count_row[0]) if edge_count_row is not None else 0
-
-        return GraphStats(node_count=node_count, edge_count=edge_count)
 
     def duckdb_file_size_bytes(self) -> int:
         """Return the current DuckDB file size in bytes."""
@@ -293,58 +216,12 @@ class RankerStore:
     ) -> None:
         """Compute deterministic PageRank over the current canonical follow graph."""
         self.ensure_initialized()
-
-        edge_filter = "WHERE follower_node_id <> followed_node_id" if ignore_self_follows else ""
-
-        conn = self._connection()
-        try:
-            conn.execute("BEGIN TRANSACTION")
-            node_count_row = conn.execute(_ACTIVE_NODE_COUNT_QUERY).fetchone()
-            node_count = int(node_count_row[0]) if node_count_row is not None else 0
-
-            conn.execute("DELETE FROM pagerank_curr")
-            conn.execute("DELETE FROM pagerank_next")
-
-            if node_count == 0:
-                conn.execute("COMMIT")
-                return
-
-            initial_score = 1.0 / float(node_count)
-            conn.execute(_INSERT_INITIAL_PAGERANK_QUERY, [initial_score])
-
-            dangling_mass_query = _DANGLING_MASS_QUERY.format(edge_filter=edge_filter)
-            next_query = _INSERT_NEXT_PAGERANK_QUERY.format(edge_filter=edge_filter)
-
-            for _ in range(iterations):
-                dangling_row = conn.execute(dangling_mass_query).fetchone()
-                dangling_mass = float(dangling_row[0]) if dangling_row is not None else 0.0
-
-                conn.execute("DELETE FROM pagerank_next")
-                conn.execute(
-                    next_query,
-                    [
-                        1.0 - damping,
-                        float(node_count),
-                        damping,
-                        dangling_mass,
-                        float(node_count),
-                        damping,
-                    ],
-                )
-                conn.execute("DELETE FROM pagerank_curr")
-                conn.execute(
-                    """
-                    INSERT INTO pagerank_curr (node_id, raw_score)
-                    SELECT node_id, raw_score
-                    FROM pagerank_next
-                    ORDER BY node_id
-                    """
-                )
-
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
+        store_graph.compute_pubkey_pagerank(
+            self._connection(),
+            damping=damping,
+            iterations=iterations,
+            ignore_self_follows=ignore_self_follows,
+        )
 
     def fetch_pubkey_rank_batch(
         self,
@@ -354,27 +231,11 @@ class RankerStore:
     ) -> list[RankExportRow]:
         """Fetch one deterministic export batch from the final PageRank snapshot."""
         self.ensure_initialized()
-
-        conn = self._connection()
-        node_count_row = conn.execute("SELECT COUNT(*) FROM pagerank_curr").fetchone()
-        node_count = int(node_count_row[0]) if node_count_row is not None else 0
-        if node_count == 0:
-            return []
-
-        baseline_score = 1.0 / float(node_count)
-        rows = conn.execute(
-            _PUBKEY_RANK_EXPORT_QUERY,
-            [baseline_score, after_subject_id, limit],
-        ).fetchall()
-
-        return [
-            RankExportRow(
-                subject_id=str(subject_id),
-                raw_score=float(raw_score),
-                rank=int(rank),
-            )
-            for subject_id, raw_score, rank in rows
-        ]
+        return store_graph.fetch_pubkey_rank_batch(
+            self._connection(),
+            after_subject_id=after_subject_id,
+            limit=limit,
+        )
 
     def clear_non_user_stats_stage(self) -> None:
         """Reset the staged non-user facts loaded from PostgreSQL."""
@@ -567,113 +428,14 @@ class RankerStore:
         conn: duckdb.DuckDBPyConnection,
         pubkeys: list[str],
     ) -> dict[str, int]:
-        if not pubkeys:
-            return {}
-
-        rows = conn.execute(
-            """
-            SELECT pubkey, node_id
-            FROM pubkey_nodes
-            WHERE pubkey = ANY(?)
-            """,
-            [pubkeys],
-        ).fetchall()
-        node_ids = {str(pubkey): int(node_id) for pubkey, node_id in rows}
-
-        missing = [pubkey for pubkey in pubkeys if pubkey not in node_ids]
-        if not missing:
-            return node_ids
-
-        next_node_row = conn.execute(
-            "SELECT COALESCE(MAX(node_id), 0) + 1 FROM pubkey_nodes"
-        ).fetchone()
-        next_node_id = int(next_node_row[0]) if next_node_row is not None else 1
-        new_rows = []
-        for offset, pubkey in enumerate(missing):
-            node_id = next_node_id + offset
-            node_ids[pubkey] = node_id
-            new_rows.append((node_id, pubkey))
-
-        conn.executemany(
-            "INSERT INTO pubkey_nodes (node_id, pubkey) VALUES (?, ?)",
-            new_rows,
-        )
-        return node_ids
+        return store_graph.ensure_node_ids(conn, pubkeys)
 
     def _delete_followers(
         self,
         conn: duckdb.DuckDBPyConnection,
         follower_node_ids: list[int],
     ) -> None:
-        if not follower_node_ids:
-            return
-
-        conn.execute(
-            "DELETE FROM follow_edges_current WHERE follower_node_id = ANY(?)",
-            [follower_node_ids],
-        )
-        conn.execute(
-            "DELETE FROM contact_lists_current WHERE follower_node_id = ANY(?)",
-            [follower_node_ids],
-        )
-
-    def _load_checkpoint_from_db(
-        self,
-        conn: duckdb.DuckDBPyConnection,
-    ) -> GraphSyncCheckpoint | None:
-        row = conn.execute(
-            """
-            SELECT source_seen_at, follower_pubkey
-            FROM graph_sync_checkpoint
-            WHERE checkpoint_name = ?
-            """,
-            [_GRAPH_CHECKPOINT_NAME],
-        ).fetchone()
-        if row is None:
-            return None
-        return GraphSyncCheckpoint(
-            source_seen_at=int(row[0]),
-            follower_pubkey=str(row[1]),
-        )
-
-    def _load_legacy_checkpoint(self) -> GraphSyncCheckpoint:
-        if not self._checkpoint_path.exists():
-            return _DEFAULT_CHECKPOINT
-
-        raw = json.loads(self._checkpoint_path.read_text())
-        graph = raw.get("graph", {})
-        return GraphSyncCheckpoint(
-            source_seen_at=int(graph.get("source_seen_at", 0)),
-            follower_pubkey=str(graph.get("follower_pubkey", "")),
-        )
-
-    def _upsert_checkpoint(
-        self,
-        conn: duckdb.DuckDBPyConnection,
-        checkpoint: GraphSyncCheckpoint,
-    ) -> None:
-        payload = {
-            "checkpoint_name": _GRAPH_CHECKPOINT_NAME,
-            "source_seen_at": checkpoint.source_seen_at,
-            "follower_pubkey": checkpoint.follower_pubkey,
-        }
-        conn.execute(
-            """
-            INSERT INTO graph_sync_checkpoint (
-                checkpoint_name,
-                source_seen_at,
-                follower_pubkey
-            ) VALUES (?, ?, ?)
-            ON CONFLICT (checkpoint_name) DO UPDATE SET
-                source_seen_at = excluded.source_seen_at,
-                follower_pubkey = excluded.follower_pubkey
-            """,
-            [
-                payload["checkpoint_name"],
-                payload["source_seen_at"],
-                payload["follower_pubkey"],
-            ],
-        )
+        store_graph.delete_followers(conn, follower_node_ids)
 
     def _fetch_rank_batch(
         self,
@@ -807,98 +569,6 @@ _SCHEMA_STATEMENTS: Final[tuple[str, ...]] = (
     )
     """,
 )
-
-_ACTIVE_NODE_COUNT_QUERY: Final[str] = """
-WITH active_nodes AS (
-    SELECT follower_node_id AS node_id
-    FROM contact_lists_current
-    UNION
-    SELECT followed_node_id AS node_id
-    FROM follow_edges_current
-)
-SELECT COUNT(*)
-FROM active_nodes
-"""
-
-_ACTIVE_EDGE_COUNT_QUERY: Final[str] = """
-SELECT COUNT(*)
-FROM follow_edges_current
-"""
-
-_ACTIVE_EDGE_COUNT_NO_SELF_QUERY: Final[str] = """
-SELECT COUNT(*)
-FROM follow_edges_current
-WHERE follower_node_id <> followed_node_id
-"""
-
-_INSERT_INITIAL_PAGERANK_QUERY: Final[str] = """
-INSERT INTO pagerank_curr (node_id, raw_score)
-WITH active_nodes AS (
-    SELECT follower_node_id AS node_id
-    FROM contact_lists_current
-    UNION
-    SELECT followed_node_id AS node_id
-    FROM follow_edges_current
-)
-SELECT node_id, ?
-FROM active_nodes
-ORDER BY node_id
-"""
-
-_DANGLING_MASS_QUERY: Final[str] = """
-WITH out_degree AS (
-    SELECT
-        follower_node_id AS node_id,
-        COUNT(*) AS out_degree
-    FROM follow_edges_current
-    {edge_filter}
-    GROUP BY follower_node_id
-)
-SELECT COALESCE(SUM(c.raw_score), 0.0)
-FROM pagerank_curr AS c
-LEFT JOIN out_degree AS o ON o.node_id = c.node_id
-WHERE COALESCE(o.out_degree, 0) = 0
-"""
-
-_INSERT_NEXT_PAGERANK_QUERY: Final[str] = """
-INSERT INTO pagerank_next (node_id, raw_score)
-WITH out_degree AS (
-    SELECT
-        follower_node_id AS node_id,
-        COUNT(*) AS out_degree
-    FROM follow_edges_current
-    {edge_filter}
-    GROUP BY follower_node_id
-),
-inbound AS (
-    SELECT
-        e.followed_node_id AS node_id,
-        SUM(c.raw_score / o.out_degree) AS inbound_score
-    FROM follow_edges_current AS e
-    INNER JOIN out_degree AS o ON o.node_id = e.follower_node_id
-    INNER JOIN pagerank_curr AS c ON c.node_id = e.follower_node_id
-    {edge_filter}
-    GROUP BY e.followed_node_id
-)
-SELECT
-    c.node_id,
-    (? / ?) + (? * ? / ?) + (? * COALESCE(i.inbound_score, 0.0))
-FROM pagerank_curr AS c
-LEFT JOIN inbound AS i ON i.node_id = c.node_id
-ORDER BY c.node_id
-"""
-
-_PUBKEY_RANK_EXPORT_QUERY: Final[str] = """
-SELECT
-    n.pubkey AS subject_id,
-    p.raw_score,
-    CAST(ROUND(LEAST(25 * LOG10((p.raw_score / ?) + 1), 100.0)) AS BIGINT) AS rank
-FROM pagerank_curr AS p
-INNER JOIN pubkey_nodes AS n ON n.node_id = p.node_id
-WHERE n.pubkey > ?
-ORDER BY n.pubkey ASC
-LIMIT ?
-"""
 
 _RANK_BATCH_QUERIES: Final[dict[str, str]] = {
     "nip85_event_ranks_curr": """
