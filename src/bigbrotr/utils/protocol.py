@@ -62,9 +62,6 @@ from nostr_sdk import (
     Connection,
     ConnectionMode,
     ConnectionTarget,
-    Filter,
-    Kind,
-    KindStandard,
     NostrSigner,
     RelayUrl,
     uniffi_set_event_loop,
@@ -74,6 +71,13 @@ from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 
 from . import protocol_publish as _protocol_publish
+from .protocol_validation import (
+    RelayValidationContext,
+    RelayValidationOptions,
+)
+from .protocol_validation import (
+    validate_relay_protocol as _validate_relay_protocol,
+)
 from .transport import (
     DEFAULT_TIMEOUT,
     InsecureWebSocketTransport,
@@ -561,43 +565,18 @@ async def is_nostr_relay(
         [bigbrotr.services.validator.Validator][bigbrotr.services.validator.Validator]:
             Service that calls this function to promote candidates to relays.
     """
-    effective_overall = overall_timeout if overall_timeout is not None else timeout * 4
-
-    logger.debug("validation_started relay=%s timeout_s=%s", relay.url, timeout)
-
-    with suppress_nostr_sdk_stderr():
-        client = None
-        try:
-            async with asyncio.timeout(effective_overall):
-                client = await connect_relay(
-                    relay=relay,
-                    proxy_url=proxy_url,
-                    timeout=timeout,
-                    allow_insecure=allow_insecure,
-                )
-
-                req_filter = Filter().kind(Kind.from_std(KindStandard.TEXT_NOTE)).limit(1)
-                await client.fetch_events(req_filter, timedelta(seconds=timeout))
-                logger.debug("validation_success relay=%s reason=%s", relay.url, "eose")
-                return True
-
-        except TimeoutError:
-            logger.debug("validation_timeout relay=%s", relay.url)
-            return False
-
-        except OSError as e:
-            # AUTH-required errors indicate a valid Nostr relay (NIP-42)
-            error_msg = str(e).lower()
-            if "auth-required" in error_msg:
-                logger.debug("validation_success relay=%s reason=%s", relay.url, "auth-required")
-                return True
-            logger.debug("validation_failed relay=%s error=%s", relay.url, str(e))
-            return False
-
-        finally:
-            if client is not None:
-                try:
-                    await asyncio.wait_for(shutdown_client(client), timeout=timeout)
-                except (OSError, RuntimeError, TimeoutError) as e:
-                    logger.debug("client_shutdown_error error=%s", e)
-                del client
+    return await _validate_relay_protocol(
+        relay,
+        RelayValidationContext(
+            connect_relay=connect_relay,
+            shutdown_client=shutdown_client,
+            suppress_stderr=suppress_nostr_sdk_stderr,
+            logger=logger,
+        ),
+        RelayValidationOptions(
+            connect_timeout=timeout,
+            proxy_url=proxy_url,
+            overall_timeout=overall_timeout,
+            allow_insecure=allow_insecure,
+        ),
+    )
