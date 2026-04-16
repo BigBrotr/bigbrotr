@@ -1,25 +1,13 @@
-"""Monitor-owned runtime resources.
-
-These helpers are specific to the monitor service even though they support
-cross-cutting concerns like GeoIP readers and relay client reuse.
-"""
+"""Monitor-owned runtime resources."""
 
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import TYPE_CHECKING
-
-
-logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
     import geoip2.database
-    from nostr_sdk import Client, Keys
-
-    from bigbrotr.models import Relay
-    from bigbrotr.services.common.configs import NetworksConfig
 
 
 class GeoReaders:
@@ -53,36 +41,3 @@ class GeoReaders:
         if self.asn:
             self.asn.close()
             self.asn = None
-
-
-class RelayClients:
-    """Lazy pool of relay clients used by monitor publishing flows."""
-
-    __slots__ = ("_manager",)
-
-    def __init__(
-        self,
-        keys: Keys,
-        networks: NetworksConfig,
-        *,
-        allow_insecure: bool = False,
-    ) -> None:
-        from bigbrotr.utils.protocol import NostrClientManager  # noqa: PLC0415
-
-        self._manager = NostrClientManager(
-            keys=keys,
-            networks=networks,
-            allow_insecure=allow_insecure,
-        )
-
-    async def get(self, relay: Relay) -> Client | None:
-        """Return a connected client for a relay, connecting lazily."""
-        return await self._manager.get_relay_client(relay)
-
-    async def get_many(self, relays: list[Relay]) -> list[Client]:
-        """Return connected clients for multiple relays."""
-        return await self._manager.get_relay_clients(relays)
-
-    async def disconnect(self) -> None:
-        """Disconnect all clients and reset cached state."""
-        await self._manager.disconnect()

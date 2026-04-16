@@ -80,7 +80,7 @@ from bigbrotr.nips.nip66 import (
 )
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin, NetworkSemaphoresMixin
 from bigbrotr.utils.http import download_bounded_file
-from bigbrotr.utils.protocol import broadcast_events_detailed
+from bigbrotr.utils.protocol import NostrClientManager, broadcast_events_detailed
 
 from .checks import (
     MonitorCheckContext,
@@ -119,7 +119,7 @@ from .queries import (
     upsert_monitor_checkpoints,
     upsert_publish_checkpoints,
 )
-from .resources import GeoReaders, RelayClients
+from .resources import GeoReaders
 from .utils import (
     CheckResult,
     MonitorChunkOutcome,
@@ -184,7 +184,7 @@ class Monitor(
         )
         self._config: MonitorConfig
         self._keys: Keys = resolved_keys
-        self.clients = RelayClients(
+        self.clients = NostrClientManager(
             keys=resolved_keys,
             networks=config.networks,
             allow_insecure=config.processing.allow_insecure,
@@ -199,7 +199,7 @@ class Monitor(
         ``publish_profile``, ``publish_announcement``, and ``monitor``.
 
         Publish relay connections are established lazily on first use
-        via ``clients.get()`` and torn down in the ``finally``
+        via ``clients.get_relay_client()`` and torn down in the ``finally``
         block.
         """
         await self._open_cycle_resources()
@@ -273,7 +273,7 @@ class Monitor(
         """Publish a Kind 30166 relay discovery event for a single relay.
 
         Resolves discovery publish relays from config, connects lazily
-        via ``clients.get_many()``, builds the event, and broadcasts.
+        via ``clients.get_relay_clients()``, builds the event, and broadcasts.
 
         Args:
             relay: The relay that was health-checked.

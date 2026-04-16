@@ -20,10 +20,9 @@ if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.core.logger import Logger
     from bigbrotr.models import Relay
-    from bigbrotr.utils.protocol import BroadcastClientResult
+    from bigbrotr.utils.protocol import BroadcastClientResult, NostrClientManager
 
     from .configs import MonitorConfig
-    from .resources import RelayClients
     from .utils import CheckResult
 
 
@@ -33,7 +32,7 @@ class PublishContext:
 
     brotr: Brotr
     config: MonitorConfig
-    clients: RelayClients
+    clients: NostrClientManager
     logger: Logger
     is_due: Callable[[Brotr, str, float], Awaitable[bool]]
     broadcast: Callable[[list[EventBuilder], list[Client]], Awaitable[list[BroadcastClientResult]]]
@@ -45,7 +44,7 @@ class DiscoveryContext:
     """Dependencies for per-relay discovery publishing."""
 
     config: MonitorConfig
-    clients: RelayClients
+    clients: NostrClientManager
     logger: Logger
     broadcast: Callable[[list[EventBuilder], list[Client]], Awaitable[list[BroadcastClientResult]]]
 
@@ -71,7 +70,7 @@ async def publish_profile(
     if not relays or not await context.is_due(context.brotr, "profile", cfg.interval):
         return
 
-    connected_clients = await context.clients.get_many(relays)
+    connected_clients = await context.clients.get_relay_clients(relays)
     if not connected_clients:
         context.logger.warning("publish_failed", event="profile", error="no relays reachable")
         return
@@ -124,7 +123,7 @@ async def publish_relay_list(
     if not relays or not await context.is_due(context.brotr, "relay_list", cfg.interval):
         return
 
-    connected_clients = await context.clients.get_many(relays)
+    connected_clients = await context.clients.get_relay_clients(relays)
     if not connected_clients:
         context.logger.warning(
             "publish_failed",
@@ -173,7 +172,7 @@ async def publish_announcement(
     first_network = enabled_networks[0] if enabled_networks else NetworkType.CLEARNET
     timeout_ms = int(context.config.networks.get(first_network).timeout * 1000)
 
-    connected_clients = await context.clients.get_many(relays)
+    connected_clients = await context.clients.get_relay_clients(relays)
     if not connected_clients:
         context.logger.warning(
             "publish_failed",
@@ -238,7 +237,7 @@ async def publish_discovery(
     if not relays:
         return
 
-    connected_clients = await context.clients.get_many(relays)
+    connected_clients = await context.clients.get_relay_clients(relays)
     if not connected_clients:
         return
 

@@ -137,8 +137,8 @@ class _MonitorStub:
         self.set_gauge = MagicMock()
         self.inc_gauge = MagicMock()
         self.clients = MagicMock()
-        self.clients.get = AsyncMock(return_value=AsyncMock())
-        self.clients.get_many = AsyncMock(return_value=[AsyncMock()])
+        self.clients.get_relay_client = AsyncMock(return_value=AsyncMock())
+        self.clients.get_relay_clients = AsyncMock(return_value=[AsyncMock()])
         self.clients.disconnect = AsyncMock()
 
     # Publishing methods bound from Monitor
@@ -1600,8 +1600,8 @@ class TestMonitorRun:
         config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
         monitor.clients = MagicMock()
-        monitor.clients.get = AsyncMock(return_value=None)
-        monitor.clients.get_many = AsyncMock(return_value=[])
+        monitor.clients.get_relay_client = AsyncMock(return_value=None)
+        monitor.clients.get_relay_clients = AsyncMock(return_value=[])
         monitor.clients.disconnect = AsyncMock()
         await monitor.run()
 
@@ -2117,7 +2117,7 @@ class TestPublishAnnouncement:
             return_value=False,
         ):
             await stub.publish_announcement()
-            stub.clients.get_many.assert_not_awaited()
+            stub.clients.get_relay_clients.assert_not_awaited()
 
     async def test_publish_announcement_no_prior_state(self, stub: _MonitorStub) -> None:
         with (
@@ -2170,7 +2170,7 @@ class TestPublishAnnouncement:
         mock_save.assert_awaited_once()
 
     async def test_publish_announcement_no_reachable_clients(self, stub: _MonitorStub) -> None:
-        stub.clients.get_many = AsyncMock(return_value=[])
+        stub.clients.get_relay_clients = AsyncMock(return_value=[])
         with (
             patch(
                 "bigbrotr.services.monitor.service.is_publish_due",
@@ -2255,7 +2255,7 @@ class TestPublishProfile:
             return_value=False,
         ):
             await stub.publish_profile()
-            stub.clients.get_many.assert_not_awaited()
+            stub.clients.get_relay_clients.assert_not_awaited()
 
     async def test_publish_profile_successful(self, stub: _MonitorStub) -> None:
         with (
@@ -2286,7 +2286,7 @@ class TestPublishProfile:
         )
 
     async def test_publish_profile_no_reachable_clients(self, stub: _MonitorStub) -> None:
-        stub.clients.get_many = AsyncMock(return_value=[])
+        stub.clients.get_relay_clients = AsyncMock(return_value=[])
         with (
             patch(
                 "bigbrotr.services.monitor.service.is_publish_due",
@@ -2373,8 +2373,8 @@ class TestPublishRelayList:
             ),
         ):
             await stub.publish_relay_list()
-        stub.clients.get_many.assert_awaited_once()
-        call_relays = stub.clients.get_many.call_args[0][0]
+        stub.clients.get_relay_clients.assert_awaited_once()
+        call_relays = stub.clients.get_relay_clients.call_args[0][0]
         assert len(call_relays) == 1
         assert call_relays[0].url == "wss://custom.relay.com"
 
@@ -2397,7 +2397,7 @@ class TestPublishRelayList:
             return_value=False,
         ):
             await stub.publish_relay_list()
-            stub.clients.get_many.assert_not_awaited()
+            stub.clients.get_relay_clients.assert_not_awaited()
 
     async def test_successful(self, stub: _MonitorStub) -> None:
         with (
@@ -2428,7 +2428,7 @@ class TestPublishRelayList:
         )
 
     async def test_no_reachable_clients(self, stub: _MonitorStub) -> None:
-        stub.clients.get_many = AsyncMock(return_value=[])
+        stub.clients.get_relay_clients = AsyncMock(return_value=[])
         with (
             patch(
                 "bigbrotr.services.monitor.service.is_publish_due",
@@ -2519,7 +2519,7 @@ class TestPublishDiscovery:
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
         monitor.clients = MagicMock()
-        monitor.clients.get_many = AsyncMock(return_value=[])
+        monitor.clients.get_relay_clients = AsyncMock(return_value=[])
         relay = Relay("wss://relay.example.com")
         result = _make_check_result(nip11_info=_make_nip11_meta(name="Test"))
 
@@ -2539,7 +2539,7 @@ class TestPublishDiscovery:
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
         monitor.clients = MagicMock()
-        monitor.clients.get_many = AsyncMock(return_value=[AsyncMock()])
+        monitor.clients.get_relay_clients = AsyncMock(return_value=[AsyncMock()])
         relay = Relay("wss://relay.example.com")
         result = _make_check_result(nip11_info=_make_nip11_meta(name="Test Relay"))
 
@@ -2561,7 +2561,7 @@ class TestPublishDiscovery:
         )
         monitor = Monitor(brotr=mock_brotr, config=config)
         monitor.clients = MagicMock()
-        monitor.clients.get_many = AsyncMock(return_value=[AsyncMock()])
+        monitor.clients.get_relay_clients = AsyncMock(return_value=[AsyncMock()])
         relay = Relay("wss://relay.example.com")
         result = _make_check_result()
 
@@ -2589,7 +2589,7 @@ class TestPublishDiscovery:
         monitor = Monitor(brotr=mock_brotr, config=config)
         monitor._logger = MagicMock()
         monitor.clients = MagicMock()
-        monitor.clients.get_many = AsyncMock(return_value=[AsyncMock()])
+        monitor.clients.get_relay_clients = AsyncMock(return_value=[AsyncMock()])
         relay = Relay("wss://relay.example.com")
         result = _make_check_result(nip11_info=_make_nip11_meta(name="Test"))
 
@@ -2636,8 +2636,8 @@ class TestMonitorMetrics:
                 yield (relay, None)
 
         monitor.clients = MagicMock()
-        monitor.clients.get = AsyncMock(return_value=None)
-        monitor.clients.get_many = AsyncMock(return_value=[])
+        monitor.clients.get_relay_client = AsyncMock(return_value=None)
+        monitor.clients.get_relay_clients = AsyncMock(return_value=[])
         monitor.clients.disconnect = AsyncMock()
 
         with (
