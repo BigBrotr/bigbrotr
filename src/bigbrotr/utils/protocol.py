@@ -45,7 +45,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import inspect
 import logging
 import socket
 import ssl
@@ -69,6 +68,7 @@ from nostr_sdk import (
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 
+from . import protocol_lifecycle as _protocol_lifecycle
 from . import protocol_publish as _protocol_publish
 from .protocol_sessions import ClientConnectResult, ClientSession
 from .protocol_sessions import connect_client_relays as _connect_client_relays
@@ -102,6 +102,7 @@ broadcast_events = _protocol_publish.broadcast_events
 broadcast_events_detailed = _protocol_publish.broadcast_events_detailed
 summarize_broadcast_results = _protocol_publish.summarize_broadcast_results
 normalize_send_output = _protocol_publish.normalize_send_output
+shutdown_client = _protocol_lifecycle.shutdown_client
 
 
 # Multi-word patterns for SSL/TLS certificate errors in nostr-sdk messages.
@@ -253,32 +254,6 @@ class NostrClientManager:
         self._sessions.clear()
         self._relay_clients.clear()
         self._failed_relays.clear()
-
-
-async def _await_if_needed(value: object) -> object:
-    """Await ``value`` when it is awaitable, otherwise return it as-is."""
-    if inspect.isawaitable(value):
-        return await value
-    return value
-
-
-async def shutdown_client(client: Client) -> None:
-    """Fully release a nostr-sdk Client's resources before shutdown.
-
-    ``Client.shutdown()`` alone does not release the internal event
-    database, active subscriptions, or relay connection state on the
-    Rust side, causing monotonic RSS growth.  This helper performs a
-    full cleanup sequence before calling ``shutdown()``.
-    """
-    with contextlib.suppress(Exception):
-        await _await_if_needed(client.unsubscribe_all())
-    with contextlib.suppress(Exception):
-        await _await_if_needed(client.force_remove_all_relays())
-    with contextlib.suppress(Exception):
-        database = await _await_if_needed(client.database())
-        await _await_if_needed(database.wipe())  # type: ignore[attr-defined]
-    with contextlib.suppress(Exception):
-        await _await_if_needed(client.shutdown())
 
 
 async def create_client(
