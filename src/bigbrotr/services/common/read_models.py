@@ -195,35 +195,31 @@ class ReadModelSurface:
         """Return discovered catalog object names available to the public surface."""
         return set(self._catalog.tables)
 
-    def policies(self) -> dict[str, ReadModelPolicy]:
-        """Return the current read-model policies from the owning service config."""
-        policies = self._policy_source()
-        if not isinstance(policies, dict):
-            return {}
-        return dict(policies)
-
     def enabled_names(self, surface: ReadSurface) -> list[str]:
         """Return enabled read-model IDs for one public surface."""
+        policies = self._policy_source()
         return resolve_surface_read_model_names(
             surface,
-            policies=self.policies(),
+            policies=dict(policies) if isinstance(policies, dict) else {},
             available_catalog_names=self.available_catalog_names(),
         )
 
     def enabled_entries(self, surface: ReadSurface) -> dict[str, ReadModelEntry]:
         """Return enabled read-model entries for one public surface."""
+        policies = self._policy_source()
         return resolve_surface_read_models(
             surface,
-            policies=self.policies(),
+            policies=dict(policies) if isinstance(policies, dict) else {},
             available_catalog_names=self.available_catalog_names(),
         )
 
     def resolve(self, surface: ReadSurface, name: str) -> ReadModelEntry | None:
         """Resolve one public read-model name to an enabled entry for one surface."""
+        policies = self._policy_source()
         return resolve_surface_read_model(
             surface,
             name=name,
-            policies=self.policies(),
+            policies=dict(policies) if isinstance(policies, dict) else {},
             available_catalog_names=self.available_catalog_names(),
         )
 
