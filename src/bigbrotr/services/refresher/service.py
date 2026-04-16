@@ -208,18 +208,6 @@ class Refresher(BaseService[RefresherConfig]):
         )
         return cycle_result
 
-    def _cycle_cutoff_reason(self, cycle_start: float, attempted: int) -> str | None:
-        """Return the configured budget reason that should stop the cycle, if any."""
-        max_targets = self._config.processing.max_targets_per_cycle
-        if max_targets is not None and attempted >= max_targets:
-            return "max_targets_per_cycle"
-
-        max_duration = self._config.processing.max_duration
-        if max_duration is not None and time.monotonic() - cycle_start >= max_duration:
-            return "max_duration"
-
-        return None
-
     async def _run_incremental_cycle_targets(
         self,
         *,
@@ -229,9 +217,13 @@ class Refresher(BaseService[RefresherConfig]):
     ) -> str | None:
         """Run configured incremental targets until completion or cycle cutoff."""
         for target in plan.incremental_targets:
-            cutoff_reason = self._cycle_cutoff_reason(plan.cycle_start, len(target_results))
-            if cutoff_reason is not None:
-                return cutoff_reason
+            max_targets = self._config.processing.max_targets_per_cycle
+            if max_targets is not None and len(target_results) >= max_targets:
+                return "max_targets_per_cycle"
+
+            max_duration = self._config.processing.max_duration
+            if max_duration is not None and time.monotonic() - plan.cycle_start >= max_duration:
+                return "max_duration"
 
             result, source, checkpoint = await self._run_incremental_target(target)
             target_results.append(result)
@@ -257,9 +249,13 @@ class Refresher(BaseService[RefresherConfig]):
     ) -> str | None:
         """Run configured periodic targets until completion or cycle cutoff."""
         for target in plan.periodic_targets:
-            cutoff_reason = self._cycle_cutoff_reason(plan.cycle_start, len(target_results))
-            if cutoff_reason is not None:
-                return cutoff_reason
+            max_targets = self._config.processing.max_targets_per_cycle
+            if max_targets is not None and len(target_results) >= max_targets:
+                return "max_targets_per_cycle"
+
+            max_duration = self._config.processing.max_duration
+            if max_duration is not None and time.monotonic() - plan.cycle_start >= max_duration:
+                return "max_duration"
 
             result = await self._run_periodic_target(target)
             target_results.append(result)

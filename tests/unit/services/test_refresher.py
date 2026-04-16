@@ -713,18 +713,25 @@ class TestRefresherRun:
         assert result.cutoff_reason == "max_targets_per_cycle"
         mock_periodic.assert_not_awaited()
 
-    def test_max_duration_budget_stops_when_elapsed(self, mock_refresher_brotr: Brotr) -> None:
+    async def test_max_duration_budget_stops_periodic_targets_when_elapsed(
+        self,
+        mock_refresher_brotr: Brotr,
+    ) -> None:
         refresher = Refresher(
             brotr=mock_refresher_brotr,
-            config=_refresher_config(processing={"max_duration": 1.0}),
+            config=_refresher_config(periodic=True, processing={"max_duration": 1.0}),
         )
+        plan = refresher._build_refresh_cycle_plan(cycle_start=time.monotonic() - 2.0)
 
-        cutoff_reason = refresher._cycle_cutoff_reason(
-            cycle_start=time.monotonic() - 2.0,
-            attempted=0,
-        )
+        with patch.object(refresher, "_run_periodic_target", AsyncMock()) as mock_periodic:
+            cutoff_reason = await refresher._run_periodic_cycle_targets(
+                plan=plan,
+                target_results=[],
+                source_checkpoints={},
+            )
 
         assert cutoff_reason == "max_duration"
+        mock_periodic.assert_not_awaited()
 
     async def test_disabled_periodic_tasks_are_not_executed(
         self, mock_refresher_brotr: Brotr
