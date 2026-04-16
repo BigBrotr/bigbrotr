@@ -120,6 +120,11 @@ from .queries import (
     upsert_publish_checkpoints,
 )
 from .resources import GeoReaders
+from .runtime import (
+    build_monitor_cycle_plan,
+    close_cycle_resources,
+    open_cycle_resources,
+)
 from .utils import (
     CheckResult,
     MonitorChunkOutcome,
@@ -257,18 +262,20 @@ class Monitor(
 
     async def _open_cycle_resources(self) -> None:
         """Prepare shared resources needed for one monitor cycle."""
-        await self.update_geo_databases()
-
-        compute = self._config.processing.compute
-        await self.geo_readers.open(
-            city_path=self._config.geo.city_database_path if compute.nip66_geo else None,
-            asn_path=self._config.geo.asn_database_path if compute.nip66_net else None,
+        await open_cycle_resources(
+            config=self._config,
+            geo_readers=self.geo_readers,
+            update_geo_databases_fn=self.update_geo_databases,
+            open_geo_readers_fn=self.geo_readers.open,
         )
 
     async def _close_cycle_resources(self) -> None:
         """Release shared resources owned by one monitor cycle."""
-        await self.clients.disconnect()
-        self.geo_readers.close()
+        await close_cycle_resources(
+            clients_disconnect_fn=self.clients.disconnect,
+            geo_readers=self.geo_readers,
+            close_geo_readers_fn=self.geo_readers.close,
+        )
 
     async def publish_profile(self) -> None:
         """Publish Kind 0 profile metadata if the configured interval has elapsed."""
@@ -427,25 +434,15 @@ class Monitor(
         now: int | None = None,
     ) -> MonitorCyclePlan | None:
         """Build the relay-selection plan for one monitor cycle."""
-        networks = self._config.networks.get_enabled_networks()
-        if not networks:
+        if not self._config.networks.get_enabled_networks():
             self._logger.warning("no_networks_enabled")
             return None
-
-        current_time = int(time.time()) if now is None else now
-        monitored_before = int(current_time - self._config.discovery.interval)
-        max_relays = self._config.processing.max_relays
-        total = await count_relays_to_monitor(self._brotr, monitored_before, networks)
-        if max_relays is not None:
-            total = min(total, max_relays)
-
-        return MonitorCyclePlan(
-            networks=tuple(networks),
-            monitored_before=monitored_before,
-            max_relays=max_relays,
-            total=total,
-            max_concurrency=self.network_semaphores.max_concurrency(networks),
-            chunk_size=self._config.processing.chunk_size,
+        return await build_monitor_cycle_plan(
+            brotr=self._brotr,
+            config=self._config,
+            network_semaphores=self.network_semaphores,
+            now=now,
+            count_relays_fn=count_relays_to_monitor,
         )
 
     async def _monitor_chunk(
