@@ -282,7 +282,18 @@ class Dvm(BaseService[DvmConfig]):
                     break
             events.sort(key=lambda event: (event.created_at().as_secs(), event.id().to_hex()))
         if not events:
-            self._report_metrics(0, 0, 0, 0)
+            read_models_exposed = len(self._read_models.enabled_names("dvm"))
+            self.inc_counter("requests_total", 0)
+            self.inc_counter("requests_failed", 0)
+            self.set_gauge("read_models_exposed", read_models_exposed)
+            self._logger.info(
+                "cycle_stats",
+                jobs_received=0,
+                processed=0,
+                failed=0,
+                payment_required=0,
+                read_models_exposed=read_models_exposed,
+            )
             return
 
         received = 0
@@ -309,7 +320,18 @@ class Dvm(BaseService[DvmConfig]):
             self._processed_ids.clear()
         if (latest_ts, latest_id) != (self._last_fetch_ts, self._last_fetch_id):
             await self._store_request_cursor(latest_ts, latest_id)
-        self._report_metrics(received, processed, failed, payment_required)
+        read_models_exposed = len(self._read_models.enabled_names("dvm"))
+        self.inc_counter("requests_total", received)
+        self.inc_counter("requests_failed", failed)
+        self.set_gauge("read_models_exposed", read_models_exposed)
+        self._logger.info(
+            "cycle_stats",
+            jobs_received=received,
+            processed=processed,
+            failed=failed,
+            payment_required=payment_required,
+            read_models_exposed=read_models_exposed,
+        )
 
     # ── Event processing ──────────────────────────────────────────
 
@@ -443,29 +465,6 @@ class Dvm(BaseService[DvmConfig]):
             duration_ms=round(duration_ms, 1),
         )
         return 1, 1, 0, 0
-
-    # ── Metrics & dedup ───────────────────────────────────────────
-
-    def _report_metrics(
-        self,
-        received: int,
-        processed: int,
-        failed: int,
-        payment_required: int,
-    ) -> None:
-        """Update Prometheus metrics and log cycle stats."""
-        read_models_exposed = len(self._read_models.enabled_names("dvm"))
-        self.inc_counter("requests_total", received)
-        self.inc_counter("requests_failed", failed)
-        self.set_gauge("read_models_exposed", read_models_exposed)
-        self._logger.info(
-            "cycle_stats",
-            jobs_received=received,
-            processed=processed,
-            failed=failed,
-            payment_required=payment_required,
-            read_models_exposed=read_models_exposed,
-        )
 
     # ── Read-model policy helpers ─────────────────────────────────
 
