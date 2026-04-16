@@ -47,7 +47,6 @@ import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import asyncpg
-from nostr_sdk import Client, Filter, Kind, RelayUrl, Timestamp
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
@@ -58,6 +57,7 @@ from bigbrotr.services.common.types import DvmRequestCursor
 from bigbrotr.utils.protocol import NostrClientManager, normalize_send_output
 
 from .configs import DvmConfig
+from .subscriptions import start_request_subscription, stop_request_subscription
 from .utils import (
     JobPreparationContext,
     RejectedJobRequest,
@@ -74,7 +74,7 @@ from .utils import (
 if TYPE_CHECKING:
     from types import TracebackType
 
-    from nostr_sdk import Keys
+    from nostr_sdk import Client, Keys
 
     from bigbrotr.core.brotr import Brotr
 
@@ -82,56 +82,6 @@ _MAX_PROCESSED_IDS = 10_000
 _MIN_TAG_LEN = 2
 _REQUEST_CURSOR_KEY = "job_requests"
 _REQUEST_CURSOR_DEFAULT_ID = "0" * 64
-
-
-class _RequestNotificationBuffer:
-    """Buffer long-lived DVM subscription notifications into an asyncio queue."""
-
-    __slots__ = ("_logger", "_loop", "_queue", "_subscription_id")
-
-    def __init__(
-        self,
-        *,
-        subscription_id: str,
-        queue: asyncio.Queue[Any],
-        logger: Any,
-    ) -> None:
-        self._subscription_id = subscription_id
-        self._queue = queue
-        self._loop = asyncio.get_running_loop()
-        self._logger = logger
-
-    def handle_msg(self, relay_url: RelayUrl, msg: Any) -> None:
-        relay_msg = msg.as_enum()
-        relay = str(relay_url)
-
-        if (
-            relay_msg.is_END_OF_STORED_EVENTS()
-            and relay_msg.subscription_id == self._subscription_id
-        ):
-            self._logger.debug(
-                "request_subscription_eose",
-                relay=relay,
-                subscription_id=relay_msg.subscription_id,
-            )
-        elif relay_msg.is_CLOSED() and relay_msg.subscription_id == self._subscription_id:
-            self._logger.warning(
-                "request_subscription_closed",
-                relay=relay,
-                subscription_id=relay_msg.subscription_id,
-                message=relay_msg.message,
-            )
-        elif relay_msg.is_NOTICE():
-            self._logger.debug(
-                "request_subscription_notice",
-                relay=relay,
-                message=relay_msg.message,
-            )
-
-    def handle(self, _relay_url: RelayUrl, subscription_id: str, event: Any) -> None:
-        if subscription_id != self._subscription_id or self._loop.is_closed():
-            return
-        self._loop.call_soon_threadsafe(self._queue.put_nowait, event)
 
 
 class Dvm(BaseService[DvmConfig]):
@@ -489,38 +439,16 @@ class Dvm(BaseService[DvmConfig]):
         """Subscribe the DVM client to long-lived job request notifications."""
         if self._client is None:
             return
-
-        queue: asyncio.Queue[Any] = asyncio.Queue()
-        filter_ = (
-            Filter().kind(Kind(self._config.kind)).since(Timestamp.from_secs(self._last_fetch_ts))
-        )
-        urls = [RelayUrl.parse(url) for url in connected_relays]
-        output = await self._client.subscribe_to(urls, filter_)
-        successful_relays, failed_relays = normalize_send_output(output)
-
-        for relay_url, error in failed_relays.items():
-            self._logger.warning(
-                "request_subscription_relay_failed",
-                url=relay_url,
-                error=error,
-            )
-        if not successful_relays:
-            raise TimeoutError("dvm could not subscribe to any relay")
-
-        self._request_events = queue
-        self._request_subscription_id = output.id
-        handler = _RequestNotificationBuffer(
-            subscription_id=output.id,
-            queue=queue,
+        subscription = await start_request_subscription(
+            client=self._client,
+            connected_relays=connected_relays,
+            kind=self._config.kind,
+            since=self._last_fetch_ts,
             logger=self._logger,
         )
-        self._notification_task = asyncio.create_task(self._client.handle_notifications(handler))
-        self._logger.info(
-            "request_subscription_started",
-            subscription_id=output.id,
-            relays=len(successful_relays),
-            since=self._last_fetch_ts,
-        )
+        self._request_events = subscription.queue
+        self._request_subscription_id = subscription.subscription_id
+        self._notification_task = subscription.task
 
     async def _stop_request_subscription(self) -> None:
         """Stop the long-lived DVM request subscription notification loop."""
@@ -528,22 +456,7 @@ class Dvm(BaseService[DvmConfig]):
         self._notification_task = None
         self._request_events = None
         self._request_subscription_id = None
-        if task is None:
-            return
-        if task.done():
-            if task.cancelled():
-                return
-            error = task.exception()
-            if error is not None:
-                self._logger.warning(
-                    "request_subscription_task_failed_on_shutdown",
-                    error=str(error),
-                    error_type=type(error).__name__,
-                )
-            return
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
+        await stop_request_subscription(task, logger=self._logger)
 
     # ── Event publishing ──────────────────────────────────────────
 
