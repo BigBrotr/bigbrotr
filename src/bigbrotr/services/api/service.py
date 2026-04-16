@@ -124,7 +124,9 @@ class Api(BaseService[ApiConfig]):
         self._server_task = asyncio.create_task(self._server.serve())
         startup_complete = False
         try:
-            await self._wait_for_server_startup(self._server)
+            while not self._server.started:
+                self._raise_if_server_task_stopped()
+                await asyncio.sleep(0)
             startup_complete = True
         finally:
             if not startup_complete:
@@ -367,12 +369,6 @@ class Api(BaseService[ApiConfig]):
         app.get(f"{self._config.route_prefix}/{read_model_id}/{pk_path}")(get_row)
 
     # ── Server lifecycle ──────────────────────────────────────────
-
-    async def _wait_for_server_startup(self, server: uvicorn.Server) -> None:
-        """Wait until uvicorn reports startup success or the server task fails."""
-        while not server.started:
-            self._raise_if_server_task_stopped()
-            await asyncio.sleep(0)
 
     async def _stop_server_task(self) -> None:
         """Cancel the HTTP server task and clear local server state."""
