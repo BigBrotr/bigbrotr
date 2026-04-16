@@ -362,9 +362,9 @@ class TestNostrClientManagerSessions:
             relay_urls=("wss://relay1.example.com",),
             connect_result=ClientConnectResult(connected=("wss://relay1.example.com",), failed={}),
         )
-        manager.relay_clients["wss://relay1.example.com"] = shared_client
-        manager.relay_clients["wss://relay2.example.com"] = cached_client
-        manager.failed_relays.add("wss://relay3.example.com")
+        manager._relay_clients["wss://relay1.example.com"] = shared_client
+        manager._relay_clients["wss://relay2.example.com"] = cached_client
+        manager._failed_relays.add("wss://relay3.example.com")
 
         with patch(
             "bigbrotr.utils.protocol.shutdown_client",
@@ -376,8 +376,8 @@ class TestNostrClientManagerSessions:
         mock_shutdown.assert_any_await(shared_client)
         mock_shutdown.assert_any_await(cached_client)
         assert manager._sessions == {}
-        assert manager.relay_clients == {}
-        assert manager.failed_relays == set()
+        assert manager._relay_clients == {}
+        assert manager._failed_relays == set()
 
 
 # =============================================================================

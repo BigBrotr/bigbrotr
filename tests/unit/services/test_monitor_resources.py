@@ -249,8 +249,8 @@ class TestRelayClientsDisconnect:
 
         mock_c1.shutdown.assert_awaited_once()
         mock_c2.shutdown.assert_awaited_once()
-        assert clients._manager.relay_clients == {}
-        assert clients._manager.failed_relays == set()
+        assert clients._manager._relay_clients == {}
+        assert clients._manager._failed_relays == set()
 
     async def test_disconnect_handles_shutdown_errors(self) -> None:
         clients = _make_clients()
@@ -267,7 +267,7 @@ class TestRelayClientsDisconnect:
 
         await clients.disconnect()
 
-        assert clients._manager.relay_clients == {}
+        assert clients._manager._relay_clients == {}
 
     async def test_disconnect_clears_failed_set(self) -> None:
         clients = _make_clients()
@@ -280,6 +280,6 @@ class TestRelayClientsDisconnect:
         ):
             await clients.get(relay)
 
-        assert len(clients._manager.failed_relays) == 1
+        assert len(clients._manager._failed_relays) == 1
         await clients.disconnect()
-        assert clients._manager.failed_relays == set()
+        assert clients._manager._failed_relays == set()
