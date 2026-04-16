@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from nostr_sdk import EventBuilder, Kind, Tag
 
+from bigbrotr.services.common.configs import ReadModelPolicy
 from bigbrotr.services.common.read_models import (
     ReadModelEntry,
     ReadModelQuery,
@@ -29,7 +30,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from bigbrotr.services.common.catalog import QueryResult
-    from bigbrotr.services.common.configs import ReadModelPolicy
 
 # Minimum tag lengths for NIP-90 tag parsing
 _MIN_PARAM_TAG_LEN = 3
@@ -109,18 +109,6 @@ def parse_job_params(event: Any) -> dict[str, Any]:
     return params
 
 
-def configured_read_model_price(
-    name: str,
-    *,
-    policies: Mapping[str, ReadModelPolicy],
-) -> int:
-    """Return the configured millisat price for one canonical read model."""
-    policy = policies.get(name)
-    if policy is None:
-        return 0
-    return policy.price
-
-
 def prepare_job_request(
     requested_read_model_id: str,
     params: Mapping[str, Any],
@@ -141,7 +129,7 @@ def prepare_job_request(
 
     read_model = resolved_read_model
     read_model_id = read_model.read_model_id
-    price = configured_read_model_price(read_model_id, policies=context.policies)
+    price = context.policies.get(read_model_id, ReadModelPolicy()).price
     raw_bid = params.get("bid", 0)
     bid = raw_bid if isinstance(raw_bid, int) else 0
     if price > 0 and bid < price:

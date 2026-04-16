@@ -35,7 +35,6 @@ from bigbrotr.services.dvm.utils import (
     build_error_event,
     build_payment_required_event,
     build_result_event,
-    configured_read_model_price,
     parse_job_params,
     prepare_job_request,
 )
@@ -325,19 +324,14 @@ class TestDvmReadModelAccessPolicy:
         assert dvm_service._read_models.is_enabled("nonexistent") is False
 
     def test_free_price_default(self, dvm_service: Dvm) -> None:
-        assert configured_read_model_price("relays", policies=dvm_service._config.read_models) == 0
+        assert dvm_service._config.read_models["relays"].price == 0
 
     def test_paid_price(self, dvm_service: Dvm) -> None:
-        assert (
-            configured_read_model_price("events", policies=dvm_service._config.read_models) == 5000
-        )
+        assert dvm_service._config.read_models["events"].price == 5000
 
     def test_unknown_read_model_price_returns_zero(self, dvm_service: Dvm) -> None:
         assert (
-            configured_read_model_price(
-                "nonexistent-read-model",
-                policies=dvm_service._config.read_models,
-            )
+            dvm_service._config.read_models.get("nonexistent-read-model", ReadModelPolicy()).price
             == 0
         )
 
