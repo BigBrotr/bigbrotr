@@ -102,10 +102,9 @@ class Metadata:
     """Immutable metadata with deterministic content hashing.
 
     On construction, the ``data`` dict is validated for strict JSON
-    compatibility, normalized (null values and empty containers removed,
-    keys sorted), and a canonical JSON string is produced. The SHA-256
-    hash of that string serves as a content-addressed identifier for
-    deduplication.
+    compatibility, normalized only for deterministic ordering, and a
+    canonical JSON string is produced. The SHA-256 hash of that string
+    serves as a content-addressed identifier for deduplication.
 
     The hash is derived from ``data`` only -- ``type`` is not included in
     the hash computation but is part of the composite primary key
@@ -115,7 +114,7 @@ class Metadata:
         type: The metadata classification. Built-in callers use the
             [MetadataType][bigbrotr.models.metadata.MetadataType] catalog, but
             arbitrary non-empty string IDs are accepted for extensibility.
-        data: Normalized JSON-compatible dictionary.
+        data: Deterministically normalized JSON-compatible dictionary.
 
     Examples:
         ```python
@@ -173,7 +172,7 @@ class Metadata:
     )
 
     def __post_init__(self) -> None:
-        """Validate, normalize, and hash the data dictionary."""
+        """Validate, normalize deterministically, and hash the data dictionary."""
         object.__setattr__(self, "type", _normalize_metadata_type(self.type))
         validate_mapping(self.data, "data")
         normalized = normalize_json_data(self.data, "data")

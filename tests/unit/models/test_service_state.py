@@ -176,25 +176,25 @@ class TestToDbParams:
 class TestSanitization:
     """state_value validation plus normalization via normalize_json_data."""
 
-    def test_none_values_filtered(self):
+    def test_none_values_preserved(self):
         state = ServiceState(
             service_name=ServiceName.MONITOR,
             state_type=ServiceStateType.CURSOR,
             state_key="key",
             state_value={"keep": "value", "remove": None},
         )
-        assert "remove" not in state.state_value
         assert state.state_value["keep"] == "value"
+        assert state.state_value["remove"] is None
 
-    def test_empty_containers_filtered(self):
+    def test_empty_containers_preserved(self):
         state = ServiceState(
             service_name=ServiceName.MONITOR,
             state_type=ServiceStateType.CURSOR,
             state_key="key",
             state_value={"keep": "value", "empty_dict": {}, "empty_list": []},
         )
-        assert "empty_dict" not in state.state_value
-        assert "empty_list" not in state.state_value
+        assert dict(state.state_value["empty_dict"]) == {}
+        assert tuple(state.state_value["empty_list"]) == ()
 
     def test_null_bytes_in_value_rejected(self):
         with pytest.raises(ValueError, match="null bytes"):

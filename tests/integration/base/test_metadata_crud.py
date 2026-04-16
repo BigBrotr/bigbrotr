@@ -296,22 +296,25 @@ class TestContentAddressedDedup:
         count = await brotr.fetchval("SELECT COUNT(*) FROM metadata")
         assert count == 1
 
-    async def test_null_values_removed(self, brotr: Brotr) -> None:
+    async def test_null_values_preserved(self, brotr: Brotr) -> None:
         m1 = Metadata(
             type=MetadataType.NIP11_INFO,
             data={"name": "test", "desc": None},
         )
         m2 = Metadata(type=MetadataType.NIP11_INFO, data={"name": "test"})
-        assert m1.content_hash == m2.content_hash
+        assert m1.content_hash != m2.content_hash
 
         await brotr.insert_metadata([m1])
         inserted = await brotr.insert_metadata([m2])
-        assert inserted == 0
+        assert inserted == 1
 
-        row = await brotr.fetchrow("SELECT data FROM metadata")
-        assert row is not None
-        assert "desc" not in row["data"]
-        assert row["data"]["name"] == "test"
+        rows = await brotr.fetch(
+            "SELECT data FROM metadata ORDER BY CASE WHEN data ? 'desc' THEN 0 ELSE 1 END, data->>'name'"
+        )
+        assert len(rows) == 2
+        assert rows[0]["data"]["desc"] is None
+        assert rows[0]["data"]["name"] == "test"
+        assert rows[1]["data"] == {"name": "test"}
 
     async def test_empty_data_dict(self, brotr: Brotr) -> None:
         metadata = Metadata(type=MetadataType.NIP66_HTTP, data={})

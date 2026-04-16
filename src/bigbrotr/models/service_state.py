@@ -102,7 +102,8 @@ class ServiceState:
             catalog, but arbitrary non-empty string IDs are accepted.
         state_key: Application-defined key within the service and type
             (e.g., a relay URL for cursor state).
-        state_value: Arbitrary normalized JSON-compatible dictionary with
+        state_value: Arbitrary JSON-compatible dictionary normalized only
+            for deterministic ordering, with
             service-specific data. Each state type stores its own business timestamp inside
             this dict (e.g. ``{"timestamp": 1700000000}`` for checkpoints).
 

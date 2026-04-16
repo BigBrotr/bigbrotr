@@ -118,11 +118,12 @@ def normalize_json_data(
 ) -> Any:
     """Normalize a validated JSON-compatible value for deterministic serialization.
 
-    The value is validated first, then normalized by:
+    The value is validated first, then normalized without changing its
+    semantic content:
 
-    * removing ``None`` values and empty containers (``{}``, ``[]``)
-    * sorting dictionary keys for consistent ordering
-    * preserving only valid JSON-compatible values
+    * dictionary keys are sorted for consistent ordering
+    * list order is preserved
+    * ``None`` values and empty containers are preserved
     """
     validate_json_data(obj, name, max_depth=max_depth)
     return _normalize_json_data(obj, max_depth=max_depth)
@@ -149,29 +150,13 @@ def _normalize_json_data(
     if isinstance(obj, Mapping):
         result: dict[str, Any] = {}
         for key in sorted(obj):
-            value = _normalize_json_data(obj[key], max_depth=max_depth, _depth=_depth + 1)
-            if _is_empty(value):
-                continue
-            result[key] = value
+            result[key] = _normalize_json_data(obj[key], max_depth=max_depth, _depth=_depth + 1)
         return result
 
     if isinstance(obj, list):
-        result_list: list[Any] = []
-        for item in obj:
-            value = _normalize_json_data(item, max_depth=max_depth, _depth=_depth + 1)
-            if _is_empty(value):
-                continue
-            result_list.append(value)
-        return result_list
+        return [_normalize_json_data(item, max_depth=max_depth, _depth=_depth + 1) for item in obj]
 
     raise TypeError(f"value contains unsupported type {type(obj).__name__}")
-
-
-def _is_empty(v: Any) -> bool:
-    """Return True if the value is None or an empty container."""
-    if v is None:
-        return True
-    return bool(isinstance(v, (dict, list)) and not v)
 
 
 def deep_freeze(obj: Any) -> Any:

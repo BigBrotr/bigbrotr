@@ -7,7 +7,6 @@ from types import MappingProxyType
 import pytest
 
 from bigbrotr.models._validation import (
-    _is_empty,
     deep_freeze,
     normalize_json_data,
     validate_instance,
@@ -142,35 +141,6 @@ class TestValidateMapping:
             validate_mapping(None, "field")
 
 
-class TestIsEmpty:
-    def test_none_is_empty(self) -> None:
-        assert _is_empty(None) is True
-
-    def test_empty_dict_is_empty(self) -> None:
-        assert _is_empty({}) is True
-
-    def test_empty_list_is_empty(self) -> None:
-        assert _is_empty([]) is True
-
-    def test_non_empty_dict_not_empty(self) -> None:
-        assert _is_empty({"a": 1}) is False
-
-    def test_non_empty_list_not_empty(self) -> None:
-        assert _is_empty([1]) is False
-
-    def test_zero_not_empty(self) -> None:
-        assert _is_empty(0) is False
-
-    def test_false_not_empty(self) -> None:
-        assert _is_empty(False) is False
-
-    def test_empty_string_not_empty(self) -> None:
-        assert _is_empty("") is False
-
-    def test_string_not_empty(self) -> None:
-        assert _is_empty("hello") is False
-
-
 class TestValidateJsonData:
     """validate_json_data: strict JSON compatibility with no lossy fallback."""
 
@@ -293,24 +263,24 @@ class TestNormalizeJsonData:
         result = normalize_json_data({"b": 2, "a": 1}, "d")
         assert list(result.keys()) == ["a", "b"]
 
-    def test_removes_none_values(self) -> None:
+    def test_preserves_none_values(self) -> None:
         result = normalize_json_data({"a": 1, "b": None}, "d")
-        assert result == {"a": 1}
+        assert result == {"a": 1, "b": None}
 
-    def test_removes_empty_dict(self) -> None:
+    def test_preserves_empty_dict(self) -> None:
         result = normalize_json_data({"a": 1, "b": {}}, "d")
-        assert result == {"a": 1}
+        assert result == {"a": 1, "b": {}}
 
-    def test_removes_empty_list(self) -> None:
+    def test_preserves_empty_list(self) -> None:
         result = normalize_json_data({"a": 1, "b": []}, "d")
-        assert result == {"a": 1}
+        assert result == {"a": 1, "b": []}
 
     def test_empty_dict_returns_empty(self) -> None:
         assert normalize_json_data({}, "d") == {}
 
-    def test_list_cleaned(self) -> None:
+    def test_list_preserved(self) -> None:
         result = normalize_json_data([1, None, "hello", {}], "d")
-        assert result == [1, "hello"]
+        assert result == [1, None, "hello", {}]
 
     def test_empty_list_returns_empty(self) -> None:
         assert normalize_json_data([], "d") == []
@@ -334,8 +304,8 @@ class TestNormalizeJsonData:
     def test_mapping_proxy_normalized(self) -> None:
         proxy = MappingProxyType({"b": 2, "a": 1, "c": None})
         result = normalize_json_data(proxy, "d")
-        assert result == {"a": 1, "b": 2}
-        assert list(result.keys()) == ["a", "b"]
+        assert result == {"a": 1, "b": 2, "c": None}
+        assert list(result.keys()) == ["a", "b", "c"]
 
 
 class TestDeepFreeze:

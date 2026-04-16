@@ -109,7 +109,7 @@ class TestConstruction:
         assert m.data["number"] == 42
         assert m.data["float"] == 3.14
         assert m.data["bool"] is True
-        assert "null" not in m.data
+        assert m.data["null"] is None
 
 
 # =============================================================================
@@ -339,14 +339,12 @@ class TestEdgeCases:
         reconstructed = Metadata(type=params.type, data=json.loads(params.data))
         assert reconstructed.data == data
 
-    def test_null_values_filtered(self):
+    def test_null_values_preserved(self):
         data = {"value": None, "nested": {"inner": None}, "real": "data"}
         m = Metadata(type=MetadataType.NIP11_INFO, data=data)
         params = m.to_db_params()
         reconstructed = Metadata(type=params.type, data=json.loads(params.data))
-        assert reconstructed.data == {"real": "data"}
-        assert "value" not in reconstructed.data
-        assert "nested" not in reconstructed.data
+        assert reconstructed.data == data
 
     def test_boolean_values(self):
         data = {"true": True, "false": False}
@@ -397,59 +395,59 @@ class TestEdgeCases:
 class TestNormalization:
     """Tests for JSON normalization ensuring deterministic hashing."""
 
-    def test_empty_dicts_removed(self):
+    def test_empty_dicts_preserved(self):
         m = Metadata(
             type=MetadataType.NIP11_INFO, data={"name": "Relay", "limitation": {}, "fees": {}}
         )
-        assert m.data == {"name": "Relay"}
+        assert m.data == {"fees": {}, "limitation": {}, "name": "Relay"}
 
-    def test_empty_lists_removed(self):
+    def test_empty_lists_preserved(self):
         m = Metadata(type=MetadataType.NIP11_INFO, data={"name": "Relay", "tags": [], "nips": []})
-        assert m.data == {"name": "Relay"}
+        assert m.data == {"name": "Relay", "nips": (), "tags": ()}
 
-    def test_nested_empty_removed_recursively(self):
+    def test_nested_empty_preserved_recursively(self):
         m = Metadata(type=MetadataType.NIP11_INFO, data={"level1": {"level2": {"level3": {}}}})
-        assert m.data == {}
+        assert m.data == {"level1": {"level2": {"level3": {}}}}
 
     def test_non_empty_preserved(self):
         m = Metadata(
             type=MetadataType.NIP11_INFO,
             data={"name": "Relay", "limitation": {"max": 1000}, "fees": {}},
         )
-        assert m.data == {"limitation": {"max": 1000}, "name": "Relay"}
+        assert m.data == {"fees": {}, "limitation": {"max": 1000}, "name": "Relay"}
 
     def test_keys_sorted(self):
         m1 = Metadata(type=MetadataType.NIP11_INFO, data={"z": 1, "a": 2, "m": 3})
         m2 = Metadata(type=MetadataType.NIP11_INFO, data={"a": 2, "m": 3, "z": 1})
         assert m1.to_db_params().data == m2.to_db_params().data
 
-    def test_hash_consistency_empty_containers(self):
+    def test_hash_distinguishes_empty_containers(self):
         m1 = Metadata(type=MetadataType.NIP11_INFO, data={"name": "Relay", "limitation": {}})
         m2 = Metadata(type=MetadataType.NIP11_INFO, data={"name": "Relay"})
-        assert m1.content_hash == m2.content_hash
+        assert m1.content_hash != m2.content_hash
 
     def test_hash_consistency_key_order(self):
         m1 = Metadata(type=MetadataType.NIP11_INFO, data={"b": 2, "a": 1})
         m2 = Metadata(type=MetadataType.NIP11_INFO, data={"a": 1, "b": 2})
         assert m1.content_hash == m2.content_hash
 
-    def test_empty_in_lists_removed(self):
+    def test_empty_in_lists_preserved(self):
         m = Metadata(type=MetadataType.NIP11_INFO, data={"items": [1, [], 2, {}, 3]})
-        assert m.data == {"items": (1, 2, 3)}
+        assert m.data == {"items": (1, (), 2, {}, 3)}
 
-    def test_none_in_lists_removed(self):
+    def test_none_in_lists_preserved(self):
         m = Metadata(type=MetadataType.NIP11_INFO, data={"items": [1, None, 2, None, 3]})
-        assert m.data == {"items": (1, 2, 3)}
+        assert m.data == {"items": (1, None, 2, None, 3)}
 
     def test_falsy_values_preserved(self):
         m = Metadata(type=MetadataType.NIP11_INFO, data={"enabled": False, "count": 0, "name": ""})
         assert m.data == {"count": 0, "enabled": False, "name": ""}
 
-    def test_list_becomes_empty_after_filtering(self):
+    def test_list_can_carry_only_empty_values(self):
         m = Metadata(
             type=MetadataType.NIP11_INFO, data={"items": [None, {}, [], None], "real": "data"}
         )
-        assert m.data == {"real": "data"}
+        assert m.data == {"items": (None, {}, (), None), "real": "data"}
 
 
 # =============================================================================

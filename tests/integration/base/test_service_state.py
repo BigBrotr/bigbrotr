@@ -498,3 +498,28 @@ class TestServiceStateJsonRoundTrip:
         assert val["ratio"] == 3.14
         assert val["nested"]["inner_flag"] is False
         assert val["nested"]["inner_int"] == 0
+
+    async def test_preserves_nulls_and_empty_containers(self, brotr: Brotr):
+        value = {
+            "nullable": None,
+            "empty_dict": {},
+            "empty_list": [],
+            "nested": {"inner_none": None, "inner_empty": []},
+        }
+        state = ServiceState(
+            service_name=ServiceName.FINDER,
+            state_type=ServiceStateType.CURSOR,
+            state_key="preserved-json",
+            state_value=value,
+        )
+        await brotr.upsert_service_state([state])
+
+        rows = await brotr.get_service_state(
+            ServiceName.FINDER, ServiceStateType.CURSOR, key="preserved-json"
+        )
+        round_tripped = rows[0].state_value
+        assert round_tripped["nullable"] is None
+        assert dict(round_tripped["empty_dict"]) == {}
+        assert tuple(round_tripped["empty_list"]) == ()
+        assert round_tripped["nested"]["inner_none"] is None
+        assert tuple(round_tripped["nested"]["inner_empty"]) == ()
