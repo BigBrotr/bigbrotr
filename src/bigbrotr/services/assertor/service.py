@@ -144,15 +144,18 @@ class Assertor(BaseService[AssertorConfig]):
         super().__init__(brotr=brotr, config=config)
         self._config: AssertorConfig
         self._client: Client | None = None
-        self._client_manager: NostrClientManager | None = None
-        self._state_store: ServiceStateStore | None = None
         self._keys: Keys = self._config.keys.keys
+        self._client_manager = NostrClientManager(
+            keys=self._keys,
+            allow_insecure=self._config.publishing.allow_insecure,
+        )
+        self._state_store = ServiceStateStore(self._brotr)
         self._cycle_seen_state_keys: set[str] = set()
 
     async def __aenter__(self) -> Assertor:
         await super().__aenter__()
         keys = self._keys
-        manager = self._get_client_manager()
+        manager = self._client_manager
         session = await manager.connect_session(
             "assertor-publish-relays",
             self._config.publishing.relays,
@@ -189,9 +192,7 @@ class Assertor(BaseService[AssertorConfig]):
         _exc_tb: TracebackType | None,
     ) -> None:
         if self._client is not None:
-            manager = self._client_manager
-            if manager is not None:
-                await manager.disconnect()
+            await self._client_manager.disconnect()
             self._client = None
             self._logger.info("client_disconnected")
         await super().__aexit__(_exc_type, _exc_val, _exc_tb)
@@ -199,25 +200,6 @@ class Assertor(BaseService[AssertorConfig]):
     async def cleanup(self) -> int:
         """No-op: post-run checkpoint cleanup depends on current eligible subjects."""
         return 0
-
-    def _get_client_manager(self) -> NostrClientManager:
-        """Return the lazy-initialized nostr client manager for this service."""
-        manager = getattr(self, "_client_manager", None)
-        if manager is None:
-            manager = NostrClientManager(
-                keys=self._keys,
-                allow_insecure=self._config.publishing.allow_insecure,
-            )
-            self._client_manager = manager
-        return manager
-
-    def _get_state_store(self) -> ServiceStateStore:
-        """Return the lazy-initialized service state store for assertor checkpoints."""
-        store = getattr(self, "_state_store", None)
-        if store is None:
-            store = ServiceStateStore(self._brotr)
-            self._state_store = store
-        return store
 
     async def run(self) -> None:
         """Execute one assertion cycle."""
@@ -523,7 +505,7 @@ class Assertor(BaseService[AssertorConfig]):
 
     async def _delete_stale_checkpoints(self) -> int:
         """Delete non-canonical or current-algorithm checkpoints that are no longer eligible."""
-        store = self._get_state_store()
+        store = self._state_store
         states = await store.get(ServiceName.ASSERTOR, ServiceStateType.CHECKPOINT)
         configured_kinds = {int(kind) for kind in self._config.selection.kinds}
         if self._provider_profile_enabled():
@@ -555,12 +537,12 @@ class Assertor(BaseService[AssertorConfig]):
 
     async def _is_unchanged(self, subject: str, current_hash: str) -> bool:
         """Check if the assertion/profile for this subject has the same hash as last published."""
-        saved_hash = await self._get_state_store().fetch_hash(ServiceName.ASSERTOR, subject)
+        saved_hash = await self._state_store.fetch_hash(ServiceName.ASSERTOR, subject)
         return saved_hash == current_hash
 
     async def _save_hash(self, subject: str, hash_value: str) -> None:
         """Persist the published object hash for change detection."""
-        await self._get_state_store().upsert_hash(
+        await self._state_store.upsert_hash(
             ServiceName.ASSERTOR,
             subject,
             hash_value,

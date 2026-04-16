@@ -12,13 +12,13 @@ from bigbrotr.models.constants import EventKind, ServiceName
 from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.assertor.configs import AssertorConfig
 from bigbrotr.services.assertor.service import Assertor
+from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.utils.protocol import (
     BroadcastClientResult,
     ClientConnectResult,
     ClientSession,
     NostrClientManager,
 )
-from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 
 VALID_HEX_KEY = (
@@ -365,13 +365,11 @@ class TestAssertorRun:
         assert enabled_duration >= 0.0
         enabled_service._delete_stale_checkpoints.assert_awaited_once_with()
 
-    def test_get_state_store_reuses_instance(self, mock_brotr: MagicMock) -> None:
+    def test_state_store_is_initialized_once(self, mock_brotr: MagicMock) -> None:
         service = _assertor_harness(mock_brotr)
 
-        first_store = service._get_state_store()
-        second_store = service._get_state_store()
-
-        assert first_store is second_store
+        assert isinstance(service._state_store, ServiceStateStore)
+        assert service._state_store._brotr is mock_brotr
 
     def test_mark_seen_state_key_initializes_missing_set(self, mock_brotr: MagicMock) -> None:
         service = _assertor_harness(mock_brotr)
@@ -853,17 +851,14 @@ class TestAssertorCheckpointNamespacing:
 
 
 class TestAssertorLifecycle:
-    @patch("bigbrotr.services.assertor.service.NostrClientManager")
     async def test_aenter_creates_client_and_connects(
         self,
-        mock_manager_cls: MagicMock,
     ) -> None:
         from bigbrotr.services.assertor.service import Assertor
 
         mock_client = AsyncMock()
         mock_manager = MagicMock()
         mock_manager.connect_session = AsyncMock(return_value=_session_output(mock_client))
-        mock_manager_cls.return_value = mock_manager
         with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
             svc = Assertor.__new__(Assertor)
             svc._brotr = MagicMock()
@@ -871,6 +866,7 @@ class TestAssertorLifecycle:
             svc._brotr.delete_service_state = AsyncMock(return_value=0)
             svc._config = AssertorConfig()
             svc._client = None
+            svc._client_manager = mock_manager
             svc._keys = svc._config.keys.keys
             svc._logger = MagicMock()
             svc._metrics_server = None
@@ -948,68 +944,33 @@ class TestAssertorLifecycle:
 
 class TestAssertorKeyLifecycle:
     @patch("bigbrotr.services.assertor.service.NostrClientManager")
-    async def test_aenter_uses_config_keys_to_create_client(
+    def test_init_uses_config_keys_to_create_client_manager(
         self,
         mock_manager_cls: MagicMock,
     ) -> None:
-        from bigbrotr.services.assertor.service import Assertor
+        config = AssertorConfig()
+        svc = Assertor(brotr=MagicMock(), config=config)
 
-        mock_client = AsyncMock()
-        mock_manager = MagicMock()
-        mock_manager.connect_session = AsyncMock(return_value=_session_output(mock_client))
-        mock_manager_cls.return_value = mock_manager
-        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
-            svc = Assertor.__new__(Assertor)
-            svc._brotr = MagicMock()
-            svc._brotr.get_service_state = AsyncMock(return_value=[])
-            svc._brotr.delete_service_state = AsyncMock(return_value=0)
-            svc._config = AssertorConfig()
-            svc._client = None
-            svc._keys = svc._config.keys.keys
-            svc._logger = MagicMock()
-            svc._metrics_server = None
-
-            with patch.object(type(svc).__bases__[0], "__aenter__", new_callable=AsyncMock):
-                await svc.__aenter__()
-
-            mock_manager_cls.assert_called_once_with(
-                keys=svc._config.keys.keys,
-                allow_insecure=svc._config.publishing.allow_insecure,
-            )
-            mock_manager.connect_session.assert_awaited_once_with(
-                "assertor-publish-relays",
-                svc._config.publishing.relays,
-                timeout=DEFAULT_TIMEOUT,
-            )
+        mock_manager_cls.assert_called_once_with(
+            keys=config.keys.keys,
+            allow_insecure=config.publishing.allow_insecure,
+        )
+        assert svc._client_manager is mock_manager_cls.return_value
 
     @patch("bigbrotr.services.assertor.service.NostrClientManager")
-    async def test_aenter_uses_generated_config_keys_when_env_missing(
+    def test_init_uses_generated_config_keys_when_env_missing(
         self,
         mock_manager_cls: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from bigbrotr.services.assertor.service import Assertor
-
         monkeypatch.delenv("NOSTR_PRIVATE_KEY_ASSERTOR", raising=False)
-        mock_client = AsyncMock()
-        mock_manager = MagicMock()
-        mock_manager.connect_session = AsyncMock(return_value=_session_output(mock_client))
-        mock_manager_cls.return_value = mock_manager
-        with patch.object(Assertor, "__init__", lambda _self, *_a, **_kw: None):
-            svc = Assertor.__new__(Assertor)
-            svc._brotr = MagicMock()
-            svc._brotr.get_service_state = AsyncMock(return_value=[])
-            svc._brotr.delete_service_state = AsyncMock(return_value=0)
-            svc._config = AssertorConfig()
-            svc._client = None
-            svc._keys = svc._config.keys.keys
-            svc._logger = MagicMock()
-            svc._metrics_server = None
+        svc = Assertor(brotr=MagicMock(), config=AssertorConfig())
 
-            with patch.object(type(svc).__bases__[0], "__aenter__", new_callable=AsyncMock):
-                await svc.__aenter__()
-
-            assert svc._keys is svc._config.keys.keys
+        assert svc._keys is svc._config.keys.keys
+        mock_manager_cls.assert_called_once_with(
+            keys=svc._config.keys.keys,
+            allow_insecure=svc._config.publishing.allow_insecure,
+        )
 
     def test_parse_state_key_preserves_subject_colons(self) -> None:
         from bigbrotr.services.assertor.utils import parse_state_key
@@ -1217,6 +1178,7 @@ class TestAssertorCheckpointCleanup:
                 },
             )
             svc._logger = MagicMock()
+            svc._state_store = ServiceStateStore(svc._brotr)
             svc._cycle_seen_state_keys = {keep_key, profile_key}
 
             with (
