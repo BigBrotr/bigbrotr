@@ -164,7 +164,17 @@ class Refresher(BaseService[RefresherConfig]):
     async def refresh(self) -> RefreshCycleResult:
         """Refresh configured targets while respecting cycle budgets."""
         plan = self._build_refresh_cycle_plan()
-        self._reset_cycle_metrics(plan.totals)
+        self.set_gauge("targets_total", plan.totals.total)
+        self.set_gauge("targets_current_total", plan.totals.current)
+        self.set_gauge("targets_analytics_total", plan.totals.analytics)
+        self.set_gauge("targets_periodic_total", plan.totals.periodic)
+        self.set_gauge("targets_attempted", 0)
+        self.set_gauge("targets_refreshed", 0)
+        self.set_gauge("targets_failed", 0)
+        self.set_gauge("targets_skipped", 0)
+        self.set_gauge("rows_refreshed", 0)
+        self.set_gauge("cycle_stopped_due_to_max_duration", 0)
+        self.set_gauge("cycle_stopped_due_to_max_targets", 0)
 
         target_results: list[RefreshTargetResult] = []
         source_checkpoints: dict[WatermarkSource, int] = {}
@@ -426,20 +436,6 @@ class Refresher(BaseService[RefresherConfig]):
             ServiceName.REFRESHER,
             [Checkpoint(key=target, timestamp=timestamp)],
         )
-
-    def _reset_cycle_metrics(self, totals: RefreshCycleTotals) -> None:
-        """Reset point-in-time gauges at the beginning of a cycle."""
-        self.set_gauge("targets_total", totals.total)
-        self.set_gauge("targets_current_total", totals.current)
-        self.set_gauge("targets_analytics_total", totals.analytics)
-        self.set_gauge("targets_periodic_total", totals.periodic)
-        self.set_gauge("targets_attempted", 0)
-        self.set_gauge("targets_refreshed", 0)
-        self.set_gauge("targets_failed", 0)
-        self.set_gauge("targets_skipped", 0)
-        self.set_gauge("rows_refreshed", 0)
-        self.set_gauge("cycle_stopped_due_to_max_duration", 0)
-        self.set_gauge("cycle_stopped_due_to_max_targets", 0)
 
     def _emit_cycle_metrics(self, result: RefreshCycleResult) -> None:
         """Emit cycle-level metrics from the typed result object."""
