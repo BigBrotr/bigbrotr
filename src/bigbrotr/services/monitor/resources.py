@@ -75,16 +75,6 @@ class RelayClients:
             allow_insecure=allow_insecure,
         )
 
-    @property
-    def connected_relays(self) -> dict[str, Client]:
-        """Return the cached connected clients keyed by relay URL."""
-        return self._manager.relay_clients
-
-    @property
-    def failed_relays(self) -> set[str]:
-        """Return relay URLs that have already failed to connect."""
-        return self._manager.failed_relays
-
     async def get(self, relay: Relay) -> Client | None:
         """Return a connected client for a relay, connecting lazily."""
         return await self._manager.get_relay_client(relay)
