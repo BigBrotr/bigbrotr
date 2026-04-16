@@ -271,7 +271,7 @@ class Dvm(BaseService[DvmConfig]):
         latest_id = self._last_fetch_id
 
         for event in events:
-            event_ts, event_id = self._event_position(event)
+            event_ts, event_id = event.created_at().as_secs(), event.id().to_hex()
             if (event_ts, event_id) <= (latest_ts, latest_id):
                 continue
             r, p, f, pr = await self._process_event(event, pubkey_hex)
@@ -559,12 +559,8 @@ class Dvm(BaseService[DvmConfig]):
                 events.append(self._request_events.get_nowait())
             except asyncio.QueueEmpty:
                 break
-        events.sort(key=self._event_position)
+        events.sort(key=lambda event: (event.created_at().as_secs(), event.id().to_hex()))
         return events
-
-    def _event_position(self, event: Any) -> tuple[int, str]:
-        """Return the monotonic replay cursor for a request event."""
-        return event.created_at().as_secs(), event.id().to_hex()
 
     # ── Event publishing ──────────────────────────────────────────
 
