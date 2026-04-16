@@ -150,9 +150,9 @@ class _MonitorStub:
     _log_chunk_outcome = Monitor._log_chunk_outcome
     _open_cycle_resources = Monitor._open_cycle_resources
     _close_cycle_resources = Monitor._close_cycle_resources
-    _run_cycle_operations = Monitor._run_cycle_operations
     _iter_monitor_pages = Monitor._iter_monitor_pages
     _process_monitor_page = Monitor._process_monitor_page
+    run = Monitor.run
     publish_announcement = Monitor.publish_announcement
     publish_profile = Monitor.publish_profile
     publish_relay_list = Monitor.publish_relay_list
@@ -1608,7 +1608,7 @@ class TestMonitorRun:
         mock_count.assert_awaited_once()
         mock_iter_pages.assert_called_once()
 
-    async def test_run_cycle_operations_calls_publish_then_monitor(
+    async def test_run_calls_publish_then_monitor(
         self,
         stub: _MonitorStub,
     ) -> None:
@@ -1630,8 +1630,10 @@ class TestMonitorRun:
         stub.publish_relay_list = AsyncMock(side_effect=publish_relay_list)
         stub.publish_announcement = AsyncMock(side_effect=publish_announcement)
         stub.monitor = AsyncMock(side_effect=monitor_cycle)
+        stub._open_cycle_resources = AsyncMock()  # type: ignore[method-assign]
+        stub._close_cycle_resources = AsyncMock()  # type: ignore[method-assign]
 
-        await stub._run_cycle_operations()
+        await stub.run()
 
         assert calls == ["profile", "relay_list", "announcement", "monitor"]
 
@@ -1680,7 +1682,7 @@ class TestMonitorRun:
         monitor.clients.disconnect.assert_awaited_once()
         mock_close.assert_called_once()
 
-    async def test_run_uses_cycle_operations_helper(self, mock_brotr: Brotr) -> None:
+    async def test_run_opens_and_closes_cycle_resources(self, mock_brotr: Brotr) -> None:
         monitor = Monitor(brotr=mock_brotr, config=_make_config())
 
         with (
@@ -1689,11 +1691,14 @@ class TestMonitorRun:
                 "_open_cycle_resources",
                 new_callable=AsyncMock,
             ) as mock_open,
+            patch.object(monitor, "publish_profile", new_callable=AsyncMock) as mock_profile,
+            patch.object(monitor, "publish_relay_list", new_callable=AsyncMock) as mock_relay_list,
             patch.object(
                 monitor,
-                "_run_cycle_operations",
+                "publish_announcement",
                 new_callable=AsyncMock,
-            ) as mock_cycle,
+            ) as mock_announcement,
+            patch.object(monitor, "monitor", new_callable=AsyncMock) as mock_monitor,
             patch.object(
                 monitor,
                 "_close_cycle_resources",
@@ -1703,7 +1708,10 @@ class TestMonitorRun:
             await monitor.run()
 
         mock_open.assert_awaited_once()
-        mock_cycle.assert_awaited_once()
+        mock_profile.assert_awaited_once()
+        mock_relay_list.assert_awaited_once()
+        mock_announcement.assert_awaited_once()
+        mock_monitor.assert_awaited_once()
         mock_close.assert_awaited_once()
 
     async def test_monitor_no_networks_enabled_returns_zero(self, mock_brotr: Brotr) -> None:
