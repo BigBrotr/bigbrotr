@@ -54,46 +54,7 @@ Examples:
     ```
 """
 
-from .api import (
-    Api,
-    ApiConfig,
-)
-from .assertor import (
-    Assertor,
-    AssertorConfig,
-)
-from .dvm import (
-    Dvm,
-    DvmConfig,
-)
-from .finder import (
-    Finder,
-    FinderConfig,
-)
-from .monitor import (
-    Monitor,
-    MonitorConfig,
-)
-from .ranker import (
-    Ranker,
-    RankerConfig,
-)
-from .refresher import (
-    Refresher,
-    RefresherConfig,
-)
-from .seeder import (
-    Seeder,
-    SeederConfig,
-)
-from .synchronizer import (
-    Synchronizer,
-    SynchronizerConfig,
-)
-from .validator import (
-    Validator,
-    ValidatorConfig,
-)
+import importlib
 
 
 __all__ = [
@@ -118,3 +79,40 @@ __all__ = [
     "Validator",
     "ValidatorConfig",
 ]
+
+_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "Api": ("bigbrotr.services.api", "Api"),
+    "ApiConfig": ("bigbrotr.services.api", "ApiConfig"),
+    "Assertor": ("bigbrotr.services.assertor", "Assertor"),
+    "AssertorConfig": ("bigbrotr.services.assertor", "AssertorConfig"),
+    "Dvm": ("bigbrotr.services.dvm", "Dvm"),
+    "DvmConfig": ("bigbrotr.services.dvm", "DvmConfig"),
+    "Finder": ("bigbrotr.services.finder", "Finder"),
+    "FinderConfig": ("bigbrotr.services.finder", "FinderConfig"),
+    "Monitor": ("bigbrotr.services.monitor", "Monitor"),
+    "MonitorConfig": ("bigbrotr.services.monitor", "MonitorConfig"),
+    "Ranker": ("bigbrotr.services.ranker", "Ranker"),
+    "RankerConfig": ("bigbrotr.services.ranker", "RankerConfig"),
+    "Refresher": ("bigbrotr.services.refresher", "Refresher"),
+    "RefresherConfig": ("bigbrotr.services.refresher", "RefresherConfig"),
+    "Seeder": ("bigbrotr.services.seeder", "Seeder"),
+    "SeederConfig": ("bigbrotr.services.seeder", "SeederConfig"),
+    "Synchronizer": ("bigbrotr.services.synchronizer", "Synchronizer"),
+    "SynchronizerConfig": ("bigbrotr.services.synchronizer", "SynchronizerConfig"),
+    "Validator": ("bigbrotr.services.validator", "Validator"),
+    "ValidatorConfig": ("bigbrotr.services.validator", "ValidatorConfig"),
+}
+
+
+def __getattr__(name: str) -> object:
+    if name in _LAZY_IMPORTS:
+        module_path, attr_name = _LAZY_IMPORTS[name]
+        module = importlib.import_module(module_path)
+        value = getattr(module, attr_name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module 'bigbrotr.services' has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return __all__

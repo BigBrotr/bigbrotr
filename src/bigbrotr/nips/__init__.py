@@ -46,9 +46,7 @@ See Also:
         Service that orchestrates NIP-11 and NIP-66 checks per relay.
 """
 
-from .nip11 import Nip11
-from .nip66 import Nip66
-from .registry import NIP_REGISTRY, NipEntry
+import importlib
 
 
 __all__ = [
@@ -57,3 +55,24 @@ __all__ = [
     "Nip66",
     "NipEntry",
 ]
+
+_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "NIP_REGISTRY": ("bigbrotr.nips.registry", "NIP_REGISTRY"),
+    "Nip11": ("bigbrotr.nips.nip11", "Nip11"),
+    "Nip66": ("bigbrotr.nips.nip66", "Nip66"),
+    "NipEntry": ("bigbrotr.nips.registry", "NipEntry"),
+}
+
+
+def __getattr__(name: str) -> object:
+    if name in _LAZY_IMPORTS:
+        module_path, attr_name = _LAZY_IMPORTS[name]
+        module = importlib.import_module(module_path)
+        value = getattr(module, attr_name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module 'bigbrotr.nips' has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return __all__

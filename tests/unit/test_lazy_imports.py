@@ -70,6 +70,51 @@ class TestLazyImports:
 
         assert dir(bigbrotr) == bigbrotr.__all__
 
+    def test_services_package_is_lazy(self) -> None:
+        saved = dict(sys.modules)
+        try:
+            for mod in list(sys.modules):
+                if mod.startswith("bigbrotr.services"):
+                    del sys.modules[mod]
+
+            importlib.import_module("bigbrotr.services")
+
+            assert "bigbrotr.services.api" not in sys.modules
+            assert "bigbrotr.services.monitor" not in sys.modules
+            assert "bigbrotr.services.dvm" not in sys.modules
+        finally:
+            sys.modules.update(saved)
+
+    def test_nips_package_is_lazy(self) -> None:
+        saved = dict(sys.modules)
+        try:
+            for mod in list(sys.modules):
+                if mod.startswith("bigbrotr.nips"):
+                    del sys.modules[mod]
+
+            importlib.import_module("bigbrotr.nips")
+
+            assert "bigbrotr.nips.nip11" not in sys.modules
+            assert "bigbrotr.nips.nip66" not in sys.modules
+            assert "bigbrotr.nips.registry" not in sys.modules
+        finally:
+            sys.modules.update(saved)
+
+    def test_services_registry_does_not_import_service_modules(self) -> None:
+        saved = dict(sys.modules)
+        try:
+            for mod in list(sys.modules):
+                if mod.startswith("bigbrotr.services"):
+                    del sys.modules[mod]
+
+            importlib.import_module("bigbrotr.services.registry")
+
+            assert "bigbrotr.services.api" not in sys.modules
+            assert "bigbrotr.services.monitor" not in sys.modules
+            assert "bigbrotr.services.dvm" not in sys.modules
+        finally:
+            sys.modules.update(saved)
+
     def test_version_is_accessible(self) -> None:
         """Verify that __version__ is set from package metadata."""
         import bigbrotr

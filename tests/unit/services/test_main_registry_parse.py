@@ -30,9 +30,9 @@ class TestServiceRegistry:
         assert set(SERVICE_REGISTRY.keys()) == expected
 
     def test_service_config_paths(self) -> None:
-        for name, (_, config_path) in SERVICE_REGISTRY.items():
+        for name, entry in SERVICE_REGISTRY.items():
             expected = CONFIG_BASE / "services" / f"{name}.yaml"
-            assert config_path == expected, f"{name} config path mismatch"
+            assert entry.config_path == expected, f"{name} config path mismatch"
 
     def test_default_service_config_path_uses_profile_root(self) -> None:
         for name in SERVICE_REGISTRY:
@@ -48,7 +48,8 @@ class TestServiceRegistry:
     def test_service_classes_are_base_service_subclasses(self) -> None:
         from bigbrotr.core.base_service import BaseService
 
-        for name, (service_class, _) in SERVICE_REGISTRY.items():
+        for name, entry in SERVICE_REGISTRY.items():
+            service_class = entry.load_class()
             assert issubclass(service_class, BaseService), (
                 f"{name} should be a BaseService subclass"
             )
@@ -84,8 +85,8 @@ class TestServiceRegistry:
             "assertor": Assertor,
         }
 
-        for name, (service_class, _) in SERVICE_REGISTRY.items():
-            assert service_class == expected_classes[name]
+        for name, entry in SERVICE_REGISTRY.items():
+            assert entry.load_class() == expected_classes[name]
 
 
 class TestParseArgs:

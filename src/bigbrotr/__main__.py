@@ -217,7 +217,7 @@ async def main() -> int:
         async with brotr:
             return await run_service(
                 service_name=args.service,
-                service_class=entry.cls,
+                service_class=entry.load_class(),
                 brotr=brotr,
                 service_dict=service_dict,
                 once=args.once,
