@@ -65,14 +65,13 @@ Examples:
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from nostr_sdk import NostrSdkError
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models import EventRelay, Relay
-from bigbrotr.models.constants import NetworkType, ServiceName
+from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin, NetworkSemaphoresMixin
 from bigbrotr.services.common.types import SyncCursor
 from bigbrotr.utils.protocol import NostrClientManager
@@ -85,6 +84,13 @@ from .queries import (
     insert_event_relays,
     iter_cursors_to_sync_pages,
     upsert_sync_cursors,
+)
+from .runtime import (
+    SyncCyclePlan as SynchronizerCyclePlan,
+)
+from .runtime import (
+    build_sync_cycle_plan,
+    flush_sync_batch,
 )
 
 
@@ -128,6 +134,7 @@ class Synchronizer(
 
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.SYNCHRONIZER
     CONFIG_CLASS: ClassVar[type[SynchronizerConfig]] = SynchronizerConfig
+    SyncCyclePlan = SynchronizerCyclePlan
 
     def __init__(
         self,
@@ -161,36 +168,13 @@ class Synchronizer(
         """Remove stale cursor state for relays that no longer exist."""
         return await delete_stale_cursors(self._brotr)
 
-    @dataclass(frozen=True, slots=True)
-    class SyncCyclePlan:
-        """Computed inputs for one synchronization cycle."""
-
-        networks: tuple[NetworkType, ...]
-        end_time: int
-        total_relays: int
-        batch_size: int
-        max_concurrency: int
-        page_size: int
-        deadline: float
-
-    async def _build_sync_cycle_plan(self) -> SyncCyclePlan | None:
+    async def _build_sync_cycle_plan(self) -> SynchronizerCyclePlan | None:
         """Compute the enabled networks and batching budget for one cycle."""
-        networks = tuple(self._config.networks.get_enabled_networks())
-        if not networks:
-            return None
-
-        end_time = self._config.processing.get_end_time()
-        total_relays = await count_cursors_to_sync(self._brotr, end_time, list(networks))
-        batch_size = self._config.processing.batch_size
-        max_concurrency = self.network_semaphores.max_concurrency(list(networks))
-        return self.SyncCyclePlan(
-            networks=networks,
-            end_time=end_time,
-            total_relays=total_relays,
-            batch_size=batch_size,
-            max_concurrency=max_concurrency,
-            page_size=max(batch_size, max_concurrency),
-            deadline=time.monotonic() + self._config.timeouts.max_duration,
+        return await build_sync_cycle_plan(
+            brotr=self._brotr,
+            config=self._config,
+            network_semaphores=self.network_semaphores,
+            count_cursors=count_cursors_to_sync,
         )
 
     async def synchronize(self) -> int:
@@ -252,7 +236,7 @@ class Synchronizer(
         buffer: list[EventRelay],
         pending_cursors: dict[str, SyncCursor],
         *,
-        plan: SyncCyclePlan,
+        plan: SynchronizerCyclePlan,
     ) -> tuple[int, bool]:
         """Scan one page of relay cursors and flush when the batch budget is reached."""
         events_synced = 0
@@ -283,16 +267,13 @@ class Synchronizer(
         pending_cursors: dict[str, SyncCursor],
     ) -> int:
         """Persist one accumulated sync batch and clear in-memory state."""
-        events_synced = 0
-        if buffer:
-            records_batch = list(buffer)
-            events_synced = await insert_event_relays(self._brotr, records_batch)
-            buffer.clear()
-        if pending_cursors:
-            cursors_batch = tuple(pending_cursors.values())
-            await upsert_sync_cursors(self._brotr, cursors_batch)
-            pending_cursors.clear()
-        return events_synced
+        return await flush_sync_batch(
+            self._brotr,
+            buffer,
+            pending_cursors,
+            insert_event_relays_fn=insert_event_relays,
+            upsert_sync_cursors_fn=upsert_sync_cursors,
+        )
 
     # ── Workers ────────────────────────────────────────────────────
 
