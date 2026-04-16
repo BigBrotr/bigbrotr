@@ -117,7 +117,10 @@ class Refresher(BaseService[RefresherConfig]):
             self.set_gauge("cleanup_removed_checkpoints", 0)
             return 0
 
-        configured = {target.value for target in self._incremental_targets()}
+        configured = {
+            target.value
+            for target in (*self._config.current.targets, *self._config.analytics.targets)
+        }
         store = self._state_store
         states = await store.get(
             ServiceName.REFRESHER,
@@ -140,7 +143,10 @@ class Refresher(BaseService[RefresherConfig]):
 
     def _build_refresh_cycle_plan(self, cycle_start: float | None = None) -> RefreshCyclePlan:
         """Return the configured targets and totals for one refresh cycle."""
-        incremental_targets = tuple(self._incremental_targets())
+        incremental_targets: tuple[IncrementalRefreshTarget, ...] = (
+            *self._config.current.targets,
+            *self._config.analytics.targets,
+        )
         periodic_targets = tuple(self._config.periodic.enabled_targets())
         totals = RefreshCycleTotals(
             total=len(incremental_targets) + len(periodic_targets),
@@ -191,10 +197,6 @@ class Refresher(BaseService[RefresherConfig]):
             cutoff_reason=cycle_result.cutoff_reason,
         )
         return cycle_result
-
-    def _incremental_targets(self) -> list[IncrementalRefreshTarget]:
-        """Return configured incremental targets in execution order."""
-        return [*self._config.current.targets, *self._config.analytics.targets]
 
     def _cycle_cutoff_reason(self, cycle_start: float, attempted: int) -> str | None:
         """Return the configured budget reason that should stop the cycle, if any."""
@@ -274,7 +276,10 @@ class Refresher(BaseService[RefresherConfig]):
         until = checkpoint
 
         try:
-            until = await self._next_watermark(spec.watermark_source, checkpoint)
+            if spec.watermark_source == WatermarkSource.RELAY_METADATA:
+                until = await get_max_generated_at(self._brotr, checkpoint)
+            else:
+                until = await get_max_seen_at(self._brotr, checkpoint)
             if until == checkpoint:
                 rows = 0
             else:
@@ -405,12 +410,6 @@ class Refresher(BaseService[RefresherConfig]):
             )
 
         return event_lag, metadata_lag
-
-    async def _next_watermark(self, source: WatermarkSource, after: int) -> int:
-        """Return the next checkpoint watermark for one source."""
-        if source == WatermarkSource.RELAY_METADATA:
-            return await get_max_generated_at(self._brotr, after)
-        return await get_max_seen_at(self._brotr, after)
 
     async def _read_checkpoint(self, target: str) -> int:
         """Read the stored checkpoint for one incremental target."""
