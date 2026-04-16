@@ -137,17 +137,6 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         phase_start: float
 
     @dataclass(frozen=True, slots=True)
-    class ApiDiscoveryPlan:
-        """Computed inputs for one API discovery cycle."""
-
-        sources: tuple[ApiSourceConfig, ...]
-
-        @property
-        def source_count(self) -> int:
-            """Number of enabled API sources in this cycle."""
-            return len(self.sources)
-
-    @dataclass(frozen=True, slots=True)
     class ApiSourceAttempt:
         """One API source that is eligible to be fetched in the current cycle."""
 
@@ -183,19 +172,18 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         """
         if not self._config.api.enabled:
             return 0
-
-        plan = self._build_api_discovery_plan()
+        sources = tuple(source for source in self._config.api.sources if source.enabled)
 
         buffer: list[Relay] = []
         pending_checkpoints: list[ApiCheckpoint] = []
 
-        self.set_gauge("total_sources", plan.source_count)
+        self.set_gauge("total_sources", len(sources))
         self.set_gauge("sources_fetched", 0)
         self.set_gauge("candidates_found_from_api", 0)
 
-        self._logger.info("api_started", source_count=plan.source_count)
+        self._logger.info("api_started", source_count=len(sources))
 
-        async for relays, checkpoint in self._find_from_api_worker(list(plan.sources)):
+        async for relays, checkpoint in self._find_from_api_worker(list(sources)):
             buffer.extend(relays)
             pending_checkpoints.append(checkpoint)
             self.inc_gauge("sources_fetched")
@@ -204,12 +192,6 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
 
         self._logger.info("api_completed", found=found, collected=len(buffer))
         return found
-
-    def _build_api_discovery_plan(self) -> ApiDiscoveryPlan:
-        """Select the enabled API sources for one discovery cycle."""
-        return self.ApiDiscoveryPlan(
-            sources=tuple(source for source in self._config.api.sources if source.enabled)
-        )
 
     async def _persist_api_discovery_results(
         self,

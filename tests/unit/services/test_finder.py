@@ -921,7 +921,7 @@ class TestFinderFindFromApi:
         assert result == 0
         finder.set_gauge.assert_not_called()
 
-    def test_build_api_discovery_plan_keeps_only_enabled_sources(self, mock_brotr: Brotr) -> None:
+    async def test_find_from_api_filters_disabled_sources(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(
             api=ApiConfig(
                 enabled=True,
@@ -937,14 +937,35 @@ class TestFinderFindFromApi:
             )
         )
         finder = Finder(brotr=mock_brotr, config=config)
+        finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+        finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
+        seen_sources: list[str] = []
 
-        plan = finder._build_api_discovery_plan()
+        async def fake_find_from_api_worker(
+            sources: list[ApiSourceConfig],
+        ) -> AsyncGenerator[tuple[list[Relay], ApiCheckpoint], None]:
+            seen_sources.extend(source.url for source in sources)
+            if False:
+                yield [], ApiCheckpoint(key="", timestamp=0)
 
-        assert plan.source_count == 2
-        assert [source.url for source in plan.sources] == [
+        with (
+            patch.object(finder, "_find_from_api_worker", new=fake_find_from_api_worker),
+            patch.object(
+                finder,
+                "_persist_api_discovery_results",
+                new_callable=AsyncMock,
+                return_value=0,
+            ) as mock_persist,
+        ):
+            result = await finder.find_from_api()
+
+        assert result == 0
+        assert seen_sources == [
             "https://api1.example.com",
             "https://api3.example.com",
         ]
+        finder.set_gauge.assert_any_call("total_sources", 2)
+        mock_persist.assert_awaited_once()
 
     def test_build_api_source_attempts_filters_sources_within_cooldown(
         self,
