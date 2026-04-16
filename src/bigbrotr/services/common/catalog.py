@@ -258,7 +258,9 @@ class Catalog:
         Raises:
             CatalogError: If the table, column, or operator is invalid.
         """
-        schema = self._get_schema(table)
+        if table not in self._tables:
+            raise CatalogError(f"Unknown table: {table}")
+        schema = self._tables[table]
         limit = min(max(limit, 1), max_page_size)
         offset = min(max(offset, 0), _MAX_OFFSET)
         if cursor is not None and offset > 0:
@@ -323,7 +325,9 @@ class Catalog:
         Raises:
             CatalogError: If the table has no primary key or values are missing.
         """
-        schema = self._get_schema(table)
+        if table not in self._tables:
+            raise CatalogError(f"Unknown table: {table}")
+        schema = self._tables[table]
         if not schema.primary_key:
             raise CatalogError(f"Table {table} has no primary key")
 
@@ -361,12 +365,6 @@ class Catalog:
     # -------------------------------------------------------------------
     # Private helpers
     # -------------------------------------------------------------------
-
-    def _get_schema(self, table: str) -> TableSchema:
-        """Look up and validate a table name against discovered schema."""
-        if table not in self._tables:
-            raise CatalogError(f"Unknown table: {table}")
-        return self._tables[table]
 
     def _build_query_context(
         self,
