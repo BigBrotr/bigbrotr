@@ -435,14 +435,14 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 
 | Module | Purpose |
 |--------|---------|
-| `queries.py` | Shared cross-service query helpers |
+| `discovery_queries.py` | Shared Seeder/Finder candidate-registration helpers |
 | `utils.py` | Relay parsing helpers and batch insert helper |
 | `mixins.py` | `ConcurrentStreamMixin`, `NetworkSemaphoresMixin` — shared concurrency helpers |
 | `catalog.py` | Schema-driven `Catalog` for table discovery (Api, Dvm) and `CatalogError` |
 | `configs.py` | Per-network and per-table Pydantic config models |
 | `read_models.py` | Public read-model registry and `ReadModelSurface` helpers |
 
-**Common Query Utilities** (`common/queries.py`, `common/utils.py`):
+**Common Query Utilities** (`common/discovery_queries.py`, `common/utils.py`):
 
 | Function | Purpose |
 |----------|---------|

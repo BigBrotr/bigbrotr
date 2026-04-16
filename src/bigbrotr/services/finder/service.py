@@ -14,7 +14,7 @@ Discovers Nostr relay URLs from two sources:
 
 Discovered URLs are inserted as validation candidates for the
 [Validator][bigbrotr.services.validator.Validator] service via
-[insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates].
+[insert_relays_as_candidates][bigbrotr.services.common.discovery_queries.insert_relays_as_candidates].
 
 Note:
     Event scanning uses per-relay cursor-based pagination so that
@@ -62,8 +62,8 @@ import aiohttp
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
+from bigbrotr.services.common.discovery_queries import insert_relays_as_candidates
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin
-from bigbrotr.services.common.queries import insert_relays_as_candidates
 from bigbrotr.services.common.types import ApiCheckpoint, FinderCursor
 
 from .configs import ApiSourceConfig, FinderConfig
@@ -91,8 +91,8 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
 
     Discovers Nostr relay URLs from external APIs and stored database events,
     then inserts them as validation candidates for the
-    [Validator][bigbrotr.services.validator.Validator] service via
-    [insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates].
+        [Validator][bigbrotr.services.validator.Validator] service via
+        [insert_relays_as_candidates][bigbrotr.services.common.discovery_queries.insert_relays_as_candidates].
 
     See Also:
         [FinderConfig][bigbrotr.services.finder.FinderConfig]: Configuration

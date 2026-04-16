@@ -86,7 +86,7 @@ class CandidateCheckpoint(Checkpoint):
     (for new candidates) or last validation attempt time (for retries).
 
     Created by
-    [insert_relays_as_candidates][bigbrotr.services.common.queries.insert_relays_as_candidates]
+    [insert_relays_as_candidates][bigbrotr.services.common.discovery_queries.insert_relays_as_candidates]
     and fetched by
     [fetch_candidates][bigbrotr.services.validator.queries.fetch_candidates].
 

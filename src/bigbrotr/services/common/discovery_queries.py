@@ -1,15 +1,4 @@
-"""Shared database query utilities for BigBrotr services.
-
-Provides cross-service query helpers that do real database work and are
-used by more than one service's ``queries`` module.
-
-See Also:
-    [Brotr][bigbrotr.core.brotr.Brotr]: Database facade that provides
-        ``fetch()``, ``fetchrow()``, ``fetchval()``, ``execute()``,
-        and ``transaction()`` methods used by every query function.
-    [ServiceState][bigbrotr.models.service_state.ServiceState]: Dataclass
-        used for candidate and cursor records in ``service_state``.
-"""
+"""Discovery-specific database queries shared by Seeder and Finder."""
 
 from __future__ import annotations
 
@@ -28,25 +17,7 @@ if TYPE_CHECKING:
 
 
 async def insert_relays_as_candidates(brotr: Brotr, relays: list[Relay]) -> int:
-    """Insert new validation candidates, skipping known relays and duplicates.
-
-    Filters out URLs that already exist in the ``relay`` table or as
-    pending candidates in ``service_state``, then persists only genuinely
-    new records. Existing candidates retain their current state (e.g.
-    ``failures`` counter is never reset).
-
-    Called by [Seeder][bigbrotr.services.seeder.Seeder] and
-    [Finder][bigbrotr.services.finder.Finder] to register newly
-    discovered relay URLs for validation.
-
-    Args:
-        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
-        relays: [Relay][bigbrotr.models.relay.Relay] objects to register
-            as candidates.
-
-    Returns:
-        Number of candidate records actually inserted.
-    """
+    """Insert new validation candidates, skipping known relays and duplicates."""
     urls = [relay.url for relay in relays]
     if not urls:
         return 0

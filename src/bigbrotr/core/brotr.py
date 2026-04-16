@@ -21,8 +21,8 @@ lifecycle handling.
 See Also:
     [Pool][bigbrotr.core.pool.Pool]: Low-level connection pool that this
         module wraps.
-    [bigbrotr.services.common.queries][bigbrotr.services.common.queries]:
-        Domain SQL query functions that use
+    Query modules under ``bigbrotr.services``:
+        Domain SQL helpers that use
         [Brotr][bigbrotr.core.brotr.Brotr] for execution.
     [bigbrotr.models][bigbrotr.models]: Dataclass models consumed by the
         insert methods.
@@ -72,7 +72,7 @@ class Brotr:
     [Metadata][bigbrotr.models.metadata.Metadata],
     [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]) and call
     domain-specific stored procedures. However, all domain SQL queries
-    live in ``services/common/queries.py``, not here.
+    live in service query modules, not here.
 
     Bulk inserts use array parameters for single-roundtrip efficiency.
     Uses composition with a private [Pool][bigbrotr.core.pool.Pool]

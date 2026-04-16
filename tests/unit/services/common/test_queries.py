@@ -1,4 +1,4 @@
-"""Unit tests for services.common.queries module.
+"""Unit tests for services.common.discovery_queries module.
 
 Tests the shared candidate-insert helpers used by multiple service query modules.
 
@@ -15,7 +15,7 @@ import pytest
 
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceStateType
-from bigbrotr.services.common.queries import insert_relays_as_candidates
+from bigbrotr.services.common.discovery_queries import insert_relays_as_candidates
 
 
 # ============================================================================

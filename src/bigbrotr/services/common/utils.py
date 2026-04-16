@@ -7,8 +7,8 @@ primitives live here.
 See Also:
     [configs][bigbrotr.services.common.configs]: Shared Pydantic network
         configuration models.
-    [queries][bigbrotr.services.common.queries]: Centralized SQL query
-        functions.
+    [discovery_queries][bigbrotr.services.common.discovery_queries]:
+        Seeder/Finder candidate-registration helpers.
     [mixins][bigbrotr.services.common.mixins]: Reusable service mixin
         classes.
 """

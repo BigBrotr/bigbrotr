@@ -16,7 +16,7 @@ Attributes:
         query modules.
     read_models: Static registry of built-in read models currently exposed by
         API and DVM compatibility surfaces.
-    queries: Batch insert and service-state upsert helpers.
+    discovery_queries: Seeder/Finder candidate-registration helpers.
 
 See Also:
     [BaseService][bigbrotr.core.base_service.BaseService]: Abstract base
