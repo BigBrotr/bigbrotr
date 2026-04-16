@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from bigbrotr.core.logger import Logger
     from bigbrotr.models import Relay
     from bigbrotr.nips.nip11.info import Nip11InfoMetadata
+    from bigbrotr.services.common.configs import NetworksConfig
     from bigbrotr.services.monitor.configs import MetadataFlags, RetriesConfig
 
 
@@ -63,6 +64,68 @@ class MonitorCheckDependencies:
     net_probe: Callable[..., Awaitable[Any]]
     dns_probe: Callable[..., Awaitable[Any]]
     http_probe: Callable[..., Awaitable[Any]]
+
+
+def build_check_context(  # noqa: PLR0913
+    *,
+    relay: Relay,
+    compute: MetadataFlags,
+    timeout: float | None,
+    proxy_url: str | None,
+    allow_insecure: bool,
+    nip11_info_max_size: int,
+    retries: RetriesConfig,
+    geohash_precision: int,
+    keys: Keys,
+    city_reader: Any | None,
+    asn_reader: Any | None,
+    logger: Logger,
+    wait: Callable[[float], Awaitable[bool]],
+    generated_at: int,
+    networks: NetworksConfig,
+) -> MonitorCheckContext:
+    """Build the shared per-relay monitor check context."""
+    network_config = networks.get(relay.network)
+    return MonitorCheckContext(
+        relay=relay,
+        compute=compute,
+        timeout=timeout if timeout is not None else network_config.timeout,
+        proxy_url=proxy_url if proxy_url is not None else networks.get_proxy_url(relay.network),
+        allow_insecure=allow_insecure,
+        nip11_info_max_size=nip11_info_max_size,
+        retries=retries,
+        geohash_precision=geohash_precision,
+        keys=keys,
+        city_reader=city_reader,
+        asn_reader=asn_reader,
+        logger=logger,
+        wait=wait,
+        generated_at=generated_at,
+    )
+
+
+def build_check_dependencies(  # noqa: PLR0913
+    *,
+    retry_fetch: Callable[..., Awaitable[Any]],
+    nip11_fetch: Callable[..., Awaitable[Any]],
+    rtt_probe: Callable[..., Awaitable[Any]],
+    ssl_probe: Callable[..., Awaitable[Any]],
+    geo_probe: Callable[..., Awaitable[Any]],
+    net_probe: Callable[..., Awaitable[Any]],
+    dns_probe: Callable[..., Awaitable[Any]],
+    http_probe: Callable[..., Awaitable[Any]],
+) -> MonitorCheckDependencies:
+    """Build the shared check dependency bundle for monitor relay probes."""
+    return MonitorCheckDependencies(
+        retry_fetch=retry_fetch,
+        nip11_fetch=nip11_fetch,
+        rtt_probe=rtt_probe,
+        ssl_probe=ssl_probe,
+        geo_probe=geo_probe,
+        net_probe=net_probe,
+        dns_probe=dns_probe,
+        http_probe=http_probe,
+    )
 
 
 def _build_rtt_event_builder(

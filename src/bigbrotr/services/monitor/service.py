@@ -87,6 +87,12 @@ from .checks import (
     MonitorCheckDependencies,
 )
 from .checks import (
+    build_check_context as build_monitor_check_context,
+)
+from .checks import (
+    build_check_dependencies as build_monitor_check_dependencies,
+)
+from .checks import (
     build_parallel_checks as build_monitor_parallel_checks,
 )
 from .checks import (
@@ -384,14 +390,11 @@ class Monitor(
         proxy_url: str | None = None,
     ) -> MonitorCheckContext:
         """Build the shared per-relay monitor check context."""
-        network_config = self._config.networks.get(relay.network)
-        return MonitorCheckContext(
+        return build_monitor_check_context(
             relay=relay,
             compute=compute or self._config.processing.compute,
-            timeout=timeout if timeout is not None else network_config.timeout,
-            proxy_url=proxy_url
-            if proxy_url is not None
-            else self._config.networks.get_proxy_url(relay.network),
+            timeout=timeout,
+            proxy_url=proxy_url,
             allow_insecure=self._config.processing.allow_insecure,
             nip11_info_max_size=self._config.processing.nip11_info_max_size,
             retries=self._config.processing.retries,
@@ -402,11 +405,12 @@ class Monitor(
             logger=self._logger,
             wait=self.wait,
             generated_at=generated_at,
+            networks=self._config.networks,
         )
 
     def _check_dependencies(self) -> MonitorCheckDependencies:
         """Build the shared check dependency bundle for monitor relay probes."""
-        return MonitorCheckDependencies(
+        return build_monitor_check_dependencies(
             retry_fetch=retry_fetch,
             nip11_fetch=Nip11.fetch,
             rtt_probe=Nip66RttMetadata.probe,
