@@ -53,13 +53,10 @@ from fastapi.responses import JSONResponse
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.read_models import (
-    ReadModelEntry,
-    ReadModelSurface,
-)
+from bigbrotr.services.common.read_models import ReadModelSurface
 
 from .configs import ApiConfig
-from .read_models import ApiReadModelHandler
+from .routes import register_read_model_data_routes, register_read_model_routes
 
 
 if TYPE_CHECKING:
@@ -254,72 +251,23 @@ class Api(BaseService[ApiConfig]):
 
     def _add_read_model_routes(self, app: FastAPI) -> None:
         """Register read-model discovery endpoints."""
-        prefix = self._config.route_prefix
-
-        @app.get(f"{prefix}/read-models")
-        async def list_read_models() -> JSONResponse:
-            return JSONResponse(
-                {
-                    "data": self._read_models.build_summaries(
-                        "api",
-                        route_prefix=self._config.route_prefix,
-                    )
-                }
-            )
-
-        @app.get(f"{prefix}/read-models/{{read_model_id}}")
-        async def get_read_model(read_model_id: str) -> JSONResponse:
-            detail = self._read_models.build_detail(
-                "api",
-                read_model_id,
-                route_prefix=self._config.route_prefix,
-            )
-            if detail is None:
-                return JSONResponse(
-                    {"error": f"read model not found: {read_model_id}"},
-                    status_code=404,
-                )
-            return JSONResponse({"data": detail})
+        register_read_model_routes(
+            app,
+            read_models=self._read_models,
+            route_prefix=self._config.route_prefix,
+        )
 
     def _add_read_model_data_routes(self, app: FastAPI) -> None:
         """Register list and detail data routes for enabled read models."""
-        for read_model_id, read_model in self._read_models.enabled_entries("api").items():
-            self._register_read_model_data_routes(app, read_model_id, read_model)
-
-    def _register_read_model_data_routes(
-        self,
-        app: FastAPI,
-        read_model_id: str,
-        read_model: ReadModelEntry,
-    ) -> None:
-        """Register list and detail routes for one public read model.
-
-        Each call creates a new scope, so closures safely capture
-        ``read_model_id`` and ``pk_cols`` without the loop-variable gotcha.
-        """
-        handler = ApiReadModelHandler(
+        register_read_model_data_routes(
+            app,
             brotr=self._brotr,
             read_models=self._read_models,
-            read_model_id=read_model_id,
-            read_model=read_model,
+            route_prefix=self._config.route_prefix,
             default_page_size=self._config.default_page_size,
             max_page_size=self._config.max_page_size,
             request_timeout=self._config.request_timeout,
         )
-        app.get(f"{self._config.route_prefix}/{read_model_id}")(handler.list_rows)
-
-        # PK-based detail route (only for read models with a primary key)
-        pk_cols = handler.primary_key_columns
-        if not pk_cols:
-            return
-
-        if len(pk_cols) == 1:
-            pk_col = pk_cols[0]
-            pk_path = f"{{{pk_col}:path}}"
-        else:
-            pk_path = "/".join(f"{{{pk}}}" for pk in pk_cols)
-
-        app.get(f"{self._config.route_prefix}/{read_model_id}/{pk_path}")(handler.get_row)
 
     # ── Server lifecycle ──────────────────────────────────────────
 
