@@ -386,7 +386,22 @@ class Refresher(BaseService[RefresherConfig]):
         cutoff_reason: str | None,
     ) -> RefreshCycleResult:
         """Build a typed cycle result and compute watermark lag metrics."""
-        event_lag, metadata_lag = await self._watermark_lags(source_checkpoints)
+        event_lag = 0
+        if WatermarkSource.EVENT_RELAY in source_checkpoints:
+            event_lag = max(
+                0,
+                await get_event_relay_watermark(self._brotr)
+                - source_checkpoints[WatermarkSource.EVENT_RELAY],
+            )
+
+        metadata_lag = 0
+        if WatermarkSource.RELAY_METADATA in source_checkpoints:
+            metadata_lag = max(
+                0,
+                await get_relay_metadata_watermark(self._brotr)
+                - source_checkpoints[WatermarkSource.RELAY_METADATA],
+            )
+
         refreshed = sum(1 for result in target_results if result.succeeded)
         failed = sum(1 for result in target_results if not result.succeeded)
         rows_refreshed = sum(result.rows for result in target_results)
@@ -406,28 +421,6 @@ class Refresher(BaseService[RefresherConfig]):
             cutoff_reason=cutoff_reason,
             target_results=tuple(target_results),
         )
-
-    async def _watermark_lags(
-        self, source_checkpoints: dict[WatermarkSource, int]
-    ) -> tuple[int, int]:
-        """Return event and metadata source lag in seconds relative to saved checkpoints."""
-        event_lag = 0
-        if WatermarkSource.EVENT_RELAY in source_checkpoints:
-            event_lag = max(
-                0,
-                await get_event_relay_watermark(self._brotr)
-                - source_checkpoints[WatermarkSource.EVENT_RELAY],
-            )
-
-        metadata_lag = 0
-        if WatermarkSource.RELAY_METADATA in source_checkpoints:
-            metadata_lag = max(
-                0,
-                await get_relay_metadata_watermark(self._brotr)
-                - source_checkpoints[WatermarkSource.RELAY_METADATA],
-            )
-
-        return event_lag, metadata_lag
 
     def _emit_cycle_metrics(self, result: RefreshCycleResult) -> None:
         """Emit cycle-level metrics from the typed result object."""
