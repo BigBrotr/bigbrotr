@@ -162,11 +162,14 @@ class Dvm(BaseService[DvmConfig]):
         self._config: DvmConfig
         self._read_models = ReadModelSurface(policy_source=lambda: self._config.read_models)
         self._client: Client | None = None
-        self._client_manager: NostrClientManager | None = None
+        self._client_manager = NostrClientManager(
+            keys=self._config.keys.keys,
+            allow_insecure=self._config.allow_insecure,
+        )
         self._notification_task: asyncio.Task[None] | None = None
         self._request_events: asyncio.Queue[Any] | None = None
         self._request_subscription_id: str | None = None
-        self._state_store: ServiceStateStore | None = None
+        self._state_store = ServiceStateStore(self._brotr)
         self._keys: Keys = self._config.keys.keys
         self._last_fetch_ts: int = 0
         self._last_fetch_id: str = _REQUEST_CURSOR_DEFAULT_ID
@@ -176,7 +179,7 @@ class Dvm(BaseService[DvmConfig]):
         await super().__aenter__()
         await self._read_models.discover(self._brotr, logger=self._logger)
         keys = self._keys
-        manager = self._get_client_manager()
+        manager = self._client_manager
         session = await manager.connect_session(
             "dvm-read-relays",
             self._config.relays,
@@ -220,9 +223,7 @@ class Dvm(BaseService[DvmConfig]):
     ) -> None:
         if self._client is not None:
             await self._stop_request_subscription()
-            manager = self._client_manager
-            if manager is not None:
-                await manager.disconnect()
+            await self._client_manager.disconnect()
             self._client = None
             self._logger.info("client_disconnected")
         await super().__aexit__(_exc_type, _exc_val, _exc_tb)
@@ -230,25 +231,6 @@ class Dvm(BaseService[DvmConfig]):
     async def cleanup(self) -> int:
         """No-op: Dvm keeps a request cursor but has no stale state cleanup."""
         return 0
-
-    def _get_client_manager(self) -> NostrClientManager:
-        """Return the lazy-initialized nostr client manager for this service."""
-        manager = getattr(self, "_client_manager", None)
-        if manager is None:
-            manager = NostrClientManager(
-                keys=self._keys,
-                allow_insecure=self._config.allow_insecure,
-            )
-            self._client_manager = manager
-        return manager
-
-    def _get_state_store(self) -> ServiceStateStore:
-        """Return the lazy-initialized state store for DVM request cursors."""
-        store = getattr(self, "_state_store", None)
-        if store is None:
-            store = ServiceStateStore(self._brotr)
-            self._state_store = store
-        return store
 
     def _ensure_request_subscription_healthy(self) -> None:
         """Raise if the background notification loop has stopped unexpectedly."""
@@ -477,7 +459,7 @@ class Dvm(BaseService[DvmConfig]):
     async def _restore_request_cursor(self) -> tuple[int, str]:
         """Load the persisted request cursor or initialize it from wall clock."""
         cursor = (
-            await self._get_state_store().fetch_cursors(
+            await self._state_store.fetch_cursors(
                 ServiceName.DVM,
                 [_REQUEST_CURSOR_KEY],
                 DvmRequestCursor,
@@ -504,7 +486,7 @@ class Dvm(BaseService[DvmConfig]):
         """Persist the current request cursor after a successful cycle."""
         self._last_fetch_ts = timestamp
         self._last_fetch_id = event_id
-        await self._get_state_store().upsert_cursors(
+        await self._state_store.upsert_cursors(
             ServiceName.DVM,
             [
                 DvmRequestCursor(

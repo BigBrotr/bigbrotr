@@ -23,6 +23,7 @@ from bigbrotr.services.common.catalog import (
     TableSchema,
 )
 from bigbrotr.services.common.configs import ReadModelPolicy
+from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import DvmRequestCursor
 from bigbrotr.services.dvm.configs import DvmConfig
 from bigbrotr.services.dvm.service import Dvm
@@ -288,7 +289,7 @@ class TestDvm:
 
     def test_init(self, dvm_service: Dvm) -> None:
         assert dvm_service._client is None
-        assert dvm_service._client_manager is None
+        assert isinstance(dvm_service._client_manager, NostrClientManager)
         assert dvm_service._notification_task is None
         assert dvm_service._request_events is None
         assert dvm_service._request_subscription_id is None
@@ -440,10 +441,10 @@ class TestDvmLifecycle:
         mock_state_store.fetch_cursors = AsyncMock(
             return_value=[DvmRequestCursor(key="job_requests", timestamp=1234, id="ab" * 32)]
         )
+        dvm_service._client_manager = mock_manager
+        dvm_service._state_store = mock_state_store
 
         with (
-            patch("bigbrotr.services.dvm.service.NostrClientManager", return_value=mock_manager),
-            patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(dvm_service, "_start_request_subscription", new_callable=AsyncMock),
             patch.object(dvm_service, "set_gauge"),
             patch.object(type(dvm_service), "__aexit__", new_callable=AsyncMock),
@@ -481,10 +482,10 @@ class TestDvmLifecycle:
             return_value=[DvmRequestCursor(key="job_requests")]
         )
         mock_state_store.upsert_cursors = AsyncMock(return_value=1)
+        dvm_service._client_manager = mock_manager
+        dvm_service._state_store = mock_state_store
 
         with (
-            patch("bigbrotr.services.dvm.service.NostrClientManager", return_value=mock_manager),
-            patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(dvm_service, "_start_request_subscription", new_callable=AsyncMock),
             patch("bigbrotr.services.dvm.service.time") as mock_time,
             patch.object(dvm_service, "set_gauge"),
@@ -529,9 +530,9 @@ class TestDvmLifecycle:
                 ),
             )
         )
+        service._client_manager = mock_manager
 
         with (
-            patch("bigbrotr.services.dvm.service.NostrClientManager", return_value=mock_manager),
             patch.object(service, "_start_request_subscription", new_callable=AsyncMock),
             patch.object(service, "set_gauge"),
             patch.object(type(service), "__aexit__", new_callable=AsyncMock),
@@ -559,10 +560,10 @@ class TestDvmLifecycle:
         mock_state_store.fetch_cursors = AsyncMock(
             return_value=[DvmRequestCursor(key="job_requests", timestamp=1234, id="ab" * 32)]
         )
+        dvm_service._client_manager = mock_manager
+        dvm_service._state_store = mock_state_store
 
         with (
-            patch("bigbrotr.services.dvm.service.NostrClientManager", return_value=mock_manager),
-            patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(dvm_service, "_start_request_subscription", new_callable=AsyncMock),
             patch.object(dvm_service, "set_gauge"),
             patch.object(type(dvm_service), "__aexit__", new_callable=AsyncMock),
@@ -595,10 +596,10 @@ class TestDvmLifecycle:
             return_value=[DvmRequestCursor(key="job_requests", timestamp=1234, id="ab" * 32)]
         )
         dvm_service._stop_request_subscription = AsyncMock()  # type: ignore[method-assign]
+        dvm_service._client_manager = mock_manager
+        dvm_service._state_store = mock_state_store
 
         with (
-            patch("bigbrotr.services.dvm.service.NostrClientManager", return_value=mock_manager),
-            patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(dvm_service, "_start_request_subscription", new_callable=AsyncMock),
             patch.object(dvm_service, "_publish_announcement", new_callable=AsyncMock) as announce,
             patch.object(dvm_service, "set_gauge"),
@@ -663,13 +664,9 @@ class TestDvmLifecycle:
         result = await dvm_service.cleanup()
         assert result == 0
 
-    def test_get_state_store_reuses_instance(self, dvm_service: Dvm) -> None:
-        with patch("bigbrotr.services.dvm.service.ServiceStateStore") as mock_store_cls:
-            first = dvm_service._get_state_store()
-            second = dvm_service._get_state_store()
-
-        assert first is second
-        mock_store_cls.assert_called_once_with(dvm_service._brotr)
+    def test_state_store_is_initialized_once(self, dvm_service: Dvm) -> None:
+        assert isinstance(dvm_service._state_store, ServiceStateStore)
+        assert dvm_service._state_store._brotr is dvm_service._brotr
 
 
 # ============================================================================
@@ -703,9 +700,9 @@ class TestDvmRun:
         await _seed_request_events(dvm_service, [])
         mock_state_store = MagicMock()
         mock_state_store.upsert_cursors = AsyncMock(return_value=1)
+        dvm_service._state_store = mock_state_store
 
         with (
-            patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(dvm_service, "set_gauge"),
             patch.object(dvm_service, "inc_counter"),
         ):
@@ -732,8 +729,8 @@ class TestDvmRun:
             limit=10,
             offset=0,
         )
+        dvm_service._state_store = mock_state_store
         with (
-            patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(
                 dvm_service._read_models.catalog,
                 "query",
@@ -922,8 +919,8 @@ class TestDvmRun:
         mock_state_store.upsert_cursors = AsyncMock(return_value=1)
 
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
+        dvm_service._state_store = mock_state_store
         with (
-            patch("bigbrotr.services.dvm.service.ServiceStateStore", return_value=mock_state_store),
             patch.object(
                 dvm_service._read_models.catalog,
                 "query",
