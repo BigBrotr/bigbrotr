@@ -371,13 +371,16 @@ class TestAssertorRun:
         assert isinstance(service._state_store, ServiceStateStore)
         assert service._state_store._brotr is mock_brotr
 
-    def test_mark_seen_state_key_initializes_missing_set(self, mock_brotr: MagicMock) -> None:
+    def test_mark_seen_state_key_adds_to_existing_set(self, mock_brotr: MagicMock) -> None:
         service = _assertor_harness(mock_brotr)
-        del service._cycle_seen_state_keys
+        service._cycle_seen_state_keys = {"global-pagerank:30382:" + ("bb" * 32)}
 
         service._mark_seen_state_key("global-pagerank:30382:" + ("aa" * 32))
 
-        assert service._cycle_seen_state_keys == {"global-pagerank:30382:" + ("aa" * 32)}
+        assert service._cycle_seen_state_keys == {
+            "global-pagerank:30382:" + ("aa" * 32),
+            "global-pagerank:30382:" + ("bb" * 32),
+        }
 
     async def test_is_unchanged_no_state(self, mock_brotr: MagicMock) -> None:
         service = _assertor_harness(mock_brotr)

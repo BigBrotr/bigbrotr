@@ -494,8 +494,6 @@ class Assertor(BaseService[AssertorConfig]):
 
     def _mark_seen_state_key(self, state_key: str) -> None:
         """Track checkpoints that were still eligible in the current cycle."""
-        if not hasattr(self, "_cycle_seen_state_keys"):
-            self._cycle_seen_state_keys = set()
         self._cycle_seen_state_keys.add(state_key)
 
     async def _delete_stale_checkpoints(self) -> int:
