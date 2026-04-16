@@ -247,20 +247,6 @@ class ServiceStateStore:
         ]
         return await self.upsert(records)
 
-    async def upsert_candidates(
-        self,
-        candidates: Sequence[CandidateCheckpoint],
-        *,
-        timestamp: int | None = None,
-        failures: int | None = None,
-    ) -> int:
-        return await self.upsert(
-            [
-                candidate_state(candidate, timestamp=timestamp, failures=failures)
-                for candidate in candidates
-            ]
-        )
-
     async def fetch_hash(self, service_name: str, key: str) -> str | None:
         states = await self.get(service_name, ServiceStateType.CHECKPOINT, key)
         if not states:

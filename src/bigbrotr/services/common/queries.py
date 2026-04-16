@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceStateType
-from bigbrotr.services.common.state_store import ServiceStateStore
+from bigbrotr.services.common.state_store import ServiceStateStore, candidate_state
 from bigbrotr.services.common.types import CandidateCheckpoint
 
 
@@ -88,4 +88,4 @@ async def insert_relays_as_candidates(brotr: Brotr, relays: list[Relay]) -> int:
         )
         for relay in new_relays
     ]
-    return await ServiceStateStore(brotr).upsert_candidates(records)
+    return await ServiceStateStore(brotr).upsert([candidate_state(record) for record in records])
