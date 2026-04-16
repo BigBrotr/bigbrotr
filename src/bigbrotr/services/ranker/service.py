@@ -2,14 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from functools import partial
 from typing import TYPE_CHECKING, ClassVar, TypeVar
-
-import duckdb
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
@@ -39,6 +34,7 @@ from .runtime import (
     reset_cycle_metrics,
     sync_cutoff_reason,
 )
+from .store_runtime import RankerStoreRuntime
 from .types import (
     _ComputeExportResult,
     _CycleBuildInput,
@@ -58,6 +54,7 @@ _StoreResult = TypeVar("_StoreResult")
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from concurrent.futures import ThreadPoolExecutor
     from types import TracebackType
 
     import asyncpg
@@ -78,18 +75,16 @@ class Ranker(BaseService[RankerConfig]):
             db_path=self._config.storage.path,
             checkpoint_path=self._config.storage.checkpoint_path,
         )
-        self._store_executor: ThreadPoolExecutor | None = None
+        self._store_runtime = RankerStoreRuntime(self._store)
+
+    @property
+    def _store_executor(self) -> ThreadPoolExecutor | None:
+        """Compatibility view of the dedicated DuckDB store executor."""
+        return self._store_runtime._executor
 
     async def __aenter__(self) -> Ranker:
         await super().__aenter__()
-        try:
-            await self._run_store(self._store.ensure_initialized)
-        except (duckdb.Error, OSError, RuntimeError):
-            executor = self._store_executor
-            self._store_executor = None
-            if executor is not None:
-                await asyncio.to_thread(executor.shutdown, wait=True)
-            raise
+        await self._store_runtime.open()
         self._logger.info(
             "duckdb_store_ready",
             algorithm_id=self._config.algorithm_id,
@@ -104,14 +99,7 @@ class Ranker(BaseService[RankerConfig]):
         _exc_val: BaseException | None,
         _exc_tb: TracebackType | None,
     ) -> None:
-        executor = self._store_executor
-        self._store_executor = None
-        if executor is not None:
-            try:
-                loop = asyncio.get_running_loop()
-                await loop.run_in_executor(executor, self._store.close)
-            finally:
-                await asyncio.to_thread(executor.shutdown, wait=True)
+        await self._store_runtime.close()
         await super().__aexit__(_exc_type, _exc_val, _exc_tb)
 
     async def _run_store(
@@ -120,15 +108,7 @@ class Ranker(BaseService[RankerConfig]):
         *args: object,
         **kwargs: object,
     ) -> _StoreResult:
-        loop = asyncio.get_running_loop()
-        executor = self._store_executor
-        if executor is None:
-            executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ranker-store")
-            self._store_executor = executor
-        return await loop.run_in_executor(
-            executor,
-            partial(func, *args, **kwargs),
-        )
+        return await self._store_runtime.run(func, *args, **kwargs)
 
     async def cleanup(self) -> int:
         """Remove old DuckDB-local rank run records beyond retention."""
