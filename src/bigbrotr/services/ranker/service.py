@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
 from typing import TYPE_CHECKING, ClassVar, TypeVar
 
@@ -683,7 +683,12 @@ class Ranker(BaseService[RankerConfig]):
             await create_rank_stages(conn)
 
             counts = RankRowCounts()
-            specs = self._export_stage_specs()
+            specs = (
+                _ExportStageSpec("pubkey", self._store.fetch_pubkey_rank_batch),
+                _ExportStageSpec("event", self._store.fetch_event_rank_batch),
+                _ExportStageSpec("addressable", self._store.fetch_addressable_rank_batch),
+                _ExportStageSpec("identifier", self._store.fetch_identifier_rank_batch),
+            )
             for spec in specs:
                 subject_result = await self._populate_rank_stage(
                     conn,
@@ -694,60 +699,19 @@ class Ranker(BaseService[RankerConfig]):
                 )
                 if subject_result.cutoff_reason is not None:
                     return _ExportResult(counts, subject_result.cutoff_reason)
-                counts = self._with_subject_count(
-                    counts,
-                    spec.subject_type,
-                    subject_result.rows,
-                )
+                if spec.subject_type == "pubkey":
+                    counts = replace(counts, pubkey=subject_result.rows)
+                elif spec.subject_type == "event":
+                    counts = replace(counts, event=subject_result.rows)
+                elif spec.subject_type == "addressable":
+                    counts = replace(counts, addressable=subject_result.rows)
+                else:
+                    counts = replace(counts, identifier=subject_result.rows)
 
             for spec in specs:
                 await merge_rank_stage(conn, spec.subject_type, self._config.algorithm_id)
 
         return _ExportResult(counts)
-
-    def _export_stage_specs(self) -> tuple[_ExportStageSpec, ...]:
-        """Return the deterministic export order for public rank snapshots."""
-        return (
-            _ExportStageSpec("pubkey", self._store.fetch_pubkey_rank_batch),
-            _ExportStageSpec("event", self._store.fetch_event_rank_batch),
-            _ExportStageSpec("addressable", self._store.fetch_addressable_rank_batch),
-            _ExportStageSpec("identifier", self._store.fetch_identifier_rank_batch),
-        )
-
-    @staticmethod
-    def _with_subject_count(
-        counts: RankRowCounts,
-        subject_type: RankSubjectType,
-        rows: int,
-    ) -> RankRowCounts:
-        """Return updated rank row counts after exporting one subject stage."""
-        if subject_type == "pubkey":
-            return RankRowCounts(
-                pubkey=rows,
-                event=counts.event,
-                addressable=counts.addressable,
-                identifier=counts.identifier,
-            )
-        if subject_type == "event":
-            return RankRowCounts(
-                pubkey=counts.pubkey,
-                event=rows,
-                addressable=counts.addressable,
-                identifier=counts.identifier,
-            )
-        if subject_type == "addressable":
-            return RankRowCounts(
-                pubkey=counts.pubkey,
-                event=counts.event,
-                addressable=rows,
-                identifier=counts.identifier,
-            )
-        return RankRowCounts(
-            pubkey=counts.pubkey,
-            event=counts.event,
-            addressable=counts.addressable,
-            identifier=rows,
-        )
 
     async def _populate_rank_stage(
         self,
