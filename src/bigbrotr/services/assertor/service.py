@@ -326,7 +326,12 @@ class Assertor(BaseService[AssertorConfig]):
         self.set_gauge("stale_checkpoints_removed", result.checkpoint_cleanup_removed)
         self.set_gauge("phase_duration_cleanup_seconds", cleanup_duration)
 
-        for subject_kind, kind_result in self._assertion_kind_results(result):
+        for subject_kind, kind_result in (
+            ("user", result.user),
+            ("event", result.event),
+            ("addressable", result.addressable),
+            ("identifier", result.identifier),
+        ):
             self.set_gauge(f"{subject_kind}_assertions_eligible", kind_result.eligible)
             self.set_gauge(f"{subject_kind}_assertions_published", kind_result.published)
             self.set_gauge(f"{subject_kind}_assertions_skipped", kind_result.skipped)
@@ -342,18 +347,6 @@ class Assertor(BaseService[AssertorConfig]):
         self.set_gauge(
             "phase_duration_provider_profile_seconds",
             result.provider_profile.duration_seconds,
-        )
-
-    @staticmethod
-    def _assertion_kind_results(
-        result: PublishCycleResult,
-    ) -> tuple[tuple[str, PublishKindResult], ...]:
-        """Return per-assertion-kind publish results in metric order."""
-        return (
-            ("user", result.user),
-            ("event", result.event),
-            ("addressable", result.addressable),
-            ("identifier", result.identifier),
         )
 
     async def _publish_user_assertions(self) -> tuple[int, int, int]:
