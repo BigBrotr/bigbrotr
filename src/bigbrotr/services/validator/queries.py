@@ -9,11 +9,7 @@ from typing import TYPE_CHECKING
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.relay import Relay
 from bigbrotr.models.service_state import ServiceStateType
-from bigbrotr.services.common.state_store import (
-    ServiceStateStore,
-    candidate_from_payload,
-    candidate_state,
-)
+from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.utils import batched_insert
 
 
@@ -169,7 +165,9 @@ async def fetch_candidates(
     candidates: list[CandidateCheckpoint] = []
     for row in rows:
         try:
-            candidates.append(candidate_from_payload(row["state_key"], row["state_value"]))
+            candidates.append(
+                ServiceStateStore.decode_candidate(row["state_key"], row["state_value"])
+            )
         except (ValueError, TypeError) as e:
             logger.warning("invalid_candidate_skipped: %s (%s)", row["state_key"], e)
     return candidates
@@ -220,7 +218,11 @@ async def fail_candidates(brotr: Brotr, candidates: list[CandidateCheckpoint]) -
 
     now = int(time.time())
     records = [
-        candidate_state(candidate, timestamp=now, failures=candidate.failures + 1)
+        ServiceStateStore.encode_candidate(
+            candidate,
+            timestamp=now,
+            failures=candidate.failures + 1,
+        )
         for candidate in candidates
     ]
     return await ServiceStateStore(brotr).upsert(records)

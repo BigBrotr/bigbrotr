@@ -10,11 +10,6 @@ from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.common.state_store import (
     ServiceStateStore,
-    candidate_from_payload,
-    candidate_state,
-    checkpoint_from_payload,
-    cursor_from_payload,
-    hash_state,
 )
 from bigbrotr.services.common.types import (
     ApiCheckpoint,
@@ -37,7 +32,7 @@ def query_brotr() -> MagicMock:
 
 class TestPayloadCodecs:
     def test_checkpoint_from_payload(self) -> None:
-        checkpoint = checkpoint_from_payload(
+        checkpoint = ServiceStateStore.decode_checkpoint(
             "https://api.example.com",
             {"timestamp": 123},
             ApiCheckpoint,
@@ -46,7 +41,7 @@ class TestPayloadCodecs:
         assert checkpoint == ApiCheckpoint(key="https://api.example.com", timestamp=123)
 
     def test_cursor_from_payload(self) -> None:
-        cursor = cursor_from_payload(
+        cursor = ServiceStateStore.decode_cursor(
             "wss://relay.example.com",
             {"timestamp": 456, "id": "ab" * 32},
             FinderCursor,
@@ -59,7 +54,7 @@ class TestPayloadCodecs:
         )
 
     def test_candidate_from_payload(self) -> None:
-        candidate = candidate_from_payload(
+        candidate = ServiceStateStore.decode_candidate(
             "wss://relay.example.com",
             {"timestamp": 789, "network": "tor", "failures": 3},
         )
@@ -72,7 +67,7 @@ class TestPayloadCodecs:
         )
 
     def test_candidate_state_override(self) -> None:
-        state = candidate_state(
+        state = ServiceStateStore.encode_candidate(
             CandidateCheckpoint(
                 key="wss://relay.example.com",
                 timestamp=10,
@@ -86,7 +81,12 @@ class TestPayloadCodecs:
         assert state.state_value == {"network": "clearnet", "failures": 2, "timestamp": 20}
 
     def test_hash_state(self) -> None:
-        state = hash_state(ServiceName.ASSERTOR, "subject", "deadbeef", timestamp=42)
+        state = ServiceStateStore.encode_hash(
+            ServiceName.ASSERTOR,
+            "subject",
+            "deadbeef",
+            timestamp=42,
+        )
 
         assert state == ServiceState(
             service_name=ServiceName.ASSERTOR,

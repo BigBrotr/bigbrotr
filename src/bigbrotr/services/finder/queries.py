@@ -7,10 +7,7 @@ from typing import TYPE_CHECKING, Any
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.common.paging import iter_keyset_pages
-from bigbrotr.services.common.state_store import (
-    ServiceStateStore,
-    cursor_from_payload,
-)
+from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import ApiCheckpoint, FinderCursor
 
 
@@ -26,7 +23,7 @@ _CURSOR_SENTINEL_ID = "0" * 64
 def _finder_cursor_from_row(row: Any) -> FinderCursor:
     state_value = row["state_value"]
     if state_value:
-        return cursor_from_payload(row["url"], state_value, FinderCursor)
+        return ServiceStateStore.decode_cursor(row["url"], state_value, FinderCursor)
     return FinderCursor(key=row["url"])
 
 

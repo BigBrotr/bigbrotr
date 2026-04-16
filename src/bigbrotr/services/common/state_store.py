@@ -32,94 +32,94 @@ _FETCH_STATE_ROWS_SQL = """
     """
 
 
-def checkpoint_from_payload(
-    key: str,
-    payload: MappingLike,
-    checkpoint_type: type[_CheckpointT],
-) -> _CheckpointT:
-    """Decode a checkpoint payload into a typed checkpoint."""
-    return checkpoint_type(key=key, timestamp=int(payload["timestamp"]))
-
-
-def cursor_from_payload(
-    key: str,
-    payload: MappingLike,
-    cursor_type: type[_CursorT],
-) -> _CursorT:
-    """Decode a cursor payload into a typed cursor."""
-    return cursor_type(key=key, timestamp=int(payload["timestamp"]), id=str(payload["id"]))
-
-
-def candidate_from_payload(key: str, payload: MappingLike) -> CandidateCheckpoint:
-    """Decode a validator candidate payload."""
-    return CandidateCheckpoint(
-        key=key,
-        timestamp=int(payload.get("timestamp", 0)),
-        network=NetworkType(str(payload.get("network", "clearnet"))),
-        failures=int(payload.get("failures", 0)),
-    )
-
-
-def checkpoint_state(service_name: str, checkpoint: Checkpoint) -> ServiceState:
-    """Encode a typed checkpoint as a service-state row."""
-    return ServiceState(
-        service_name=service_name,
-        state_type=ServiceStateType.CHECKPOINT,
-        state_key=checkpoint.key,
-        state_value={"timestamp": checkpoint.timestamp},
-    )
-
-
-def cursor_state(service_name: str, cursor: Cursor) -> ServiceState:
-    """Encode a typed cursor as a service-state row."""
-    return ServiceState(
-        service_name=service_name,
-        state_type=ServiceStateType.CURSOR,
-        state_key=cursor.key,
-        state_value={"timestamp": cursor.timestamp, "id": cursor.id},
-    )
-
-
-def candidate_state(
-    candidate: CandidateCheckpoint,
-    *,
-    timestamp: int | None = None,
-    failures: int | None = None,
-) -> ServiceState:
-    """Encode a validator candidate as a service-state row."""
-    return ServiceState(
-        service_name=ServiceName.VALIDATOR,
-        state_type=ServiceStateType.CHECKPOINT,
-        state_key=candidate.key,
-        state_value={
-            "network": candidate.network.value,
-            "failures": candidate.failures if failures is None else failures,
-            "timestamp": candidate.timestamp if timestamp is None else timestamp,
-        },
-    )
-
-
-def hash_state(
-    service_name: str,
-    key: str,
-    hash_value: str,
-    *,
-    timestamp: int,
-) -> ServiceState:
-    """Encode a persisted hash checkpoint."""
-    return ServiceState(
-        service_name=service_name,
-        state_type=ServiceStateType.CHECKPOINT,
-        state_key=key,
-        state_value={"hash": hash_value, "timestamp": timestamp},
-    )
-
-
 class ServiceStateStore:
     """Typed persistence boundary for ``service_state`` access."""
 
     def __init__(self, brotr: Brotr) -> None:
         self._brotr = brotr
+
+    @staticmethod
+    def decode_checkpoint(
+        key: str,
+        payload: MappingLike,
+        checkpoint_type: type[_CheckpointT],
+    ) -> _CheckpointT:
+        """Decode a checkpoint payload into a typed checkpoint."""
+        return checkpoint_type(key=key, timestamp=int(payload["timestamp"]))
+
+    @staticmethod
+    def decode_cursor(
+        key: str,
+        payload: MappingLike,
+        cursor_type: type[_CursorT],
+    ) -> _CursorT:
+        """Decode a cursor payload into a typed cursor."""
+        return cursor_type(key=key, timestamp=int(payload["timestamp"]), id=str(payload["id"]))
+
+    @staticmethod
+    def decode_candidate(key: str, payload: MappingLike) -> CandidateCheckpoint:
+        """Decode a validator candidate payload."""
+        return CandidateCheckpoint(
+            key=key,
+            timestamp=int(payload.get("timestamp", 0)),
+            network=NetworkType(str(payload.get("network", "clearnet"))),
+            failures=int(payload.get("failures", 0)),
+        )
+
+    @staticmethod
+    def encode_checkpoint(service_name: str, checkpoint: Checkpoint) -> ServiceState:
+        """Encode a typed checkpoint as a service-state row."""
+        return ServiceState(
+            service_name=service_name,
+            state_type=ServiceStateType.CHECKPOINT,
+            state_key=checkpoint.key,
+            state_value={"timestamp": checkpoint.timestamp},
+        )
+
+    @staticmethod
+    def encode_cursor(service_name: str, cursor: Cursor) -> ServiceState:
+        """Encode a typed cursor as a service-state row."""
+        return ServiceState(
+            service_name=service_name,
+            state_type=ServiceStateType.CURSOR,
+            state_key=cursor.key,
+            state_value={"timestamp": cursor.timestamp, "id": cursor.id},
+        )
+
+    @staticmethod
+    def encode_candidate(
+        candidate: CandidateCheckpoint,
+        *,
+        timestamp: int | None = None,
+        failures: int | None = None,
+    ) -> ServiceState:
+        """Encode a validator candidate as a service-state row."""
+        return ServiceState(
+            service_name=ServiceName.VALIDATOR,
+            state_type=ServiceStateType.CHECKPOINT,
+            state_key=candidate.key,
+            state_value={
+                "network": candidate.network.value,
+                "failures": candidate.failures if failures is None else failures,
+                "timestamp": candidate.timestamp if timestamp is None else timestamp,
+            },
+        )
+
+    @staticmethod
+    def encode_hash(
+        service_name: str,
+        key: str,
+        hash_value: str,
+        *,
+        timestamp: int,
+    ) -> ServiceState:
+        """Encode a persisted hash checkpoint."""
+        return ServiceState(
+            service_name=service_name,
+            state_type=ServiceStateType.CHECKPOINT,
+            state_key=key,
+            state_value={"hash": hash_value, "timestamp": timestamp},
+        )
 
     async def get(
         self,
@@ -181,7 +181,7 @@ class ServiceStateStore:
             service_name,
             ServiceStateType.CHECKPOINT,
             keys,
-            lambda key, payload: checkpoint_from_payload(key, payload, checkpoint_type),
+            lambda key, payload: self.decode_checkpoint(key, payload, checkpoint_type),
             lambda key: checkpoint_type(key=key),
         )
 
@@ -190,7 +190,7 @@ class ServiceStateStore:
         service_name: str,
         checkpoints: Sequence[Checkpoint],
     ) -> int:
-        records = [checkpoint_state(service_name, checkpoint) for checkpoint in checkpoints]
+        records = [self.encode_checkpoint(service_name, checkpoint) for checkpoint in checkpoints]
         return await self.upsert(records)
 
     async def fetch_cursors(
@@ -205,7 +205,7 @@ class ServiceStateStore:
             service_name,
             ServiceStateType.CURSOR,
             keys,
-            lambda key, payload: cursor_from_payload(key, payload, cursor_type),
+            lambda key, payload: self.decode_cursor(key, payload, cursor_type),
             lambda key: cursor_type(key=key),
         )
 
@@ -241,7 +241,7 @@ class ServiceStateStore:
         skip_zero_timestamp: bool = False,
     ) -> int:
         records = [
-            cursor_state(service_name, cursor)
+            self.encode_cursor(service_name, cursor)
             for cursor in cursors
             if not skip_zero_timestamp or cursor.timestamp > 0
         ]
@@ -264,4 +264,6 @@ class ServiceStateStore:
         *,
         timestamp: int,
     ) -> int:
-        return await self.upsert([hash_state(service_name, key, hash_value, timestamp=timestamp)])
+        return await self.upsert(
+            [self.encode_hash(service_name, key, hash_value, timestamp=timestamp)]
+        )

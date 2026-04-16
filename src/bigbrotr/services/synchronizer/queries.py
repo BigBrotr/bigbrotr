@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.common.paging import iter_keyset_pages
-from bigbrotr.services.common.state_store import ServiceStateStore, cursor_from_payload
+from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import SyncCursor
 from bigbrotr.services.common.utils import batched_insert
 
@@ -24,7 +24,7 @@ _CURSOR_SENTINEL_ID = "0" * 64
 
 def _sync_cursor_from_row(row: Any) -> SyncCursor:
     if row["state_value"]:
-        return cursor_from_payload(row["url"], row["state_value"], SyncCursor)
+        return ServiceStateStore.decode_cursor(row["url"], row["state_value"], SyncCursor)
     return SyncCursor(key=row["url"])
 
 
