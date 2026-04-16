@@ -597,7 +597,7 @@ class TestApiLifecycle:
 
         with (
             patch.object(type(api_service._read_models), "discover", new_callable=AsyncMock),
-            patch.object(api_service, "_build_server", return_value=server),
+            patch("bigbrotr.services.api.service.uvicorn.Server", return_value=server),
             patch.object(api_service, "_run_server", new_callable=AsyncMock) as mock_server,
         ):
             async with api_service:
@@ -612,7 +612,7 @@ class TestApiLifecycle:
 
         with (
             patch.object(type(api_service._read_models), "discover", new_callable=AsyncMock),
-            patch.object(api_service, "_build_server", return_value=server),
+            patch("bigbrotr.services.api.service.uvicorn.Server", return_value=server),
             patch.object(api_service, "_run_server", new_callable=AsyncMock),
         ):
             async with api_service:
@@ -626,7 +626,7 @@ class TestApiLifecycle:
 
         with (
             patch.object(type(api_service._read_models), "discover", new_callable=AsyncMock),
-            patch.object(api_service, "_build_server", return_value=server),
+            patch("bigbrotr.services.api.service.uvicorn.Server", return_value=server),
             patch.object(api_service, "_run_server", new_callable=AsyncMock),
         ):
             async with api_service:
@@ -640,7 +640,7 @@ class TestApiLifecycle:
 
         with (
             patch.object(type(api_service._read_models), "discover", new_callable=AsyncMock),
-            patch.object(api_service, "_build_server", return_value=server),
+            patch("bigbrotr.services.api.service.uvicorn.Server", return_value=server),
             patch.object(
                 api_service,
                 "_run_server",
@@ -662,7 +662,7 @@ class TestApiLifecycle:
 
         with (
             patch.object(type(api_service._read_models), "discover", new_callable=AsyncMock),
-            patch.object(api_service, "_build_server", return_value=server),
+            patch("bigbrotr.services.api.service.uvicorn.Server", return_value=server),
             patch.object(api_service, "_run_server", new_callable=AsyncMock),
             patch.object(api_service._logger, "info") as mock_info,
         ):

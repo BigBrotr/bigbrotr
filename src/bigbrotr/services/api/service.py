@@ -113,7 +113,14 @@ class Api(BaseService[ApiConfig]):
         self._logger.info("endpoints_registered", count=read_model_count)
         self.set_gauge("read_models_exposed", read_model_count)
 
-        self._server = self._build_server(app)
+        config = uvicorn.Config(
+            app,
+            host=self._config.host,
+            port=self._config.port,
+            log_level="warning",
+            access_log=False,
+        )
+        self._server = uvicorn.Server(config)
         self._server_task = asyncio.create_task(self._run_server(self._server))
         startup_complete = False
         try:
@@ -360,17 +367,6 @@ class Api(BaseService[ApiConfig]):
         app.get(f"{self._config.route_prefix}/{read_model_id}/{pk_path}")(get_row)
 
     # ── Server lifecycle ──────────────────────────────────────────
-
-    def _build_server(self, app: FastAPI) -> uvicorn.Server:
-        """Build the uvicorn server instance for this API service."""
-        config = uvicorn.Config(
-            app,
-            host=self._config.host,
-            port=self._config.port,
-            log_level="warning",
-            access_log=False,
-        )
-        return uvicorn.Server(config)
 
     async def _run_server(self, server: uvicorn.Server) -> None:
         """Run uvicorn as an asyncio server."""
