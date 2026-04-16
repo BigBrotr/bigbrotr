@@ -33,6 +33,7 @@ from bigbrotr.services.synchronizer.queries import (
     iter_cursors_to_sync_pages,
     upsert_sync_cursors,
 )
+from bigbrotr.utils.protocol import NostrClientManager
 
 
 # Valid secp256k1 test key (DO NOT USE IN PRODUCTION)
@@ -425,6 +426,7 @@ class TestSynchronizerInit:
         assert sync.SERVICE_NAME == "synchronizer"
         assert sync.config.networks.clearnet.enabled is True
         assert sync.config.networks.tor.enabled is False
+        assert isinstance(sync._client_manager, NostrClientManager)
 
     def test_init_with_custom_config(self, mock_synchronizer_brotr: Brotr) -> None:
         config = SynchronizerConfig(
@@ -433,6 +435,7 @@ class TestSynchronizerInit:
         sync = Synchronizer(brotr=mock_synchronizer_brotr, config=config)
 
         assert sync.config.networks.tor.enabled is True
+        assert isinstance(sync._client_manager, NostrClientManager)
 
     def test_from_dict(self, mock_synchronizer_brotr: Brotr) -> None:
         data = {

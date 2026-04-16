@@ -137,8 +137,12 @@ class Synchronizer(
         config = config or SynchronizerConfig()
         super().__init__(brotr=brotr, config=config, networks=config.networks)
         self._config: SynchronizerConfig
-        self._client_manager: NostrClientManager | None = None
         self._keys: Keys = self._config.keys.keys
+        self._client_manager = NostrClientManager(
+            keys=self._keys,
+            networks=self._config.networks,
+            allow_insecure=self._config.processing.allow_insecure,
+        )
 
     async def __aexit__(
         self,
@@ -146,23 +150,8 @@ class Synchronizer(
         _exc_val: BaseException | None,
         _exc_tb: TracebackType | None,
     ) -> None:
-        manager = self._client_manager
-        if manager is not None:
-            await manager.disconnect()
-            self._client_manager = None
+        await self._client_manager.disconnect()
         await super().__aexit__(_exc_type, _exc_val, _exc_tb)
-
-    def _get_client_manager(self) -> NostrClientManager:
-        """Return the lazy-initialized nostr client manager for this service."""
-        manager = self._client_manager
-        if manager is None:
-            manager = NostrClientManager(
-                keys=self._keys,
-                networks=self._config.networks,
-                allow_insecure=self._config.processing.allow_insecure,
-            )
-            self._client_manager = manager
-        return manager
 
     async def run(self) -> None:
         """Execute one complete synchronization cycle across all relays."""
@@ -329,7 +318,7 @@ class Synchronizer(
                 network_config = self._config.networks.get(relay.network)
                 request_timeout = network_config.timeout
 
-                client = await self._get_client_manager().get_relay_client(relay)
+                client = await self._client_manager.get_relay_client(relay)
                 if client is None:
                     return
 
