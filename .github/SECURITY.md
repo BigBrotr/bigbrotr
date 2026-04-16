@@ -4,11 +4,11 @@
 
 | Version | Supported          |
 |---------|--------------------|
-| 5.0.x   | :white_check_mark: |
-| 4.0.x   | :x:                |
-| 3.0.x   | :x:                |
-| 2.0.x   | :x:                |
-| 1.0.x   | :x:                |
+| 6.x     | :white_check_mark: |
+| 5.x     | :x:                |
+| 4.x     | :x:                |
+| 3.x     | :x:                |
+| 2.x     | :x:                |
 
 Only the latest major version receives security updates. Older versions are not maintained.
 
@@ -124,7 +124,7 @@ When using Tor for .onion relays:
 
 ## Security Updates
 
-Security updates are released as patch versions (e.g., 5.0.1).
+Security updates are released as patch versions (for example, from `6.6.9` to `6.6.10`).
 
 To stay informed:
 - Watch the repository for releases

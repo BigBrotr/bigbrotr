@@ -1,7 +1,6 @@
 # BigBrotr Project Guide
 
-This guide is the root-level, implementation-aligned overview of BigBrotr for
-the current `feat/nip85-incremental-matviews-assertor` branch.
+This guide is the root-level, implementation-aligned overview of BigBrotr.
 
 It replaces the older root-level codebase and project specification documents.
 If this guide ever disagrees with the code, the code is the source of truth.

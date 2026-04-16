@@ -71,6 +71,11 @@ body:
         - Validator
         - Monitor
         - Synchronizer
+        - Refresher
+        - Ranker
+        - Assertor
+        - Api
+        - Dvm
         - Core (Pool/Brotr)
         - Database
         - Docker/Deployment
@@ -83,7 +88,7 @@ body:
     attributes:
       label: Version
       description: What version of BigBrotr are you using?
-      placeholder: "5.0.1"
+      placeholder: "6.6.9"
     validations:
       required: true
 

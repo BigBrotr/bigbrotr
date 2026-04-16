@@ -28,7 +28,7 @@ BigBrotr answers three questions about the Nostr network:
 2. **How healthy are they?** — Validator confirms WebSocket connectivity, Monitor runs 7 health checks (RTT, SSL, DNS, Geo, Net, HTTP, NIP-11) and publishes NIP-66 events.
 3. **What events are they publishing?** — Synchronizer connects to relays, streams events, and archives them with cursor-based resumption.
 
-Nine **independent** async services share a PostgreSQL database. Each runs on its own schedule, can be started or stopped individually, and has no direct dependency on any other service.
+Ten **independent** async services share a PostgreSQL database. Each runs on its own schedule, can be started or stopped individually, and has no direct dependency on any other service.
 
 ```text
               ┌───────────────────────────────────────────────────────────────────┐
@@ -91,7 +91,7 @@ Imports flow strictly downward:
 - **core** — Pool (asyncpg with retry), Brotr (DB facade), BaseService (lifecycle), Logger (structured kv/JSON), Metrics (Prometheus), YAML loader.
 - **nips** — NIP-11 relay info fetch/parse, NIP-66 health checks (RTT, SSL, DNS, Geo, Net, HTTP). Never raises — errors captured in structured logs.
 - **utils** — DNS resolution, Nostr key management, WebSocket/HTTP transport, SSL fallback, SOCKS5 proxy support, event streaming with binary-split windowing.
-- **services** — 9 independent services + shared queries, configs, mixins (ConcurrentStream, NetworkSemaphores, GeoReader, Clients, CatalogAccess).
+- **services** — 10 independent services + shared queries, configs, mixins (ConcurrentStream, NetworkSemaphores, GeoReader, Clients, CatalogAccess).
 
 ### Database Schema
 
