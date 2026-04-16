@@ -52,14 +52,12 @@ from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.read_models import ReadModelSurface
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import DvmRequestCursor
-from bigbrotr.utils.protocol import NostrClientManager, normalize_send_output
+from bigbrotr.utils.protocol import NostrClientManager
 
 from .configs import DvmConfig
 from .jobs import JobExecutionContext, JobRuntime, process_request_event
+from .publishing import AnnouncementContext, publish_announcement, send_event
 from .subscriptions import start_request_subscription, stop_request_subscription
-from .utils import (
-    build_announcement_event,
-)
 
 
 if TYPE_CHECKING:
@@ -358,42 +356,22 @@ class Dvm(BaseService[DvmConfig]):
 
         No-op if the client is not connected.
         """
-        if self._client is None:
-            return (), {}
-
-        output = await self._client.send_event_builder(builder)
-        successful_relays, failed_relays = normalize_send_output(output)
-
-        if require_success and not successful_relays:
-            raise OSError("event was not accepted by any relay")
-
-        return successful_relays, failed_relays
+        return await send_event(
+            client=self._client,
+            builder=builder,
+            require_success=require_success,
+        )
 
     async def _publish_announcement(self) -> None:
         """Publish a NIP-89 handler announcement (kind 31990)."""
-        if self._client is None:
-            return
-
-        read_models = self._read_models.enabled_names("dvm")
-        builder = build_announcement_event(
-            d_tag=self._config.d_tag,
-            kind=self._config.kind,
-            name=self._config.name,
-            about=self._config.about,
-            read_models=read_models,
-        )
-        successful_relays, failed_relays = await self._send_event(builder)
-        if successful_relays:
-            self._logger.info(
-                "announcement_published",
-                kind=31990,
-                relays=len(successful_relays),
-            )
-            return
-
-        self._logger.warning(
-            "announcement_publish_failed",
-            kind=31990,
-            error="no relays accepted announcement",
-            failed_relays=failed_relays,
+        await publish_announcement(
+            client=self._client,
+            logger=self._logger,
+            context=AnnouncementContext(
+                d_tag=self._config.d_tag,
+                kind=self._config.kind,
+                name=self._config.name,
+                about=self._config.about,
+                read_models=self._read_models.enabled_names("dvm"),
+            ),
         )
