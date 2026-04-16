@@ -218,13 +218,6 @@ class Ranker(BaseService[RankerConfig]):
                 await asyncio.to_thread(executor.shutdown, wait=True)
         await super().__aexit__(_exc_type, _exc_val, _exc_tb)
 
-    def _get_store_executor(self) -> ThreadPoolExecutor:
-        executor = self._store_executor
-        if executor is None:
-            executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ranker-store")
-            self._store_executor = executor
-        return executor
-
     async def _run_store(
         self,
         func: Callable[..., _StoreResult],
@@ -232,8 +225,12 @@ class Ranker(BaseService[RankerConfig]):
         **kwargs: object,
     ) -> _StoreResult:
         loop = asyncio.get_running_loop()
+        executor = self._store_executor
+        if executor is None:
+            executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ranker-store")
+            self._store_executor = executor
         return await loop.run_in_executor(
-            self._get_store_executor(),
+            executor,
             partial(func, *args, **kwargs),
         )
 
