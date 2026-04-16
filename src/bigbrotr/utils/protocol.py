@@ -49,7 +49,6 @@ import inspect
 import logging
 import socket
 import ssl
-from dataclasses import dataclass
 from datetime import timedelta
 from ipaddress import AddressValueError, IPv4Address, IPv6Address
 from typing import TYPE_CHECKING
@@ -71,6 +70,9 @@ from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 
 from . import protocol_publish as _protocol_publish
+from .protocol_sessions import ClientConnectResult, ClientSession
+from .protocol_sessions import connect_client_relays as _connect_client_relays
+from .protocol_sessions import create_connected_client as _create_connected_client
 from .protocol_validation import (
     RelayValidationContext,
     RelayValidationOptions,
@@ -128,24 +130,6 @@ def _is_ssl_error(error_message: str) -> bool:
     """Check if an error message indicates an SSL/TLS certificate error."""
     error_lower = error_message.lower()
     return any(pattern in error_lower for pattern in _SSL_ERROR_PATTERNS)
-
-
-@dataclass(frozen=True, slots=True)
-class ClientConnectResult:
-    """Normalized outcome of connecting one client to multiple relays."""
-
-    connected: tuple[str, ...]
-    failed: dict[str, str]
-
-
-@dataclass(frozen=True, slots=True)
-class ClientSession:
-    """Connected multi-relay client session managed by NostrClientManager."""
-
-    session_id: str
-    client: Client
-    relay_urls: tuple[str, ...]
-    connect_result: ClientConnectResult
 
 
 class NostrClientManager:
@@ -367,24 +351,6 @@ async def create_client(
     return builder.build()
 
 
-async def _connect_client_relays(
-    client: Client,
-    relays: list[Relay],
-    *,
-    timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
-) -> ClientConnectResult:
-    """Register relays on one client and normalize the connection outcome."""
-    for relay in relays:
-        await client.add_relay(RelayUrl.parse(relay.url))
-
-    output = await client.try_connect(timedelta(seconds=timeout))
-    connected = tuple(str(relay_url) for relay_url in getattr(output, "success", ()))
-    failed = {
-        str(relay_url): str(error) for relay_url, error in getattr(output, "failed", {}).items()
-    }
-    return ClientConnectResult(connected=connected, failed=failed)
-
-
 async def create_connected_client(
     relays: list[Relay],
     *,
@@ -393,8 +359,13 @@ async def create_connected_client(
     allow_insecure: bool = False,
 ) -> tuple[Client, ClientConnectResult]:
     """Create a client, register relays, and connect with a normalized result."""
-    client = await create_client(keys=keys, allow_insecure=allow_insecure)
-    return client, await _connect_client_relays(client, relays, timeout=timeout)
+    return await _create_connected_client(
+        relays,
+        create_client_func=create_client,
+        keys=keys,
+        timeout=timeout,
+        allow_insecure=allow_insecure,
+    )
 
 
 async def _try_connect_single_relay(
