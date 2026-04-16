@@ -241,23 +241,6 @@ class ServiceCliRunner:
                 path=metrics_config.path,
             )
 
-        remove_signal_handlers = self._install_signal_handlers()
-
-        try:
-            async with self._service:
-                await self._service.run_forever()
-            return 0
-        except Exception as exc:  # Intentionally broad: CLI error boundary
-            self._logger.error(f"{self._service_name}_failed", error=str(exc))
-            return 1
-        finally:
-            remove_signal_handlers()
-            await metrics_server.stop()
-            if metrics_config.enabled:
-                self._logger.info("metrics_server_stopped")
-
-    def _install_signal_handlers(self) -> Callable[[], None]:
-        """Register shutdown signal handlers and return a cleanup callback."""
         loop = asyncio.get_running_loop()
         registered: list[signal.Signals] = []
 
@@ -273,8 +256,16 @@ class ServiceCliRunner:
                 break
             registered.append(sig)
 
-        def cleanup() -> None:
+        try:
+            async with self._service:
+                await self._service.run_forever()
+            return 0
+        except Exception as exc:  # Intentionally broad: CLI error boundary
+            self._logger.error(f"{self._service_name}_failed", error=str(exc))
+            return 1
+        finally:
             for sig in registered:
                 loop.remove_signal_handler(sig)
-
-        return cleanup
+            await metrics_server.stop()
+            if metrics_config.enabled:
+                self._logger.info("metrics_server_stopped")
