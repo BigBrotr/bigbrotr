@@ -504,7 +504,7 @@ class TestSynchronize:
                 return_value=11,
             ) as mock_count,
             patch.object(type(sync.network_semaphores), "max_concurrency", return_value=150),
-            patch("bigbrotr.services.synchronizer.service.time.monotonic", return_value=100.0),
+            patch("bigbrotr.services.synchronizer.runtime.time.monotonic", return_value=100.0),
         ):
             plan = await sync._build_sync_cycle_plan()
 
@@ -561,7 +561,7 @@ class TestSynchronize:
                 "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
                 return_value=_mock_pages([cursor]),
             ),
-            patch("bigbrotr.services.synchronizer.service.EventRelay"),
+            patch("bigbrotr.services.synchronizer.runtime.EventRelay"),
             patch(
                 "bigbrotr.services.synchronizer.service.insert_event_relays",
                 new_callable=AsyncMock,
@@ -626,7 +626,7 @@ class TestSynchronize:
                 "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
                 return_value=_mock_pages([cursor]),
             ),
-            patch("bigbrotr.services.synchronizer.service.EventRelay"),
+            patch("bigbrotr.services.synchronizer.runtime.EventRelay"),
             patch(
                 "bigbrotr.services.synchronizer.service.insert_event_relays",
                 new_callable=AsyncMock,
@@ -666,7 +666,7 @@ class TestSynchronize:
                 "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
                 return_value=_mock_pages([cursor]),
             ),
-            patch("bigbrotr.services.synchronizer.service.EventRelay"),
+            patch("bigbrotr.services.synchronizer.runtime.EventRelay"),
             patch(
                 "bigbrotr.services.synchronizer.service.insert_event_relays",
                 mock_insert,
@@ -733,7 +733,7 @@ class TestSynchronize:
             patch.object(sync, "_iter_concurrent", side_effect=fake_iter_concurrent),
             patch.object(type(sync.network_semaphores), "max_concurrency", return_value=5),
             patch(
-                "bigbrotr.services.synchronizer.service.EventRelay",
+                "bigbrotr.services.synchronizer.runtime.EventRelay",
                 side_effect=lambda event, relay: (event, relay),
             ),
             patch.object(
@@ -794,7 +794,7 @@ class TestSynchronize:
         def mock_monotonic() -> float:
             nonlocal call_count
             call_count += 1
-            if call_count > 2:
+            if call_count > 1:
                 return original_monotonic() + 7200
             return original_monotonic()
 
@@ -808,7 +808,7 @@ class TestSynchronize:
                 "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
                 return_value=_mock_pages([cursor]),
             ),
-            patch("bigbrotr.services.synchronizer.service.EventRelay"),
+            patch("bigbrotr.services.synchronizer.runtime.EventRelay"),
             patch(
                 "bigbrotr.services.synchronizer.service.insert_event_relays",
                 new_callable=AsyncMock,
@@ -820,7 +820,7 @@ class TestSynchronize:
                 new_callable=AsyncMock,
             ),
             patch(
-                "bigbrotr.services.synchronizer.service.time.monotonic", side_effect=mock_monotonic
+                "bigbrotr.services.synchronizer.runtime.time.monotonic", side_effect=mock_monotonic
             ),
         ):
             result = await sync.synchronize()
@@ -851,7 +851,7 @@ class TestSynchronize:
                 "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
                 return_value=_mock_pages([cursor]),
             ),
-            patch("bigbrotr.services.synchronizer.service.EventRelay"),
+            patch("bigbrotr.services.synchronizer.runtime.EventRelay"),
             patch(
                 "bigbrotr.services.synchronizer.service.insert_event_relays",
                 new_callable=AsyncMock,
@@ -891,7 +891,7 @@ class TestSynchronize:
                 "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
                 return_value=_mock_pages([cursor]),
             ),
-            patch("bigbrotr.services.synchronizer.service.EventRelay"),
+            patch("bigbrotr.services.synchronizer.runtime.EventRelay"),
             patch(
                 "bigbrotr.services.synchronizer.service.insert_event_relays",
                 new_callable=AsyncMock,

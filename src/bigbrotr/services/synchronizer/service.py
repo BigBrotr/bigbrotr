@@ -64,16 +64,11 @@ Examples:
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, ClassVar
 
-from nostr_sdk import NostrSdkError
-
 from bigbrotr.core.base_service import BaseService
-from bigbrotr.models import EventRelay, Relay
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin, NetworkSemaphoresMixin
-from bigbrotr.services.common.types import SyncCursor
 from bigbrotr.utils.protocol import NostrClientManager
 from bigbrotr.utils.streaming import stream_events
 
@@ -86,11 +81,16 @@ from .queries import (
     upsert_sync_cursors,
 )
 from .runtime import (
-    SyncCyclePlan as SynchronizerCyclePlan,
-)
-from .runtime import (
+    SyncBatchState,
+    SyncPageContext,
+    SyncWorkerContext,
     build_sync_cycle_plan,
     flush_sync_batch,
+    synchronize_cursor_page,
+    synchronize_worker,
+)
+from .runtime import (
+    SyncCyclePlan as SynchronizerCyclePlan,
 )
 
 
@@ -101,7 +101,8 @@ if TYPE_CHECKING:
     from nostr_sdk import Keys
 
     from bigbrotr.core.brotr import Brotr
-    from bigbrotr.models import Event
+    from bigbrotr.models import Event, EventRelay, Relay
+    from bigbrotr.services.common.types import SyncCursor
 
 
 class Synchronizer(
@@ -239,27 +240,21 @@ class Synchronizer(
         plan: SynchronizerCyclePlan,
     ) -> tuple[int, bool]:
         """Scan one page of relay cursors and flush when the batch budget is reached."""
-        events_synced = 0
-
-        async for event, relay in self._iter_concurrent(
-            cursors,
-            self._synchronize_worker,
-            max_concurrency=plan.max_concurrency,
-        ):
-            buffer.append(EventRelay(event, relay))
-            pending_cursors[relay.url] = SyncCursor(
-                key=relay.url,
-                timestamp=event.created_at,
-                id=event.id,
-            )
-            self.inc_gauge("events_seen")
-            if len(buffer) == plan.batch_size:
-                events_synced += await self._flush_sync_batch(buffer, pending_cursors)
-                if time.monotonic() > plan.deadline:
-                    self._logger.info("sync_timeout", events_synced=events_synced)
-                    return events_synced, True
-
-        return events_synced, False
+        return await synchronize_cursor_page(
+            cursors=cursors,
+            batch_state=SyncBatchState(
+                buffer=buffer,
+                pending_cursors=pending_cursors,
+            ),
+            plan=plan,
+            context=SyncPageContext(
+                iter_concurrent=self._iter_concurrent,
+                worker=self._synchronize_worker,
+                flush_batch=self._flush_sync_batch,
+                inc_gauge=self.inc_gauge,
+                logger=self._logger,
+            ),
+        )
 
     async def _flush_sync_batch(
         self,
@@ -285,45 +280,16 @@ class Synchronizer(
         Acquires the per-network semaphore, connects to the relay, and streams
         events. Each yielded pair is ``(Event, Relay)``.
         """
-        relay = Relay(cursor.key)
-        try:
-            semaphore = self.network_semaphores.get(relay.network)
-            if semaphore is None:
-                self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
-                return
-
-            async with semaphore:
-                if not self.is_running:
-                    return
-
-                network_config = self._config.networks.get(relay.network)
-                request_timeout = network_config.timeout
-
-                client = await self._client_manager.get_relay_client(relay)
-                if client is None:
-                    return
-
-                try:
-                    async for event in stream_events(
-                        client,
-                        self._config.processing.filters,
-                        cursor.timestamp,
-                        self._config.processing.get_end_time(),
-                        self._config.processing.limit,
-                        request_timeout,
-                        self._config.timeouts.idle,
-                        self._config.processing.max_event_size,
-                    ):
-                        yield event, relay
-
-                except (TimeoutError, OSError, NostrSdkError) as e:
-                    self._logger.warning("sync_relay_error", relay=relay.url, error=str(e))
-                finally:
-                    self.inc_gauge("relays_seen")
-        except Exception as e:  # Worker exception boundary — protects TaskGroup
-            self._logger.error(
-                "sync_worker_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                relay=relay.url,
-            )
+        async for item in synchronize_worker(
+            context=SyncWorkerContext(
+                network_semaphores=self.network_semaphores,
+                logger=self._logger,
+                is_running=lambda: self.is_running,
+                config=self._config,
+                client_manager=self._client_manager,
+                stream_events_fn=stream_events,
+                inc_gauge=self.inc_gauge,
+            ),
+            cursor=cursor,
+        ):
+            yield item
