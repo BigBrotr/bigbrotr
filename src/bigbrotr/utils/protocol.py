@@ -43,7 +43,6 @@ Examples:
 
 from __future__ import annotations
 
-import contextlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -58,10 +57,9 @@ from bigbrotr.models.relay import Relay  # noqa: TC001
 from . import protocol_connections as _protocol_connections
 from . import protocol_factory as _protocol_factory
 from . import protocol_lifecycle as _protocol_lifecycle
+from . import protocol_manager as _protocol_manager
 from . import protocol_publish as _protocol_publish
-from .protocol_sessions import ClientConnectResult, ClientSession
-from .protocol_sessions import connect_client_relays as _connect_client_relays
-from .protocol_sessions import create_connected_client as _create_connected_client
+from . import protocol_sessions as _protocol_sessions
 from .protocol_validation import (
     RelayValidationContext,
     RelayValidationOptions,
@@ -91,6 +89,10 @@ broadcast_events_detailed = _protocol_publish.broadcast_events_detailed
 summarize_broadcast_results = _protocol_publish.summarize_broadcast_results
 normalize_send_output = _protocol_publish.normalize_send_output
 shutdown_client = _protocol_lifecycle.shutdown_client
+ClientConnectResult = _protocol_sessions.ClientConnectResult
+ClientSession = _protocol_sessions.ClientSession
+_connect_client_relays = _protocol_sessions.connect_client_relays
+_create_connected_client = _protocol_sessions.create_connected_client
 
 
 # Multi-word patterns for SSL/TLS certificate errors in nostr-sdk messages.
@@ -121,23 +123,8 @@ def _is_ssl_error(error_message: str) -> bool:
     return any(pattern in error_lower for pattern in _SSL_ERROR_PATTERNS)
 
 
-class NostrClientManager:
-    """Shared lifecycle manager for nostr-sdk clients.
-
-    Supports two patterns used across the codebase:
-
-    - cached per-relay publishing clients (`get_relay_client`)
-    - named multi-relay sessions (`connect_session`)
-    """
-
-    __slots__ = (
-        "_allow_insecure",
-        "_failed_relays",
-        "_keys",
-        "_networks",
-        "_relay_clients",
-        "_sessions",
-    )
+class NostrClientManager(_protocol_manager.NostrClientManager):
+    """Public manager facade bound to the protocol module's dynamic helpers."""
 
     def __init__(
         self,
@@ -146,102 +133,36 @@ class NostrClientManager:
         networks: NetworksConfig | None = None,
         allow_insecure: bool = False,
     ) -> None:
-        self._keys = keys
-        self._networks = networks
-        self._allow_insecure = allow_insecure
-        self._relay_clients: dict[str, Client] = {}
-        self._failed_relays: set[str] = set()
-        self._sessions: dict[str, ClientSession] = {}
+        async def _shutdown_client(client: Client) -> None:
+            await shutdown_client(client)
 
-    async def _connect_relay_with_networks(self, relay: Relay) -> Client:
-        """Connect one relay using this manager's shared network policy."""
-        if self._networks is None:
-            raise RuntimeError("networks configuration required for relay-scoped clients")
-        proxy_url = self._networks.get_proxy_url(relay.network)
-        timeout = self._networks.get(relay.network).timeout
-        return await connect_relay(
-            relay,
-            keys=self._keys,
-            proxy_url=proxy_url,
-            timeout=timeout,
-            allow_insecure=self._allow_insecure,
+        super().__init__(
+            dependencies=_protocol_manager.ProtocolManagerDependencies(
+                connect_relay=lambda relay, *, keys, proxy_url, timeout, allow_insecure: (
+                    connect_relay(
+                        relay,
+                        keys=keys,
+                        proxy_url=proxy_url,
+                        timeout=timeout,
+                        allow_insecure=allow_insecure,
+                    )
+                ),
+                create_client=lambda *, keys, allow_insecure: create_client(
+                    keys=keys,
+                    allow_insecure=allow_insecure,
+                ),
+                connect_client_relays=lambda client, relays, *, timeout: _connect_client_relays(
+                    client,
+                    relays,
+                    timeout=timeout,
+                ),
+                shutdown_client=_shutdown_client,
+                logger=logger,
+            ),
+            keys=keys,
+            networks=networks,
+            allow_insecure=allow_insecure,
         )
-
-    async def get_relay_client(self, relay: Relay) -> Client | None:
-        """Return one lazily connected cached client for a single relay."""
-        if relay.url in self._relay_clients:
-            return self._relay_clients[relay.url]
-        if relay.url in self._failed_relays:
-            return None
-
-        try:
-            client = await self._connect_relay_with_networks(relay)
-        except (OSError, TimeoutError) as e:
-            logger.warning("connect_client_failed relay=%s error=%s", relay.url, e)
-            self._failed_relays.add(relay.url)
-            return None
-
-        self._relay_clients[relay.url] = client
-        return client
-
-    async def get_relay_clients(self, relays: list[Relay]) -> list[Client]:
-        """Return connected clients for the provided relays."""
-        clients: list[Client] = []
-        for relay in relays:
-            client = await self.get_relay_client(relay)
-            if client is not None:
-                clients.append(client)
-        return clients
-
-    async def connect_session(
-        self,
-        session_id: str,
-        relays: list[Relay],
-        *,
-        timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
-    ) -> ClientSession:
-        """Create or reuse a named multi-relay session."""
-        relay_urls = tuple(relay.url for relay in relays)
-        existing = self._sessions.get(session_id)
-        if existing is not None:
-            if existing.relay_urls != relay_urls:
-                raise ValueError(f"session {session_id!r} already exists with different relays")
-            return existing
-
-        client = await create_client(keys=self._keys, allow_insecure=self._allow_insecure)
-        result = await _connect_client_relays(client, relays, timeout=timeout)
-        session = ClientSession(
-            session_id=session_id,
-            client=client,
-            relay_urls=relay_urls,
-            connect_result=result,
-        )
-        self._sessions[session_id] = session
-        return session
-
-    async def disconnect(self) -> None:
-        """Disconnect all managed clients and clear cached state."""
-        seen: set[int] = set()
-
-        for session in self._sessions.values():
-            client_id = id(session.client)
-            if client_id in seen:
-                continue
-            seen.add(client_id)
-            with contextlib.suppress(OSError, RuntimeError, TimeoutError):
-                await shutdown_client(session.client)
-
-        for client in self._relay_clients.values():
-            client_id = id(client)
-            if client_id in seen:
-                continue
-            seen.add(client_id)
-            with contextlib.suppress(OSError, RuntimeError, TimeoutError):
-                await shutdown_client(client)
-
-        self._sessions.clear()
-        self._relay_clients.clear()
-        self._failed_relays.clear()
 
 
 async def create_client(
