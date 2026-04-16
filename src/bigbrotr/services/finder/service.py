@@ -66,6 +66,11 @@ from bigbrotr.services.common.discovery_queries import insert_relays_as_candidat
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin
 from bigbrotr.services.common.types import ApiCheckpoint, FinderCursor
 
+from .api_runtime import (
+    ApiSourceAttempt,
+    build_api_source_attempts,
+    stream_api_discovery_attempts,
+)
 from .configs import ApiSourceConfig, FinderConfig
 from .queries import (
     count_relays_to_find,
@@ -135,13 +140,6 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         max_concurrency: int
         page_size: int
         phase_start: float
-
-    @dataclass(frozen=True, slots=True)
-    class ApiSourceAttempt:
-        """One API source that is eligible to be fetched in the current cycle."""
-
-        source: ApiSourceConfig
-        last_checked: int
 
     async def find(self) -> int:
         """Discover relay URLs from all configured sources.
@@ -225,33 +223,22 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         source_urls = [s.url for s in sources]
         checkpoints = await fetch_api_checkpoints(self._brotr, source_urls)
         checkpoint_map = {cp.key: cp for cp in checkpoints}
-        now = int(time.time())
-        attempts = self._build_api_source_attempts(sources, checkpoint_map, now)
-
-        async with aiohttp.ClientSession() as session:
-            for i, attempt in enumerate(attempts):
-                source = attempt.source
-                if not self.is_running:
-                    return
-
-                try:
-                    relays = await fetch_api(session, source, self._config.api.max_response_size)
-                    self._logger.debug("api_fetched", url=source.url, count=len(relays))
-                    yield relays, ApiCheckpoint(key=source.url, timestamp=int(time.time()))
-                except (TimeoutError, OSError, aiohttp.ClientError, ValueError) as e:
-                    self._logger.warning(
-                        "api_fetch_failed",
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        url=source.url,
-                    )
-
-                if (
-                    self._config.api.request_delay > 0
-                    and i < len(attempts) - 1
-                    and await self.wait(self._config.api.request_delay)
-                ):
-                    return
+        async for relays, checkpoint in stream_api_discovery_attempts(
+            sources,
+            checkpoint_map,
+            cooldown=int(self._config.api.cooldown),
+            now=int(time.time()),
+            max_response_size=self._config.api.max_response_size,
+            request_delay=self._config.api.request_delay,
+            is_running=lambda: self.is_running,
+            wait=self.wait,
+            fetch_api_fn=fetch_api,
+            client_session_factory=aiohttp.ClientSession,
+            recoverable_errors=(TimeoutError, OSError, aiohttp.ClientError, ValueError),
+            checkpoint_timestamp=lambda: int(time.time()),
+            logger=self._logger,
+        ):
+            yield relays, checkpoint
 
     def _build_api_source_attempts(
         self,
@@ -260,19 +247,13 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         now: int,
     ) -> tuple[ApiSourceAttempt, ...]:
         """Return the enabled API sources whose cooldown has elapsed for this cycle."""
-        cooldown = int(self._config.api.cooldown)
-        attempts: list[Finder.ApiSourceAttempt] = []
-        for source in sources:
-            last_checked = checkpoint_map[source.url].timestamp
-            if now - last_checked < cooldown:
-                self._logger.debug(
-                    "api_skipped",
-                    url=source.url,
-                    seconds_left=cooldown - (now - last_checked),
-                )
-                continue
-            attempts.append(self.ApiSourceAttempt(source=source, last_checked=last_checked))
-        return tuple(attempts)
+        return build_api_source_attempts(
+            sources,
+            checkpoint_map,
+            cooldown=int(self._config.api.cooldown),
+            now=now,
+            logger=self._logger,
+        )
 
     # ── Event discovery ────────────────────────────────────────────
 
