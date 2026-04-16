@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import asyncpg
@@ -35,6 +34,13 @@ from .catalog_discovery import (
     discover_matview_unique_indexes,
     discover_primary_keys,
     discover_table_and_view_names,
+)
+from .catalog_types import (
+    _BYTEA_TYPES,
+    _MAX_OFFSET,
+    ColumnSchema,
+    QueryResult,
+    TableSchema,
 )
 
 
@@ -157,81 +163,6 @@ class CatalogError(Exception):
     def __init__(self, message: str) -> None:
         super().__init__(message)
         self.client_message: str = message
-
-
-# Allowed filter operators (whitelist)
-_FILTER_OPERATORS: frozenset[str] = frozenset({"=", ">", "<", ">=", "<=", "ILIKE"})
-
-# PG types compatible with the ILIKE operator (text-like types only)
-_TEXT_TYPES: frozenset[str] = frozenset({"text", "character varying", "character", "name"})
-
-# PG types that need SQL transforms in SELECT
-_BYTEA_TYPES: frozenset[str] = frozenset({"bytea"})
-_DATE_TYPES: frozenset[str] = frozenset(
-    {
-        "date",
-        "timestamp without time zone",
-        "timestamp with time zone",
-    }
-)
-_NUMERIC_TYPES: frozenset[str] = frozenset({"numeric", "decimal"})
-
-# PG type → parameter cast mapping for correct filter comparisons
-_CAST_TYPES: dict[str, str] = {
-    "bytea": "::bytea",
-    "bigint": "::bigint",
-    "integer": "::integer",
-    "smallint": "::smallint",
-    "boolean": "::boolean",
-    "date": "::date",
-    "timestamp without time zone": "::timestamp without time zone",
-    "timestamp with time zone": "::timestamp with time zone",
-    "numeric": "::numeric",
-    "decimal": "::numeric",
-    "jsonb": "::jsonb",
-}
-
-# Max offset to prevent deep pagination abuse
-_MAX_OFFSET = 100_000
-
-# ---------------------------------------------------------------------------
-# Schema dataclasses
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class ColumnSchema:
-    """Schema information for a single column."""
-
-    name: str
-    pg_type: str
-    nullable: bool
-
-
-@dataclass(frozen=True, slots=True)
-class TableSchema:
-    """Schema information for a table, view, or materialized view."""
-
-    name: str
-    columns: tuple[ColumnSchema, ...]
-    primary_key: tuple[str, ...]
-    is_view: bool
-
-
-@dataclass(frozen=True, slots=True)
-class QueryResult:
-    """Result of a paginated query."""
-
-    rows: list[dict[str, Any]]
-    total: int | None
-    limit: int
-    offset: int
-    next_cursor: str | None = None
-
-
-# ---------------------------------------------------------------------------
-# Catalog
-# ---------------------------------------------------------------------------
 
 
 class Catalog:

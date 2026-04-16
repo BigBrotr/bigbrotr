@@ -11,7 +11,8 @@ from .read_model_requests import ReadModelQuery
 
 if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
-    from bigbrotr.services.common.catalog import Catalog, QueryResult, TableSchema
+    from bigbrotr.services.common.catalog import Catalog
+    from bigbrotr.services.common.catalog_types import QueryResult, TableSchema
     from bigbrotr.services.common.configs import ReadModelPolicy
 
 

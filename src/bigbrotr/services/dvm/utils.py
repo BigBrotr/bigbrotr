@@ -29,7 +29,7 @@ from bigbrotr.services.common.read_models import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from bigbrotr.services.common.catalog import QueryResult
+    from bigbrotr.services.common.catalog_types import QueryResult
 
 # Minimum tag lengths for NIP-90 tag parsing
 _MIN_PARAM_TAG_LEN = 3

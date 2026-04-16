@@ -10,7 +10,8 @@ if TYPE_CHECKING:
 
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.core.logger import Logger
-    from bigbrotr.services.common.catalog import Catalog, QueryResult
+    from bigbrotr.services.common.catalog import Catalog
+    from bigbrotr.services.common.catalog_types import QueryResult
     from bigbrotr.services.common.configs import ReadModelPolicy
 
 from .read_model_registry import (

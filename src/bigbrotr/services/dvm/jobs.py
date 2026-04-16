@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from bigbrotr.core.logger import Logger
-    from bigbrotr.services.common.catalog import QueryResult
+    from bigbrotr.services.common.catalog_types import QueryResult
     from bigbrotr.services.common.configs import ReadModelPolicy
     from bigbrotr.services.common.read_models import ReadModelEntry, ReadModelQuery
 

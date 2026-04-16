@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from .catalog import QueryResult
+    from .catalog_types import QueryResult
 
 
 class ReadModelQueryError(ValueError):

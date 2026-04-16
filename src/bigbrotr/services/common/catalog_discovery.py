@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
 
-    from .catalog import ColumnSchema
+    from .catalog_types import ColumnSchema
 
 
 async def discover_table_and_view_names(brotr: Brotr) -> tuple[set[str], set[str]]:
@@ -48,7 +48,7 @@ async def discover_columns(
     table_names: set[str],
 ) -> dict[str, list[ColumnSchema]]:
     """Discover columns via ``pg_attribute`` so matviews are included."""
-    from .catalog import ColumnSchema  # noqa: PLC0415
+    from .catalog_types import ColumnSchema  # noqa: PLC0415
 
     if not table_names:
         return {}

@@ -8,14 +8,14 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from .catalog import (
+from .catalog import CatalogError
+from .catalog_types import (
     _BYTEA_TYPES,
     _CAST_TYPES,
     _DATE_TYPES,
     _FILTER_OPERATORS,
     _NUMERIC_TYPES,
     _TEXT_TYPES,
-    CatalogError,
     ColumnSchema,
     TableSchema,
 )
