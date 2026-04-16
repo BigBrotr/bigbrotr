@@ -183,18 +183,18 @@ class ConcurrentStreamMixin:
                     error_type=type(e).__name__,
                 )
 
-        async def _worker_loop() -> None:
-            while True:
-                item = await work_queue.get()
-                if item is _ITEM_DONE:
-                    return
-                await _run_worker(cast("T", item))
-
         async def _run_all() -> None:
+            async def _consume_queue() -> None:
+                while True:
+                    item = await work_queue.get()
+                    if item is _ITEM_DONE:
+                        return
+                    await _run_worker(cast("T", item))
+
             try:
                 async with asyncio.TaskGroup() as tg:
                     for _ in range(worker_count):
-                        tg.create_task(_worker_loop())
+                        tg.create_task(_consume_queue())
             finally:
                 await result_queue.put(_QUEUE_DONE)
 
