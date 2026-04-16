@@ -290,7 +290,7 @@ class Assertor(BaseService[AssertorConfig]):
             selected.append(("addressable", self._publish_addressable_assertions))
         if EventKind.NIP85_IDENTIFIER_ASSERTION in self._config.selection.kinds:
             selected.append(("identifier", self._publish_identifier_assertions))
-        if self._provider_profile_enabled():
+        if self._config.provider_profile.enabled:
             selected.append(("provider_profile", self._publish_provider_profile))
         return tuple(selected)
 
@@ -498,17 +498,12 @@ class Assertor(BaseService[AssertorConfig]):
             self._cycle_seen_state_keys = set()
         self._cycle_seen_state_keys.add(state_key)
 
-    def _provider_profile_enabled(self) -> bool:
-        """Return whether Kind 0 provider profile publishing is explicitly enabled."""
-        enabled = getattr(getattr(self._config, "provider_profile", None), "enabled", False)
-        return enabled if isinstance(enabled, bool) else False
-
     async def _delete_stale_checkpoints(self) -> int:
         """Delete non-canonical or current-algorithm checkpoints that are no longer eligible."""
         store = self._state_store
         states = await store.get(ServiceName.ASSERTOR, ServiceStateType.CHECKPOINT)
         configured_kinds = {int(kind) for kind in self._config.selection.kinds}
-        if self._provider_profile_enabled():
+        if self._config.provider_profile.enabled:
             configured_kinds.add(int(EventKind.SET_METADATA))
 
         stale: list[ServiceState] = []
