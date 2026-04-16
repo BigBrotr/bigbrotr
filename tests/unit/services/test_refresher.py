@@ -13,6 +13,7 @@ from bigbrotr.core.brotr import Brotr
 from bigbrotr.core.brotr_config import BrotrConfig
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
+from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.refresher import (
     AnalyticsRefreshConfig,
     AnalyticsRefreshTarget,
@@ -259,15 +260,11 @@ class TestRefresherInit:
         assert refresher.config.analytics.targets == list(DEFAULT_ANALYTICS_TARGETS)
         assert refresher._logger is not None
 
-    def test_get_state_store_reuses_instance(self, mock_refresher_brotr: Brotr) -> None:
+    def test_state_store_is_initialized_once(self, mock_refresher_brotr: Brotr) -> None:
         refresher = Refresher(brotr=mock_refresher_brotr)
 
-        with patch("bigbrotr.services.refresher.service.ServiceStateStore") as mock_store_cls:
-            first = refresher._get_state_store()
-            second = refresher._get_state_store()
-
-        assert first is second
-        mock_store_cls.assert_called_once_with(mock_refresher_brotr)
+        assert isinstance(refresher._state_store, ServiceStateStore)
+        assert refresher._state_store._brotr is mock_refresher_brotr
 
     def test_config_class_attribute(self) -> None:
         assert Refresher.CONFIG_CLASS is RefresherConfig
