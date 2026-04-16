@@ -9,7 +9,6 @@ in [queries.py][bigbrotr.services.refresher.queries].
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 import asyncpg
@@ -32,70 +31,17 @@ from .queries import (
     refresh_incremental_target,
     refresh_periodic_target,
 )
+from .runtime import (
+    RefreshCyclePlan,
+    RefreshCycleResult,
+    RefreshCycleTotals,
+    RefreshTargetResult,
+    emit_cycle_metrics,
+)
 
 
 if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
-
-
-@dataclass(frozen=True, slots=True)
-class RefreshCycleTotals:
-    """Configured target totals for one cycle."""
-
-    total: int = 0
-    current: int = 0
-    analytics: int = 0
-    periodic: int = 0
-
-
-@dataclass(frozen=True, slots=True)
-class RefreshTargetResult:
-    """Outcome of one configured refresher target."""
-
-    name: str
-    target_group: str
-    rows: int = 0
-    duration_seconds: float = 0.0
-    error: str | None = None
-
-    @property
-    def succeeded(self) -> bool:
-        """Whether the target completed without an isolated target error."""
-        return self.error is None
-
-
-@dataclass(frozen=True, slots=True)
-class RefreshCycleResult:
-    """Outcome of one refresher service cycle."""
-
-    targets_total: int = 0
-    targets_current_total: int = 0
-    targets_analytics_total: int = 0
-    targets_periodic_total: int = 0
-    targets_attempted: int = 0
-    targets_refreshed: int = 0
-    targets_failed: int = 0
-    rows_refreshed: int = 0
-    cleanup_removed_checkpoints: int = 0
-    watermark_event_relay_lag_seconds: int = 0
-    watermark_relay_metadata_lag_seconds: int = 0
-    cutoff_reason: str | None = None
-    target_results: tuple[RefreshTargetResult, ...] = ()
-
-    @property
-    def targets_skipped(self) -> int:
-        """Number of configured targets not attempted because the cycle stopped early."""
-        return max(0, self.targets_total - self.targets_attempted)
-
-
-@dataclass(frozen=True, slots=True)
-class RefreshCyclePlan:
-    """Computed targets and budgets for one refresher cycle."""
-
-    cycle_start: float
-    totals: RefreshCycleTotals
-    incremental_targets: tuple[IncrementalRefreshTarget, ...]
-    periodic_targets: tuple[PeriodicRefreshTarget, ...]
 
 
 class Refresher(BaseService[RefresherConfig]):
@@ -197,7 +143,7 @@ class Refresher(BaseService[RefresherConfig]):
             source_checkpoints=source_checkpoints,
             cutoff_reason=cutoff_reason,
         )
-        self._emit_cycle_metrics(cycle_result)
+        emit_cycle_metrics(self, cycle_result)
         self._logger.info(
             "refresh_completed",
             refreshed=cycle_result.targets_refreshed,
@@ -235,7 +181,7 @@ class Refresher(BaseService[RefresherConfig]):
                     source_checkpoints=source_checkpoints,
                     cutoff_reason=None,
                 )
-                self._emit_cycle_metrics(cycle_result)
+                emit_cycle_metrics(self, cycle_result)
                 raise RuntimeError(f"refresher target failed: {result.name}: {result.error}")
 
         return None
@@ -266,7 +212,7 @@ class Refresher(BaseService[RefresherConfig]):
                     source_checkpoints=source_checkpoints,
                     cutoff_reason=None,
                 )
-                self._emit_cycle_metrics(cycle_result)
+                emit_cycle_metrics(self, cycle_result)
                 raise RuntimeError(f"refresher target failed: {result.name}: {result.error}")
 
         return None
@@ -416,29 +362,4 @@ class Refresher(BaseService[RefresherConfig]):
             watermark_relay_metadata_lag_seconds=metadata_lag,
             cutoff_reason=cutoff_reason,
             target_results=tuple(target_results),
-        )
-
-    def _emit_cycle_metrics(self, result: RefreshCycleResult) -> None:
-        """Emit cycle-level metrics from the typed result object."""
-        self.set_gauge("targets_attempted", result.targets_attempted)
-        self.set_gauge("targets_refreshed", result.targets_refreshed)
-        self.set_gauge("targets_failed", result.targets_failed)
-        self.set_gauge("targets_skipped", result.targets_skipped)
-        self.set_gauge("rows_refreshed", result.rows_refreshed)
-        self.set_gauge("cleanup_removed_checkpoints", result.cleanup_removed_checkpoints)
-        self.set_gauge(
-            "watermark_event_relay_lag_seconds",
-            result.watermark_event_relay_lag_seconds,
-        )
-        self.set_gauge(
-            "watermark_relay_metadata_lag_seconds",
-            result.watermark_relay_metadata_lag_seconds,
-        )
-        self.set_gauge(
-            "cycle_stopped_due_to_max_duration",
-            1 if result.cutoff_reason == "max_duration" else 0,
-        )
-        self.set_gauge(
-            "cycle_stopped_due_to_max_targets",
-            1 if result.cutoff_reason == "max_targets_per_cycle" else 0,
         )

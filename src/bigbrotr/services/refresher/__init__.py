@@ -16,7 +16,8 @@ from .configs import (
     ProcessingConfig,
     RefresherConfig,
 )
-from .service import RefreshCycleResult, Refresher, RefreshTargetResult
+from .runtime import RefreshCycleResult, RefreshTargetResult
+from .service import Refresher
 
 
 __all__ = [
