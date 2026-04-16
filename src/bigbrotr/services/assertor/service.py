@@ -263,24 +263,6 @@ class Assertor(BaseService[AssertorConfig]):
             "provider_profile": PublishKindResult(),
         }
 
-        for result_name, publish_func in self._selected_publishers():
-            results[result_name] = await self._publish_timed(publish_func)
-
-        return (
-            results["user"],
-            results["event"],
-            results["addressable"],
-            results["identifier"],
-            results["provider_profile"],
-        )
-
-    def _selected_publishers(
-        self,
-    ) -> tuple[
-        tuple[str, Callable[[], Awaitable[tuple[int, int, int]]]],
-        ...,
-    ]:
-        """Return the enabled publish branches for the current config."""
         selected: list[tuple[str, Callable[[], Awaitable[tuple[int, int, int]]]]] = []
         if EventKind.NIP85_USER_ASSERTION in self._config.selection.kinds:
             selected.append(("user", self._publish_user_assertions))
@@ -292,7 +274,17 @@ class Assertor(BaseService[AssertorConfig]):
             selected.append(("identifier", self._publish_identifier_assertions))
         if self._config.provider_profile.enabled:
             selected.append(("provider_profile", self._publish_provider_profile))
-        return tuple(selected)
+
+        for result_name, publish_func in selected:
+            results[result_name] = await self._publish_timed(publish_func)
+
+        return (
+            results["user"],
+            results["event"],
+            results["addressable"],
+            results["identifier"],
+            results["provider_profile"],
+        )
 
     async def _run_checkpoint_cleanup(self) -> tuple[int, float]:
         """Remove stale checkpoints when configured and report elapsed time."""
