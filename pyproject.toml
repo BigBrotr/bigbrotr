@@ -85,8 +85,6 @@ dev = [
     "types-jmespath>=1.0.0",
     "asyncpg-stubs>=0.30.0",
     "testcontainers[postgres]>=4.0.0",
-    "alembic>=1.14.0",
-    "sqlalchemy[asyncio]>=2.0.0",
 ]
 docs = [
     "mkdocs>=1.6.0",
