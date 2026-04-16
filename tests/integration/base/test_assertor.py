@@ -16,6 +16,7 @@ from bigbrotr.models.event import Event
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.assertor.configs import AssertorConfig
 from bigbrotr.services.assertor.service import Assertor
+from bigbrotr.utils.protocol import BroadcastClientResult, ClientConnectResult, ClientSession
 
 
 pytestmark = pytest.mark.integration
@@ -42,6 +43,30 @@ _RANK_INSERT_QUERIES = {
         VALUES ($1, $2, $3, $4, $5)
     """,
 }
+
+
+def _make_publish_session(client: MagicMock) -> ClientSession:
+    relay_url = "wss://publish-relay.example.com"
+    return ClientSession(
+        session_id="assertor-publish-relays",
+        client=client,
+        relay_urls=(relay_url,),
+        connect_result=ClientConnectResult(connected=(relay_url,), failed={}),
+    )
+
+
+def _broadcast_results(
+    *,
+    successful_relays: tuple[str, ...] = ("wss://publish-relay.example.com",),
+    failed_relays: dict[str, str] | None = None,
+) -> list[BroadcastClientResult]:
+    return [
+        BroadcastClientResult(
+            event_ids=("event-id",),
+            successful_relays=successful_relays,
+            failed_relays=failed_relays or {},
+        )
+    ]
 
 
 def _event_relay(
@@ -472,14 +497,17 @@ class TestAssertorIntegration:
 
         published_builders: list[Any] = []
 
-        async def _capture_broadcast(builders: list[Any], _clients: list[Any]) -> int:
+        async def _capture_broadcast(
+            builders: list[Any],
+            _clients: list[Any],
+        ) -> list[BroadcastClientResult]:
             published_builders.extend(builders)
-            return 1
+            return _broadcast_results()
 
         with (
             patch(
-                "bigbrotr.services.assertor.service.create_client",
-                new=AsyncMock(return_value=client),
+                "bigbrotr.services.assertor.service.NostrClientManager.connect_session",
+                new=AsyncMock(return_value=_make_publish_session(client)),
             ),
             patch(
                 "bigbrotr.services.assertor.service.broadcast_events",
@@ -523,14 +551,17 @@ class TestAssertorIntegration:
 
         second_published_builders: list[Any] = []
 
-        async def _capture_second_broadcast(builders: list[Any], _clients: list[Any]) -> int:
+        async def _capture_second_broadcast(
+            builders: list[Any],
+            _clients: list[Any],
+        ) -> list[BroadcastClientResult]:
             second_published_builders.extend(builders)
-            return 1
+            return _broadcast_results()
 
         with (
             patch(
-                "bigbrotr.services.assertor.service.create_client",
-                new=AsyncMock(return_value=_make_mock_client()),
+                "bigbrotr.services.assertor.service.NostrClientManager.connect_session",
+                new=AsyncMock(return_value=_make_publish_session(_make_mock_client())),
             ),
             patch(
                 "bigbrotr.services.assertor.service.broadcast_events",
@@ -561,8 +592,8 @@ class TestAssertorIntegration:
 
         with (
             patch(
-                "bigbrotr.services.assertor.service.create_client",
-                new=AsyncMock(return_value=_make_mock_client()),
+                "bigbrotr.services.assertor.service.NostrClientManager.connect_session",
+                new=AsyncMock(return_value=_make_publish_session(_make_mock_client())),
             ),
             patch(
                 "bigbrotr.services.assertor.service.broadcast_events",

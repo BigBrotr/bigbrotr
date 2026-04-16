@@ -17,6 +17,7 @@ from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.assertor import Assertor, AssertorConfig
 from bigbrotr.services.ranker import Ranker, RankerConfig
 from bigbrotr.services.refresher import Refresher, RefresherConfig
+from bigbrotr.utils.protocol import BroadcastClientResult, ClientConnectResult, ClientSession
 
 
 if TYPE_CHECKING:
@@ -55,6 +56,30 @@ _RANK_FETCH_QUERIES = {
         ORDER BY subject_id
     """,
 }
+
+
+def _make_assertor_publish_session(client: MagicMock) -> ClientSession:
+    relay_url = "wss://publish-relay.example.com"
+    return ClientSession(
+        session_id="assertor-publish-relays",
+        client=client,
+        relay_urls=(relay_url,),
+        connect_result=ClientConnectResult(connected=(relay_url,), failed={}),
+    )
+
+
+def _broadcast_results(
+    *,
+    successful_relays: tuple[str, ...] = ("wss://publish-relay.example.com",),
+    failed_relays: dict[str, str] | None = None,
+) -> list[BroadcastClientResult]:
+    return [
+        BroadcastClientResult(
+            event_ids=("event-id",),
+            successful_relays=successful_relays,
+            failed_relays=failed_relays or {},
+        )
+    ]
 
 
 def _make_mock_event(
@@ -430,14 +455,17 @@ async def _run_assertor_smoke(
 ) -> None:
     published_builders: list[Any] = []
 
-    async def _capture_broadcast(builders: list[Any], _clients: list[Any]) -> int:
+    async def _capture_broadcast(
+        builders: list[Any],
+        _clients: list[Any],
+    ) -> list[BroadcastClientResult]:
         published_builders.extend(builders)
-        return len(builders)
+        return _broadcast_results()
 
     with (
         patch(
-            "bigbrotr.services.assertor.service.create_client",
-            new=AsyncMock(return_value=client),
+            "bigbrotr.services.assertor.service.NostrClientManager.connect_session",
+            new=AsyncMock(return_value=_make_assertor_publish_session(client)),
         ),
         patch(
             "bigbrotr.services.assertor.service.broadcast_events",

@@ -1,3 +1,5 @@
+import os
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -7,6 +9,7 @@ from tests.integration.conftest import (
     _DOCKER_REQUIRED_MESSAGE,
     _PUBLIC_TRUNCATE_TABLES_SQL,
     _ensure_docker_available,
+    _ensure_testcontainers_environment,
     _load_public_truncate_tables,
     _quote_identifier,
     _truncate_public_tables,
@@ -52,6 +55,42 @@ class TestEnsureDockerAvailable:
 
         assert _DOCKER_REQUIRED_MESSAGE in str(excinfo.value)
         assert "docker socket missing" in str(excinfo.value)
+
+
+class TestEnsureTestcontainersEnvironment:
+    def test_sets_public_pull_defaults_when_not_already_configured(self, tmp_path: Path) -> None:
+        config_dir = tmp_path / "docker-config"
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("tests.integration.conftest._docker_config_dir", None),
+        ):
+            _ensure_testcontainers_environment(config_dir)
+
+            assert os.environ["TESTCONTAINERS_RYUK_DISABLED"] == "true"
+            assert os.environ["DOCKER_CONFIG"] == str(config_dir)
+            assert (config_dir / "config.json").read_text() == "{}"
+
+    def test_preserves_existing_environment_overrides(self, tmp_path: Path) -> None:
+        existing_config = tmp_path / "existing"
+        existing_config.mkdir()
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "TESTCONTAINERS_RYUK_DISABLED": "false",
+                    "DOCKER_CONFIG": str(existing_config),
+                },
+                clear=True,
+            ),
+            patch("tests.integration.conftest._docker_config_dir", None),
+        ):
+            _ensure_testcontainers_environment(tmp_path / "unused")
+
+            assert os.environ["TESTCONTAINERS_RYUK_DISABLED"] == "false"
+            assert os.environ["DOCKER_CONFIG"] == str(existing_config)
+            assert not (tmp_path / "unused" / "config.json").exists()
 
 
 class TestTruncateTableHelpers:

@@ -10,7 +10,9 @@ for isolation (~200x faster than DROP/CREATE per test).
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -39,6 +41,8 @@ _DOCKER_REQUIRED_MESSAGE = (
     "Docker is required to run integration tests. "
     "Start a Docker daemon or run the unit test suite instead."
 )
+_TESTCONTAINERS_RYUK_DISABLED_ENV = "TESTCONTAINERS_RYUK_DISABLED"
+_TESTCONTAINERS_DOCKER_CONFIG_ENV = "DOCKER_CONFIG"
 _PUBLIC_TRUNCATE_TABLES_SQL = """
 SELECT c.relname
 FROM pg_catalog.pg_class AS c
@@ -58,6 +62,7 @@ WHERE n.nspname = 'public'
   )
 ORDER BY c.relname
 """
+_docker_config_dir: Path | None = None
 
 
 def _ensure_docker_available() -> None:
@@ -72,10 +77,36 @@ def _ensure_docker_available() -> None:
         pytest.fail(f"{_DOCKER_REQUIRED_MESSAGE} Original error: {exc}", pytrace=False)
 
 
+def _ensure_testcontainers_environment(config_dir: Path | None = None) -> None:
+    """Prepare a deterministic Docker environment for public testcontainers pulls.
+
+    Testcontainers defaults to starting a Ryuk sidecar and the Docker SDK consults
+    the local credential helper before public image pulls. On developer machines
+    that can turn a missing/slow credential helper into a multi-minute timeout
+    before the first container even starts. For the test suite we disable Ryuk by
+    default and use an empty Docker config unless the caller already provided one.
+    """
+    global _docker_config_dir  # noqa: PLW0603
+
+    os.environ.setdefault(_TESTCONTAINERS_RYUK_DISABLED_ENV, "true")
+
+    if _TESTCONTAINERS_DOCKER_CONFIG_ENV in os.environ:
+        return
+
+    if _docker_config_dir is None:
+        target = config_dir or Path(tempfile.mkdtemp(prefix="bigbrotr-docker-config-"))
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "config.json").write_text("{}")
+        _docker_config_dir = target
+
+    os.environ[_TESTCONTAINERS_DOCKER_CONFIG_ENV] = str(_docker_config_dir)
+
+
 @pytest.fixture(scope="session")
 def pg_container():
     """Spawn an ephemeral PostgreSQL 18 container for the test session."""
     _ensure_docker_available()
+    _ensure_testcontainers_environment()
     with PostgresContainer("postgres:18-alpine") as pg:
         yield pg
 
