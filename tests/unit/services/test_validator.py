@@ -533,19 +533,6 @@ class TestValidationPlanning:
         assert plan.max_candidates == 500
         assert plan.max_concurrency == 12
 
-    def test_candidate_page_limit_respects_remaining_budget(self) -> None:
-        plan = Validator.ValidationCyclePlan(
-            networks=(NetworkType.CLEARNET,),
-            attempted_before=0,
-            chunk_size=100,
-            max_candidates=250,
-            max_concurrency=10,
-        )
-
-        assert Validator._candidate_page_limit(plan, processed=0) == 100
-        assert Validator._candidate_page_limit(plan, processed=175) == 75
-        assert Validator._candidate_page_limit(plan, processed=250) is None
-
 
 # ============================================================================
 # Validator.validate

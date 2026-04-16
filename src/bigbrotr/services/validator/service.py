@@ -161,20 +161,6 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
             max_concurrency=self.network_semaphores.max_concurrency(list(networks)),
         )
 
-    @staticmethod
-    def _candidate_page_limit(
-        plan: ValidationCyclePlan,
-        processed: int,
-    ) -> int | None:
-        """Return the next candidate page size allowed by the cycle budget."""
-        if plan.max_candidates is None:
-            return plan.chunk_size
-
-        budget = plan.max_candidates - processed
-        if budget <= 0:
-            return None
-        return min(plan.chunk_size, budget)
-
     async def _validate_candidate_page(
         self,
         candidates: list[CandidateCheckpoint],
@@ -246,9 +232,13 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
         self._logger.info("candidates_available", total=total)
 
         while self.is_running:
-            limit = self._candidate_page_limit(plan, validated + not_validated)
-            if limit is None:
-                break
+            if plan.max_candidates is None:
+                limit = plan.chunk_size
+            else:
+                budget = plan.max_candidates - validated - not_validated
+                if budget <= 0:
+                    break
+                limit = min(plan.chunk_size, budget)
 
             candidates = await fetch_candidates(
                 self._brotr,
