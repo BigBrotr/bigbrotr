@@ -46,21 +46,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import socket
 import ssl
 from datetime import timedelta
-from ipaddress import AddressValueError, IPv4Address, IPv6Address
 from typing import TYPE_CHECKING
-from urllib.parse import urlparse
 
 from nostr_sdk import (
     Client,
-    ClientBuilder,
-    ClientOptions,
-    Connection,
-    ConnectionMode,
-    ConnectionTarget,
-    NostrSigner,
     RelayUrl,
     uniffi_set_event_loop,
 )
@@ -68,6 +59,7 @@ from nostr_sdk import (
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 
+from . import protocol_factory as _protocol_factory
 from . import protocol_lifecycle as _protocol_lifecycle
 from . import protocol_publish as _protocol_publish
 from .protocol_sessions import ClientConnectResult, ClientSession
@@ -82,7 +74,6 @@ from .protocol_validation import (
 )
 from .transport import (
     DEFAULT_TIMEOUT,
-    InsecureWebSocketTransport,
     install_nostr_sdk_stderr_filter,
     suppress_nostr_sdk_stderr,
 )
@@ -292,38 +283,11 @@ async def create_client(
             function that handles connection and automatic SSL fallback.
     """
     install_nostr_sdk_stderr_filter()
-    builder = ClientBuilder()
-
-    if keys is not None:
-        signer = NostrSigner.keys(keys)
-        builder = builder.signer(signer)
-
-    if allow_insecure:
-        transport = InsecureWebSocketTransport()
-        builder = builder.websocket_transport(transport)
-
-    if proxy_url is not None:
-        parsed = urlparse(proxy_url)
-        proxy_host = parsed.hostname or "127.0.0.1"
-        proxy_port = parsed.port or 9050
-
-        # nostr-sdk requires an IP address, not a hostname
-        bare_host = proxy_host.strip("[]")
-        try:
-            IPv4Address(bare_host)
-        except (AddressValueError, ValueError):
-            try:
-                IPv6Address(bare_host)
-                proxy_host = bare_host
-            except (AddressValueError, ValueError):
-                proxy_host = await asyncio.to_thread(socket.gethostbyname, proxy_host)
-
-        proxy_mode = ConnectionMode.PROXY(proxy_host, proxy_port)
-        conn = Connection().mode(proxy_mode).target(ConnectionTarget.ONION)
-        opts = ClientOptions().connection(conn)
-        builder = builder.opts(opts)
-
-    return builder.build()
+    return await _protocol_factory.build_client(
+        keys=keys,
+        proxy_url=proxy_url,
+        allow_insecure=allow_insecure,
+    )
 
 
 async def create_connected_client(
