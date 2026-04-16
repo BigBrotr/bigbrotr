@@ -335,7 +335,7 @@ class TestNostrClientManagerSessions:
         assert second is first
         mock_create.assert_awaited_once_with(keys=manager._keys, allow_insecure=True)
         mock_connect.assert_awaited_once_with(mock_client, relays, timeout=15.0)
-        assert manager.get_session("read-session") is first
+        assert manager._sessions["read-session"] is first
 
     async def test_connect_session_rejects_same_name_with_different_relays(self) -> None:
         manager = NostrClientManager(keys=MagicMock())

@@ -238,10 +238,6 @@ class NostrClientManager:
         self._sessions[session_id] = session
         return session
 
-    def get_session(self, session_id: str) -> ClientSession | None:
-        """Return a previously opened session, if present."""
-        return self._sessions.get(session_id)
-
     @property
     def relay_clients(self) -> dict[str, Client]:
         """Expose the cached per-relay clients managed by this instance."""
