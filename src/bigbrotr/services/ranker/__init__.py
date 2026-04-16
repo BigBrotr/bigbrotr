@@ -6,7 +6,8 @@ Re-exports the public package symbols::
 """
 
 from .configs import RankerConfig
-from .service import RankCycleResult, Ranker, RankPhaseDurations, RankRowCounts
+from .runtime import RankCycleResult, RankPhaseDurations, RankRowCounts
+from .service import Ranker
 
 
 __all__ = [
