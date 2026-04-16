@@ -218,12 +218,6 @@ class Pool:
             delay = retry.initial_delay * (attempt + 1)
         return float(min(delay, retry.max_delay))
 
-    def _require_pool(self) -> asyncpg.Pool[asyncpg.Record]:
-        """Return the live asyncpg pool or raise if the pool is disconnected."""
-        if self._pool is None:
-            raise RuntimeError("Pool not connected. Call connect() first.")
-        return self._pool
-
     async def connect(self) -> None:
         """Create the asyncpg connection pool with retry on failure.
 
@@ -342,9 +336,11 @@ class Pool:
                 with an active database transaction.
         """
         # asyncpg's PoolAcquireContext is duck-type compatible with AbstractAsyncContextManager
+        if self._pool is None:
+            raise RuntimeError("Pool not connected. Call connect() first.")
         return cast(
             "AbstractAsyncContextManager[asyncpg.Connection[asyncpg.Record]]",
-            self._require_pool().acquire(),
+            self._pool.acquire(),
         )
 
     @asynccontextmanager
