@@ -189,6 +189,38 @@ class TestReadModelRegistry:
             pk_values,
         )
 
+    async def test_entry_delegates_to_custom_handlers(self) -> None:
+        schema = TableSchema(
+            name="custom",
+            columns=(ColumnSchema(name="id", pg_type="text", nullable=False),),
+            primary_key=("id",),
+            is_view=False,
+        )
+        expected_result = QueryResult(rows=[{"id": "row-1"}], total=1, limit=1, offset=0)
+        expected_row = {"id": "row-1"}
+        schema_handler = MagicMock(return_value=schema)
+        query_handler = AsyncMock(return_value=expected_result)
+        get_by_pk_handler = AsyncMock(return_value=expected_row)
+        entry = ReadModelEntry(
+            read_model_id="custom",
+            catalog_name="ignored",
+            schema_handler=schema_handler,
+            query_handler=query_handler,
+            get_by_pk_handler=get_by_pk_handler,
+        )
+        catalog = Catalog()
+        brotr = object()
+        request = ReadModelQuery(limit=1, offset=0)
+        pk_values = {"id": "row-1"}
+
+        assert entry.schema(catalog) == schema
+        assert await entry.query(brotr, catalog, request) == expected_result
+        assert await entry.get_by_pk(brotr, catalog, pk_values) == expected_row
+
+        schema_handler.assert_called_once_with(catalog, entry)
+        query_handler.assert_awaited_once_with(brotr, catalog, entry, request)
+        get_by_pk_handler.assert_awaited_once_with(brotr, catalog, entry, pk_values)
+
     def test_entry_summary_uses_registered_backend_schema(self) -> None:
         catalog = Catalog()
         catalog._tables = {

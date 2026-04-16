@@ -7,13 +7,12 @@ cleaner boundary than calling ``Catalog`` directly for every request.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
-
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.core.logger import Logger
     from bigbrotr.services.common.catalog import Catalog, QueryResult, TableSchema
@@ -22,6 +21,15 @@ if TYPE_CHECKING:
 
 ReadSurface = Literal["api", "dvm"]
 _READ_SURFACES: tuple[ReadSurface, ...] = ("api", "dvm")
+ReadModelSchemaHandler = Callable[["Catalog", "ReadModelEntry"], "TableSchema"]
+ReadModelQueryHandler = Callable[
+    ["Brotr", "Catalog", "ReadModelEntry", "ReadModelQuery"],
+    Awaitable["QueryResult"],
+]
+ReadModelGetByPkHandler = Callable[
+    ["Brotr", "Catalog", "ReadModelEntry", dict[str, str]],
+    Awaitable[dict[str, Any] | None],
+]
 
 
 class ReadModelQueryError(ValueError):
@@ -263,6 +271,46 @@ class ReadModelSurface:
         return read_model.detail(catalog=self._catalog, route_prefix=route_prefix)
 
 
+def _catalog_schema_handler(catalog: Catalog, read_model: ReadModelEntry) -> TableSchema:
+    """Resolve one read-model schema through the shared catalog."""
+    return catalog.tables[read_model.catalog_name]
+
+
+async def _catalog_query_handler(
+    brotr: Brotr,
+    catalog: Catalog,
+    read_model: ReadModelEntry,
+    request: ReadModelQuery,
+) -> QueryResult:
+    """Execute one read-model list query through the shared catalog."""
+    return await catalog.query(
+        brotr,
+        read_model.catalog_name,
+        limit=request.limit,
+        offset=request.offset,
+        max_page_size=request.max_page_size,
+        filters=request.filters,
+        sort=request.sort,
+        include_total=request.include_total,
+        cursor=request.cursor,
+        prefer_keyset=True,
+    )
+
+
+async def _catalog_get_by_pk_handler(
+    brotr: Brotr,
+    catalog: Catalog,
+    read_model: ReadModelEntry,
+    pk_values: dict[str, str],
+) -> dict[str, Any] | None:
+    """Execute one primary-key lookup through the shared catalog."""
+    return await catalog.get_by_pk(
+        brotr,
+        read_model.catalog_name,
+        pk_values,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ReadModelEntry:
     """One built-in read model exposed by one or more public surfaces."""
@@ -270,10 +318,13 @@ class ReadModelEntry:
     read_model_id: str
     catalog_name: str
     surfaces: tuple[ReadSurface, ...] = ("api", "dvm")
+    schema_handler: ReadModelSchemaHandler = _catalog_schema_handler
+    query_handler: ReadModelQueryHandler = _catalog_query_handler
+    get_by_pk_handler: ReadModelGetByPkHandler = _catalog_get_by_pk_handler
 
     def schema(self, catalog: Catalog) -> TableSchema:
         """Resolve the discovered schema backing this read model."""
-        return catalog.tables[self.catalog_name]
+        return self.schema_handler(catalog, self)
 
     def pagination(self, catalog: Catalog) -> dict[str, Any]:
         """Build the discovery-time pagination contract for this read model."""
@@ -325,18 +376,7 @@ class ReadModelEntry:
         request: ReadModelQuery,
     ) -> QueryResult:
         """Execute one paginated query through the shared catalog context."""
-        return await catalog.query(
-            brotr,
-            self.catalog_name,
-            limit=request.limit,
-            offset=request.offset,
-            max_page_size=request.max_page_size,
-            filters=request.filters,
-            sort=request.sort,
-            include_total=request.include_total,
-            cursor=request.cursor,
-            prefer_keyset=True,
-        )
+        return await self.query_handler(brotr, catalog, self, request)
 
     async def get_by_pk(
         self,
@@ -345,11 +385,7 @@ class ReadModelEntry:
         pk_values: dict[str, str],
     ) -> dict[str, Any] | None:
         """Fetch one row by primary key through the shared catalog context."""
-        return await catalog.get_by_pk(
-            brotr,
-            self.catalog_name,
-            pk_values,
-        )
+        return await self.get_by_pk_handler(brotr, catalog, self, pk_values)
 
 
 def _catalog_read_model(
