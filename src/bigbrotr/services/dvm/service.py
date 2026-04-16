@@ -42,7 +42,6 @@ Examples:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -50,24 +49,16 @@ import asyncpg
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.catalog import CatalogError
 from bigbrotr.services.common.read_models import ReadModelSurface
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import DvmRequestCursor
 from bigbrotr.utils.protocol import NostrClientManager, normalize_send_output
 
 from .configs import DvmConfig
+from .jobs import JobExecutionContext, JobRuntime, process_request_event
 from .subscriptions import start_request_subscription, stop_request_subscription
 from .utils import (
-    JobPreparationContext,
-    RejectedJobRequest,
-    ResultEventRequest,
     build_announcement_event,
-    build_error_event,
-    build_payment_required_event,
-    build_result_event,
-    parse_job_params,
-    prepare_job_request,
 )
 
 
@@ -290,131 +281,24 @@ class Dvm(BaseService[DvmConfig]):
         event: Any,
         pubkey_hex: str,
     ) -> tuple[int, int, int, int]:
-        """Process a single NIP-90 job request event.
-
-        Returns:
-            Tuple of (received, processed, failed, payment_required) deltas.
-        """
-        event_id = event.id().to_hex()
-
-        if event_id in self._processed_ids:
-            return 0, 0, 0, 0
-
-        # Check p-tag targets us (cache as_vec to avoid repeated FFI calls)
-        p_tags: list[str] = []
-        for tag in event.tags().to_vec():
-            values = tag.as_vec()
-            if len(values) >= _MIN_TAG_LEN and values[0] == "p":
-                p_tags.append(values[1])
-        if p_tags and pubkey_hex not in p_tags:
-            return 0, 0, 0, 0
-
-        self._processed_ids.add(event_id)
-
-        customer_pubkey = event.author().to_hex()
-        params = parse_job_params(event)
-        raw_read_model_id = params.get("read_model", "")
-        read_model_id = raw_read_model_id
-
-        self._logger.info(
-            "job_received",
-            event_id=event_id,
-            read_model=read_model_id,
-            raw_read_model=raw_read_model_id,
-            customer=customer_pubkey,
-        )
-
-        try:
-            return await self._handle_job(event_id, customer_pubkey, params, read_model_id)
-        except (CatalogError, OSError, TimeoutError, asyncpg.PostgresError) as e:
-            with contextlib.suppress(OSError, TimeoutError):
-                await self._send_event(
-                    build_error_event(event_id, customer_pubkey, str(e)),
-                    require_success=True,
-                )
-            self._logger.error("job_failed", event_id=event_id, error=str(e))
-            return 1, 0, 1, 0
-
-    async def _handle_job(
-        self,
-        event_id: str,
-        customer_pubkey: str,
-        params: dict[str, Any],
-        read_model_id: str,
-    ) -> tuple[int, int, int, int]:
-        """Handle a validated job request: check access, pricing, execute query.
-
-        Returns:
-            Tuple of (received, processed, failed, payment_required) deltas.
-        """
-        prepared_job = prepare_job_request(
-            read_model_id,
-            params,
-            context=JobPreparationContext(
+        """Process a single NIP-90 job request event."""
+        return await process_request_event(
+            event=event,
+            pubkey_hex=pubkey_hex,
+            processed_ids=self._processed_ids,
+            runtime=JobRuntime(
+                logger=self._logger,
+                send_event=self._send_event,
+                query_entry=self._query_read_model,
+            ),
+            context=JobExecutionContext(
                 policies=self._config.read_models,
                 available_catalog_names=set(self._read_models.catalog.tables),
                 default_page_size=self._config.default_page_size,
                 max_page_size=self._config.max_page_size,
+                request_kind=self._config.kind,
             ),
         )
-        if isinstance(prepared_job, RejectedJobRequest):
-            if prepared_job.required_price is not None:
-                await self._send_event(
-                    build_payment_required_event(
-                        event_id,
-                        customer_pubkey,
-                        prepared_job.required_price,
-                    ),
-                    require_success=True,
-                )
-                self._logger.info(
-                    "job_payment_required",
-                    event_id=event_id,
-                    price=prepared_job.required_price,
-                    bid=prepared_job.bid,
-                )
-                return 1, 0, 0, 1
-            error_message = prepared_job.error_message
-            if error_message is None:
-                raise RuntimeError("dvm job rejection missing client error message")
-            await self._send_event(
-                build_error_event(
-                    event_id,
-                    customer_pubkey,
-                    error_message,
-                ),
-                require_success=True,
-            )
-            return 1, 0, 1, 0
-
-        read_model_id = prepared_job.read_model_id
-        read_model = prepared_job.read_model
-
-        start = time.monotonic()
-        result = await self._read_models.query_entry(self._brotr, read_model, prepared_job.query)
-        duration_ms = (time.monotonic() - start) * 1000
-
-        await self._send_event(
-            build_result_event(
-                ResultEventRequest(
-                    request_kind=self._config.kind,
-                    request_event_id=event_id,
-                    customer_pubkey=customer_pubkey,
-                    read_model_id=read_model_id,
-                ),
-                result,
-                prepared_job.price,
-            ),
-            require_success=True,
-        )
-        self._logger.info(
-            "job_completed",
-            event_id=event_id,
-            read_model=read_model_id,
-            rows=len(result.rows),
-            duration_ms=round(duration_ms, 1),
-        )
-        return 1, 1, 0, 0
 
     # ── Read-model policy helpers ─────────────────────────────────
 
@@ -459,6 +343,10 @@ class Dvm(BaseService[DvmConfig]):
         await stop_request_subscription(task, logger=self._logger)
 
     # ── Event publishing ──────────────────────────────────────────
+
+    async def _query_read_model(self, read_model: Any, query: Any) -> Any:
+        """Execute one resolved read-model query through the shared surface."""
+        return await self._read_models.query_entry(self._brotr, read_model, query)
 
     async def _send_event(
         self,
