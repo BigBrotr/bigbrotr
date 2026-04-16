@@ -277,13 +277,21 @@ class TestReadModelSurface:
         catalog.discover.assert_awaited_once_with(brotr)
         logger.info.assert_called_once_with("schema_discovered", tables=2, views=1)
 
-    def test_is_enabled_filters_unknown_and_disabled_read_models(self) -> None:
-        disabled = self._surface(policies={"relays": ReadModelPolicy(enabled=False)})
-        enabled = self._surface(policies={"relays": ReadModelPolicy(enabled=True)})
+    def test_resolve_filters_unknown_and_disabled_read_models(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {"relay": MagicMock()}
+        disabled = self._surface(
+            policies={"relays": ReadModelPolicy(enabled=False)},
+            catalog=catalog,
+        )
+        enabled = self._surface(
+            policies={"relays": ReadModelPolicy(enabled=True)},
+            catalog=catalog,
+        )
 
-        assert disabled.is_enabled("relays") is False
-        assert enabled.is_enabled("relays") is True
-        assert enabled.is_enabled("service_state") is False
+        assert disabled.resolve("api", "relays") is None
+        assert enabled.resolve("api", "relays") is not None
+        assert enabled.resolve("api", "service_state") is None
 
     def test_available_and_enabled_names_follow_catalog_and_policy(self) -> None:
         catalog = Catalog()

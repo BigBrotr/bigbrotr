@@ -304,10 +304,10 @@ class TestDvm:
 
 class TestDvmReadModelAccessPolicy:
     def test_enabled_in_config(self, dvm_service: Dvm) -> None:
-        assert dvm_service._read_models.is_enabled("relays") is True
+        assert dvm_service._read_models.resolve("dvm", "relays") is not None
 
     def test_not_in_config_disabled(self, dvm_service: Dvm) -> None:
-        assert dvm_service._read_models.is_enabled("service_state") is False
+        assert dvm_service._read_models.resolve("dvm", "service_state") is None
 
     def test_configured_internal_read_model_still_disabled(self, mock_brotr: Brotr) -> None:
         with pytest.raises(ValueError, match=r"non-public DVM read models: service_state"):
@@ -321,7 +321,7 @@ class TestDvmReadModelAccessPolicy:
             )
 
     def test_unknown_read_model_disabled(self, dvm_service: Dvm) -> None:
-        assert dvm_service._read_models.is_enabled("nonexistent") is False
+        assert dvm_service._read_models.resolve("dvm", "nonexistent") is None
 
     def test_free_price_default(self, dvm_service: Dvm) -> None:
         assert dvm_service._config.read_models["relays"].price == 0

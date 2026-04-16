@@ -202,13 +202,6 @@ class ReadModelSurface:
             return {}
         return dict(policies)
 
-    def is_enabled(self, name: str) -> bool:
-        """Check whether a public read model is registered and enabled in config."""
-        if name not in READ_MODEL_REGISTRY:
-            return False
-        policy = self.policies().get(name)
-        return bool(policy and policy.enabled)
-
     def enabled_names(self, surface: ReadSurface) -> list[str]:
         """Return enabled read-model IDs for one public surface."""
         return resolve_surface_read_model_names(
