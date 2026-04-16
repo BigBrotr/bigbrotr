@@ -208,7 +208,7 @@ class Dvm(BaseService[DvmConfig]):
             self._client = None
             raise
 
-        self.set_gauge("read_models_exposed", len(self._enabled_read_model_names()))
+        self.set_gauge("read_models_exposed", len(self._read_models.enabled_names("dvm")))
 
         return self
 
@@ -457,7 +457,7 @@ class Dvm(BaseService[DvmConfig]):
         payment_required: int,
     ) -> None:
         """Update Prometheus metrics and log cycle stats."""
-        read_models_exposed = len(self._enabled_read_model_names())
+        read_models_exposed = len(self._read_models.enabled_names("dvm"))
         self.inc_counter("requests_total", received)
         self.inc_counter("requests_failed", failed)
         self.set_gauge("read_models_exposed", read_models_exposed)
@@ -471,10 +471,6 @@ class Dvm(BaseService[DvmConfig]):
         )
 
     # ── Read-model policy helpers ─────────────────────────────────
-
-    def _enabled_read_model_names(self) -> list[str]:
-        """Return enabled DVM read models that are present in the discovered catalog."""
-        return self._read_models.enabled_names("dvm")
 
     # ── Event fetching ────────────────────────────────────────────
 
@@ -625,7 +621,7 @@ class Dvm(BaseService[DvmConfig]):
         if self._client is None:
             return
 
-        read_models = self._enabled_read_model_names()
+        read_models = self._read_models.enabled_names("dvm")
         builder = build_announcement_event(
             d_tag=self._config.d_tag,
             kind=self._config.kind,

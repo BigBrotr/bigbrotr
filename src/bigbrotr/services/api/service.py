@@ -109,7 +109,7 @@ class Api(BaseService[ApiConfig]):
         await self._read_models.discover(self._brotr, logger=self._logger)
 
         app = self._build_app()
-        read_model_count = len(self._enabled_read_model_names())
+        read_model_count = len(self._read_models.enabled_names("api"))
         self._logger.info("endpoints_registered", count=read_model_count)
         self.set_gauge("read_models_exposed", read_model_count)
 
@@ -159,7 +159,7 @@ class Api(BaseService[ApiConfig]):
         self._requests_total = 0
         self._requests_failed = 0
 
-        read_models_exposed = len(self._enabled_read_model_names())
+        read_models_exposed = len(self._read_models.enabled_names("api"))
         self._logger.info(
             "cycle_stats",
             requests_total=total,
@@ -186,10 +186,6 @@ class Api(BaseService[ApiConfig]):
         self._add_read_model_data_routes(app)
 
         return app
-
-    def _enabled_read_model_names(self) -> list[str]:
-        """Return enabled API read models that are present in the discovered catalog."""
-        return self._read_models.enabled_names("api")
 
     def _add_middleware(self, app: FastAPI) -> None:
         """Register CORS and request-logging middleware."""

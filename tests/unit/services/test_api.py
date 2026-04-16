@@ -294,7 +294,7 @@ class TestApiBuildApp:
         assert resp.status_code in (404, 405)
 
     def test_enabled_read_model_names_follow_registry(self, api_service: Api) -> None:
-        assert api_service._enabled_read_model_names() == ["relay-stats", "relays"]
+        assert api_service._read_models.enabled_names("api") == ["relay-stats", "relays"]
 
 
 # ============================================================================

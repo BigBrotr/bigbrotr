@@ -694,7 +694,7 @@ class TestDvmRun:
 
         mock_gauge.assert_any_call(
             "read_models_exposed",
-            len(dvm_service._enabled_read_model_names()),
+            len(dvm_service._read_models.enabled_names("dvm")),
         )
 
     async def test_run_no_events_does_not_advance_cursor(self, dvm_service: Dvm) -> None:
@@ -1207,7 +1207,7 @@ class TestDvmPublishingGuards:
         mock_client.send_event_builder.assert_called_once()
 
     def test_enabled_read_model_names_follow_registry(self, dvm_service: Dvm) -> None:
-        assert dvm_service._enabled_read_model_names() == ["events", "relays"]
+        assert dvm_service._read_models.enabled_names("dvm") == ["events", "relays"]
 
     async def test_publish_announcement_logs_warning_when_unaccepted(
         self, dvm_service: Dvm
