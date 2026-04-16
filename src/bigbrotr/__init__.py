@@ -81,6 +81,8 @@ __version__ = _resolve_version()
 __all__ = [
     "Api",
     "ApiConfig",
+    "Assertor",
+    "AssertorConfig",
     "BaseService",
     "Brotr",
     "BrotrConfig",
@@ -134,6 +136,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "Nip66": ("bigbrotr.nips", "Nip66"),
     "Api": ("bigbrotr.services", "Api"),
     "ApiConfig": ("bigbrotr.services", "ApiConfig"),
+    "Assertor": ("bigbrotr.services", "Assertor"),
+    "AssertorConfig": ("bigbrotr.services", "AssertorConfig"),
     "Dvm": ("bigbrotr.services", "Dvm"),
     "DvmConfig": ("bigbrotr.services", "DvmConfig"),
     "Finder": ("bigbrotr.services", "Finder"),

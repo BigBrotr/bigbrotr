@@ -39,6 +39,15 @@ class TestLazyImports:
 
         assert Relay is DirectRelay
 
+    def test_top_level_service_exports_include_assertor(self) -> None:
+        """Verify that the full built-in service set is available from the package root."""
+        from bigbrotr import Assertor, AssertorConfig
+        from bigbrotr.services.assertor import Assertor as DirectAssertor
+        from bigbrotr.services.assertor import AssertorConfig as DirectAssertorConfig
+
+        assert Assertor is DirectAssertor
+        assert AssertorConfig is DirectAssertorConfig
+
     def test_lazy_import_caches_after_first_access(self) -> None:
         """Verify that resolved attributes are cached in globals."""
         import bigbrotr
