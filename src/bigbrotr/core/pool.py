@@ -218,35 +218,6 @@ class Pool:
             delay = retry.initial_delay * (attempt + 1)
         return float(min(delay, retry.max_delay))
 
-    def _server_settings(self) -> dict[str, str]:
-        """Build asyncpg server settings from the pool configuration."""
-        settings = {
-            "application_name": self._config.server_settings.application_name,
-            "timezone": self._config.server_settings.timezone,
-        }
-        if self._config.server_settings.statement_timeout > 0:
-            settings["statement_timeout"] = str(self._config.server_settings.statement_timeout)
-        return settings
-
-    async def _open_pool(self) -> asyncpg.Pool[asyncpg.Record]:
-        """Create a configured asyncpg pool instance."""
-        db = self._config.database
-        return await asyncpg.create_pool(
-            host=db.host,
-            port=db.port,
-            database=db.database,
-            user=db.user,
-            password=db.password.get_secret_value(),
-            min_size=self._config.limits.min_size,
-            max_size=self._config.limits.max_size,
-            max_queries=self._config.limits.max_queries,
-            max_inactive_connection_lifetime=self._config.limits.max_inactive_connection_lifetime,
-            timeout=self._config.timeouts.acquisition,
-            statement_cache_size=0,
-            init=_init_connection,
-            server_settings=self._server_settings(),
-        )
-
     def _require_pool(self) -> asyncpg.Pool[asyncpg.Record]:
         """Return the live asyncpg pool or raise if the pool is disconnected."""
         if self._pool is None:
@@ -286,7 +257,30 @@ class Pool:
 
             for attempt in range(self._config.retry.max_attempts):
                 try:
-                    self._pool = await self._open_pool()
+                    server_settings = {
+                        "application_name": self._config.server_settings.application_name,
+                        "timezone": self._config.server_settings.timezone,
+                    }
+                    if self._config.server_settings.statement_timeout > 0:
+                        server_settings["statement_timeout"] = str(
+                            self._config.server_settings.statement_timeout
+                        )
+
+                    self._pool = await asyncpg.create_pool(
+                        host=db.host,
+                        port=db.port,
+                        database=db.database,
+                        user=db.user,
+                        password=db.password.get_secret_value(),
+                        min_size=self._config.limits.min_size,
+                        max_size=self._config.limits.max_size,
+                        max_queries=self._config.limits.max_queries,
+                        max_inactive_connection_lifetime=self._config.limits.max_inactive_connection_lifetime,
+                        timeout=self._config.timeouts.acquisition,
+                        statement_cache_size=0,
+                        init=_init_connection,
+                        server_settings=server_settings,
+                    )
                     self._logger.info("connection_established")
                     return
 
