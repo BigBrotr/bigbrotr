@@ -43,11 +43,8 @@ Examples:
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import logging
-import ssl
-from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from nostr_sdk import (
@@ -56,9 +53,9 @@ from nostr_sdk import (
     uniffi_set_event_loop,
 )
 
-from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 
+from . import protocol_connections as _protocol_connections
 from . import protocol_factory as _protocol_factory
 from . import protocol_lifecycle as _protocol_lifecycle
 from . import protocol_publish as _protocol_publish
@@ -307,42 +304,6 @@ async def create_connected_client(
     )
 
 
-async def _try_connect_single_relay(
-    client: Client,
-    relay_url: RelayUrl,
-    *,
-    connect_timeout: float,
-) -> str | None:
-    """Try one single-relay client connection and return the failure message, if any."""
-    await client.add_relay(relay_url)
-    output = await client.try_connect(timedelta(seconds=connect_timeout))
-    if relay_url in output.success:
-        return None
-    return str(output.failed.get(relay_url, "Unknown error"))
-
-
-async def _connect_overlay_relay(
-    relay: Relay,
-    relay_url: RelayUrl,
-    *,
-    keys: Keys | None,
-    proxy_url: str,
-    connect_timeout: float,
-) -> Client:
-    """Connect one overlay relay through a configured proxy."""
-    client = await create_client(keys, proxy_url)
-    await client.add_relay(relay_url)
-    await client.connect()
-    await client.wait_for_connection(timedelta(seconds=connect_timeout))
-
-    relay_obj = await client.relay(relay_url)
-    if not relay_obj.is_connected():
-        await shutdown_client(client)
-        raise TimeoutError(f"Connection timeout: {relay.url}")
-
-    return client
-
-
 async def connect_relay(
     relay: Relay,
     keys: Keys | None = None,
@@ -384,61 +345,23 @@ async def connect_relay(
         [is_nostr_relay][bigbrotr.utils.protocol.is_nostr_relay]: Higher-level
             validation that uses this function internally.
     """
-    relay_url = RelayUrl.parse(relay.url)
-    is_overlay = relay.network in (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
-
-    if is_overlay:
-        if proxy_url is None:
-            raise ValueError(f"proxy_url required for {relay.network} relay: {relay.url}")
-        return await _connect_overlay_relay(
-            relay,
-            relay_url,
+    return await _protocol_connections.connect_relay(
+        relay,
+        _protocol_connections.RelayConnectContext(
+            create_client=create_client,
+            shutdown_client=shutdown_client,
+            parse_relay_url=RelayUrl.parse,
+            set_event_loop=uniffi_set_event_loop,
+            is_ssl_error=_is_ssl_error,
+            logger=logger,
+        ),
+        _protocol_connections.RelayConnectOptions(
             keys=keys,
             proxy_url=proxy_url,
-            connect_timeout=timeout,
-        )
-
-    # Clearnet: try SSL first, then fall back to insecure if allowed
-    logger.debug("ssl_connecting relay=%s", relay.url)
-
-    client = await create_client(keys)
-    error_message = await _try_connect_single_relay(
-        client,
-        relay_url,
-        connect_timeout=timeout,
+            timeout=timeout,
+            allow_insecure=allow_insecure,
+        ),
     )
-    if error_message is None:
-        logger.debug("ssl_connected relay=%s", relay.url)
-        return client
-
-    await shutdown_client(client)
-    logger.debug("connect_failed relay=%s error=%s", relay.url, error_message)
-
-    if not _is_ssl_error(error_message):
-        raise OSError(f"Connection failed: {relay.url} ({error_message})")
-
-    if not allow_insecure:
-        raise ssl.SSLCertVerificationError(
-            f"SSL certificate verification failed for {relay.url}: {error_message}"
-        )
-
-    logger.debug("ssl_fallback_insecure relay=%s error=%s", relay.url, error_message)
-
-    # Required for custom WebSocket transport UniFFI callbacks
-    uniffi_set_event_loop(asyncio.get_running_loop())
-
-    client = await create_client(keys, allow_insecure=True)
-    error_message = await _try_connect_single_relay(
-        client,
-        relay_url,
-        connect_timeout=timeout,
-    )
-    if error_message is not None:
-        await shutdown_client(client)
-        raise OSError(f"Connection failed (insecure): {relay.url} ({error_message})")
-
-    logger.debug("insecure_connected relay=%s", relay.url)
-    return client
 
 
 async def is_nostr_relay(
