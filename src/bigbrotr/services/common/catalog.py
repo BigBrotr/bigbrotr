@@ -26,8 +26,6 @@ import importlib
 import logging
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
-import asyncpg
-
 from .catalog_discovery import (
     discover_columns,
     discover_matview_names,
@@ -35,8 +33,8 @@ from .catalog_discovery import (
     discover_primary_keys,
     discover_table_and_view_names,
 )
+from .catalog_execution import execute_catalog_get_by_pk, execute_catalog_query
 from .catalog_types import (
-    _BYTEA_TYPES,
     _MAX_OFFSET,
     ColumnSchema,
     QueryResult,
@@ -280,32 +278,14 @@ class Catalog:
             include_total=include_total,
             prefer_keyset=prefer_keyset,
         )
-        try:
-            total: int | None = None
-            if plan.count_query is not None:
-                total = await brotr.fetchval(plan.count_query, *plan.count_params)
-            rows = await brotr.fetch(plan.data_query, *plan.data_params)
-        except asyncpg.DataError as e:
-            raise CatalogError("Invalid filter value") from e
-        except asyncpg.PostgresError as e:
-            raise CatalogError("Query execution failed") from e
-
-        result_rows = [dict(row) for row in rows]
-        next_cursor: str | None = None
-        if plan.use_keyset and len(result_rows) > limit:
-            result_rows = result_rows[:limit]
-            next_cursor = self._encode_cursor(
-                result_rows[-1],
-                sort=sort,
-                order_terms=plan.order_terms,
-            )
-
-        return QueryResult(
-            rows=result_rows,
-            total=total,
+        return await execute_catalog_query(
+            brotr,
+            plan=plan,
             limit=limit,
             offset=offset,
-            next_cursor=next_cursor,
+            sort=sort,
+            encode_cursor=self._encode_cursor,
+            error_factory=CatalogError,
         )
 
     async def get_by_pk(
@@ -330,39 +310,15 @@ class Catalog:
         if table not in self._tables:
             raise CatalogError(f"Unknown table: {table}")
         schema = self._tables[table]
-        if not schema.primary_key:
-            raise CatalogError(f"Table {table} has no primary key")
-
-        col_types = {c.name: c.pg_type for c in schema.columns}
-        select_cols = self._build_select_columns(schema.columns)
-
-        where_parts: list[str] = []
-        params: list[Any] = []
-        for i, pk_col in enumerate(schema.primary_key, 1):
-            if pk_col not in pk_values:
-                raise CatalogError(f"Missing primary key column: {pk_col}")
-            cast = self._param_cast(col_types[pk_col])
-            where_parts.append(f"{pk_col} = ${i}{cast}")
-            value = pk_values[pk_col]
-            if col_types[pk_col] in _BYTEA_TYPES:
-                try:
-                    params.append(bytes.fromhex(value))
-                except ValueError as e:
-                    raise CatalogError(f"Invalid hex value for column {pk_col}: {value}") from e
-            else:
-                params.append(value)
-
-        where_sql = " AND ".join(where_parts)
-        query = f"SELECT {select_cols} FROM {table} WHERE {where_sql}"  # noqa: S608
-
-        try:
-            row = await brotr.fetchrow(query, *params)
-        except asyncpg.DataError as e:
-            raise CatalogError("Invalid parameter value") from e
-        except asyncpg.PostgresError as e:
-            raise CatalogError("Query execution failed") from e
-
-        return dict(row) if row else None
+        return await execute_catalog_get_by_pk(
+            brotr,
+            table=table,
+            schema=schema,
+            pk_values=pk_values,
+            build_select_columns=self._build_select_columns,
+            param_cast=self._param_cast,
+            error_factory=CatalogError,
+        )
 
     # -------------------------------------------------------------------
     # Private helpers
