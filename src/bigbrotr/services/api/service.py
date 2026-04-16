@@ -121,7 +121,7 @@ class Api(BaseService[ApiConfig]):
             access_log=False,
         )
         self._server = uvicorn.Server(config)
-        self._server_task = asyncio.create_task(self._run_server(self._server))
+        self._server_task = asyncio.create_task(self._server.serve())
         startup_complete = False
         try:
             await self._wait_for_server_startup(self._server)
@@ -367,10 +367,6 @@ class Api(BaseService[ApiConfig]):
         app.get(f"{self._config.route_prefix}/{read_model_id}/{pk_path}")(get_row)
 
     # ── Server lifecycle ──────────────────────────────────────────
-
-    async def _run_server(self, server: uvicorn.Server) -> None:
-        """Run uvicorn as an asyncio server."""
-        await server.serve()
 
     async def _wait_for_server_startup(self, server: uvicorn.Server) -> None:
         """Wait until uvicorn reports startup success or the server task fails."""

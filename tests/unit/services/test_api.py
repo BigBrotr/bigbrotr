@@ -594,26 +594,26 @@ class TestApiLifecycle:
     async def test_aenter_starts_server_task(self, api_service: Api) -> None:
         server = MagicMock()
         server.started = True
+        server.serve = AsyncMock()
 
         with (
             patch.object(type(api_service._read_models), "discover", new_callable=AsyncMock),
             patch("bigbrotr.services.api.service.uvicorn.Server", return_value=server),
-            patch.object(api_service, "_run_server", new_callable=AsyncMock) as mock_server,
         ):
             async with api_service:
                 assert api_service._server_task is not None
                 await asyncio.sleep(0)
-                mock_server.assert_called_once_with(server)
+                server.serve.assert_awaited_once()
                 assert api_service._server is server
 
     async def test_aexit_cancels_server_task(self, api_service: Api) -> None:
         server = MagicMock()
         server.started = True
+        server.serve = AsyncMock()
 
         with (
             patch.object(type(api_service._read_models), "discover", new_callable=AsyncMock),
             patch("bigbrotr.services.api.service.uvicorn.Server", return_value=server),
-            patch.object(api_service, "_run_server", new_callable=AsyncMock),
         ):
             async with api_service:
                 assert api_service._server_task is not None
@@ -623,11 +623,11 @@ class TestApiLifecycle:
     async def test_aexit_with_no_server_task(self, api_service: Api) -> None:
         server = MagicMock()
         server.started = True
+        server.serve = AsyncMock()
 
         with (
             patch.object(type(api_service._read_models), "discover", new_callable=AsyncMock),
             patch("bigbrotr.services.api.service.uvicorn.Server", return_value=server),
-            patch.object(api_service, "_run_server", new_callable=AsyncMock),
         ):
             async with api_service:
                 api_service._server_task = None
@@ -637,16 +637,11 @@ class TestApiLifecycle:
     ) -> None:
         server = MagicMock()
         server.started = False
+        server.serve = AsyncMock(side_effect=OSError("bind failed"))
 
         with (
             patch.object(type(api_service._read_models), "discover", new_callable=AsyncMock),
             patch("bigbrotr.services.api.service.uvicorn.Server", return_value=server),
-            patch.object(
-                api_service,
-                "_run_server",
-                new_callable=AsyncMock,
-                side_effect=OSError("bind failed"),
-            ),
             pytest.raises(RuntimeError, match="HTTP server task has stopped unexpectedly"),
         ):
             await api_service.__aenter__()
@@ -659,11 +654,11 @@ class TestApiLifecycle:
     ) -> None:
         server = MagicMock()
         server.started = True
+        server.serve = AsyncMock()
 
         with (
             patch.object(type(api_service._read_models), "discover", new_callable=AsyncMock),
             patch("bigbrotr.services.api.service.uvicorn.Server", return_value=server),
-            patch.object(api_service, "_run_server", new_callable=AsyncMock),
             patch.object(api_service._logger, "info") as mock_info,
         ):
             async with api_service:
