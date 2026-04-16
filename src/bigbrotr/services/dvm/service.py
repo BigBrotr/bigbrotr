@@ -201,7 +201,29 @@ class Dvm(BaseService[DvmConfig]):
             raise TimeoutError("dvm could not connect to any relay")
 
         try:
-            self._last_fetch_ts, self._last_fetch_id = await self._restore_request_cursor()
+            cursor = (
+                await self._state_store.fetch_cursors(
+                    ServiceName.DVM,
+                    [_REQUEST_CURSOR_KEY],
+                    DvmRequestCursor,
+                )
+            )[0]
+            if cursor.timestamp > 0:
+                self._last_fetch_ts = cursor.timestamp
+                self._last_fetch_id = cursor.id
+                self._logger.info(
+                    "request_cursor_restored",
+                    timestamp=cursor.timestamp,
+                    event_id=cursor.id,
+                )
+            else:
+                timestamp = int(time.time())
+                await self._store_request_cursor(timestamp, _REQUEST_CURSOR_DEFAULT_ID)
+                self._logger.info(
+                    "request_cursor_initialized",
+                    timestamp=timestamp,
+                    event_id=_REQUEST_CURSOR_DEFAULT_ID,
+                )
             await self._start_request_subscription(connect_result.connected)
             if self._config.announce:
                 await self._publish_announcement()
@@ -441,32 +463,6 @@ class Dvm(BaseService[DvmConfig]):
     # ── Read-model policy helpers ─────────────────────────────────
 
     # ── Event fetching ────────────────────────────────────────────
-
-    async def _restore_request_cursor(self) -> tuple[int, str]:
-        """Load the persisted request cursor or initialize it from wall clock."""
-        cursor = (
-            await self._state_store.fetch_cursors(
-                ServiceName.DVM,
-                [_REQUEST_CURSOR_KEY],
-                DvmRequestCursor,
-            )
-        )[0]
-        if cursor.timestamp > 0:
-            self._logger.info(
-                "request_cursor_restored",
-                timestamp=cursor.timestamp,
-                event_id=cursor.id,
-            )
-            return cursor.timestamp, cursor.id
-
-        timestamp = int(time.time())
-        await self._store_request_cursor(timestamp, _REQUEST_CURSOR_DEFAULT_ID)
-        self._logger.info(
-            "request_cursor_initialized",
-            timestamp=timestamp,
-            event_id=_REQUEST_CURSOR_DEFAULT_ID,
-        )
-        return timestamp, _REQUEST_CURSOR_DEFAULT_ID
 
     async def _store_request_cursor(self, timestamp: int, event_id: str) -> None:
         """Persist the current request cursor after a successful cycle."""
