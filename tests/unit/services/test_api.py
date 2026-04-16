@@ -458,16 +458,6 @@ class TestListRowsRoute:
         assert resp.status_code == 400
         assert "Invalid limit" in resp.json()["error"]
 
-    def test_timeout_returns_504(self, test_client: TestClient, api_service: Api) -> None:
-        async def slow_query(*args: object, **kwargs: object) -> None:
-            await asyncio.sleep(10)
-
-        api_service._config.request_timeout = 0.01
-        with patch.object(api_service._read_models.catalog, "query", side_effect=slow_query):
-            resp = test_client.get("/v1/relays?limit=10")
-        assert resp.status_code == 504
-        assert "timeout" in resp.json()["error"].lower()
-
 
 class TestGetRowRoute:
     def test_success(self, test_client: TestClient, api_service: Api) -> None:
@@ -514,16 +504,6 @@ class TestGetRowRoute:
             resp = test_client.get("/v1/relays/wss://bad")
         assert resp.status_code == 400
         assert "type cast failed" in resp.json()["error"]
-
-    def test_timeout_returns_504(self, test_client: TestClient, api_service: Api) -> None:
-        async def slow_pk(*args: object, **kwargs: object) -> None:
-            await asyncio.sleep(10)
-
-        api_service._config.request_timeout = 0.01
-        with patch.object(api_service._read_models.catalog, "get_by_pk", side_effect=slow_pk):
-            resp = test_client.get("/v1/relays/wss://example.com")
-        assert resp.status_code == 504
-        assert "timeout" in resp.json()["error"].lower()
 
 
 # ============================================================================

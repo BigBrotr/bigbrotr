@@ -53,16 +53,13 @@ from fastapi.responses import JSONResponse
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.catalog import CatalogError
 from bigbrotr.services.common.read_models import (
     ReadModelEntry,
-    ReadModelQueryError,
     ReadModelSurface,
-    build_read_model_meta,
-    read_model_query_from_http_params,
 )
 
 from .configs import ApiConfig
+from .read_models import ApiReadModelHandler
 
 
 if TYPE_CHECKING:
@@ -300,42 +297,19 @@ class Api(BaseService[ApiConfig]):
         Each call creates a new scope, so closures safely capture
         ``read_model_id`` and ``pk_cols`` without the loop-variable gotcha.
         """
-        schema = read_model.schema(self._read_models.catalog)
-        pk_cols = schema.primary_key
-
-        async def list_rows(request: Request) -> JSONResponse:
-            try:
-                query = read_model_query_from_http_params(
-                    request.query_params,
-                    default_page_size=self._config.default_page_size,
-                    max_page_size=self._config.max_page_size,
-                )
-            except ReadModelQueryError as e:
-                return JSONResponse(
-                    {"error": e.client_message},
-                    status_code=400,
-                )
-
-            try:
-                result = await asyncio.wait_for(
-                    self._read_models.query_entry(self._brotr, read_model, query),
-                    timeout=self._config.request_timeout,
-                )
-            except TimeoutError:
-                return JSONResponse({"error": "Query timeout"}, status_code=504)
-            except CatalogError as e:
-                return JSONResponse({"error": e.client_message}, status_code=400)
-
-            return JSONResponse(
-                {
-                    "data": result.rows,
-                    "meta": build_read_model_meta(result, read_model_id=read_model_id),
-                }
-            )
-
-        app.get(f"{self._config.route_prefix}/{read_model_id}")(list_rows)
+        handler = ApiReadModelHandler(
+            brotr=self._brotr,
+            read_models=self._read_models,
+            read_model_id=read_model_id,
+            read_model=read_model,
+            default_page_size=self._config.default_page_size,
+            max_page_size=self._config.max_page_size,
+            request_timeout=self._config.request_timeout,
+        )
+        app.get(f"{self._config.route_prefix}/{read_model_id}")(handler.list_rows)
 
         # PK-based detail route (only for read models with a primary key)
+        pk_cols = handler.primary_key_columns
         if not pk_cols:
             return
 
@@ -345,28 +319,7 @@ class Api(BaseService[ApiConfig]):
         else:
             pk_path = "/".join(f"{{{pk}}}" for pk in pk_cols)
 
-        async def get_row(request: Request) -> JSONResponse:
-            pk_values = {col: request.path_params[col] for col in pk_cols}
-            try:
-                row = await asyncio.wait_for(
-                    self._read_models.get_entry_by_pk(self._brotr, read_model, pk_values),
-                    timeout=self._config.request_timeout,
-                )
-            except TimeoutError:
-                return JSONResponse({"error": "Query timeout"}, status_code=504)
-            except ValueError:
-                return JSONResponse(
-                    {"error": "Invalid request parameters"},
-                    status_code=400,
-                )
-            except CatalogError as e:
-                return JSONResponse({"error": e.client_message}, status_code=400)
-
-            if row is None:
-                return JSONResponse({"error": "not found"}, status_code=404)
-            return JSONResponse({"data": row})
-
-        app.get(f"{self._config.route_prefix}/{read_model_id}/{pk_path}")(get_row)
+        app.get(f"{self._config.route_prefix}/{read_model_id}/{pk_path}")(handler.get_row)
 
     # ── Server lifecycle ──────────────────────────────────────────
 
