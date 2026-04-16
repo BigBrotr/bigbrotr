@@ -232,19 +232,6 @@ class Dvm(BaseService[DvmConfig]):
         """No-op: Dvm keeps a request cursor but has no stale state cleanup."""
         return 0
 
-    def _ensure_request_subscription_healthy(self) -> None:
-        """Raise if the background notification loop has stopped unexpectedly."""
-        task = self._notification_task
-        if task is None or not task.done():
-            return
-
-        if task.cancelled():
-            raise RuntimeError("dvm request subscription was cancelled unexpectedly")
-        error = task.exception()
-        if error is None:
-            raise RuntimeError("dvm request subscription stopped unexpectedly")
-        raise RuntimeError("dvm request subscription failed") from error
-
     async def run(self) -> None:
         """Fetch and process NIP-90 job requests for one cycle.
 
@@ -255,7 +242,15 @@ class Dvm(BaseService[DvmConfig]):
         if self._client is None:
             return
 
-        self._ensure_request_subscription_healthy()
+        task = self._notification_task
+        if task is not None and task.done():
+            if task.cancelled():
+                raise RuntimeError("dvm request subscription was cancelled unexpectedly")
+            error = task.exception()
+            if error is None:
+                raise RuntimeError("dvm request subscription stopped unexpectedly")
+            raise RuntimeError("dvm request subscription failed") from error
+
         events = await self._fetch_job_requests()
         if not events:
             self._report_metrics(0, 0, 0, 0)
