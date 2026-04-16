@@ -49,13 +49,6 @@ class DiscoveryContext:
     broadcast: Callable[[list[EventBuilder], list[Client]], Awaitable[list[BroadcastClientResult]]]
 
 
-def _resolve_publish_relays(
-    override_relays: list[Relay] | None,
-    default_relays: list[Relay],
-) -> list[Relay]:
-    return override_relays if override_relays is not None else default_relays
-
-
 async def publish_profile(
     *,
     context: PublishContext,
@@ -66,7 +59,7 @@ async def publish_profile(
     if not cfg.enabled:
         return
 
-    relays = _resolve_publish_relays(cfg.relays, context.config.publishing.relays)
+    relays = cfg.relays if cfg.relays is not None else context.config.publishing.relays
     if not relays or not await context.is_due(context.brotr, "profile", cfg.interval):
         return
 
@@ -119,7 +112,7 @@ async def publish_relay_list(
     if not cfg.enabled:
         return
 
-    relays = _resolve_publish_relays(cfg.relays, context.config.publishing.relays)
+    relays = cfg.relays if cfg.relays is not None else context.config.publishing.relays
     if not relays or not await context.is_due(context.brotr, "relay_list", cfg.interval):
         return
 
@@ -163,7 +156,7 @@ async def publish_announcement(
     if not cfg.enabled:
         return
 
-    relays = _resolve_publish_relays(cfg.relays, context.config.publishing.relays)
+    relays = cfg.relays if cfg.relays is not None else context.config.publishing.relays
     if not relays or not await context.is_due(context.brotr, "announcement", cfg.interval):
         return
 
@@ -233,7 +226,7 @@ async def publish_discovery(
     if not cfg.enabled:
         return
 
-    relays = _resolve_publish_relays(cfg.relays, context.config.publishing.relays)
+    relays = cfg.relays if cfg.relays is not None else context.config.publishing.relays
     if not relays:
         return
 
