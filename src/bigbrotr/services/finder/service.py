@@ -65,9 +65,12 @@ from bigbrotr.services.common.discovery_queries import insert_relays_as_candidat
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin
 
 from .api_runtime import (
+    ApiDiscoveryPersistenceContext,
+    ApiDiscoveryWorkerContext,
     ApiSourceAttempt,
     build_api_source_attempts,
-    stream_api_discovery_attempts,
+    find_from_api_worker,
+    persist_api_discovery_results,
 )
 from .configs import ApiSourceConfig, FinderConfig
 from .event_runtime import (
@@ -199,16 +202,16 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         pending_checkpoints: list[ApiCheckpoint],
     ) -> int:
         """Persist one API discovery cycle and clear its in-memory state."""
-        if pending_checkpoints:
-            checkpoints_batch = list(pending_checkpoints)
-            await upsert_api_checkpoints(self._brotr, checkpoints_batch)
-            pending_checkpoints.clear()
-
-        relays_batch = list(buffer)
-        found = await insert_relays_as_candidates(self._brotr, relays_batch)
-        self.set_gauge("candidates_found_from_api", found)
-        buffer.clear()
-        return found
+        return await persist_api_discovery_results(
+            buffer=buffer,
+            pending_checkpoints=pending_checkpoints,
+            context=ApiDiscoveryPersistenceContext(
+                brotr=self._brotr,
+                upsert_api_checkpoints_fn=upsert_api_checkpoints,
+                insert_relays_fn=insert_relays_as_candidates,
+                set_gauge=self.set_gauge,
+            ),
+        )
 
     async def _find_from_api_worker(
         self,
@@ -222,23 +225,23 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         Respects ``request_delay`` between sources and ``is_running`` for
         graceful shutdown.
         """
-        source_urls = [s.url for s in sources]
-        checkpoints = await fetch_api_checkpoints(self._brotr, source_urls)
-        checkpoint_map = {cp.key: cp for cp in checkpoints}
-        async for relays, checkpoint in stream_api_discovery_attempts(
-            sources,
-            checkpoint_map,
-            cooldown=int(self._config.api.cooldown),
-            now=int(time.time()),
-            max_response_size=self._config.api.max_response_size,
-            request_delay=self._config.api.request_delay,
-            is_running=lambda: self.is_running,
-            wait=self.wait,
-            fetch_api_fn=fetch_api,
-            client_session_factory=aiohttp.ClientSession,
-            recoverable_errors=(TimeoutError, OSError, aiohttp.ClientError, ValueError),
-            checkpoint_timestamp=lambda: int(time.time()),
-            logger=self._logger,
+        async for relays, checkpoint in find_from_api_worker(
+            sources=sources,
+            context=ApiDiscoveryWorkerContext(
+                brotr=self._brotr,
+                cooldown=int(self._config.api.cooldown),
+                now=int(time.time()),
+                max_response_size=self._config.api.max_response_size,
+                request_delay=self._config.api.request_delay,
+                is_running=lambda: self.is_running,
+                wait=self.wait,
+                fetch_api_fn=fetch_api,
+                client_session_factory=aiohttp.ClientSession,
+                recoverable_errors=(TimeoutError, OSError, aiohttp.ClientError, ValueError),
+                checkpoint_timestamp=lambda: int(time.time()),
+                logger=self._logger,
+                fetch_api_checkpoints_fn=fetch_api_checkpoints,
+            ),
         ):
             yield relays, checkpoint
 
