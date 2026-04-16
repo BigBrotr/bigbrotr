@@ -281,7 +281,8 @@ class Dvm(BaseService[DvmConfig]):
             payment_required += pr
             latest_ts, latest_id = event_ts, event_id
 
-        self._manage_dedup_set()
+        if len(self._processed_ids) >= _MAX_PROCESSED_IDS:
+            self._processed_ids.clear()
         if (latest_ts, latest_id) != (self._last_fetch_ts, self._last_fetch_id):
             await self._store_request_cursor(latest_ts, latest_id)
         self._report_metrics(received, processed, failed, payment_required)
@@ -420,16 +421,6 @@ class Dvm(BaseService[DvmConfig]):
         return 1, 1, 0, 0
 
     # ── Metrics & dedup ───────────────────────────────────────────
-
-    def _manage_dedup_set(self) -> None:
-        """Clear the processed IDs set when it exceeds the maximum size.
-
-        Replay protection: cleared at ``_MAX_PROCESSED_IDS`` to bound memory.
-        The persisted `(timestamp, event_id)` cursor provides the durable
-        deduplication boundary across restarts.
-        """
-        if len(self._processed_ids) >= _MAX_PROCESSED_IDS:
-            self._processed_ids.clear()
 
     def _report_metrics(
         self,
