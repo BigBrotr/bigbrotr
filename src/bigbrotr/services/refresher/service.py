@@ -282,7 +282,12 @@ class Refresher(BaseService[RefresherConfig]):
         """Refresh one incremental target and return its checkpoint source."""
         spec = get_incremental_target_spec(target)
         start = time.monotonic()
-        checkpoint = await self._read_checkpoint(target.value)
+        states = await self._state_store.get(
+            ServiceName.REFRESHER,
+            ServiceStateType.CHECKPOINT,
+            target.value,
+        )
+        checkpoint = int(states[0].state_value["timestamp"]) if states else 0
         until = checkpoint
 
         try:
@@ -294,7 +299,10 @@ class Refresher(BaseService[RefresherConfig]):
                 rows = 0
             else:
                 rows = await refresh_incremental_target(self._brotr, target, checkpoint, until)
-                await self._write_checkpoint(target.value, until)
+                await self._state_store.upsert_checkpoints(
+                    ServiceName.REFRESHER,
+                    [Checkpoint(key=target.value, timestamp=until)],
+                )
 
             duration = time.monotonic() - start
             self.set_gauge(f"duration_{spec.metric_key}", duration)
@@ -420,22 +428,6 @@ class Refresher(BaseService[RefresherConfig]):
             )
 
         return event_lag, metadata_lag
-
-    async def _read_checkpoint(self, target: str) -> int:
-        """Read the stored checkpoint for one incremental target."""
-        states = await self._state_store.get(
-            ServiceName.REFRESHER,
-            ServiceStateType.CHECKPOINT,
-            target,
-        )
-        return int(states[0].state_value["timestamp"]) if states else 0
-
-    async def _write_checkpoint(self, target: str, timestamp: int) -> None:
-        """Persist the checkpoint for one successfully refreshed target."""
-        await self._state_store.upsert_checkpoints(
-            ServiceName.REFRESHER,
-            [Checkpoint(key=target, timestamp=timestamp)],
-        )
 
     def _emit_cycle_metrics(self, result: RefreshCycleResult) -> None:
         """Emit cycle-level metrics from the typed result object."""
