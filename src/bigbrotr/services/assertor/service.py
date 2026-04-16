@@ -10,7 +10,6 @@ when subjects are no longer eligible.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from bigbrotr.core.base_service import BaseService
@@ -52,6 +51,14 @@ from .queries import (
     fetch_identifier_rows,
     fetch_user_rows,
 )
+from .runtime import (
+    PublishCycleResult,
+    PublishKindResult,
+    emit_publish_metrics,
+    publish_timed,
+    run_checkpoint_cleanup,
+    run_selected_publishers,
+)
 from .utils import (
     build_state_key,
     content_hash,
@@ -69,69 +76,7 @@ if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
 
 
-@dataclass(frozen=True, slots=True)
-class PublishKindResult:
-    """Outcome of publishing one assertor subject kind."""
-
-    eligible: int = 0
-    published: int = 0
-    skipped: int = 0
-    failed: int = 0
-    duration_seconds: float = 0.0
-
-
-@dataclass(frozen=True, slots=True)
-class PublishCycleResult:
-    """Outcome of one assertor publish cycle."""
-
-    user: PublishKindResult = field(default_factory=PublishKindResult)
-    event: PublishKindResult = field(default_factory=PublishKindResult)
-    addressable: PublishKindResult = field(default_factory=PublishKindResult)
-    identifier: PublishKindResult = field(default_factory=PublishKindResult)
-    provider_profile: PublishKindResult = field(default_factory=PublishKindResult)
-    checkpoint_cleanup_removed: int = 0
-
-    @property
-    def assertions_published(self) -> int:
-        """Total assertion events published across NIP-85 subject kinds."""
-        return (
-            self.user.published
-            + self.event.published
-            + self.addressable.published
-            + self.identifier.published
-        )
-
-    @property
-    def assertions_skipped(self) -> int:
-        """Total unchanged assertion events skipped across NIP-85 subject kinds."""
-        return (
-            self.user.skipped
-            + self.event.skipped
-            + self.addressable.skipped
-            + self.identifier.skipped
-        )
-
-    @property
-    def assertions_failed(self) -> int:
-        """Total assertion events that failed to publish across NIP-85 subject kinds."""
-        return (
-            self.user.failed + self.event.failed + self.addressable.failed + self.identifier.failed
-        )
-
-    @property
-    def provider_profiles_published(self) -> int:
-        """Provider profile events published in this cycle."""
-        return self.provider_profile.published
-
-    @property
-    def provider_profiles_skipped(self) -> int:
-        """Provider profile events skipped in this cycle."""
-        return self.provider_profile.skipped
-
-    @property
-    def provider_profiles_failed(self) -> int:
-        """Provider profile events that failed in this cycle."""
-        return self.provider_profile.failed
+__all__ = ["Assertor", "PublishCycleResult", "PublishKindResult"]
 
 
 class Assertor(BaseService[AssertorConfig]):
@@ -255,59 +200,29 @@ class Assertor(BaseService[AssertorConfig]):
         PublishKindResult,
     ]:
         """Run the enabled publish branches for this cycle."""
-        results = {
-            "user": PublishKindResult(),
-            "event": PublishKindResult(),
-            "addressable": PublishKindResult(),
-            "identifier": PublishKindResult(),
-            "provider_profile": PublishKindResult(),
-        }
-
-        selected: list[tuple[str, Callable[[], Awaitable[tuple[int, int, int]]]]] = []
-        if EventKind.NIP85_USER_ASSERTION in self._config.selection.kinds:
-            selected.append(("user", self._publish_user_assertions))
-        if EventKind.NIP85_EVENT_ASSERTION in self._config.selection.kinds:
-            selected.append(("event", self._publish_event_assertions))
-        if EventKind.NIP85_ADDRESSABLE_ASSERTION in self._config.selection.kinds:
-            selected.append(("addressable", self._publish_addressable_assertions))
-        if EventKind.NIP85_IDENTIFIER_ASSERTION in self._config.selection.kinds:
-            selected.append(("identifier", self._publish_identifier_assertions))
-        if self._config.provider_profile.enabled:
-            selected.append(("provider_profile", self._publish_provider_profile))
-
-        for result_name, publish_func in selected:
-            results[result_name] = await self._publish_timed(publish_func)
-
-        return (
-            results["user"],
-            results["event"],
-            results["addressable"],
-            results["identifier"],
-            results["provider_profile"],
+        return await run_selected_publishers(
+            config=self._config,
+            publish_timed_func=self._publish_timed,
+            publish_user_assertions=self._publish_user_assertions,
+            publish_event_assertions=self._publish_event_assertions,
+            publish_addressable_assertions=self._publish_addressable_assertions,
+            publish_identifier_assertions=self._publish_identifier_assertions,
+            publish_provider_profile=self._publish_provider_profile,
         )
 
     async def _run_checkpoint_cleanup(self) -> tuple[int, float]:
         """Remove stale checkpoints when configured and report elapsed time."""
-        cleanup_start = time.monotonic()
-        removed = 0
-        if self._config.cleanup.remove_stale_checkpoints:
-            removed = await self._delete_stale_checkpoints()
-        return removed, time.monotonic() - cleanup_start
+        return await run_checkpoint_cleanup(
+            cleanup_enabled=self._config.cleanup.remove_stale_checkpoints,
+            delete_stale_checkpoints=self._delete_stale_checkpoints,
+        )
 
     async def _publish_timed(
         self,
         publish_func: Callable[[], Awaitable[tuple[int, int, int]]],
     ) -> PublishKindResult:
         """Run one publish branch and return counts plus duration."""
-        phase_start = time.monotonic()
-        published, skipped, failed = await publish_func()
-        return PublishKindResult(
-            eligible=published + skipped + failed,
-            published=published,
-            skipped=skipped,
-            failed=failed,
-            duration_seconds=time.monotonic() - phase_start,
-        )
+        return await publish_timed(publish_func)
 
     def _emit_publish_metrics(
         self,
@@ -316,38 +231,7 @@ class Assertor(BaseService[AssertorConfig]):
         cleanup_duration: float,
     ) -> None:
         """Emit aggregate and per-kind publish metrics from the cycle result."""
-        self.set_gauge("assertions_published", result.assertions_published)
-        self.set_gauge("assertions_skipped", result.assertions_skipped)
-        self.set_gauge("assertions_failed", result.assertions_failed)
-        self.set_gauge("provider_profiles_published", result.provider_profiles_published)
-        self.set_gauge("provider_profiles_skipped", result.provider_profiles_skipped)
-        self.set_gauge("provider_profiles_failed", result.provider_profiles_failed)
-        self.set_gauge("checkpoint_cleanup_removed", result.checkpoint_cleanup_removed)
-        self.set_gauge("stale_checkpoints_removed", result.checkpoint_cleanup_removed)
-        self.set_gauge("phase_duration_cleanup_seconds", cleanup_duration)
-
-        for subject_kind, kind_result in (
-            ("user", result.user),
-            ("event", result.event),
-            ("addressable", result.addressable),
-            ("identifier", result.identifier),
-        ):
-            self.set_gauge(f"{subject_kind}_assertions_eligible", kind_result.eligible)
-            self.set_gauge(f"{subject_kind}_assertions_published", kind_result.published)
-            self.set_gauge(f"{subject_kind}_assertions_skipped", kind_result.skipped)
-            self.set_gauge(f"{subject_kind}_assertions_failed", kind_result.failed)
-            self.set_gauge(
-                f"phase_duration_{subject_kind}_seconds",
-                kind_result.duration_seconds,
-            )
-
-        self.set_gauge("provider_profile_published", result.provider_profile.published)
-        self.set_gauge("provider_profile_skipped", result.provider_profile.skipped)
-        self.set_gauge("provider_profile_failed", result.provider_profile.failed)
-        self.set_gauge(
-            "phase_duration_provider_profile_seconds",
-            result.provider_profile.duration_seconds,
-        )
+        emit_publish_metrics(self, result, cleanup_duration=cleanup_duration)
 
     async def _publish_user_assertions(self) -> tuple[int, int, int]:
         """Publish kind 30382 user assertions for qualifying pubkeys."""
