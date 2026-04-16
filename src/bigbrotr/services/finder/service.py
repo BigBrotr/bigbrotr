@@ -55,7 +55,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 import aiohttp
@@ -64,7 +63,6 @@ from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.discovery_queries import insert_relays_as_candidates
 from bigbrotr.services.common.mixins import ConcurrentStreamMixin
-from bigbrotr.services.common.types import ApiCheckpoint, FinderCursor
 
 from .api_runtime import (
     ApiSourceAttempt,
@@ -72,6 +70,18 @@ from .api_runtime import (
     stream_api_discovery_attempts,
 )
 from .configs import ApiSourceConfig, FinderConfig
+from .event_runtime import (
+    EventScanPageContext,
+    EventScanPersistenceContext,
+    EventWorkerContext,
+    build_event_scan_plan,
+    flush_event_scan_batch,
+    scan_event_cursor_page,
+    stream_event_discovery_worker,
+)
+from .event_runtime import (
+    EventScanPlan as FinderEventScanPlan,
+)
 from .queries import (
     count_relays_to_find,
     delete_stale_api_checkpoints,
@@ -89,6 +99,7 @@ if TYPE_CHECKING:
 
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.models import Relay
+    from bigbrotr.services.common.types import ApiCheckpoint, FinderCursor
 
 
 class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
@@ -110,6 +121,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
 
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.FINDER
     CONFIG_CLASS: ClassVar[type[FinderConfig]] = FinderConfig
+    EventScanPlan = FinderEventScanPlan
 
     def __init__(
         self,
@@ -130,16 +142,6 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         active_urls = [s.url for s in self._config.api.sources]
         removed += await delete_stale_api_checkpoints(self._brotr, active_urls)
         return removed
-
-    @dataclass(frozen=True, slots=True)
-    class EventScanPlan:
-        """Computed inputs for one event-discovery cycle."""
-
-        relay_count: int
-        batch_size: int
-        max_concurrency: int
-        page_size: int
-        phase_start: float
 
     async def find(self) -> int:
         """Discover relay URLs from all configured sources.
@@ -304,20 +306,13 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         self._logger.info("scan_completed", found=total_found)
         return total_found
 
-    async def _build_event_scan_plan(self) -> EventScanPlan | None:
+    async def _build_event_scan_plan(self) -> FinderEventScanPlan | None:
         """Compute the batching budget and progress totals for one event scan cycle."""
-        relay_count = await count_relays_to_find(self._brotr)
-        if relay_count == 0:
-            return None
-
-        batch_size = self._config.events.batch_size
-        max_concurrency = self._config.events.parallel_relays
-        return self.EventScanPlan(
-            relay_count=relay_count,
-            batch_size=batch_size,
-            max_concurrency=max_concurrency,
-            page_size=max(batch_size, max_concurrency),
-            phase_start=time.monotonic(),
+        return await build_event_scan_plan(
+            brotr=self._brotr,
+            config=self._config,
+            count_relays_fn=count_relays_to_find,
+            monotonic=time.monotonic,
         )
 
     async def _scan_event_cursor_page(
@@ -326,23 +321,21 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         buffer: list[Relay],
         pending_cursors: dict[str, FinderCursor],
         *,
-        plan: EventScanPlan,
+        plan: FinderEventScanPlan,
     ) -> int:
         """Scan one page of source relays and flush when the batch budget is reached."""
-        total_found = 0
-
-        async for relays, cursor in self._iter_concurrent(
-            cursors,
-            self._find_from_events_worker,
-            max_concurrency=plan.max_concurrency,
-        ):
-            buffer.extend(relays)
-            pending_cursors[cursor.key] = cursor
-            self.inc_gauge("rows_seen")
-            if len(buffer) >= plan.batch_size:
-                total_found += await self._flush_event_scan_batch(buffer, pending_cursors)
-
-        return total_found
+        return await scan_event_cursor_page(
+            cursors=cursors,
+            buffer=buffer,
+            pending_cursors=pending_cursors,
+            plan=plan,
+            context=EventScanPageContext(
+                iter_concurrent=self._iter_concurrent,
+                worker=self._find_from_events_worker,
+                flush_batch=self._flush_event_scan_batch,
+                inc_gauge=self.inc_gauge,
+            ),
+        )
 
     async def _flush_event_scan_batch(
         self,
@@ -350,17 +343,16 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         pending_cursors: dict[str, FinderCursor],
     ) -> int:
         """Persist one accumulated event-scan batch and clear in-memory state."""
-        found = 0
-        if buffer:
-            relays_batch = list(buffer)
-            found = await insert_relays_as_candidates(self._brotr, relays_batch)
-            self.inc_gauge("candidates_found_from_events", found)
-            buffer.clear()
-        if pending_cursors:
-            cursors_batch = tuple(pending_cursors.values())
-            await upsert_finder_cursors(self._brotr, cursors_batch)
-            pending_cursors.clear()
-        return found
+        return await flush_event_scan_batch(
+            buffer=buffer,
+            pending_cursors=pending_cursors,
+            context=EventScanPersistenceContext(
+                brotr=self._brotr,
+                insert_relays_fn=insert_relays_as_candidates,
+                upsert_cursors_fn=upsert_finder_cursors,
+                inc_gauge=self.inc_gauge,
+            ),
+        )
 
     async def _find_from_events_worker(
         self, cursor: FinderCursor
@@ -373,31 +365,21 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         pairs. On unexpected exception, logs and returns (the relay is silently
         skipped).
         """
-        async with self._event_semaphore:
-            if not self.is_running or (
-                time.monotonic() - self._phase_start > self._config.events.max_duration
-            ):
-                return
-            try:
-                deadline = time.monotonic() + self._config.events.max_relay_time
-                async for row in stream_event_relays(
-                    self._brotr, cursor, self._config.events.scan_size
-                ):
-                    relays = extract_relays_from_tagvalues([row])
-                    updated = FinderCursor(
-                        key=cursor.key,
-                        timestamp=row["seen_at"],
-                        id=row["event_id"].hex(),
-                    )
-                    yield relays, updated
-                    if time.monotonic() > deadline:
-                        return
-            except Exception as e:  # Worker exception boundary — protects TaskGroup
-                self._logger.error(
-                    "event_scan_worker_failed",
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    relay=cursor.key,
-                )
-            finally:
-                self.inc_gauge("relays_seen")
+        async for item in stream_event_discovery_worker(
+            context=EventWorkerContext(
+                event_semaphore=self._event_semaphore,
+                is_running=lambda: self.is_running,
+                phase_start=self._phase_start,
+                max_duration=self._config.events.max_duration,
+                max_relay_time=self._config.events.max_relay_time,
+                scan_size=self._config.events.scan_size,
+                brotr=self._brotr,
+                logger=self._logger,
+                stream_event_relays=stream_event_relays,
+                extract_relays_from_tagvalues=extract_relays_from_tagvalues,
+                monotonic=time.monotonic,
+                inc_gauge=self.inc_gauge,
+            ),
+            cursor=cursor,
+        ):
+            yield item
