@@ -12,8 +12,9 @@ Attributes:
     suppress_nostr_sdk_stderr: Narrow context manager for short validation windows.
 
 Note:
-    The ``_NostrSdkStderrFilter`` is installed globally at import time to
-    suppress UniFFI traceback noise from nostr-sdk's Rust layer.
+    ``install_nostr_sdk_stderr_filter()`` installs the global UniFFI
+    traceback filter on demand, avoiding import-time mutation of
+    ``sys.stderr``.
     ``suppress_nostr_sdk_stderr()`` provides the narrower batch-level
     suppression used during relay validation.
 
@@ -69,9 +70,9 @@ class _NostrSdkStderrFilter:
     exits on the next empty line (end of traceback).
 
     Note:
-        This filter is installed globally at module import time. It wraps
-        ``sys.stderr`` once, checked via ``isinstance`` to prevent double-
-        wrapping on repeated imports.
+        This filter is installed explicitly through
+        ``install_nostr_sdk_stderr_filter()``. The installation is idempotent
+        and wraps ``sys.stderr`` only once.
     """
 
     __slots__ = ("_original", "_suppressed_count", "_suppressing")
@@ -111,13 +112,14 @@ class _NostrSdkStderrFilter:
         return getattr(self._original, name)
 
 
-# nostr-sdk's Rust layer (via UniFFI) prints tracebacks directly to stderr
-# from background threads, bypassing Python's logging entirely. Neither
-# contextlib.redirect_stderr nor logging.Filter can intercept this output
-# because it originates from non-Python threads. A global stderr wrapper is
-# the only way to suppress it.
-if not isinstance(sys.stderr, _NostrSdkStderrFilter):
-    sys.stderr = _NostrSdkStderrFilter(sys.stderr)
+def install_nostr_sdk_stderr_filter() -> None:
+    """Install the global UniFFI stderr filter once, on demand."""
+    # nostr-sdk's Rust layer (via UniFFI) prints tracebacks directly to stderr
+    # from background threads, bypassing Python's logging entirely. Neither
+    # contextlib.redirect_stderr nor logging.Filter can intercept this output
+    # because it originates from non-Python threads.
+    if not isinstance(sys.stderr, _NostrSdkStderrFilter):
+        sys.stderr = _NostrSdkStderrFilter(sys.stderr)
 
 
 class _ScopedStderrSuppressor:
@@ -164,6 +166,7 @@ _stderr_suppressor = _ScopedStderrSuppressor()
 @contextlib.contextmanager
 def suppress_nostr_sdk_stderr() -> Generator[None, None, None]:
     """Suppress process stderr for a short ``nostr-sdk`` operation window."""
+    install_nostr_sdk_stderr_filter()
     with _stderr_suppressor():
         yield
 

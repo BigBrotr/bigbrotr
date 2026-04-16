@@ -20,6 +20,8 @@ from bigbrotr.utils.transport import (
     InsecureWebSocketTransport,
     _NostrSdkStderrFilter,
     _ScopedStderrSuppressor,
+    install_nostr_sdk_stderr_filter,
+    suppress_nostr_sdk_stderr,
 )
 
 
@@ -135,6 +137,21 @@ class TestNostrSdkStderrFilterGetattr:
         assert f.fileno() == 2
 
 
+class TestInstallNostrSdkStderrFilter:
+    def test_wraps_stderr_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        original = MagicMock()
+        monkeypatch.setattr("bigbrotr.utils.transport.sys.stderr", original)
+
+        install_nostr_sdk_stderr_filter()
+        first = sys.stderr
+        install_nostr_sdk_stderr_filter()
+        second = sys.stderr
+
+        assert isinstance(first, _NostrSdkStderrFilter)
+        assert first is second
+        assert first._original is original
+
+
 class TestScopedStderrSuppressor:
     def test_single_context_restores_stderr(self) -> None:
         suppressor = _ScopedStderrSuppressor()
@@ -156,6 +173,18 @@ class TestScopedStderrSuppressor:
     def test_refcount_starts_at_zero(self) -> None:
         suppressor = _ScopedStderrSuppressor()
         assert suppressor._refcount == 0
+
+
+class TestSuppressNostrSdkStderr:
+    def test_context_restores_filtered_stderr(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        original = MagicMock()
+        monkeypatch.setattr("bigbrotr.utils.transport.sys.stderr", original)
+
+        with suppress_nostr_sdk_stderr():
+            assert sys.stderr is not original
+
+        assert isinstance(sys.stderr, _NostrSdkStderrFilter)
+        assert sys.stderr._original is original
 
 
 # =============================================================================

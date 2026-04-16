@@ -145,6 +145,13 @@ class TestIsSslErrorRealMessages:
 class TestCreateClientBasic:
     """Tests for create_client() basic functionality."""
 
+    async def test_installs_stderr_filter_before_building(self) -> None:
+        with patch("bigbrotr.utils.protocol.install_nostr_sdk_stderr_filter") as mock_install:
+            client = await create_client()
+
+        assert client is not None
+        mock_install.assert_called_once_with()
+
     async def test_creates_client_without_keys(self) -> None:
         """Test creating client without keys (read-only)."""
         client = await create_client()

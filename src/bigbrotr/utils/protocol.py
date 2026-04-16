@@ -73,7 +73,12 @@ from nostr_sdk import (
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 
-from .transport import DEFAULT_TIMEOUT, InsecureWebSocketTransport, suppress_nostr_sdk_stderr
+from .transport import (
+    DEFAULT_TIMEOUT,
+    InsecureWebSocketTransport,
+    install_nostr_sdk_stderr_filter,
+    suppress_nostr_sdk_stderr,
+)
 
 
 if TYPE_CHECKING:
@@ -324,6 +329,7 @@ async def create_client(
         [connect_relay][bigbrotr.utils.protocol.connect_relay]: Higher-level
             function that handles connection and automatic SSL fallback.
     """
+    install_nostr_sdk_stderr_filter()
     builder = ClientBuilder()
 
     if keys is not None:
