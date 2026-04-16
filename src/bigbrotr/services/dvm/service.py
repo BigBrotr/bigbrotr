@@ -273,7 +273,14 @@ class Dvm(BaseService[DvmConfig]):
                 raise RuntimeError("dvm request subscription stopped unexpectedly")
             raise RuntimeError("dvm request subscription failed") from error
 
-        events = await self._fetch_job_requests()
+        events: list[Any] = []
+        if self._request_events is not None:
+            while True:
+                try:
+                    events.append(self._request_events.get_nowait())
+                except asyncio.QueueEmpty:
+                    break
+            events.sort(key=lambda event: (event.created_at().as_secs(), event.id().to_hex()))
         if not events:
             self._report_metrics(0, 0, 0, 0)
             return
@@ -538,20 +545,6 @@ class Dvm(BaseService[DvmConfig]):
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
-
-    async def _fetch_job_requests(self) -> list[Any]:
-        """Drain buffered NIP-90 job request events from the live subscription."""
-        if self._client is None or self._request_events is None:
-            return []
-
-        events: list[Any] = []
-        while True:
-            try:
-                events.append(self._request_events.get_nowait())
-            except asyncio.QueueEmpty:
-                break
-        events.sort(key=lambda event: (event.created_at().as_secs(), event.id().to_hex()))
-        return events
 
     # ── Event publishing ──────────────────────────────────────────
 

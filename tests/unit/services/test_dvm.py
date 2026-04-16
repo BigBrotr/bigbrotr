@@ -1168,24 +1168,6 @@ class TestDvmMetrics:
 
 
 class TestDvmPublishingGuards:
-    async def test_fetch_job_requests_no_client(self, dvm_service: Dvm) -> None:
-        dvm_service._client = None
-        result = await dvm_service._fetch_job_requests()
-        assert result == []
-
-    async def test_fetch_job_requests_drains_subscription_queue_in_cursor_order(
-        self, dvm_service: Dvm
-    ) -> None:
-        older = _make_mock_event(event_id="bb", created_at=1000)
-        newer = _make_mock_event(event_id="aa", created_at=2000)
-        same_ts_lower_id = _make_mock_event(event_id="aa", created_at=1000)
-        dvm_service._client = _make_client_with_events([])
-        await _seed_request_events(dvm_service, [newer, older, same_ts_lower_id])
-
-        result = await dvm_service._fetch_job_requests()
-
-        assert [event.id().to_hex() for event in result] == ["aa", "bb", "aa"]
-
     async def test_send_event_no_client(self, dvm_service: Dvm) -> None:
         dvm_service._client = None
         assert await dvm_service._send_event(build_error_event("eid", "pk", "err")) == ((), {})
@@ -1253,6 +1235,32 @@ class TestDvmPublishingGuards:
 
         mock_client.send_event_builder.assert_called_once()
         assert dvm_service._last_fetch_id == "cc"
+
+    async def test_run_processes_buffered_events_in_cursor_order(self, dvm_service: Dvm) -> None:
+        older = _make_mock_event(event_id="bb", created_at=1000)
+        newer = _make_mock_event(event_id="aa", created_at=2000)
+        same_ts_lower_id = _make_mock_event(event_id="aa", created_at=1000)
+        dvm_service._client = _make_client_with_events([])
+        await _seed_request_events(dvm_service, [newer, older, same_ts_lower_id])
+
+        processed_ids: list[str] = []
+        mock_state_store = MagicMock()
+        mock_state_store.upsert_cursors = AsyncMock(return_value=1)
+        dvm_service._state_store = mock_state_store
+
+        async def process_event(event: MagicMock, _pubkey_hex: str) -> tuple[int, int, int, int]:
+            processed_ids.append(event.id().to_hex())
+            return 1, 1, 0, 0
+
+        with (
+            patch.object(dvm_service, "_process_event", side_effect=process_event),
+            patch.object(dvm_service, "set_gauge"),
+            patch.object(dvm_service, "inc_counter"),
+        ):
+            await dvm_service.run()
+
+        assert processed_ids == ["aa", "bb", "aa"]
+        mock_state_store.upsert_cursors.assert_awaited_once()
 
 
 # ============================================================================
