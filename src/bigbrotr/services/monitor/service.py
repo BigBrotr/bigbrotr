@@ -94,6 +94,16 @@ from .checks import (
 )
 from .configs import MetadataFlags, MonitorConfig
 from .geo import update_geo_databases as update_monitor_geo_databases
+from .processing import (
+    MonitorChunkContext,
+    MonitorChunkPersistence,
+    MonitorWorkerContext,
+    log_chunk_outcome,
+    monitor_chunk,
+    monitor_worker,
+    persist_chunk_outcome,
+    start_monitor_progress,
+)
 from .publishing import (
     DiscoveryContext,
     PublishContext,
@@ -130,7 +140,6 @@ from .utils import (
     MonitorChunkOutcome,
     MonitorCyclePlan,
     MonitorProgress,
-    collect_metadata,
     retry_fetch,
 )
 
@@ -451,32 +460,19 @@ class Monitor(
         plan: MonitorCyclePlan,
     ) -> MonitorChunkOutcome:
         """Run one page of relay checks and classify the results."""
-        chunk_successful: list[tuple[Relay, CheckResult]] = []
-        chunk_failed: list[Relay] = []
-
-        async for relay, result in self._iter_concurrent(
-            relays,
-            self._monitor_worker,
+        return await monitor_chunk(
+            context=MonitorChunkContext(
+                iter_concurrent=self._iter_concurrent,
+                worker=self._monitor_worker,
+                inc_gauge=self.inc_gauge,
+            ),
+            relays=relays,
             max_concurrency=plan.max_concurrency,
-        ):
-            if result is not None:
-                chunk_successful.append((relay, result))
-                self.inc_gauge("succeeded")
-            else:
-                chunk_failed.append(relay)
-                self.inc_gauge("failed")
-
-        return MonitorChunkOutcome(
-            successful=tuple(chunk_successful),
-            failed=tuple(chunk_failed),
         )
 
     def _start_monitor_progress(self, total: int) -> MonitorProgress:
         """Initialize gauges and progress totals for one monitor cycle."""
-        self.set_gauge("total", total)
-        self.set_gauge("succeeded", 0)
-        self.set_gauge("failed", 0)
-        return MonitorProgress(total=total)
+        return start_monitor_progress(total=total, set_gauge=self.set_gauge)
 
     async def _process_monitor_pages(
         self,
@@ -535,15 +531,15 @@ class Monitor(
         checked_at: int,
     ) -> None:
         """Persist one processed monitor chunk to metadata and service state."""
-        metadata = collect_metadata(
-            list(chunk_outcome.successful),
-            self._config.processing.store,
-        )
-        await insert_relay_metadata(self._brotr, metadata)
-        await upsert_monitor_checkpoints(
-            self._brotr,
-            list(chunk_outcome.checked_relays),
-            checked_at,
+        await persist_chunk_outcome(
+            context=MonitorChunkPersistence(
+                brotr=self._brotr,
+                store=self._config.processing.store,
+                insert_relay_metadata=insert_relay_metadata,
+                upsert_monitor_checkpoints=upsert_monitor_checkpoints,
+            ),
+            chunk_outcome=chunk_outcome,
+            checked_at=checked_at,
         )
 
     def _log_chunk_outcome(
@@ -555,11 +551,12 @@ class Monitor(
         failed: int,
     ) -> None:
         """Emit the standard monitor chunk completion log line."""
-        self._logger.info(
-            "chunk_completed",
-            succeeded=chunk_outcome.succeeded_count,
-            failed=chunk_outcome.failed_count,
-            remaining=total - succeeded - failed,
+        log_chunk_outcome(
+            logger=self._logger,
+            chunk_outcome=chunk_outcome,
+            total=total,
+            succeeded=succeeded,
+            failed=failed,
         )
 
     async def _monitor_worker(
@@ -573,25 +570,13 @@ class Monitor(
         Yields exactly once — never raises, so every relay produces a
         result for the caller to classify.
         """
-        try:
-            semaphore = self.network_semaphores.get(relay.network)
-            if semaphore is None:
-                self._logger.warning("unknown_network", url=relay.url, network=relay.network.value)
-                yield relay, None
-                return
-
-            async with semaphore:
-                result = await self.check_relay(relay)
-                if not result.has_data:
-                    yield relay, None
-                    return
-                await self.publish_discovery(relay, result)
-                yield relay, result
-        except Exception as e:  # Worker exception boundary — protects TaskGroup
-            self._logger.error(
-                "check_relay_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                relay=relay.url,
-            )
-            yield relay, None
+        async for item in monitor_worker(
+            context=MonitorWorkerContext(
+                network_semaphores=self.network_semaphores,
+                logger=self._logger,
+                check_relay=self.check_relay,
+                publish_discovery=self.publish_discovery,
+            ),
+            relay=relay,
+        ):
+            yield item
