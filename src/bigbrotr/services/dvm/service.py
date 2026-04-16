@@ -373,7 +373,7 @@ class Dvm(BaseService[DvmConfig]):
             params,
             context=JobPreparationContext(
                 policies=self._config.read_models,
-                available_catalog_names=self._read_models.available_catalog_names(),
+                available_catalog_names=set(self._read_models.catalog.tables),
                 default_page_size=self._config.default_page_size,
                 max_page_size=self._config.max_page_size,
             ),

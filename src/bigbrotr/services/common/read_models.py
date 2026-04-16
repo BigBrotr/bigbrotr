@@ -191,17 +191,13 @@ class ReadModelSurface:
                 views=sum(1 for t in self._catalog.tables.values() if t.is_view),
             )
 
-    def available_catalog_names(self) -> set[str]:
-        """Return discovered catalog object names available to the public surface."""
-        return set(self._catalog.tables)
-
     def enabled_names(self, surface: ReadSurface) -> list[str]:
         """Return enabled read-model IDs for one public surface."""
         policies = self._policy_source()
         return resolve_surface_read_model_names(
             surface,
             policies=dict(policies) if isinstance(policies, dict) else {},
-            available_catalog_names=self.available_catalog_names(),
+            available_catalog_names=set(self._catalog.tables),
         )
 
     def enabled_entries(self, surface: ReadSurface) -> dict[str, ReadModelEntry]:
@@ -210,7 +206,7 @@ class ReadModelSurface:
         return resolve_surface_read_models(
             surface,
             policies=dict(policies) if isinstance(policies, dict) else {},
-            available_catalog_names=self.available_catalog_names(),
+            available_catalog_names=set(self._catalog.tables),
         )
 
     def resolve(self, surface: ReadSurface, name: str) -> ReadModelEntry | None:
@@ -220,7 +216,7 @@ class ReadModelSurface:
             surface,
             name=name,
             policies=dict(policies) if isinstance(policies, dict) else {},
-            available_catalog_names=self.available_catalog_names(),
+            available_catalog_names=set(self._catalog.tables),
         )
 
     async def query_entry(

@@ -293,7 +293,7 @@ class TestReadModelSurface:
         assert enabled.resolve("api", "relays") is not None
         assert enabled.resolve("api", "service_state") is None
 
-    def test_available_and_enabled_names_follow_catalog_and_policy(self) -> None:
+    def test_enabled_names_follow_catalog_and_policy(self) -> None:
         catalog = Catalog()
         catalog._tables = {"relay": MagicMock(), "event": MagicMock()}
         surface = self._surface(
@@ -304,7 +304,6 @@ class TestReadModelSurface:
             catalog=catalog,
         )
 
-        assert surface.available_catalog_names() == {"relay", "event"}
         assert surface.enabled_names("api") == ["relays"]
 
     async def test_query_entry_uses_catalog_context(self) -> None:
