@@ -189,6 +189,25 @@ class Monitor(
             networks=config.networks,
             allow_insecure=config.processing.allow_insecure,
         )
+
+        async def publish_is_due(brotr: Brotr, key: str, interval: float) -> bool:
+            return await is_publish_due(brotr, key, interval)
+
+        async def publish_broadcast(events: list[Any], clients: list[Any]) -> list[Any]:
+            return await broadcast_events_detailed(events, clients)
+
+        async def publish_save_checkpoints(brotr: Brotr, keys: list[str]) -> None:
+            await upsert_publish_checkpoints(brotr, keys)
+
+        self._publish_context = PublishContext(
+            brotr=self._brotr,
+            config=self._config,
+            clients=self.clients,
+            logger=self._logger,
+            is_due=publish_is_due,
+            broadcast=publish_broadcast,
+            save_checkpoints=publish_save_checkpoints,
+        )
         self.geo_readers = GeoReaders()
 
     async def run(self) -> None:
@@ -254,21 +273,21 @@ class Monitor(
     async def publish_profile(self) -> None:
         """Publish Kind 0 profile metadata if the configured interval has elapsed."""
         await publish_monitor_profile(
-            context=self._publish_context(),
+            context=self._publish_context,
             build_profile=build_profile_event,
         )
 
     async def publish_relay_list(self) -> None:
         """Publish Kind 10002 relay list metadata if the configured interval has elapsed."""
         await publish_monitor_relay_list(
-            context=self._publish_context(),
+            context=self._publish_context,
             build_relay_list=build_relay_list_event,
         )
 
     async def publish_announcement(self) -> None:
         """Publish Kind 10166 monitor announcement if the configured interval has elapsed."""
         await publish_monitor_announcement(
-            context=self._publish_context(),
+            context=self._publish_context,
             build_announcement=build_monitor_announcement,
         )
 
@@ -337,18 +356,6 @@ class Monitor(
                 generated_at=0,
             ),
             self._check_dependencies(),
-        )
-
-    def _publish_context(self) -> PublishContext:
-        """Build the shared publishing context for monitor announcements."""
-        return PublishContext(
-            brotr=self._brotr,
-            config=self._config,
-            clients=self.clients,
-            logger=self._logger,
-            is_due=is_publish_due,
-            broadcast=broadcast_events_detailed,
-            save_checkpoints=upsert_publish_checkpoints,
         )
 
     def _check_context(

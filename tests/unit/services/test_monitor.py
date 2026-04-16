@@ -42,7 +42,9 @@ from bigbrotr.services.monitor import (
     PublishingConfig,
     RelayListConfig,
 )
+from bigbrotr.services.monitor import service as monitor_service
 from bigbrotr.services.monitor.configs import RetriesConfig, RetryConfig
+from bigbrotr.services.monitor.publishing import PublishContext
 from bigbrotr.services.monitor.queries import (
     count_relays_to_monitor,
     delete_stale_checkpoints,
@@ -71,7 +73,7 @@ from bigbrotr.services.monitor.utils import (
     log_success,
     retry_fetch,
 )
-from bigbrotr.utils.protocol import BroadcastClientResult, broadcast_events_detailed
+from bigbrotr.utils.protocol import BroadcastClientResult
 
 
 if TYPE_CHECKING:
@@ -140,9 +142,34 @@ class _MonitorStub:
         self.clients.get_relay_client = AsyncMock(return_value=AsyncMock())
         self.clients.get_relay_clients = AsyncMock(return_value=[AsyncMock()])
         self.clients.disconnect = AsyncMock()
+        self._reset_publish_context()
+
+    def _reset_publish_context(self) -> None:
+        """Rebuild the publish context after stub dependency changes."""
+
+        async def publish_is_due(brotr: Brotr, key: str, interval: float) -> bool:
+            return await monitor_service.is_publish_due(brotr, key, interval)
+
+        async def publish_broadcast(
+            events: list[Any],
+            clients: list[Any],
+        ) -> list[BroadcastClientResult]:
+            return await monitor_service.broadcast_events_detailed(events, clients)
+
+        async def publish_save_checkpoints(brotr: Brotr, keys: list[str]) -> None:
+            await monitor_service.upsert_publish_checkpoints(brotr, keys)
+
+        self._publish_context = PublishContext(
+            brotr=self._brotr,
+            config=self._config,
+            clients=self.clients,
+            logger=self._logger,
+            is_due=publish_is_due,
+            broadcast=publish_broadcast,
+            save_checkpoints=publish_save_checkpoints,
+        )
 
     # Publishing methods bound from Monitor
-    _publish_context = Monitor._publish_context
     _check_context = Monitor._check_context
     _check_dependencies = Monitor._check_dependencies
     _monitor_chunk = Monitor._monitor_chunk
@@ -1411,15 +1438,15 @@ class TestMonitorHelpers:
         config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
 
-        context = monitor._publish_context()
+        context = monitor._publish_context
 
         assert context.brotr is mock_brotr
         assert context.config is config
         assert context.clients is monitor.clients
         assert context.logger is monitor._logger
-        assert context.is_due is is_publish_due
-        assert context.broadcast is broadcast_events_detailed
-        assert context.save_checkpoints is upsert_publish_checkpoints
+        assert callable(context.is_due)
+        assert callable(context.broadcast)
+        assert callable(context.save_checkpoints)
 
     def test_check_context_defaults_to_network_timeout_and_proxy(self, mock_brotr: Brotr) -> None:
         config = _make_config(
@@ -2364,6 +2391,7 @@ class TestPublishRelayList:
         stub._config = _make_config(
             relay_list=RelayListConfig(enabled=True, relays=["wss://custom.relay.com"]),
         )
+        stub._reset_publish_context()
         with (
             patch(
                 "bigbrotr.services.monitor.service.is_publish_due",
