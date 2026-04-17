@@ -61,7 +61,7 @@ Execution baseline:
 | Tranche | Status | Notes |
 |---------|--------|-------|
 | 0. Integral codebase validation and assumption audit | done | Planning-time validation completed; execution baseline explicitly fixed to the `nip85-hardening` line of work |
-| 1. Contract freeze and rename ledger | in progress | Work package 1.1 closed; final contract-freeze slice still pending |
+| 1. Contract freeze and rename ledger | done | Canonical rename vocabulary and final contract-freeze companion are now both closed |
 | 2. SQL and shared-schema foundation | not started | |
 | 3. Python domain-model and `Brotr` alignment | not started | |
 | 4. Shared derivation and maintenance pipeline alignment | not started | |
@@ -89,7 +89,7 @@ Execution baseline:
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
 | 1.1 Canonical rename ledger | done | `docs: add canonical rename ledger` | Captured in `21_canonical_rename_ledger.md`; target vocabulary is now centralized |
-| 1.2 Final contract freeze | not started | | |
+| 1.2 Final contract freeze | done | `docs: freeze redesign execution contracts` | Captured in `22_final_contract_freeze.md`; planning-file precedence and redesign baseline are now explicit |
 
 ### Tranche 2 — SQL And Shared-Schema Foundation
 

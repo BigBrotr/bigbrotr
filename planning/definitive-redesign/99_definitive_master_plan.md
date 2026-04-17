@@ -44,6 +44,7 @@ This plan therefore aims to:
 The detailed execution companion for this master plan is:
 
 - [21_canonical_rename_ledger.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/21_canonical_rename_ledger.md)
+- [22_final_contract_freeze.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/22_final_contract_freeze.md)
 - [17_integral_codebase_validation.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/17_integral_codebase_validation.md)
 - [18_code_excellence_standard.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/18_code_excellence_standard.md)
 - [19_documentation_rewrite_program.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/19_documentation_rewrite_program.md)
@@ -63,6 +64,11 @@ The execution ledger is part of that discipline too:
 - what audit findings were raised and resolved;
 - what follow-ups remain;
 - and what work packages are still ahead.
+
+The canonical compact freeze of execution baseline and planning-file
+precedence now lives in:
+
+- [22_final_contract_freeze.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/22_final_contract_freeze.md)
 
 ---
 

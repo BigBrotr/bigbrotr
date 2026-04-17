@@ -21,6 +21,7 @@ The goal is to define:
 This document should be treated as the working execution companion to:
 
 - [21_canonical_rename_ledger.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/21_canonical_rename_ledger.md)
+- [22_final_contract_freeze.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/22_final_contract_freeze.md)
 - [12_best_db_schema.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/12_best_db_schema.md)
 - [14_core_read_layer_proposal.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/14_core_read_layer_proposal.md)
 - [15_deployment_contract_proposal.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/15_deployment_contract_proposal.md)
@@ -137,14 +138,22 @@ changed.
 
 ## 2.6 Branch and integration discipline
 
-Execution should follow the project git workflow strictly:
+Execution should follow the project git workflow strictly, but with the
+redesign-specific baseline frozen explicitly.
 
-- all work happens on feature branches from `develop`;
+- redesign execution starts from the frozen `nip85-hardening` line of work,
+  not from a pretend clean-room `develop` baseline;
+- redesign slices should therefore continue on dedicated feature branches from
+  that frozen baseline or from the current redesign execution branch;
 - no direct work lands on `main`;
 - no direct work lands on `develop`;
 - commit messages remain conventional and descriptive;
 - each work package should normally map to one coherent commit after it is
   fully green and audited.
+
+The canonical clarification of this rule now lives in:
+
+- [22_final_contract_freeze.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/22_final_contract_freeze.md)
 
 If a branch starts accumulating too many semantically different packages, stop
 and split the work before the audit quality degrades.
@@ -675,7 +684,18 @@ Freeze the final contracts for:
 Audit focus:
 
 - no remaining large architectural ambiguity;
-- no contradiction between planning files.
+- no contradiction between planning files;
+- no remaining ambiguity about planning-file precedence;
+- no remaining ambiguity about the redesign-specific execution baseline.
+
+Exit condition:
+
+- one explicit contract-freeze companion exists;
+- planning-file precedence is frozen in one place;
+- the redesign baseline and branching rule are no longer in tension with
+  general repository workflow wording;
+- later tranches can proceed without reopening first-order architecture
+  contracts.
 
 Commit gate:
 

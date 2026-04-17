@@ -175,6 +175,15 @@ Canonical target-vocabulary ledger for the redesign:
 - explicit keep/rename/conceptual-only status;
 - vocabulary contract for later implementation tranches.
 
+### `22_final_contract_freeze.md`
+
+Final contract-freeze companion for execution:
+
+- frozen execution baseline;
+- canonical planning-file precedence;
+- frozen DB/read-core/deployment/service-boundary contracts;
+- explicit reopen rule for any future contradiction.
+
 ### `99_definitive_master_plan.md`
 
 Final distilled plan resulting from the three iterations and their audits.
@@ -194,6 +203,7 @@ Recommended order:
 9. `16_operational_implementation_plan.md`
 10. `20_redesign_execution_ledger.md`
 11. `21_canonical_rename_ledger.md`
+12. `22_final_contract_freeze.md`
 
 The iteration files are intentionally more verbose and analytical. The final
 plan is intentionally more decisive and executable.
@@ -216,6 +226,7 @@ At this point, the highest-value “current truth” files in this directory are
 - `16_operational_implementation_plan.md`
 - `20_redesign_execution_ledger.md`
 - `21_canonical_rename_ledger.md`
+- `22_final_contract_freeze.md`
 - `99_definitive_master_plan.md`
 
 ## Canonical Topic Map
@@ -243,5 +254,7 @@ each major topic.
   `20_redesign_execution_ledger.md`
 - canonical target vocabulary and rename mapping:
   `21_canonical_rename_ledger.md`
+- frozen execution baseline and planning-file precedence:
+  `22_final_contract_freeze.md`
 - distilled top-level redesign direction:
   `99_definitive_master_plan.md`
