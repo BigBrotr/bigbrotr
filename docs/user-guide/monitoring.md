@@ -363,7 +363,7 @@ Service-specific dashboards add focused panels:
 | Monitor | relay check progress and failed relay checks |
 | Synchronizer | relay sync progress and event/relay processing rate |
 | Refresher | targets by class, target outcomes, watermark lag, per-target durations, rows refreshed |
-| Ranker | graph and sync volume, staged fact rows, exported rank rows, phase durations, checkpoint lag, DuckDB health, cycle cutoffs |
+| Ranker | graph and sync volume, staged fact rows, exported score rows, phase durations, checkpoint lag, DuckDB health, cycle cutoffs |
 | API | tables exposed, request counters, request failure rate |
 | DVM | tables exposed, request counters, request failure rate |
 | Assertor | assertion outcomes, provider package status, per-kind assertion counts, publish phase durations |

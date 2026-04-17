@@ -805,7 +805,6 @@ class TestRankerService:
     ) -> None:
         ranker = Ranker(brotr=mock_brotr, config=ranker_config)
         cycle_result = RankCycleResult(
-            rank_run_id=1,
             changed_followers_synced=0,
             graph_nodes=0,
             graph_edges=0,
@@ -830,7 +829,6 @@ class TestRankerService:
 
         ranker = Ranker(brotr=mock_brotr, config=ranker_config)
         cycle_result = RankCycleResult(
-            rank_run_id=None,
             checkpoint=GraphSyncCheckpoint(),
             cutoff_reason="max_duration",
         )
@@ -1055,7 +1053,6 @@ class TestRankerService:
 
         assert changed_calls == 1
         assert result.cutoff_reason == "sync_max_batches"
-        assert result.rank_run_id is None
         assert result.changed_followers_synced == 1
         assert result.sync_batches_processed == 1
         assert result.checkpoint == GraphSyncCheckpoint(10, "a" * 64)
@@ -1095,7 +1092,6 @@ class TestRankerService:
         result = await Ranker(brotr=mock_brotr, config=config).rank()
 
         assert result.cutoff_reason == "facts_stage_event_rows"
-        assert result.rank_run_id is None
         assert result.non_user_staged == RankRowCounts(event=1)
         assert result.rank_counts == RankRowCounts()
 
@@ -1142,7 +1138,6 @@ class TestRankerService:
         result = await Ranker(brotr=mock_brotr, config=config).rank()
 
         assert result.cutoff_reason is None
-        assert result.rank_run_id == 1
         assert result.non_user_staged == RankRowCounts(event=1)
         assert result.rank_counts.event == 1
 
@@ -1203,7 +1198,6 @@ class TestRankerService:
 
         result = await Ranker(brotr=mock_brotr, config=config).rank()
 
-        assert result.rank_run_id == 1
         assert result.cutoff_reason == "export_pubkey_max_batches"
         assert result.rank_counts == RankRowCounts()
         assert result.graph_nodes == 2
@@ -1253,7 +1247,6 @@ class TestRankerService:
         result = await Ranker(brotr=mock_brotr, config=config).rank()
 
         assert result.cutoff_reason is None
-        assert result.rank_run_id == 1
         assert result.rank_counts.pubkey == 1
         assert result.graph_nodes == 1
 
@@ -1287,7 +1280,6 @@ class TestRankerService:
         result = await Ranker(brotr=mock_brotr, config=config).rank()
 
         assert result.cutoff_reason == "max_duration"
-        assert result.rank_run_id is None
         assert result.changed_followers_synced == 0
         assert result.rank_counts == RankRowCounts()
 
@@ -1484,7 +1476,6 @@ class TestRankerService:
         result = await ranker.rank()
 
         assert result.cutoff_reason == "max_duration"
-        assert result.rank_run_id is None
         ranker._store.compute_pubkey_pagerank.assert_not_called()
 
     @pytest.mark.asyncio
@@ -1530,7 +1521,6 @@ class TestRankerService:
         result = await ranker.rank()
 
         assert result.cutoff_reason == "max_duration"
-        assert result.rank_run_id == 7
         ranker._store.finish_rank_run.assert_called_once_with(7, status="cutoff")
 
     @pytest.mark.asyncio

@@ -117,7 +117,7 @@ class RankerFactsStageConfig(BaseModel):
 
 
 class RankerExportConfig(BaseModel):
-    """PostgreSQL export settings for public scores and staged fact batches."""
+    """PostgreSQL batch settings for public score export."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -130,7 +130,7 @@ class RankerExportConfig(BaseModel):
     max_batches_per_subject: int | None = Field(
         default=None,
         ge=1,
-        description="Maximum export batches per rank subject per cycle (None = unbounded)",
+        description="Maximum export batches per score subject per cycle (None = unbounded)",
     )
 
 

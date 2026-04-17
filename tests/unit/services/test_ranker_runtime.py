@@ -107,7 +107,6 @@ class TestRankerRuntimeHelpers:
         ranker = Ranker(brotr=mock_brotr, config=_ranker_config(tmp_path))
         ranker.set_gauge = MagicMock()
         result = RankCycleResult(
-            rank_run_id=5,
             changed_followers_synced=3,
             sync_batches_processed=2,
             graph_nodes=11,
@@ -117,8 +116,6 @@ class TestRankerRuntimeHelpers:
             checkpoint=GraphSyncCheckpoint(source_seen_at=123, follower_pubkey="a" * 64),
             checkpoint_lag_seconds=99,
             duckdb_file_size_bytes=1234,
-            rank_runs_failed_total=2,
-            cleanup_removed_rank_runs=1,
             phase_durations=RankPhaseDurations(
                 cleanup_seconds=0.1,
                 sync_seconds=0.2,
@@ -129,16 +126,23 @@ class TestRankerRuntimeHelpers:
             cutoff_reason="sync_max_batches",
         )
 
-        emit_cycle_metrics(ranker, result)
+        emit_cycle_metrics(
+            ranker,
+            result,
+            failed_runs_total=2,
+            cleanup_removed_runs=1,
+        )
 
         emitted = {call.args[0]: call.args[1] for call in ranker.set_gauge.call_args_list}
         assert emitted["sync_batches_processed"] == 2
         assert emitted["facts_stage_identifier_rows"] == 6
         assert emitted["export_pubkey_rows"] == 7
-        assert emitted["non_user_ranks_written"] == 27
+        assert emitted["non_user_scores_written"] == 27
         assert emitted["phase_duration_export_seconds"] == 0.5
         assert emitted["checkpoint_lag_seconds"] == 99
         assert emitted["duckdb_file_size_bytes"] == 1234
+        assert emitted["rank_runs_failed_total"] == 2
+        assert emitted["cleanup_removed_rank_runs"] == 1
         assert emitted["cycle_cutoff_sync_budget"] == 1
         assert emitted["cycle_cutoff_stage_budget"] == 0
         assert emitted["cycle_cutoff_export_budget"] == 0

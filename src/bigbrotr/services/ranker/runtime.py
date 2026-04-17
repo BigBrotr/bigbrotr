@@ -30,6 +30,8 @@ _RESET_GAUGES: tuple[str, ...] = (
     "phase_duration_compute_seconds",
     "phase_duration_export_seconds",
     "checkpoint_lag_seconds",
+    "pubkey_scores_written",
+    "non_user_scores_written",
     "rank_runs_failed_total",
     "duckdb_file_size_bytes",
     "graph_nodes",
@@ -44,7 +46,7 @@ _RESET_GAUGES: tuple[str, ...] = (
 
 @dataclass(frozen=True, slots=True)
 class RankRowCounts:
-    """Number of rows staged or exported per NIP-85 rank subject type."""
+    """Number of rows staged or score-exported per NIP-85 subject type."""
 
     pubkey: int = 0
     event: int = 0
@@ -71,7 +73,6 @@ class RankPhaseDurations:
 class RankCycleResult:
     """Outcome of one ranker service cycle."""
 
-    rank_run_id: int | None
     changed_followers_synced: int = 0
     sync_batches_processed: int = 0
     graph_nodes: int = 0
@@ -81,8 +82,6 @@ class RankCycleResult:
     checkpoint: GraphSyncCheckpoint = field(default_factory=GraphSyncCheckpoint)
     checkpoint_lag_seconds: int = 0
     duckdb_file_size_bytes: int = 0
-    rank_runs_failed_total: int = 0
-    cleanup_removed_rank_runs: int = 0
     phase_durations: RankPhaseDurations = field(default_factory=RankPhaseDurations)
     cutoff_reason: str | None = None
 
@@ -140,8 +139,11 @@ def reset_cycle_metrics(service: BaseService[RankerConfig]) -> None:
 def emit_cycle_metrics(
     service: BaseService[RankerConfig],
     result: RankCycleResult,
+    *,
+    failed_runs_total: int = 0,
+    cleanup_removed_runs: int = 0,
 ) -> None:
-    """Emit cycle-level metrics from the typed result object."""
+    """Emit cycle-level metrics from the public result plus private housekeeping."""
     service.set_gauge("sync_batches_processed", result.sync_batches_processed)
     service.set_gauge("changed_followers_synced", result.changed_followers_synced)
     service.set_gauge("graph_nodes", result.graph_nodes)
@@ -153,8 +155,8 @@ def emit_cycle_metrics(
     service.set_gauge("export_event_rows", result.rank_counts.event)
     service.set_gauge("export_addressable_rows", result.rank_counts.addressable)
     service.set_gauge("export_identifier_rows", result.rank_counts.identifier)
-    service.set_gauge("pubkey_ranks_written", result.rank_counts.pubkey)
-    service.set_gauge("non_user_ranks_written", result.rank_counts.non_user)
+    service.set_gauge("pubkey_scores_written", result.rank_counts.pubkey)
+    service.set_gauge("non_user_scores_written", result.rank_counts.non_user)
     service.set_gauge("phase_duration_cleanup_seconds", result.phase_durations.cleanup_seconds)
     service.set_gauge("phase_duration_sync_seconds", result.phase_durations.sync_seconds)
     service.set_gauge(
@@ -164,9 +166,9 @@ def emit_cycle_metrics(
     service.set_gauge("phase_duration_compute_seconds", result.phase_durations.compute_seconds)
     service.set_gauge("phase_duration_export_seconds", result.phase_durations.export_seconds)
     service.set_gauge("checkpoint_lag_seconds", result.checkpoint_lag_seconds)
-    service.set_gauge("rank_runs_failed_total", result.rank_runs_failed_total)
+    service.set_gauge("rank_runs_failed_total", failed_runs_total)
     service.set_gauge("duckdb_file_size_bytes", result.duckdb_file_size_bytes)
-    service.set_gauge("cleanup_removed_rank_runs", result.cleanup_removed_rank_runs)
+    service.set_gauge("cleanup_removed_rank_runs", cleanup_removed_runs)
 
     cutoff_reason = result.cutoff_reason or ""
     service.set_gauge("cycle_cutoff_sync_budget", 1 if cutoff_reason.startswith("sync_") else 0)

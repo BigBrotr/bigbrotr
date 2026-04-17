@@ -415,6 +415,9 @@ target registry offline instead of introducing a second derivation owner.
 **Reads**: `contact_lists_current`, `contact_list_edges_current`, `nip85_event_stats`, `nip85_addressable_stats`, `nip85_identifier_stats`
 **Writes**: `pubkey_score`, `event_score`, `addressable_score`, `identifier_score`, private DuckDB graph state + checkpoint file
 
+DuckDB-local run bookkeeping stays private to the service and is not part of
+the shared score contract.
+
 ### How It Works
 
 1. Open the private DuckDB store for the service lifetime and load the incremental PostgreSQL -> DuckDB graph checkpoint
@@ -441,7 +444,7 @@ target registry offline instead of introducing a second derivation owner.
 | `facts_stage.max_addressable_rows` | int or null | `null` | Maximum addressable fact rows staged per cycle |
 | `facts_stage.max_identifier_rows` | int or null | `null` | Maximum identifier fact rows staged per cycle |
 | `export.batch_size` | int | `1000` | Rows exported per public-score batch |
-| `export.max_batches_per_subject` | int or null | `null` | Maximum export batches per rank subject per cycle |
+| `export.max_batches_per_subject` | int or null | `null` | Maximum export batches per score subject per cycle |
 | `cleanup.rank_runs_retention` | int or null | `100` | DuckDB-local rank run records to keep |
 
 !!! tip "API Reference"

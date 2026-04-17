@@ -62,10 +62,10 @@ Execution baseline:
 |---------|--------|-------|
 | 0. Integral codebase validation and assumption audit | done | Planning-time validation completed; execution baseline explicitly fixed to the `nip85-hardening` line of work |
 | 1. Contract freeze and rename ledger | done | Canonical rename vocabulary and final contract-freeze companion are now both closed |
-| 2. SQL and shared-schema foundation | in progress | Relay archive-entry semantics, document storage rename, relay-document history rename, event-observation rename, the core-storage closure audit, and shared analytics/score-output alignment are now closed; tranche-2 downstream SQL-alignment audit work remains pending |
-| 3. Python domain-model and `Brotr` alignment | in progress | `DocumentType` rename and public model-surface cleanup are now closed; `Brotr`/service-state contract work remains pending |
-| 4. Shared derivation and maintenance pipeline alignment | not started | |
-| 5. Service-boundary alignment | not started | |
+| 2. SQL and shared-schema foundation | done | Relay archive-entry semantics, document storage rename, relay-document history rename, event-observation rename, the core-storage closure audit, slim shared current tables, shared analytics/score-output alignment, and the storage-retention/orphan-cleanup audit are all closed |
+| 3. Python domain-model and `Brotr` alignment | done | `DocumentType` rename, service-state owner vocabulary alignment, and the domain-facing fixture/test pass are all closed |
+| 4. Shared derivation and maintenance pipeline alignment | done | `Refresher` ownership, source-watermark checkpointing, bounded incremental windows, and backlog reporting are all closed |
+| 5. Service-boundary alignment | done | `Monitor`, offline `Refresher` ownership, `Assertor` package-complete publication, and `Ranker` boundary hardening are all closed |
 | 6. Score/output and NIP capability alignment | not started | |
 | 7. Protocol-agnostic read-core implementation | not started | |
 | 8. Deployment-contract normalization | not started | |
@@ -128,7 +128,7 @@ Execution baseline:
 | 5.1 `Monitor` internal restructuring | done | `refactor: isolate monitor discovery publication` | Clarified the internal `Monitor` boundary without splitting the service: per-relay workers now perform probing only, relay-document persistence remains the authoritative chunk-boundary write phase, and kind `30166` discovery publishing now runs as a separate post-persistence best-effort phase. This prevents discovery broadcast failures from reclassifying a healthy relay as a monitor failure or discarding already-computed health results, while keeping publication bounded through the existing concurrent stream machinery. The slice also introduced an explicit control-plane publication phase for kind `0` / `10002` / `10166`, updated monitor docs, and closed the remaining ledger drift so Tranche 5/6 names match the canonical operational plan. Targeted monitor suites (`215 passed`), `python3 tools/generate_sql.py --check`, full `make ci`, and `uv lock --check` passed before closure |
 | 5.2 `Refresher` authoritative ownership | done | `refactor: align refresher maintenance ownership` | Hardened the `Refresher` ownership boundary outside the long-running service itself by renaming the offline rebuild surface from `tools/rebuild_analytics.py` to `tools/rebuild_refresher_state.py`, renaming the exported rebuild entrypoint accordingly, and updating relay-URL migration tooling plus repository/user documentation so maintenance flows now clearly describe Refresher-owned shared derivation state instead of a separate “analytics rebuild” subsystem. This keeps offline replay, checkpoint alignment, and downstream assertor invalidation anchored to the same target registry the `Refresher` owns at runtime. Targeted tooling suites (`10 passed`), full `make ci`, and `uv lock --check` passed before closure |
 | 5.3 `Assertor` package-complete publication alignment | done | `refactor: publish assertor trusted provider lists` | Completed the Assertor provider-package boundary by wiring optional Kind `10040` trusted-provider-list publication into the same cycle orchestration, checkpoint namespace, change detection, metrics surface, deployment config, monitoring surfaces, and user-facing docs already used for trusted assertions and the Kind `0` provider profile. The new publication path derives canonical provider declarations from the enabled assertion kinds plus configured tag names, uses an explicit or first-relay hint as the advertised relay, and persists its own `10040` checkpoint without leaking ownership outside Assertor. Targeted assertor + NIP-85 pipeline suites (`87 passed`), full `make ci` (`3272 passed`), `python3 tools/generate_sql.py --check`, and `uv lock --check` all passed before closure |
-| 5.4 `Ranker` boundary hardening | not started | | |
+| 5.4 `Ranker` boundary hardening | done | `refactor: harden ranker public score boundary` | Removed DuckDB-private run bookkeeping from the public `RankCycleResult` surface so `Ranker.rank()` now returns operational progress plus exported score counts without leaking local run ids or failed-run counters; kept the DuckDB housekeeping metrics private to runtime emission, renamed score-write logs and gauges to `*_scores_written`, aligned dashboards/docs/config wording to the score contract, and revalidated the slice with targeted ranker unit/integration suites, full `make ci`, and `uv lock --check` before closure |
 
 ### Tranche 6 — Score/Output And NIP Capability Alignment
 
@@ -200,6 +200,17 @@ Each entry should include:
   absorb
 - Future tranche: revisit during the later NIP/publication alignment work if
   the public score contract is narrowed further
+- Classification: improvement / watch point, not blocker
+
+- Originating work package: `5.4 Ranker boundary hardening`
+- Deferred item: the private DuckDB store and helper types still use
+  `raw_score` / `rank` for internal intermediates and deterministic export
+  ordering
+- Why deferred: the slice hardened the public/service boundary first by
+  removing DuckDB run bookkeeping from the public cycle result and by
+  realigning score-facing logs, gauges, and docs; a deeper private naming sweep
+  belongs with the later cross-surface score vocabulary pass
+- Future tranche: `6.3 Align score-output naming and usage`
 - Classification: improvement / watch point, not blocker
 
 - Originating work package: `3.1 Python model rename and semantic alignment`

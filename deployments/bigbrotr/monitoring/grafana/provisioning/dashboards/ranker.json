@@ -368,13 +368,13 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"ranker\", name=~\"export_.*_rows|pubkey_ranks_written|non_user_ranks_written\"}",
+          "expr": "service_gauge{service=\"ranker\", name=~\"export_.*_rows|pubkey_scores_written|non_user_scores_written\"}",
           "refId": "A",
           "legendFormat": "{{name}}",
           "instant": true
         }
       ],
-      "title": "Exported Rank Rows",
+      "title": "Exported Score Rows",
       "type": "bargauge"
     },
     {

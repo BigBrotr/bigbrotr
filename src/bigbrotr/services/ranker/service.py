@@ -120,11 +120,11 @@ class Ranker(BaseService[RankerConfig]):
         return removed
 
     async def run(self) -> None:
-        """Sync facts, compute 30382/30383/30384/30385 ranks, and export them."""
+        """Sync facts, compute private NIP-85 rank state, and export public scores."""
         await self.rank()
 
     async def rank(self) -> RankCycleResult:
-        """Sync facts, compute 30382/30383/30384/30385 ranks, and export them."""
+        """Sync facts, compute private NIP-85 rank state, and export public scores."""
         cycle_start = time.monotonic()
         await self._run_store(self._store.ensure_initialized)
         self._reset_cycle_metrics()
@@ -143,11 +143,11 @@ class Ranker(BaseService[RankerConfig]):
                 event_stats_staged=result.non_user_staged.event,
                 addressable_stats_staged=result.non_user_staged.addressable,
                 identifier_stats_staged=result.non_user_staged.identifier,
-                pubkey_ranks_written=result.rank_counts.pubkey,
-                event_ranks_written=result.rank_counts.event,
-                addressable_ranks_written=result.rank_counts.addressable,
-                identifier_ranks_written=result.rank_counts.identifier,
-                non_user_ranks_written=result.rank_counts.non_user,
+                pubkey_scores_written=result.rank_counts.pubkey,
+                event_scores_written=result.rank_counts.event,
+                addressable_scores_written=result.rank_counts.addressable,
+                identifier_scores_written=result.rank_counts.identifier,
+                non_user_scores_written=result.rank_counts.non_user,
                 checkpoint_seen_at=result.checkpoint.source_seen_at,
                 checkpoint_follower_pubkey=result.checkpoint.follower_pubkey,
                 checkpoint_lag_seconds=result.checkpoint_lag_seconds,
@@ -339,7 +339,6 @@ class Ranker(BaseService[RankerConfig]):
         failed_total = await self._run_store(self._store.count_rank_runs, status="failed")
 
         result = RankCycleResult(
-            rank_run_id=data.rank_run_id,
             changed_followers_synced=data.sync_result.changed_followers_synced,
             sync_batches_processed=data.sync_result.batches_processed,
             graph_nodes=graph_stats.node_count,
@@ -352,12 +351,14 @@ class Ranker(BaseService[RankerConfig]):
                 source_watermark - data.sync_result.checkpoint.source_seen_at,
             ),
             duckdb_file_size_bytes=duckdb_file_size,
-            rank_runs_failed_total=failed_total,
-            cleanup_removed_rank_runs=data.cleanup_removed,
             phase_durations=data.phase_durations,
             cutoff_reason=data.cutoff_reason,
         )
-        self._emit_cycle_metrics(result)
+        self._emit_cycle_metrics(
+            result,
+            failed_runs_total=failed_total,
+            cleanup_removed_runs=data.cleanup_removed,
+        )
 
         if data.cutoff_reason is not None:
             self._logger.info(
@@ -679,6 +680,17 @@ class Ranker(BaseService[RankerConfig]):
         """Reset point-in-time gauges at the beginning of a ranker cycle."""
         reset_cycle_metrics(self)
 
-    def _emit_cycle_metrics(self, result: RankCycleResult) -> None:
-        """Emit cycle-level metrics from the typed result object."""
-        emit_cycle_metrics(self, result)
+    def _emit_cycle_metrics(
+        self,
+        result: RankCycleResult,
+        *,
+        failed_runs_total: int,
+        cleanup_removed_runs: int,
+    ) -> None:
+        """Emit cycle-level metrics from the public result plus private housekeeping."""
+        emit_cycle_metrics(
+            self,
+            result,
+            failed_runs_total=failed_runs_total,
+            cleanup_removed_runs=cleanup_removed_runs,
+        )

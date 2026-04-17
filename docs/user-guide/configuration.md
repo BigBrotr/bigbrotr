@@ -826,8 +826,8 @@ cleanup:
 | `facts_stage.max_event_rows` | int or null | `null` | `>= 1` | Maximum event fact rows staged per cycle |
 | `facts_stage.max_addressable_rows` | int or null | `null` | `>= 1` | Maximum addressable fact rows staged per cycle |
 | `facts_stage.max_identifier_rows` | int or null | `null` | `>= 1` | Maximum identifier fact rows staged per cycle |
-| `export.batch_size` | int | `1000` | `1-100000` | Maximum rank rows exported to PostgreSQL per batch |
-| `export.max_batches_per_subject` | int or null | `null` | `>= 1` | Maximum export batches per rank subject per cycle |
+| `export.batch_size` | int | `1000` | `1-100000` | Maximum score rows exported to PostgreSQL per batch |
+| `export.max_batches_per_subject` | int or null | `null` | `>= 1` | Maximum export batches per score subject per cycle |
 | `cleanup.rank_runs_retention` | int or null | `100` | `>= 1` | DuckDB-local rank run records to keep |
 | `interval` | float | `3600.0` | `60-604800` | Target seconds between ranker cycles |
 

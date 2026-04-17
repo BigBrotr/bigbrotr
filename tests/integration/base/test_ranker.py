@@ -599,7 +599,6 @@ async def test_ranker_sync_budget_resumes_from_checkpoint(
         first_result = await service.rank()
     store = RankerStore(config.storage.path, config.storage.checkpoint_path)
     assert first_result.cutoff_reason == "sync_max_batches"
-    assert first_result.rank_run_id is None
     assert first_result.changed_followers_synced == 1
     assert store.load_checkpoint() == GraphSyncCheckpoint(10, pubkey_a)
     assert (
@@ -615,7 +614,6 @@ async def test_ranker_sync_budget_resumes_from_checkpoint(
     async with service:
         second_result = await service.rank()
     assert second_result.cutoff_reason == "sync_max_batches"
-    assert second_result.rank_run_id is None
     assert second_result.changed_followers_synced == 1
     assert store.load_checkpoint() == GraphSyncCheckpoint(20, pubkey_b)
 
@@ -628,6 +626,5 @@ async def test_ranker_sync_budget_resumes_from_checkpoint(
         algorithm_id=config.algorithm_id,
     )
     assert final_result.cutoff_reason is None
-    assert final_result.rank_run_id == 1
     assert [row["subject_id"] for row in final_rows] == [pubkey_a, pubkey_b]
     assert all(0.0 <= float(row["score"]) <= 100.0 for row in final_rows)
