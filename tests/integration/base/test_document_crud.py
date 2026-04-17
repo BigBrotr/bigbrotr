@@ -15,16 +15,16 @@ pytestmark = pytest.mark.integration
 
 class TestDocumentInsert:
     async def test_single_document(self, brotr: Brotr) -> None:
-        metadata = Document(
+        document = Document(
             type=DocumentType.NIP11_INFO,
             data={"name": "Test Relay", "supported_nips": [1, 2, 11]},
         )
-        inserted = await brotr.insert_document([metadata])
+        inserted = await brotr.insert_document([document])
         assert inserted == 1
 
         row = await brotr.fetchrow("SELECT id, type, data FROM document")
         assert row is not None
-        assert row["id"] == metadata.content_hash
+        assert row["id"] == document.content_hash
         assert row["type"] == "nip11_info"
         assert row["data"]["name"] == "Test Relay"
         assert row["data"]["supported_nips"] == [1, 2, 11]
@@ -52,9 +52,9 @@ class TestDocumentInsert:
         assert inserted == 0
 
     async def test_duplicate_ignored(self, brotr: Brotr) -> None:
-        metadata = Document(type=DocumentType.NIP11_INFO, data={"name": "Dup Test"})
-        first = await brotr.insert_document([metadata])
-        second = await brotr.insert_document([metadata])
+        document = Document(type=DocumentType.NIP11_INFO, data={"name": "Dup Test"})
+        first = await brotr.insert_document([document])
+        second = await brotr.insert_document([document])
         assert first == 1
         assert second == 0
 
@@ -63,8 +63,8 @@ class TestDocumentInsert:
 
     @pytest.mark.parametrize("role", list(DocumentType))
     async def test_all_document_types(self, brotr: Brotr, role: DocumentType) -> None:
-        metadata = Document(type=role, data={"test_key": role.value})
-        inserted = await brotr.insert_document([metadata])
+        document = Document(type=role, data={"test_key": role.value})
+        inserted = await brotr.insert_document([document])
         assert inserted == 1
 
         row = await brotr.fetchrow(
@@ -75,11 +75,11 @@ class TestDocumentInsert:
         assert row["type"] == role.value
 
     async def test_nested_data_preserved(self, brotr: Brotr) -> None:
-        metadata = Document(
+        document = Document(
             type=DocumentType.NIP11_INFO,
             data={"limitation": {"max_message_length": 65536, "max_subscriptions": 20}},
         )
-        inserted = await brotr.insert_document([metadata])
+        inserted = await brotr.insert_document([document])
         assert inserted == 1
 
         row = await brotr.fetchrow("SELECT data FROM document")
@@ -91,11 +91,11 @@ class TestDocumentInsert:
 class TestRelayDocumentInsertCascade:
     async def test_cascade_creates_all_rows(self, brotr: Brotr) -> None:
         relay = Relay("wss://meta-cascade.example.com", stored_at=1700000000)
-        metadata = Document(
+        document = Document(
             type=DocumentType.NIP11_INFO,
             data={"name": "Cascade Test"},
         )
-        rm = RelayDocument(relay=relay, document=metadata, associated_at=1700000001)
+        rm = RelayDocument(relay=relay, document=document, associated_at=1700000001)
 
         inserted = await brotr.insert_relay_document([rm], cascade=True)
         assert inserted == 1
@@ -106,24 +106,24 @@ class TestRelayDocumentInsertCascade:
         )
         assert relay_count == 1
 
-        meta_row = await brotr.fetchrow("SELECT id, type, data FROM document")
-        assert meta_row is not None
-        assert meta_row["type"] == "nip11_info"
-        assert meta_row["data"]["name"] == "Cascade Test"
+        document_row = await brotr.fetchrow("SELECT id, type, data FROM document")
+        assert document_row is not None
+        assert document_row["type"] == "nip11_info"
+        assert document_row["data"]["name"] == "Cascade Test"
 
         junction = await brotr.fetchrow(
             "SELECT relay_url, document_id, role, associated_at FROM relay_document"
         )
         assert junction is not None
         assert junction["relay_url"] == "wss://meta-cascade.example.com"
-        assert junction["document_id"] == metadata.content_hash
+        assert junction["document_id"] == document.content_hash
         assert junction["role"] == "nip11_info"
         assert junction["associated_at"] == 1700000001
 
     async def test_junction_columns(self, brotr: Brotr) -> None:
         relay = Relay("wss://jnc-cols.example.com", stored_at=1700000000)
-        metadata = Document(type=DocumentType.NIP66_GEO, data={"country": "JP"})
-        rm = RelayDocument(relay=relay, document=metadata, associated_at=1700000050)
+        document = Document(type=DocumentType.NIP66_GEO, data={"country": "JP"})
+        rm = RelayDocument(relay=relay, document=document, associated_at=1700000050)
 
         await brotr.insert_relay_document([rm], cascade=True)
 
@@ -132,21 +132,21 @@ class TestRelayDocumentInsertCascade:
         )
         assert row is not None
         assert row["relay_url"] == "wss://jnc-cols.example.com"
-        assert row["document_id"] == metadata.content_hash
+        assert row["document_id"] == document.content_hash
         assert row["role"] == "nip66_geo"
         assert row["associated_at"] == 1700000050
 
-    async def test_same_metadata_different_relays(self, brotr: Brotr) -> None:
+    async def test_same_document_different_relays(self, brotr: Brotr) -> None:
         relay1 = Relay("wss://meta-r1.example.com", stored_at=1700000000)
         relay2 = Relay("wss://meta-r2.example.com", stored_at=1700000000)
-        metadata = Document(type=DocumentType.NIP66_RTT, data={"rtt_open": 100})
+        document = Document(type=DocumentType.NIP66_RTT, data={"rtt_open": 100})
 
-        rm1 = RelayDocument(relay=relay1, document=metadata, associated_at=1700000001)
-        rm2 = RelayDocument(relay=relay2, document=metadata, associated_at=1700000001)
+        rm1 = RelayDocument(relay=relay1, document=document, associated_at=1700000001)
+        rm2 = RelayDocument(relay=relay2, document=document, associated_at=1700000001)
         await brotr.insert_relay_document([rm1, rm2], cascade=True)
 
-        meta_count = await brotr.fetchval("SELECT COUNT(*) FROM document")
-        assert meta_count == 1
+        document_count = await brotr.fetchval("SELECT COUNT(*) FROM document")
+        assert document_count == 1
 
         relay_count = await brotr.fetchval("SELECT COUNT(*) FROM relay")
         assert relay_count == 2
@@ -156,10 +156,10 @@ class TestRelayDocumentInsertCascade:
 
     async def test_same_relay_different_timestamps(self, brotr: Brotr) -> None:
         relay = Relay("wss://multi-ts.example.com", stored_at=1700000000)
-        metadata = Document(type=DocumentType.NIP11_INFO, data={"name": "Multi TS"})
+        document = Document(type=DocumentType.NIP11_INFO, data={"name": "Multi TS"})
 
-        rm1 = RelayDocument(relay=relay, document=metadata, associated_at=1700000001)
-        rm2 = RelayDocument(relay=relay, document=metadata, associated_at=1700000002)
+        rm1 = RelayDocument(relay=relay, document=document, associated_at=1700000001)
+        rm2 = RelayDocument(relay=relay, document=document, associated_at=1700000002)
 
         await brotr.insert_relay_document([rm1], cascade=True)
         inserted = await brotr.insert_relay_document([rm2], cascade=True)
@@ -170,8 +170,8 @@ class TestRelayDocumentInsertCascade:
 
     async def test_duplicate_junction_ignored(self, brotr: Brotr) -> None:
         relay = Relay("wss://dup-jnc.example.com", stored_at=1700000000)
-        metadata = Document(type=DocumentType.NIP11_INFO, data={"name": "Dup Junction"})
-        rm = RelayDocument(relay=relay, document=metadata, associated_at=1700000001)
+        document = Document(type=DocumentType.NIP11_INFO, data={"name": "Dup Junction"})
+        rm = RelayDocument(relay=relay, document=document, associated_at=1700000001)
 
         first = await brotr.insert_relay_document([rm], cascade=True)
         second = await brotr.insert_relay_document([rm], cascade=True)
@@ -182,12 +182,12 @@ class TestRelayDocumentInsertCascade:
         records = []
         for i in range(5):
             relay = Relay(f"wss://batch-{i}.example.com", stored_at=1700000000)
-            metadata = Document(
+            document = Document(
                 type=DocumentType.NIP11_INFO,
                 data={"name": f"Relay {i}", "index": i},
             )
             records.append(
-                RelayDocument(relay=relay, document=metadata, associated_at=1700000000 + i)
+                RelayDocument(relay=relay, document=document, associated_at=1700000000 + i)
             )
 
         inserted = await brotr.insert_relay_document(records, cascade=True)
@@ -196,8 +196,8 @@ class TestRelayDocumentInsertCascade:
         relay_count = await brotr.fetchval("SELECT COUNT(*) FROM relay")
         assert relay_count == 5
 
-        meta_count = await brotr.fetchval("SELECT COUNT(*) FROM document")
-        assert meta_count == 5
+        document_count = await brotr.fetchval("SELECT COUNT(*) FROM document")
+        assert document_count == 5
 
         junction_count = await brotr.fetchval("SELECT COUNT(*) FROM relay_document")
         assert junction_count == 5
@@ -208,10 +208,10 @@ class TestRelayDocumentInsertNonCascade:
         relay = Relay("wss://meta-fk.example.com", stored_at=1700000000)
         await brotr.insert_relay([relay])
 
-        metadata = Document(type=DocumentType.NIP11_INFO, data={"name": "FK Test"})
-        await brotr.insert_document([metadata])
+        document = Document(type=DocumentType.NIP11_INFO, data={"name": "FK Test"})
+        await brotr.insert_document([document])
 
-        rm = RelayDocument(relay=relay, document=metadata, associated_at=1700000001)
+        rm = RelayDocument(relay=relay, document=document, associated_at=1700000001)
         inserted = await brotr.insert_relay_document([rm], cascade=False)
         assert inserted == 1
 
@@ -220,28 +220,28 @@ class TestRelayDocumentInsertNonCascade:
         )
         assert junction is not None
         assert junction["relay_url"] == "wss://meta-fk.example.com"
-        assert junction["document_id"] == metadata.content_hash
+        assert junction["document_id"] == document.content_hash
 
     async def test_missing_relay_raises(self, brotr: Brotr) -> None:
-        metadata = Document(type=DocumentType.NIP11_INFO, data={"name": "Missing Relay"})
-        await brotr.insert_document([metadata])
+        document = Document(type=DocumentType.NIP11_INFO, data={"name": "Missing Relay"})
+        await brotr.insert_document([document])
 
         missing_relay = Relay("wss://no-relay.example.com", stored_at=1700000000)
         rm = RelayDocument(
             relay=missing_relay,
-            document=metadata,
+            document=document,
             associated_at=1700000001,
         )
 
         with pytest.raises(asyncpg.exceptions.ForeignKeyViolationError):
             await brotr.insert_relay_document([rm], cascade=False)
 
-    async def test_missing_metadata_raises(self, brotr: Brotr) -> None:
+    async def test_missing_document_raises(self, brotr: Brotr) -> None:
         relay = Relay("wss://has-relay.example.com", stored_at=1700000000)
         await brotr.insert_relay([relay])
 
-        metadata = Document(type=DocumentType.NIP66_DNS, data={"resolver": "8.8.8.8"})
-        rm = RelayDocument(relay=relay, document=metadata, associated_at=1700000001)
+        document = Document(type=DocumentType.NIP66_DNS, data={"resolver": "8.8.8.8"})
+        rm = RelayDocument(relay=relay, document=document, associated_at=1700000001)
 
         with pytest.raises(asyncpg.exceptions.ForeignKeyViolationError):
             await brotr.insert_relay_document([rm], cascade=False)
@@ -317,8 +317,8 @@ class TestContentAddressedDedup:
         assert rows[1]["data"] == {"name": "test"}
 
     async def test_empty_data_dict(self, brotr: Brotr) -> None:
-        metadata = Document(type=DocumentType.NIP66_HTTP, data={})
-        inserted = await brotr.insert_document([metadata])
+        document = Document(type=DocumentType.NIP66_HTTP, data={})
+        inserted = await brotr.insert_document([document])
         assert inserted == 1
 
         row = await brotr.fetchrow("SELECT data FROM document")
@@ -326,11 +326,11 @@ class TestContentAddressedDedup:
         assert row["data"] == {}
 
     async def test_unicode_data_preserved(self, brotr: Brotr) -> None:
-        metadata = Document(
+        document = Document(
             type=DocumentType.NIP11_INFO,
             data={"name": "\u65e5\u672c\u8a9e\u30ea\u30ec\u30fc"},
         )
-        inserted = await brotr.insert_document([metadata])
+        inserted = await brotr.insert_document([document])
         assert inserted == 1
 
         row = await brotr.fetchrow("SELECT data FROM document")
@@ -338,13 +338,13 @@ class TestContentAddressedDedup:
         assert row["data"]["name"] == "\u65e5\u672c\u8a9e\u30ea\u30ec\u30fc"
 
 
-class TestMetadataDataIntegrity:
+class TestDocumentDataIntegrity:
     async def test_jsonb_operator_queryable(self, brotr: Brotr) -> None:
-        metadata = Document(
+        document = Document(
             type=DocumentType.NIP11_INFO,
             data={"name": "Queryable Relay", "version": "1.0"},
         )
-        await brotr.insert_document([metadata])
+        await brotr.insert_document([document])
 
         name = await brotr.fetchval("SELECT data->>'name' FROM document")
         assert name == "Queryable Relay"
@@ -353,8 +353,8 @@ class TestMetadataDataIntegrity:
         assert version == "1.0"
 
     async def test_content_hash_is_32_bytes(self, brotr: Brotr) -> None:
-        metadata = Document(type=DocumentType.NIP66_NET, data={"asn": 13335})
-        await brotr.insert_document([metadata])
+        document = Document(type=DocumentType.NIP66_NET, data={"asn": 13335})
+        await brotr.insert_document([document])
 
         row = await brotr.fetchrow("SELECT id FROM document")
         assert row is not None

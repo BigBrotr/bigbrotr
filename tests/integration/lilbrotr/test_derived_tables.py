@@ -37,8 +37,8 @@ def _event_observation(
     )
 
 
-def _event_address(kind: int, pubkey: str, d_tag: str) -> str:
-    return f"{kind}:{pubkey.lower()}:{d_tag}"
+def _event_address(kind: int, pubkey: str, d_value: str) -> str:
+    return f"{kind}:{pubkey.lower()}:{d_value}"
 
 
 async def _refresh_nip85(brotr: Brotr, after: int = 0, until: int = 2_000_000_000) -> None:

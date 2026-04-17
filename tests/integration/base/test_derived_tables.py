@@ -19,11 +19,11 @@ pytestmark = pytest.mark.integration
 def _rm(
     relay_url: str,
     data: dict,
-    meta_type: DocumentType = DocumentType.NIP11_INFO,
+    document_type: DocumentType = DocumentType.NIP11_INFO,
     associated_at: int = 1700000001,
 ) -> RelayDocument:
     relay = Relay(relay_url, stored_at=1700000000)
-    document = Document(type=meta_type, data=data)
+    document = Document(type=document_type, data=data)
     return RelayDocument(relay=relay, document=document, associated_at=associated_at)
 
 
@@ -103,24 +103,24 @@ def _event_observation(
     )
 
 
-def _nip11_metadata(relay_url: str, data: dict, associated_at: int = 1700000001) -> RelayDocument:
+def _nip11_document(relay_url: str, data: dict, associated_at: int = 1700000001) -> RelayDocument:
     relay = Relay(relay_url, stored_at=1700000000)
     envelope = {"data": data, "logs": {"success": True}}
     document = Document(type=DocumentType.NIP11_INFO, data=envelope)
     return RelayDocument(relay=relay, document=document, associated_at=associated_at)
 
 
-def _nip66_metadata(
-    relay_url: str, meta_type: DocumentType, data: dict, associated_at: int = 1700000001
+def _nip66_document(
+    relay_url: str, document_type: DocumentType, data: dict, associated_at: int = 1700000001
 ) -> RelayDocument:
     relay = Relay(relay_url, stored_at=1700000000)
     envelope = {"data": data, "logs": {"success": True}}
-    document = Document(type=meta_type, data=envelope)
+    document = Document(type=document_type, data=envelope)
     return RelayDocument(relay=relay, document=document, associated_at=associated_at)
 
 
-def _event_address(kind: int, pubkey: str, d_tag: str) -> str:
-    return f"{kind}:{pubkey.lower()}:{d_tag}"
+def _event_address(kind: int, pubkey: str, d_value: str) -> str:
+    return f"{kind}:{pubkey.lower()}:{d_value}"
 
 
 async def _refresh_summaries(brotr: Brotr, after: int = 0, until: int = 2000000000) -> None:
@@ -507,11 +507,11 @@ class TestRelayStats:
         assert row["pubkey_count"] == 2
         assert row["kind_count"] == 1
 
-    async def test_metadata_refresh_seeds_new_relay(self, brotr: Brotr):
+    async def test_document_refresh_seeds_new_relay(self, brotr: Brotr):
         er = _event_observation("f0" * 32, "wss://meta.example.com")
         await brotr.insert_event_observation([er], cascade=True)
 
-        rm = _nip11_metadata(
+        rm = _nip11_document(
             "wss://meta.example.com",
             {"name": "Test", "software": "strfry", "version": "2.0"},
         )
@@ -532,7 +532,7 @@ class TestRelayStats:
         await brotr.insert_event_observation([er], cascade=True)
 
         for i, rtt in enumerate([100, 200, 300]):
-            rm = _nip66_metadata(
+            rm = _nip66_document(
                 "wss://rtt.example.com",
                 DocumentType.NIP66_RTT,
                 {"rtt_open": rtt, "rtt_read": rtt + 10, "rtt_write": rtt + 20},
@@ -551,7 +551,7 @@ class TestRelayStats:
         assert float(row["avg_rtt_read"]) == 210.0
         assert float(row["avg_rtt_write"]) == 220.0
 
-    async def test_metadata_refresh_deletes_removed_relay_rows(self, brotr: Brotr):
+    async def test_document_refresh_deletes_removed_relay_rows(self, brotr: Brotr):
         er = _event_observation("a1" * 32, "wss://deleted-relay.example.com")
         await brotr.insert_event_observation([er], cascade=True)
         await _refresh_summaries(brotr)
@@ -684,7 +684,7 @@ class TestRelaySoftwareCounts:
         for i, (url, sw, ver) in enumerate(relays):
             er = _event_observation(f"{0x50 + i:064x}", url)
             await brotr.insert_event_observation([er], cascade=True)
-            rm = _nip11_metadata(url, {"software": sw, "version": ver})
+            rm = _nip11_document(url, {"software": sw, "version": ver})
             await brotr.insert_relay_document([rm], cascade=True)
 
         await _refresh_document_current(brotr)
@@ -711,7 +711,7 @@ class TestSupportedNipCounts:
         for i, (url, nips) in enumerate(relay_nips):
             er = _event_observation(f"{0x60 + i:064x}", url)
             await brotr.insert_event_observation([er], cascade=True)
-            rm = _nip11_metadata(url, {"supported_nips": nips}, associated_at=1700000001 + i)
+            rm = _nip11_document(url, {"supported_nips": nips}, associated_at=1700000001 + i)
             await brotr.insert_relay_document([rm], cascade=True)
 
         await _refresh_document_current(brotr)

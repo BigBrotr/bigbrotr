@@ -150,7 +150,7 @@ class TestBatchSizeValidation:
         with pytest.raises(ValueError, match="batch size"):
             await brotr.insert_event_observation(oversized)
 
-    async def test_metadata_batch_exceeds_max_size(self, brotr: Brotr) -> None:
+    async def test_document_batch_exceeds_max_size(self, brotr: Brotr) -> None:
         max_size = brotr.config.batch.max_size
         oversized = [
             Document(type=DocumentType.NIP11_INFO, data={"i": i}) for i in range(max_size + 1)

@@ -247,13 +247,13 @@ def sample_loki_relay() -> Relay:
 def sample_relay_document() -> RelayDocument:
     """Sample RelayDocument for testing."""
     relay = Relay("wss://relay.example.com", stored_at=1700000000)
-    metadata = Document(
+    document = Document(
         type=DocumentType.NIP11_INFO,
         data={"name": "Test Relay", "supported_nips": [1, 2, 9, 11]},
     )
     return RelayDocument(
         relay=relay,
-        document=metadata,
+        document=document,
         associated_at=1700000001,
     )
 

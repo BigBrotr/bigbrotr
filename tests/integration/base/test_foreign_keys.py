@@ -26,12 +26,12 @@ def _event_observation(
 def _relay_document(
     relay_url: str,
     data: dict,
-    meta_type: DocumentType = DocumentType.NIP11_INFO,
+    document_type: DocumentType = DocumentType.NIP11_INFO,
     associated_at: int = 1700000001,
 ) -> RelayDocument:
     relay = Relay(relay_url, stored_at=1700000000)
-    metadata = Document(type=meta_type, data=data)
-    return RelayDocument(relay=relay, document=metadata, associated_at=associated_at)
+    document = Document(type=document_type, data=data)
+    return RelayDocument(relay=relay, document=document, associated_at=associated_at)
 
 
 # =============================================================================
@@ -92,12 +92,12 @@ class TestRelayCascadeToRelayDocument:
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://fk-rm2.example.com")
         assert await brotr.fetchval("SELECT COUNT(*) FROM document") == 1
 
-    async def test_relay_delete_only_removes_own_metadata_junctions(self, brotr: Brotr) -> None:
+    async def test_relay_delete_only_removes_own_document_junctions(self, brotr: Brotr) -> None:
         relay1 = Relay("wss://fk-rmown1.example.com", stored_at=1700000000)
         relay2 = Relay("wss://fk-rmown2.example.com", stored_at=1700000000)
-        metadata = Document(type=DocumentType.NIP11_INFO, data={"shared": True})
-        rm1 = RelayDocument(relay=relay1, document=metadata, associated_at=1700000001)
-        rm2 = RelayDocument(relay=relay2, document=metadata, associated_at=1700000001)
+        document = Document(type=DocumentType.NIP11_INFO, data={"shared": True})
+        rm1 = RelayDocument(relay=relay1, document=document, associated_at=1700000001)
+        rm2 = RelayDocument(relay=relay2, document=document, associated_at=1700000001)
         await brotr.insert_relay_document([rm1, rm2], cascade=True)
 
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://fk-rmown1.example.com")
@@ -159,11 +159,11 @@ class TestEventObservationForeignKeys:
 
 class TestRelayDocumentForeignKeys:
     async def test_missing_relay_raises(self, brotr: Brotr) -> None:
-        metadata = Document(type=DocumentType.NIP11_INFO, data={"name": "No relay"})
-        await brotr.insert_document([metadata])
+        document = Document(type=DocumentType.NIP11_INFO, data={"name": "No relay"})
+        await brotr.insert_document([document])
 
         with pytest.raises(asyncpg.ForeignKeyViolationError):
-            params = metadata.to_db_params()
+            params = document.to_db_params()
             await brotr.execute(
                 "INSERT INTO relay_document (relay_url, document_id, role, associated_at) "
                 "VALUES ($1, $2, $3, $4)",
@@ -173,7 +173,7 @@ class TestRelayDocumentForeignKeys:
                 1700000001,
             )
 
-    async def test_missing_metadata_raises(self, brotr: Brotr) -> None:
+    async def test_missing_document_raises(self, brotr: Brotr) -> None:
         await brotr.insert_relay([Relay("wss://fk-nometa.example.com", stored_at=1700000000)])
 
         with pytest.raises(asyncpg.ForeignKeyViolationError):
@@ -188,11 +188,11 @@ class TestRelayDocumentForeignKeys:
 
     async def test_non_cascade_insert_with_existing_fks(self, brotr: Brotr) -> None:
         relay = Relay("wss://fk-rm-nc.example.com", stored_at=1700000000)
-        metadata = Document(type=DocumentType.NIP11_INFO, data={"name": "Pre-inserted"})
+        document = Document(type=DocumentType.NIP11_INFO, data={"name": "Pre-inserted"})
         await brotr.insert_relay([relay])
-        await brotr.insert_document([metadata])
+        await brotr.insert_document([document])
 
-        rm = RelayDocument(relay=relay, document=metadata, associated_at=1700000001)
+        rm = RelayDocument(relay=relay, document=document, associated_at=1700000001)
         inserted = await brotr.insert_relay_document([rm], cascade=False)
         assert inserted == 1
 
