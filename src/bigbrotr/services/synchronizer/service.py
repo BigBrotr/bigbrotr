@@ -76,7 +76,7 @@ from .configs import SynchronizerConfig
 from .queries import (
     count_cursors_to_sync,
     delete_stale_cursors,
-    insert_event_relays,
+    insert_event_observations,
     iter_cursors_to_sync_pages,
     upsert_sync_cursors,
 )
@@ -101,7 +101,7 @@ if TYPE_CHECKING:
     from nostr_sdk import Keys
 
     from bigbrotr.core.brotr import Brotr
-    from bigbrotr.models import Event, EventRelay, Relay
+    from bigbrotr.models import Event, EventObservation, Relay
     from bigbrotr.services.common.types import SyncCursor
 
 
@@ -197,7 +197,7 @@ class Synchronizer(
             return 0
 
         events_synced = 0
-        buffer: list[EventRelay] = []
+        buffer: list[EventObservation] = []
         pending_cursors: dict[str, SyncCursor] = {}
 
         self.set_gauge("total_relays", plan.total_relays)
@@ -234,7 +234,7 @@ class Synchronizer(
     async def _synchronize_cursor_page(
         self,
         cursors: list[SyncCursor],
-        buffer: list[EventRelay],
+        buffer: list[EventObservation],
         pending_cursors: dict[str, SyncCursor],
         *,
         plan: SynchronizerCyclePlan,
@@ -258,7 +258,7 @@ class Synchronizer(
 
     async def _flush_sync_batch(
         self,
-        buffer: list[EventRelay],
+        buffer: list[EventObservation],
         pending_cursors: dict[str, SyncCursor],
     ) -> int:
         """Persist one accumulated sync batch and clear in-memory state."""
@@ -266,7 +266,7 @@ class Synchronizer(
             self._brotr,
             buffer,
             pending_cursors,
-            insert_event_relays_fn=insert_event_relays,
+            insert_event_observations_fn=insert_event_observations,
             upsert_sync_cursors_fn=upsert_sync_cursors,
         )
 

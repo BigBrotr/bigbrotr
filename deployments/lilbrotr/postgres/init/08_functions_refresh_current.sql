@@ -13,7 +13,7 @@
 -- CURRENT TABLE REFRESH: latest/current state derived from append-only event data
 -- **************************************************************************
 -- These functions maintain non-additive "winner takes latest" facts.
--- They process only truly new events in the given seen_at range and update
+-- They process only truly new events in the given observed_at range and update
 -- current rows only when the candidate event outranks the stored winner.
 -- **************************************************************************
 
@@ -110,10 +110,10 @@ BEGIN
             e.tagvalues,
             e.content,
             e.sig
-        FROM event_relay AS er
+        FROM event_observation AS er
         INNER JOIN event AS e ON er.event_id = e.id
-        WHERE er.seen_at > p_after
-          AND er.seen_at <= p_until
+        WHERE er.observed_at > p_after
+          AND er.observed_at <= p_until
           AND (
               e.kind = 0
               OR e.kind = 3
@@ -121,9 +121,9 @@ BEGIN
           )
           AND NOT EXISTS (
               SELECT 1
-              FROM event_relay AS older
+              FROM event_observation AS older
               WHERE older.event_id = er.event_id
-                AND older.seen_at <= p_after
+                AND older.observed_at <= p_after
           )
     ),
     delta AS (
@@ -139,8 +139,8 @@ BEGIN
             e.sig
         FROM new_events AS e
         INNER JOIN LATERAL (
-            SELECT MIN(er.seen_at) AS first_seen_at
-            FROM event_relay AS er
+            SELECT MIN(er.observed_at) AS first_seen_at
+            FROM event_observation AS er
             WHERE er.event_id = e.id
         ) AS seen ON TRUE
         ORDER BY e.pubkey, e.kind, e.created_at DESC, e.id DESC
@@ -206,17 +206,17 @@ BEGIN
             e.tagvalues,
             e.content,
             e.sig
-        FROM event_relay AS er
+        FROM event_observation AS er
         INNER JOIN event AS e ON er.event_id = e.id
-        WHERE er.seen_at > p_after
-          AND er.seen_at <= p_until
+        WHERE er.observed_at > p_after
+          AND er.observed_at <= p_until
           AND e.kind >= 30000
           AND e.kind <= 39999
           AND NOT EXISTS (
               SELECT 1
-              FROM event_relay AS older
+              FROM event_observation AS older
               WHERE older.event_id = er.event_id
-                AND older.seen_at <= p_after
+                AND older.observed_at <= p_after
           )
     ),
     extracted AS (
@@ -233,8 +233,8 @@ BEGIN
             event_d_tag(e.tags, e.tagvalues) AS d_tag
         FROM new_events AS e
         INNER JOIN LATERAL (
-            SELECT MIN(er.seen_at) AS first_seen_at
-            FROM event_relay AS er
+            SELECT MIN(er.observed_at) AS first_seen_at
+            FROM event_observation AS er
             WHERE er.event_id = e.id
         ) AS seen ON TRUE
     ),

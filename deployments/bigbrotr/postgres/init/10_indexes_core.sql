@@ -40,23 +40,23 @@ CREATE INDEX IF NOT EXISTS idx_event_tagvalues
 ON event USING gin (tagvalues);
 
 -- ==========================================================================
--- TABLE INDEXES: event_relay
+-- TABLE INDEXES: event_observation
 -- ==========================================================================
 -- The composite primary key (event_id, relay_url) already provides an
 -- efficient B-tree index on event_id as the leftmost column, so no
 -- separate event_id index is needed.
 
--- Global seen_at ordering for API queries: ORDER BY seen_at DESC
-CREATE INDEX IF NOT EXISTS idx_event_relay_seen_at
-ON event_relay USING btree (seen_at DESC);
+-- Global observed_at ordering for API queries: ORDER BY observed_at DESC
+CREATE INDEX IF NOT EXISTS idx_event_observation_observed_at
+ON event_observation USING btree (observed_at DESC);
 
 -- Finder cursor pagination: WHERE relay_url = $1
---   AND (seen_at, event_id) > ($2, $3) ORDER BY seen_at ASC, event_id ASC
+--   AND (observed_at, event_id) > ($2, $3) ORDER BY observed_at ASC, event_id ASC
 -- Three-column covering index resolves the composite cursor entirely
 -- from the index without joining to event for tie-breaking.
 -- Also covers relay_url-only lookups via leftmost prefix.
-CREATE INDEX IF NOT EXISTS idx_event_relay_relay_url_seen_at_event_id
-ON event_relay USING btree (relay_url, seen_at ASC, event_id ASC);
+CREATE INDEX IF NOT EXISTS idx_event_observation_relay_url_observed_at_event_id
+ON event_observation USING btree (relay_url, observed_at ASC, event_id ASC);
 
 -- ==========================================================================
 -- TABLE INDEXES: relay_document

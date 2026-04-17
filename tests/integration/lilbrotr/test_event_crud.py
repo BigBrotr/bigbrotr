@@ -7,7 +7,7 @@ import json
 import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import EventRelay, Relay
+from bigbrotr.models import EventObservation, Relay
 from bigbrotr.models.event import Event
 from tests.conftest import make_mock_event
 
@@ -112,14 +112,14 @@ class TestLightweightCascade:
     async def test_cascade_creates_all_three_rows(self, brotr: Brotr):
         relay = Relay("wss://cascade.example.com", stored_at=1700000000)
         mock = make_mock_event(event_id="b1" * 32, sig="ee" * 64)
-        er = EventRelay(event=Event(mock), relay=relay, seen_at=1700000001)
+        er = EventObservation(event=Event(mock), relay=relay, observed_at=1700000001)
 
-        inserted = await brotr.insert_event_relay([er], cascade=True)
+        inserted = await brotr.insert_event_observation([er], cascade=True)
         assert inserted == 1
 
         assert await brotr.fetchval("SELECT COUNT(*) FROM relay") == 1
         assert await brotr.fetchval("SELECT COUNT(*) FROM event") == 1
-        assert await brotr.fetchval("SELECT COUNT(*) FROM event_relay") == 1
+        assert await brotr.fetchval("SELECT COUNT(*) FROM event_observation") == 1
 
     async def test_cascade_event_has_lightweight_columns(self, brotr: Brotr):
         relay = Relay("wss://cascade-lw.example.com", stored_at=1700000000)
@@ -129,8 +129,8 @@ class TestLightweightCascade:
             content="This content is discarded",
             sig="ee" * 64,
         )
-        er = EventRelay(event=Event(mock), relay=relay, seen_at=1700000001)
-        await brotr.insert_event_relay([er], cascade=True)
+        er = EventObservation(event=Event(mock), relay=relay, observed_at=1700000001)
+        await brotr.insert_event_observation([er], cascade=True)
 
         row = await brotr.fetchrow(
             "SELECT tags, content, sig, tagvalues FROM event WHERE id = $1",
@@ -145,10 +145,10 @@ class TestLightweightCascade:
     async def test_duplicate_cascade_returns_zero(self, brotr: Brotr):
         relay = Relay("wss://dup-cascade.example.com", stored_at=1700000000)
         mock = make_mock_event(event_id="b3" * 32, sig="ee" * 64)
-        er = EventRelay(event=Event(mock), relay=relay, seen_at=1700000001)
+        er = EventObservation(event=Event(mock), relay=relay, observed_at=1700000001)
 
-        first = await brotr.insert_event_relay([er], cascade=True)
-        second = await brotr.insert_event_relay([er], cascade=True)
+        first = await brotr.insert_event_observation([er], cascade=True)
+        second = await brotr.insert_event_observation([er], cascade=True)
         assert first == 1
         assert second == 0
 
@@ -158,15 +158,15 @@ class TestLightweightCascade:
         mock = make_mock_event(event_id="b4" * 32, sig="ee" * 64)
         event = Event(mock)
 
-        er1 = EventRelay(event=event, relay=relay1, seen_at=1700000001)
-        er2 = EventRelay(event=event, relay=relay2, seen_at=1700000002)
+        er1 = EventObservation(event=event, relay=relay1, observed_at=1700000001)
+        er2 = EventObservation(event=event, relay=relay2, observed_at=1700000002)
 
-        await brotr.insert_event_relay([er1], cascade=True)
-        inserted = await brotr.insert_event_relay([er2], cascade=True)
+        await brotr.insert_event_observation([er1], cascade=True)
+        inserted = await brotr.insert_event_observation([er2], cascade=True)
         assert inserted == 1
 
         assert await brotr.fetchval("SELECT COUNT(*) FROM event") == 1
-        assert await brotr.fetchval("SELECT COUNT(*) FROM event_relay") == 2
+        assert await brotr.fetchval("SELECT COUNT(*) FROM event_observation") == 2
 
 
 class TestLightweightTagvalues:
@@ -175,8 +175,8 @@ class TestLightweightTagvalues:
     async def test_empty_tags_produces_empty_array(self, brotr: Brotr):
         mock = make_mock_event(event_id="c1" * 32, tags=[], sig="ee" * 64)
         relay = Relay("wss://empty-tags.example.com", stored_at=1700000000)
-        er = EventRelay(event=Event(mock), relay=relay, seen_at=1700000001)
-        await brotr.insert_event_relay([er], cascade=True)
+        er = EventObservation(event=Event(mock), relay=relay, observed_at=1700000001)
+        await brotr.insert_event_observation([er], cascade=True)
 
         row = await brotr.fetchrow(
             "SELECT tagvalues FROM event WHERE id = $1",
@@ -192,8 +192,8 @@ class TestLightweightTagvalues:
             sig="ee" * 64,
         )
         relay = Relay("wss://multi-char.example.com", stored_at=1700000000)
-        er = EventRelay(event=Event(mock), relay=relay, seen_at=1700000001)
-        await brotr.insert_event_relay([er], cascade=True)
+        er = EventObservation(event=Event(mock), relay=relay, observed_at=1700000001)
+        await brotr.insert_event_observation([er], cascade=True)
 
         row = await brotr.fetchrow(
             "SELECT tagvalues FROM event WHERE id = $1",
@@ -209,8 +209,8 @@ class TestLightweightTagvalues:
             sig="ee" * 64,
         )
         relay = Relay("wss://mixed-tags.example.com", stored_at=1700000000)
-        er = EventRelay(event=Event(mock), relay=relay, seen_at=1700000001)
-        await brotr.insert_event_relay([er], cascade=True)
+        er = EventObservation(event=Event(mock), relay=relay, observed_at=1700000001)
+        await brotr.insert_event_observation([er], cascade=True)
 
         row = await brotr.fetchrow(
             "SELECT tagvalues FROM event WHERE id = $1",

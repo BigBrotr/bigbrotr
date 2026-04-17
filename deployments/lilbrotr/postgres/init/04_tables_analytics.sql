@@ -19,7 +19,7 @@
 -- **************************************************************************
 -- These are regular tables maintained by stored procedures that process
 -- only new data (delta since last checkpoint). The caller passes a
--- (p_after, p_until) range of event_relay.seen_at timestamps.
+-- (p_after, p_until) range of event_observation.observed_at timestamps.
 --
 -- Cross-tabs are refreshed BEFORE entity tables because entity tables
 -- derive unique_kinds/unique_relays from cross-tab row counts.

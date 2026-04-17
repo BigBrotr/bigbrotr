@@ -653,7 +653,7 @@ alone.
 Define and freeze the canonical mapping for at least:
 
 - `metadata` -> `document`
-- `event_relay` -> `event_observation`
+- `event_observation` -> `event_observation`
 - `relay_metadata` -> `relay_document`
 - `d_tag` -> `d_value`
 - `*_rank` / `raw_score` -> `*_score` / `score`
@@ -774,7 +774,7 @@ Align the relay-associated document history relation around:
 
 Align the event-to-relay relation around:
 
-- `event_observation` instead of `event_relay`;
+- `event_observation` instead of `event_observation`;
 - observation semantics instead of generic junction semantics;
 - runtime, refresh, and test surfaces that depend on that relation.
 

@@ -411,7 +411,7 @@ The rules are:
 Examples of the desired direction include:
 
 - `document` over `metadata`;
-- `event_observation` over `event_relay`;
+- `event_observation` over `event_observation`;
 - `score` over `raw_score` or stored ordinal rank.
 
 The canonical source for rename execution is:

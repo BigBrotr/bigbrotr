@@ -7,7 +7,7 @@ import time
 import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import EventRelay, Relay, RelayDocument
+from bigbrotr.models import EventObservation, Relay, RelayDocument
 from bigbrotr.models.document import Document, MetadataType
 from bigbrotr.models.event import Event
 from tests.conftest import make_mock_event
@@ -80,15 +80,15 @@ class TestRelayDocumentCurrent:
 # ============================================================================
 
 
-def _event_relay(
+def _event_observation(
     event_id: str,
     relay_url: str,
     kind: int = 1,
     pubkey: str = "bb" * 32,
     created_at: int = 1700000000,
-    seen_at: int | None = None,
+    observed_at: int | None = None,
     tags: list[list[str]] | None = None,
-) -> EventRelay:
+) -> EventObservation:
     mock = make_mock_event(
         event_id=event_id,
         pubkey=pubkey,
@@ -98,7 +98,9 @@ def _event_relay(
         tags=tags,
     )
     relay = Relay(relay_url, stored_at=1700000000)
-    return EventRelay(event=Event(mock), relay=relay, seen_at=seen_at or created_at + 1)
+    return EventObservation(
+        event=Event(mock), relay=relay, observed_at=observed_at or created_at + 1
+    )
 
 
 def _nip11_metadata(relay_url: str, data: dict, associated_at: int = 1700000001) -> RelayDocument:
@@ -168,11 +170,11 @@ async def _refresh_contact_graph(brotr: Brotr, after: int = 0, until: int = 2000
 class TestPubkeyKindStats:
     async def test_pubkey_with_multiple_kinds(self, brotr: Brotr):
         ers = [
-            _event_relay("a0" * 32, "wss://pks.example.com", pubkey="11" * 32, kind=1),
-            _event_relay("a1" * 32, "wss://pks.example.com", pubkey="11" * 32, kind=1),
-            _event_relay("a2" * 32, "wss://pks.example.com", pubkey="11" * 32, kind=7),
+            _event_observation("a0" * 32, "wss://pks.example.com", pubkey="11" * 32, kind=1),
+            _event_observation("a1" * 32, "wss://pks.example.com", pubkey="11" * 32, kind=1),
+            _event_observation("a2" * 32, "wss://pks.example.com", pubkey="11" * 32, kind=7),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
 
         rows = await brotr.fetch(
@@ -186,16 +188,16 @@ class TestPubkeyKindStats:
         assert rows[1]["event_count"] == 1
 
     async def test_incremental_accumulates(self, brotr: Brotr):
-        er1 = _event_relay(
-            "b0" * 32, "wss://pks2.example.com", pubkey="22" * 32, kind=1, seen_at=100
+        er1 = _event_observation(
+            "b0" * 32, "wss://pks2.example.com", pubkey="22" * 32, kind=1, observed_at=100
         )
-        await brotr.insert_event_relay([er1], cascade=True)
+        await brotr.insert_event_observation([er1], cascade=True)
         await brotr.fetchval("SELECT pubkey_kind_stats_refresh($1::BIGINT, $2::BIGINT)", 0, 200)
 
-        er2 = _event_relay(
-            "b1" * 32, "wss://pks2.example.com", pubkey="22" * 32, kind=1, seen_at=300
+        er2 = _event_observation(
+            "b1" * 32, "wss://pks2.example.com", pubkey="22" * 32, kind=1, observed_at=300
         )
-        await brotr.insert_event_relay([er2], cascade=True)
+        await brotr.insert_event_observation([er2], cascade=True)
         await brotr.fetchval("SELECT pubkey_kind_stats_refresh($1::BIGINT, $2::BIGINT)", 200, 400)
 
         rows = await brotr.fetch(
@@ -206,12 +208,16 @@ class TestPubkeyKindStats:
         assert rows[0]["event_count"] == 2
 
     async def test_deduplicates_cross_relay(self, brotr: Brotr):
-        er1 = _event_relay("c0" * 32, "wss://pks3a.example.com", pubkey="33" * 32, seen_at=100)
-        er2 = _event_relay("c0" * 32, "wss://pks3b.example.com", pubkey="33" * 32, seen_at=200)
-        await brotr.insert_event_relay([er1], cascade=True)
+        er1 = _event_observation(
+            "c0" * 32, "wss://pks3a.example.com", pubkey="33" * 32, observed_at=100
+        )
+        er2 = _event_observation(
+            "c0" * 32, "wss://pks3b.example.com", pubkey="33" * 32, observed_at=200
+        )
+        await brotr.insert_event_observation([er1], cascade=True)
         await brotr.fetchval("SELECT pubkey_kind_stats_refresh($1::BIGINT, $2::BIGINT)", 0, 150)
 
-        await brotr.insert_event_relay([er2], cascade=True)
+        await brotr.insert_event_observation([er2], cascade=True)
         await brotr.fetchval("SELECT pubkey_kind_stats_refresh($1::BIGINT, $2::BIGINT)", 150, 300)
 
         rows = await brotr.fetch(
@@ -224,11 +230,11 @@ class TestPubkeyKindStats:
 class TestPubkeyRelayStats:
     async def test_pubkey_on_multiple_relays(self, brotr: Brotr):
         ers = [
-            _event_relay("d0" * 32, "wss://prs1.example.com", pubkey="11" * 32),
-            _event_relay("d1" * 32, "wss://prs1.example.com", pubkey="11" * 32),
-            _event_relay("d2" * 32, "wss://prs2.example.com", pubkey="11" * 32),
+            _event_observation("d0" * 32, "wss://prs1.example.com", pubkey="11" * 32),
+            _event_observation("d1" * 32, "wss://prs1.example.com", pubkey="11" * 32),
+            _event_observation("d2" * 32, "wss://prs2.example.com", pubkey="11" * 32),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
 
         rows = await brotr.fetch(
@@ -242,12 +248,16 @@ class TestPubkeyRelayStats:
         assert counts["wss://prs2.example.com"] == 1
 
     async def test_same_event_new_relay_counted(self, brotr: Brotr):
-        er1 = _event_relay("e0" * 32, "wss://prs3a.example.com", pubkey="22" * 32, seen_at=100)
-        await brotr.insert_event_relay([er1], cascade=True)
+        er1 = _event_observation(
+            "e0" * 32, "wss://prs3a.example.com", pubkey="22" * 32, observed_at=100
+        )
+        await brotr.insert_event_observation([er1], cascade=True)
         await brotr.fetchval("SELECT pubkey_relay_stats_refresh($1::BIGINT, $2::BIGINT)", 0, 150)
 
-        er2 = _event_relay("e0" * 32, "wss://prs3b.example.com", pubkey="22" * 32, seen_at=200)
-        await brotr.insert_event_relay([er2], cascade=True)
+        er2 = _event_observation(
+            "e0" * 32, "wss://prs3b.example.com", pubkey="22" * 32, observed_at=200
+        )
+        await brotr.insert_event_observation([er2], cascade=True)
         await brotr.fetchval("SELECT pubkey_relay_stats_refresh($1::BIGINT, $2::BIGINT)", 150, 300)
 
         rows = await brotr.fetch(
@@ -260,11 +270,11 @@ class TestPubkeyRelayStats:
 class TestRelayKindStats:
     async def test_per_relay_kind_distribution(self, brotr: Brotr):
         ers = [
-            _event_relay("b0" * 32, "wss://rks1.example.com", kind=1),
-            _event_relay("b1" * 32, "wss://rks1.example.com", kind=1),
-            _event_relay("b2" * 32, "wss://rks2.example.com", kind=3),
+            _event_observation("b0" * 32, "wss://rks1.example.com", kind=1),
+            _event_observation("b1" * 32, "wss://rks1.example.com", kind=1),
+            _event_observation("b2" * 32, "wss://rks2.example.com", kind=3),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
 
         rows = await brotr.fetch(
@@ -284,11 +294,11 @@ class TestRelayKindStats:
 class TestPubkeyStats:
     async def test_event_counts_per_pubkey(self, brotr: Brotr):
         ers = [
-            _event_relay("c0" * 32, "wss://ps.example.com", pubkey="11" * 32),
-            _event_relay("c1" * 32, "wss://ps.example.com", pubkey="11" * 32),
-            _event_relay("c2" * 32, "wss://ps.example.com", pubkey="22" * 32),
+            _event_observation("c0" * 32, "wss://ps.example.com", pubkey="11" * 32),
+            _event_observation("c1" * 32, "wss://ps.example.com", pubkey="11" * 32),
+            _event_observation("c2" * 32, "wss://ps.example.com", pubkey="22" * 32),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
 
         rows = await brotr.fetch(
@@ -300,10 +310,10 @@ class TestPubkeyStats:
 
     async def test_unique_kinds_from_crosstab(self, brotr: Brotr):
         ers = [
-            _event_relay("e0" * 32, "wss://uk.example.com", pubkey="44" * 32, kind=1),
-            _event_relay("e1" * 32, "wss://uk.example.com", pubkey="44" * 32, kind=7),
+            _event_observation("e0" * 32, "wss://uk.example.com", pubkey="44" * 32, kind=1),
+            _event_observation("e1" * 32, "wss://uk.example.com", pubkey="44" * 32, kind=7),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
 
         rows = await brotr.fetch(
@@ -313,10 +323,10 @@ class TestPubkeyStats:
 
     async def test_unique_relays_from_crosstab(self, brotr: Brotr):
         ers = [
-            _event_relay("f0" * 32, "wss://r1.example.com", pubkey="55" * 32),
-            _event_relay("f1" * 32, "wss://r2.example.com", pubkey="55" * 32),
+            _event_observation("f0" * 32, "wss://r1.example.com", pubkey="55" * 32),
+            _event_observation("f1" * 32, "wss://r2.example.com", pubkey="55" * 32),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
 
         rows = await brotr.fetch(
@@ -326,22 +336,22 @@ class TestPubkeyStats:
 
     async def test_unique_relays_updates_on_new_relay_for_existing_event(self, brotr: Brotr):
         event_id = "f2" * 32
-        er1 = _event_relay(
+        er1 = _event_observation(
             event_id,
             "wss://r3a.example.com",
             pubkey="56" * 32,
-            seen_at=100,
+            observed_at=100,
         )
-        await brotr.insert_event_relay([er1], cascade=True)
+        await brotr.insert_event_observation([er1], cascade=True)
         await _refresh_summaries(brotr, after=0, until=150)
 
-        er2 = _event_relay(
+        er2 = _event_observation(
             event_id,
             "wss://r3b.example.com",
             pubkey="56" * 32,
-            seen_at=200,
+            observed_at=200,
         )
-        await brotr.insert_event_relay([er2], cascade=True)
+        await brotr.insert_event_observation([er2], cascade=True)
         await _refresh_summaries(brotr, after=150, until=250)
 
         row = await brotr.fetchrow(
@@ -354,12 +364,12 @@ class TestPubkeyStats:
 
     async def test_nip01_category_breakdown(self, brotr: Brotr):
         ers = [
-            _event_relay("ca" * 32, "wss://cat.example.com", pubkey="66" * 32, kind=1),
-            _event_relay("cb" * 32, "wss://cat.example.com", pubkey="66" * 32, kind=0),
-            _event_relay("cc" * 32, "wss://cat.example.com", pubkey="66" * 32, kind=20000),
-            _event_relay("cd" * 32, "wss://cat.example.com", pubkey="66" * 32, kind=30000),
+            _event_observation("ca" * 32, "wss://cat.example.com", pubkey="66" * 32, kind=1),
+            _event_observation("cb" * 32, "wss://cat.example.com", pubkey="66" * 32, kind=0),
+            _event_observation("cc" * 32, "wss://cat.example.com", pubkey="66" * 32, kind=20000),
+            _event_observation("cd" * 32, "wss://cat.example.com", pubkey="66" * 32, kind=30000),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
 
         row = await brotr.fetchrow(
@@ -376,11 +386,11 @@ class TestPubkeyStats:
 class TestKindStats:
     async def test_multiple_kinds(self, brotr: Brotr):
         ers = [
-            _event_relay("a0" * 32, "wss://ks.example.com", kind=1),
-            _event_relay("a1" * 32, "wss://ks.example.com", kind=1),
-            _event_relay("a2" * 32, "wss://ks.example.com", kind=3),
+            _event_observation("a0" * 32, "wss://ks.example.com", kind=1),
+            _event_observation("a1" * 32, "wss://ks.example.com", kind=1),
+            _event_observation("a2" * 32, "wss://ks.example.com", kind=3),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
 
         rows = await brotr.fetch("SELECT kind, event_count FROM kind_stats ORDER BY kind")
@@ -390,12 +400,12 @@ class TestKindStats:
 
     async def test_category_labels(self, brotr: Brotr):
         ers = [
-            _event_relay("ca" * 32, "wss://kcat.example.com", kind=1),
-            _event_relay("cb" * 32, "wss://kcat.example.com", kind=0),
-            _event_relay("cc" * 32, "wss://kcat.example.com", kind=20000),
-            _event_relay("cd" * 32, "wss://kcat.example.com", kind=30000),
+            _event_observation("ca" * 32, "wss://kcat.example.com", kind=1),
+            _event_observation("cb" * 32, "wss://kcat.example.com", kind=0),
+            _event_observation("cc" * 32, "wss://kcat.example.com", kind=20000),
+            _event_observation("cd" * 32, "wss://kcat.example.com", kind=30000),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
 
         rows = await brotr.fetch("SELECT kind, category FROM kind_stats ORDER BY kind")
@@ -407,10 +417,10 @@ class TestKindStats:
 
     async def test_unique_relays_from_crosstab(self, brotr: Brotr):
         ers = [
-            _event_relay("d0" * 32, "wss://kr1.example.com", kind=1),
-            _event_relay("d1" * 32, "wss://kr2.example.com", kind=1),
+            _event_observation("d0" * 32, "wss://kr1.example.com", kind=1),
+            _event_observation("d1" * 32, "wss://kr2.example.com", kind=1),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
 
         rows = await brotr.fetch("SELECT unique_relays FROM kind_stats WHERE kind = $1", 1)
@@ -418,12 +428,12 @@ class TestKindStats:
 
     async def test_unique_relays_updates_on_new_relay_for_existing_event(self, brotr: Brotr):
         event_id = "d2" * 32
-        er1 = _event_relay(event_id, "wss://kr3a.example.com", kind=7, seen_at=100)
-        await brotr.insert_event_relay([er1], cascade=True)
+        er1 = _event_observation(event_id, "wss://kr3a.example.com", kind=7, observed_at=100)
+        await brotr.insert_event_observation([er1], cascade=True)
         await _refresh_summaries(brotr, after=0, until=150)
 
-        er2 = _event_relay(event_id, "wss://kr3b.example.com", kind=7, seen_at=200)
-        await brotr.insert_event_relay([er2], cascade=True)
+        er2 = _event_observation(event_id, "wss://kr3b.example.com", kind=7, observed_at=200)
+        await brotr.insert_event_observation([er2], cascade=True)
         await _refresh_summaries(brotr, after=150, until=250)
 
         row = await brotr.fetchrow(
@@ -436,11 +446,11 @@ class TestKindStats:
 
     async def test_unique_pubkeys_from_crosstab(self, brotr: Brotr):
         ers = [
-            _event_relay("e0" * 32, "wss://kup.example.com", kind=7, pubkey="11" * 32),
-            _event_relay("e1" * 32, "wss://kup.example.com", kind=7, pubkey="22" * 32),
-            _event_relay("e2" * 32, "wss://kup.example.com", kind=7, pubkey="22" * 32),
+            _event_observation("e0" * 32, "wss://kup.example.com", kind=7, pubkey="11" * 32),
+            _event_observation("e1" * 32, "wss://kup.example.com", kind=7, pubkey="22" * 32),
+            _event_observation("e2" * 32, "wss://kup.example.com", kind=7, pubkey="22" * 32),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
 
         rows = await brotr.fetch("SELECT unique_pubkeys FROM kind_stats WHERE kind = $1", 7)
@@ -450,11 +460,11 @@ class TestKindStats:
 class TestRelayStats:
     async def test_event_counts_per_relay(self, brotr: Brotr):
         ers = [
-            _event_relay("b0" * 32, "wss://r1.example.com"),
-            _event_relay("b1" * 32, "wss://r1.example.com", pubkey="cc" * 32),
-            _event_relay("b2" * 32, "wss://r2.example.com"),
+            _event_observation("b0" * 32, "wss://r1.example.com"),
+            _event_observation("b1" * 32, "wss://r1.example.com", pubkey="cc" * 32),
+            _event_observation("b2" * 32, "wss://r2.example.com"),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
 
         rows = await brotr.fetch(
@@ -466,12 +476,12 @@ class TestRelayStats:
 
     async def test_nip01_category_breakdown(self, brotr: Brotr):
         ers = [
-            _event_relay("ca" * 32, "wss://rscat.example.com", kind=1),
-            _event_relay("cb" * 32, "wss://rscat.example.com", kind=0),
-            _event_relay("cc" * 32, "wss://rscat.example.com", kind=20000),
-            _event_relay("cd" * 32, "wss://rscat.example.com", kind=30000),
+            _event_observation("ca" * 32, "wss://rscat.example.com", kind=1),
+            _event_observation("cb" * 32, "wss://rscat.example.com", kind=0),
+            _event_observation("cc" * 32, "wss://rscat.example.com", kind=20000),
+            _event_observation("cd" * 32, "wss://rscat.example.com", kind=30000),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
 
         row = await brotr.fetchrow(
@@ -486,10 +496,10 @@ class TestRelayStats:
 
     async def test_unique_pubkeys_from_crosstab(self, brotr: Brotr):
         ers = [
-            _event_relay("e0" * 32, "wss://rup.example.com", pubkey="11" * 32),
-            _event_relay("e1" * 32, "wss://rup.example.com", pubkey="22" * 32),
+            _event_observation("e0" * 32, "wss://rup.example.com", pubkey="11" * 32),
+            _event_observation("e1" * 32, "wss://rup.example.com", pubkey="22" * 32),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
 
         row = await brotr.fetchrow(
@@ -500,8 +510,8 @@ class TestRelayStats:
         assert row["unique_kinds"] == 1
 
     async def test_metadata_refresh_seeds_new_relay(self, brotr: Brotr):
-        er = _event_relay("f0" * 32, "wss://meta.example.com")
-        await brotr.insert_event_relay([er], cascade=True)
+        er = _event_observation("f0" * 32, "wss://meta.example.com")
+        await brotr.insert_event_observation([er], cascade=True)
 
         rm = _nip11_metadata(
             "wss://meta.example.com",
@@ -520,8 +530,8 @@ class TestRelayStats:
         assert row["nip11_software"] == "strfry"
 
     async def test_avg_rtt(self, brotr: Brotr):
-        er = _event_relay("a0" * 32, "wss://rtt.example.com")
-        await brotr.insert_event_relay([er], cascade=True)
+        er = _event_observation("a0" * 32, "wss://rtt.example.com")
+        await brotr.insert_event_observation([er], cascade=True)
 
         for i, rtt in enumerate([100, 200, 300]):
             rm = _nip66_metadata(
@@ -544,8 +554,8 @@ class TestRelayStats:
         assert float(row["avg_rtt_write"]) == 220.0
 
     async def test_metadata_refresh_deletes_removed_relay_rows(self, brotr: Brotr):
-        er = _event_relay("a1" * 32, "wss://deleted-relay.example.com")
-        await brotr.insert_event_relay([er], cascade=True)
+        er = _event_observation("a1" * 32, "wss://deleted-relay.example.com")
+        await brotr.insert_event_observation([er], cascade=True)
         await _refresh_summaries(brotr)
 
         assert (
@@ -577,15 +587,17 @@ class TestRollingWindows:
     async def test_pubkey_stats_windows(self, brotr: Brotr):
         now = int(time.time())
         ers = [
-            _event_relay("f1" * 32, "wss://tw.example.com", pubkey="77" * 32, created_at=now - 600),
-            _event_relay(
+            _event_observation(
+                "f1" * 32, "wss://tw.example.com", pubkey="77" * 32, created_at=now - 600
+            ),
+            _event_observation(
                 "f2" * 32, "wss://tw.example.com", pubkey="77" * 32, created_at=now - 1800
             ),
-            _event_relay(
+            _event_observation(
                 "f3" * 32, "wss://tw.example.com", pubkey="77" * 32, created_at=now - 43200
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
         await brotr.execute("SELECT rolling_windows_refresh()")
 
@@ -601,10 +613,10 @@ class TestRollingWindows:
     async def test_kind_stats_windows(self, brotr: Brotr):
         now = int(time.time())
         ers = [
-            _event_relay("a1" * 32, "wss://tw2.example.com", kind=7, created_at=now - 600),
-            _event_relay("a2" * 32, "wss://tw2.example.com", kind=7, created_at=now - 1800),
+            _event_observation("a1" * 32, "wss://tw2.example.com", kind=7, created_at=now - 600),
+            _event_observation("a2" * 32, "wss://tw2.example.com", kind=7, created_at=now - 1800),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
         await brotr.execute("SELECT rolling_windows_refresh()")
 
@@ -617,10 +629,10 @@ class TestRollingWindows:
     async def test_relay_stats_windows(self, brotr: Brotr):
         now = int(time.time())
         ers = [
-            _event_relay("b1" * 32, "wss://tw3.example.com", created_at=now - 600),
-            _event_relay("b2" * 32, "wss://tw3.example.com", created_at=now - 43200),
+            _event_observation("b1" * 32, "wss://tw3.example.com", created_at=now - 600),
+            _event_observation("b2" * 32, "wss://tw3.example.com", created_at=now - 43200),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
         await brotr.execute("SELECT rolling_windows_refresh()")
 
@@ -631,16 +643,16 @@ class TestRollingWindows:
         assert row["events_last_24h"] == 2
         assert row["events_last_30d"] == 2
 
-    async def test_relay_stats_windows_use_seen_at_not_created_at(self, brotr: Brotr):
+    async def test_relay_stats_windows_use_observed_at_not_created_at(self, brotr: Brotr):
         now = int(time.time())
-        er = _event_relay(
+        er = _event_observation(
             "b3" * 32,
             "wss://tw4.example.com",
             pubkey="78" * 32,
             created_at=now - 40 * 86400,
-            seen_at=now - 60,
+            observed_at=now - 60,
         )
-        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.insert_event_observation([er], cascade=True)
         await _refresh_summaries(brotr, after=0, until=now)
         await brotr.execute("SELECT rolling_windows_refresh()")
 
@@ -672,8 +684,8 @@ class TestRelaySoftwareCounts:
             ("wss://sw3.example.com", "nostream", "2.0.0"),
         ]
         for i, (url, sw, ver) in enumerate(relays):
-            er = _event_relay(f"{0x50 + i:064x}", url)
-            await brotr.insert_event_relay([er], cascade=True)
+            er = _event_observation(f"{0x50 + i:064x}", url)
+            await brotr.insert_event_observation([er], cascade=True)
             rm = _nip11_metadata(url, {"software": sw, "version": ver})
             await brotr.insert_relay_document([rm], cascade=True)
 
@@ -699,8 +711,8 @@ class TestSupportedNipCounts:
             ("wss://nip2.example.com", [1, 2, 9]),
         ]
         for i, (url, nips) in enumerate(relay_nips):
-            er = _event_relay(f"{0x60 + i:064x}", url)
-            await brotr.insert_event_relay([er], cascade=True)
+            er = _event_observation(f"{0x60 + i:064x}", url)
+            await brotr.insert_event_observation([er], cascade=True)
             rm = _nip11_metadata(url, {"supported_nips": nips}, associated_at=1700000001 + i)
             await brotr.insert_relay_document([rm], cascade=True)
 
@@ -721,14 +733,14 @@ class TestSupportedNipCounts:
 class TestEventDailyCounts:
     async def test_events_on_different_days(self, brotr: Brotr):
         ers = [
-            _event_relay(
+            _event_observation(
                 event_id=f"{i:064x}",
                 relay_url="wss://daily.example.com",
                 created_at=1700000000 + i * 86400,
             )
             for i in range(3)
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await brotr.fetchval(
             "SELECT daily_counts_refresh($1::BIGINT, $2::BIGINT)", 0, 2_000_000_000
         )
@@ -746,14 +758,14 @@ class TestEventsReplaceableCurrent:
     async def test_current_profile_per_pubkey(self, brotr: Brotr) -> None:
         pubkey = "aa" * 32
         ers = [
-            _event_relay(
+            _event_observation(
                 "a0" * 32, "wss://repl.example.com", kind=0, pubkey=pubkey, created_at=1000
             ),
-            _event_relay(
+            _event_observation(
                 "a1" * 32, "wss://repl.example.com", kind=0, pubkey=pubkey, created_at=2000
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await brotr.fetchval(
             "SELECT events_replaceable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
         )
@@ -767,11 +779,11 @@ class TestEventsReplaceableCurrent:
 
     async def test_excludes_non_replaceable_kinds(self, brotr: Brotr) -> None:
         ers = [
-            _event_relay("f0" * 32, "wss://repl.example.com", kind=1, created_at=1000),
-            _event_relay("f1" * 32, "wss://repl.example.com", kind=20000, created_at=1001),
-            _event_relay("f2" * 32, "wss://repl.example.com", kind=30000, created_at=1002),
+            _event_observation("f0" * 32, "wss://repl.example.com", kind=1, created_at=1000),
+            _event_observation("f1" * 32, "wss://repl.example.com", kind=20000, created_at=1001),
+            _event_observation("f2" * 32, "wss://repl.example.com", kind=30000, created_at=1002),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await brotr.fetchval(
             "SELECT events_replaceable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
         )
@@ -788,7 +800,7 @@ class TestEventsAddressableCurrent:
         pubkey = "aa" * 32
         d_tags = [["d", "my-article"]]
         ers = [
-            _event_relay(
+            _event_observation(
                 "a0" * 32,
                 "wss://addr.example.com",
                 kind=30023,
@@ -796,7 +808,7 @@ class TestEventsAddressableCurrent:
                 created_at=1000,
                 tags=d_tags,
             ),
-            _event_relay(
+            _event_observation(
                 "a1" * 32,
                 "wss://addr.example.com",
                 kind=30023,
@@ -805,7 +817,7 @@ class TestEventsAddressableCurrent:
                 tags=d_tags,
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await brotr.fetchval(
             "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
         )
@@ -820,14 +832,14 @@ class TestEventsAddressableCurrent:
         assert rows[0]["d_tag"] == "my-article"
 
     async def test_event_without_dtag_uses_empty_string(self, brotr: Brotr) -> None:
-        er = _event_relay(
+        er = _event_observation(
             "d0" * 32,
             "wss://addr2.example.com",
             kind=30078,
             pubkey="dd" * 32,
             created_at=1000,
         )
-        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.insert_event_observation([er], cascade=True)
         await brotr.fetchval(
             "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
         )
@@ -837,7 +849,7 @@ class TestEventsAddressableCurrent:
         assert rows[0]["d_tag"] == ""
 
     async def test_first_dtag_wins_when_multiple_d_tags_present(self, brotr: Brotr) -> None:
-        er = _event_relay(
+        er = _event_observation(
             "d1" * 32,
             "wss://addr2.example.com",
             kind=30023,
@@ -845,7 +857,7 @@ class TestEventsAddressableCurrent:
             created_at=1000,
             tags=[["d", "first"], ["d", "second"]],
         )
-        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.insert_event_observation([er], cascade=True)
         await brotr.fetchval(
             "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
         )
@@ -859,10 +871,10 @@ class TestEventsAddressableCurrent:
 
     async def test_excludes_non_addressable_kinds(self, brotr: Brotr) -> None:
         ers = [
-            _event_relay("c0" * 32, "wss://addr.example.com", kind=1, created_at=1000),
-            _event_relay("c1" * 32, "wss://addr.example.com", kind=0, created_at=1001),
+            _event_observation("c0" * 32, "wss://addr.example.com", kind=1, created_at=1000),
+            _event_observation("c1" * 32, "wss://addr.example.com", kind=0, created_at=1001),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await brotr.fetchval(
             "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
         )
@@ -909,8 +921,8 @@ class TestNip85PubkeyStats:
     async def test_post_and_reply_counts(self, brotr: Brotr) -> None:
         pubkey = "c1" * 32
         ers = [
-            _event_relay("b0" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey, tags=[]),
-            _event_relay(
+            _event_observation("b0" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey, tags=[]),
+            _event_observation(
                 "b1" * 32,
                 "wss://n85.example.com",
                 kind=1,
@@ -918,7 +930,7 @@ class TestNip85PubkeyStats:
                 tags=[["e", "aa" * 32]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -933,7 +945,7 @@ class TestNip85PubkeyStats:
         author = "c2" * 32
         target = "c3" * 32
         ers = [
-            _event_relay(
+            _event_observation(
                 "b2" * 32,
                 "wss://n85.example.com",
                 kind=7,
@@ -941,7 +953,7 @@ class TestNip85PubkeyStats:
                 tags=[["p", target]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         author_row = await brotr.fetchrow(
@@ -961,14 +973,14 @@ class TestNip85PubkeyStats:
     async def test_reaction_received_uses_first_p_when_tags_present(self, brotr: Brotr) -> None:
         first_target = "c3" * 32
         second_target = "c4" * 32
-        er = _event_relay(
+        er = _event_observation(
             "b20" * 32,
             "wss://n85.example.com",
             kind=7,
             pubkey="c2" * 32,
             tags=[["p", first_target], ["p", second_target]],
         )
-        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.insert_event_observation([er], cascade=True)
         await _refresh_nip85(brotr)
 
         first_row = await brotr.fetchrow(
@@ -987,7 +999,7 @@ class TestNip85PubkeyStats:
         reporter = "c4" * 32
         reported = "c5" * 32
         ers = [
-            _event_relay(
+            _event_observation(
                 "b3" * 32,
                 "wss://n85.example.com",
                 kind=1984,
@@ -995,7 +1007,7 @@ class TestNip85PubkeyStats:
                 tags=[["p", reported]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         row_sent = await brotr.fetchrow(
@@ -1015,14 +1027,14 @@ class TestNip85PubkeyStats:
     async def test_report_received_uses_first_p_when_tags_present(self, brotr: Brotr) -> None:
         first_target = "c5" * 32
         second_target = "c6" * 32
-        er = _event_relay(
+        er = _event_observation(
             "b21" * 32,
             "wss://n85.example.com",
             kind=1984,
             pubkey="c4" * 32,
             tags=[["p", first_target], ["p", second_target]],
         )
-        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.insert_event_observation([er], cascade=True)
         await _refresh_nip85(brotr)
 
         first_row = await brotr.fetchrow(
@@ -1043,13 +1055,13 @@ class TestNip85PubkeyStats:
         original_event_id = "b4" * 32
         # First create the original event so the lookup works
         ers = [
-            _event_relay(
+            _event_observation(
                 original_event_id,
                 "wss://n85.example.com",
                 kind=1,
                 pubkey=original_author,
             ),
-            _event_relay(
+            _event_observation(
                 "b5" * 32,
                 "wss://n85.example.com",
                 kind=6,
@@ -1057,7 +1069,7 @@ class TestNip85PubkeyStats:
                 tags=[["e", original_event_id]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         sent_row = await brotr.fetchrow(
@@ -1078,7 +1090,7 @@ class TestNip85PubkeyStats:
         pubkey = "c8" * 32
         # created_at at 14:00 UTC (14 * 3600 = 50400 seconds into day)
         created_at = 1700000000 - (1700000000 % 86400) + 50400
-        er = _event_relay(
+        er = _event_observation(
             "b6" * 32,
             "wss://n85.example.com",
             kind=1,
@@ -1086,7 +1098,7 @@ class TestNip85PubkeyStats:
             created_at=created_at,
             tags=[],
         )
-        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.insert_event_observation([er], cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -1102,14 +1114,14 @@ class TestNip85PubkeyStats:
     async def test_topic_counts(self, brotr: Brotr) -> None:
         pubkey = "c9" * 32
         ers = [
-            _event_relay(
+            _event_observation(
                 "b7" * 32,
                 "wss://n85.example.com",
                 kind=1,
                 pubkey=pubkey,
                 tags=[["t", "bitcoin"]],
             ),
-            _event_relay(
+            _event_observation(
                 "b8" * 32,
                 "wss://n85.example.com",
                 kind=1,
@@ -1117,7 +1129,7 @@ class TestNip85PubkeyStats:
                 tags=[["t", "bitcoin"], ["t", "nostr"]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -1136,14 +1148,14 @@ class TestNip85PubkeyStats:
             pubkey,
             '{"bitcoin":"oops","nostr":"2"}',
         )
-        er = _event_relay(
+        er = _event_observation(
             "bc" * 32,
             "wss://n85.example.com",
             kind=1,
             pubkey=pubkey,
             tags=[["t", "bitcoin"]],
         )
-        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.insert_event_observation([er], cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -1157,7 +1169,7 @@ class TestNip85PubkeyStats:
 
     async def test_invalid_zap_amount_is_ignored_without_crashing(self, brotr: Brotr) -> None:
         recipient = "cb" * 32
-        er = _event_relay(
+        er = _event_observation(
             "bd" * 32,
             "wss://n85.example.com",
             kind=9735,
@@ -1168,7 +1180,7 @@ class TestNip85PubkeyStats:
                 ["bolt11", "lnbc21000n1qqq"],
             ],
         )
-        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.insert_event_observation([er], cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -1179,12 +1191,16 @@ class TestNip85PubkeyStats:
 
     async def test_incremental_accumulation(self, brotr: Brotr) -> None:
         pubkey = "d0" * 32
-        er1 = _event_relay("b9" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey, seen_at=100)
-        await brotr.insert_event_relay([er1], cascade=True)
+        er1 = _event_observation(
+            "b9" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey, observed_at=100
+        )
+        await brotr.insert_event_observation([er1], cascade=True)
         await _refresh_nip85(brotr, after=0, until=200)
 
-        er2 = _event_relay("ba" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey, seen_at=300)
-        await brotr.insert_event_relay([er2], cascade=True)
+        er2 = _event_observation(
+            "ba" * 32, "wss://n85.example.com", kind=1, pubkey=pubkey, observed_at=300
+        )
+        await brotr.insert_event_observation([er2], cascade=True)
         await _refresh_nip85(brotr, after=200, until=400)
 
         row = await brotr.fetchrow(
@@ -1198,10 +1214,14 @@ class TestNip85PubkeyStats:
         pubkey = "d1" * 32
         event_id = "bb" * 32
         ers = [
-            _event_relay(event_id, "wss://r1.example.com", kind=1, pubkey=pubkey, seen_at=100),
-            _event_relay(event_id, "wss://r2.example.com", kind=1, pubkey=pubkey, seen_at=100),
+            _event_observation(
+                event_id, "wss://r1.example.com", kind=1, pubkey=pubkey, observed_at=100
+            ),
+            _event_observation(
+                event_id, "wss://r2.example.com", kind=1, pubkey=pubkey, observed_at=100
+            ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -1217,18 +1237,18 @@ class TestNip85EventStats:
         target_event = "e0" * 32
         target_author = "d2" * 32
         # Create the target event
-        er_target = _event_relay(
+        er_target = _event_observation(
             target_event, "wss://n85e.example.com", kind=1, pubkey=target_author
         )
         # Create a comment on it
-        er_comment = _event_relay(
+        er_comment = _event_observation(
             "e1" * 32,
             "wss://n85e.example.com",
             kind=1,
             pubkey="d3" * 32,
             tags=[["e", target_event]],
         )
-        await brotr.insert_event_relay([er_target, er_comment], cascade=True)
+        await brotr.insert_event_observation([er_target, er_comment], cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -1243,9 +1263,9 @@ class TestNip85EventStats:
         root_event = "e8" * 32
         reply_target = "e9" * 32
         ers = [
-            _event_relay(root_event, "wss://n85e.example.com", kind=1, pubkey="d2" * 32),
-            _event_relay(reply_target, "wss://n85e.example.com", kind=1, pubkey="d3" * 32),
-            _event_relay(
+            _event_observation(root_event, "wss://n85e.example.com", kind=1, pubkey="d2" * 32),
+            _event_observation(reply_target, "wss://n85e.example.com", kind=1, pubkey="d3" * 32),
+            _event_observation(
                 "ea" * 32,
                 "wss://n85e.example.com",
                 kind=1,
@@ -1253,7 +1273,7 @@ class TestNip85EventStats:
                 tags=[["e", root_event], ["e", reply_target, "", "reply"]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         root_row = await brotr.fetchrow(
@@ -1274,9 +1294,9 @@ class TestNip85EventStats:
         first_target = "10" * 32
         last_target = "11" * 32
         ers = [
-            _event_relay(first_target, "wss://n85e.example.com", kind=1, pubkey="d2" * 32),
-            _event_relay(last_target, "wss://n85e.example.com", kind=1, pubkey="d3" * 32),
-            _event_relay(
+            _event_observation(first_target, "wss://n85e.example.com", kind=1, pubkey="d2" * 32),
+            _event_observation(last_target, "wss://n85e.example.com", kind=1, pubkey="d3" * 32),
+            _event_observation(
                 "12" * 32,
                 "wss://n85e.example.com",
                 kind=1,
@@ -1284,7 +1304,7 @@ class TestNip85EventStats:
                 tags=[["e", first_target], ["e", last_target]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         first_row = await brotr.fetchrow(
@@ -1301,15 +1321,17 @@ class TestNip85EventStats:
 
     async def test_reaction_count(self, brotr: Brotr) -> None:
         target_event = "e2" * 32
-        er_target = _event_relay(target_event, "wss://n85e.example.com", kind=1, pubkey="d4" * 32)
-        er_reaction = _event_relay(
+        er_target = _event_observation(
+            target_event, "wss://n85e.example.com", kind=1, pubkey="d4" * 32
+        )
+        er_reaction = _event_observation(
             "e3" * 32,
             "wss://n85e.example.com",
             kind=7,
             pubkey="d5" * 32,
             tags=[["e", target_event]],
         )
-        await brotr.insert_event_relay([er_target, er_reaction], cascade=True)
+        await brotr.insert_event_observation([er_target, er_reaction], cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -1323,9 +1345,9 @@ class TestNip85EventStats:
         first_target = "eb" * 32
         last_target = "ec" * 32
         ers = [
-            _event_relay(first_target, "wss://n85e.example.com", kind=1, pubkey="d4" * 32),
-            _event_relay(last_target, "wss://n85e.example.com", kind=1, pubkey="d5" * 32),
-            _event_relay(
+            _event_observation(first_target, "wss://n85e.example.com", kind=1, pubkey="d4" * 32),
+            _event_observation(last_target, "wss://n85e.example.com", kind=1, pubkey="d5" * 32),
+            _event_observation(
                 "ed" * 32,
                 "wss://n85e.example.com",
                 kind=7,
@@ -1333,7 +1355,7 @@ class TestNip85EventStats:
                 tags=[["e", first_target], ["e", last_target]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         first_row = await brotr.fetchrow(
@@ -1350,15 +1372,17 @@ class TestNip85EventStats:
 
     async def test_repost_count(self, brotr: Brotr) -> None:
         target_event = "e4" * 32
-        er_target = _event_relay(target_event, "wss://n85e.example.com", kind=1, pubkey="d6" * 32)
-        er_repost = _event_relay(
+        er_target = _event_observation(
+            target_event, "wss://n85e.example.com", kind=1, pubkey="d6" * 32
+        )
+        er_repost = _event_observation(
             "e5" * 32,
             "wss://n85e.example.com",
             kind=6,
             pubkey="d7" * 32,
             tags=[["e", target_event]],
         )
-        await brotr.insert_event_relay([er_target, er_repost], cascade=True)
+        await brotr.insert_event_observation([er_target, er_repost], cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -1372,9 +1396,9 @@ class TestNip85EventStats:
         first_target = "ee" * 32
         second_target = "ef" * 32
         ers = [
-            _event_relay(first_target, "wss://n85e.example.com", kind=1, pubkey="d7" * 32),
-            _event_relay(second_target, "wss://n85e.example.com", kind=1, pubkey="d8" * 32),
-            _event_relay(
+            _event_observation(first_target, "wss://n85e.example.com", kind=1, pubkey="d7" * 32),
+            _event_observation(second_target, "wss://n85e.example.com", kind=1, pubkey="d8" * 32),
+            _event_observation(
                 "f0" * 32,
                 "wss://n85e.example.com",
                 kind=6,
@@ -1382,7 +1406,7 @@ class TestNip85EventStats:
                 tags=[["e", first_target], ["e", second_target]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         first_row = await brotr.fetchrow(
@@ -1399,15 +1423,17 @@ class TestNip85EventStats:
 
     async def test_quote_count(self, brotr: Brotr) -> None:
         target_event = "e6" * 32
-        er_target = _event_relay(target_event, "wss://n85e.example.com", kind=1, pubkey="d8" * 32)
-        er_quote = _event_relay(
+        er_target = _event_observation(
+            target_event, "wss://n85e.example.com", kind=1, pubkey="d8" * 32
+        )
+        er_quote = _event_observation(
             "e7" * 32,
             "wss://n85e.example.com",
             kind=1,
             pubkey="d9" * 32,
             tags=[["q", target_event]],
         )
-        await brotr.insert_event_relay([er_target, er_quote], cascade=True)
+        await brotr.insert_event_observation([er_target, er_quote], cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -1419,29 +1445,29 @@ class TestNip85EventStats:
 
     async def test_incremental_accumulation(self, brotr: Brotr) -> None:
         target_event = "e8" * 32
-        er_target = _event_relay(
-            target_event, "wss://n85e.example.com", kind=1, pubkey="da" * 32, seen_at=100
+        er_target = _event_observation(
+            target_event, "wss://n85e.example.com", kind=1, pubkey="da" * 32, observed_at=100
         )
-        er_react1 = _event_relay(
+        er_react1 = _event_observation(
             "e9" * 32,
             "wss://n85e.example.com",
             kind=7,
             pubkey="db" * 32,
             tags=[["e", target_event]],
-            seen_at=100,
+            observed_at=100,
         )
-        await brotr.insert_event_relay([er_target, er_react1], cascade=True)
+        await brotr.insert_event_observation([er_target, er_react1], cascade=True)
         await _refresh_nip85(brotr, after=0, until=200)
 
-        er_react2 = _event_relay(
+        er_react2 = _event_observation(
             "ea" * 32,
             "wss://n85e.example.com",
             kind=7,
             pubkey="dc" * 32,
             tags=[["e", target_event]],
-            seen_at=300,
+            observed_at=300,
         )
-        await brotr.insert_event_relay([er_react2], cascade=True)
+        await brotr.insert_event_observation([er_react2], cascade=True)
         await _refresh_nip85(brotr, after=200, until=400)
 
         row = await brotr.fetchrow(
@@ -1460,14 +1486,14 @@ class TestNip85AddressableStats:
         target_address = _event_address(30023, author, "article")
         target_event_id = "f1" * 32
         ers = [
-            _event_relay(
+            _event_observation(
                 target_event_id,
                 "wss://n85a.example.com",
                 kind=30023,
                 pubkey=author,
                 tags=[["d", "article"]],
             ),
-            _event_relay(
+            _event_observation(
                 "f2" * 32,
                 "wss://n85a.example.com",
                 kind=1,
@@ -1475,7 +1501,7 @@ class TestNip85AddressableStats:
                 tags=[["e", target_event_id], ["a", target_address, "", "reply"]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -1493,14 +1519,14 @@ class TestNip85AddressableStats:
         target_event_id = "f3" * 32
         target_address = _event_address(30023, author, "reaction-target")
         ers = [
-            _event_relay(
+            _event_observation(
                 target_event_id,
                 "wss://n85a.example.com",
                 kind=30023,
                 pubkey=author,
                 tags=[["d", "reaction-target"]],
             ),
-            _event_relay(
+            _event_observation(
                 "f4" * 32,
                 "wss://n85a.example.com",
                 kind=7,
@@ -1508,7 +1534,7 @@ class TestNip85AddressableStats:
                 tags=[["e", target_event_id]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -1523,14 +1549,14 @@ class TestNip85AddressableStats:
         target_event_id = "f5" * 32
         target_address = _event_address(30023, author, "quote-target")
         ers = [
-            _event_relay(
+            _event_observation(
                 target_event_id,
                 "wss://n85a.example.com",
                 kind=30023,
                 pubkey=author,
                 tags=[["d", "quote-target"]],
             ),
-            _event_relay(
+            _event_observation(
                 "f6" * 32,
                 "wss://n85a.example.com",
                 kind=1,
@@ -1538,7 +1564,7 @@ class TestNip85AddressableStats:
                 tags=[["q", target_event_id]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -1552,7 +1578,7 @@ class TestNip85AddressableStats:
         author = "e7" * 32
         target_address = _event_address(30023, author, "zap-target")
         ers = [
-            _event_relay(
+            _event_observation(
                 "f7" * 32,
                 "wss://n85a.example.com",
                 kind=9735,
@@ -1564,7 +1590,7 @@ class TestNip85AddressableStats:
                 ],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -1580,14 +1606,14 @@ class TestNip85IdentifierStats:
     async def test_identifier_counts_and_k_tags(self, brotr: Brotr) -> None:
         identifier = "isbn:9780140328721"
         ers = [
-            _event_relay(
+            _event_observation(
                 "f8" * 32,
                 "wss://n85id.example.com",
                 kind=1,
                 pubkey="e9" * 32,
                 tags=[["i", identifier], ["k", "book"], ["k", "fiction"]],
             ),
-            _event_relay(
+            _event_observation(
                 "f9" * 32,
                 "wss://n85id.example.com",
                 kind=7,
@@ -1595,7 +1621,7 @@ class TestNip85IdentifierStats:
                 tags=[["i", identifier], ["k", "fiction"]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -1616,12 +1642,12 @@ class TestContactListFacts:
         follower = "c0" * 32
         followed1 = "c1" * 32
         followed2 = "c2" * 32
-        er = _event_relay(
+        er = _event_observation(
             "c3" * 32,
             "wss://contacts.example.com",
             kind=3,
             pubkey=follower,
-            seen_at=100,
+            observed_at=100,
             tags=[
                 ["p", followed1],
                 ["p", followed2],
@@ -1629,7 +1655,7 @@ class TestContactListFacts:
                 ["p", "not-a-valid-pubkey"],
             ],
         )
-        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.insert_event_observation([er], cascade=True)
         await _refresh_contact_graph(brotr, after=0, until=200)
 
         row = await brotr.fetchrow(
@@ -1654,29 +1680,29 @@ class TestContactListFacts:
         shared_friend = "c6" * 32
         new_friend = "c7" * 32
         ers = [
-            _event_relay(
+            _event_observation(
                 "c8" * 32,
                 "wss://contacts.example.com",
                 kind=3,
                 pubkey=follower,
                 created_at=100,
-                seen_at=101,
+                observed_at=101,
                 tags=[["p", old_friend], ["p", shared_friend]],
             ),
-            _event_relay(
+            _event_observation(
                 "c9" * 32,
                 "wss://contacts.example.com",
                 kind=3,
                 pubkey=follower,
                 created_at=200,
-                seen_at=201,
+                observed_at=201,
                 tags=[["p", shared_friend], ["p", new_friend]],
             ),
         ]
-        await brotr.insert_event_relay([ers[0]], cascade=True)
+        await brotr.insert_event_observation([ers[0]], cascade=True)
         await _refresh_contact_graph(brotr, after=0, until=150)
 
-        await brotr.insert_event_relay([ers[1]], cascade=True)
+        await brotr.insert_event_observation([ers[1]], cascade=True)
         await _refresh_contact_graph(brotr, after=150, until=300)
 
         row = await brotr.fetchrow(
@@ -1701,28 +1727,28 @@ class TestContactListFacts:
         follower = "ca" * 32
         followed1 = "cb" * 32
         followed2 = "cc" * 32
-        first = _event_relay(
+        first = _event_observation(
             "cd" * 32,
             "wss://contacts.example.com",
             kind=3,
             pubkey=follower,
             created_at=100,
-            seen_at=101,
+            observed_at=101,
             tags=[["p", followed1], ["p", followed2]],
         )
-        second = _event_relay(
+        second = _event_observation(
             "ce" * 32,
             "wss://contacts.example.com",
             kind=3,
             pubkey=follower,
             created_at=200,
-            seen_at=201,
+            observed_at=201,
             tags=[],
         )
-        await brotr.insert_event_relay([first], cascade=True)
+        await brotr.insert_event_observation([first], cascade=True)
         await _refresh_contact_graph(brotr, after=0, until=150)
 
-        await brotr.insert_event_relay([second], cascade=True)
+        await brotr.insert_event_observation([second], cascade=True)
         await _refresh_contact_graph(brotr, after=150, until=300)
 
         row = await brotr.fetchrow(
@@ -1748,14 +1774,14 @@ class TestNip85FollowerCount:
         follower2 = "f2" * 32
         # Create kind=3 contact lists that follow 'followed'
         ers = [
-            _event_relay(
+            _event_observation(
                 "fc" * 32,
                 "wss://n85f.example.com",
                 kind=3,
                 pubkey=follower1,
                 tags=[["p", followed]],
             ),
-            _event_relay(
+            _event_observation(
                 "fd" * 32,
                 "wss://n85f.example.com",
                 kind=3,
@@ -1763,9 +1789,9 @@ class TestNip85FollowerCount:
                 tags=[["p", followed]],
             ),
             # The followed pubkey needs at least one event for nip85 row to exist
-            _event_relay("fe" * 32, "wss://n85f.example.com", kind=1, pubkey=followed),
+            _event_observation("fe" * 32, "wss://n85f.example.com", kind=1, pubkey=followed),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
         await _refresh_contact_graph(brotr)
         await brotr.execute("SELECT nip85_follower_count_refresh()")
@@ -1782,7 +1808,7 @@ class TestNip85FollowerCount:
         friend1 = "f4" * 32
         friend2 = "f5" * 32
         ers = [
-            _event_relay(
+            _event_observation(
                 "ff" * 32,
                 "wss://n85f.example.com",
                 kind=3,
@@ -1790,9 +1816,9 @@ class TestNip85FollowerCount:
                 tags=[["p", friend1], ["p", friend2]],
             ),
             # User needs an event for the nip85 row
-            _event_relay("f6" * 32, "wss://n85f.example.com", kind=1, pubkey=user),
+            _event_observation("f6" * 32, "wss://n85f.example.com", kind=1, pubkey=user),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
         await _refresh_contact_graph(brotr)
         await brotr.execute("SELECT nip85_follower_count_refresh()")

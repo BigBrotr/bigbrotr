@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import EventRelay, Relay
+from bigbrotr.models import EventObservation, Relay
 from bigbrotr.models.event import Event
 from tests.conftest import make_mock_event
 
@@ -13,16 +13,16 @@ from tests.conftest import make_mock_event
 pytestmark = pytest.mark.integration
 
 
-def _event_relay(
+def _event_observation(
     event_id: str,
     relay_url: str,
     *,
     kind: int = 1,
     pubkey: str = "bb" * 32,
     created_at: int = 1700000000,
-    seen_at: int | None = None,
+    observed_at: int | None = None,
     tags: list[list[str]] | None = None,
-) -> EventRelay:
+) -> EventObservation:
     mock = make_mock_event(
         event_id=event_id,
         pubkey=pubkey,
@@ -32,7 +32,9 @@ def _event_relay(
         tags=tags,
     )
     relay = Relay(relay_url, stored_at=1700000000)
-    return EventRelay(event=Event(mock), relay=relay, seen_at=seen_at or created_at + 1)
+    return EventObservation(
+        event=Event(mock), relay=relay, observed_at=observed_at or created_at + 1
+    )
 
 
 def _event_address(kind: int, pubkey: str, d_tag: str) -> str:
@@ -59,7 +61,7 @@ async def _refresh_contact_graph(brotr: Brotr, after: int = 0, until: int = 2_00
 
 class TestLilBrotrAddressableFallback:
     async def test_addressable_d_tag_falls_back_to_tagvalues(self, brotr: Brotr) -> None:
-        er = _event_relay(
+        er = _event_observation(
             "a1" * 32,
             "wss://lil-fallback.example.com",
             kind=30023,
@@ -67,7 +69,7 @@ class TestLilBrotrAddressableFallback:
             created_at=1000,
             tags=[["d", "my-article"]],
         )
-        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.insert_event_observation([er], cascade=True)
         await brotr.fetchval(
             "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5_000
         )
@@ -80,7 +82,7 @@ class TestLilBrotrAddressableFallback:
         assert row["d_tag"] == "my-article"
 
     async def test_first_d_tag_wins_when_multiple_d_tags_are_present(self, brotr: Brotr) -> None:
-        er = _event_relay(
+        er = _event_observation(
             "a2" * 32,
             "wss://lil-fallback.example.com",
             kind=30023,
@@ -88,7 +90,7 @@ class TestLilBrotrAddressableFallback:
             created_at=1000,
             tags=[["d", "first"], ["d", "second"]],
         )
-        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.insert_event_observation([er], cascade=True)
         await brotr.fetchval(
             "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5_000
         )
@@ -105,10 +107,10 @@ class TestLilBrotrNip85Fallback:
     async def test_post_and_reply_counts_match_bigbrotr_semantics(self, brotr: Brotr) -> None:
         pubkey = "10" * 32
         ers = [
-            _event_relay(
+            _event_observation(
                 "b0" * 32, "wss://lil-fallback.example.com", kind=1, pubkey=pubkey, tags=[]
             ),
-            _event_relay(
+            _event_observation(
                 "b1" * 32,
                 "wss://lil-fallback.example.com",
                 kind=1,
@@ -116,7 +118,7 @@ class TestLilBrotrNip85Fallback:
                 tags=[["e", "aa" * 32]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -130,14 +132,14 @@ class TestLilBrotrNip85Fallback:
     async def test_reaction_received_uses_first_p_fallback(self, brotr: Brotr) -> None:
         first_target = "22" * 32
         second_target = "33" * 32
-        er = _event_relay(
+        er = _event_observation(
             "a3" * 32,
             "wss://lil-fallback.example.com",
             kind=7,
             pubkey="11" * 32,
             tags=[["p", first_target], ["p", second_target], ["p", first_target]],
         )
-        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.insert_event_observation([er], cascade=True)
         await _refresh_nip85(brotr)
 
         first_row = await brotr.fetchrow(
@@ -155,14 +157,14 @@ class TestLilBrotrNip85Fallback:
     async def test_report_received_uses_first_p_fallback(self, brotr: Brotr) -> None:
         first_target = "44" * 32
         second_target = "55" * 32
-        er = _event_relay(
+        er = _event_observation(
             "a4" * 32,
             "wss://lil-fallback.example.com",
             kind=1984,
             pubkey="13" * 32,
             tags=[["p", first_target], ["p", second_target]],
         )
-        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.insert_event_observation([er], cascade=True)
         await _refresh_nip85(brotr)
 
         first_row = await brotr.fetchrow(
@@ -183,13 +185,13 @@ class TestLilBrotrNip85Fallback:
         first_author = "66" * 32
         second_author = "77" * 32
         ers = [
-            _event_relay(
+            _event_observation(
                 first_target, "wss://lil-fallback.example.com", kind=1, pubkey=first_author
             ),
-            _event_relay(
+            _event_observation(
                 second_target, "wss://lil-fallback.example.com", kind=1, pubkey=second_author
             ),
-            _event_relay(
+            _event_observation(
                 "a7" * 32,
                 "wss://lil-fallback.example.com",
                 kind=6,
@@ -197,7 +199,7 @@ class TestLilBrotrNip85Fallback:
                 tags=[["e", first_target], ["e", second_target]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         first_row = await brotr.fetchrow(
@@ -216,16 +218,16 @@ class TestLilBrotrNip85Fallback:
         first_target = "a8" * 32
         last_target = "a9" * 32
         ers = [
-            _event_relay(first_target, "wss://lil-fallback.example.com", kind=1),
-            _event_relay(last_target, "wss://lil-fallback.example.com", kind=1),
-            _event_relay(
+            _event_observation(first_target, "wss://lil-fallback.example.com", kind=1),
+            _event_observation(last_target, "wss://lil-fallback.example.com", kind=1),
+            _event_observation(
                 "aa" * 32,
                 "wss://lil-fallback.example.com",
                 kind=7,
                 tags=[["e", first_target], ["e", last_target]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         first_row = await brotr.fetchrow(
@@ -244,16 +246,16 @@ class TestLilBrotrNip85Fallback:
         first_target = "ab" * 32
         last_target = "ac" * 32
         ers = [
-            _event_relay(first_target, "wss://lil-fallback.example.com", kind=1),
-            _event_relay(last_target, "wss://lil-fallback.example.com", kind=1),
-            _event_relay(
+            _event_observation(first_target, "wss://lil-fallback.example.com", kind=1),
+            _event_observation(last_target, "wss://lil-fallback.example.com", kind=1),
+            _event_observation(
                 "ad" * 32,
                 "wss://lil-fallback.example.com",
                 kind=1,
                 tags=[["e", first_target], ["e", last_target]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         first_row = await brotr.fetchrow(
@@ -271,14 +273,14 @@ class TestLilBrotrNip85Fallback:
     async def test_topic_counts_use_tagvalues(self, brotr: Brotr) -> None:
         pubkey = "99" * 32
         ers = [
-            _event_relay(
+            _event_observation(
                 "ae" * 32,
                 "wss://lil-fallback.example.com",
                 kind=1,
                 pubkey=pubkey,
                 tags=[["t", "bitcoin"]],
             ),
-            _event_relay(
+            _event_observation(
                 "af" * 32,
                 "wss://lil-fallback.example.com",
                 kind=1,
@@ -286,7 +288,7 @@ class TestLilBrotrNip85Fallback:
                 tags=[["t", "bitcoin"], ["t", "nostr"]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -301,14 +303,14 @@ class TestLilBrotrNip85Fallback:
         follower = "bd" * 32
         followed1 = "be" * 32
         followed2 = "bf" * 32
-        er = _event_relay(
+        er = _event_observation(
             "c0" * 32,
             "wss://lil-fallback.example.com",
             kind=3,
             pubkey=follower,
             tags=[["p", followed1], ["p", followed2], ["p", followed1]],
         )
-        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.insert_event_observation([er], cascade=True)
         await _refresh_contact_graph(brotr)
 
         row = await brotr.fetchrow(
@@ -332,28 +334,28 @@ class TestLilBrotrNip85Fallback:
         follower1 = "bb" * 32
         follower2 = "bc" * 32
         ers = [
-            _event_relay(
+            _event_observation(
                 "b2" * 32,
                 "wss://lil-fallback.example.com",
                 kind=3,
                 pubkey=follower1,
                 tags=[["p", followed]],
             ),
-            _event_relay(
+            _event_observation(
                 "b3" * 32,
                 "wss://lil-fallback.example.com",
                 kind=3,
                 pubkey=follower2,
                 tags=[["p", followed]],
             ),
-            _event_relay(
+            _event_observation(
                 "b4" * 32,
                 "wss://lil-fallback.example.com",
                 kind=1,
                 pubkey=followed,
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
         await _refresh_contact_graph(brotr)
         await brotr.execute("SELECT nip85_follower_count_refresh()")
@@ -376,14 +378,14 @@ class TestLilBrotrAddressableAndIdentifierFacts:
     async def test_addressable_comment_uses_last_a_tagvalue(self, brotr: Brotr) -> None:
         first_address = _event_address(30023, "10" * 32, "first")
         last_address = _event_address(30023, "11" * 32, "last")
-        er = _event_relay(
+        er = _event_observation(
             "c1" * 32,
             "wss://lil-fallback.example.com",
             kind=1,
             pubkey="12" * 32,
             tags=[["a", first_address], ["a", last_address]],
         )
-        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.insert_event_observation([er], cascade=True)
         await _refresh_nip85(brotr)
 
         first_row = await brotr.fetchrow(
@@ -403,14 +405,14 @@ class TestLilBrotrAddressableAndIdentifierFacts:
         target_event = "c2" * 32
         target_address = _event_address(30023, author, "mapped")
         ers = [
-            _event_relay(
+            _event_observation(
                 target_event,
                 "wss://lil-fallback.example.com",
                 kind=30023,
                 pubkey=author,
                 tags=[["d", "mapped"]],
             ),
-            _event_relay(
+            _event_observation(
                 "c3" * 32,
                 "wss://lil-fallback.example.com",
                 kind=7,
@@ -418,7 +420,7 @@ class TestLilBrotrAddressableAndIdentifierFacts:
                 tags=[["e", target_event]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -431,14 +433,14 @@ class TestLilBrotrAddressableAndIdentifierFacts:
     async def test_identifier_stats_use_i_and_k_tagvalues(self, brotr: Brotr) -> None:
         identifier = "geo:41.9028,12.4964"
         ers = [
-            _event_relay(
+            _event_observation(
                 "c4" * 32,
                 "wss://lil-fallback.example.com",
                 kind=1,
                 pubkey="15" * 32,
                 tags=[["i", identifier], ["k", "place"], ["k", "city"]],
             ),
-            _event_relay(
+            _event_observation(
                 "c5" * 32,
                 "wss://lil-fallback.example.com",
                 kind=7,
@@ -446,7 +448,7 @@ class TestLilBrotrAddressableAndIdentifierFacts:
                 tags=[["i", identifier], ["k", "city"]],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         row = await brotr.fetchrow(
@@ -466,8 +468,10 @@ class TestLilBrotrZapsBestEffort:
         target_event = "a4" * 32
         sender = "55" * 32
         ers = [
-            _event_relay(target_event, "wss://lil-fallback.example.com", kind=1, pubkey="44" * 32),
-            _event_relay(
+            _event_observation(
+                target_event, "wss://lil-fallback.example.com", kind=1, pubkey="44" * 32
+            ),
+            _event_observation(
                 "a5" * 32,
                 "wss://lil-fallback.example.com",
                 kind=9735,
@@ -480,7 +484,7 @@ class TestLilBrotrZapsBestEffort:
                 ],
             ),
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_nip85(brotr)
 
         pubkey_row = await brotr.fetchrow(

@@ -162,7 +162,7 @@ def _catalog_read_model(
 READ_MODEL_REGISTRY: dict[str, ReadModelEntry] = {
     "relays": _catalog_read_model("relays", "relay"),
     "events": _catalog_read_model("events", "event"),
-    "event-observations": _catalog_read_model("event-observations", "event_relay"),
+    "event-observations": _catalog_read_model("event-observations", "event_observation"),
     "documents": _catalog_read_model("documents", "document"),
     "relay-document-history": _catalog_read_model("relay-document-history", "relay_document"),
     "relay-document-current": _catalog_read_model(

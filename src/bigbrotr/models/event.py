@@ -7,7 +7,7 @@ into Python-native types, and releases the FFI reference.  The underlying
 Rust-side memory from accumulating across event processing pipelines.
 
 See Also:
-    [bigbrotr.models.event_relay][]: Junction model linking an
+    [bigbrotr.models.event_observation][]: Junction model linking an
         [Event][bigbrotr.models.event.Event] to the
         [Relay][bigbrotr.models.relay.Relay] where it was observed.
     [bigbrotr.services.synchronizer][]: The service that collects events from
@@ -42,8 +42,9 @@ class EventDbParams(NamedTuple):
 
     See Also:
         [Event][bigbrotr.models.event.Event]: The model that produces these parameters.
-        [EventRelayDbParams][bigbrotr.models.event_relay.EventRelayDbParams]: Extends
-            these fields with relay and junction data for cascade inserts.
+        [EventObservationDbParams][bigbrotr.models.event_observation.EventObservationDbParams]:
+            Extends these fields with relay and junction data for cascade
+            inserts.
     """
 
     id: bytes
@@ -98,7 +99,7 @@ class Event:
         [EventDbParams][bigbrotr.models.event.EventDbParams]: Database parameter
             container produced by
             [to_db_params()][bigbrotr.models.event.Event.to_db_params].
-        [EventRelay][bigbrotr.models.event_relay.EventRelay]: Junction linking
+        [EventObservation][bigbrotr.models.event_observation.EventObservation]: Junction linking
             this event to the [Relay][bigbrotr.models.relay.Relay] where it was
             observed.
         [EventKind][bigbrotr.models.constants.EventKind]: Well-known Nostr

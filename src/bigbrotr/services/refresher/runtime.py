@@ -51,7 +51,7 @@ class RefreshCycleResult:
     targets_failed: int = 0
     rows_refreshed: int = 0
     cleanup_removed_checkpoints: int = 0
-    watermark_event_relay_lag_seconds: int = 0
+    watermark_event_observation_lag_seconds: int = 0
     watermark_relay_document_lag_seconds: int = 0
     cutoff_reason: str | None = None
     target_results: tuple[RefreshTargetResult, ...] = ()
@@ -84,8 +84,8 @@ def emit_cycle_metrics(
     service.set_gauge("rows_refreshed", result.rows_refreshed)
     service.set_gauge("cleanup_removed_checkpoints", result.cleanup_removed_checkpoints)
     service.set_gauge(
-        "watermark_event_relay_lag_seconds",
-        result.watermark_event_relay_lag_seconds,
+        "watermark_event_observation_lag_seconds",
+        result.watermark_event_observation_lag_seconds,
     )
     service.set_gauge(
         "watermark_relay_document_lag_seconds",

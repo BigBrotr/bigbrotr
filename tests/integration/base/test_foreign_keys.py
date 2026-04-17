@@ -6,7 +6,7 @@ import asyncpg
 import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import EventRelay, Relay, RelayDocument
+from bigbrotr.models import EventObservation, Relay, RelayDocument
 from bigbrotr.models.document import Document, MetadataType
 from bigbrotr.models.event import Event
 from tests.conftest import make_mock_event
@@ -15,10 +15,12 @@ from tests.conftest import make_mock_event
 pytestmark = pytest.mark.integration
 
 
-def _event_relay(event_id: str, relay_url: str, seen_at: int = 1700000001) -> EventRelay:
+def _event_observation(
+    event_id: str, relay_url: str, observed_at: int = 1700000001
+) -> EventObservation:
     mock = make_mock_event(event_id=event_id, sig="ee" * 64)
     relay = Relay(relay_url, stored_at=1700000000)
-    return EventRelay(event=Event(mock), relay=relay, seen_at=seen_at)
+    return EventObservation(event=Event(mock), relay=relay, observed_at=observed_at)
 
 
 def _relay_document(
@@ -33,22 +35,22 @@ def _relay_document(
 
 
 # =============================================================================
-# Relay Cascade Delete → event_relay
+# Relay Cascade Delete → event_observation
 # =============================================================================
 
 
-class TestRelayCascadeToEventRelay:
-    async def test_relay_delete_cascades_to_event_relay(self, brotr: Brotr) -> None:
-        er = _event_relay("a1" * 32, "wss://fk-cascade1.example.com")
-        await brotr.insert_event_relay([er], cascade=True)
-        assert await brotr.fetchval("SELECT COUNT(*) FROM event_relay") == 1
+class TestRelayCascadeToEventObservation:
+    async def test_relay_delete_cascades_to_event_observation(self, brotr: Brotr) -> None:
+        er = _event_observation("a1" * 32, "wss://fk-cascade1.example.com")
+        await brotr.insert_event_observation([er], cascade=True)
+        assert await brotr.fetchval("SELECT COUNT(*) FROM event_observation") == 1
 
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://fk-cascade1.example.com")
-        assert await brotr.fetchval("SELECT COUNT(*) FROM event_relay") == 0
+        assert await brotr.fetchval("SELECT COUNT(*) FROM event_observation") == 0
 
     async def test_relay_delete_does_not_cascade_to_event(self, brotr: Brotr) -> None:
-        er = _event_relay("a2" * 32, "wss://fk-cascade2.example.com")
-        await brotr.insert_event_relay([er], cascade=True)
+        er = _event_observation("a2" * 32, "wss://fk-cascade2.example.com")
+        await brotr.insert_event_observation([er], cascade=True)
 
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://fk-cascade2.example.com")
         assert await brotr.fetchval("SELECT COUNT(*) FROM event") == 1
@@ -58,14 +60,14 @@ class TestRelayCascadeToEventRelay:
         event = Event(mock)
         relay1 = Relay("wss://fk-own1.example.com", stored_at=1700000000)
         relay2 = Relay("wss://fk-own2.example.com", stored_at=1700000000)
-        er1 = EventRelay(event=event, relay=relay1, seen_at=1700000001)
-        er2 = EventRelay(event=event, relay=relay2, seen_at=1700000001)
-        await brotr.insert_event_relay([er1, er2], cascade=True)
+        er1 = EventObservation(event=event, relay=relay1, observed_at=1700000001)
+        er2 = EventObservation(event=event, relay=relay2, observed_at=1700000001)
+        await brotr.insert_event_observation([er1, er2], cascade=True)
 
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://fk-own1.example.com")
 
-        assert await brotr.fetchval("SELECT COUNT(*) FROM event_relay") == 1
-        row = await brotr.fetchrow("SELECT relay_url FROM event_relay")
+        assert await brotr.fetchval("SELECT COUNT(*) FROM event_observation") == 1
+        row = await brotr.fetchrow("SELECT relay_url FROM event_observation")
         assert row["relay_url"] == "wss://fk-own2.example.com"
 
 
@@ -109,7 +111,7 @@ class TestRelayCascadeToRelayDocument:
 # =============================================================================
 
 
-class TestEventRelayForeignKeys:
+class TestEventObservationForeignKeys:
     async def test_missing_relay_raises(self, brotr: Brotr) -> None:
         mock = make_mock_event(event_id="b1" * 32, sig="ee" * 64)
         event = Event(mock)
@@ -117,7 +119,7 @@ class TestEventRelayForeignKeys:
 
         with pytest.raises(asyncpg.ForeignKeyViolationError):
             await brotr.execute(
-                "INSERT INTO event_relay (event_id, relay_url, seen_at) VALUES ($1, $2, $3)",
+                "INSERT INTO event_observation (event_id, relay_url, observed_at) VALUES ($1, $2, $3)",
                 event.to_db_params().id,
                 "wss://nonexistent.example.com",
                 1700000001,
@@ -128,30 +130,30 @@ class TestEventRelayForeignKeys:
 
         with pytest.raises(asyncpg.ForeignKeyViolationError):
             await brotr.execute(
-                "INSERT INTO event_relay (event_id, relay_url, seen_at) VALUES ($1, $2, $3)",
+                "INSERT INTO event_observation (event_id, relay_url, observed_at) VALUES ($1, $2, $3)",
                 b"\x99" * 32,
                 "wss://fk-noev.example.com",
                 1700000001,
             )
 
     async def test_non_cascade_insert_missing_relay(self, brotr: Brotr) -> None:
-        er = _event_relay("b3" * 32, "wss://fk-nc-norel.example.com")
+        er = _event_observation("b3" * 32, "wss://fk-nc-norel.example.com")
         with pytest.raises(asyncpg.ForeignKeyViolationError):
-            await brotr.insert_event_relay([er], cascade=False)
+            await brotr.insert_event_observation([er], cascade=False)
 
     async def test_non_cascade_insert_with_existing_fks(self, brotr: Brotr) -> None:
-        er = _event_relay("b4" * 32, "wss://fk-nc-ok.example.com")
-        await brotr.insert_event_relay([er], cascade=True)
+        er = _event_observation("b4" * 32, "wss://fk-nc-ok.example.com")
+        await brotr.insert_event_observation([er], cascade=True)
 
         mock2 = make_mock_event(event_id="b5" * 32, sig="ee" * 64)
         event2 = Event(mock2)
         await brotr.insert_event([event2])
-        er2 = EventRelay(
+        er2 = EventObservation(
             event=event2,
             relay=Relay("wss://fk-nc-ok.example.com", stored_at=1700000000),
-            seen_at=1700000002,
+            observed_at=1700000002,
         )
-        inserted = await brotr.insert_event_relay([er2], cascade=False)
+        inserted = await brotr.insert_event_observation([er2], cascade=False)
         assert inserted == 1
 
 
@@ -202,17 +204,17 @@ class TestRelayDocumentForeignKeys:
 
 class TestOrphanLifecycle:
     async def test_relay_delete_then_event_orphan_cleanup(self, brotr: Brotr) -> None:
-        er = _event_relay("c1" * 32, "wss://lifecycle-ev.example.com")
-        await brotr.insert_event_relay([er], cascade=True)
+        er = _event_observation("c1" * 32, "wss://lifecycle-ev.example.com")
+        await brotr.insert_event_observation([er], cascade=True)
 
         assert await brotr.fetchval("SELECT COUNT(*) FROM relay") == 1
         assert await brotr.fetchval("SELECT COUNT(*) FROM event") == 1
-        assert await brotr.fetchval("SELECT COUNT(*) FROM event_relay") == 1
+        assert await brotr.fetchval("SELECT COUNT(*) FROM event_observation") == 1
 
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://lifecycle-ev.example.com")
 
         assert await brotr.fetchval("SELECT COUNT(*) FROM relay") == 0
-        assert await brotr.fetchval("SELECT COUNT(*) FROM event_relay") == 0
+        assert await brotr.fetchval("SELECT COUNT(*) FROM event_observation") == 0
         assert await brotr.fetchval("SELECT COUNT(*) FROM event") == 1
 
         deleted = await brotr.delete_orphan_event()
@@ -237,10 +239,10 @@ class TestOrphanLifecycle:
         assert await brotr.fetchval("SELECT COUNT(*) FROM document") == 0
 
     async def test_full_cleanup_pipeline(self, brotr: Brotr) -> None:
-        er = _event_relay("c3" * 32, "wss://pipeline.example.com")
+        er = _event_observation("c3" * 32, "wss://pipeline.example.com")
         rm = _relay_document("wss://pipeline.example.com", {"name": "Pipeline"})
 
-        await brotr.insert_event_relay([er], cascade=True)
+        await brotr.insert_event_observation([er], cascade=True)
         await brotr.insert_relay_document([rm], cascade=True)
 
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://pipeline.example.com")
@@ -252,5 +254,5 @@ class TestOrphanLifecycle:
 
         assert await brotr.fetchval("SELECT COUNT(*) FROM event") == 0
         assert await brotr.fetchval("SELECT COUNT(*) FROM document") == 0
-        assert await brotr.fetchval("SELECT COUNT(*) FROM event_relay") == 0
+        assert await brotr.fetchval("SELECT COUNT(*) FROM event_observation") == 0
         assert await brotr.fetchval("SELECT COUNT(*) FROM relay_document") == 0

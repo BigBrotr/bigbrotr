@@ -53,11 +53,11 @@ COMMENT ON FUNCTION orphan_document_delete(INTEGER) IS
 /*
  * orphan_event_delete(p_batch_size) -> INTEGER
  *
- * Removes events that have no associated relay in event_relay,
+ * Removes events that have no associated relay in event_observation,
  * processing in configurable batches to limit lock duration and WAL volume.
  * This enforces the invariant that every event must be associated with at
  * least one relay. Orphans can appear when a relay is deleted via CASCADE
- * on event_relay but the event itself remains.
+ * on event_observation but the event itself remains.
  *
  * Parameters:
  *   p_batch_size  Maximum rows to delete per iteration (default 10,000)
@@ -78,7 +78,7 @@ BEGIN
         WHERE id IN (
             SELECT e.id FROM event AS e
             WHERE NOT EXISTS (
-                SELECT 1 FROM event_relay AS er WHERE er.event_id = e.id
+                SELECT 1 FROM event_observation AS er WHERE er.event_id = e.id
             )
             LIMIT p_batch_size
         );

@@ -62,7 +62,7 @@ Execution baseline:
 |---------|--------|-------|
 | 0. Integral codebase validation and assumption audit | done | Planning-time validation completed; execution baseline explicitly fixed to the `nip85-hardening` line of work |
 | 1. Contract freeze and rename ledger | done | Canonical rename vocabulary and final contract-freeze companion are now both closed |
-| 2. SQL and shared-schema foundation | in progress | Relay archive-entry semantics, document storage rename, and relay-document history rename are now closed; event-observation and tranche-2 closure slices remain pending |
+| 2. SQL and shared-schema foundation | in progress | Relay archive-entry semantics, document storage rename, relay-document history rename, and event-observation rename are now closed; tranche-2 closure slices remain pending |
 | 3. Python domain-model and `Brotr` alignment | not started | |
 | 4. Shared derivation and maintenance pipeline alignment | not started | |
 | 5. Service-boundary alignment | not started | |
@@ -98,7 +98,7 @@ Execution baseline:
 | 2.1a Relay archive-entry semantics | done | `refactor: align relay archive-entry semantics` | Renamed the canonical relay archive-entry field from `discovered_at` to `stored_at` across schema templates, generated SQL, Python models, monitor/runtime surfaces, fixtures, and tests; targeted tests plus full `make ci` and `uv lock --check` passed before closure |
 | 2.1b Document storage rename | done | `refactor: rename metadata storage to document` | Renamed the content-addressed storage surface from `metadata` to `document` across SQL templates, generated SQL, Python models, `Brotr`, read-model exposure, deployment config, fixtures, and integration/unit tests; closure audit caught and fixed an accidental `nostr_sdk.Metadata` alias drift in `event_builders.py`; targeted tests, full `make ci`, and `uv lock --check` all passed before closure |
 | 2.1c Relay-document history rename | done | `refactor: rename relay metadata history to relay document` | Renamed the relay-to-document history surface from `relay_metadata` to `relay_document` across SQL templates, generated SQL, Python models, NIP serialization, monitor/refresher query and config surfaces, deployment config, dashboards/alerts, fixtures, and unit/integration tests; closure audit fixed over-eager bulk-renamed `generated_at` assertions so NIP result timestamps stayed semantic while relation rows use `associated_at`; targeted unit suites, targeted integration suites, full `make ci`, and `uv lock --check` all passed before closure |
-| 2.1d Event-observation rename | not started | | |
+| 2.1d Event-observation rename | done | `refactor: rename event relay history to event observation` | Renamed the event-to-relay observation history surface from `event_relay` to `event_observation` across SQL templates, generated SQL, Python models, `Brotr`, finder/synchronizer/refresher query and runtime surfaces, read-model exposure, docs, fixtures, and unit/integration tests; closure audit fixed watermark helper and enum drift, corrected over-eager rename fallout in `tools/migrate_relay_urls.py`, and verified the slice with targeted tests, full `make ci`, and `uv lock --check` before closure |
 | 2.1e Core-storage closure audit | not started | | |
 | 2.2 SQL function and current-table alignment | not started | | |
 | 2.3 Shared analytics and score-output alignment | not started | | |

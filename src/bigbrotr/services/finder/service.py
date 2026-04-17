@@ -94,7 +94,7 @@ from .queries import (
     upsert_api_checkpoints,
     upsert_finder_cursors,
 )
-from .utils import extract_relays_from_tagvalues, fetch_api, stream_event_relays
+from .utils import extract_relays_from_tagvalues, fetch_api, stream_event_observations
 
 
 if TYPE_CHECKING:
@@ -267,7 +267,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
 
         Fetches current cursor positions, scans all relays concurrently
         (bounded by ``events.parallel_relays``) via ``_iter_concurrent()``.
-        Workers stream event-relay rows. The parent extracts relay URLs,
+        Workers stream event-observation rows. The parent extracts relay URLs,
         accumulates them in a global buffer flushed at
         ``brotr.config.batch.max_size``, and saves cursors in batch after
         each flush.
@@ -363,7 +363,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         """Stream discovered relays from a single source relay for ``_iter_concurrent``.
 
         Acquires the per-phase semaphore, streams rows via
-        [stream_event_relays][bigbrotr.services.finder.utils.stream_event_relays],
+        [stream_event_observations][bigbrotr.services.finder.utils.stream_event_observations],
         extracts relay URLs from tagvalues, and yields ``(relays, cursor)``
         pairs. On unexpected exception, logs and returns (the relay is silently
         skipped).
@@ -378,7 +378,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
                 scan_size=self._config.events.scan_size,
                 brotr=self._brotr,
                 logger=self._logger,
-                stream_event_relays=stream_event_relays,
+                stream_event_observations=stream_event_observations,
                 extract_relays_from_tagvalues=extract_relays_from_tagvalues,
                 monotonic=time.monotonic,
                 inc_gauge=self.inc_gauge,

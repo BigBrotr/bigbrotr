@@ -166,7 +166,7 @@ internals to API/DVM clients.
 
 ## Database
 
-- **Tables**: `relay`, `event`, `event_relay`, `metadata`, `relay_metadata`, `service_state`
+- **Tables**: `relay`, `event`, `event_observation`, `metadata`, `relay_metadata`, `service_state`
 - **Column names**: metadata table columns `(id, type, data)` with composite PK `(id, type)`. service_state uses `state_value` (NOT `value` or `payload`). relay_metadata columns `(relay_url, metadata_id, metadata_type, generated_at)` with compound FK `(metadata_id, metadata_type)` referencing `metadata(id, type)`.
 - **No CHECK constraints** -- validation in Python enum layer
 - **Hash** computed in Python (SHA-256, no pgcrypto)
@@ -174,7 +174,7 @@ internals to API/DVM clients.
 - **24 functions**: 1 utility (`tags_to_tagvalues`), 10 CRUD, 2 cleanup (batched), 8 summary refresh, 6 matview refresh, 2 periodic (`rolling_windows_refresh`, `relay_stats_metadata_refresh`). All `SECURITY INVOKER` (PostgreSQL default, not explicitly declared).
 - **6 summary tables** (incremental refresh): `pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats`
 - **6 materialized views** (bounded, full refresh): `relay_metadata_latest`, `relay_software_counts`, `supported_nip_counts`, `daily_counts`, `events_replaceable_latest`, `events_addressable_latest`
-- **Cascade functions**: `event_relay_insert_cascade` (relay + event + junction), `relay_metadata_insert_cascade` (relay + metadata + junction)
+- **Cascade functions**: `event_observation_insert_cascade` (relay + event + junction), `relay_metadata_insert_cascade` (relay + metadata + junction)
 - **`Brotr._pool` is private** -- services use Brotr methods, never pool directly
 - **Query conventions**: all domain queries in service-specific `queries.py` modules, use `$1`/`$2` parameterized placeholders (never f-strings for values). Timeouts are config-driven via `TimeoutsConfig` -- query functions never accept `timeout` parameters.
 - When modifying schema or stored procedures, inspect `tools/templates/sql/`,
@@ -194,7 +194,7 @@ internals to API/DVM clients.
 - **Fail-fast validation**: invalid instances never escape the constructor. All validation in `__post_init__`.
 - **Content-addressed deduplication**: Metadata hashed with SHA-256. Same data = same hash, always. Type is NOT included in the hash but is part of the composite PK `(id, type)`, so deduplication operates within each type.
 - **Never trust stored data**: constructors re-validate all inputs. `Relay.__post_init__` re-parses URL completely. `Metadata.__post_init__` recomputes the content hash.
-- **Cascade atomicity**: `event_relay_insert_cascade` and `relay_metadata_insert_cascade` insert across multiple tables in a single SQL call.
+- **Cascade atomicity**: `event_observation_insert_cascade` and `relay_metadata_insert_cascade` insert across multiple tables in a single SQL call.
 
 ## Testing
 

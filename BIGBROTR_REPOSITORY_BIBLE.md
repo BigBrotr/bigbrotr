@@ -246,7 +246,7 @@ Files:
   Canonical relay entity.
 - `event.py`
   Canonical Nostr event wrapper for persistence.
-- `event_relay.py`
+- `event_observation.py`
   Event-observation junction row.
 - `metadata.py`
   Content-addressed metadata document model.
@@ -588,7 +588,7 @@ Core behavior:
 
 - selects relays from `relay`
 - uses shared protocol/streaming helpers to fetch events
-- inserts canonical events and event-relay junctions
+- inserts canonical events and event-observation junctions
 - persists cursors for resume
 
 Synchronizer is the append-only ingestion service. It should not own ranking or
@@ -822,7 +822,7 @@ The core domain revolves around these concepts:
   A validated Nostr relay URL plus network classification.
 - `Event`
   A canonical Nostr event persisted in PostgreSQL.
-- `EventRelay`
+- `EventObservation`
   An observation that a given relay served a given event at a specific time.
 - `Metadata`
   A content-addressed metadata document.
@@ -889,7 +889,7 @@ The schema can be understood in four conceptual layers.
 
 - `relay`
 - `event`
-- `event_relay`
+- `event_observation`
 - `metadata`
 - `relay_metadata`
 - `service_state`
@@ -954,7 +954,7 @@ In BigBrotr, full event content is stored.
 In LilBrotr, `tags`, `content`, and `sig` exist but are always `NULL`; only the
 lightweight shape is retained to save storage.
 
-#### `event_relay`
+#### `event_observation`
 
 Records which relay served which event and when it was first seen there.
 
@@ -1585,7 +1585,7 @@ Flow:
 
 - `Synchronizer` fetches events from relays
 - persists `event`
-- persists `event_relay`
+- persists `event_observation`
 - updates relay cursors/checkpoints in `service_state`
 
 ### 19.4 Canonical derivation

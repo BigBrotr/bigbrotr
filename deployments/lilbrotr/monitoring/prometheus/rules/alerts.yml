@@ -129,15 +129,15 @@ groups:
       # --------------------------------------------------------------------
       - alert: RefresherEventWatermarkLagHigh
         expr: >-
-          service_gauge{service="refresher", name="watermark_event_relay_lag_seconds"} > 3600
+          service_gauge{service="refresher", name="watermark_event_observation_lag_seconds"} > 3600
         for: 30m
         labels:
           severity: warning
         annotations:
           summary: "Refresher event watermark lag is {{ $value | printf \"%.0f\" }}s"
           description: >-
-            The refresher event_relay watermark is more than one hour behind
-            the latest visible event_relay source watermark for over 30 minutes.
+            The refresher event_observation watermark is more than one hour behind
+            the latest visible event_observation source watermark for over 30 minutes.
 
       # --------------------------------------------------------------------
       # RefresherMetadataWatermarkLagHigh: Relay metadata backlog not refreshed

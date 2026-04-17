@@ -29,7 +29,7 @@ The only enforced foreign keys are in the core archive graph. Current-state, ana
 
 | Layer | Tables | Source |
 |-------|--------|--------|
-| Core archive | `relay`, `event`, `event_relay`, `metadata`, `relay_metadata`, `service_state` | Services and cascade insert functions |
+| Core archive | `relay`, `event`, `event_observation`, `metadata`, `relay_metadata`, `service_state` | Services and cascade insert functions |
 | Current state | `relay_metadata_current`, `events_replaceable_current`, `events_addressable_current`, `contact_lists_current`, `contact_list_edges_current` | Refresher, `08_functions_refresh_current.sql` |
 | Core analytics | `pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats`, `daily_counts`, `relay_software_counts`, `supported_nip_counts` | Refresher, `09_functions_refresh_analytics.sql` |
 | NIP-85 facts | `nip85_pubkey_stats`, `nip85_event_stats`, `nip85_addressable_stats`, `nip85_identifier_stats` | Refresher, `09_functions_refresh_analytics.sql` |
@@ -56,10 +56,10 @@ erDiagram
         bytea sig
     }
 
-    event_relay {
+    event_observation {
         bytea event_id FK
         text relay_url FK
-        bigint seen_at
+        bigint observed_at
     }
 
     metadata {
@@ -82,8 +82,8 @@ erDiagram
         jsonb state_value
     }
 
-    relay ||--o{ event_relay : "has events"
-    event ||--o{ event_relay : "seen at relays"
+    relay ||--o{ event_observation : "has events"
+    event ||--o{ event_observation : "seen at relays"
     relay ||--o{ relay_metadata : "has metadata"
     metadata ||--o{ relay_metadata : "referenced by"
 ```
@@ -93,7 +93,7 @@ erDiagram
 ```mermaid
 flowchart LR
     event["event"]
-    event_relay["event_relay"]
+    event_observation["event_observation"]
     relay["relay"]
     relay_metadata["relay_metadata"]
     metadata["metadata"]
@@ -116,10 +116,10 @@ flowchart LR
     event --> addressable
     event --> core_stats
     event --> nip85_stats
-    event_relay --> replaceable
-    event_relay --> addressable
-    event_relay --> core_stats
-    event_relay --> nip85_stats
+    event_observation --> replaceable
+    event_observation --> addressable
+    event_observation --> core_stats
+    event_observation --> nip85_stats
     relay_metadata_current --> relay_meta_stats
     replaceable --> contacts
     contacts --> edges
@@ -188,9 +188,9 @@ Lightweight variant with all 8 columns but tags, content, and sig are nullable a
     In LilBrotr, `tags`, `content`, and `sig` columns exist but are always NULL. The `tagvalues` column is computed by `event_insert()` from the incoming tags before the JSON is discarded. `tagvalues` preserves the original order of single-character tags and stores only each tag's first value (`tag[1]`), which allows most analytics logic to stay shared with BigBrotr. NULL values do not occupy storage, providing approximately 60% disk savings.
 
 !!! note
-    BigBrotr and LilBrotr intentionally share the same analytics schema and refresh logic wherever a metric can be reconstructed from `id`, `pubkey`, `created_at`, `kind`, `event_relay.seen_at`, and `tagvalues`. When a metric depends on tag fields that are not stored in LilBrotr (for example reply markers or multi-character tags such as `amount` and `bolt11`), LilBrotr uses a best-effort fallback instead of adding new persisted columns.
+    BigBrotr and LilBrotr intentionally share the same analytics schema and refresh logic wherever a metric can be reconstructed from `id`, `pubkey`, `created_at`, `kind`, `event_observation.observed_at`, and `tagvalues`. When a metric depends on tag fields that are not stored in LilBrotr (for example reply markers or multi-character tags such as `amount` and `bolt11`), LilBrotr uses a best-effort fallback instead of adding new persisted columns.
 
-### event_relay
+### event_observation
 
 Junction table linking events to relays with first-seen timestamps.
 
@@ -198,7 +198,7 @@ Junction table linking events to relays with first-seen timestamps.
 |--------|------|-------------|-------------|
 | `event_id` | BYTEA | PK (partial), FK -> event(id) ON DELETE CASCADE | Event hash |
 | `relay_url` | TEXT | PK (partial), FK -> relay(url) ON DELETE CASCADE | Relay URL |
-| `seen_at` | BIGINT | NOT NULL | Unix timestamp of first observation |
+| `observed_at` | BIGINT | NOT NULL | Unix timestamp of first observation |
 
 Primary key: `(event_id, relay_url)`.
 
@@ -250,13 +250,13 @@ All foreign keys use `ON DELETE CASCADE`:
 
 | Child Table | Column | Parent Table | Cascade Effect |
 |------------|--------|-------------|----------------|
-| `event_relay` | `event_id` | `event(id)` | Deleting an event removes all relay associations |
-| `event_relay` | `relay_url` | `relay(url)` | Deleting a relay removes all event associations |
+| `event_observation` | `event_id` | `event(id)` | Deleting an event removes all relay associations |
+| `event_observation` | `relay_url` | `relay(url)` | Deleting a relay removes all event associations |
 | `relay_metadata` | `relay_url` | `relay(url)` | Deleting a relay removes all metadata snapshots |
 | `relay_metadata` | `metadata_id` | `metadata(id)` | Deleting metadata removes all references |
 
 !!! warning "Invariants"
-    - Every event must have at least one relay in `event_relay` (enforced by `orphan_event_delete()`)
+    - Every event must have at least one relay in `event_observation` (enforced by `orphan_event_delete()`)
     - Orphaned metadata rows accumulate naturally; clean up with `orphan_metadata_delete()`
 
 ---
@@ -316,13 +316,13 @@ metadata_insert(p_ids BYTEA[], p_metadata_types TEXT[], p_data JSONB[]) -> INTEG
 
 Bulk-inserts content-addressed metadata documents. Duplicate hashes are silently skipped.
 
-### event_relay_insert
+### event_observation_insert
 
 ```sql
-event_relay_insert(p_event_ids BYTEA[], p_relay_urls TEXT[], p_seen_ats BIGINT[]) -> INTEGER
+event_observation_insert(p_event_ids BYTEA[], p_relay_urls TEXT[], p_observed_ats BIGINT[]) -> INTEGER
 ```
 
-Bulk-inserts event-relay junction records. Both event and relay must already exist.
+Bulk-inserts event-observation junction records. Both event and relay must already exist.
 
 ### relay_metadata_insert
 
@@ -370,18 +370,18 @@ Bulk-deletes service state records matching composite keys.
 
 Atomic multi-table operations that call Level 1 CRUD functions within a single transaction.
 
-### event_relay_insert_cascade
+### event_observation_insert_cascade
 
 ```sql
-event_relay_insert_cascade(
+event_observation_insert_cascade(
     p_event_ids BYTEA[], p_pubkeys BYTEA[], p_created_ats BIGINT[],
     p_kinds INTEGER[], p_tags JSONB[], p_content_values TEXT[], p_sigs BYTEA[],
     p_relay_urls TEXT[], p_relay_networks TEXT[], p_relay_discovered_ats BIGINT[],
-    p_seen_ats BIGINT[]
+    p_observed_ats BIGINT[]
 ) -> INTEGER
 ```
 
-Atomically inserts relays, events, and event-relay junctions:
+Atomically inserts relays, events, and event-observation junctions:
 
 1. `relay_insert()` -- ensures relays exist
 2. `event_insert()` -- ensures events exist
@@ -427,7 +427,7 @@ Removes metadata records with no references in `relay_metadata`. Schedule: daily
 orphan_event_delete(p_batch_size INTEGER DEFAULT 10000) -> INTEGER
 ```
 
-Removes events with no associated relays in `event_relay`. Enforces the invariant that every event must have at least one relay. Schedule: daily or after relay deletions.
+Removes events with no associated relays in `event_observation`. Enforces the invariant that every event must have at least one relay. Schedule: daily or after relay deletions.
 
 ---
 
@@ -784,13 +784,13 @@ Analytics refresh functions also accept `(p_after BIGINT, p_until BIGINT)` range
 | `idx_event_pubkey_kind_created_at` | `pubkey, kind, created_at DESC` | BTREE | Author + kind + timeline |
 | `idx_event_tagvalues` | `tagvalues` | GIN | Tag containment (`@>`) |
 
-#### event_relay Indexes
+#### event_observation Indexes
 
 | Index | Columns | Type | Purpose |
 |-------|---------|------|---------|
 | PK | `event_id, relay_url` | BTREE | Composite primary key |
-| `idx_event_relay_seen_at` | `seen_at DESC` | BTREE | Global seen_at ordering for API |
-| `idx_event_relay_relay_url_seen_at_event_id` | `relay_url, seen_at ASC, event_id ASC` | BTREE | Finder cursor pagination (covers relay_url-only via prefix) |
+| `idx_event_observation_observed_at` | `observed_at DESC` | BTREE | Global observed_at ordering for API |
+| `idx_event_observation_relay_url_observed_at_event_id` | `relay_url, observed_at ASC, event_id ASC` | BTREE | Finder cursor pagination (covers relay_url-only via prefix) |
 
 #### relay_metadata Indexes
 
@@ -932,8 +932,8 @@ CREATE TABLE event (
 | Category | Count | Functions |
 |----------|-------|-----------|
 | Utility | 5 | `tags_to_tagvalues`, event address helpers, and `bolt11_amount_msats` |
-| CRUD (Level 1) | 8 | `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `service_state_upsert`, `service_state_get`, `service_state_delete` |
-| CRUD (Level 2) | 2 | `event_relay_insert_cascade`, `relay_metadata_insert_cascade` |
+| CRUD (Level 1) | 8 | `relay_insert`, `event_insert`, `metadata_insert`, `event_observation_insert`, `relay_metadata_insert`, `service_state_upsert`, `service_state_get`, `service_state_delete` |
+| CRUD (Level 2) | 2 | `event_observation_insert_cascade`, `relay_metadata_insert_cascade` |
 | Cleanup | 2 | `orphan_metadata_delete`, `orphan_event_delete` |
 | Current refresh | 5 | `relay_metadata_current_refresh`, `events_replaceable_current_refresh`, `events_addressable_current_refresh`, `contact_lists_current_refresh`, `contact_list_edges_current_refresh` |
 | Analytics refresh | 13 | `daily_counts_refresh`, metadata analytics, entity stats, and NIP-85 stats refresh functions |
@@ -950,7 +950,7 @@ CREATE TABLE event (
 | Refresh periodic reconciliation targets | Hourly/Daily | Run via Refresher service (orchestrates configured targets individually) |
 | Delete orphan events | Daily | `SELECT orphan_event_delete()` |
 | Delete orphan metadata | Daily | `SELECT orphan_metadata_delete()` |
-| VACUUM ANALYZE | Weekly | `VACUUM ANALYZE event; VACUUM ANALYZE event_relay;` |
+| VACUUM ANALYZE | Weekly | `VACUUM ANALYZE event; VACUUM ANALYZE event_observation;` |
 
 ---
 

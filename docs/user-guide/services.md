@@ -41,7 +41,7 @@ flowchart LR
         MD["metadata"]
         RM["relay_metadata"]
         EV["event"]
-        ER["event_relay"]
+        ER["event_observation"]
         CT["current tables"]
         ST["analytics tables"]
         RK["rank tables"]
@@ -139,7 +139,7 @@ flowchart TD
 
 **Discovery sources:**
 
-1. **Event scanning** -- extracts relay URLs from event `tagvalues` regardless of event kind. Any tagvalue that parses as a valid relay URL (`wss://` or `ws://`) becomes a candidate. Scanning is cursor-paginated per relay with `(seen_at, event_id)` tie-breaking.
+1. **Event scanning** -- extracts relay URLs from event `tagvalues` regardless of event kind. Any tagvalue that parses as a valid relay URL (`wss://` or `ws://`) becomes a candidate. Scanning is cursor-paginated per relay with `(observed_at, event_id)` tie-breaking.
 
 2. **API fetching** -- HTTP requests to external sources:
     - Default: nostr.watch online/offline relay list endpoints
@@ -307,7 +307,7 @@ The Monitor uses two types of `CHECKPOINT` records in `service_state`:
 **Mode**: Continuous (`run_forever`)
 
 **Reads**: `relay` (validated relays), `service_state` (cursors)
-**Writes**: `event`, `event_relay` (archived events and junctions), `service_state` (updated cursors)
+**Writes**: `event`, `event_observation` (archived events and junctions), `service_state` (updated cursors)
 
 ### How It Works
 
@@ -322,7 +322,7 @@ flowchart TD
     G --> H["stream_events()<br/><small>windowing with binary-split fallback</small>"]
     H --> I["Buffer events"]
     I --> J{Buffer full?}
-    J -->|Yes| K["insert_event_relays()<br/><small>cascade insert</small>"]
+    J -->|Yes| K["insert_event_observations()<br/><small>cascade insert</small>"]
     J -->|No| L{Stream done?}
     L -->|Yes| K
     L -->|No| I
@@ -333,7 +333,7 @@ flowchart TD
 1. `run()` delegates to `synchronize()` -- fetch cursors ordered by sync progress ascending (most behind first), distribute work
 2. `synchronize()` -- `_iter_concurrent()` with `_sync_worker` async generators and per-network semaphores
 3. For each relay: `_sync_relay_events()` connects via WebSocket, streams events using `stream_events()` with data-driven windowing and binary-split fallback for completeness
-4. Events are buffered and batch-inserted via `insert_event_relays()` (cascade insert to `event` + `event_relay`)
+4. Events are buffered and batch-inserted via `insert_event_observations()` (cascade insert to `event` + `event_observation`)
 5. Per-relay cursor tracking via `ServiceState` with `ServiceStateType.CURSOR`, cursors saved in batch via `upsert_sync_cursors()` at each buffer flush
 6. Cursor set to `end_time` on completion, or last event's `created_at` on partial completion
 

@@ -1,7 +1,7 @@
 """Finder service utility functions.
 
 Helpers for relay URL extraction from Nostr event data and API responses,
-and cursor-paginated streaming of event-relay rows.
+and cursor-paginated streaming of event-observation rows.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from bigbrotr.services.common.types import FinderCursor
 from bigbrotr.services.common.utils import try_parse_relay
 from bigbrotr.utils.http import read_bounded_json
 
-from .queries import scan_event_relay
+from .queries import scan_event_observation
 
 
 if TYPE_CHECKING:
@@ -83,15 +83,15 @@ def extract_relays_from_response(data: Any, expression: str) -> list[Relay]:
     return relays
 
 
-async def stream_event_relays(
+async def stream_event_observations(
     brotr: Brotr,
     cursor: FinderCursor,
     batch_size: int,
 ) -> AsyncGenerator[dict[str, Any], None]:
-    """Stream event-relay rows for a single relay using cursor pagination.
+    """Stream event-observation rows for a single relay using cursor pagination.
 
     Fetches rows in batches of *batch_size* via
-    [scan_event_relay][bigbrotr.services.finder.queries.scan_event_relay],
+    [scan_event_observation][bigbrotr.services.finder.queries.scan_event_observation],
     advancing the cursor after each batch. Yields individual rows.
 
     Args:
@@ -101,11 +101,11 @@ async def stream_event_relays(
         batch_size: Maximum rows per DB query.
 
     Yields:
-        Event-relay row dicts with ``event_id``, ``tagvalues``, ``seen_at``,
+        Event-relay row dicts with ``event_id``, ``tagvalues``, ``observed_at``,
         and other event columns.
     """
     while True:
-        rows = await scan_event_relay(brotr, cursor, batch_size)
+        rows = await scan_event_observation(brotr, cursor, batch_size)
         if not rows:
             break
         for row in rows:
@@ -113,7 +113,7 @@ async def stream_event_relays(
         last = rows[-1]
         cursor = FinderCursor(
             key=cursor.key,
-            timestamp=last["seen_at"],
+            timestamp=last["observed_at"],
             id=last["event_id"].hex(),
         )
         if len(rows) < batch_size:
@@ -130,7 +130,7 @@ def extract_relays_from_tagvalues(rows: list[dict[str, Any]]) -> list[Relay]:
 
     Args:
         rows: Event rows with ``tagvalues`` key (from
-            ``scan_event_relay``).
+            ``scan_event_observation``).
 
     Returns:
         Deduplicated list of [Relay][bigbrotr.models.relay.Relay] objects.

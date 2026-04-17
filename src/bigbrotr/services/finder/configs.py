@@ -18,12 +18,12 @@ from bigbrotr.core.base_service import BaseServiceConfig
 class EventsConfig(BaseModel):
     """Event scanning configuration for discovering relay URLs from stored events.
 
-    Scans all events per relay (cursor-paginated by ``seen_at``) and extracts
+    Scans all events per relay (cursor-paginated by ``observed_at``) and extracts
     relay URLs from ``tagvalues``. Any tagvalue that parses as a valid relay
     URL becomes a validation candidate.
 
     See Also:
-        [scan_event_relay][bigbrotr.services.finder.queries.scan_event_relay]:
+        [scan_event_observation][bigbrotr.services.finder.queries.scan_event_observation]:
             The SQL query driven by ``batch_size``.
         [FinderConfig][bigbrotr.services.finder.FinderConfig]: Parent
             config that embeds this model.

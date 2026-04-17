@@ -36,7 +36,7 @@ Candidates:
 
 - `relay`
 - `event`
-- `event_relay`
+- `event_observation`
 - `metadata`
 - `relay_metadata`
 

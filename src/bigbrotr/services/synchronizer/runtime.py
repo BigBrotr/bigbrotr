@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING, Protocol
 
 from nostr_sdk import NostrSdkError
 
-from bigbrotr.models import EventRelay, Relay
+from bigbrotr.models import EventObservation, Relay
 from bigbrotr.services.common.types import SyncCursor
 
-from .queries import count_cursors_to_sync, insert_event_relays, upsert_sync_cursors
+from .queries import count_cursors_to_sync, insert_event_observations, upsert_sync_cursors
 
 
 if TYPE_CHECKING:
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from .configs import SynchronizerConfig
 
     CursorCounter: TypeAlias = Callable[[Brotr, int, Sequence[NetworkType]], Awaitable[int]]
-    EventRelayInserter: TypeAlias = Callable[[Brotr, list[EventRelay]], Awaitable[int]]
+    EventObservationInserter: TypeAlias = Callable[[Brotr, list[EventObservation]], Awaitable[int]]
     SyncCursorUpserter: TypeAlias = Callable[[Brotr, Iterable[SyncCursor]], Awaitable[None]]
     StreamEvents: TypeAlias = Callable[
         [object, list[object], int, int, int, float, float, int | None],
@@ -95,7 +95,7 @@ class SyncPageContext:
 
     iter_concurrent: SyncConcurrentIterator
     worker: Callable[[SyncCursor], AsyncGenerator[tuple[Event, Relay], None]]
-    flush_batch: Callable[[list[EventRelay], dict[str, SyncCursor]], Awaitable[int]]
+    flush_batch: Callable[[list[EventObservation], dict[str, SyncCursor]], Awaitable[int]]
     inc_gauge: GaugeIncrementer
     logger: Logger
 
@@ -104,7 +104,7 @@ class SyncPageContext:
 class SyncBatchState:
     """Mutable accumulated state for one synchronization page."""
 
-    buffer: list[EventRelay]
+    buffer: list[EventObservation]
     pending_cursors: dict[str, SyncCursor]
 
 
@@ -166,7 +166,7 @@ async def synchronize_cursor_page(
         context.worker,
         max_concurrency=plan.max_concurrency,
     ):
-        batch_state.buffer.append(EventRelay(event, relay))
+        batch_state.buffer.append(EventObservation(event, relay))
         batch_state.pending_cursors[relay.url] = SyncCursor(
             key=relay.url,
             timestamp=event.created_at,
@@ -187,19 +187,19 @@ async def synchronize_cursor_page(
 
 async def flush_sync_batch(
     brotr: Brotr,
-    buffer: list[EventRelay],
+    buffer: list[EventObservation],
     pending_cursors: dict[str, SyncCursor],
     *,
-    insert_event_relays_fn: EventRelayInserter | None = None,
+    insert_event_observations_fn: EventObservationInserter | None = None,
     upsert_sync_cursors_fn: SyncCursorUpserter | None = None,
 ) -> int:
     """Persist one accumulated sync batch and clear in-memory state."""
     events_synced = 0
-    insert_event_relays_impl = insert_event_relays_fn or insert_event_relays
+    insert_event_observations_impl = insert_event_observations_fn or insert_event_observations
     upsert_sync_cursors_impl = upsert_sync_cursors_fn or upsert_sync_cursors
     if buffer:
         records_batch = list(buffer)
-        events_synced = await insert_event_relays_impl(brotr, records_batch)
+        events_synced = await insert_event_observations_impl(brotr, records_batch)
         buffer.clear()
     if pending_cursors:
         cursors_batch = tuple(pending_cursors.values())

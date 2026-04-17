@@ -61,7 +61,7 @@ class EventWorkerContext:
     scan_size: int
     brotr: Brotr
     logger: Logger
-    stream_event_relays: Callable[
+    stream_event_observations: Callable[
         [Brotr, FinderCursor, int],
         AsyncGenerator[dict[str, Any], None],
     ]
@@ -171,7 +171,7 @@ async def stream_event_discovery_worker(
             return
         try:
             deadline = context.monotonic() + context.max_relay_time
-            async for row in context.stream_event_relays(
+            async for row in context.stream_event_observations(
                 context.brotr,
                 cursor,
                 context.scan_size,
@@ -179,7 +179,7 @@ async def stream_event_discovery_worker(
                 relays = context.extract_relays_from_tagvalues([row])
                 updated = FinderCursor(
                     key=cursor.key,
-                    timestamp=int(row["seen_at"]),
+                    timestamp=int(row["observed_at"]),
                     id=bytes(row["event_id"]).hex(),
                 )
                 yield relays, updated

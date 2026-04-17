@@ -111,7 +111,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--until",
         type=int,
-        help="Inclusive upper seen_at watermark to rebuild to (default: current wall clock).",
+        help="Inclusive upper observed_at watermark to rebuild to (default: current wall clock).",
     )
     parser.add_argument(
         "--dry-run",

@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 class WatermarkSource(StrEnum):
     """Append-only source used to checkpoint one incremental target."""
 
-    EVENT_RELAY = "event_relay"
+    EVENT_OBSERVATION = "event_observation"
     RELAY_DOCUMENT = "relay_document"
 
 
@@ -69,7 +69,7 @@ INCREMENTAL_REFRESH_TARGET_SPECS: dict[IncrementalRefreshTarget, IncrementalRefr
             watermark_source=(
                 WatermarkSource.RELAY_DOCUMENT
                 if target in _RELAY_DOCUMENT_TARGETS
-                else WatermarkSource.EVENT_RELAY
+                else WatermarkSource.EVENT_OBSERVATION
             ),
             sql_function=f"{target.value}_refresh",
             metric_key=target.value,
@@ -83,7 +83,7 @@ INCREMENTAL_REFRESH_TARGET_SPECS: dict[IncrementalRefreshTarget, IncrementalRefr
             watermark_source=(
                 WatermarkSource.RELAY_DOCUMENT
                 if target in _RELAY_DOCUMENT_TARGETS
-                else WatermarkSource.EVENT_RELAY
+                else WatermarkSource.EVENT_OBSERVATION
             ),
             sql_function=f"{target.value}_refresh",
             metric_key=target.value,
@@ -123,9 +123,9 @@ def get_periodic_target_spec(target: PeriodicRefreshTarget) -> PeriodicRefreshTa
     return PERIODIC_REFRESH_TARGET_SPECS[target]
 
 
-async def get_event_relay_watermark(brotr: Brotr) -> int:
-    """Return the latest visible ``event_relay.seen_at`` watermark."""
-    result = await brotr.fetchval("SELECT COALESCE(MAX(seen_at), 0) FROM event_relay")
+async def get_event_observation_watermark(brotr: Brotr) -> int:
+    """Return the latest visible ``event_observation.observed_at`` watermark."""
+    result = await brotr.fetchval("SELECT COALESCE(MAX(observed_at), 0) FROM event_observation")
     return int(result) if result else 0
 
 
@@ -135,10 +135,10 @@ async def get_relay_document_watermark(brotr: Brotr) -> int:
     return int(result) if result else 0
 
 
-async def get_max_seen_at(brotr: Brotr, after: int) -> int:
-    """Return the wall-clock timestamp if new ``event_relay`` rows exist after checkpoint."""
+async def get_max_observed_at(brotr: Brotr, after: int) -> int:
+    """Return the wall-clock timestamp if new ``event_observation`` rows exist after checkpoint."""
     exists = await brotr.fetchval(
-        "SELECT EXISTS(SELECT 1 FROM event_relay WHERE seen_at > $1)",
+        "SELECT EXISTS(SELECT 1 FROM event_observation WHERE observed_at > $1)",
         after,
     )
     if not exists:

@@ -10,7 +10,7 @@ import pytest
 from nostr_sdk import Event as NostrEvent
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import EventRelay, Relay
+from bigbrotr.models import EventObservation, Relay
 from bigbrotr.models.constants import EventKind, ServiceName
 from bigbrotr.models.event import Event
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
@@ -69,7 +69,7 @@ def _broadcast_results(
     ]
 
 
-def _event_relay(
+def _event_observation(
     event_id: str,
     relay_url: str,
     *,
@@ -77,7 +77,7 @@ def _event_relay(
     pubkey: str = "bb" * 32,
     created_at: int = 1_700_000_000,
     tags: list[list[str]] | None = None,
-) -> EventRelay:
+) -> EventObservation:
     mock = _make_mock_event(
         event_id=event_id,
         pubkey=pubkey,
@@ -87,7 +87,7 @@ def _event_relay(
         tags=tags or [],
     )
     relay = Relay(relay_url, stored_at=1_700_000_000)
-    return EventRelay(event=Event(mock), relay=relay, seen_at=created_at + 1)
+    return EventObservation(event=Event(mock), relay=relay, observed_at=created_at + 1)
 
 
 def _make_mock_event(
@@ -244,16 +244,16 @@ async def _seed_full_kind_assertor_data(
     identifier: str,
     relay_url: str,
 ) -> None:
-    await brotr.insert_event_relay(
+    await brotr.insert_event_observation(
         [
-            _event_relay(
+            _event_observation(
                 root_event_id,
                 relay_url,
                 pubkey=author,
                 created_at=1_700_000_000,
                 tags=[],
             ),
-            _event_relay(
+            _event_observation(
                 reply_event_id,
                 relay_url,
                 pubkey=replier,

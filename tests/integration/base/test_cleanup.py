@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import EventRelay, Relay, RelayDocument
+from bigbrotr.models import EventObservation, Relay, RelayDocument
 from bigbrotr.models.document import Document, MetadataType
 from bigbrotr.models.event import Event
 from tests.conftest import make_mock_event
@@ -14,10 +14,10 @@ from tests.conftest import make_mock_event
 pytestmark = pytest.mark.integration
 
 
-def _event_relay(event_id: str, relay_url: str) -> EventRelay:
+def _event_observation(event_id: str, relay_url: str) -> EventObservation:
     mock = make_mock_event(event_id=event_id, sig="ee" * 64)
     relay = Relay(relay_url, stored_at=1700000000)
-    return EventRelay(event=Event(mock), relay=relay, seen_at=1700000001)
+    return EventObservation(event=Event(mock), relay=relay, observed_at=1700000001)
 
 
 def _relay_document(
@@ -41,29 +41,30 @@ class TestOrphanEventDelete:
         assert await brotr.delete_orphan_event() == 0
 
     async def test_deletes_orphaned_after_relay_delete(self, brotr: Brotr) -> None:
-        er = _event_relay("a1" * 32, "wss://orphan-ev1.example.com")
-        await brotr.insert_event_relay([er], cascade=True)
+        er = _event_observation("a1" * 32, "wss://orphan-ev1.example.com")
+        await brotr.insert_event_observation([er], cascade=True)
 
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://orphan-ev1.example.com")
         assert await brotr.fetchval("SELECT COUNT(*) FROM event") == 1
-        assert await brotr.fetchval("SELECT COUNT(*) FROM event_relay") == 0
+        assert await brotr.fetchval("SELECT COUNT(*) FROM event_observation") == 0
 
         deleted = await brotr.delete_orphan_event()
         assert deleted == 1
         assert await brotr.fetchval("SELECT COUNT(*) FROM event") == 0
 
     async def test_preserves_non_orphaned(self, brotr: Brotr) -> None:
-        er = _event_relay("a2" * 32, "wss://keep-ev.example.com")
-        await brotr.insert_event_relay([er], cascade=True)
+        er = _event_observation("a2" * 32, "wss://keep-ev.example.com")
+        await brotr.insert_event_observation([er], cascade=True)
 
         assert await brotr.delete_orphan_event() == 0
         assert await brotr.fetchval("SELECT COUNT(*) FROM event") == 1
 
     async def test_multiple_orphans(self, brotr: Brotr) -> None:
         ers = [
-            _event_relay(f"{i + 10:064x}", f"wss://multi-orph-ev{i}.example.com") for i in range(5)
+            _event_observation(f"{i + 10:064x}", f"wss://multi-orph-ev{i}.example.com")
+            for i in range(5)
         ]
-        await brotr.insert_event_relay(ers, cascade=True)
+        await brotr.insert_event_observation(ers, cascade=True)
 
         for i in range(5):
             await brotr.execute(
@@ -76,9 +77,9 @@ class TestOrphanEventDelete:
         assert await brotr.fetchval("SELECT COUNT(*) FROM event") == 0
 
     async def test_mixed_orphaned_and_non_orphaned(self, brotr: Brotr) -> None:
-        er_keep = _event_relay("b1" * 32, "wss://ev-keep.example.com")
-        er_orphan = _event_relay("b2" * 32, "wss://ev-orphan.example.com")
-        await brotr.insert_event_relay([er_keep, er_orphan], cascade=True)
+        er_keep = _event_observation("b1" * 32, "wss://ev-keep.example.com")
+        er_orphan = _event_observation("b2" * 32, "wss://ev-orphan.example.com")
+        await brotr.insert_event_observation([er_keep, er_orphan], cascade=True)
 
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://ev-orphan.example.com")
 
@@ -93,9 +94,9 @@ class TestOrphanEventDelete:
         event = Event(mock)
         relay1 = Relay("wss://ev-multi-r1.example.com", stored_at=1700000000)
         relay2 = Relay("wss://ev-multi-r2.example.com", stored_at=1700000000)
-        er1 = EventRelay(event=event, relay=relay1, seen_at=1700000001)
-        er2 = EventRelay(event=event, relay=relay2, seen_at=1700000001)
-        await brotr.insert_event_relay([er1, er2], cascade=True)
+        er1 = EventObservation(event=event, relay=relay1, observed_at=1700000001)
+        er2 = EventObservation(event=event, relay=relay2, observed_at=1700000001)
+        await brotr.insert_event_observation([er1, er2], cascade=True)
 
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://ev-multi-r1.example.com")
         assert await brotr.delete_orphan_event() == 0
@@ -104,8 +105,8 @@ class TestOrphanEventDelete:
         assert await brotr.delete_orphan_event() == 1
 
     async def test_idempotent_after_cleanup(self, brotr: Brotr) -> None:
-        er = _event_relay("d1" * 32, "wss://ev-idemp.example.com")
-        await brotr.insert_event_relay([er], cascade=True)
+        er = _event_observation("d1" * 32, "wss://ev-idemp.example.com")
+        await brotr.insert_event_observation([er], cascade=True)
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://ev-idemp.example.com")
 
         assert await brotr.delete_orphan_event() == 1

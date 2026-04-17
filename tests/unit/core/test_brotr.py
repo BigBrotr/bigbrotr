@@ -6,7 +6,7 @@ Tests:
 - Brotr initialization with defaults and custom config
 - Factory methods (from_yaml, from_dict)
 - Helper methods (_validate_batch_size, _transpose_to_columns, _call_procedure)
-- Insert operations (insert_event, insert_event_relay, insert_relay, insert_document, insert_relay_document)
+- Insert operations (insert_event, insert_event_observation, insert_relay, insert_document, insert_relay_document)
 - Service state operations (upsert_service_state, get_service_state, delete_service_state)
 - Cleanup operations (delete_orphan_event, delete_orphan_document)
 - Refresh procedure operations (run_refresh_procedure / refresh_materialized_view alias)
@@ -456,46 +456,46 @@ class TestInsertEvent:
         assert inserted == 1
 
 
-class TestInsertEventRelay:
-    """Tests for Brotr.insert_event_relay() method."""
+class TestInsertEventObservation:
+    """Tests for Brotr.insert_event_observation() method."""
 
     async def test_empty_list_returns_zero(self, mock_brotr: Brotr) -> None:
         """Test that empty list returns 0."""
-        inserted = await mock_brotr.insert_event_relay([])
+        inserted = await mock_brotr.insert_event_observation([])
         assert inserted == 0
 
-    async def test_single_event_relay(self, mock_brotr: Brotr, sample_event: Any) -> None:
-        """Test inserting single event-relay junction."""
-        inserted = await mock_brotr.insert_event_relay([sample_event])
+    async def test_single_event_observation(self, mock_brotr: Brotr, sample_event: Any) -> None:
+        """Test inserting single event-observation junction."""
+        inserted = await mock_brotr.insert_event_observation([sample_event])
         assert inserted == 1
 
-    async def test_multiple_event_relays(
+    async def test_multiple_event_observations(
         self, mock_brotr: Brotr, mock_pool: Pool, sample_events_batch: list[Any]
     ) -> None:
-        """Test inserting multiple event-relay junctions."""
+        """Test inserting multiple event-observation junctions."""
         mock_pool._mock_connection.fetchval = AsyncMock(  # type: ignore[attr-defined]
             return_value=len(sample_events_batch)
         )
-        inserted = await mock_brotr.insert_event_relay(sample_events_batch)
+        inserted = await mock_brotr.insert_event_observation(sample_events_batch)
         assert inserted == len(sample_events_batch)
 
     async def test_cascade_true_calls_cascade_procedure(
         self, mock_brotr: Brotr, mock_pool: Pool, sample_event: Any
     ) -> None:
-        """Test that cascade=True calls event_relay_insert_cascade."""
-        await mock_brotr.insert_event_relay([sample_event], cascade=True)
+        """Test that cascade=True calls event_observation_insert_cascade."""
+        await mock_brotr.insert_event_observation([sample_event], cascade=True)
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
         query = mock_conn.fetchval.call_args[0][0]
-        assert "event_relay_insert_cascade" in query
+        assert "event_observation_insert_cascade" in query
 
     async def test_cascade_false_calls_junction_procedure(
         self, mock_brotr: Brotr, mock_pool: Pool, sample_event: Any
     ) -> None:
-        """Test that cascade=False calls event_relay_insert (junction-only)."""
-        await mock_brotr.insert_event_relay([sample_event], cascade=False)
+        """Test that cascade=False calls event_observation_insert (junction-only)."""
+        await mock_brotr.insert_event_observation([sample_event], cascade=False)
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
         query = mock_conn.fetchval.call_args[0][0]
-        assert "event_relay_insert(" in query
+        assert "event_observation_insert(" in query
         assert "cascade" not in query
 
 

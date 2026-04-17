@@ -29,7 +29,7 @@ from bigbrotr.services.synchronizer.queries import (
     delete_stale_cursors,
     fetch_cursors_to_sync,
     fetch_cursors_to_sync_page,
-    insert_event_relays,
+    insert_event_observations,
     iter_cursors_to_sync_pages,
     upsert_sync_cursors,
 )
@@ -60,7 +60,7 @@ def mock_synchronizer_brotr(mock_brotr: Brotr) -> Brotr:
     mock_config.batch = mock_batch_config
     mock_config.timeouts = BrotrTimeoutsConfig()
     mock_brotr._config = mock_config
-    mock_brotr.insert_event_relay = AsyncMock(return_value=0)  # type: ignore[attr-defined]
+    mock_brotr.insert_event_observation = AsyncMock(return_value=0)  # type: ignore[attr-defined]
     mock_brotr.upsert_service_state = AsyncMock(return_value=0)  # type: ignore[attr-defined]
     return mock_brotr
 
@@ -70,7 +70,7 @@ def query_brotr() -> MagicMock:
     brotr = MagicMock()
     brotr.fetchval = AsyncMock(return_value=0)
     brotr.fetch = AsyncMock(return_value=[])
-    brotr.insert_event_relay = AsyncMock(return_value=0)
+    brotr.insert_event_observation = AsyncMock(return_value=0)
     brotr.upsert_service_state = AsyncMock(return_value=0)
     brotr.config.batch.max_size = 1000
     return brotr
@@ -243,30 +243,32 @@ class TestDeleteStaleCursors:
         assert result == 5
 
 
-class TestInsertEventRelays:
-    async def test_delegates_to_insert_event_relay(self, query_brotr: MagicMock) -> None:
-        query_brotr.insert_event_relay = AsyncMock(return_value=3)
+class TestInsertEventObservations:
+    async def test_delegates_to_insert_event_observation(self, query_brotr: MagicMock) -> None:
+        query_brotr.insert_event_observation = AsyncMock(return_value=3)
 
-        result = await insert_event_relays(query_brotr, [MagicMock(), MagicMock(), MagicMock()])
+        result = await insert_event_observations(
+            query_brotr, [MagicMock(), MagicMock(), MagicMock()]
+        )
 
         assert result == 3
-        query_brotr.insert_event_relay.assert_awaited_once()
+        query_brotr.insert_event_observation.assert_awaited_once()
 
     async def test_empty_returns_zero(self, query_brotr: MagicMock) -> None:
-        result = await insert_event_relays(query_brotr, [])
+        result = await insert_event_observations(query_brotr, [])
 
         assert result == 0
-        query_brotr.insert_event_relay.assert_not_awaited()
+        query_brotr.insert_event_observation.assert_not_awaited()
 
     async def test_splits_large_batch(self, query_brotr: MagicMock) -> None:
         query_brotr.config.batch.max_size = 2
-        query_brotr.insert_event_relay = AsyncMock(return_value=2)
+        query_brotr.insert_event_observation = AsyncMock(return_value=2)
 
         records = [MagicMock() for _ in range(5)]
-        result = await insert_event_relays(query_brotr, records)
+        result = await insert_event_observations(query_brotr, records)
 
         assert result == 6  # 2 + 2 + 2
-        assert query_brotr.insert_event_relay.await_count == 3
+        assert query_brotr.insert_event_observation.await_count == 3
 
 
 class TestFetchCursorsToSync:
@@ -561,9 +563,9 @@ class TestSynchronize:
                 "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
                 return_value=_mock_pages([cursor]),
             ),
-            patch("bigbrotr.services.synchronizer.runtime.EventRelay"),
+            patch("bigbrotr.services.synchronizer.runtime.EventObservation"),
             patch(
-                "bigbrotr.services.synchronizer.service.insert_event_relays",
+                "bigbrotr.services.synchronizer.service.insert_event_observations",
                 new_callable=AsyncMock,
                 return_value=2,
             ),
@@ -626,9 +628,9 @@ class TestSynchronize:
                 "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
                 return_value=_mock_pages([cursor]),
             ),
-            patch("bigbrotr.services.synchronizer.runtime.EventRelay"),
+            patch("bigbrotr.services.synchronizer.runtime.EventObservation"),
             patch(
-                "bigbrotr.services.synchronizer.service.insert_event_relays",
+                "bigbrotr.services.synchronizer.service.insert_event_observations",
                 new_callable=AsyncMock,
                 return_value=1,
             ),
@@ -666,9 +668,9 @@ class TestSynchronize:
                 "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
                 return_value=_mock_pages([cursor]),
             ),
-            patch("bigbrotr.services.synchronizer.runtime.EventRelay"),
+            patch("bigbrotr.services.synchronizer.runtime.EventObservation"),
             patch(
-                "bigbrotr.services.synchronizer.service.insert_event_relays",
+                "bigbrotr.services.synchronizer.service.insert_event_observations",
                 mock_insert,
             ),
             patch.object(sync, "_synchronize_worker", side_effect=fake_synchronize_worker),
@@ -693,7 +695,7 @@ class TestSynchronize:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.service.insert_event_relays",
+                "bigbrotr.services.synchronizer.service.insert_event_observations",
                 new_callable=AsyncMock,
                 return_value=1,
             ) as mock_insert,
@@ -733,7 +735,7 @@ class TestSynchronize:
             patch.object(sync, "_iter_concurrent", side_effect=fake_iter_concurrent),
             patch.object(type(sync.network_semaphores), "max_concurrency", return_value=5),
             patch(
-                "bigbrotr.services.synchronizer.runtime.EventRelay",
+                "bigbrotr.services.synchronizer.runtime.EventObservation",
                 side_effect=lambda event, relay: (event, relay),
             ),
             patch.object(
@@ -808,9 +810,9 @@ class TestSynchronize:
                 "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
                 return_value=_mock_pages([cursor]),
             ),
-            patch("bigbrotr.services.synchronizer.runtime.EventRelay"),
+            patch("bigbrotr.services.synchronizer.runtime.EventObservation"),
             patch(
-                "bigbrotr.services.synchronizer.service.insert_event_relays",
+                "bigbrotr.services.synchronizer.service.insert_event_observations",
                 new_callable=AsyncMock,
                 return_value=2,
             ),
@@ -851,9 +853,9 @@ class TestSynchronize:
                 "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
                 return_value=_mock_pages([cursor]),
             ),
-            patch("bigbrotr.services.synchronizer.runtime.EventRelay"),
+            patch("bigbrotr.services.synchronizer.runtime.EventObservation"),
             patch(
-                "bigbrotr.services.synchronizer.service.insert_event_relays",
+                "bigbrotr.services.synchronizer.service.insert_event_observations",
                 new_callable=AsyncMock,
                 return_value=1,
             ),
@@ -891,9 +893,9 @@ class TestSynchronize:
                 "bigbrotr.services.synchronizer.service.iter_cursors_to_sync_pages",
                 return_value=_mock_pages([cursor]),
             ),
-            patch("bigbrotr.services.synchronizer.runtime.EventRelay"),
+            patch("bigbrotr.services.synchronizer.runtime.EventObservation"),
             patch(
-                "bigbrotr.services.synchronizer.service.insert_event_relays",
+                "bigbrotr.services.synchronizer.service.insert_event_observations",
                 new_callable=AsyncMock,
                 return_value=2,
             ),

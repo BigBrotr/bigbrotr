@@ -111,7 +111,7 @@ COMMENT ON TABLE events_addressable_current IS
 -- contact_lists_current: Current latest kind=3 contact list per author
 -- ==========================================================================
 -- One row per pubkey whose latest replaceable kind=3 event is currently active.
--- source_seen_at stores the first seen_at timestamp of the current latest
+-- source_seen_at stores the first observed_at timestamp of the current latest
 -- replaceable event, making the row stable across later duplicate observations
 -- on other relays.
 -- follow_count is the deduplicated number of valid followed pubkeys in that

@@ -109,7 +109,7 @@ class TestFlushSyncBatch:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.runtime.insert_event_relays",
+                "bigbrotr.services.synchronizer.runtime.insert_event_observations",
                 new_callable=AsyncMock,
                 return_value=7,
             ) as mock_insert,
@@ -132,7 +132,7 @@ class TestFlushSyncBatch:
 
         with (
             patch(
-                "bigbrotr.services.synchronizer.runtime.insert_event_relays",
+                "bigbrotr.services.synchronizer.runtime.insert_event_observations",
                 new_callable=AsyncMock,
             ) as mock_insert,
             patch(
@@ -177,7 +177,7 @@ class TestSynchronizeCursorPage:
         pending_cursors: dict[str, SyncCursor] = {}
 
         with patch(
-            "bigbrotr.services.synchronizer.runtime.EventRelay",
+            "bigbrotr.services.synchronizer.runtime.EventObservation",
             return_value=MagicMock(),
         ):
             synced, timed_out = await synchronize_cursor_page(
@@ -230,7 +230,7 @@ class TestSynchronizeCursorPage:
         monotonic = MagicMock(side_effect=[200.0])
 
         with patch(
-            "bigbrotr.services.synchronizer.runtime.EventRelay",
+            "bigbrotr.services.synchronizer.runtime.EventObservation",
             return_value=MagicMock(),
         ):
             synced, timed_out = await synchronize_cursor_page(

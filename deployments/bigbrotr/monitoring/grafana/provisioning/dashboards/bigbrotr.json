@@ -4633,7 +4633,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "bigbrotr_partition_distribution_approx_rows{parent_table=\"event_relay\"} / on() group_left sum(bigbrotr_partition_distribution_approx_rows{parent_table=\"event_relay\"}) * 100",
+          "expr": "bigbrotr_partition_distribution_approx_rows{parent_table=\"event_observation\"} / on() group_left sum(bigbrotr_partition_distribution_approx_rows{parent_table=\"event_observation\"}) * 100",
           "legendFormat": "{{partition_name}}",
           "refId": "A"
         }

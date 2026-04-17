@@ -95,139 +95,139 @@ COMMENT ON COLUMN event.sig IS 'Schnorr signature (nullable, always NULL)';
 
 
 -- ==========================================================================
--- event_relay: Event-to-relay junction table
+-- event_observation: Event-to-relay junction table
 -- ==========================================================================
 -- Tracks which events were observed on which relays, with the timestamp of
 -- first observation. The composite primary key prevents duplicate entries.
 -- CASCADE deletes ensure cleanup when either side is removed.
 
-CREATE TABLE IF NOT EXISTS event_relay (
+CREATE TABLE IF NOT EXISTS event_observation (
     event_id BYTEA NOT NULL,
     relay_url TEXT NOT NULL,
-    seen_at BIGINT NOT NULL,
+    observed_at BIGINT NOT NULL,
     PRIMARY KEY (event_id, relay_url),
     FOREIGN KEY (event_id) REFERENCES event (id) ON DELETE CASCADE,
     FOREIGN KEY (relay_url) REFERENCES relay (url) ON DELETE CASCADE
 ) PARTITION BY HASH (event_id);
 
-CREATE TABLE IF NOT EXISTS event_relay_p0 PARTITION OF event_relay
+CREATE TABLE IF NOT EXISTS event_observation_p0 PARTITION OF event_observation
     FOR VALUES WITH (MODULUS 16, REMAINDER 0);
-CREATE TABLE IF NOT EXISTS event_relay_p1 PARTITION OF event_relay
+CREATE TABLE IF NOT EXISTS event_observation_p1 PARTITION OF event_observation
     FOR VALUES WITH (MODULUS 16, REMAINDER 1);
-CREATE TABLE IF NOT EXISTS event_relay_p2 PARTITION OF event_relay
+CREATE TABLE IF NOT EXISTS event_observation_p2 PARTITION OF event_observation
     FOR VALUES WITH (MODULUS 16, REMAINDER 2);
-CREATE TABLE IF NOT EXISTS event_relay_p3 PARTITION OF event_relay
+CREATE TABLE IF NOT EXISTS event_observation_p3 PARTITION OF event_observation
     FOR VALUES WITH (MODULUS 16, REMAINDER 3);
-CREATE TABLE IF NOT EXISTS event_relay_p4 PARTITION OF event_relay
+CREATE TABLE IF NOT EXISTS event_observation_p4 PARTITION OF event_observation
     FOR VALUES WITH (MODULUS 16, REMAINDER 4);
-CREATE TABLE IF NOT EXISTS event_relay_p5 PARTITION OF event_relay
+CREATE TABLE IF NOT EXISTS event_observation_p5 PARTITION OF event_observation
     FOR VALUES WITH (MODULUS 16, REMAINDER 5);
-CREATE TABLE IF NOT EXISTS event_relay_p6 PARTITION OF event_relay
+CREATE TABLE IF NOT EXISTS event_observation_p6 PARTITION OF event_observation
     FOR VALUES WITH (MODULUS 16, REMAINDER 6);
-CREATE TABLE IF NOT EXISTS event_relay_p7 PARTITION OF event_relay
+CREATE TABLE IF NOT EXISTS event_observation_p7 PARTITION OF event_observation
     FOR VALUES WITH (MODULUS 16, REMAINDER 7);
-CREATE TABLE IF NOT EXISTS event_relay_p8 PARTITION OF event_relay
+CREATE TABLE IF NOT EXISTS event_observation_p8 PARTITION OF event_observation
     FOR VALUES WITH (MODULUS 16, REMAINDER 8);
-CREATE TABLE IF NOT EXISTS event_relay_p9 PARTITION OF event_relay
+CREATE TABLE IF NOT EXISTS event_observation_p9 PARTITION OF event_observation
     FOR VALUES WITH (MODULUS 16, REMAINDER 9);
-CREATE TABLE IF NOT EXISTS event_relay_p10 PARTITION OF event_relay
+CREATE TABLE IF NOT EXISTS event_observation_p10 PARTITION OF event_observation
     FOR VALUES WITH (MODULUS 16, REMAINDER 10);
-CREATE TABLE IF NOT EXISTS event_relay_p11 PARTITION OF event_relay
+CREATE TABLE IF NOT EXISTS event_observation_p11 PARTITION OF event_observation
     FOR VALUES WITH (MODULUS 16, REMAINDER 11);
-CREATE TABLE IF NOT EXISTS event_relay_p12 PARTITION OF event_relay
+CREATE TABLE IF NOT EXISTS event_observation_p12 PARTITION OF event_observation
     FOR VALUES WITH (MODULUS 16, REMAINDER 12);
-CREATE TABLE IF NOT EXISTS event_relay_p13 PARTITION OF event_relay
+CREATE TABLE IF NOT EXISTS event_observation_p13 PARTITION OF event_observation
     FOR VALUES WITH (MODULUS 16, REMAINDER 13);
-CREATE TABLE IF NOT EXISTS event_relay_p14 PARTITION OF event_relay
+CREATE TABLE IF NOT EXISTS event_observation_p14 PARTITION OF event_observation
     FOR VALUES WITH (MODULUS 16, REMAINDER 14);
-CREATE TABLE IF NOT EXISTS event_relay_p15 PARTITION OF event_relay
+CREATE TABLE IF NOT EXISTS event_observation_p15 PARTITION OF event_observation
     FOR VALUES WITH (MODULUS 16, REMAINDER 15);
 
-ALTER TABLE event_relay_p0 SET (
+ALTER TABLE event_observation_p0 SET (
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 10000,
     autovacuum_analyze_scale_factor = 0.01
 );
-ALTER TABLE event_relay_p1 SET (
+ALTER TABLE event_observation_p1 SET (
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 10000,
     autovacuum_analyze_scale_factor = 0.01
 );
-ALTER TABLE event_relay_p2 SET (
+ALTER TABLE event_observation_p2 SET (
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 10000,
     autovacuum_analyze_scale_factor = 0.01
 );
-ALTER TABLE event_relay_p3 SET (
+ALTER TABLE event_observation_p3 SET (
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 10000,
     autovacuum_analyze_scale_factor = 0.01
 );
-ALTER TABLE event_relay_p4 SET (
+ALTER TABLE event_observation_p4 SET (
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 10000,
     autovacuum_analyze_scale_factor = 0.01
 );
-ALTER TABLE event_relay_p5 SET (
+ALTER TABLE event_observation_p5 SET (
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 10000,
     autovacuum_analyze_scale_factor = 0.01
 );
-ALTER TABLE event_relay_p6 SET (
+ALTER TABLE event_observation_p6 SET (
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 10000,
     autovacuum_analyze_scale_factor = 0.01
 );
-ALTER TABLE event_relay_p7 SET (
+ALTER TABLE event_observation_p7 SET (
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 10000,
     autovacuum_analyze_scale_factor = 0.01
 );
-ALTER TABLE event_relay_p8 SET (
+ALTER TABLE event_observation_p8 SET (
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 10000,
     autovacuum_analyze_scale_factor = 0.01
 );
-ALTER TABLE event_relay_p9 SET (
+ALTER TABLE event_observation_p9 SET (
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 10000,
     autovacuum_analyze_scale_factor = 0.01
 );
-ALTER TABLE event_relay_p10 SET (
+ALTER TABLE event_observation_p10 SET (
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 10000,
     autovacuum_analyze_scale_factor = 0.01
 );
-ALTER TABLE event_relay_p11 SET (
+ALTER TABLE event_observation_p11 SET (
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 10000,
     autovacuum_analyze_scale_factor = 0.01
 );
-ALTER TABLE event_relay_p12 SET (
+ALTER TABLE event_observation_p12 SET (
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 10000,
     autovacuum_analyze_scale_factor = 0.01
 );
-ALTER TABLE event_relay_p13 SET (
+ALTER TABLE event_observation_p13 SET (
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 10000,
     autovacuum_analyze_scale_factor = 0.01
 );
-ALTER TABLE event_relay_p14 SET (
+ALTER TABLE event_observation_p14 SET (
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 10000,
     autovacuum_analyze_scale_factor = 0.01
 );
-ALTER TABLE event_relay_p15 SET (
+ALTER TABLE event_observation_p15 SET (
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 10000,
     autovacuum_analyze_scale_factor = 0.01
 );
 
-COMMENT ON TABLE event_relay IS 'Tracks which events appear on which relays, with first-seen timestamps';
-COMMENT ON COLUMN event_relay.event_id IS 'Foreign key to event.id';
-COMMENT ON COLUMN event_relay.relay_url IS 'Foreign key to relay.url';
-COMMENT ON COLUMN event_relay.seen_at IS 'Unix timestamp when event was first observed on this relay';
+COMMENT ON TABLE event_observation IS 'Tracks which events appear on which relays, with first-observation timestamps';
+COMMENT ON COLUMN event_observation.event_id IS 'Foreign key to event.id';
+COMMENT ON COLUMN event_observation.relay_url IS 'Foreign key to relay.url';
+COMMENT ON COLUMN event_observation.observed_at IS 'Unix timestamp when event was first observed on this relay';
 
 
 -- ==========================================================================

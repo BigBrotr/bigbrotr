@@ -42,7 +42,7 @@ The base templates define the Brotr schema shared by all deployments:
 |----------|---------|
 | `00_extensions.sql.j2` | PostgreSQL extensions (btree_gin, pg_stat_statements) |
 | `01_functions_utility.sql.j2` | Tag and event-address utility functions |
-| `02_tables_core.sql.j2` | Core tables: relay, event, event_relay, metadata, relay_metadata, service_state |
+| `02_tables_core.sql.j2` | Core tables: relay, event, event_observation, metadata, relay_metadata, service_state |
 | `03_tables_current.sql.j2` | Current-state tables |
 | `04_tables_analytics.sql.j2` | Analytics and NIP-85 rank tables |
 | `05_functions_crud.sql.j2` | CRUD, cascade, and service-state functions |

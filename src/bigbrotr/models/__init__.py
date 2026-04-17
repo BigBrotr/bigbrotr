@@ -16,7 +16,7 @@ Attributes:
         (clearnet, Tor, I2P, Lokinet). Rejects local IPs.
     Event: Immutable wrapper around ``nostr_sdk.Event`` with BYTEA encoding for
         binary fields (ID, pubkey, sig) and fail-fast DB conversion.
-    EventRelay: Junction linking an [Event][bigbrotr.models.event.Event] to the
+    EventObservation: Junction linking an [Event][bigbrotr.models.event.Event] to the
         [Relay][bigbrotr.models.relay.Relay] where it was observed, with cascade
         insert support for atomic multi-table writes.
     Document: Content-addressed metadata with SHA-256 hashing.
@@ -39,7 +39,7 @@ Note:
 See Also:
     [bigbrotr.models.relay][]: Relay URL validation and network detection.
     [bigbrotr.models.event][]: Nostr event wrapper with database serialization.
-    [bigbrotr.models.event_relay][]: Event-to-relay junction model.
+    [bigbrotr.models.event_observation][]: Event-to-relay junction model.
     [bigbrotr.models.document][]: Content-addressed metadata with SHA-256 hashing.
     [bigbrotr.models.relay_document][]: Relay-to-document junction model.
     [bigbrotr.models.service_state][]: Service state persistence types.
@@ -50,7 +50,7 @@ See Also:
 from .constants import EVENT_KIND_MAX, EventKind, NetworkType, ServiceName
 from .document import Document, MetadataType
 from .event import Event
-from .event_relay import EventRelay
+from .event_observation import EventObservation
 from .relay import Relay
 from .relay_document import RelayDocument
 from .service_state import ServiceState, ServiceStateDbParams, ServiceStateType
@@ -61,7 +61,7 @@ __all__ = [
     "Document",
     "Event",
     "EventKind",
-    "EventRelay",
+    "EventObservation",
     "MetadataType",
     "NetworkType",
     "Relay",

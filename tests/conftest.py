@@ -21,7 +21,7 @@ from nostr_sdk import Keys
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.core.pool import Pool
 from bigbrotr.core.pool_config import DatabaseConfig, PoolConfig
-from bigbrotr.models import EventRelay, Relay, RelayDocument
+from bigbrotr.models import EventObservation, Relay, RelayDocument
 from bigbrotr.models.document import Document, MetadataType
 from bigbrotr.models.event import Event
 
@@ -211,12 +211,12 @@ def make_mock_event(
 
 
 @pytest.fixture
-def sample_event() -> EventRelay:
-    """Sample Nostr EventRelay for testing."""
+def sample_event() -> EventObservation:
+    """Sample Nostr EventObservation for testing."""
     mock_nostr_event = make_mock_event()
     event = Event(mock_nostr_event)
     relay = Relay("wss://relay.example.com", stored_at=1700000000)
-    return EventRelay(event=event, relay=relay, seen_at=1700000001)
+    return EventObservation(event=event, relay=relay, observed_at=1700000001)
 
 
 @pytest.fixture
@@ -259,11 +259,11 @@ def sample_metadata() -> RelayDocument:
 
 
 @pytest.fixture
-def sample_events_batch() -> list[EventRelay]:
-    """Generate a batch of sample EventRelay objects."""
+def sample_events_batch() -> list[EventObservation]:
+    """Generate a batch of sample EventObservation objects."""
     relay = Relay("wss://relay.example.com", stored_at=1700000000)
     return [
-        EventRelay(
+        EventObservation(
             event=Event(
                 make_mock_event(
                     event_id=f"{i:064x}",
@@ -272,7 +272,7 @@ def sample_events_batch() -> list[EventRelay]:
                 )
             ),
             relay=relay,
-            seen_at=1700000001,
+            observed_at=1700000001,
         )
         for i in range(10)
     ]

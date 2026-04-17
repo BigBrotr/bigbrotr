@@ -111,7 +111,7 @@ not:
 
 - `metadata`
 
-### 2.2 `event_observation`, not `event_relay`
+### 2.2 `event_observation`, not `event_observation`
 
 The relation means:
 
@@ -121,7 +121,7 @@ So the future conceptual name is:
 
 - `event_observation`
 
-even if current code and SQL still use `event_relay`.
+even if current code and SQL still use `event_observation`.
 
 ### 2.3 `associated_at` for relay-document history
 
@@ -281,7 +281,7 @@ event_observation (
 
 ### Notes
 
-- this is the future conceptual meaning of today’s `event_relay`;
+- this is the future conceptual meaning of today’s `event_observation`;
 - no observation counters or last-seen helpers are stored by default.
 
 ## 5.4 `document`

@@ -13,7 +13,7 @@ See Also:
         wrapped by this junction.
     [bigbrotr.models.document][]: The [Document][bigbrotr.models.document.Document]
         model wrapped by this junction.
-    [bigbrotr.models.event_relay][]: Analogous junction model linking a
+    [bigbrotr.models.event_observation][]: Analogous junction model linking a
         [Relay][bigbrotr.models.relay.Relay] to an
         [Event][bigbrotr.models.event.Event].
 """
@@ -111,7 +111,7 @@ class RelayDocument:
         [RelayDocumentDbParams][bigbrotr.models.relay_document.RelayDocumentDbParams]:
             Database parameter container produced by
             [to_db_params()][bigbrotr.models.relay_document.RelayDocument.to_db_params].
-        [EventRelay][bigbrotr.models.event_relay.EventRelay]: Analogous junction
+        [EventObservation][bigbrotr.models.event_observation.EventObservation]: Analogous junction
             model for event-to-relay associations.
     """
 

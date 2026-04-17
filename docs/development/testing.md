@@ -136,10 +136,10 @@ The root conftest provides core fixtures used across the entire test suite:
 | `mock_brotr` | `Brotr` | Brotr instance wrapping the mock pool |
 | `mock_connection` | `MagicMock` | Mock asyncpg connection with async methods |
 | `mock_asyncpg_pool` | `MagicMock` | Mock asyncpg pool with acquire context manager |
-| `sample_event` | `EventRelay` | Sample Nostr event with relay association |
+| `sample_event` | `EventObservation` | Sample Nostr event with relay association |
 | `sample_relay` | `Relay` | Standard clearnet relay |
 | `sample_metadata` | `RelayMetadata` | Sample relay metadata (NIP-11 info) |
-| `sample_events_batch` | `list[EventRelay]` | Batch of 10 sample events |
+| `sample_events_batch` | `list[EventObservation]` | Batch of 10 sample events |
 | `sample_relays_batch` | `list[Relay]` | Batch of 10 clearnet relays |
 | `sample_tor_relay` | `Relay` | Sample Tor relay (`.onion`) |
 | `sample_i2p_relay` | `Relay` | Sample I2P relay (`.i2p`) |

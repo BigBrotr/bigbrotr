@@ -9,7 +9,7 @@ Bulk inserts use array parameters to perform the entire batch in a single
 database round-trip. All insert methods accept only validated dataclass
 instances ([Relay][bigbrotr.models.relay.Relay],
 [Event][bigbrotr.models.event.Event],
-[EventRelay][bigbrotr.models.event_relay.EventRelay],
+[EventObservation][bigbrotr.models.event_observation.EventObservation],
 [Document][bigbrotr.models.document.Document],
 [RelayDocument][bigbrotr.models.relay_document.RelayDocument]) to enforce
 type safety at the API boundary.
@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
     from types import TracebackType
 
-    from bigbrotr.models import Document, Event, EventRelay, Relay, RelayDocument
+    from bigbrotr.models import Document, Event, EventObservation, Relay, RelayDocument
 
 
 class _DbParamRecord(Protocol):
@@ -68,7 +68,7 @@ class Brotr:
     methods accept validated dataclass instances
     ([Relay][bigbrotr.models.relay.Relay],
     [Event][bigbrotr.models.event.Event],
-    [EventRelay][bigbrotr.models.event_relay.EventRelay],
+    [EventObservation][bigbrotr.models.event_observation.EventObservation],
     [Document][bigbrotr.models.document.Document],
     [RelayDocument][bigbrotr.models.relay_document.RelayDocument]) and call
     domain-specific stored procedures. However, all domain SQL queries
@@ -93,8 +93,8 @@ class Brotr:
             relay = Relay("wss://relay.example.com")
             await brotr.insert_relay(records=[relay])
 
-            event_relay = EventRelay(event=Event(nostr_event), relay=relay)
-            await brotr.insert_event_relay(records=[event_relay])
+            event_observation = EventObservation(event=Event(nostr_event), relay=relay)
+            await brotr.insert_event_observation(records=[event_observation])
         ```
 
     Note:
@@ -435,7 +435,7 @@ class Brotr:
                 from [BatchConfig][bigbrotr.core.brotr.BatchConfig].
 
         See Also:
-            [insert_event_relay()][bigbrotr.core.brotr.Brotr.insert_event_relay]:
+            [insert_event_observation()][bigbrotr.core.brotr.Brotr.insert_event_observation]:
                 Cascade insert that also creates relay records.
         """
         return await self._insert_record_batch(
@@ -449,7 +449,7 @@ class Brotr:
         """Bulk-insert event records into the ``event`` table only.
 
         Does not create relay associations. Use
-        [insert_event_relay()][bigbrotr.core.brotr.Brotr.insert_event_relay]
+        [insert_event_observation()][bigbrotr.core.brotr.Brotr.insert_event_observation]
         with ``cascade=True`` to also insert relays and junction records.
 
         Args:
@@ -465,7 +465,7 @@ class Brotr:
                 from [BatchConfig][bigbrotr.core.brotr.BatchConfig].
 
         See Also:
-            [insert_event_relay()][bigbrotr.core.brotr.Brotr.insert_event_relay]:
+            [insert_event_observation()][bigbrotr.core.brotr.Brotr.insert_event_observation]:
                 Cascade insert that creates events, relays, and junction records
                 in a single stored procedure call.
         """
@@ -476,20 +476,25 @@ class Brotr:
             log_event="event_inserted",
         )
 
-    async def insert_event_relay(self, records: list[EventRelay], *, cascade: bool = True) -> int:
-        """Bulk-insert event-relay junction records.
+    async def insert_event_observation(
+        self,
+        records: list[EventObservation],
+        *,
+        cascade: bool = True,
+    ) -> int:
+        """Bulk-insert event-observation junction records.
 
         Args:
             records: Validated
-                [EventRelay][bigbrotr.models.event_relay.EventRelay] dataclass
+                [EventObservation][bigbrotr.models.event_observation.EventObservation] dataclass
                 instances.
             cascade: If ``True`` (default), also inserts the parent
                 [Relay][bigbrotr.models.relay.Relay] and
                 [Event][bigbrotr.models.event.Event] records atomically
                 (relays -> events -> junctions) via the
-                ``event_relay_insert_cascade`` stored procedure. If
+                ``event_observation_insert_cascade`` stored procedure. If
                 ``False``, only inserts junction rows via
-                ``event_relay_insert`` and expects foreign keys to already
+                ``event_observation_insert`` and expects foreign keys to already
                 exist.
 
         Returns:
@@ -509,28 +514,28 @@ class Brotr:
         if not records:
             return 0
 
-        self._validate_batch_size(records, "insert_event_relay")
+        self._validate_batch_size(records, "insert_event_observation")
 
-        params = [event_relay.to_db_params() for event_relay in records]
+        params = [event_observation.to_db_params() for event_observation in records]
         columns: tuple[list[Any], ...]
 
         if cascade:
-            # Cascade: relay -> event -> event_relay in one procedure call
+            # Cascade: relay -> event -> event_observation in one procedure call
             columns = self._transpose_to_columns(params)
-            procedure = "event_relay_insert_cascade"
+            procedure = "event_observation_insert_cascade"
         else:
             # Junction-only: caller guarantees foreign keys exist
             event_ids = [p.event_id for p in params]
             relay_urls = [p.relay_url for p in params]
-            seen_ats = [p.seen_at for p in params]
-            procedure = "event_relay_insert"
-            columns = (event_ids, relay_urls, seen_ats)
+            observed_ats = [p.observed_at for p in params]
+            procedure = "event_observation_insert"
+            columns = (event_ids, relay_urls, observed_ats)
 
         return await self._call_counting_procedure(
             procedure,
             *columns,
             timeout=self._config.timeouts.batch,
-            log_event="event_relay_inserted",
+            log_event="event_observation_inserted",
             attempted=len(params),
             cascade=cascade,
         )

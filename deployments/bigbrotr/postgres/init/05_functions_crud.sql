@@ -5,11 +5,11 @@
  *
  *   Level 1 (Base) - Single-table operations:
  *     relay_insert, event_insert, document_insert,
- *     event_relay_insert, relay_document_insert,
+ *     event_observation_insert, relay_document_insert,
  *     service_state_upsert, service_state_get, service_state_delete
  *
  *   Level 2 (Cascade) - Multi-table atomic operations that call Level 1:
- *     event_relay_insert_cascade  -> relay + event + event_relay
+ *     event_observation_insert_cascade  -> relay + event + event_observation
  *     relay_document_insert_cascade -> relay + document + relay_document
  *
  * IMPORTANT: Function signatures are fixed and called by src/bigbrotr/core/brotr.py.
@@ -169,23 +169,23 @@ COMMENT ON FUNCTION document_insert(BYTEA [], TEXT [], JSONB []) IS
 
 
 /*
- * event_relay_insert(BYTEA[], TEXT[], BIGINT[]) -> INTEGER
+ * event_observation_insert(BYTEA[], TEXT[], BIGINT[]) -> INTEGER
  *
- * Bulk-inserts event-relay junction records. Both the referenced event and
- * relay MUST already exist; use event_relay_insert_cascade() if they
+ * Bulk-inserts event-observation junction records. Both the referenced event and
+ * relay MUST already exist; use event_observation_insert_cascade() if they
  * may not exist yet.
  *
  * Parameters:
  *   p_event_ids   - Array of event hashes (must exist in event table)
  *   p_relay_urls  - Array of relay URLs (must exist in relay table)
- *   p_seen_ats    - Array of Unix first-seen timestamps
+ *   p_observed_ats - Array of Unix first-observed timestamps
  *
  * Returns: Number of newly inserted rows
  */
-CREATE OR REPLACE FUNCTION event_relay_insert(
+CREATE OR REPLACE FUNCTION event_observation_insert(
     p_event_ids BYTEA [],
     p_relay_urls TEXT [],
-    p_seen_ats BIGINT []
+    p_observed_ats BIGINT []
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -193,9 +193,9 @@ AS $$
 DECLARE
     v_row_count INTEGER;
 BEGIN
-    INSERT INTO event_relay (event_id, relay_url, seen_at)
-    SELECT * FROM unnest(p_event_ids, p_relay_urls, p_seen_ats)
-        AS t(event_id, relay_url, seen_at)
+    INSERT INTO event_observation (event_id, relay_url, observed_at)
+    SELECT * FROM unnest(p_event_ids, p_relay_urls, p_observed_ats)
+        AS t(event_id, relay_url, observed_at)
     ON CONFLICT (event_id, relay_url) DO NOTHING;
 
     GET DIAGNOSTICS v_row_count = ROW_COUNT;
@@ -203,8 +203,8 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION event_relay_insert(BYTEA [], TEXT [], BIGINT []) IS
-'Bulk insert event-relay junctions, returns number of rows inserted';
+COMMENT ON FUNCTION event_observation_insert(BYTEA [], TEXT [], BIGINT []) IS
+'Bulk insert event-observation junctions, returns number of rows inserted';
 
 
 /*
@@ -257,16 +257,16 @@ COMMENT ON FUNCTION relay_document_insert(TEXT [], BYTEA [], TEXT [], BIGINT [])
 
 
 /*
- * event_relay_insert_cascade(...) -> INTEGER
+ * event_observation_insert_cascade(...) -> INTEGER
  *
  * Atomically inserts relays, events, and their junction records in a single
  * transaction. Delegates to relay_insert() and event_insert() internally,
  * so customizations to those base functions automatically apply here.
  *
- * Parameters: Arrays of event fields + relay fields + seen_at timestamps
- * Returns: Number of junction rows inserted in event_relay
+ * Parameters: Arrays of event fields + relay fields + observed-at timestamps
+ * Returns: Number of junction rows inserted in event_observation
  */
-CREATE OR REPLACE FUNCTION event_relay_insert_cascade(
+CREATE OR REPLACE FUNCTION event_observation_insert_cascade(
     p_event_ids BYTEA [],
     p_pubkeys BYTEA [],
     p_created_ats BIGINT [],
@@ -277,7 +277,7 @@ CREATE OR REPLACE FUNCTION event_relay_insert_cascade(
     p_relay_urls TEXT [],
     p_relay_networks TEXT [],
     p_relay_stored_ats BIGINT [],
-    p_seen_ats BIGINT []
+    p_observed_ats BIGINT []
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -292,9 +292,9 @@ BEGIN
     PERFORM event_insert(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags, p_content_values, p_sigs);
 
     -- Insert junction records, deduplicating within the batch via DISTINCT ON
-    INSERT INTO event_relay (event_id, relay_url, seen_at)
-    SELECT DISTINCT ON (event_id, relay_url) event_id, relay_url, seen_at
-    FROM unnest(p_event_ids, p_relay_urls, p_seen_ats) AS t(event_id, relay_url, seen_at)
+    INSERT INTO event_observation (event_id, relay_url, observed_at)
+    SELECT DISTINCT ON (event_id, relay_url) event_id, relay_url, observed_at
+    FROM unnest(p_event_ids, p_relay_urls, p_observed_ats) AS t(event_id, relay_url, observed_at)
     ON CONFLICT (event_id, relay_url) DO NOTHING;
 
     GET DIAGNOSTICS v_row_count = ROW_COUNT;
@@ -302,7 +302,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION event_relay_insert_cascade(
+COMMENT ON FUNCTION event_observation_insert_cascade(
     BYTEA [], BYTEA [], BIGINT [], INTEGER [], JSONB [], TEXT [], BYTEA [],
     TEXT [], TEXT [], BIGINT [], BIGINT []
 ) IS

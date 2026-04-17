@@ -34,7 +34,7 @@ Ten **independent** async services share a PostgreSQL database. Each runs on its
               ┌───────────────────────────────────────────────────────────────────┐
               │                         PostgreSQL Database                       │
               │                                                                   │
-              │              relay ─── event_relay ─── event                      │
+              │              relay ─── event_observation ─── event                      │
               │              metadata ─── relay_metadata                          │
               │              service_state   6 summary tables + 6 matviews        │
               └──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬──────────────┘
@@ -110,11 +110,11 @@ Imports flow strictly downward:
           │               │ │   └──────────────────────────────────────┘
           │               │ │
           │    ┌──────────┴─┴──────────────────┐
-          │    │          event_relay          │
+          │    │          event_observation          │
           │    │───────────────────────────────│
           ├───►│ relay_url    FK ──► relay.url |
           │    │ event_id     FK ──► event.id  |
-          │    │ seen_at      BIGINT           |
+          │    │ observed_at      BIGINT           |
           │    │ PK(event_id, relay_url)       |
           │    └───────────────────────────────┘
           │
@@ -148,7 +148,7 @@ Imports flow strictly downward:
 ```
 
 **Key relationships**:
-- `relay` is the central entity. Cascade deletes propagate to `event_relay` and `relay_metadata`.
+- `relay` is the central entity. Cascade deletes propagate to `event_observation` and `relay_metadata`.
 - `metadata` is content-addressed: SHA-256 hash of canonical JSON + type as composite PK. Same data = same hash.
 - `service_state` is a generic key-value store used by Finder (cursors), Validator (candidates), Monitor (checkpoints), Synchronizer (cursors).
 - `event.tagvalues` is computed at insert time by `event_insert()` (from `tags_to_tagvalues(tags)`) and indexed with GIN for fast containment queries.
@@ -274,7 +274,7 @@ PostgreSQL 18 with PGBouncer (transaction-mode pooling) and asyncpg async driver
 |-------|---------|
 | `relay` | Validated relay URLs with network type and discovery timestamp |
 | `event` | Nostr events (BYTEA ids/pubkeys/sigs for space efficiency) |
-| `event_relay` | Junction: which events were seen at which relays (with `seen_at`) |
+| `event_observation` | Junction: which events were seen at which relays (with `observed_at`) |
 | `metadata` | Content-addressed NIP-11/NIP-66 documents (SHA-256 dedup, composite PK `(id, type)`) |
 | `relay_metadata` | Time-series snapshots linking relays to metadata records |
 | `service_state` | Per-service operational data (candidates, cursors, checkpoints) |
@@ -282,7 +282,7 @@ PostgreSQL 18 with PGBouncer (transaction-mode pooling) and asyncpg async driver
 ### Stored Functions (24)
 
 - **1 utility**: `tags_to_tagvalues` (extracts key-prefixed single-char tag values for GIN indexing)
-- **10 CRUD**: `relay_insert`, `event_insert`, `metadata_insert`, `event_relay_insert`, `relay_metadata_insert`, `event_relay_insert_cascade`, `relay_metadata_insert_cascade`, `service_state_upsert`, `service_state_get`, `service_state_delete`
+- **10 CRUD**: `relay_insert`, `event_insert`, `metadata_insert`, `event_observation_insert`, `relay_metadata_insert`, `event_observation_insert_cascade`, `relay_metadata_insert_cascade`, `service_state_upsert`, `service_state_get`, `service_state_delete`
 - **2 cleanup**: `orphan_event_delete`, `orphan_metadata_delete` (batched)
 - **14 refresh**: 8 summary table refresh functions + 6 materialized view refresh functions
 - **2 periodic**: `rolling_windows_refresh`, `relay_stats_metadata_refresh`
@@ -491,7 +491,7 @@ bigbrotr/
 │   │   ├── relay.py                 # URL validation (rfc3986), network detection
 │   │   ├── event.py                 # Nostr event wrapper (nostr_sdk.Event)
 │   │   ├── metadata.py              # Content-addressed metadata (SHA-256)
-│   │   ├── event_relay.py           # Event-relay junction (cascade insert)
+│   │   ├── event_observation.py           # Event-relay junction (cascade insert)
 │   │   ├── relay_metadata.py        # Relay-metadata junction (cascade insert)
 │   │   ├── service_state.py         # Operational state persistence
 │   │   ├── constants.py             # NetworkType, ServiceName, EventKind enums

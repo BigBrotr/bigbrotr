@@ -31,10 +31,10 @@ from bigbrotr.services.refresher.configs import (
 )
 from bigbrotr.services.refresher.queries import (
     WatermarkSource,
-    get_event_relay_watermark,
+    get_event_observation_watermark,
     get_incremental_target_spec,
     get_max_associated_at,
-    get_max_seen_at,
+    get_max_observed_at,
     get_periodic_target_spec,
     get_relay_document_watermark,
 )
@@ -208,12 +208,12 @@ class TestRefreshQueryRegistry:
             get_incremental_target_spec(target).watermark_source is WatermarkSource.RELAY_DOCUMENT
         )
 
-    def test_event_targets_use_event_relay_watermark(self) -> None:
+    def test_event_targets_use_event_observation_watermark(self) -> None:
         assert (
             get_incremental_target_spec(
                 CurrentRefreshTarget.EVENTS_REPLACEABLE_CURRENT
             ).watermark_source
-            is WatermarkSource.EVENT_RELAY
+            is WatermarkSource.EVENT_OBSERVATION
         )
 
     def test_periodic_registry_maps_sql_functions(self) -> None:
@@ -231,14 +231,14 @@ class TestRefreshQueryRegistry:
         brotr = MagicMock(spec=Brotr)
         brotr.fetchval = AsyncMock(side_effect=[123, 456])
 
-        assert await get_event_relay_watermark(brotr) == 123
+        assert await get_event_observation_watermark(brotr) == 123
         assert await get_relay_document_watermark(brotr) == 456
 
     async def test_incremental_watermarks_hold_checkpoint_without_new_rows(self) -> None:
         brotr = MagicMock(spec=Brotr)
         brotr.fetchval = AsyncMock(return_value=False)
 
-        assert await get_max_seen_at(brotr, 100) == 100
+        assert await get_max_observed_at(brotr, 100) == 100
         assert await get_max_associated_at(brotr, 200) == 200
 
     async def test_incremental_watermarks_advance_to_wall_clock_when_rows_exist(self) -> None:
@@ -246,7 +246,7 @@ class TestRefreshQueryRegistry:
         brotr.fetchval = AsyncMock(return_value=True)
 
         with patch("bigbrotr.services.refresher.queries.time.time", return_value=999):
-            assert await get_max_seen_at(brotr, 100) == 999
+            assert await get_max_observed_at(brotr, 100) == 999
             assert await get_max_associated_at(brotr, 200) == 999
 
 
@@ -390,7 +390,7 @@ class TestRefresherRun:
                 AsyncMock(return_value=5),
             ) as mock_associated,
             patch(
-                "bigbrotr.services.refresher.service.get_max_seen_at", AsyncMock(return_value=5)
+                "bigbrotr.services.refresher.service.get_max_observed_at", AsyncMock(return_value=5)
             ) as mock_seen,
             patch(
                 "bigbrotr.services.refresher.service.refresh_incremental_target",
@@ -429,7 +429,7 @@ class TestRefresherRun:
             AsyncMock(
                 return_value=(
                     result,
-                    WatermarkSource.EVENT_RELAY,
+                    WatermarkSource.EVENT_OBSERVATION,
                     11,
                 )
             ),
@@ -443,7 +443,7 @@ class TestRefresherRun:
         assert cutoff_reason is None
         mock_run.assert_awaited_once_with(CurrentRefreshTarget.EVENTS_REPLACEABLE_CURRENT)
         assert target_results == [result]
-        assert source_checkpoints == {WatermarkSource.EVENT_RELAY: 11}
+        assert source_checkpoints == {WatermarkSource.EVENT_OBSERVATION: 11}
 
     async def test_run_periodic_cycle_targets_respects_cutoff_budget(
         self,
@@ -475,13 +475,15 @@ class TestRefresherRun:
         )
 
         with (
-            patch("bigbrotr.services.refresher.service.get_max_seen_at", AsyncMock(return_value=0)),
+            patch(
+                "bigbrotr.services.refresher.service.get_max_observed_at", AsyncMock(return_value=0)
+            ),
             patch(
                 "bigbrotr.services.refresher.service.refresh_incremental_target",
                 AsyncMock(),
             ) as mock_refresh,
             patch(
-                "bigbrotr.services.refresher.service.get_event_relay_watermark",
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
                 AsyncMock(return_value=0),
             ),
         ):
@@ -504,7 +506,7 @@ class TestRefresherRun:
 
         with (
             patch(
-                "bigbrotr.services.refresher.service.get_max_seen_at",
+                "bigbrotr.services.refresher.service.get_max_observed_at",
                 AsyncMock(side_effect=[11, 22]),
             ),
             patch(
@@ -512,7 +514,7 @@ class TestRefresherRun:
                 AsyncMock(side_effect=[7, 9]),
             ) as mock_refresh,
             patch(
-                "bigbrotr.services.refresher.service.get_event_relay_watermark",
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
                 AsyncMock(return_value=22),
             ),
             patch.object(refresher._logger, "info") as mock_info,
@@ -552,7 +554,7 @@ class TestRefresherRun:
 
         with (
             patch(
-                "bigbrotr.services.refresher.service.get_max_seen_at",
+                "bigbrotr.services.refresher.service.get_max_observed_at",
                 AsyncMock(side_effect=[11, 22]),
             ),
             patch(
@@ -560,7 +562,7 @@ class TestRefresherRun:
                 AsyncMock(side_effect=[asyncpg.PostgresError("boom"), 9]),
             ),
             patch(
-                "bigbrotr.services.refresher.service.get_event_relay_watermark",
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
                 AsyncMock(return_value=22),
             ),
             patch.object(refresher._logger, "error") as mock_error,
@@ -594,7 +596,7 @@ class TestRefresherRun:
 
         with (
             patch(
-                "bigbrotr.services.refresher.service.get_max_seen_at",
+                "bigbrotr.services.refresher.service.get_max_observed_at",
                 AsyncMock(return_value=11),
             ),
             patch(
@@ -602,7 +604,7 @@ class TestRefresherRun:
                 AsyncMock(side_effect=asyncpg.PostgresError("boom")),
             ) as mock_refresh,
             patch(
-                "bigbrotr.services.refresher.service.get_event_relay_watermark",
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
                 AsyncMock(return_value=11),
             ),
             pytest.raises(RuntimeError, match="events_replaceable_current"),
@@ -689,7 +691,7 @@ class TestRefresherRun:
 
         with (
             patch(
-                "bigbrotr.services.refresher.service.get_max_seen_at",
+                "bigbrotr.services.refresher.service.get_max_observed_at",
                 AsyncMock(return_value=11),
             ),
             patch(
@@ -701,7 +703,7 @@ class TestRefresherRun:
                 AsyncMock(),
             ) as mock_periodic,
             patch(
-                "bigbrotr.services.refresher.service.get_event_relay_watermark",
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
                 AsyncMock(return_value=11),
             ),
         ):
@@ -755,20 +757,21 @@ class TestRefresherRun:
 
         with (
             patch(
-                "bigbrotr.services.refresher.service.get_max_seen_at", AsyncMock(return_value=50)
+                "bigbrotr.services.refresher.service.get_max_observed_at",
+                AsyncMock(return_value=50),
             ),
             patch(
                 "bigbrotr.services.refresher.service.refresh_incremental_target",
                 AsyncMock(return_value=1),
             ),
             patch(
-                "bigbrotr.services.refresher.service.get_event_relay_watermark",
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
                 AsyncMock(return_value=55),
             ),
         ):
             result = await refresher.refresh()
 
-        assert result.watermark_event_relay_lag_seconds == 5
+        assert result.watermark_event_observation_lag_seconds == 5
 
     async def test_relay_document_watermark_lag_is_reported(
         self, mock_refresher_brotr: Brotr
@@ -805,11 +808,13 @@ class TestRefresherMetrics:
         )
 
         with (
-            patch("bigbrotr.services.refresher.service.get_max_seen_at", AsyncMock(return_value=0)),
+            patch(
+                "bigbrotr.services.refresher.service.get_max_observed_at", AsyncMock(return_value=0)
+            ),
             patch("bigbrotr.services.refresher.service.refresh_incremental_target", AsyncMock()),
             patch("bigbrotr.services.refresher.service.refresh_periodic_target", AsyncMock()),
             patch(
-                "bigbrotr.services.refresher.service.get_event_relay_watermark",
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
                 AsyncMock(return_value=0),
             ),
             patch.object(refresher, "set_gauge") as mock_gauge,

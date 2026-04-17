@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import EventRelay, Relay
+from bigbrotr.models import EventObservation, Relay
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.event import Event
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
@@ -16,16 +16,16 @@ from tests.conftest import make_mock_event
 pytestmark = pytest.mark.integration
 
 
-def _event_relay(
+def _event_observation(
     event_id: str,
     relay_url: str,
     *,
     kind: int = 1,
     pubkey: str = "aa" * 32,
     created_at: int = 1700000000,
-    seen_at: int | None = None,
+    observed_at: int | None = None,
     tags: list[list[str]] | None = None,
-) -> EventRelay:
+) -> EventObservation:
     event = Event(
         make_mock_event(
             event_id=event_id,
@@ -37,7 +37,7 @@ def _event_relay(
         )
     )
     relay = Relay(relay_url, stored_at=1700000000)
-    return EventRelay(event=event, relay=relay, seen_at=seen_at or created_at + 1)
+    return EventObservation(event=event, relay=relay, observed_at=observed_at or created_at + 1)
 
 
 def _config(
@@ -62,9 +62,9 @@ def _config(
 
 class TestRefresherIntegration:
     async def test_current_tables_only(self, brotr: Brotr) -> None:
-        await brotr.insert_event_relay(
+        await brotr.insert_event_observation(
             [
-                _event_relay(
+                _event_observation(
                     "10" * 32,
                     "wss://refresher-current.example.com",
                     kind=0,
@@ -91,9 +91,9 @@ class TestRefresherIntegration:
         assert result.targets_refreshed == 1
 
     async def test_analytics_tables_only(self, brotr: Brotr) -> None:
-        await brotr.insert_event_relay(
+        await brotr.insert_event_observation(
             [
-                _event_relay(
+                _event_observation(
                     "20" * 32,
                     "wss://refresher-analytics.example.com",
                     kind=7,
@@ -121,9 +121,9 @@ class TestRefresherIntegration:
         assert result.rows_refreshed >= 1
 
     async def test_mixed_cycle_with_periodic_disabled(self, brotr: Brotr) -> None:
-        await brotr.insert_event_relay(
+        await brotr.insert_event_observation(
             [
-                _event_relay(
+                _event_observation(
                     "30" * 32,
                     "wss://refresher-mixed.example.com",
                     kind=0,
@@ -185,9 +185,9 @@ class TestRefresherIntegration:
         assert {state.state_key for state in states} == {"pubkey_kind_stats"}
 
     async def test_idempotent_second_run_uses_checkpoint(self, brotr: Brotr) -> None:
-        await brotr.insert_event_relay(
+        await brotr.insert_event_observation(
             [
-                _event_relay(
+                _event_observation(
                     "40" * 32,
                     "wss://refresher-idempotent.example.com",
                     kind=1,
@@ -215,21 +215,21 @@ class TestRefresherIntegration:
         assert second.rows_refreshed == 0
 
     async def test_resume_after_stored_checkpoint(self, brotr: Brotr) -> None:
-        await brotr.insert_event_relay(
+        await brotr.insert_event_observation(
             [
-                _event_relay(
+                _event_observation(
                     "50" * 32,
                     "wss://refresher-resume.example.com",
                     kind=1,
                     pubkey="55" * 32,
-                    seen_at=100,
+                    observed_at=100,
                 ),
-                _event_relay(
+                _event_observation(
                     "51" * 32,
                     "wss://refresher-resume.example.com",
                     kind=1,
                     pubkey="66" * 32,
-                    seen_at=200,
+                    observed_at=200,
                 ),
             ],
             cascade=True,

@@ -10,7 +10,7 @@ import pytest
 from nostr_sdk import Event as NostrEvent
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import EventRelay, Relay
+from bigbrotr.models import EventObservation, Relay
 from bigbrotr.models.constants import EventKind, ServiceName
 from bigbrotr.models.event import Event
 from bigbrotr.models.service_state import ServiceStateType
@@ -111,7 +111,7 @@ def _make_mock_event(
     return mock_event
 
 
-def _event_relay(
+def _event_observation(
     event_id: str,
     relay_url: str,
     *,
@@ -120,7 +120,7 @@ def _event_relay(
     created_at: int = 1_700_000_000,
     tags: list[list[str]] | None = None,
     content: str = "",
-) -> EventRelay:
+) -> EventObservation:
     mock = _make_mock_event(
         event_id=event_id,
         pubkey=pubkey,
@@ -131,7 +131,7 @@ def _event_relay(
         content=content,
     )
     relay = Relay(relay_url, stored_at=1_700_000_000)
-    return EventRelay(event=Event(mock), relay=relay, seen_at=created_at + 1)
+    return EventObservation(event=Event(mock), relay=relay, observed_at=created_at + 1)
 
 
 def _tag_values(event: Any, tag_name: str) -> list[str]:
@@ -155,9 +155,9 @@ async def _seed_pipeline_events(
     identifier: str,
 ) -> None:
     """Seed raw events that exercise the full refresher -> ranker -> assertor flow."""
-    await brotr.insert_event_relay(
+    await brotr.insert_event_observation(
         [
-            _event_relay(
+            _event_observation(
                 "10" * 32,
                 relay_url,
                 kind=3,
@@ -165,7 +165,7 @@ async def _seed_pipeline_events(
                 created_at=100,
                 tags=[["p", follower_b], ["p", follower_c]],
             ),
-            _event_relay(
+            _event_observation(
                 "11" * 32,
                 relay_url,
                 kind=3,
@@ -173,7 +173,7 @@ async def _seed_pipeline_events(
                 created_at=101,
                 tags=[["p", author]],
             ),
-            _event_relay(
+            _event_observation(
                 "12" * 32,
                 relay_url,
                 kind=3,
@@ -181,7 +181,7 @@ async def _seed_pipeline_events(
                 created_at=102,
                 tags=[["p", author]],
             ),
-            _event_relay(
+            _event_observation(
                 root_event_id,
                 relay_url,
                 kind=1,
@@ -190,7 +190,7 @@ async def _seed_pipeline_events(
                 tags=[["t", "nostr"], ["t", "books"]],
                 content="Root note",
             ),
-            _event_relay(
+            _event_observation(
                 "21" * 32,
                 relay_url,
                 kind=1,
@@ -199,7 +199,7 @@ async def _seed_pipeline_events(
                 tags=[["e", root_event_id], ["p", author]],
                 content="Reply",
             ),
-            _event_relay(
+            _event_observation(
                 "22" * 32,
                 relay_url,
                 kind=7,
@@ -208,7 +208,7 @@ async def _seed_pipeline_events(
                 tags=[["e", root_event_id], ["p", author]],
                 content="+",
             ),
-            _event_relay(
+            _event_observation(
                 "23" * 32,
                 relay_url,
                 kind=30023,
@@ -217,7 +217,7 @@ async def _seed_pipeline_events(
                 tags=[["d", "article"], ["t", "nostr"]],
                 content="Addressable article",
             ),
-            _event_relay(
+            _event_observation(
                 "24" * 32,
                 relay_url,
                 kind=1,
@@ -226,7 +226,7 @@ async def _seed_pipeline_events(
                 tags=[["a", event_address], ["p", author]],
                 content="Addressable comment",
             ),
-            _event_relay(
+            _event_observation(
                 "25" * 32,
                 relay_url,
                 kind=1,
@@ -235,7 +235,7 @@ async def _seed_pipeline_events(
                 tags=[["i", identifier], ["k", "book"], ["k", "isbn"]],
                 content="Identifier comment",
             ),
-            _event_relay(
+            _event_observation(
                 "26" * 32,
                 relay_url,
                 kind=7,

@@ -141,7 +141,7 @@ class FinderCursor(Cursor):
     """Per-relay cursor for event scanning pagination (Finder).
 
     Tracks how far local event scanning has progressed for a given relay.
-    ``timestamp`` is the ``seen_at`` from the ``event_relay`` junction,
+    ``timestamp`` is the ``observed_at`` from the ``event_observation`` junction,
     ``id`` is the event ID for tie-breaking.
     """
 

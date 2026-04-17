@@ -65,7 +65,7 @@ COMMENT ON FUNCTION bolt11_amount_msats(TEXT) IS
 -- **************************************************************************
 -- SUMMARY TABLE REFRESH: Cross-tabulations (refresh BEFORE entity tables)
 -- **************************************************************************
--- All functions are PURE: they receive a seen_at range, process the delta,
+-- All functions are PURE: they receive a observed_at range, process the delta,
 -- and return the number of rows affected. No side effects on service_state.
 -- **************************************************************************
 
@@ -73,8 +73,8 @@ COMMENT ON FUNCTION bolt11_amount_msats(TEXT) IS
 /*
  * pubkey_kind_stats_refresh(p_after, p_until) -> INTEGER
  *
- * Processes TRULY NEW events observed in the given seen_at range.
- * An event is "truly new" if it has no event_relay row with seen_at <= p_after
+ * Processes TRULY NEW events observed in the given observed_at range.
+ * An event is "truly new" if it has no event_observation row with observed_at <= p_after
  * (i.e., it was not already counted in a previous refresh cycle).
  *
  * This avoids double-counting when an existing event appears on a new relay.
@@ -90,13 +90,13 @@ DECLARE
 BEGIN
     WITH new_events AS (
         SELECT DISTINCT e.id, e.pubkey, e.kind, e.created_at
-        FROM event_relay AS er
+        FROM event_observation AS er
         INNER JOIN event AS e ON er.event_id = e.id
-        WHERE er.seen_at > p_after AND er.seen_at <= p_until
+        WHERE er.observed_at > p_after AND er.observed_at <= p_until
           AND NOT EXISTS (
-              SELECT 1 FROM event_relay AS older
+              SELECT 1 FROM event_observation AS older
               WHERE older.event_id = er.event_id
-                AND older.seen_at <= p_after
+                AND older.observed_at <= p_after
           )
     ),
     delta AS (
@@ -123,13 +123,13 @@ END;
 $$;
 
 COMMENT ON FUNCTION pubkey_kind_stats_refresh(BIGINT, BIGINT) IS
-'Incremental refresh of pubkey_kind_stats for truly new events in (p_after, p_until] seen_at range.';
+'Incremental refresh of pubkey_kind_stats for truly new events in (p_after, p_until] observed_at range.';
 
 
 /*
  * pubkey_relay_stats_refresh(p_after, p_until) -> INTEGER
  *
- * Processes ALL new event_relay rows in the given seen_at range.
+ * Processes ALL new event_observation rows in the given observed_at range.
  * Every new (event, relay) pair is a valid observation, even if the
  * event itself was already counted by pubkey_kind_stats.
  */
@@ -149,9 +149,9 @@ BEGIN
             COUNT(*) AS event_count,
             MIN(e.created_at) AS first_event_at,
             MAX(e.created_at) AS last_event_at
-        FROM event_relay AS er
+        FROM event_observation AS er
         INNER JOIN event AS e ON er.event_id = e.id
-        WHERE er.seen_at > p_after AND er.seen_at <= p_until
+        WHERE er.observed_at > p_after AND er.observed_at <= p_until
         GROUP BY e.pubkey, er.relay_url
     )
     INSERT INTO pubkey_relay_stats (pubkey, relay_url, event_count, first_event_at, last_event_at)
@@ -168,13 +168,13 @@ END;
 $$;
 
 COMMENT ON FUNCTION pubkey_relay_stats_refresh(BIGINT, BIGINT) IS
-'Incremental refresh of pubkey_relay_stats for new event_relay rows in (p_after, p_until] seen_at range.';
+'Incremental refresh of pubkey_relay_stats for new event_observation rows in (p_after, p_until] observed_at range.';
 
 
 /*
  * relay_kind_stats_refresh(p_after, p_until) -> INTEGER
  *
- * Processes ALL new event_relay rows in the given seen_at range.
+ * Processes ALL new event_observation rows in the given observed_at range.
  */
 CREATE OR REPLACE FUNCTION relay_kind_stats_refresh(
     p_after BIGINT,
@@ -192,9 +192,9 @@ BEGIN
             COUNT(*) AS event_count,
             MIN(e.created_at) AS first_event_at,
             MAX(e.created_at) AS last_event_at
-        FROM event_relay AS er
+        FROM event_observation AS er
         INNER JOIN event AS e ON er.event_id = e.id
-        WHERE er.seen_at > p_after AND er.seen_at <= p_until
+        WHERE er.observed_at > p_after AND er.observed_at <= p_until
         GROUP BY er.relay_url, e.kind
     )
     INSERT INTO relay_kind_stats (relay_url, kind, event_count, first_event_at, last_event_at)
@@ -211,7 +211,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION relay_kind_stats_refresh(BIGINT, BIGINT) IS
-'Incremental refresh of relay_kind_stats for new event_relay rows in (p_after, p_until] seen_at range.';
+'Incremental refresh of relay_kind_stats for new event_observation rows in (p_after, p_until] observed_at range.';
 
 
 -- **************************************************************************
@@ -240,20 +240,20 @@ DECLARE
 BEGIN
     WITH new_events AS (
         SELECT DISTINCT e.id, e.pubkey, e.kind, e.created_at
-        FROM event_relay AS er
+        FROM event_observation AS er
         INNER JOIN event AS e ON er.event_id = e.id
-        WHERE er.seen_at > p_after AND er.seen_at <= p_until
+        WHERE er.observed_at > p_after AND er.observed_at <= p_until
           AND NOT EXISTS (
-              SELECT 1 FROM event_relay AS older
+              SELECT 1 FROM event_observation AS older
               WHERE older.event_id = er.event_id
-                AND older.seen_at <= p_after
+                AND older.observed_at <= p_after
           )
     ),
     impacted_pubkeys AS (
         SELECT DISTINCT ENCODE(e.pubkey, 'hex') AS pubkey
-        FROM event_relay AS er
+        FROM event_observation AS er
         INNER JOIN event AS e ON er.event_id = e.id
-        WHERE er.seen_at > p_after AND er.seen_at <= p_until
+        WHERE er.observed_at > p_after AND er.observed_at <= p_until
     ),
     delta AS (
         SELECT
@@ -364,20 +364,20 @@ DECLARE
 BEGIN
     WITH new_events AS (
         SELECT DISTINCT e.id, e.pubkey, e.kind, e.created_at
-        FROM event_relay AS er
+        FROM event_observation AS er
         INNER JOIN event AS e ON er.event_id = e.id
-        WHERE er.seen_at > p_after AND er.seen_at <= p_until
+        WHERE er.observed_at > p_after AND er.observed_at <= p_until
           AND NOT EXISTS (
-              SELECT 1 FROM event_relay AS older
+              SELECT 1 FROM event_observation AS older
               WHERE older.event_id = er.event_id
-                AND older.seen_at <= p_after
+                AND older.observed_at <= p_after
           )
     ),
     impacted_kinds AS (
         SELECT DISTINCT e.kind
-        FROM event_relay AS er
+        FROM event_observation AS er
         INNER JOIN event AS e ON er.event_id = e.id
-        WHERE er.seen_at > p_after AND er.seen_at <= p_until
+        WHERE er.observed_at > p_after AND er.observed_at <= p_until
     ),
     delta AS (
         SELECT
@@ -460,7 +460,7 @@ COMMENT ON FUNCTION kind_stats_refresh(BIGINT, BIGINT) IS
 /*
  * relay_stats_refresh(p_after, p_until) -> INTEGER
  *
- * Processes ALL new event_relay rows (not just new events).
+ * Processes ALL new event_observation rows (not just new events).
  * Derives unique_pubkeys from pubkey_relay_stats and
  * unique_kinds from relay_kind_stats.
  *
@@ -499,9 +499,9 @@ BEGIN
             COUNT(*) FILTER (
                 WHERE e.kind >= 30000 AND e.kind <= 39999
             ) AS addressable_count
-        FROM event_relay AS er
+        FROM event_observation AS er
         INNER JOIN event AS e ON er.event_id = e.id
-        WHERE er.seen_at > p_after AND er.seen_at <= p_until
+        WHERE er.observed_at > p_after AND er.observed_at <= p_until
         GROUP BY er.relay_url
     )
     INSERT INTO relay_stats
@@ -552,7 +552,7 @@ COMMENT ON FUNCTION relay_stats_refresh(BIGINT, BIGINT) IS
  *
  * Tracks current latest kind=3 contact list events from
  * events_replaceable_current. A follower is impacted only when their current
- * winning kind=3 event first became visible in the given seen_at range.
+ * winning kind=3 event first became visible in the given observed_at range.
  */
 CREATE OR REPLACE FUNCTION contact_lists_current_refresh(
     p_after BIGINT,
@@ -631,7 +631,7 @@ COMMENT ON FUNCTION contact_lists_current_refresh(BIGINT, BIGINT) IS
  * contact_list_edges_current_refresh(p_after, p_until) -> INTEGER
  *
  * Replaces all current follow edges for followers whose latest contact list
- * first became visible in the given seen_at range.
+ * first became visible in the given observed_at range.
  */
 CREATE OR REPLACE FUNCTION contact_list_edges_current_refresh(
     p_after BIGINT,
@@ -743,7 +743,7 @@ COMMENT ON FUNCTION contact_list_edges_current_refresh(BIGINT, BIGINT) IS
  *
  * Recomputes events_last_24h/7d/30d for all summary entity tables.
  * Scans only the last 30 days of events (bounded by index range scan on
- * event_relay.seen_at). Designed to run every few hours.
+ * event_observation.observed_at). Designed to run every few hours.
  *
  * For pubkeys/kinds with no recent activity, windows are zeroed out by
  * checking last_event_at against the 30-day threshold.
@@ -804,15 +804,15 @@ BEGIN
     WHERE last_event_at < v_30d
       AND (events_last_24h > 0 OR events_last_7d > 0 OR events_last_30d > 0);
 
-    -- relay_stats uses event_relay.seen_at (observed activity by relay)
+    -- relay_stats uses event_observation.observed_at (observed activity by relay)
     WITH windows AS (
         SELECT
             er.relay_url,
-            COUNT(*) FILTER (WHERE er.seen_at >= v_24h) AS last_24h,
-            COUNT(*) FILTER (WHERE er.seen_at >= v_7d)  AS last_7d,
-            COUNT(*) FILTER (WHERE er.seen_at >= v_30d) AS last_30d
-        FROM event_relay AS er
-        WHERE er.seen_at >= v_30d
+            COUNT(*) FILTER (WHERE er.observed_at >= v_24h) AS last_24h,
+            COUNT(*) FILTER (WHERE er.observed_at >= v_7d)  AS last_7d,
+            COUNT(*) FILTER (WHERE er.observed_at >= v_30d) AS last_30d
+        FROM event_observation AS er
+        WHERE er.observed_at >= v_30d
         GROUP BY er.relay_url
     )
     UPDATE relay_stats rs SET
@@ -826,9 +826,9 @@ BEGIN
         events_last_24h = 0, events_last_7d = 0, events_last_30d = 0
     WHERE NOT EXISTS (
         SELECT 1
-        FROM event_relay AS er
+        FROM event_observation AS er
         WHERE er.relay_url = relay_stats.relay_url
-          AND er.seen_at >= v_30d
+          AND er.observed_at >= v_30d
     )
       AND (events_last_24h > 0 OR events_last_7d > 0 OR events_last_30d > 0);
 END;
@@ -1043,15 +1043,15 @@ BEGIN
             e.pubkey,
             e.kind,
             e.created_at
-        FROM event_relay AS er
+        FROM event_observation AS er
         INNER JOIN event AS e ON er.event_id = e.id
-        WHERE er.seen_at > p_after
-          AND er.seen_at <= p_until
+        WHERE er.observed_at > p_after
+          AND er.observed_at <= p_until
           AND NOT EXISTS (
               SELECT 1
-              FROM event_relay AS older
+              FROM event_observation AS older
               WHERE older.event_id = er.event_id
-                AND older.seen_at <= p_after
+                AND older.observed_at <= p_after
           )
     ),
     impacted_days AS (
@@ -1094,7 +1094,7 @@ COMMENT ON FUNCTION daily_counts_refresh(BIGINT, BIGINT) IS
 -- **************************************************************************
 -- NIP-85 SUMMARY TABLE REFRESH (incremental)
 -- **************************************************************************
--- Both functions use the same (p_after, p_until) seen_at range pattern.
+-- Both functions use the same (p_after, p_until) observed_at range pattern.
 -- They extract engagement data from event tags (tagvalues for single-letter
 -- tags, JSONB tags for multi-letter like "amount").
 -- **************************************************************************
@@ -1103,7 +1103,7 @@ COMMENT ON FUNCTION daily_counts_refresh(BIGINT, BIGINT) IS
 /*
  * nip85_pubkey_stats_refresh(p_after, p_until) -> INTEGER
  *
- * Processes truly new events in the seen_at range to update per-pubkey
+ * Processes truly new events in the observed_at range to update per-pubkey
  * NIP-85 social metrics. Extracts engagement from tag relationships:
  * - kind=1: post_count (author), reply_count (if has 'e' tag)
  * - kind=7: reaction_count_sent (author), reaction_count_recd (tag p target)
@@ -1127,13 +1127,13 @@ BEGIN
     -- Materialize truly new events into a temp table (single scan)
     CREATE TEMP TABLE _nip85_new_events ON COMMIT DROP AS
     SELECT DISTINCT e.id, e.pubkey, e.kind, e.created_at, e.tagvalues, e.tags
-    FROM event_relay AS er
+    FROM event_observation AS er
     INNER JOIN event AS e ON er.event_id = e.id
-    WHERE er.seen_at > p_after AND er.seen_at <= p_until
+    WHERE er.observed_at > p_after AND er.observed_at <= p_until
       AND NOT EXISTS (
-          SELECT 1 FROM event_relay AS older
+          SELECT 1 FROM event_observation AS older
           WHERE older.event_id = er.event_id
-            AND older.seen_at <= p_after
+            AND older.observed_at <= p_after
       );
     CREATE INDEX idx__nip85_new_events_kind ON _nip85_new_events (kind);
 
@@ -1613,13 +1613,13 @@ DECLARE
 BEGIN
     CREATE TEMP TABLE _nip85_new_events_eng ON COMMIT DROP AS
     SELECT DISTINCT e.id, e.pubkey, e.kind, e.tagvalues, e.tags
-    FROM event_relay AS er
+    FROM event_observation AS er
     INNER JOIN event AS e ON er.event_id = e.id
-    WHERE er.seen_at > p_after AND er.seen_at <= p_until
+    WHERE er.observed_at > p_after AND er.observed_at <= p_until
       AND NOT EXISTS (
-          SELECT 1 FROM event_relay AS older
+          SELECT 1 FROM event_observation AS older
           WHERE older.event_id = er.event_id
-            AND older.seen_at <= p_after
+            AND older.observed_at <= p_after
       );
     CREATE INDEX idx__nip85_new_events_eng_kind ON _nip85_new_events_eng (kind);
 
@@ -1938,13 +1938,13 @@ DECLARE
 BEGIN
     CREATE TEMP TABLE _nip85_new_events_addr ON COMMIT DROP AS
     SELECT DISTINCT e.id, e.pubkey, e.kind, e.tagvalues, e.tags
-    FROM event_relay AS er
+    FROM event_observation AS er
     INNER JOIN event AS e ON er.event_id = e.id
-    WHERE er.seen_at > p_after AND er.seen_at <= p_until
+    WHERE er.observed_at > p_after AND er.observed_at <= p_until
       AND NOT EXISTS (
-          SELECT 1 FROM event_relay AS older
+          SELECT 1 FROM event_observation AS older
           WHERE older.event_id = er.event_id
-            AND older.seen_at <= p_after
+            AND older.observed_at <= p_after
       );
     CREATE INDEX idx__nip85_new_events_addr_kind ON _nip85_new_events_addr (kind);
 
@@ -2279,14 +2279,14 @@ DECLARE
 BEGIN
     WITH new_events AS (
         SELECT DISTINCT e.id, e.kind, e.tagvalues
-        FROM event_relay AS er
+        FROM event_observation AS er
         INNER JOIN event AS e ON er.event_id = e.id
-        WHERE er.seen_at > p_after AND er.seen_at <= p_until
+        WHERE er.observed_at > p_after AND er.observed_at <= p_until
           AND e.kind IN (1, 7)
           AND NOT EXISTS (
-              SELECT 1 FROM event_relay AS older
+              SELECT 1 FROM event_observation AS older
               WHERE older.event_id = er.event_id
-                AND older.seen_at <= p_after
+                AND older.observed_at <= p_after
           )
     ),
     source_identifiers AS (

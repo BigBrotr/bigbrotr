@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterable, Sequence
 
     from bigbrotr.core.brotr import Brotr
-    from bigbrotr.models.event_relay import EventRelay
+    from bigbrotr.models.event_observation import EventObservation
 
 
 _CURSOR_SENTINEL_ID = "0" * 64
@@ -200,24 +200,24 @@ async def delete_stale_cursors(brotr: Brotr) -> int:
     return count
 
 
-async def insert_event_relays(brotr: Brotr, records: list[EventRelay]) -> int:
-    """Batch-insert event-relay junction records.
+async def insert_event_observations(brotr: Brotr, records: list[EventObservation]) -> int:
+    """Batch-insert event-observation junction records.
 
     Splits *records* into batches respecting
     [BatchConfig.max_size][bigbrotr.core.brotr.BatchConfig] and delegates
     each chunk to
-    [Brotr.insert_event_relay()][bigbrotr.core.brotr.Brotr.insert_event_relay]
+    [Brotr.insert_event_observation()][bigbrotr.core.brotr.Brotr.insert_event_observation]
     (cascade mode).
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
-        records: [EventRelay][bigbrotr.models.event_relay.EventRelay]
+        records: [EventObservation][bigbrotr.models.event_observation.EventObservation]
             instances to insert.
 
     Returns:
-        Number of new event-relay records inserted.
+        Number of new event-observation records inserted.
     """
-    return await batched_insert(brotr, records, brotr.insert_event_relay)
+    return await batched_insert(brotr, records, brotr.insert_event_observation)
 
 
 async def upsert_sync_cursors(brotr: Brotr, cursors: Iterable[SyncCursor]) -> None:

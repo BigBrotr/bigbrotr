@@ -132,15 +132,15 @@ async def iter_cursors_to_find_pages(
         yield page
 
 
-async def scan_event_relay(
+async def scan_event_observation(
     brotr: Brotr,
     cursor: FinderCursor,
     limit: int,
 ) -> list[dict[str, Any]]:
-    """Scan event-relay rows for a specific relay, cursor-paginated.
+    """Scan event-observation rows for a specific relay, cursor-paginated.
 
     Uses a composite cursor ``(timestamp, id)`` for deterministic
-    pagination that handles ties in ``seen_at``. When the cursor has
+    pagination that handles ties in ``observed_at``. When the cursor has
     ``timestamp=0`` (default), scanning starts from the beginning.
 
     Args:
@@ -150,18 +150,18 @@ async def scan_event_relay(
         limit: Maximum rows per batch.
 
     Returns:
-        List of dicts with all event columns plus ``seen_at`` from the
-        ``event_relay`` junction.
+        List of dicts with all event columns plus ``observed_at`` from the
+        ``event_observation`` junction.
     """
     rows = await brotr.fetch(
         """
         SELECT e.id AS event_id, e.pubkey, e.created_at, e.kind,
-               e.tags, e.tagvalues, e.content, e.sig, er.seen_at
+               e.tags, e.tagvalues, e.content, e.sig, er.observed_at
         FROM event e
-        INNER JOIN event_relay er ON e.id = er.event_id
+        INNER JOIN event_observation er ON e.id = er.event_id
         WHERE er.relay_url = $1
-          AND (er.seen_at, e.id) > ($2::bigint, decode($3, 'hex'))
-        ORDER BY er.seen_at ASC, e.id ASC
+          AND (er.observed_at, e.id) > ($2::bigint, decode($3, 'hex'))
+        ORDER BY er.observed_at ASC, e.id ASC
         LIMIT $4
         """,
         cursor.key,

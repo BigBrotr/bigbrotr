@@ -32,7 +32,7 @@ Deployments (`deployments/{bigbrotr,lilbrotr}/`) sit outside the package and con
 |-------|------|---------|
 | `Relay` | `relay.py` | URL validation (rfc3986), network detection (clearnet/tor/i2p/loki/local), local IP rejection |
 | `Event` | `event.py` | Wraps nostr-sdk Event, extracts hex fields, tag parsing |
-| `EventRelay` | `event_relay.py` | Event-relay junction with `seen_at` timestamp |
+| `EventObservation` | `event_observation.py` | Event-relay junction with `observed_at` timestamp |
 | `Metadata` | `metadata.py` | Content-addressed metadata: SHA-256 hash over canonical JSON |
 | `RelayMetadata` | `relay_metadata.py` | Relay-metadata junction with `metadata_type` and `generated_at` |
 | `ServiceState` | `service_state.py` | Per-service operational state (checkpoints, cursors) |
@@ -181,7 +181,7 @@ class BrotrConfig(BaseModel):
 | `insert_relay(relays)` | `relay_insert` | -- |
 | `insert_event(events)` | `event_insert` | -- |
 | `insert_metadata(metadata)` | `metadata_insert` | -- |
-| `insert_event_relay(records, cascade=True)` | `event_relay_insert_cascade` | Relay + Event + Junction |
+| `insert_event_observation(records, cascade=True)` | `event_observation_insert_cascade` | Relay + Event + Junction |
 | `insert_relay_metadata(records, cascade=True)` | `relay_metadata_insert_cascade` | Relay + Metadata + Junction |
 
 **Service state:**
@@ -456,10 +456,10 @@ Each service also has its own `queries.py` module with domain-specific queries:
 | Function | Purpose |
 |----------|---------|
 | `fetch_cursors_to_find(brotr)` | LEFT JOIN relay with service_state for cursor positions, ordered by (timestamp, id) |
-| `scan_event_relay(brotr, cursor, limit)` | Cursor-paginated event scan with `(seen_at, event_id)` tie-breaking |
+| `scan_event_observation(brotr, cursor, limit)` | Cursor-paginated event scan with `(observed_at, event_id)` tie-breaking |
 | `fetch_api_checkpoints(brotr, urls)` | Fetch per-source timestamps from CHECKPOINT records |
 | `upsert_api_checkpoints(brotr, checkpoints)` | Persist per-source timestamps as CHECKPOINT records |
-| `save_event_relay_cursor(brotr, cursor)` | Persist scan position (no-op if cursor empty) |
+| `save_event_observation_cursor(brotr, cursor)` | Persist scan position (no-op if cursor empty) |
 | `delete_stale_cursors(brotr)` | Remove CURSOR records for deleted relays |
 | `delete_stale_api_checkpoints(brotr, active_urls)` | Remove CHECKPOINT records for removed API sources |
 
@@ -492,7 +492,7 @@ Each service also has its own `queries.py` module with domain-specific queries:
 |----------|---------|
 | `fetch_relays(brotr)` | All relays ordered by `discovered_at` |
 | `delete_stale_cursors(brotr)` | Remove CURSOR state for deleted relays |
-| `insert_event_relays(brotr, records)` | Batch-insert EventRelay (cascade) |
+| `insert_event_observations(brotr, records)` | Batch-insert EventObservation (cascade) |
 
 **Network Configuration** (`configs.py`):
 

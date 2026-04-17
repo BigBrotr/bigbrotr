@@ -40,7 +40,7 @@ architectural surfaces.
 - `src/bigbrotr/models/relay.py`
 - `src/bigbrotr/models/event.py`
 - `src/bigbrotr/models/metadata.py`
-- `src/bigbrotr/models/event_relay.py`
+- `src/bigbrotr/models/event_observation.py`
 - `src/bigbrotr/models/relay_metadata.py`
 - `src/bigbrotr/models/service_state.py`
 
@@ -329,7 +329,7 @@ The real migration is:
 Current code, SQL, and tests are deeply committed to the old shared schema:
 
 - `metadata`
-- `event_relay`
+- `event_observation`
 - `relay_metadata`
 - wide current tables
 - materialized contact graph tables

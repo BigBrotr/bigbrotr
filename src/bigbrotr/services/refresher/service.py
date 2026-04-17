@@ -22,10 +22,10 @@ from bigbrotr.services.common.types import Checkpoint
 from .configs import IncrementalRefreshTarget, PeriodicRefreshTarget, RefresherConfig
 from .queries import (
     WatermarkSource,
-    get_event_relay_watermark,
+    get_event_observation_watermark,
     get_incremental_target_spec,
     get_max_associated_at,
-    get_max_seen_at,
+    get_max_observed_at,
     get_periodic_target_spec,
     get_relay_document_watermark,
     refresh_incremental_target,
@@ -236,7 +236,7 @@ class Refresher(BaseService[RefresherConfig]):
             if spec.watermark_source == WatermarkSource.RELAY_DOCUMENT:
                 until = await get_max_associated_at(self._brotr, checkpoint)
             else:
-                until = await get_max_seen_at(self._brotr, checkpoint)
+                until = await get_max_observed_at(self._brotr, checkpoint)
             if until == checkpoint:
                 rows = 0
             else:
@@ -329,11 +329,11 @@ class Refresher(BaseService[RefresherConfig]):
     ) -> RefreshCycleResult:
         """Build a typed cycle result and compute watermark lag metrics."""
         event_lag = 0
-        if WatermarkSource.EVENT_RELAY in source_checkpoints:
+        if WatermarkSource.EVENT_OBSERVATION in source_checkpoints:
             event_lag = max(
                 0,
-                await get_event_relay_watermark(self._brotr)
-                - source_checkpoints[WatermarkSource.EVENT_RELAY],
+                await get_event_observation_watermark(self._brotr)
+                - source_checkpoints[WatermarkSource.EVENT_OBSERVATION],
             )
 
         document_lag = 0
@@ -358,7 +358,7 @@ class Refresher(BaseService[RefresherConfig]):
             targets_failed=failed,
             rows_refreshed=rows_refreshed,
             cleanup_removed_checkpoints=self._last_cleanup_removed,
-            watermark_event_relay_lag_seconds=event_lag,
+            watermark_event_observation_lag_seconds=event_lag,
             watermark_relay_document_lag_seconds=document_lag,
             cutoff_reason=cutoff_reason,
             target_results=tuple(target_results),

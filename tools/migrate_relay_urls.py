@@ -10,7 +10,7 @@ Five phases:
 Phase 1 — Relay table:
     For each URL in the relay table, apply normalize_relay_url + Relay().
     - Unchanged: skip.
-    - Renormalized: DELETE old (CASCADE cleans event_relay, relay_metadata),
+    - Renormalized: DELETE old (CASCADE cleans event_observation, relay_document),
       INSERT canonical as validator candidate.
     - Invalid: DELETE outright.
 
@@ -80,7 +80,7 @@ class MigrationResult:
     candidates: PhaseStats = field(default_factory=PhaseStats)
     finder_cursors_deleted: int = 0
     finder_checkpoints_deleted: int = 0
-    orphan_metadata_deleted: int = 0
+    orphan_document_deleted: int = 0
     orphan_events_deleted: int = 0
 
 
@@ -276,9 +276,9 @@ async def migrate(  # noqa: PLR0912, PLR0913, PLR0915
     if not dry_run and (result.relays.renormalized or result.relays.invalid):
         print("\n--- Phase 4: Orphan cleanup ---\n")
 
-        print("  Cleaning orphan metadata...", flush=True)
-        result.orphan_metadata_deleted = await conn.fetchval("SELECT orphan_metadata_delete(10000)")
-        print(f"    Deleted: {result.orphan_metadata_deleted}")
+        print("  Cleaning orphan documents...", flush=True)
+        result.orphan_document_deleted = await conn.fetchval("SELECT orphan_document_delete(10000)")
+        print(f"    Deleted: {result.orphan_document_deleted}")
 
         print("  Cleaning orphan events (this may take a while)...", flush=True)
         result.orphan_events_deleted = await conn.fetchval("SELECT orphan_event_delete(10000)")
@@ -384,7 +384,7 @@ def main() -> None:
     print(f"    Cursors deleted:     {result.finder_cursors_deleted}")
     print(f"    Checkpoints deleted: {result.finder_checkpoints_deleted}")
     print("  Phase 4 — Orphan cleanup")
-    print(f"    Metadata deleted:    {result.orphan_metadata_deleted}")
+    print(f"    Documents deleted:   {result.orphan_document_deleted}")
     print(f"    Events deleted:      {result.orphan_events_deleted}")
     rebuilt = not args.dry_run and (result.relays.renormalized or result.relays.invalid)
     print("  Phase 5 — Analytics rebuild")
