@@ -10,6 +10,9 @@ from bigbrotr.services.common.read_models import (
     READ_MODEL_REGISTRY,
     READABLE_RESOURCE_REGISTRY,
     ReadableResourceEntry,
+    ReadableResourceNotFoundError,
+    ReadCore,
+    ReadCoreError,
     ReadModelEntry,
     ReadModelQuery,
     ReadModelQueryError,
@@ -534,6 +537,195 @@ class TestReadModelSurface:
 
         summaries = surface.build_summaries("api", route_prefix="/v1")
         detail = surface.build_detail("api", "relays", route_prefix="/v1")
+
+        assert summaries == [
+            {
+                "id": "relays",
+                "path": "/v1/relays",
+                "field_count": 2,
+                "supports_identity_lookup": True,
+                "default_pagination_mode": "cursor",
+                "supports_cursor_pagination": True,
+            }
+        ]
+        assert detail == {
+            "id": "relays",
+            "path": "/v1/relays",
+            "fields": [
+                {"name": "url", "type": "text", "nullable": False},
+                {"name": "network", "type": "text", "nullable": False},
+            ],
+            "identity_fields": ["url"],
+            "pagination": {
+                "default_mode": "cursor",
+                "supports_cursor": True,
+                "supports_offset": True,
+                "supports_total_opt_in": True,
+                "cursor_param": "cursor",
+                "meta_cursor_field": "next_cursor",
+            },
+        }
+
+    def test_surface_exposes_underlying_core(self) -> None:
+        surface = self._surface()
+
+        assert isinstance(surface.core, ReadCore)
+
+
+class TestReadCore:
+    def _core(
+        self,
+        *,
+        policies: dict[str, ReadModelPolicy] | None = None,
+        catalog: Catalog | None = None,
+    ) -> ReadCore:
+        core = ReadCore(policy_source=lambda: policies or {})
+        if catalog is not None:
+            core.catalog = catalog
+        return core
+
+    def test_init_creates_empty_catalog(self) -> None:
+        core = self._core()
+
+        assert isinstance(core.catalog, Catalog)
+        assert core.catalog.tables == {}
+
+    async def test_discover_uses_catalog_and_logs_shape(self) -> None:
+        core = self._core()
+        catalog = MagicMock()
+        catalog.discover = AsyncMock()
+        table = MagicMock(is_view=False)
+        view = MagicMock(is_view=True)
+        catalog.tables.values.return_value = [table, table, view]
+        core.catalog = catalog
+        logger = MagicMock()
+        brotr = MagicMock()
+
+        await core.discover(brotr, logger=logger)
+
+        catalog.discover.assert_awaited_once_with(brotr)
+        logger.info.assert_called_once_with("schema_discovered", tables=2, views=1)
+
+    def test_enabled_resource_ids_follow_catalog_and_policy(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {"relay": MagicMock(), "event": MagicMock()}
+        core = self._core(
+            policies={
+                "relays": ReadModelPolicy(enabled=True),
+                "events": ReadModelPolicy(enabled=False),
+            },
+            catalog=catalog,
+        )
+
+        assert core.enabled_resource_ids("api") == ["relays"]
+
+    def test_enabled_resources_follow_catalog_and_policy(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {"relay": MagicMock(), "event": MagicMock()}
+        core = self._core(
+            policies={
+                "relays": ReadModelPolicy(enabled=True),
+                "events": ReadModelPolicy(enabled=False),
+            },
+            catalog=catalog,
+        )
+
+        assert set(core.enabled_resources("api")) == {"relays"}
+
+    def test_require_resource_returns_enabled_resource(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {"relay": MagicMock()}
+        core = self._core(
+            policies={"relays": ReadModelPolicy(enabled=True)},
+            catalog=catalog,
+        )
+
+        resource = core.require_resource("api", "relays")
+
+        assert resource is READ_MODEL_REGISTRY["relays"]
+
+    def test_require_resource_raises_normalized_error_for_missing_resource(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {"relay": MagicMock()}
+        core = self._core(
+            policies={"relays": ReadModelPolicy(enabled=True)},
+            catalog=catalog,
+        )
+
+        with pytest.raises(ReadableResourceNotFoundError, match="Invalid or disabled readable"):
+            core.require_resource("api", "events")
+
+    def test_resource_not_found_error_is_read_core_error(self) -> None:
+        assert issubclass(ReadableResourceNotFoundError, ReadCoreError)
+
+    async def test_query_resource_uses_catalog_context(self) -> None:
+        catalog = Catalog()
+        request = ReadModelQuery(limit=10, offset=0)
+        result = MagicMock()
+        catalog.query = AsyncMock(return_value=result)  # type: ignore[method-assign]
+        brotr = MagicMock()
+        core = self._core(catalog=catalog)
+        resource = ReadModelEntry(
+            read_model_id="relays",
+            catalog_name="relay",
+        )
+
+        resolved = await core.query_resource(brotr, resource, request)
+
+        assert resolved is result
+        catalog.query.assert_awaited_once_with(  # type: ignore[attr-defined]
+            brotr,
+            "relay",
+            limit=10,
+            offset=0,
+            max_page_size=1000,
+            filters=None,
+            sort=None,
+            include_total=False,
+            cursor=None,
+            prefer_keyset=True,
+        )
+
+    async def test_get_resource_by_pk_uses_catalog_context(self) -> None:
+        catalog = Catalog()
+        row = {"url": "wss://relay.example.com"}
+        catalog.get_by_pk = AsyncMock(return_value=row)  # type: ignore[method-assign]
+        brotr = MagicMock()
+        core = self._core(catalog=catalog)
+        resource = ReadModelEntry(
+            read_model_id="relays",
+            catalog_name="relay",
+        )
+
+        resolved = await core.get_resource_by_pk(brotr, resource, {"url": row["url"]})
+
+        assert resolved == row
+        catalog.get_by_pk.assert_awaited_once_with(  # type: ignore[attr-defined]
+            brotr,
+            "relay",
+            {"url": row["url"]},
+        )
+
+    def test_build_resource_summaries_and_detail_use_enabled_surface(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {
+            "relay": TableSchema(
+                name="relay",
+                columns=(
+                    ColumnSchema(name="url", pg_type="text", nullable=False),
+                    ColumnSchema(name="network", pg_type="text", nullable=False),
+                ),
+                primary_key=("url",),
+                is_view=False,
+            )
+        }
+        core = self._core(
+            policies={"relays": ReadModelPolicy(enabled=True)},
+            catalog=catalog,
+        )
+
+        summaries = core.build_resource_summaries("api", route_prefix="/v1")
+        detail = core.build_resource_detail("api", "relays", route_prefix="/v1")
 
         assert summaries == [
             {

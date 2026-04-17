@@ -14,8 +14,8 @@ Attributes:
         for per-network concurrency control.
     paging: Keyset-pagination helpers for bounded page scans in service
         query modules.
-    read_models: Readable-resource registry plus read-model compatibility
-        helpers for the current API and DVM surfaces.
+    read_models: Shared read core, readable-resource registry, and read-model
+        compatibility helpers for the current API and DVM surfaces.
     discovery_queries: Seeder/Finder candidate-registration helpers.
 
 See Also:

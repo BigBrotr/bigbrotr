@@ -1,4 +1,4 @@
-"""Runtime surface wrapper for public readable resources and read-model compatibility."""
+"""Shared read-core plus read-model compatibility wrappers."""
 
 from __future__ import annotations
 
@@ -44,12 +44,15 @@ from .read_model_requests import (
 __all__ = [
     "READABLE_RESOURCE_REGISTRY",
     "READ_MODEL_REGISTRY",
+    "ReadCore",
+    "ReadCoreError",
     "ReadModelEntry",
     "ReadModelQuery",
     "ReadModelQueryError",
     "ReadModelSurface",
     "ReadSurface",
     "ReadableResourceEntry",
+    "ReadableResourceNotFoundError",
     "build_read_model_meta",
     "normalize_read_model_policies",
     "normalize_readable_resource_policies",
@@ -67,12 +70,16 @@ __all__ = [
 ]
 
 
-class ReadModelSurface:
-    """Resolve and execute the public readable-resource surface for one service.
+class ReadCoreError(ValueError):
+    """Base error raised by the shared read core."""
 
-    The class name stays stable for the current adapter and config migration
-    path, but the registry it wraps is now the readable-resource contract.
-    """
+
+class ReadableResourceNotFoundError(ReadCoreError):
+    """Raised when one readable resource is invalid, disabled, or undiscoverable."""
+
+
+class ReadCore:
+    """Protocol-agnostic read core over readable-resource descriptors."""
 
     __slots__ = ("_catalog", "_policy_source")
 
@@ -92,6 +99,10 @@ class ReadModelSurface:
         """Replace the backing catalog, mainly for tests or prebuilt surfaces."""
         self._catalog = catalog
 
+    def _policies(self) -> dict[str, ReadModelPolicy]:
+        """Return the current resource policies as a concrete mapping."""
+        return dict(self._policy_source())
+
     async def discover(self, brotr: Brotr, *, logger: Logger | None = None) -> None:
         """Discover catalog tables and optionally log the resulting surface size."""
         await self._catalog.discover(brotr)
@@ -102,33 +113,125 @@ class ReadModelSurface:
                 views=sum(1 for t in self._catalog.tables.values() if t.is_view),
             )
 
-    def enabled_names(self, surface: ReadSurface) -> list[str]:
+    def enabled_resource_ids(self, surface: ReadSurface) -> list[str]:
         """Return enabled readable-resource IDs for one public surface."""
-        policies = self._policy_source()
-        return resolve_surface_read_model_names(
+        return resolve_surface_readable_resource_names(
             surface,
-            policies=dict(policies) if isinstance(policies, dict) else {},
+            policies=self._policies(),
             available_catalog_names=set(self._catalog.tables),
         )
+
+    def enabled_resources(self, surface: ReadSurface) -> dict[str, ReadableResourceEntry]:
+        """Return enabled readable-resource entries for one public surface."""
+        return resolve_surface_readable_resources(
+            surface,
+            policies=self._policies(),
+            available_catalog_names=set(self._catalog.tables),
+        )
+
+    def resolve_resource(self, surface: ReadSurface, name: str) -> ReadableResourceEntry | None:
+        """Resolve one public readable-resource name to an enabled entry."""
+        return resolve_surface_readable_resource(
+            surface,
+            name=name,
+            policies=self._policies(),
+            available_catalog_names=set(self._catalog.tables),
+        )
+
+    def require_resource(self, surface: ReadSurface, name: str) -> ReadableResourceEntry:
+        """Resolve one enabled resource or raise a normalized read-core error."""
+        resource = self.resolve_resource(surface, name)
+        if resource is None:
+            raise ReadableResourceNotFoundError(f"Invalid or disabled readable resource: {name}")
+        return resource
+
+    async def query_resource(
+        self,
+        brotr: Brotr,
+        resource: ReadableResourceEntry,
+        request: ReadModelQuery,
+    ) -> QueryResult:
+        """Execute one resolved readable-resource query through the shared catalog."""
+        return await resource.query(brotr, self._catalog, request)
+
+    async def get_resource_by_pk(
+        self,
+        brotr: Brotr,
+        resource: ReadableResourceEntry,
+        pk_values: dict[str, str],
+    ) -> dict[str, Any] | None:
+        """Fetch one resolved readable-resource row by primary key."""
+        return await resource.get_by_pk(brotr, self._catalog, pk_values)
+
+    def build_resource_summaries(
+        self,
+        surface: ReadSurface,
+        *,
+        route_prefix: str,
+    ) -> list[dict[str, Any]]:
+        """Build discovery summaries for enabled readable resources."""
+        return [
+            resource.summary(catalog=self._catalog, route_prefix=route_prefix)
+            for _, resource in self.enabled_resources(surface).items()
+        ]
+
+    def build_resource_detail(
+        self,
+        surface: ReadSurface,
+        name: str,
+        *,
+        route_prefix: str,
+    ) -> dict[str, Any] | None:
+        """Build the discovery detail payload for one enabled readable resource."""
+        resource = self.resolve_resource(surface, name)
+        if resource is None:
+            return None
+        return resource.detail(catalog=self._catalog, route_prefix=route_prefix)
+
+
+class ReadModelSurface:
+    """Compatibility wrapper over the shared read core.
+
+    The current API and DVM stacks still speak in terms of `read models`. This
+    wrapper preserves that seam while delegating all shared behavior into
+    `ReadCore`.
+    """
+
+    __slots__ = ("_core",)
+
+    def __init__(self, *, policy_source: Callable[[], Mapping[str, ReadModelPolicy]]) -> None:
+        self._core = ReadCore(policy_source=policy_source)
+
+    @property
+    def core(self) -> ReadCore:
+        """Return the underlying shared read core."""
+        return self._core
+
+    @property
+    def catalog(self) -> Catalog:
+        """Return the discovered catalog backing this public read surface."""
+        return self._core.catalog
+
+    @catalog.setter
+    def catalog(self, catalog: Catalog) -> None:
+        """Replace the backing catalog, mainly for tests or prebuilt surfaces."""
+        self._core.catalog = catalog
+
+    async def discover(self, brotr: Brotr, *, logger: Logger | None = None) -> None:
+        """Discover catalog tables and optionally log the resulting surface size."""
+        await self._core.discover(brotr, logger=logger)
+
+    def enabled_names(self, surface: ReadSurface) -> list[str]:
+        """Return enabled readable-resource IDs for one public surface."""
+        return self._core.enabled_resource_ids(surface)
 
     def enabled_entries(self, surface: ReadSurface) -> dict[str, ReadModelEntry]:
         """Return enabled readable-resource entries for one public surface."""
-        policies = self._policy_source()
-        return resolve_surface_read_models(
-            surface,
-            policies=dict(policies) if isinstance(policies, dict) else {},
-            available_catalog_names=set(self._catalog.tables),
-        )
+        return self._core.enabled_resources(surface)
 
     def resolve(self, surface: ReadSurface, name: str) -> ReadModelEntry | None:
         """Resolve one public readable-resource name to an enabled entry."""
-        policies = self._policy_source()
-        return resolve_surface_read_model(
-            surface,
-            name=name,
-            policies=dict(policies) if isinstance(policies, dict) else {},
-            available_catalog_names=set(self._catalog.tables),
-        )
+        return self._core.resolve_resource(surface, name)
 
     async def query_entry(
         self,
@@ -137,7 +240,7 @@ class ReadModelSurface:
         request: ReadModelQuery,
     ) -> QueryResult:
         """Execute one resolved readable-resource query through the shared catalog."""
-        return await read_model.query(brotr, self._catalog, request)
+        return await self._core.query_resource(brotr, read_model, request)
 
     async def get_entry_by_pk(
         self,
@@ -146,7 +249,7 @@ class ReadModelSurface:
         pk_values: dict[str, str],
     ) -> dict[str, Any] | None:
         """Fetch one resolved readable-resource row by primary key."""
-        return await read_model.get_by_pk(brotr, self._catalog, pk_values)
+        return await self._core.get_resource_by_pk(brotr, read_model, pk_values)
 
     def build_summaries(
         self,
@@ -155,10 +258,7 @@ class ReadModelSurface:
         route_prefix: str,
     ) -> list[dict[str, Any]]:
         """Build discovery summaries for enabled readable resources."""
-        return [
-            read_model.summary(catalog=self._catalog, route_prefix=route_prefix)
-            for read_model_id, read_model in self.enabled_entries(surface).items()
-        ]
+        return self._core.build_resource_summaries(surface, route_prefix=route_prefix)
 
     def build_detail(
         self,
@@ -168,7 +268,4 @@ class ReadModelSurface:
         route_prefix: str,
     ) -> dict[str, Any] | None:
         """Build the discovery detail payload for one enabled readable resource."""
-        read_model = self.resolve(surface, name)
-        if read_model is None:
-            return None
-        return read_model.detail(catalog=self._catalog, route_prefix=route_prefix)
+        return self._core.build_resource_detail(surface, name, route_prefix=route_prefix)
