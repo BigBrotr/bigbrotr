@@ -25,22 +25,22 @@ VALID_HEX_KEY = (
     "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"  # pragma: allowlist secret
 )
 
-_RANK_INSERT_QUERIES = {
-    "nip85_pubkey_ranks": """
-        INSERT INTO nip85_pubkey_ranks (algorithm_id, subject_id, raw_score, rank, computed_at)
-        VALUES ($1, $2, $3, $4, $5)
+_SCORE_INSERT_QUERIES = {
+    "pubkey_score": """
+        INSERT INTO pubkey_score (algorithm_id, pubkey, score)
+        VALUES ($1, $2, $3)
     """,
-    "nip85_event_ranks": """
-        INSERT INTO nip85_event_ranks (algorithm_id, subject_id, raw_score, rank, computed_at)
-        VALUES ($1, $2, $3, $4, $5)
+    "event_score": """
+        INSERT INTO event_score (algorithm_id, event_id, score)
+        VALUES ($1, $2, $3)
     """,
-    "nip85_addressable_ranks": """
-        INSERT INTO nip85_addressable_ranks (algorithm_id, subject_id, raw_score, rank, computed_at)
-        VALUES ($1, $2, $3, $4, $5)
+    "addressable_score": """
+        INSERT INTO addressable_score (algorithm_id, event_address, score)
+        VALUES ($1, $2, $3)
     """,
-    "nip85_identifier_ranks": """
-        INSERT INTO nip85_identifier_ranks (algorithm_id, subject_id, raw_score, rank, computed_at)
-        VALUES ($1, $2, $3, $4, $5)
+    "identifier_score": """
+        INSERT INTO identifier_score (algorithm_id, identifier, score)
+        VALUES ($1, $2, $3)
     """,
 }
 
@@ -193,24 +193,20 @@ async def _seed_identifier_stats(
     )
 
 
-async def _seed_rank_row(
+async def _seed_score_row(
     *,
     brotr: Brotr,
     table_name: str,
     algorithm_id: str,
     subject_id: str,
-    raw_score: float,
-    rank: int,
-    computed_at: int,
+    score: float,
 ) -> None:
-    assert table_name in _RANK_INSERT_QUERIES
+    assert table_name in _SCORE_INSERT_QUERIES
     await brotr.execute(
-        _RANK_INSERT_QUERIES[table_name],
+        _SCORE_INSERT_QUERIES[table_name],
         algorithm_id,
         subject_id,
-        raw_score,
-        rank,
-        computed_at,
+        score,
     )
 
 
@@ -282,20 +278,18 @@ async def _seed_full_kind_assertor_data(
         reaction_count=5,
         k_tags=["book", "isbn"],
     )
-    for table_name, subject_id, raw_score, rank in (
-        ("nip85_pubkey_ranks", author, 0.41, 89),
-        ("nip85_event_ranks", root_event_id, 7.30, 81),
-        ("nip85_addressable_ranks", event_address, 8.70, 84),
-        ("nip85_identifier_ranks", identifier, 5.20, 73),
+    for table_name, subject_id, score in (
+        ("pubkey_score", author, 89.0),
+        ("event_score", root_event_id, 81.0),
+        ("addressable_score", event_address, 84.0),
+        ("identifier_score", identifier, 73.0),
     ):
-        await _seed_rank_row(
+        await _seed_score_row(
             brotr=brotr,
             table_name=table_name,
             algorithm_id=algorithm_id,
             subject_id=subject_id,
-            raw_score=raw_score,
-            rank=rank,
-            computed_at=1_700_000_200,
+            score=score,
         )
 
 

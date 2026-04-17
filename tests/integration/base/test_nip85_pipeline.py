@@ -30,30 +30,30 @@ VALID_HEX_KEY = (
     "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"  # pragma: allowlist secret
 )
 
-_RANK_FETCH_QUERIES = {
-    "nip85_pubkey_ranks": """
-        SELECT subject_id, rank
-        FROM nip85_pubkey_ranks
+_SCORE_FETCH_QUERIES = {
+    "pubkey_score": """
+        SELECT pubkey AS subject_id, score
+        FROM pubkey_score
         WHERE algorithm_id = $1
-        ORDER BY subject_id
+        ORDER BY pubkey
     """,
-    "nip85_event_ranks": """
-        SELECT subject_id, rank
-        FROM nip85_event_ranks
+    "event_score": """
+        SELECT event_id AS subject_id, score
+        FROM event_score
         WHERE algorithm_id = $1
-        ORDER BY subject_id
+        ORDER BY event_id
     """,
-    "nip85_addressable_ranks": """
-        SELECT subject_id, rank
-        FROM nip85_addressable_ranks
+    "addressable_score": """
+        SELECT event_address AS subject_id, score
+        FROM addressable_score
         WHERE algorithm_id = $1
-        ORDER BY subject_id
+        ORDER BY event_address
     """,
-    "nip85_identifier_ranks": """
-        SELECT subject_id, rank
-        FROM nip85_identifier_ranks
+    "identifier_score": """
+        SELECT identifier AS subject_id, score
+        FROM identifier_score
         WHERE algorithm_id = $1
-        ORDER BY subject_id
+        ORDER BY identifier
     """,
 }
 
@@ -326,15 +326,15 @@ def _make_mock_client() -> MagicMock:
     return client
 
 
-async def _fetch_rank_map(
+async def _fetch_score_map(
     *,
     brotr: Brotr,
     table_name: str,
     algorithm_id: str,
 ) -> dict[str, int]:
-    assert table_name in _RANK_FETCH_QUERIES
-    rows = await brotr.fetch(_RANK_FETCH_QUERIES[table_name], algorithm_id)
-    return {str(row["subject_id"]): int(row["rank"]) for row in rows}
+    assert table_name in _SCORE_FETCH_QUERIES
+    rows = await brotr.fetch(_SCORE_FETCH_QUERIES[table_name], algorithm_id)
+    return {str(row["subject_id"]): int(float(row["score"])) for row in rows}
 
 
 async def _assert_refresher_outputs(
@@ -378,31 +378,31 @@ async def _assert_refresher_outputs(
     assert identifier_fact["k_tags"] == ["book", "isbn"]
 
 
-def _assert_rank_exports(
+def _assert_score_exports(
     *,
-    pubkey_ranks: dict[str, int],
-    event_ranks: dict[str, int],
-    addressable_ranks: dict[str, int],
-    identifier_ranks: dict[str, int],
+    pubkey_scores: dict[str, int],
+    event_scores: dict[str, int],
+    addressable_scores: dict[str, int],
+    identifier_scores: dict[str, int],
     author: str,
     root_event_id: str,
     event_address: str,
     identifier: str,
 ) -> None:
-    assert author in pubkey_ranks
-    assert root_event_id in event_ranks
-    assert event_address in addressable_ranks
-    assert identifier in identifier_ranks
+    assert author in pubkey_scores
+    assert root_event_id in event_scores
+    assert event_address in addressable_scores
+    assert identifier in identifier_scores
 
 
 def _assert_published_events(
     *,
     config: AssertorConfig,
     published_builders: list[Any],
-    pubkey_ranks: dict[str, int],
-    event_ranks: dict[str, int],
-    addressable_ranks: dict[str, int],
-    identifier_ranks: dict[str, int],
+    pubkey_scores: dict[str, int],
+    event_scores: dict[str, int],
+    addressable_scores: dict[str, int],
+    identifier_scores: dict[str, int],
     author: str,
     root_event_id: str,
     event_address: str,
@@ -427,12 +427,12 @@ def _assert_published_events(
     )
     identifier_event = _find_by_kind_and_d(EventKind.NIP85_IDENTIFIER_ASSERTION, identifier)
 
-    assert _tag_values(user_event, "rank") == [str(pubkey_ranks[author])]
-    assert _tag_values(event_event, "rank") == [str(event_ranks[root_event_id])]
+    assert _tag_values(user_event, "rank") == [str(pubkey_scores[author])]
+    assert _tag_values(event_event, "rank") == [str(event_scores[root_event_id])]
     assert _tag_values(addressable_event, "a") == [event_address]
-    assert _tag_values(addressable_event, "rank") == [str(addressable_ranks[event_address])]
+    assert _tag_values(addressable_event, "rank") == [str(addressable_scores[event_address])]
     assert _tag_values(identifier_event, "d") == [identifier]
-    assert _tag_values(identifier_event, "rank") == [str(identifier_ranks[identifier])]
+    assert _tag_values(identifier_event, "rank") == [str(identifier_scores[identifier])]
     assert sorted(_tag_values(identifier_event, "k")) == [
         "book",
         "isbn",
@@ -444,10 +444,10 @@ async def _run_assertor_smoke(
     brotr: Brotr,
     config: AssertorConfig,
     client: MagicMock,
-    pubkey_ranks: dict[str, int],
-    event_ranks: dict[str, int],
-    addressable_ranks: dict[str, int],
-    identifier_ranks: dict[str, int],
+    pubkey_scores: dict[str, int],
+    event_scores: dict[str, int],
+    addressable_scores: dict[str, int],
+    identifier_scores: dict[str, int],
     author: str,
     root_event_id: str,
     event_address: str,
@@ -477,10 +477,10 @@ async def _run_assertor_smoke(
             _assert_published_events(
                 config=config,
                 published_builders=published_builders,
-                pubkey_ranks=pubkey_ranks,
-                event_ranks=event_ranks,
-                addressable_ranks=addressable_ranks,
-                identifier_ranks=identifier_ranks,
+                pubkey_scores=pubkey_scores,
+                event_scores=event_scores,
+                addressable_scores=addressable_scores,
+                identifier_scores=identifier_scores,
                 author=author,
                 root_event_id=root_event_id,
                 event_address=event_address,
@@ -540,32 +540,32 @@ class TestNip85PipelineSmoke:
         async with ranker:
             await ranker.run()
 
-        pubkey_ranks = await _fetch_rank_map(
+        pubkey_scores = await _fetch_score_map(
             brotr=brotr,
-            table_name="nip85_pubkey_ranks",
+            table_name="pubkey_score",
             algorithm_id=algorithm_id,
         )
-        event_ranks = await _fetch_rank_map(
+        event_scores = await _fetch_score_map(
             brotr=brotr,
-            table_name="nip85_event_ranks",
+            table_name="event_score",
             algorithm_id=algorithm_id,
         )
-        addressable_ranks = await _fetch_rank_map(
+        addressable_scores = await _fetch_score_map(
             brotr=brotr,
-            table_name="nip85_addressable_ranks",
+            table_name="addressable_score",
             algorithm_id=algorithm_id,
         )
-        identifier_ranks = await _fetch_rank_map(
+        identifier_scores = await _fetch_score_map(
             brotr=brotr,
-            table_name="nip85_identifier_ranks",
+            table_name="identifier_score",
             algorithm_id=algorithm_id,
         )
 
-        _assert_rank_exports(
-            pubkey_ranks=pubkey_ranks,
-            event_ranks=event_ranks,
-            addressable_ranks=addressable_ranks,
-            identifier_ranks=identifier_ranks,
+        _assert_score_exports(
+            pubkey_scores=pubkey_scores,
+            event_scores=event_scores,
+            addressable_scores=addressable_scores,
+            identifier_scores=identifier_scores,
             author=author,
             root_event_id=root_event_id,
             event_address=event_address,
@@ -578,10 +578,10 @@ class TestNip85PipelineSmoke:
             brotr=brotr,
             config=config,
             client=client,
-            pubkey_ranks=pubkey_ranks,
-            event_ranks=event_ranks,
-            addressable_ranks=addressable_ranks,
-            identifier_ranks=identifier_ranks,
+            pubkey_scores=pubkey_scores,
+            event_scores=event_scores,
+            addressable_scores=addressable_scores,
+            identifier_scores=identifier_scores,
             author=author,
             root_event_id=root_event_id,
             event_address=event_address,

@@ -10,15 +10,15 @@
 -- ANALYTICS TABLE INDEXES (secondary — PKs are defined in 04)
 -- ==========================================================================
 
--- pubkey_kind_stats: lookup by kind for kind_stats unique_pubkeys derivation
+-- pubkey_kind_stats: lookup by kind for kind_stats pubkey_count derivation
 CREATE INDEX IF NOT EXISTS idx_pubkey_kind_stats_kind
 ON pubkey_kind_stats USING btree (kind);
 
--- pubkey_relay_stats: lookup by relay for relay_stats unique_pubkeys derivation
+-- pubkey_relay_stats: lookup by relay for relay_stats pubkey_count derivation
 CREATE INDEX IF NOT EXISTS idx_pubkey_relay_stats_relay
 ON pubkey_relay_stats USING btree (relay_url);
 
--- relay_kind_stats: lookup by kind for kind_stats unique_relays derivation
+-- relay_kind_stats: lookup by kind for kind_stats relay_count derivation
 CREATE INDEX IF NOT EXISTS idx_relay_kind_stats_kind
 ON relay_kind_stats USING btree (kind);
 
@@ -34,21 +34,21 @@ ON nip85_event_stats USING btree (author_pubkey);
 CREATE INDEX IF NOT EXISTS idx_nip85_addressable_stats_author
 ON nip85_addressable_stats USING btree (author_pubkey);
 
--- nip85_pubkey_ranks: lookup by algorithm and descending rank for publish/join paths
-CREATE INDEX IF NOT EXISTS idx_nip85_pubkey_ranks_algorithm_rank_subject
-ON nip85_pubkey_ranks USING btree (algorithm_id, rank DESC, subject_id ASC);
+-- pubkey_score: lookup by algorithm and descending score for publish/join paths
+CREATE INDEX IF NOT EXISTS idx_pubkey_score_algorithm_score_pubkey
+ON pubkey_score USING btree (algorithm_id, score DESC, pubkey ASC);
 
--- nip85_event_ranks: lookup by algorithm and descending rank for publish/join paths
-CREATE INDEX IF NOT EXISTS idx_nip85_event_ranks_algorithm_rank_subject
-ON nip85_event_ranks USING btree (algorithm_id, rank DESC, subject_id ASC);
+-- event_score: lookup by algorithm and descending score for publish/join paths
+CREATE INDEX IF NOT EXISTS idx_event_score_algorithm_score_event
+ON event_score USING btree (algorithm_id, score DESC, event_id ASC);
 
--- nip85_addressable_ranks: lookup by algorithm and descending rank for publish/join paths
-CREATE INDEX IF NOT EXISTS idx_nip85_addressable_ranks_algorithm_rank_subject
-ON nip85_addressable_ranks USING btree (algorithm_id, rank DESC, subject_id ASC);
+-- addressable_score: lookup by algorithm and descending score for publish/join paths
+CREATE INDEX IF NOT EXISTS idx_addressable_score_algorithm_score_address
+ON addressable_score USING btree (algorithm_id, score DESC, event_address ASC);
 
--- nip85_identifier_ranks: lookup by algorithm and descending rank for publish/join paths
-CREATE INDEX IF NOT EXISTS idx_nip85_identifier_ranks_algorithm_rank_subject
-ON nip85_identifier_ranks USING btree (algorithm_id, rank DESC, subject_id ASC);
+-- identifier_score: lookup by algorithm and descending score for publish/join paths
+CREATE INDEX IF NOT EXISTS idx_identifier_score_algorithm_score_identifier
+ON identifier_score USING btree (algorithm_id, score DESC, identifier ASC);
 
 
 -- ==========================================================================

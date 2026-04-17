@@ -1,8 +1,8 @@
 """Database queries for the Assertor service.
 
-Reads from NIP-85 facts tables joined with rank snapshots for a specific
+Reads from NIP-85 facts tables joined with public score outputs for a specific
 ``algorithm_id``. The assertor stays a pure publish-layer: it only publishes
-subjects that both have facts and an exported rank.
+subjects that both have facts and an exported score.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 _USER_QUERY = """
 SELECT
     n.pubkey,
-    r.rank,
+    s.score AS rank,
     n.post_count,
     n.reply_count,
     n.reaction_count_sent,
@@ -35,12 +35,12 @@ SELECT
     n.topic_counts,
     n.follower_count,
     n.following_count,
-    ps.last_event_at
+    ps.last_event_created_at AS last_event_at
 FROM nip85_pubkey_stats AS n
 INNER JOIN pubkey_stats AS ps ON n.pubkey = ps.pubkey
-INNER JOIN nip85_pubkey_ranks AS r
-    ON r.subject_id = n.pubkey
-   AND r.algorithm_id = $1
+INNER JOIN pubkey_score AS s
+    ON s.pubkey = n.pubkey
+   AND s.algorithm_id = $1
 WHERE ps.event_count >= $2
 ORDER BY n.pubkey ASC
 LIMIT $3
@@ -51,7 +51,7 @@ _EVENT_QUERY = """
 SELECT
     s.event_id,
     s.author_pubkey,
-    r.rank,
+    sc.score AS rank,
     s.comment_count,
     s.quote_count,
     s.repost_count,
@@ -59,9 +59,9 @@ SELECT
     s.zap_count,
     s.zap_amount
 FROM nip85_event_stats AS s
-INNER JOIN nip85_event_ranks AS r
-    ON r.subject_id = s.event_id
-   AND r.algorithm_id = $1
+INNER JOIN event_score AS sc
+    ON sc.event_id = s.event_id
+   AND sc.algorithm_id = $1
 WHERE s.comment_count + s.quote_count + s.repost_count + s.reaction_count + s.zap_count > 0
 ORDER BY s.event_id ASC
 LIMIT $2
@@ -72,7 +72,7 @@ _ADDRESSABLE_QUERY = """
 SELECT
     s.event_address,
     s.author_pubkey,
-    r.rank,
+    sc.score AS rank,
     s.comment_count,
     s.quote_count,
     s.repost_count,
@@ -80,9 +80,9 @@ SELECT
     s.zap_count,
     s.zap_amount
 FROM nip85_addressable_stats AS s
-INNER JOIN nip85_addressable_ranks AS r
-    ON r.subject_id = s.event_address
-   AND r.algorithm_id = $1
+INNER JOIN addressable_score AS sc
+    ON sc.event_address = s.event_address
+   AND sc.algorithm_id = $1
 WHERE s.comment_count + s.quote_count + s.repost_count + s.reaction_count + s.zap_count > 0
 ORDER BY s.event_address ASC
 LIMIT $2
@@ -92,14 +92,14 @@ OFFSET $3
 _IDENTIFIER_QUERY = """
 SELECT
     s.identifier,
-    r.rank,
+    sc.score AS rank,
     s.comment_count,
     s.reaction_count,
     s.k_tags
 FROM nip85_identifier_stats AS s
-INNER JOIN nip85_identifier_ranks AS r
-    ON r.subject_id = s.identifier
-   AND r.algorithm_id = $1
+INNER JOIN identifier_score AS sc
+    ON sc.identifier = s.identifier
+   AND sc.algorithm_id = $1
 WHERE s.comment_count + s.reaction_count > 0
 ORDER BY s.identifier ASC
 LIMIT $2
@@ -114,7 +114,7 @@ async def fetch_user_rows(
     limit: int,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
-    """Fetch ranked user assertion rows joined with the user rank snapshot."""
+    """Fetch user assertion rows joined with the current public score output."""
     rows = await brotr.fetch(_USER_QUERY, algorithm_id, min_events, limit, offset)
     return [dict(row) for row in rows]
 
@@ -125,7 +125,7 @@ async def fetch_event_rows(
     limit: int,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
-    """Fetch ranked event assertion rows joined with the event rank snapshot."""
+    """Fetch event assertion rows joined with the current public score output."""
     rows = await brotr.fetch(_EVENT_QUERY, algorithm_id, limit, offset)
     return [dict(row) for row in rows]
 
@@ -136,7 +136,7 @@ async def fetch_addressable_rows(
     limit: int,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
-    """Fetch ranked addressable assertion rows joined with the address rank snapshot."""
+    """Fetch addressable assertion rows joined with the current public score output."""
     rows = await brotr.fetch(_ADDRESSABLE_QUERY, algorithm_id, limit, offset)
     return [dict(row) for row in rows]
 
@@ -147,6 +147,6 @@ async def fetch_identifier_rows(
     limit: int,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
-    """Fetch ranked identifier assertion rows joined with the identifier rank snapshot."""
+    """Fetch identifier assertion rows joined with the current public score output."""
     rows = await brotr.fetch(_IDENTIFIER_QUERY, algorithm_id, limit, offset)
     return [dict(row) for row in rows]

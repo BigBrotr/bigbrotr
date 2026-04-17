@@ -104,18 +104,18 @@ BEGIN
             ENCODE(pubkey, 'hex') AS pubkey,
             kind,
             COUNT(*) AS event_count,
-            MIN(created_at) AS first_event_at,
-            MAX(created_at) AS last_event_at
+            MIN(created_at) AS first_event_created_at,
+            MAX(created_at) AS last_event_created_at
         FROM new_events
         GROUP BY pubkey, kind
     )
-    INSERT INTO pubkey_kind_stats (pubkey, kind, event_count, first_event_at, last_event_at)
-    SELECT pubkey, kind, event_count, first_event_at, last_event_at
+    INSERT INTO pubkey_kind_stats (pubkey, kind, event_count, first_event_created_at, last_event_created_at)
+    SELECT pubkey, kind, event_count, first_event_created_at, last_event_created_at
     FROM delta
     ON CONFLICT (pubkey, kind) DO UPDATE SET
         event_count    = pubkey_kind_stats.event_count + EXCLUDED.event_count,
-        first_event_at = LEAST(pubkey_kind_stats.first_event_at, EXCLUDED.first_event_at),
-        last_event_at  = GREATEST(pubkey_kind_stats.last_event_at, EXCLUDED.last_event_at);
+        first_event_created_at = LEAST(pubkey_kind_stats.first_event_created_at, EXCLUDED.first_event_created_at),
+        last_event_created_at  = GREATEST(pubkey_kind_stats.last_event_created_at, EXCLUDED.last_event_created_at);
 
     GET DIAGNOSTICS v_rows = ROW_COUNT;
     RETURN v_rows;
@@ -147,20 +147,20 @@ BEGIN
             ENCODE(e.pubkey, 'hex') AS pubkey,
             er.relay_url,
             COUNT(*) AS event_count,
-            MIN(e.created_at) AS first_event_at,
-            MAX(e.created_at) AS last_event_at
+            MIN(e.created_at) AS first_event_created_at,
+            MAX(e.created_at) AS last_event_created_at
         FROM event_observation AS er
         INNER JOIN event AS e ON er.event_id = e.id
         WHERE er.observed_at > p_after AND er.observed_at <= p_until
         GROUP BY e.pubkey, er.relay_url
     )
-    INSERT INTO pubkey_relay_stats (pubkey, relay_url, event_count, first_event_at, last_event_at)
-    SELECT pubkey, relay_url, event_count, first_event_at, last_event_at
+    INSERT INTO pubkey_relay_stats (pubkey, relay_url, event_count, first_event_created_at, last_event_created_at)
+    SELECT pubkey, relay_url, event_count, first_event_created_at, last_event_created_at
     FROM delta
     ON CONFLICT (pubkey, relay_url) DO UPDATE SET
         event_count    = pubkey_relay_stats.event_count + EXCLUDED.event_count,
-        first_event_at = LEAST(pubkey_relay_stats.first_event_at, EXCLUDED.first_event_at),
-        last_event_at  = GREATEST(pubkey_relay_stats.last_event_at, EXCLUDED.last_event_at);
+        first_event_created_at = LEAST(pubkey_relay_stats.first_event_created_at, EXCLUDED.first_event_created_at),
+        last_event_created_at  = GREATEST(pubkey_relay_stats.last_event_created_at, EXCLUDED.last_event_created_at);
 
     GET DIAGNOSTICS v_rows = ROW_COUNT;
     RETURN v_rows;
@@ -190,20 +190,20 @@ BEGIN
             er.relay_url,
             e.kind,
             COUNT(*) AS event_count,
-            MIN(e.created_at) AS first_event_at,
-            MAX(e.created_at) AS last_event_at
+            MIN(e.created_at) AS first_event_created_at,
+            MAX(e.created_at) AS last_event_created_at
         FROM event_observation AS er
         INNER JOIN event AS e ON er.event_id = e.id
         WHERE er.observed_at > p_after AND er.observed_at <= p_until
         GROUP BY er.relay_url, e.kind
     )
-    INSERT INTO relay_kind_stats (relay_url, kind, event_count, first_event_at, last_event_at)
-    SELECT relay_url, kind, event_count, first_event_at, last_event_at
+    INSERT INTO relay_kind_stats (relay_url, kind, event_count, first_event_created_at, last_event_created_at)
+    SELECT relay_url, kind, event_count, first_event_created_at, last_event_created_at
     FROM delta
     ON CONFLICT (relay_url, kind) DO UPDATE SET
         event_count    = relay_kind_stats.event_count + EXCLUDED.event_count,
-        first_event_at = LEAST(relay_kind_stats.first_event_at, EXCLUDED.first_event_at),
-        last_event_at  = GREATEST(relay_kind_stats.last_event_at, EXCLUDED.last_event_at);
+        first_event_created_at = LEAST(relay_kind_stats.first_event_created_at, EXCLUDED.first_event_created_at),
+        last_event_created_at  = GREATEST(relay_kind_stats.last_event_created_at, EXCLUDED.last_event_created_at);
 
     GET DIAGNOSTICS v_rows = ROW_COUNT;
     RETURN v_rows;
@@ -217,7 +217,7 @@ COMMENT ON FUNCTION relay_kind_stats_refresh(BIGINT, BIGINT) IS
 -- **************************************************************************
 -- SUMMARY TABLE REFRESH: Entity tables (refresh AFTER cross-tabulations)
 -- **************************************************************************
--- Entity tables derive unique_kinds/unique_relays/unique_pubkeys from
+-- Entity tables derive kind_count/relay_count/pubkey_count from
 -- cross-tab row COUNTs. Cross-tabs must be refreshed first.
 -- **************************************************************************
 
@@ -226,8 +226,8 @@ COMMENT ON FUNCTION relay_kind_stats_refresh(BIGINT, BIGINT) IS
  * pubkey_stats_refresh(p_after, p_until) -> INTEGER
  *
  * Processes truly new events (same deduplication as pubkey_kind_stats).
- * Derives unique_kinds from pubkey_kind_stats row count and
- * unique_relays from pubkey_relay_stats row count.
+ * Derives kind_count from pubkey_kind_stats row count and
+ * relay_count from pubkey_relay_stats row count.
  */
 CREATE OR REPLACE FUNCTION pubkey_stats_refresh(
     p_after BIGINT,
@@ -259,8 +259,8 @@ BEGIN
         SELECT
             ENCODE(pubkey, 'hex') AS pubkey,
             COUNT(*) AS event_count,
-            MIN(created_at) AS first_event_at,
-            MAX(created_at) AS last_event_at,
+            MIN(created_at) AS first_event_created_at,
+            MAX(created_at) AS last_event_created_at,
             COUNT(*) FILTER (
                 WHERE kind = 1
                 OR kind = 2
@@ -284,9 +284,9 @@ BEGIN
     kind_rollup AS (
         SELECT
             pks.pubkey,
-            COUNT(*)::INTEGER AS unique_kinds,
-            MIN(pks.first_event_at) AS first_event_at,
-            MAX(pks.last_event_at) AS last_event_at
+            COUNT(*)::INTEGER AS kind_count,
+            MIN(pks.first_event_created_at) AS first_event_created_at,
+            MAX(pks.last_event_created_at) AS last_event_created_at
         FROM pubkey_kind_stats AS pks
         INNER JOIN impacted_pubkeys AS ip ON ip.pubkey = pks.pubkey
         GROUP BY pks.pubkey
@@ -294,48 +294,48 @@ BEGIN
     relay_rollup AS (
         SELECT
             prs.pubkey,
-            COUNT(*)::INTEGER AS unique_relays
+            COUNT(*)::INTEGER AS relay_count
         FROM pubkey_relay_stats AS prs
         INNER JOIN impacted_pubkeys AS ip ON ip.pubkey = prs.pubkey
         GROUP BY prs.pubkey
     )
     INSERT INTO pubkey_stats
-        (pubkey, event_count, first_event_at, last_event_at,
+        (pubkey, event_count, first_event_created_at, last_event_created_at,
          regular_count, replaceable_count, ephemeral_count, addressable_count,
-         unique_kinds, unique_relays)
+         kind_count, relay_count)
     SELECT
         ip.pubkey,
         COALESCE(d.event_count, 0),
-        COALESCE(d.first_event_at, kr.first_event_at),
-        COALESCE(d.last_event_at, kr.last_event_at),
+        COALESCE(d.first_event_created_at, kr.first_event_created_at),
+        COALESCE(d.last_event_created_at, kr.last_event_created_at),
         COALESCE(d.regular_count, 0),
         COALESCE(d.replaceable_count, 0),
         COALESCE(d.ephemeral_count, 0),
         COALESCE(d.addressable_count, 0),
-        COALESCE(kr.unique_kinds, 0),
-        COALESCE(rr.unique_relays, 0)
+        COALESCE(kr.kind_count, 0),
+        COALESCE(rr.relay_count, 0)
     FROM impacted_pubkeys AS ip
     LEFT JOIN delta AS d ON d.pubkey = ip.pubkey
     LEFT JOIN kind_rollup AS kr ON kr.pubkey = ip.pubkey
     LEFT JOIN relay_rollup AS rr ON rr.pubkey = ip.pubkey
     ON CONFLICT (pubkey) DO UPDATE SET
         event_count       = pubkey_stats.event_count + EXCLUDED.event_count,
-        first_event_at    = CASE
-            WHEN EXCLUDED.first_event_at IS NULL THEN pubkey_stats.first_event_at
-            WHEN pubkey_stats.first_event_at IS NULL THEN EXCLUDED.first_event_at
-            ELSE LEAST(pubkey_stats.first_event_at, EXCLUDED.first_event_at)
+        first_event_created_at    = CASE
+            WHEN EXCLUDED.first_event_created_at IS NULL THEN pubkey_stats.first_event_created_at
+            WHEN pubkey_stats.first_event_created_at IS NULL THEN EXCLUDED.first_event_created_at
+            ELSE LEAST(pubkey_stats.first_event_created_at, EXCLUDED.first_event_created_at)
         END,
-        last_event_at     = CASE
-            WHEN EXCLUDED.last_event_at IS NULL THEN pubkey_stats.last_event_at
-            WHEN pubkey_stats.last_event_at IS NULL THEN EXCLUDED.last_event_at
-            ELSE GREATEST(pubkey_stats.last_event_at, EXCLUDED.last_event_at)
+        last_event_created_at     = CASE
+            WHEN EXCLUDED.last_event_created_at IS NULL THEN pubkey_stats.last_event_created_at
+            WHEN pubkey_stats.last_event_created_at IS NULL THEN EXCLUDED.last_event_created_at
+            ELSE GREATEST(pubkey_stats.last_event_created_at, EXCLUDED.last_event_created_at)
         END,
         regular_count     = pubkey_stats.regular_count + EXCLUDED.regular_count,
         replaceable_count = pubkey_stats.replaceable_count + EXCLUDED.replaceable_count,
         ephemeral_count   = pubkey_stats.ephemeral_count + EXCLUDED.ephemeral_count,
         addressable_count = pubkey_stats.addressable_count + EXCLUDED.addressable_count,
-        unique_kinds      = EXCLUDED.unique_kinds,
-        unique_relays     = EXCLUDED.unique_relays;
+        kind_count      = EXCLUDED.kind_count,
+        relay_count     = EXCLUDED.relay_count;
 
     GET DIAGNOSTICS v_rows = ROW_COUNT;
     RETURN v_rows;
@@ -350,8 +350,8 @@ COMMENT ON FUNCTION pubkey_stats_refresh(BIGINT, BIGINT) IS
  * kind_stats_refresh(p_after, p_until) -> INTEGER
  *
  * Processes truly new events.
- * Derives unique_pubkeys from pubkey_kind_stats and
- * unique_relays from relay_kind_stats.
+ * Derives pubkey_count from pubkey_kind_stats and
+ * relay_count from relay_kind_stats.
  */
 CREATE OR REPLACE FUNCTION kind_stats_refresh(
     p_after BIGINT,
@@ -383,8 +383,8 @@ BEGIN
         SELECT
             kind,
             COUNT(*) AS event_count,
-            MIN(created_at) AS first_event_at,
-            MAX(created_at) AS last_event_at,
+            MIN(created_at) AS first_event_created_at,
+            MAX(created_at) AS last_event_created_at,
             CASE
                 WHEN kind = 1
                     OR kind = 2
@@ -403,9 +403,9 @@ BEGIN
     pubkey_rollup AS (
         SELECT
             pks.kind,
-            COUNT(*)::INTEGER AS unique_pubkeys,
-            MIN(pks.first_event_at) AS first_event_at,
-            MAX(pks.last_event_at) AS last_event_at
+            COUNT(*)::INTEGER AS pubkey_count,
+            MIN(pks.first_event_created_at) AS first_event_created_at,
+            MAX(pks.last_event_created_at) AS last_event_created_at
         FROM pubkey_kind_stats AS pks
         INNER JOIN impacted_kinds AS ik ON ik.kind = pks.kind
         GROUP BY pks.kind
@@ -413,40 +413,40 @@ BEGIN
     relay_rollup AS (
         SELECT
             rks.kind,
-            COUNT(*)::INTEGER AS unique_relays
+            COUNT(*)::INTEGER AS relay_count
         FROM relay_kind_stats AS rks
         INNER JOIN impacted_kinds AS ik ON ik.kind = rks.kind
         GROUP BY rks.kind
     )
     INSERT INTO kind_stats
-        (kind, event_count, category, first_event_at, last_event_at,
-         unique_pubkeys, unique_relays)
+        (kind, event_count, category, first_event_created_at, last_event_created_at,
+         pubkey_count, relay_count)
     SELECT
         ik.kind,
         COALESCE(d.event_count, 0),
         COALESCE(d.category, 'other'),
-        COALESCE(d.first_event_at, pr.first_event_at),
-        COALESCE(d.last_event_at, pr.last_event_at),
-        COALESCE(pr.unique_pubkeys, 0),
-        COALESCE(rr.unique_relays, 0)
+        COALESCE(d.first_event_created_at, pr.first_event_created_at),
+        COALESCE(d.last_event_created_at, pr.last_event_created_at),
+        COALESCE(pr.pubkey_count, 0),
+        COALESCE(rr.relay_count, 0)
     FROM impacted_kinds AS ik
     LEFT JOIN delta AS d ON d.kind = ik.kind
     LEFT JOIN pubkey_rollup AS pr ON pr.kind = ik.kind
     LEFT JOIN relay_rollup AS rr ON rr.kind = ik.kind
     ON CONFLICT (kind) DO UPDATE SET
         event_count    = kind_stats.event_count + EXCLUDED.event_count,
-        first_event_at = CASE
-            WHEN EXCLUDED.first_event_at IS NULL THEN kind_stats.first_event_at
-            WHEN kind_stats.first_event_at IS NULL THEN EXCLUDED.first_event_at
-            ELSE LEAST(kind_stats.first_event_at, EXCLUDED.first_event_at)
+        first_event_created_at = CASE
+            WHEN EXCLUDED.first_event_created_at IS NULL THEN kind_stats.first_event_created_at
+            WHEN kind_stats.first_event_created_at IS NULL THEN EXCLUDED.first_event_created_at
+            ELSE LEAST(kind_stats.first_event_created_at, EXCLUDED.first_event_created_at)
         END,
-        last_event_at  = CASE
-            WHEN EXCLUDED.last_event_at IS NULL THEN kind_stats.last_event_at
-            WHEN kind_stats.last_event_at IS NULL THEN EXCLUDED.last_event_at
-            ELSE GREATEST(kind_stats.last_event_at, EXCLUDED.last_event_at)
+        last_event_created_at  = CASE
+            WHEN EXCLUDED.last_event_created_at IS NULL THEN kind_stats.last_event_created_at
+            WHEN kind_stats.last_event_created_at IS NULL THEN EXCLUDED.last_event_created_at
+            ELSE GREATEST(kind_stats.last_event_created_at, EXCLUDED.last_event_created_at)
         END,
-        unique_pubkeys = EXCLUDED.unique_pubkeys,
-        unique_relays  = EXCLUDED.unique_relays;
+        pubkey_count = EXCLUDED.pubkey_count,
+        relay_count  = EXCLUDED.relay_count;
 
     GET DIAGNOSTICS v_rows = ROW_COUNT;
     RETURN v_rows;
@@ -461,8 +461,8 @@ COMMENT ON FUNCTION kind_stats_refresh(BIGINT, BIGINT) IS
  * relay_stats_refresh(p_after, p_until) -> INTEGER
  *
  * Processes ALL new event_observation rows (not just new events).
- * Derives unique_pubkeys from pubkey_relay_stats and
- * unique_kinds from relay_kind_stats.
+ * Derives pubkey_count from pubkey_relay_stats and
+ * kind_count from relay_kind_stats.
  *
  * Does NOT update RTT/NIP-11/network fields — those are handled by
  * relay_stats_document_refresh().
@@ -480,8 +480,8 @@ BEGIN
         SELECT
             er.relay_url,
             COUNT(*) AS event_count,
-            MIN(e.created_at) AS first_event_at,
-            MAX(e.created_at) AS last_event_at,
+            MIN(e.created_at) AS first_event_created_at,
+            MAX(e.created_at) AS last_event_created_at,
             COUNT(*) FILTER (
                 WHERE e.kind = 1
                 OR e.kind = 2
@@ -505,27 +505,27 @@ BEGIN
         GROUP BY er.relay_url
     )
     INSERT INTO relay_stats
-        (relay_url, event_count, first_event_at, last_event_at,
+        (relay_url, event_count, first_event_created_at, last_event_created_at,
          regular_count, replaceable_count, ephemeral_count, addressable_count,
-         unique_pubkeys, unique_kinds)
+         pubkey_count, kind_count)
     SELECT
-        d.relay_url, d.event_count, d.first_event_at, d.last_event_at,
+        d.relay_url, d.event_count, d.first_event_created_at, d.last_event_created_at,
         d.regular_count, d.replaceable_count, d.ephemeral_count, d.addressable_count,
         COALESCE((SELECT COUNT(*)::INTEGER FROM pubkey_relay_stats WHERE relay_url = d.relay_url), 0),
         COALESCE((SELECT COUNT(*)::INTEGER FROM relay_kind_stats WHERE relay_url = d.relay_url), 0)
     FROM delta AS d
     ON CONFLICT (relay_url) DO UPDATE SET
         event_count       = relay_stats.event_count + EXCLUDED.event_count,
-        first_event_at    = LEAST(relay_stats.first_event_at, EXCLUDED.first_event_at),
-        last_event_at     = GREATEST(relay_stats.last_event_at, EXCLUDED.last_event_at),
+        first_event_created_at    = LEAST(relay_stats.first_event_created_at, EXCLUDED.first_event_created_at),
+        last_event_created_at     = GREATEST(relay_stats.last_event_created_at, EXCLUDED.last_event_created_at),
         regular_count     = relay_stats.regular_count + EXCLUDED.regular_count,
         replaceable_count = relay_stats.replaceable_count + EXCLUDED.replaceable_count,
         ephemeral_count   = relay_stats.ephemeral_count + EXCLUDED.ephemeral_count,
         addressable_count = relay_stats.addressable_count + EXCLUDED.addressable_count,
-        unique_pubkeys    = COALESCE(
+        pubkey_count    = COALESCE(
             (SELECT COUNT(*)::INTEGER FROM pubkey_relay_stats WHERE relay_url = relay_stats.relay_url), 0
         ),
-        unique_kinds      = COALESCE(
+        kind_count      = COALESCE(
             (SELECT COUNT(*)::INTEGER FROM relay_kind_stats WHERE relay_url = relay_stats.relay_url), 0
         );
 
@@ -753,7 +753,7 @@ COMMENT ON FUNCTION contact_list_edges_current_refresh(BIGINT, BIGINT) IS
  * event_observation.observed_at). Designed to run every few hours.
  *
  * For pubkeys/kinds with no recent activity, windows are zeroed out by
- * checking last_event_at against the 30-day threshold.
+ * checking last_event_created_at against the 30-day threshold.
  */
 CREATE OR REPLACE FUNCTION rolling_windows_refresh()
 RETURNS VOID
@@ -785,7 +785,7 @@ BEGIN
 
     UPDATE pubkey_stats SET
         events_last_24h = 0, events_last_7d = 0, events_last_30d = 0
-    WHERE last_event_at < v_30d
+    WHERE last_event_created_at < v_30d
       AND (events_last_24h > 0 OR events_last_7d > 0 OR events_last_30d > 0);
 
     -- kind_stats
@@ -808,7 +808,7 @@ BEGIN
 
     UPDATE kind_stats SET
         events_last_24h = 0, events_last_7d = 0, events_last_30d = 0
-    WHERE last_event_at < v_30d
+    WHERE last_event_created_at < v_30d
       AND (events_last_24h > 0 OR events_last_7d > 0 OR events_last_30d > 0);
 
     -- relay_stats uses event_observation.observed_at (observed activity by relay)
@@ -1040,7 +1040,7 @@ COMMENT ON FUNCTION supported_nip_counts_refresh(BIGINT, BIGINT) IS
  * daily_counts_refresh(p_after, p_until) -> INTEGER
  *
  * Recomputes only the UTC days impacted by truly new events in the delta
- * window. This keeps the table exact for unique_pubkeys/unique_kinds while
+ * window. This keeps the table exact for pubkey_count/kind_count while
  * avoiding a full-table rebuild.
  */
 CREATE OR REPLACE FUNCTION daily_counts_refresh(
@@ -1078,24 +1078,24 @@ BEGIN
         SELECT
             '1970-01-01'::DATE + (e.created_at / 86400)::INTEGER AS day,
             COUNT(*) AS event_count,
-            COUNT(DISTINCT e.pubkey) AS unique_pubkeys,
-            COUNT(DISTINCT e.kind) AS unique_kinds
+            COUNT(DISTINCT e.pubkey) AS pubkey_count,
+            COUNT(DISTINCT e.kind) AS kind_count
         FROM event AS e
         INNER JOIN impacted_days AS d
             ON d.day = '1970-01-01'::DATE + (e.created_at / 86400)::INTEGER
         GROUP BY '1970-01-01'::DATE + (e.created_at / 86400)::INTEGER
     )
-    INSERT INTO daily_counts (day, event_count, unique_pubkeys, unique_kinds)
+    INSERT INTO daily_counts (day, event_count, pubkey_count, kind_count)
     SELECT
         day,
         event_count,
-        unique_pubkeys,
-        unique_kinds
+        pubkey_count,
+        kind_count
     FROM recomputed
     ON CONFLICT (day) DO UPDATE SET
         event_count    = EXCLUDED.event_count,
-        unique_pubkeys = EXCLUDED.unique_pubkeys,
-        unique_kinds   = EXCLUDED.unique_kinds;
+        pubkey_count = EXCLUDED.pubkey_count,
+        kind_count   = EXCLUDED.kind_count;
 
     GET DIAGNOSTICS v_rows = ROW_COUNT;
     RETURN v_rows;

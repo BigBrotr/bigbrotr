@@ -72,7 +72,7 @@ deployments/
 | `DB_WRITER_PASSWORD` | Yes | Writer services | Writer role password (seeder, finder, validator, monitor, synchronizer) |
 | `DB_READER_PASSWORD` | Yes | Read-only services | Reader role password (postgres-exporter, Api, Dvm) |
 | `DB_REFRESHER_PASSWORD` | Yes | Refresher | Refresher role password for derived-table and analytics refreshes |
-| `DB_RANKER_PASSWORD` | Yes | Ranker | Ranker role password (read canonical facts, write `nip85_pubkey_ranks`) |
+| `DB_RANKER_PASSWORD` | Yes | Ranker | Ranker role password (read canonical facts, write public NIP-85 score outputs) |
 | `NOSTR_PRIVATE_KEY_MONITOR` | No | Monitor | Service-specific key used for Monitor publishing and NIP-66 write probes. Blank/unset generates one ephemeral key at config creation. |
 | `NOSTR_PRIVATE_KEY_SYNCHRONIZER` | No | Synchronizer | Service-specific key used for NIP-42-authenticated relay reads. Blank/unset generates one ephemeral key at config creation. |
 | `NOSTR_PRIVATE_KEY_DVM` | No | Dvm | Service-specific key used for NIP-89/NIP-90 signing. Blank/unset generates one ephemeral key at config creation. |
@@ -760,7 +760,7 @@ cleanup:
 
 ## Ranker Configuration
 
-Computes deterministic NIP-85 rank snapshots from the canonical follow graph
+Computes deterministic NIP-85 public scores from the canonical follow graph
 and refreshed engagement facts. Pubkey ranks (`30382`) come from PageRank,
 while event, addressable, and identifier ranks (`30383`, `30384`, `30385`)
 are derived and snapshot-exported to PostgreSQL.
@@ -809,7 +809,7 @@ cleanup:
 
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
-| `algorithm_id` | string | `global-pagerank` | lowercase slug | Stable namespace used in rank snapshots and downstream assertion joins |
+| `algorithm_id` | string | `global-pagerank` | lowercase slug | Stable namespace used in public score outputs and downstream assertion joins |
 | `storage.path` | path | `/app/data/ranker.duckdb` | writable path | Private DuckDB database file for graph state and PageRank working tables |
 | `storage.checkpoint_path` | path | `/app/data/ranker.checkpoint.json` | readable path | Optional legacy JSON checkpoint import path used when seeding DuckDB state |
 | `processing.max_duration` | float or null | `null` | `1-86400` | Maximum seconds for one ranker cycle |

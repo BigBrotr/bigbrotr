@@ -22,7 +22,7 @@
 -- (p_after, p_until) range of event_observation.observed_at timestamps.
 --
 -- Cross-tabs are refreshed BEFORE entity tables because entity tables
--- derive unique_kinds/unique_relays from cross-tab row counts.
+-- derive kind_count/relay_count from cross-tab row counts.
 -- **************************************************************************
 
 
@@ -38,8 +38,8 @@ CREATE TABLE IF NOT EXISTS pubkey_kind_stats (
     pubkey TEXT NOT NULL,
     kind INTEGER NOT NULL,
     event_count BIGINT NOT NULL DEFAULT 0,
-    first_event_at BIGINT,
-    last_event_at BIGINT,
+    first_event_created_at BIGINT,
+    last_event_created_at BIGINT,
     PRIMARY KEY (pubkey, kind)
 );
 
@@ -58,8 +58,8 @@ CREATE TABLE IF NOT EXISTS pubkey_relay_stats (
     pubkey TEXT NOT NULL,
     relay_url TEXT NOT NULL,
     event_count BIGINT NOT NULL DEFAULT 0,
-    first_event_at BIGINT,
-    last_event_at BIGINT,
+    first_event_created_at BIGINT,
+    last_event_created_at BIGINT,
     PRIMARY KEY (pubkey, relay_url)
 );
 
@@ -78,8 +78,8 @@ CREATE TABLE IF NOT EXISTS relay_kind_stats (
     relay_url TEXT NOT NULL,
     kind INTEGER NOT NULL,
     event_count BIGINT NOT NULL DEFAULT 0,
-    first_event_at BIGINT,
-    last_event_at BIGINT,
+    first_event_created_at BIGINT,
+    last_event_created_at BIGINT,
     PRIMARY KEY (relay_url, kind)
 );
 
@@ -91,7 +91,7 @@ COMMENT ON TABLE relay_kind_stats IS
 -- pubkey_stats: Rich per-author statistics (entity)
 -- ==========================================================================
 -- One row per pubkey. Additive counts maintained incrementally;
--- unique_kinds and unique_relays derived from cross-tab row counts.
+-- kind_count and relay_count derived from cross-tab row counts.
 -- Rolling windows (events_last_*) refreshed periodically.
 --
 -- Refresh: pubkey_stats_refresh(p_after, p_until)
@@ -99,10 +99,10 @@ COMMENT ON TABLE relay_kind_stats IS
 CREATE TABLE IF NOT EXISTS pubkey_stats (
     pubkey TEXT PRIMARY KEY,
     event_count BIGINT NOT NULL DEFAULT 0,
-    unique_kinds INTEGER NOT NULL DEFAULT 0,
-    unique_relays INTEGER NOT NULL DEFAULT 0,
-    first_event_at BIGINT,
-    last_event_at BIGINT,
+    kind_count INTEGER NOT NULL DEFAULT 0,
+    relay_count INTEGER NOT NULL DEFAULT 0,
+    first_event_created_at BIGINT,
+    last_event_created_at BIGINT,
     events_last_24h BIGINT NOT NULL DEFAULT 0,
     events_last_7d BIGINT NOT NULL DEFAULT 0,
     events_last_30d BIGINT NOT NULL DEFAULT 0,
@@ -120,18 +120,18 @@ COMMENT ON TABLE pubkey_stats IS
 -- kind_stats: Rich per-kind statistics (entity)
 -- ==========================================================================
 -- One row per kind. Additive counts maintained incrementally;
--- unique_pubkeys and unique_relays derived from cross-tab row counts.
+-- pubkey_count and relay_count derived from cross-tab row counts.
 --
 -- Refresh: kind_stats_refresh(p_after, p_until)
 
 CREATE TABLE IF NOT EXISTS kind_stats (
     kind INTEGER PRIMARY KEY,
     event_count BIGINT NOT NULL DEFAULT 0,
-    unique_pubkeys INTEGER NOT NULL DEFAULT 0,
-    unique_relays INTEGER NOT NULL DEFAULT 0,
+    pubkey_count INTEGER NOT NULL DEFAULT 0,
+    relay_count INTEGER NOT NULL DEFAULT 0,
     category TEXT NOT NULL DEFAULT 'other',
-    first_event_at BIGINT,
-    last_event_at BIGINT,
+    first_event_created_at BIGINT,
+    last_event_created_at BIGINT,
     events_last_24h BIGINT NOT NULL DEFAULT 0,
     events_last_7d BIGINT NOT NULL DEFAULT 0,
     events_last_30d BIGINT NOT NULL DEFAULT 0
@@ -145,7 +145,7 @@ COMMENT ON TABLE kind_stats IS
 -- relay_stats: Rich per-relay statistics (entity)
 -- ==========================================================================
 -- One row per relay. Event counts maintained incrementally;
--- unique_pubkeys and unique_kinds derived from cross-tab row counts.
+-- pubkey_count and kind_count derived from cross-tab row counts.
 -- RTT averages and NIP-11 info refreshed via relay_stats_document_refresh().
 --
 -- Refresh: relay_stats_refresh(p_after, p_until)
@@ -155,10 +155,10 @@ CREATE TABLE IF NOT EXISTS relay_stats (
     network TEXT,
     stored_at BIGINT,
     event_count BIGINT NOT NULL DEFAULT 0,
-    unique_pubkeys INTEGER NOT NULL DEFAULT 0,
-    unique_kinds INTEGER NOT NULL DEFAULT 0,
-    first_event_at BIGINT,
-    last_event_at BIGINT,
+    pubkey_count INTEGER NOT NULL DEFAULT 0,
+    kind_count INTEGER NOT NULL DEFAULT 0,
+    first_event_created_at BIGINT,
+    last_event_created_at BIGINT,
     events_last_24h BIGINT NOT NULL DEFAULT 0,
     events_last_7d BIGINT NOT NULL DEFAULT 0,
     events_last_30d BIGINT NOT NULL DEFAULT 0,
@@ -296,91 +296,84 @@ COMMENT ON TABLE nip85_identifier_stats IS
 
 
 -- ==========================================================================
--- nip85_pubkey_ranks: Per-pubkey rank outputs (30382)
+-- pubkey_score: Per-pubkey score outputs (30382)
 -- ==========================================================================
 -- Snapshot-exported by the ranker after a successful DuckDB PageRank run.
--- ``subject_id`` is the asserted pubkey. ``raw_score`` is the unnormalized
--- PageRank value; ``rank`` is the final 0-100 score for publication.
+-- ``algorithm_id`` remains as an explicit namespace because provider
+-- publication and checkpoint cleanup still operate per algorithm/service
+-- identity, but the shared DB stores only the published score output.
 --
 -- Refresh: external snapshot export by the ranker service
 
-CREATE TABLE IF NOT EXISTS nip85_pubkey_ranks (
+CREATE TABLE IF NOT EXISTS pubkey_score (
     algorithm_id TEXT NOT NULL,
-    subject_id TEXT NOT NULL,
-    raw_score DOUBLE PRECISION NOT NULL,
-    rank INTEGER NOT NULL,
-    computed_at BIGINT NOT NULL,
-    PRIMARY KEY (algorithm_id, subject_id)
+    pubkey TEXT NOT NULL,
+    score DOUBLE PRECISION NOT NULL,
+    PRIMARY KEY (algorithm_id, pubkey)
 );
 
-COMMENT ON TABLE nip85_pubkey_ranks IS
-'NIP-85 per-pubkey rank outputs (kind 30382). Snapshot-exported by the ranker per algorithm_id after a successful DuckDB PageRank run.';
+COMMENT ON TABLE pubkey_score IS
+'Per-pubkey public score outputs (kind 30382). Snapshot-exported by the ranker per algorithm_id after a successful DuckDB PageRank run.';
 
 
 -- ==========================================================================
--- nip85_event_ranks: Per-event rank outputs (30383)
+-- event_score: Per-event score outputs (30383)
 -- ==========================================================================
 -- Snapshot-exported by the ranker after a successful non-user ranking run.
--- ``subject_id`` is the asserted event id. ``raw_score`` already includes the
--- author-rank multiplier used by the v1 algorithm.
+-- ``score`` is the published event score output after non-user normalization.
 --
 -- Refresh: external snapshot export by the ranker service
 
-CREATE TABLE IF NOT EXISTS nip85_event_ranks (
+CREATE TABLE IF NOT EXISTS event_score (
     algorithm_id TEXT NOT NULL,
-    subject_id TEXT NOT NULL,
-    raw_score DOUBLE PRECISION NOT NULL,
-    rank INTEGER NOT NULL,
-    computed_at BIGINT NOT NULL,
-    PRIMARY KEY (algorithm_id, subject_id)
+    event_id TEXT NOT NULL,
+    score DOUBLE PRECISION NOT NULL,
+    PRIMARY KEY (algorithm_id, event_id)
 );
 
-COMMENT ON TABLE nip85_event_ranks IS
-'NIP-85 per-event rank outputs (kind 30383). Snapshot-exported by the ranker per algorithm_id after a successful non-user ranking run.';
+COMMENT ON TABLE event_score IS
+'Per-event public score outputs (kind 30383). Snapshot-exported by the ranker per algorithm_id after a successful non-user ranking run.';
 
 
 -- ==========================================================================
--- nip85_addressable_ranks: Per-addressable-event rank outputs (30384)
+-- addressable_score: Per-addressable-event score outputs (30384)
 -- ==========================================================================
 -- Snapshot-exported by the ranker after a successful non-user ranking run.
--- ``subject_id`` is the canonical addressable coordinate ``kind:pubkey:d_tag``.
--- ``raw_score`` already includes the author-rank multiplier used by the v1
--- algorithm.
+-- ``event_address`` is the canonical addressable coordinate
+-- ``kind:pubkey:d_tag`` and ``score`` is the published output after
+-- non-user normalization.
 --
 -- Refresh: external snapshot export by the ranker service
 
-CREATE TABLE IF NOT EXISTS nip85_addressable_ranks (
+CREATE TABLE IF NOT EXISTS addressable_score (
     algorithm_id TEXT NOT NULL,
-    subject_id TEXT NOT NULL,
-    raw_score DOUBLE PRECISION NOT NULL,
-    rank INTEGER NOT NULL,
-    computed_at BIGINT NOT NULL,
-    PRIMARY KEY (algorithm_id, subject_id)
+    event_address TEXT NOT NULL,
+    score DOUBLE PRECISION NOT NULL,
+    PRIMARY KEY (algorithm_id, event_address)
 );
 
-COMMENT ON TABLE nip85_addressable_ranks IS
-'NIP-85 per-addressable-event rank outputs (kind 30384). Snapshot-exported by the ranker per algorithm_id after a successful non-user ranking run.';
+COMMENT ON TABLE addressable_score IS
+'Per-addressable-event public score outputs (kind 30384). Snapshot-exported by the ranker per algorithm_id after a successful non-user ranking run.';
 
 
 -- ==========================================================================
--- nip85_identifier_ranks: Per-identifier rank outputs (30385)
+-- identifier_score: Per-identifier score outputs (30385)
 -- ==========================================================================
 -- Snapshot-exported by the ranker after a successful non-user ranking run.
--- ``subject_id`` is the canonical NIP-73 identifier string.
+-- ``identifier`` is the canonical NIP-73 identifier string and ``score`` is
+-- the published output after non-user normalization.
 --
 -- Refresh: external snapshot export by the ranker service
 
-CREATE TABLE IF NOT EXISTS nip85_identifier_ranks (
+CREATE TABLE IF NOT EXISTS identifier_score (
     algorithm_id TEXT NOT NULL,
-    subject_id TEXT NOT NULL,
-    raw_score DOUBLE PRECISION NOT NULL,
-    rank INTEGER NOT NULL,
-    computed_at BIGINT NOT NULL,
-    PRIMARY KEY (algorithm_id, subject_id)
+    identifier TEXT NOT NULL,
+    score DOUBLE PRECISION NOT NULL,
+    PRIMARY KEY (algorithm_id, identifier)
 );
 
-COMMENT ON TABLE nip85_identifier_ranks IS
-'NIP-85 per-identifier rank outputs (kind 30385). Snapshot-exported by the ranker per algorithm_id after a successful non-user ranking run.';
+COMMENT ON TABLE identifier_score IS
+'Per-identifier public score outputs (kind 30385). Snapshot-exported by the ranker per algorithm_id after a successful non-user ranking run.';
 
 
 -- ==========================================================================
@@ -438,8 +431,8 @@ COMMENT ON TABLE supported_nip_counts IS
 CREATE TABLE IF NOT EXISTS daily_counts (
     day DATE PRIMARY KEY,
     event_count BIGINT NOT NULL,
-    unique_pubkeys BIGINT NOT NULL,
-    unique_kinds BIGINT NOT NULL
+    pubkey_count BIGINT NOT NULL,
+    kind_count BIGINT NOT NULL
 );
 
 COMMENT ON TABLE daily_counts IS

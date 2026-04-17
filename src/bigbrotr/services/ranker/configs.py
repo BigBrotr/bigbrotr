@@ -117,7 +117,7 @@ class RankerFactsStageConfig(BaseModel):
 
 
 class RankerExportConfig(BaseModel):
-    """PostgreSQL export settings for rank snapshots and staged fact batches."""
+    """PostgreSQL export settings for public scores and staged fact batches."""
 
     model_config = ConfigDict(extra="forbid")
 

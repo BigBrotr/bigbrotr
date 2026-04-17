@@ -1,6 +1,6 @@
 # Services
 
-Deep dive into BigBrotr's ten independent services: how relays are discovered, validated, monitored, how events are archived, how derived facts are refreshed, how NIP-85 rank snapshots are computed, and how data is exposed via REST API and Nostr.
+Deep dive into BigBrotr's ten independent services: how relays are discovered, validated, monitored, how events are archived, how derived facts are refreshed, how NIP-85 public scores are computed, and how data is exposed via REST API and Nostr.
 
 ---
 
@@ -402,12 +402,12 @@ Each target is isolated by default: one failed refresh does not stop the rest of
 
 ## Ranker
 
-**Purpose**: Compute deterministic NIP-85 rank snapshots in a private DuckDB store and export them back to PostgreSQL.
+**Purpose**: Compute deterministic NIP-85 scores in a private DuckDB store and export the public score outputs back to PostgreSQL.
 
 **Mode**: Continuous (`run_forever`)
 
 **Reads**: `contact_lists_current`, `contact_list_edges_current`, `nip85_event_stats`, `nip85_addressable_stats`, `nip85_identifier_stats`
-**Writes**: `nip85_pubkey_ranks`, `nip85_event_ranks`, `nip85_addressable_ranks`, `nip85_identifier_ranks`, private DuckDB graph state + checkpoint file
+**Writes**: `pubkey_score`, `event_score`, `addressable_score`, `identifier_score`, private DuckDB graph state + checkpoint file
 
 ### How It Works
 
@@ -415,13 +415,13 @@ Each target is isolated by default: one failed refresh does not stop the rest of
 2. Pull changed canonical contact lists and follow edges from PostgreSQL current tables
 3. Apply the graph delta in DuckDB, then reload non-user fact stages (`event`, `addressable`, `identifier`)
 4. Compute deterministic pubkey PageRank (`30382`) plus derived non-user ranks (`30383`, `30384`, `30385`)
-5. Snapshot-export one complete `algorithm_id` rank set back to PostgreSQL for downstream assertion publishing
+5. Export one complete `algorithm_id` score set back to PostgreSQL for downstream assertion publishing
 
 ### Configuration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `algorithm_id` | string | `global-pagerank` | Namespace written into exported rank snapshots |
+| `algorithm_id` | string | `global-pagerank` | Namespace written into exported public score outputs |
 | `storage.path` | path | `/app/data/ranker.duckdb` | Private DuckDB database path |
 | `storage.checkpoint_path` | path | `/app/data/ranker.checkpoint.json` | Optional legacy JSON checkpoint import path |
 | `processing.max_duration` | float or null | `null` | Maximum seconds for one ranker cycle |
@@ -434,7 +434,7 @@ Each target is isolated by default: one failed refresh does not stop the rest of
 | `facts_stage.max_event_rows` | int or null | `null` | Maximum event fact rows staged per cycle |
 | `facts_stage.max_addressable_rows` | int or null | `null` | Maximum addressable fact rows staged per cycle |
 | `facts_stage.max_identifier_rows` | int or null | `null` | Maximum identifier fact rows staged per cycle |
-| `export.batch_size` | int | `1000` | Rows exported per rank snapshot batch |
+| `export.batch_size` | int | `1000` | Rows exported per public-score batch |
 | `export.max_batches_per_subject` | int or null | `null` | Maximum export batches per rank subject per cycle |
 | `cleanup.rank_runs_retention` | int or null | `100` | DuckDB-local rank run records to keep |
 
@@ -449,13 +449,13 @@ Each target is isolated by default: one failed refresh does not stop the rest of
 
 **Mode**: Continuous (`run_forever`)
 
-**Reads**: `nip85_pubkey_stats`, `nip85_event_stats`, `nip85_addressable_stats`, `nip85_identifier_stats`, `nip85_pubkey_ranks`, `nip85_event_ranks`, `nip85_addressable_ranks`, `nip85_identifier_ranks`, `pubkey_stats`, `service_state`
+**Reads**: `nip85_pubkey_stats`, `nip85_event_stats`, `nip85_addressable_stats`, `nip85_identifier_stats`, `pubkey_score`, `event_score`, `addressable_score`, `identifier_score`, `pubkey_stats`, `service_state`
 **Writes**: `service_state` (checkpoints), published Nostr events (kinds 30382-30385, optional kind 0)
 
 ### How It Works
 
 1. On startup (`__aenter__`), build a Nostr client from the configured signing key and connect to relays
-2. During each `run()` cycle, query eligible user, event, addressable, and identifier facts joined with the current algorithm's rank snapshots
+2. During each `run()` cycle, query eligible user, event, addressable, and identifier facts joined with the current algorithm's public scores
 3. Hash each assertion payload and compare it against `service_state` using `<algorithm_id>:<kind>:<subject_id>` checkpoint keys
 4. Publish only changed assertions, optionally publish a Kind 0 provider profile, then persist the new hashes
 5. Remove stale or non-canonical checkpoints after the cycle, keeping only current canonical state for the active algorithm namespace

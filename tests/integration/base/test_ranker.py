@@ -20,30 +20,30 @@ if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
 
 
-_RANK_FETCH_QUERIES = {
-    "nip85_pubkey_ranks": """
-        SELECT algorithm_id, subject_id, raw_score, rank, computed_at
-        FROM nip85_pubkey_ranks
+_SCORE_FETCH_QUERIES = {
+    "pubkey_score": """
+        SELECT algorithm_id, pubkey AS subject_id, score
+        FROM pubkey_score
         WHERE algorithm_id = $1
-        ORDER BY subject_id
+        ORDER BY pubkey
     """,
-    "nip85_event_ranks": """
-        SELECT algorithm_id, subject_id, raw_score, rank, computed_at
-        FROM nip85_event_ranks
+    "event_score": """
+        SELECT algorithm_id, event_id AS subject_id, score
+        FROM event_score
         WHERE algorithm_id = $1
-        ORDER BY subject_id
+        ORDER BY event_id
     """,
-    "nip85_addressable_ranks": """
-        SELECT algorithm_id, subject_id, raw_score, rank, computed_at
-        FROM nip85_addressable_ranks
+    "addressable_score": """
+        SELECT algorithm_id, event_address AS subject_id, score
+        FROM addressable_score
         WHERE algorithm_id = $1
-        ORDER BY subject_id
+        ORDER BY event_address
     """,
-    "nip85_identifier_ranks": """
-        SELECT algorithm_id, subject_id, raw_score, rank, computed_at
-        FROM nip85_identifier_ranks
+    "identifier_score": """
+        SELECT algorithm_id, identifier AS subject_id, score
+        FROM identifier_score
         WHERE algorithm_id = $1
-        ORDER BY subject_id
+        ORDER BY identifier
     """,
 }
 
@@ -194,28 +194,23 @@ async def _seed_identifier_stats(
     )
 
 
-async def _fetch_rank_rows(
+async def _fetch_score_rows(
     *,
     brotr: Brotr,
     table_name: str,
     algorithm_id: str,
 ) -> list[dict[str, Any]]:
     assert table_name in {
-        "nip85_pubkey_ranks",
-        "nip85_event_ranks",
-        "nip85_addressable_ranks",
-        "nip85_identifier_ranks",
+        "pubkey_score",
+        "event_score",
+        "addressable_score",
+        "identifier_score",
     }
-    rows = await brotr.fetch(_RANK_FETCH_QUERIES[table_name], algorithm_id)
+    rows = await brotr.fetch(_SCORE_FETCH_QUERIES[table_name], algorithm_id)
     return [dict(row) for row in rows]
 
 
-def _rows_without_computed_at(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Drop snapshot timestamps when comparing rank content across runs."""
-    return [{key: value for key, value in row.items() if key != "computed_at"} for row in rows]
-
-
-async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PLR0915
+async def test_ranker_syncs_graph_and_exports_pubkey_scores(  # noqa: PLR0915
     brotr: Brotr,
     tmp_path: Path,
 ) -> None:
@@ -329,139 +324,106 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
     assert store.load_checkpoint().source_seen_at == 20
     assert store.load_checkpoint().follower_pubkey == pubkey_d
 
-    first_rows = await _fetch_rank_rows(
+    first_rows = await _fetch_score_rows(
         brotr=brotr,
-        table_name="nip85_pubkey_ranks",
+        table_name="pubkey_score",
         algorithm_id=config.algorithm_id,
     )
-    first_event_rows = await _fetch_rank_rows(
+    first_event_rows = await _fetch_score_rows(
         brotr=brotr,
-        table_name="nip85_event_ranks",
+        table_name="event_score",
         algorithm_id=config.algorithm_id,
     )
-    first_addressable_rows = await _fetch_rank_rows(
+    first_addressable_rows = await _fetch_score_rows(
         brotr=brotr,
-        table_name="nip85_addressable_ranks",
+        table_name="addressable_score",
         algorithm_id=config.algorithm_id,
     )
-    first_identifier_rows = await _fetch_rank_rows(
+    first_identifier_rows = await _fetch_score_rows(
         brotr=brotr,
-        table_name="nip85_identifier_ranks",
+        table_name="identifier_score",
         algorithm_id=config.algorithm_id,
     )
 
     assert [row["subject_id"] for row in first_rows] == [pubkey_a, pubkey_b, pubkey_c, pubkey_d]
-    assert sum(float(row["raw_score"]) for row in first_rows) == pytest.approx(1.0, abs=1e-9)
-    assert all(0 <= int(row["rank"]) <= 100 for row in first_rows)
+    assert all(0.0 <= float(row["score"]) <= 100.0 for row in first_rows)
     assert [row["subject_id"] for row in first_event_rows] == [event_id]
     assert [row["subject_id"] for row in first_addressable_rows] == [event_address]
     assert [row["subject_id"] for row in first_identifier_rows] == expected_identifier_subjects
-    assert all(float(row["raw_score"]) > 0.0 for row in first_event_rows)
-    assert all(float(row["raw_score"]) > 0.0 for row in first_addressable_rows)
-    assert all(float(row["raw_score"]) > 0.0 for row in first_identifier_rows)
-    assert all(0 <= int(row["rank"]) <= 100 for row in first_event_rows)
-    assert all(0 <= int(row["rank"]) <= 100 for row in first_addressable_rows)
-    assert all(0 <= int(row["rank"]) <= 100 for row in first_identifier_rows)
+    assert all(0.0 < float(row["score"]) <= 100.0 for row in first_event_rows)
+    assert all(0.0 < float(row["score"]) <= 100.0 for row in first_addressable_rows)
+    assert all(0.0 < float(row["score"]) <= 100.0 for row in first_identifier_rows)
 
-    first_rank_map = {
-        str(row["subject_id"]): (float(row["raw_score"]), int(row["rank"])) for row in first_rows
-    }
+    first_score_map = {str(row["subject_id"]): float(row["score"]) for row in first_rows}
 
     await brotr.execute(
         """
-        INSERT INTO nip85_pubkey_ranks (algorithm_id, subject_id, raw_score, rank, computed_at)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO pubkey_score (algorithm_id, pubkey, score)
+        VALUES ($1, $2, $3)
         """,
         "other-pagerank",
         pubkey_b,
         0.123,
-        17,
-        999,
     )
     await brotr.execute(
         """
-        INSERT INTO nip85_event_ranks (algorithm_id, subject_id, raw_score, rank, computed_at)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO event_score (algorithm_id, event_id, score)
+        VALUES ($1, $2, $3)
         """,
         "other-pagerank",
         event_id,
         0.456,
-        23,
-        999,
     )
     await brotr.execute(
         """
-        INSERT INTO nip85_addressable_ranks (algorithm_id, subject_id, raw_score, rank, computed_at)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO addressable_score (algorithm_id, event_address, score)
+        VALUES ($1, $2, $3)
         """,
         "other-pagerank",
         event_address,
         0.789,
-        31,
-        999,
     )
     await brotr.execute(
         """
-        INSERT INTO nip85_identifier_ranks (algorithm_id, subject_id, raw_score, rank, computed_at)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO identifier_score (algorithm_id, identifier, score)
+        VALUES ($1, $2, $3)
         """,
         "other-pagerank",
         identifier_a,
         0.222,
-        19,
-        999,
     )
 
     service = Ranker(brotr=brotr, config=config)
     async with service:
         await service.run()
 
-    second_rows = await _fetch_rank_rows(
+    second_rows = await _fetch_score_rows(
         brotr=brotr,
-        table_name="nip85_pubkey_ranks",
+        table_name="pubkey_score",
         algorithm_id=config.algorithm_id,
     )
-    second_event_rows = await _fetch_rank_rows(
+    second_event_rows = await _fetch_score_rows(
         brotr=brotr,
-        table_name="nip85_event_ranks",
+        table_name="event_score",
         algorithm_id=config.algorithm_id,
     )
-    second_addressable_rows = await _fetch_rank_rows(
+    second_addressable_rows = await _fetch_score_rows(
         brotr=brotr,
-        table_name="nip85_addressable_ranks",
+        table_name="addressable_score",
         algorithm_id=config.algorithm_id,
     )
-    second_identifier_rows = await _fetch_rank_rows(
+    second_identifier_rows = await _fetch_score_rows(
         brotr=brotr,
-        table_name="nip85_identifier_ranks",
+        table_name="identifier_score",
         algorithm_id=config.algorithm_id,
     )
     assert [row["subject_id"] for row in second_rows] == [pubkey_a, pubkey_b, pubkey_c, pubkey_d]
     for row in second_rows:
-        raw_score, rank = first_rank_map[str(row["subject_id"])]
-        assert float(row["raw_score"]) == pytest.approx(raw_score, abs=1e-12)
-        assert int(row["rank"]) == rank
-    assert _rows_without_computed_at(second_event_rows) == _rows_without_computed_at(
-        first_event_rows
-    )
-    assert _rows_without_computed_at(second_addressable_rows) == _rows_without_computed_at(
-        first_addressable_rows
-    )
-    assert _rows_without_computed_at(second_identifier_rows) == _rows_without_computed_at(
-        first_identifier_rows
-    )
-    assert all(
-        int(second["computed_at"]) >= int(first["computed_at"])
-        for first, second in zip(first_event_rows, second_event_rows, strict=True)
-    )
-    assert all(
-        int(second["computed_at"]) >= int(first["computed_at"])
-        for first, second in zip(first_addressable_rows, second_addressable_rows, strict=True)
-    )
-    assert all(
-        int(second["computed_at"]) >= int(first["computed_at"])
-        for first, second in zip(first_identifier_rows, second_identifier_rows, strict=True)
-    )
+        score = first_score_map[str(row["subject_id"])]
+        assert float(row["score"]) == pytest.approx(score, abs=1e-12)
+    assert second_event_rows == first_event_rows
+    assert second_addressable_rows == first_addressable_rows
+    assert second_identifier_rows == first_identifier_rows
 
     await brotr.execute(
         """
@@ -501,89 +463,81 @@ async def test_ranker_syncs_graph_and_exports_pubkey_ranks_snapshot(  # noqa: PL
     assert store.load_checkpoint().source_seen_at == 30
     assert store.load_checkpoint().follower_pubkey == pubkey_a
 
-    final_rows = await _fetch_rank_rows(
+    final_rows = await _fetch_score_rows(
         brotr=brotr,
-        table_name="nip85_pubkey_ranks",
+        table_name="pubkey_score",
         algorithm_id=config.algorithm_id,
     )
-    final_event_rows = await _fetch_rank_rows(
+    final_event_rows = await _fetch_score_rows(
         brotr=brotr,
-        table_name="nip85_event_ranks",
+        table_name="event_score",
         algorithm_id=config.algorithm_id,
     )
-    final_addressable_rows = await _fetch_rank_rows(
+    final_addressable_rows = await _fetch_score_rows(
         brotr=brotr,
-        table_name="nip85_addressable_ranks",
+        table_name="addressable_score",
         algorithm_id=config.algorithm_id,
     )
-    final_identifier_rows = await _fetch_rank_rows(
+    final_identifier_rows = await _fetch_score_rows(
         brotr=brotr,
-        table_name="nip85_identifier_ranks",
+        table_name="identifier_score",
         algorithm_id=config.algorithm_id,
     )
     assert [row["subject_id"] for row in final_rows] == [pubkey_a, pubkey_d]
-    assert sum(float(row["raw_score"]) for row in final_rows) == pytest.approx(1.0, abs=1e-9)
+    assert all(0.0 <= float(row["score"]) <= 100.0 for row in final_rows)
     assert [row["subject_id"] for row in final_event_rows] == [event_id]
     assert [row["subject_id"] for row in final_addressable_rows] == [event_address]
     assert [row["subject_id"] for row in final_identifier_rows] == expected_identifier_subjects
-    assert all(0 <= int(row["rank"]) <= 100 for row in final_event_rows)
-    assert all(0 <= int(row["rank"]) <= 100 for row in final_addressable_rows)
-    assert all(0 <= int(row["rank"]) <= 100 for row in final_identifier_rows)
+    assert all(0.0 <= float(row["score"]) <= 100.0 for row in final_event_rows)
+    assert all(0.0 <= float(row["score"]) <= 100.0 for row in final_addressable_rows)
+    assert all(0.0 <= float(row["score"]) <= 100.0 for row in final_identifier_rows)
 
-    untouched_rows = await _fetch_rank_rows(
+    untouched_rows = await _fetch_score_rows(
         brotr=brotr,
-        table_name="nip85_pubkey_ranks",
+        table_name="pubkey_score",
         algorithm_id="other-pagerank",
     )
-    untouched_event_rows = await _fetch_rank_rows(
+    untouched_event_rows = await _fetch_score_rows(
         brotr=brotr,
-        table_name="nip85_event_ranks",
+        table_name="event_score",
         algorithm_id="other-pagerank",
     )
-    untouched_addressable_rows = await _fetch_rank_rows(
+    untouched_addressable_rows = await _fetch_score_rows(
         brotr=brotr,
-        table_name="nip85_addressable_ranks",
+        table_name="addressable_score",
         algorithm_id="other-pagerank",
     )
-    untouched_identifier_rows = await _fetch_rank_rows(
+    untouched_identifier_rows = await _fetch_score_rows(
         brotr=brotr,
-        table_name="nip85_identifier_ranks",
+        table_name="identifier_score",
         algorithm_id="other-pagerank",
     )
     assert untouched_rows == [
         {
             "algorithm_id": "other-pagerank",
             "subject_id": pubkey_b,
-            "raw_score": 0.123,
-            "rank": 17,
-            "computed_at": 999,
+            "score": 0.123,
         }
     ]
     assert untouched_event_rows == [
         {
             "algorithm_id": "other-pagerank",
             "subject_id": event_id,
-            "raw_score": 0.456,
-            "rank": 23,
-            "computed_at": 999,
+            "score": 0.456,
         }
     ]
     assert untouched_addressable_rows == [
         {
             "algorithm_id": "other-pagerank",
             "subject_id": event_address,
-            "raw_score": 0.789,
-            "rank": 31,
-            "computed_at": 999,
+            "score": 0.789,
         }
     ]
     assert untouched_identifier_rows == [
         {
             "algorithm_id": "other-pagerank",
             "subject_id": identifier_a,
-            "raw_score": 0.222,
-            "rank": 19,
-            "computed_at": 999,
+            "score": 0.222,
         }
     ]
 
@@ -649,9 +603,9 @@ async def test_ranker_sync_budget_resumes_from_checkpoint(
     assert first_result.changed_followers_synced == 1
     assert store.load_checkpoint() == GraphSyncCheckpoint(10, pubkey_a)
     assert (
-        await _fetch_rank_rows(
+        await _fetch_score_rows(
             brotr=brotr,
-            table_name="nip85_pubkey_ranks",
+            table_name="pubkey_score",
             algorithm_id=config.algorithm_id,
         )
         == []
@@ -668,12 +622,12 @@ async def test_ranker_sync_budget_resumes_from_checkpoint(
     service = Ranker(brotr=brotr, config=config)
     async with service:
         final_result = await service.rank()
-    final_rows = await _fetch_rank_rows(
+    final_rows = await _fetch_score_rows(
         brotr=brotr,
-        table_name="nip85_pubkey_ranks",
+        table_name="pubkey_score",
         algorithm_id=config.algorithm_id,
     )
     assert final_result.cutoff_reason is None
     assert final_result.rank_run_id == 1
     assert [row["subject_id"] for row in final_rows] == [pubkey_a, pubkey_b]
-    assert sum(float(row["raw_score"]) for row in final_rows) == pytest.approx(1.0, abs=1e-9)
+    assert all(0.0 <= float(row["score"]) <= 100.0 for row in final_rows)

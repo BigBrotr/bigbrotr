@@ -1,6 +1,6 @@
 """Assertor service for BigBrotr.
 
-Reads NIP-85 facts and rank snapshots and publishes Trusted Assertion events
+Reads NIP-85 facts and public score outputs and publishes Trusted Assertion events
 (kinds 30382-30385). Change detection uses canonical
 ``<algorithm_id>:<kind>:<subject_id>`` checkpoint keys, provider profile
 publishing is optional and content-based, and stale checkpoints are removed

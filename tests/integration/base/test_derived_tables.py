@@ -316,10 +316,8 @@ class TestPubkeyStats:
         await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
 
-        rows = await brotr.fetch(
-            "SELECT unique_kinds FROM pubkey_stats WHERE pubkey = $1", "44" * 32
-        )
-        assert rows[0]["unique_kinds"] == 2
+        rows = await brotr.fetch("SELECT kind_count FROM pubkey_stats WHERE pubkey = $1", "44" * 32)
+        assert rows[0]["kind_count"] == 2
 
     async def test_unique_relays_from_crosstab(self, brotr: Brotr):
         ers = [
@@ -330,9 +328,9 @@ class TestPubkeyStats:
         await _refresh_summaries(brotr)
 
         rows = await brotr.fetch(
-            "SELECT unique_relays FROM pubkey_stats WHERE pubkey = $1", "55" * 32
+            "SELECT relay_count FROM pubkey_stats WHERE pubkey = $1", "55" * 32
         )
-        assert rows[0]["unique_relays"] == 2
+        assert rows[0]["relay_count"] == 2
 
     async def test_unique_relays_updates_on_new_relay_for_existing_event(self, brotr: Brotr):
         event_id = "f2" * 32
@@ -355,12 +353,12 @@ class TestPubkeyStats:
         await _refresh_summaries(brotr, after=150, until=250)
 
         row = await brotr.fetchrow(
-            "SELECT event_count, unique_relays FROM pubkey_stats WHERE pubkey = $1",
+            "SELECT event_count, relay_count FROM pubkey_stats WHERE pubkey = $1",
             "56" * 32,
         )
         assert row is not None
         assert row["event_count"] == 1
-        assert row["unique_relays"] == 2
+        assert row["relay_count"] == 2
 
     async def test_nip01_category_breakdown(self, brotr: Brotr):
         ers = [
@@ -423,8 +421,8 @@ class TestKindStats:
         await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
 
-        rows = await brotr.fetch("SELECT unique_relays FROM kind_stats WHERE kind = $1", 1)
-        assert rows[0]["unique_relays"] == 2
+        rows = await brotr.fetch("SELECT relay_count FROM kind_stats WHERE kind = $1", 1)
+        assert rows[0]["relay_count"] == 2
 
     async def test_unique_relays_updates_on_new_relay_for_existing_event(self, brotr: Brotr):
         event_id = "d2" * 32
@@ -437,12 +435,12 @@ class TestKindStats:
         await _refresh_summaries(brotr, after=150, until=250)
 
         row = await brotr.fetchrow(
-            "SELECT event_count, unique_relays FROM kind_stats WHERE kind = $1",
+            "SELECT event_count, relay_count FROM kind_stats WHERE kind = $1",
             7,
         )
         assert row is not None
         assert row["event_count"] == 1
-        assert row["unique_relays"] == 2
+        assert row["relay_count"] == 2
 
     async def test_unique_pubkeys_from_crosstab(self, brotr: Brotr):
         ers = [
@@ -453,8 +451,8 @@ class TestKindStats:
         await brotr.insert_event_observation(ers, cascade=True)
         await _refresh_summaries(brotr)
 
-        rows = await brotr.fetch("SELECT unique_pubkeys FROM kind_stats WHERE kind = $1", 7)
-        assert rows[0]["unique_pubkeys"] == 2
+        rows = await brotr.fetch("SELECT pubkey_count FROM kind_stats WHERE kind = $1", 7)
+        assert rows[0]["pubkey_count"] == 2
 
 
 class TestRelayStats:
@@ -503,11 +501,11 @@ class TestRelayStats:
         await _refresh_summaries(brotr)
 
         row = await brotr.fetchrow(
-            "SELECT unique_pubkeys, unique_kinds FROM relay_stats WHERE relay_url = $1",
+            "SELECT pubkey_count, kind_count FROM relay_stats WHERE relay_url = $1",
             "wss://rup.example.com",
         )
-        assert row["unique_pubkeys"] == 2
-        assert row["unique_kinds"] == 1
+        assert row["pubkey_count"] == 2
+        assert row["kind_count"] == 1
 
     async def test_metadata_refresh_seeds_new_relay(self, brotr: Brotr):
         er = _event_observation("f0" * 32, "wss://meta.example.com")

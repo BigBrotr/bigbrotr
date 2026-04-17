@@ -62,7 +62,7 @@ Execution baseline:
 |---------|--------|-------|
 | 0. Integral codebase validation and assumption audit | done | Planning-time validation completed; execution baseline explicitly fixed to the `nip85-hardening` line of work |
 | 1. Contract freeze and rename ledger | done | Canonical rename vocabulary and final contract-freeze companion are now both closed |
-| 2. SQL and shared-schema foundation | in progress | Relay archive-entry semantics, document storage rename, relay-document history rename, event-observation rename, and the core-storage closure audit are now closed; tranche-2 downstream SQL-alignment slices remain pending |
+| 2. SQL and shared-schema foundation | in progress | Relay archive-entry semantics, document storage rename, relay-document history rename, event-observation rename, the core-storage closure audit, and shared analytics/score-output alignment are now closed; tranche-2 downstream SQL-alignment audit work remains pending |
 | 3. Python domain-model and `Brotr` alignment | not started | |
 | 4. Shared derivation and maintenance pipeline alignment | not started | |
 | 5. Service-boundary alignment | not started | |
@@ -101,7 +101,7 @@ Execution baseline:
 | 2.1d Event-observation rename | done | `refactor: rename event relay history to event observation` | Renamed the event-to-relay observation history surface from `event_relay` to `event_observation` across SQL templates, generated SQL, Python models, `Brotr`, finder/synchronizer/refresher query and runtime surfaces, read-model exposure, docs, fixtures, and unit/integration tests; closure audit fixed watermark helper and enum drift, corrected over-eager rename fallout in `tools/migrate_relay_urls.py`, and verified the slice with targeted tests, full `make ci`, and `uv lock --check` before closure |
 | 2.1e Core-storage closure audit | done | `refactor: close core storage contract audit` | Closed the post-rename storage-contract audit across root guidance, README, user-guide docs, monitoring alerts, refresher config descriptions, test fixtures, and support references so the canonical shared-storage vocabulary is now consistently `relay`/`event`/`event_observation`/`document`/`relay_document`; closure audit also fixed the central `sample_relay_document` fixture naming drift, tightened the database reference around the compound `(document_id, role) -> document(id, type)` foreign key, and verified the slice with targeted tests, full `make ci`, and `uv lock --check` before closure |
 | 2.2 SQL function and current-table alignment | done | `refactor: slim shared current tables` | Renamed the shared winner-map tables to `replaceable_event_current` and `addressable_event_current`, slimmed `replaceable_event_current`, `addressable_event_current`, and `relay_document_current` down to canonical winner references, and aligned refresh SQL, indexes, read-model exposure, deployment config, generated SQL, docs, and tests to the new narrow shapes; closure audit removed redundant uniqueness declarations, fixed residual planning drift, and recorded the explicit operational exception that `contact_lists_current` and `contact_list_edges_current` stay materialized for now because ranker sync and `nip85_follower_count_refresh()` still consume them; targeted tests, `python3 tools/generate_sql.py --check`, full `make ci`, and `uv lock --check` all passed before closure |
-| 2.3 Shared analytics and score-output alignment | not started | | |
+| 2.3 Shared analytics and score-output alignment | done | `refactor: align shared analytics and score outputs` | Aligned shared analytics naming to the event-centric contract (`*_count`, `first_event_created_at`, `last_event_created_at`) across SQL templates, generated SQL, docs, and integration coverage; replaced public `nip85_*_ranks` tables with `pubkey_score`, `event_score`, `addressable_score`, and `identifier_score`; kept `algorithm_id` in the shared score-table keys and exported only the final public `score`, dropping shared `raw_score`, stored ordinal `rank`, and `computed_at`; updated ranker export queries, assertor joins, user-facing docs, README surfaces, and integration tests; closure audit caught only a formatting drift in `test_derived_tables.py`, fixed it, and revalidated the slice with targeted integration tests, targeted unit tests, `python3 tools/generate_sql.py --check`, full `make ci`, and `uv lock --check` before closure |
 | 2.4 SQL/triggers/tests/fixtures audit loop | not started | | |
 
 ### Tranche 3 — Python Domain-Model And `Brotr` Alignment
@@ -190,8 +190,17 @@ Each entry should include:
 - what future tranche should absorb it;
 - whether it is a risk, an improvement, or a hard blocker.
 
-At initialization time there are no additional execution-time follow-ups beyond
-the planned work packages above.
+- Originating work package: `2.3 Shared analytics and score-output alignment`
+- Deferred item: `addressable_score` still keys the subject as canonical
+  `event_address TEXT` rather than the future decomposed
+  `(pubkey, kind, d_value)` shape described in the target schema
+- Why deferred: the current `Ranker`, `Assertor`, tests, and NIP-85 fact tables
+  already operate on canonical address strings, so decomposing the key here
+  would have forced a larger cross-tranche refactor than this slice should
+  absorb
+- Future tranche: revisit during the later NIP/publication alignment work if
+  the public score contract is narrowed further
+- Classification: improvement / watch point, not blocker
 
 ---
 

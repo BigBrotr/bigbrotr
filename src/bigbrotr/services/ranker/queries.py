@@ -82,7 +82,7 @@ class IdentifierStatFact:
 
 @dataclass(frozen=True, slots=True)
 class RankExportRow:
-    """One final rank row to snapshot-export into PostgreSQL."""
+    """One final rank row to export into the public PostgreSQL score tables."""
 
     subject_id: str
     raw_score: float
@@ -175,10 +175,10 @@ _STAGE_TABLE_NAMES: Final[dict[RankSubjectType, str]] = {
 }
 
 _TARGET_TABLE_NAMES: Final[dict[RankSubjectType, str]] = {
-    "pubkey": "nip85_pubkey_ranks",
-    "event": "nip85_event_ranks",
-    "addressable": "nip85_addressable_ranks",
-    "identifier": "nip85_identifier_ranks",
+    "pubkey": "pubkey_score",
+    "event": "event_score",
+    "addressable": "addressable_score",
+    "identifier": "identifier_score",
 }
 
 _CREATE_PUBKEY_RANK_STAGE_QUERY = """
@@ -272,42 +272,42 @@ _INSERT_RANK_STAGE_QUERIES: Final[dict[RankSubjectType, str]] = {
 }
 
 _DELETE_OBSOLETE_PUBKEY_RANKS_QUERY = """
-DELETE FROM nip85_pubkey_ranks AS r
+DELETE FROM pubkey_score AS r
 WHERE r.algorithm_id = $1
   AND NOT EXISTS (
       SELECT 1
       FROM ranker_pubkey_ranks_stage AS s
-      WHERE s.subject_id = r.subject_id
+      WHERE s.subject_id = r.pubkey
   )
 """
 
 _DELETE_OBSOLETE_EVENT_RANKS_QUERY = """
-DELETE FROM nip85_event_ranks AS r
+DELETE FROM event_score AS r
 WHERE r.algorithm_id = $1
   AND NOT EXISTS (
       SELECT 1
       FROM ranker_event_ranks_stage AS s
-      WHERE s.subject_id = r.subject_id
+      WHERE s.subject_id = r.event_id
   )
 """
 
 _DELETE_OBSOLETE_ADDRESSABLE_RANKS_QUERY = """
-DELETE FROM nip85_addressable_ranks AS r
+DELETE FROM addressable_score AS r
 WHERE r.algorithm_id = $1
   AND NOT EXISTS (
       SELECT 1
       FROM ranker_addressable_ranks_stage AS s
-      WHERE s.subject_id = r.subject_id
+      WHERE s.subject_id = r.event_address
   )
 """
 
 _DELETE_OBSOLETE_IDENTIFIER_RANKS_QUERY = """
-DELETE FROM nip85_identifier_ranks AS r
+DELETE FROM identifier_score AS r
 WHERE r.algorithm_id = $1
   AND NOT EXISTS (
       SELECT 1
       FROM ranker_identifier_ranks_stage AS s
-      WHERE s.subject_id = r.subject_id
+      WHERE s.subject_id = r.identifier
   )
 """
 
@@ -319,63 +319,47 @@ _DELETE_OBSOLETE_RANKS_QUERIES: Final[dict[RankSubjectType, str]] = {
 }
 
 _UPSERT_PUBKEY_RANKS_QUERY = """
-INSERT INTO nip85_pubkey_ranks (algorithm_id, subject_id, raw_score, rank, computed_at)
+INSERT INTO pubkey_score (algorithm_id, pubkey, score)
 SELECT
     $1,
     s.subject_id,
-    s.raw_score,
-    s.rank,
-    s.computed_at
+    s.rank::DOUBLE PRECISION
 FROM ranker_pubkey_ranks_stage AS s
-ON CONFLICT (algorithm_id, subject_id) DO UPDATE SET
-    raw_score = EXCLUDED.raw_score,
-    rank = EXCLUDED.rank,
-    computed_at = EXCLUDED.computed_at
+ON CONFLICT (algorithm_id, pubkey) DO UPDATE SET
+    score = EXCLUDED.score
 """
 
 _UPSERT_EVENT_RANKS_QUERY = """
-INSERT INTO nip85_event_ranks (algorithm_id, subject_id, raw_score, rank, computed_at)
+INSERT INTO event_score (algorithm_id, event_id, score)
 SELECT
     $1,
     s.subject_id,
-    s.raw_score,
-    s.rank,
-    s.computed_at
+    s.rank::DOUBLE PRECISION
 FROM ranker_event_ranks_stage AS s
-ON CONFLICT (algorithm_id, subject_id) DO UPDATE SET
-    raw_score = EXCLUDED.raw_score,
-    rank = EXCLUDED.rank,
-    computed_at = EXCLUDED.computed_at
+ON CONFLICT (algorithm_id, event_id) DO UPDATE SET
+    score = EXCLUDED.score
 """
 
 _UPSERT_ADDRESSABLE_RANKS_QUERY = """
-INSERT INTO nip85_addressable_ranks (algorithm_id, subject_id, raw_score, rank, computed_at)
+INSERT INTO addressable_score (algorithm_id, event_address, score)
 SELECT
     $1,
     s.subject_id,
-    s.raw_score,
-    s.rank,
-    s.computed_at
+    s.rank::DOUBLE PRECISION
 FROM ranker_addressable_ranks_stage AS s
-ON CONFLICT (algorithm_id, subject_id) DO UPDATE SET
-    raw_score = EXCLUDED.raw_score,
-    rank = EXCLUDED.rank,
-    computed_at = EXCLUDED.computed_at
+ON CONFLICT (algorithm_id, event_address) DO UPDATE SET
+    score = EXCLUDED.score
 """
 
 _UPSERT_IDENTIFIER_RANKS_QUERY = """
-INSERT INTO nip85_identifier_ranks (algorithm_id, subject_id, raw_score, rank, computed_at)
+INSERT INTO identifier_score (algorithm_id, identifier, score)
 SELECT
     $1,
     s.subject_id,
-    s.raw_score,
-    s.rank,
-    s.computed_at
+    s.rank::DOUBLE PRECISION
 FROM ranker_identifier_ranks_stage AS s
-ON CONFLICT (algorithm_id, subject_id) DO UPDATE SET
-    raw_score = EXCLUDED.raw_score,
-    rank = EXCLUDED.rank,
-    computed_at = EXCLUDED.computed_at
+ON CONFLICT (algorithm_id, identifier) DO UPDATE SET
+    score = EXCLUDED.score
 """
 
 _UPSERT_RANKS_QUERIES: Final[dict[RankSubjectType, str]] = {
@@ -531,6 +515,6 @@ async def merge_rank_stage(
     subject_type: RankSubjectType,
     algorithm_id: str,
 ) -> None:
-    """Replace one PostgreSQL rank snapshot for a single subject type."""
+    """Replace one PostgreSQL public score set for a single subject type."""
     await conn.execute(_DELETE_OBSOLETE_RANKS_QUERIES[subject_type], algorithm_id)
     await conn.execute(_UPSERT_RANKS_QUERIES[subject_type], algorithm_id)

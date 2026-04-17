@@ -18,7 +18,7 @@ Two schema variants exist:
 
 | Variant | Event Storage | Derived Tables | Regular Views | Disk Usage |
 |---------|--------------|----------------|---------------|------------|
-| **BigBrotr** | Full NIP-01 (id, pubkey, created_at, kind, tags, content, sig) | 5 current-state tables + 17 analytics/rank tables | 0 | 100% |
+| **BigBrotr** | Full NIP-01 (id, pubkey, created_at, kind, tags, content, sig) | 5 current-state tables + 17 analytics/score tables | 0 | 100% |
 | **LilBrotr** | All 8 columns, with tags/content/sig nullable and always NULL | Same derived schema | 0 | ~40% |
 
 ---
@@ -35,7 +35,7 @@ refresh-maintained operational relations.
 | Current state | `relay_document_current`, `replaceable_event_current`, `addressable_event_current`, `contact_lists_current`, `contact_list_edges_current` | Refresher, `08_functions_refresh_current.sql` |
 | Core analytics | `pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats`, `daily_counts`, `relay_software_counts`, `supported_nip_counts` | Refresher, `09_functions_refresh_analytics.sql` |
 | NIP-85 facts | `nip85_pubkey_stats`, `nip85_event_stats`, `nip85_addressable_stats`, `nip85_identifier_stats` | Refresher, `09_functions_refresh_analytics.sql` |
-| NIP-85 ranks | `nip85_pubkey_ranks`, `nip85_event_ranks`, `nip85_addressable_ranks`, `nip85_identifier_ranks` | Ranker snapshot exports |
+| NIP-85 scores | `pubkey_score`, `event_score`, `addressable_score`, `identifier_score` | Ranker public score exports |
 
 ### Core Entity Relationship Diagram
 
@@ -446,8 +446,8 @@ Per-author, per-kind event statistics.
 | `pubkey` | TEXT | PRIMARY KEY (partial) | Author public key as hex |
 | `kind` | INTEGER | PRIMARY KEY (partial) | Event kind |
 | `event_count` | BIGINT | NOT NULL DEFAULT 0 | Total events by this author of this kind |
-| `first_event_at` | BIGINT | Nullable | Earliest event timestamp |
-| `last_event_at` | BIGINT | Nullable | Latest event timestamp |
+| `first_event_created_at` | BIGINT | Nullable | Earliest event timestamp |
+| `last_event_created_at` | BIGINT | Nullable | Latest event timestamp |
 
 Primary key: `(pubkey, kind)`.
 
@@ -460,8 +460,8 @@ Per-author, per-relay activity metrics.
 | `pubkey` | TEXT | PRIMARY KEY (partial) | Author public key as hex |
 | `relay_url` | TEXT | PRIMARY KEY (partial) | Relay WebSocket URL |
 | `event_count` | BIGINT | NOT NULL DEFAULT 0 | Events by this author on this relay |
-| `first_event_at` | BIGINT | Nullable | Earliest event timestamp |
-| `last_event_at` | BIGINT | Nullable | Latest event timestamp |
+| `first_event_created_at` | BIGINT | Nullable | Earliest event timestamp |
+| `last_event_created_at` | BIGINT | Nullable | Latest event timestamp |
 
 Primary key: `(pubkey, relay_url)`.
 
@@ -474,8 +474,8 @@ Per-relay, per-kind event distribution.
 | `relay_url` | TEXT | PRIMARY KEY (partial) | Relay WebSocket URL |
 | `kind` | INTEGER | PRIMARY KEY (partial) | Event kind |
 | `event_count` | BIGINT | NOT NULL DEFAULT 0 | Events of this kind on this relay |
-| `first_event_at` | BIGINT | Nullable | Earliest event timestamp |
-| `last_event_at` | BIGINT | Nullable | Latest event timestamp |
+| `first_event_created_at` | BIGINT | Nullable | Earliest event timestamp |
+| `last_event_created_at` | BIGINT | Nullable | Latest event timestamp |
 
 Primary key: `(relay_url, kind)`.
 
@@ -487,10 +487,10 @@ Global author activity metrics.
 |--------|------|-------------|
 | `pubkey` | TEXT PRIMARY KEY | Author public key as hex |
 | `event_count` | BIGINT | Total events by this author |
-| `unique_kinds` | INTEGER | Event kinds authored |
-| `unique_relays` | INTEGER | Relays where this author was observed |
-| `first_event_at` | BIGINT | Earliest event timestamp |
-| `last_event_at` | BIGINT | Latest event timestamp |
+| `kind_count` | INTEGER | Event kinds authored |
+| `relay_count` | INTEGER | Relays where this author was observed |
+| `first_event_created_at` | BIGINT | Earliest event timestamp |
+| `last_event_created_at` | BIGINT | Latest event timestamp |
 | `events_last_24h`, `events_last_7d`, `events_last_30d` | BIGINT | Rolling activity windows |
 | `regular_count`, `replaceable_count`, `ephemeral_count`, `addressable_count` | BIGINT | Event counts by NIP-01 category |
 
@@ -502,10 +502,10 @@ Global event count distribution by NIP-01 kind with category labels.
 |--------|------|-------------|
 | `kind` | INTEGER PRIMARY KEY | Event kind |
 | `event_count` | BIGINT | Total events of this kind |
-| `unique_pubkeys` | INTEGER | Authors publishing this kind |
-| `unique_relays` | INTEGER | Relays that carried this kind |
+| `pubkey_count` | INTEGER | Authors publishing this kind |
+| `relay_count` | INTEGER | Relays that carried this kind |
 | `category` | TEXT | NIP-01 category: regular, replaceable, ephemeral, addressable, other |
-| `first_event_at`, `last_event_at` | BIGINT | Earliest and latest event timestamps |
+| `first_event_created_at`, `last_event_created_at` | BIGINT | Earliest and latest event timestamps |
 | `events_last_24h`, `events_last_7d`, `events_last_30d` | BIGINT | Rolling activity windows |
 
 ### relay_stats
@@ -518,9 +518,9 @@ Per-relay event counts, averaged round-trip times, and NIP-11 info.
 | `network` | TEXT | Network type |
 | `stored_at` | BIGINT | Unix archive-entry timestamp |
 | `event_count` | BIGINT | Total events on relay |
-| `unique_pubkeys` | INTEGER | Unique authors on relay |
-| `unique_kinds` | INTEGER | Unique event kinds on relay |
-| `first_event_at`, `last_event_at` | BIGINT | Earliest and latest event timestamps |
+| `pubkey_count` | INTEGER | Unique authors on relay |
+| `kind_count` | INTEGER | Unique event kinds on relay |
+| `first_event_created_at`, `last_event_created_at` | BIGINT | Earliest and latest event timestamps |
 | `events_last_24h`, `events_last_7d`, `events_last_30d` | BIGINT | Rolling activity windows |
 | `regular_count`, `replaceable_count`, `ephemeral_count`, `addressable_count` | BIGINT | Event counts by NIP-01 category |
 | `avg_rtt_open`, `avg_rtt_read`, `avg_rtt_write` | NUMERIC(10,2) | NIP-66 RTT averages |
@@ -648,8 +648,8 @@ Daily event aggregation for time-series analysis (UTC).
 |--------|------|-------------|
 | `day` | DATE PRIMARY KEY | UTC date |
 | `event_count` | BIGINT | Events on this day |
-| `unique_pubkeys` | BIGINT | Unique authors on this day |
-| `unique_kinds` | BIGINT | Unique event kinds on this day |
+| `pubkey_count` | BIGINT | Unique authors on this day |
+| `kind_count` | BIGINT | Unique event kinds on this day |
 
 ---
 
@@ -707,26 +707,24 @@ Per-identifier engagement metrics for NIP-85 kind 30385.
 | `comment_count`, `reaction_count` | BIGINT | Engagement counters |
 | `k_tags` | TEXT[] | Deduplicated sorted NIP-73 `k` tags observed with the identifier |
 
-### Rank tables
+### Score tables
 
-The rank tables share the same shape:
+The public score tables share the same shape:
 
 | Table | Subject |
 |-------|---------|
-| `nip85_pubkey_ranks` | Pubkey, for kind 30382 |
-| `nip85_event_ranks` | Event id, for kind 30383 |
-| `nip85_addressable_ranks` | Addressable coordinate, for kind 30384 |
-| `nip85_identifier_ranks` | NIP-73 identifier, for kind 30385 |
+| `pubkey_score` | Pubkey, for kind 30382 |
+| `event_score` | Event id, for kind 30383 |
+| `addressable_score` | Addressable coordinate, for kind 30384 |
+| `identifier_score` | NIP-73 identifier, for kind 30385 |
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `algorithm_id` | TEXT PRIMARY KEY (partial) | Ranking algorithm identifier |
-| `subject_id` | TEXT PRIMARY KEY (partial) | Pubkey/event/address/identifier being scored |
-| `raw_score` | DOUBLE PRECISION | Raw ranker score |
-| `rank` | INTEGER | Final 0-100 publication score |
-| `computed_at` | BIGINT | Rank snapshot timestamp |
+| subject key | TEXT PRIMARY KEY (partial) | `pubkey`, `event_id`, `event_address`, or `identifier` depending on the table |
+| `score` | DOUBLE PRECISION | Final public 0-100 score exported by the Ranker |
 
-Primary key: `(algorithm_id, subject_id)`.
+Primary key: `(algorithm_id, <subject key>)`.
 
 ---
 

@@ -62,7 +62,7 @@ Ten **independent** async services share a PostgreSQL database. Each runs on its
 | **Monitor** | Runs NIP-11 + 6 NIP-66 health checks, publishes kind 10166/30166 events | HTTP, WS, DNS, SSL, GeoIP |
 | **Synchronizer** | Connects to relays, streams and archives signed events with cursor-based resumption | WebSocket |
 | **Refresher** | Refreshes current-state tables, analytics facts, and periodic reconciliations | None |
-| **Ranker** | Computes deterministic NIP-85 rank snapshots in private DuckDB and exports them | PostgreSQL + DuckDB |
+| **Ranker** | Computes deterministic NIP-85 public scores in private DuckDB and exports them | PostgreSQL + DuckDB |
 | **Assertor** | Publishes NIP-85 trusted assertion events for users, events, addressables, and identifiers | WebSocket (Nostr) |
 | **Api** | Read-only REST API exposing registered read models over HTTP | HTTP (FastAPI) |
 | **Dvm** | NIP-90 Data Vending Machine serving registered read models over Nostr | WebSocket (Nostr) |
@@ -391,7 +391,7 @@ JSON mode available for cloud aggregation:
 | `DB_WRITER_PASSWORD` | Yes | Writer role password (Seeder, Finder, Validator, Monitor, Synchronizer) |
 | `DB_REFRESHER_PASSWORD` | Yes | Refresher role password (matview ownership) |
 | `DB_READER_PASSWORD` | Yes | Reader role password (Api, Dvm, postgres-exporter) |
-| `DB_RANKER_PASSWORD` | Yes | Ranker role password (canonical graph reads, NIP-85 rank snapshot writes) |
+| `DB_RANKER_PASSWORD` | Yes | Ranker role password (canonical graph reads, NIP-85 public score writes) |
 | `NOSTR_PRIVATE_KEY_MONITOR` | No | Monitor signing key for published Nostr events and NIP-66 write probes. Blank/unset generates one ephemeral key at config creation. |
 | `NOSTR_PRIVATE_KEY_SYNCHRONIZER` | No | Synchronizer key for NIP-42-authenticated relay reads. Blank/unset generates one ephemeral key at config creation. |
 | `NOSTR_PRIVATE_KEY_DVM` | No | Dvm signing key for NIP-89/NIP-90 events. Blank/unset generates one ephemeral key at config creation. |
