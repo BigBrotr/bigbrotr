@@ -149,7 +149,7 @@ Key type locations:
 | Type | Module |
 |------|--------|
 | `NetworkType`, `ServiceName`, `EventKind`, `EVENT_KIND_MAX` | `models/constants.py` |
-| `MetadataType` | `models/metadata.py` |
+| `MetadataType` | `models/document.py` |
 | `ServiceState`, `ServiceStateType`, `ServiceStateDbParams` | `models/service_state.py` |
 
 Design principles:

@@ -33,8 +33,8 @@ Deployments (`deployments/{bigbrotr,lilbrotr}/`) sit outside the package and con
 | `Relay` | `relay.py` | URL validation (rfc3986), network detection (clearnet/tor/i2p/loki/local), local IP rejection |
 | `Event` | `event.py` | Wraps nostr-sdk Event, extracts hex fields, tag parsing |
 | `EventObservation` | `event_observation.py` | Event-relay junction with `observed_at` timestamp |
-| `Metadata` | `metadata.py` | Content-addressed metadata: SHA-256 hash over canonical JSON |
-| `RelayMetadata` | `relay_metadata.py` | Relay-metadata junction with `metadata_type` and `generated_at` |
+| `Document` | `document.py` | Content-addressed document: SHA-256 hash over canonical JSON |
+| `RelayDocument` | `relay_document.py` | Relay-document junction with `role` and `associated_at` |
 | `ServiceState` | `service_state.py` | Per-service operational state (checkpoints, cursors) |
 
 ### Enumerations
@@ -42,7 +42,7 @@ Deployments (`deployments/{bigbrotr,lilbrotr}/`) sit outside the package and con
 | Type | File | Values |
 |------|------|--------|
 | `NetworkType` | `constants.py` | `clearnet`, `tor`, `i2p`, `loki`, `local`, `unknown` |
-| `MetadataType` | `metadata.py` | `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
+| `MetadataType` | `document.py` | `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
 | `ServiceStateType` | `service_state.py` | `checkpoint`, `cursor` |
 | `ServiceName` | `constants.py` | `seeder`, `finder`, `validator`, `monitor`, `synchronizer`, `refresher`, `ranker`, `api`, `dvm`, `assertor` |
 | `EventKind` | `constants.py` | `SET_METADATA=0`, `RECOMMEND_RELAY=2`, `CONTACTS=3`, `RELAY_LIST=10002`, `NIP66_TEST=22456`, `MONITOR_ANNOUNCEMENT=10166`, `RELAY_DISCOVERY=30166` |
@@ -55,7 +55,7 @@ All models follow the same frozen dataclass pattern:
 @dataclass(frozen=True, slots=True)
 class Relay:
     url: str
-    discovered_at: int
+    stored_at: int
     _db_params: RelayDbParams = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -180,9 +180,9 @@ class BrotrConfig(BaseModel):
 |--------|----------------------|---------|
 | `insert_relay(relays)` | `relay_insert` | -- |
 | `insert_event(events)` | `event_insert` | -- |
-| `insert_metadata(metadata)` | `metadata_insert` | -- |
+| `insert_document(documents)` | `document_insert` | -- |
 | `insert_event_observation(records, cascade=True)` | `event_observation_insert_cascade` | Relay + Event + Junction |
-| `insert_relay_metadata(records, cascade=True)` | `relay_metadata_insert_cascade` | Relay + Metadata + Junction |
+| `insert_relay_document(records, cascade=True)` | `relay_document_insert_cascade` | Relay + Document + Junction |
 
 **Service state:**
 
@@ -197,7 +197,7 @@ class BrotrConfig(BaseModel):
 | Method | Stored Function Called |
 |--------|----------------------|
 | `delete_orphan_event()` | `orphan_event_delete` |
-| `delete_orphan_metadata()` | `orphan_metadata_delete` |
+| `delete_orphan_document()` | `orphan_document_delete` |
 | `run_refresh_procedure(name)` | `{name}_refresh` |
 
 **Generic query facade** (used by services for ad-hoc queries):
@@ -340,7 +340,7 @@ Relay Monitoring and Discovery (NIP-66) health check implementations.
 | `http.py` | Server header, X-Powered-By header |
 | `nip66.py` | `Nip66` orchestrator class |
 
-Each module produces a `RelayMetadata` object with the corresponding `MetadataType`. The Monitor service calls these and persists results.
+Each module produces a `RelayDocument` object with the corresponding `MetadataType`. The Monitor service calls these and persists results.
 
 **NIP-66 health check data flow:**
 
@@ -354,7 +354,7 @@ flowchart LR
     R --> NET["net.py<br/><small>ASN/IP</small>"]
     R --> HTTP["http.py<br/><small>HTTP Headers</small>"]
 
-    RTT --> RM["RelayMetadata"]
+    RTT --> RM["RelayDocument"]
     SSL --> RM
     DNS --> RM
     GEO --> RM
@@ -481,7 +481,7 @@ Each service also has its own `queries.py` module with domain-specific queries:
 | `delete_stale_checkpoints(brotr, keep_keys)` | Remove CHECKPOINTs for deleted relays |
 | `count_relays_to_monitor(brotr, monitored_before, networks)` | Count relays due for monitoring |
 | `fetch_relays_to_monitor(brotr, monitored_before, networks, limit)` | Least-recently-monitored relays |
-| `insert_relay_metadata(brotr, records)` | Batch-insert RelayMetadata (cascade) |
+| `insert_relay_document(brotr, records)` | Batch-insert RelayDocument (cascade) |
 | `upsert_monitor_checkpoints(brotr, relays, now)` | Upsert CHECKPOINT with timestamp for checked relays |
 | `is_publish_due(brotr, state_key, interval)` | Check if publish interval has elapsed |
 | `upsert_publish_checkpoints(brotr, state_keys)` | Save current time as publish checkpoints |
@@ -490,7 +490,7 @@ Each service also has its own `queries.py` module with domain-specific queries:
 
 | Function | Purpose |
 |----------|---------|
-| `fetch_relays(brotr)` | All relays ordered by `discovered_at` |
+| `fetch_relays(brotr)` | All relays ordered by `stored_at` |
 | `delete_stale_cursors(brotr)` | Remove CURSOR state for deleted relays |
 | `insert_event_observations(brotr, records)` | Batch-insert EventObservation (cascade) |
 
@@ -528,16 +528,16 @@ async for result in self._iter_concurrent(items, worker):
 
 ### Metadata Deduplication
 
-Metadata is content-addressed: SHA-256 hash over canonical JSON. When the Monitor produces identical metadata for a relay, only a new `relay_metadata` row is inserted (linking the relay to the existing `metadata` record). The cascade function handles this:
+Documents are content-addressed: SHA-256 hash over canonical JSON. When the Monitor produces identical check output for a relay, only a new `relay_document` row is inserted (linking the relay to the existing `document` record). The cascade function handles this:
 
 ```mermaid
 flowchart TD
-    A["Monitor._check_one(relay)"] --> B["CheckResult<br/><small>7 metadata types</small>"]
-    B --> C["insert_relay_metadata<br/>(records, cascade=True)"]
-    C --> D["relay_metadata_insert_cascade"]
+    A["Monitor._check_one(relay)"] --> B["CheckResult<br/><small>7 document roles</small>"]
+    B --> C["insert_relay_document<br/>(records, cascade=True)"]
+    C --> D["relay_document_insert_cascade"]
     D --> E["1. INSERT INTO relay<br/>ON CONFLICT DO NOTHING"]
-    D --> F["2. INSERT INTO metadata<br/>ON CONFLICT DO NOTHING<br/><small>(dedup by hash)</small>"]
-    D --> G["3. INSERT INTO relay_metadata<br/><small>(time-series link)</small>"]
+    D --> F["2. INSERT INTO document<br/>ON CONFLICT DO NOTHING<br/><small>(dedup by hash)</small>"]
+    D --> G["3. INSERT INTO relay_document<br/><small>(time-series link)</small>"]
 
 ```
 
@@ -648,7 +648,7 @@ Services use mixins from `services/common/mixins.py` to compose shared behavior:
 
 ### Content-Addressed Deduplication
 
-Metadata uses SHA-256 hash as primary key. Identical NIP-11/NIP-66 results across time or relays produce the same hash, deduplicating storage. Time-series tracking is via the `relay_metadata` junction table.
+Document storage uses a SHA-256 hash as primary key. Identical NIP-11/NIP-66 results across time or relays produce the same hash, deduplicating storage. Time-series tracking is via the `relay_document` junction table.
 
 ### Factory Methods
 
@@ -731,7 +731,7 @@ tests/
 │   └── relays.py                # Shared relay fixtures (registered as pytest plugin)
 ├── unit/                        # ~2500 tests, mirrors src/ structure
 │   ├── core/                    # test_pool.py, test_brotr.py, test_base_service.py, ...
-│   ├── models/                  # test_relay.py, test_event.py, test_metadata.py, ...
+│   ├── models/                  # test_relay.py, test_event.py, test_document.py, ...
 │   ├── nips/                    # nip11/, nip66/
 │   ├── services/                # test_monitor.py, test_synchronizer.py, ...
 │   └── utils/                   # test_transport.py, test_keys.py, ...
@@ -750,7 +750,7 @@ tests/
 
 - Mock targets use `bigbrotr.` prefix: `@patch("bigbrotr.services.validator.is_nostr_relay")`
 - Service tests mock query functions at the **service module namespace** (not `bigbrotr.core.queries.*`)
-- Root conftest provides: `mock_pool`, `mock_brotr`, `mock_connection`, `mock_asyncpg_pool`, `sample_event`, `sample_relay`, `sample_metadata`, `sample_events_batch`, `sample_relays_batch`
+- Root conftest provides: `mock_pool`, `mock_brotr`, `mock_connection`, `mock_asyncpg_pool`, `sample_event`, `sample_relay`, `sample_relay_document`, `sample_events_batch`, `sample_relays_batch`
 
 ---
 

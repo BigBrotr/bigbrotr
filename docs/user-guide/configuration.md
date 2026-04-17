@@ -288,7 +288,7 @@ If no `pool:` section is present, the service uses the brotr.yaml defaults.
 | Seeder | writer | 1 | 2 | One-shot, minimal connections |
 | Finder | writer | 1 | 3 | Periodic API + event scanning |
 | Validator | writer | 1 | 3 | WebSocket testing + promotion |
-| Monitor | writer | 1 | 3 | Health checks + metadata persistence |
+| Monitor | writer | 1 | 3 | Health checks + document persistence |
 | Synchronizer | writer | 2 | 5 | Highest throughput service |
 | Refresher | refresher | 1 | 3 | Derived-table and analytics refreshes |
 | Api | reader | 1 | 3 | Read-only REST API queries |
@@ -710,7 +710,7 @@ processing:
 
 current:
   targets:
-    - relay_metadata_current
+    - relay_document_current
     - events_replaceable_current
     - events_addressable_current
     - contact_lists_current
@@ -734,7 +734,7 @@ analytics:
 
 periodic:
   rolling_windows: true
-  relay_stats_metadata: true
+  relay_stats_document: true
   nip85_followers: true
 
 cleanup:
@@ -748,7 +748,7 @@ cleanup:
 | `current.targets` | list[string] | canonical current-state set | enum values | Current-state tables refreshed incrementally |
 | `analytics.targets` | list[string] | canonical analytics set | enum values | Analytics tables refreshed incrementally |
 | `periodic.rolling_windows` | bool | `true` | - | Recompute rolling time-window columns |
-| `periodic.relay_stats_metadata` | bool | `true` | - | Refresh `relay_stats` metadata fields from relay metadata |
+| `periodic.relay_stats_document` | bool | `true` | - | Refresh `relay_stats` document-backed fields from relay documents |
 | `periodic.nip85_followers` | bool | `true` | - | Recompute NIP-85 follower and following counts |
 | `processing.max_duration` | float or null | `null` | 1-86400 | Maximum seconds for one refresh cycle |
 | `processing.max_targets_per_cycle` | int or null | `null` | >= 1 | Maximum targets attempted in one cycle |

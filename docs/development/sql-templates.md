@@ -42,11 +42,11 @@ The base templates define the Brotr schema shared by all deployments:
 |----------|---------|
 | `00_extensions.sql.j2` | PostgreSQL extensions (btree_gin, pg_stat_statements) |
 | `01_functions_utility.sql.j2` | Tag and event-address utility functions |
-| `02_tables_core.sql.j2` | Core tables: relay, event, event_observation, metadata, relay_metadata, service_state |
+| `02_tables_core.sql.j2` | Core tables: relay, event, event_observation, document, relay_document, service_state |
 | `03_tables_current.sql.j2` | Current-state tables |
 | `04_tables_analytics.sql.j2` | Analytics and NIP-85 rank tables |
 | `05_functions_crud.sql.j2` | CRUD, cascade, and service-state functions |
-| `06_functions_cleanup.sql.j2` | Cleanup functions (orphan metadata + orphan event deletion) |
+| `06_functions_cleanup.sql.j2` | Cleanup functions (orphan document + orphan event deletion) |
 | `07_views_reporting.sql.j2` | Reporting views |
 | `08_functions_refresh_current.sql.j2` | Current-state refresh functions |
 | `09_functions_refresh_analytics.sql.j2` | Analytics, contact-graph, and periodic refresh functions |
@@ -94,7 +94,7 @@ index schema is inherited from base templates:
 |-------|------------|---------|
 | `extra_extensions` | `00_extensions` | Optional deployment-specific extensions |
 | `events_table` | `02_tables_core` | Event table shape |
-| `relay_metadata_check_types_comment` | `02_tables_core` | Deployment-specific relay metadata comments |
+| `relay_document_roles_comment` | `02_tables_core` | Deployment-specific relay-document role comments |
 | `events_insert_body` | `05_functions_crud` | Event insert behavior |
 | `events_insert_description` | `05_functions_crud` | Event insert documentation |
 | `service_data_functions` | `05_functions_crud` | Service-state helper functions |

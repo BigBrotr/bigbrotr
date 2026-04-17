@@ -3,7 +3,7 @@ Pytest configuration and shared fixtures for BigBrotr tests.
 
 Provides:
 - Mock fixtures for Pool, Brotr, and asyncpg
-- Sample data fixtures for events, relays, and metadata
+- Sample data fixtures for events, relays, and relay documents
 - Environment variable fixtures for secrets
 - Custom pytest markers for test categorization
 """
@@ -244,7 +244,7 @@ def sample_loki_relay() -> Relay:
 
 
 @pytest.fixture
-def sample_metadata() -> RelayDocument:
+def sample_relay_document() -> RelayDocument:
     """Sample RelayDocument for testing."""
     relay = Relay("wss://relay.example.com", stored_at=1700000000)
     metadata = Document(

@@ -34,9 +34,9 @@ Ten **independent** async services share a PostgreSQL database. Each runs on its
               ┌───────────────────────────────────────────────────────────────────┐
               │                         PostgreSQL Database                       │
               │                                                                   │
-              │              relay ─── event_observation ─── event                      │
-              │              metadata ─── relay_metadata                          │
-              │              service_state   6 summary tables + 6 matviews        │
+              │              relay ─── event_observation ─── event               │
+              │              document ─── relay_document                         │
+              │              service_state   current + analytics + rank tables   │
               └──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬──────────────┘
                  │      │      │      │      │      │      │      │      │
                  ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼
@@ -87,7 +87,7 @@ Imports flow strictly downward:
               models           src/bigbrotr/models/
 ```
 
-- **models** — Pure frozen dataclasses (Relay, Event, Metadata, ServiceState). Zero I/O, stdlib logging only.
+- **models** — Pure frozen dataclasses (Relay, Event, Document, ServiceState). Zero I/O, stdlib logging only.
 - **core** — Pool (asyncpg with retry), Brotr (DB facade), BaseService (lifecycle), Logger (structured kv/JSON), Metrics (Prometheus), YAML loader.
 - **nips** — NIP-11 relay info fetch/parse, NIP-66 health checks (RTT, SSL, DNS, Geo, Net, HTTP). Never raises — errors captured in structured logs.
 - **utils** — DNS resolution, Nostr key management, WebSocket/HTTP transport, SSL fallback, SOCKS5 proxy support, event streaming with binary-split windowing.
@@ -101,7 +101,7 @@ Imports flow strictly downward:
 │─────────────────────│         │──────────────────────────────────────│
 │ url          PK     │◄──┐ ┌──►│ id             PK  (BYTEA, 32B)      │
 │ network      TEXT   │   │ │   │ pubkey         BYTEA (32B)           │
-│ discovered_at BIGINT│   │ │   │ created_at     BIGINT                │
+│ stored_at     BIGINT│   │ │   │ created_at     BIGINT                │
 └─────────┬───────────┘   │ │   │ kind           INTEGER               │
           │               │ │   │ tags           JSONB                 │
           │               │ │   │ tagvalues      TEXT[]                │
@@ -119,17 +119,17 @@ Imports flow strictly downward:
           │    └───────────────────────────────┘
           │
           │    ┌───────────────────────────────────────────────┐
-          │    │                   relay_metadata              │
+          │    │                   relay_document              │
           │    │───────────────────────────────────────────────│
           └───►│ relay_url    FK ──► relay.url                 |
-               │ metadata_id  FK ──► metadata.id               |
-               │ metadata_type FK ──► metadata.type            |
-               │ generated_at BIGINT                           |
-               │ PK(relay_url, generated_at, metadata_type)    |
+               │ document_id  FK ──► document.id               |
+               │ role         FK ──► document.type             |
+               │ associated_at BIGINT                          |
+               │ PK(relay_url, associated_at, role)            |
                └──────────┬────────────────────────────────────┘
                           │
                ┌──────────┴────────────────────┐
-               │          metadata             │
+               │          document             │
                │───────────────────────────────│
                │ id       PK  (BYTEA, SHA-256) |
                │ type     PK  (TEXT, 7 types)  |
@@ -148,21 +148,21 @@ Imports flow strictly downward:
 ```
 
 **Key relationships**:
-- `relay` is the central entity. Cascade deletes propagate to `event_observation` and `relay_metadata`.
-- `metadata` is content-addressed: SHA-256 hash of canonical JSON + type as composite PK. Same data = same hash.
+- `relay` is the central entity. Cascade deletes propagate to `event_observation` and `relay_document`.
+- `document` is content-addressed: SHA-256 hash of canonical JSON + type as composite PK. Same data = same hash.
 - `service_state` is a generic key-value store used by Finder (cursors), Validator (candidates), Monitor (checkpoints), Synchronizer (cursors).
 - `event.tagvalues` is computed at insert time by `event_insert()` (from `tags_to_tagvalues(tags)`) and indexed with GIN for fast containment queries.
 
 ### Service-Database Interaction Map
 
 ```text
-                 relay    event   event_   meta-   relay_    service_  summary tables
-                                  relay    data    metadata  state     + matviews
+                 relay    event   event_   document relay_    service_  derived tables
+                                  observe           document  state     + ranks
   ─────────────┬────────┬───────┬────────┬───────┬─────────┬─────────┬────────────
   Seeder       │  W(1)  │       │        │       │         │  W      │
   Finder       │  R     │       │  R     │       │         │  R/W    │
   Validator    │  W     │       │        │       │         │  R/W    │
-  Monitor      │  R     │       │        │  W    │  W      │  R/W    │
+  Monitor      │  R     │       │        │  W     │  W      │  R/W    │
   Synchronizer │  R     │  W    │  W     │       │         │  R/W    │
   Refresher    │        │       │        │       │         │         │  W
   Api          │  R     │  R    │  R     │  R    │  R      │  R      │  R
@@ -248,7 +248,7 @@ cd deployments/bigbrotr && docker compose up -d
 
 ### LilBrotr (Lightweight)
 
-Same ten services and schema, but tags, content, and sig columns are nullable and never populated — approximately 60% disk savings while retaining all metadata and relay health data.
+Same ten services and schema, but tags, content, and sig columns are nullable and never populated — approximately 60% disk savings while retaining all document-backed relay health data.
 
 ```bash
 cd deployments/lilbrotr && docker compose up -d
@@ -272,20 +272,20 @@ PostgreSQL 18 with PGBouncer (transaction-mode pooling) and asyncpg async driver
 
 | Table | Purpose |
 |-------|---------|
-| `relay` | Validated relay URLs with network type and discovery timestamp |
+| `relay` | Validated relay URLs with network type and archive-entry timestamp |
 | `event` | Nostr events (BYTEA ids/pubkeys/sigs for space efficiency) |
 | `event_observation` | Junction: which events were seen at which relays (with `observed_at`) |
-| `metadata` | Content-addressed NIP-11/NIP-66 documents (SHA-256 dedup, composite PK `(id, type)`) |
-| `relay_metadata` | Time-series snapshots linking relays to metadata records |
+| `document` | Content-addressed NIP-11/NIP-66 documents (SHA-256 dedup, composite PK `(id, type)`) |
+| `relay_document` | Time-series snapshots linking relays to stored documents |
 | `service_state` | Per-service operational data (candidates, cursors, checkpoints) |
 
-### Stored Functions (24)
+### Stored Functions (38)
 
-- **1 utility**: `tags_to_tagvalues` (extracts key-prefixed single-char tag values for GIN indexing)
-- **10 CRUD**: `relay_insert`, `event_insert`, `metadata_insert`, `event_observation_insert`, `relay_metadata_insert`, `event_observation_insert_cascade`, `relay_metadata_insert_cascade`, `service_state_upsert`, `service_state_get`, `service_state_delete`
-- **2 cleanup**: `orphan_event_delete`, `orphan_metadata_delete` (batched)
-- **14 refresh**: 8 summary table refresh functions + 6 materialized view refresh functions
-- **2 periodic**: `rolling_windows_refresh`, `relay_stats_metadata_refresh`
+- **5 utility**: `tags_to_tagvalues`, event-address helpers, and `bolt11_amount_msats`
+- **10 CRUD**: `relay_insert`, `event_insert`, `document_insert`, `event_observation_insert`, `relay_document_insert`, `event_observation_insert_cascade`, `relay_document_insert_cascade`, `service_state_upsert`, `service_state_get`, `service_state_delete`
+- **2 cleanup**: `orphan_event_delete`, `orphan_document_delete` (batched)
+- **18 refresh**: 5 current-state refresh functions + 13 analytics refresh functions
+- **3 periodic**: `rolling_windows_refresh`, `relay_stats_document_refresh`, `nip85_follower_count_refresh`
 
 All functions use `SECURITY INVOKER`, bulk array parameters, and `ON CONFLICT DO NOTHING`.
 
@@ -293,9 +293,9 @@ All functions use `SECURITY INVOKER`, bulk array parameters, and `ON CONFLICT DO
 
 `pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats` — incrementally refreshed via range-based refresh functions.
 
-### Materialized Views (6)
+### Current-State Tables (5)
 
-`relay_metadata_latest`, `relay_software_counts`, `supported_nip_counts`, `daily_counts`, `events_replaceable_latest`, `events_addressable_latest` — all support `REFRESH CONCURRENTLY` via unique indexes.
+`relay_document_current`, `events_replaceable_current`, `events_addressable_current`, `contact_lists_current`, `contact_list_edges_current` — regular tables maintained incrementally by refresher procedures.
 
 ---
 
@@ -490,9 +490,9 @@ bigbrotr/
 │   ├── models/                      # Pure frozen dataclasses (zero I/O)
 │   │   ├── relay.py                 # URL validation (rfc3986), network detection
 │   │   ├── event.py                 # Nostr event wrapper (nostr_sdk.Event)
-│   │   ├── metadata.py              # Content-addressed metadata (SHA-256)
-│   │   ├── event_observation.py           # Event-relay junction (cascade insert)
-│   │   ├── relay_metadata.py        # Relay-metadata junction (cascade insert)
+│   │   ├── document.py              # Content-addressed documents (SHA-256)
+│   │   ├── event_observation.py     # Event-relay junction (cascade insert)
+│   │   ├── relay_document.py        # Relay-document junction (cascade insert)
 │   │   ├── service_state.py         # Operational state persistence
 │   │   ├── constants.py             # NetworkType, ServiceName, EventKind enums
 │   │   └── _validation.py           # Shared validation and sanitization

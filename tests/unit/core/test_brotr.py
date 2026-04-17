@@ -507,9 +507,13 @@ class TestInsertDocument:
         inserted = await mock_brotr.insert_document([])
         assert inserted == 0
 
-    async def test_single_document(self, mock_brotr: Brotr, sample_metadata: Any) -> None:
+    async def test_single_document(
+        self,
+        mock_brotr: Brotr,
+        sample_relay_document: Any,
+    ) -> None:
         """Test inserting single document record."""
-        inserted = await mock_brotr.insert_document([sample_metadata.document])
+        inserted = await mock_brotr.insert_document([sample_relay_document.document])
         assert inserted == 1
 
 
@@ -521,25 +525,29 @@ class TestInsertRelayDocument:
         inserted = await mock_brotr.insert_relay_document([])
         assert inserted == 0
 
-    async def test_single_metadata(self, mock_brotr: Brotr, sample_metadata: Any) -> None:
-        """Test inserting single relay metadata."""
-        inserted = await mock_brotr.insert_relay_document([sample_metadata])
+    async def test_single_relay_document(
+        self,
+        mock_brotr: Brotr,
+        sample_relay_document: Any,
+    ) -> None:
+        """Test inserting single relay-document row."""
+        inserted = await mock_brotr.insert_relay_document([sample_relay_document])
         assert inserted == 1
 
     async def test_cascade_true_calls_cascade_procedure(
-        self, mock_brotr: Brotr, mock_pool: Pool, sample_metadata: Any
+        self, mock_brotr: Brotr, mock_pool: Pool, sample_relay_document: Any
     ) -> None:
         """Test that cascade=True calls relay_document_insert_cascade."""
-        await mock_brotr.insert_relay_document([sample_metadata], cascade=True)
+        await mock_brotr.insert_relay_document([sample_relay_document], cascade=True)
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
         query = mock_conn.fetchval.call_args[0][0]
         assert "relay_document_insert_cascade" in query
 
     async def test_cascade_false_calls_junction_procedure(
-        self, mock_brotr: Brotr, mock_pool: Pool, sample_metadata: Any
+        self, mock_brotr: Brotr, mock_pool: Pool, sample_relay_document: Any
     ) -> None:
         """Test that cascade=False calls relay_document_insert (junction-only)."""
-        await mock_brotr.insert_relay_document([sample_metadata], cascade=False)
+        await mock_brotr.insert_relay_document([sample_relay_document], cascade=False)
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
         query = mock_conn.fetchval.call_args[0][0]
         assert "relay_document_insert(" in query

@@ -8,7 +8,7 @@ Complete reference for BigBrotr's PostgreSQL schema, stored functions, derived t
 
 BigBrotr uses PostgreSQL 18+ with a schema designed for high-throughput event archiving and relay monitoring. Key design principles:
 
-- **Content-addressed storage**: Metadata documents are deduplicated by SHA-256 hash (~90% savings)
+- **Content-addressed storage**: Document records are deduplicated by SHA-256 hash (~90% savings)
 - **Bulk array parameters**: All mutations use stored functions with array parameters for batch efficiency
 - **SECURITY INVOKER**: All functions execute with the caller's permissions (least privilege)
 - **ON CONFLICT DO NOTHING**: All inserts are idempotent and safe to retry
@@ -29,8 +29,8 @@ The only enforced foreign keys are in the core archive graph. Current-state, ana
 
 | Layer | Tables | Source |
 |-------|--------|--------|
-| Core archive | `relay`, `event`, `event_observation`, `metadata`, `relay_metadata`, `service_state` | Services and cascade insert functions |
-| Current state | `relay_metadata_current`, `events_replaceable_current`, `events_addressable_current`, `contact_lists_current`, `contact_list_edges_current` | Refresher, `08_functions_refresh_current.sql` |
+| Core archive | `relay`, `event`, `event_observation`, `document`, `relay_document`, `service_state` | Services and cascade insert functions |
+| Current state | `relay_document_current`, `events_replaceable_current`, `events_addressable_current`, `contact_lists_current`, `contact_list_edges_current` | Refresher, `08_functions_refresh_current.sql` |
 | Core analytics | `pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats`, `daily_counts`, `relay_software_counts`, `supported_nip_counts` | Refresher, `09_functions_refresh_analytics.sql` |
 | NIP-85 facts | `nip85_pubkey_stats`, `nip85_event_stats`, `nip85_addressable_stats`, `nip85_identifier_stats` | Refresher, `09_functions_refresh_analytics.sql` |
 | NIP-85 ranks | `nip85_pubkey_ranks`, `nip85_event_ranks`, `nip85_addressable_ranks`, `nip85_identifier_ranks` | Ranker snapshot exports |
@@ -42,7 +42,7 @@ erDiagram
     relay {
         text url PK
         text network
-        bigint discovered_at
+        bigint stored_at
     }
 
     event {
@@ -62,17 +62,17 @@ erDiagram
         bigint observed_at
     }
 
-    metadata {
+    document {
         bytea id PK
         text type PK
         jsonb data
     }
 
-    relay_metadata {
+    relay_document {
         text relay_url FK
-        bigint generated_at PK
-        text metadata_type FK
-        bytea metadata_id FK
+        bigint associated_at PK
+        text role FK
+        bytea document_id FK
     }
 
     service_state {
@@ -84,8 +84,8 @@ erDiagram
 
     relay ||--o{ event_observation : "has events"
     event ||--o{ event_observation : "seen at relays"
-    relay ||--o{ relay_metadata : "has metadata"
-    metadata ||--o{ relay_metadata : "referenced by"
+    relay ||--o{ relay_document : "has documents"
+    document ||--o{ relay_document : "referenced by"
 ```
 
 ### Derived Data Flow
@@ -95,10 +95,10 @@ flowchart LR
     event["event"]
     event_observation["event_observation"]
     relay["relay"]
-    relay_metadata["relay_metadata"]
-    metadata["metadata"]
+    relay_document["relay_document"]
+    document["document"]
 
-    relay_metadata_current["relay_metadata_current"]
+    relay_document_current["relay_document_current"]
     replaceable["events_replaceable_current"]
     addressable["events_addressable_current"]
     contacts["contact_lists_current"]
@@ -109,8 +109,8 @@ flowchart LR
     nip85_stats["NIP-85 stats tables"]
     ranks["NIP-85 rank tables"]
 
-    relay_metadata --> relay_metadata_current
-    metadata --> relay_metadata_current
+    relay_document --> relay_document_current
+    document --> relay_document_current
     relay --> core_stats
     event --> replaceable
     event --> addressable
@@ -120,7 +120,7 @@ flowchart LR
     event_observation --> addressable
     event_observation --> core_stats
     event_observation --> nip85_stats
-    relay_metadata_current --> relay_meta_stats
+    relay_document_current --> relay_meta_stats
     replaceable --> contacts
     contacts --> edges
     edges --> nip85_stats
@@ -149,7 +149,7 @@ Validated Nostr relays that have passed WebSocket connectivity testing.
 |--------|------|-------------|-------------|
 | `url` | TEXT | PRIMARY KEY | WebSocket URL (e.g., `wss://relay.example.com`) |
 | `network` | TEXT | NOT NULL | Network type: `clearnet`, `tor`, `i2p`, `loki` |
-| `discovered_at` | BIGINT | NOT NULL | Unix timestamp of discovery |
+| `stored_at` | BIGINT | NOT NULL | Unix timestamp when the relay row entered the canonical stored relay pool |
 
 ### event (BigBrotr)
 
@@ -202,9 +202,9 @@ Junction table linking events to relays with first-seen timestamps.
 
 Primary key: `(event_id, relay_url)`.
 
-### metadata
+### document
 
-Content-addressed storage for NIP-11 and NIP-66 metadata documents.
+Content-addressed storage for NIP-11 and NIP-66 documents.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
@@ -212,22 +212,22 @@ Content-addressed storage for NIP-11 and NIP-66 metadata documents.
 | `type` | TEXT | PK (partial) | Check type (see MetadataType enum) |
 | `data` | JSONB | NOT NULL | Complete JSON document |
 
-Primary key: `(id, type)`. The SHA-256 hash is computed in the application layer. Multiple relays with identical metadata reference the same row, providing significant deduplication.
+Primary key: `(id, type)`. The SHA-256 hash is computed in the application layer. Multiple relays with identical documents reference the same row, providing significant deduplication.
 
-### relay_metadata
+### relay_document
 
-Time-series junction table linking relays to metadata snapshots.
+Time-series junction table linking relays to document snapshots.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `relay_url` | TEXT | PK (partial), FK -> relay(url) ON DELETE CASCADE | Relay URL |
-| `generated_at` | BIGINT | PK (partial) | Unix timestamp of collection |
-| `metadata_type` | TEXT | PK (partial) | Check type (see below) |
-| `metadata_id` | BYTEA | NOT NULL, FK -> metadata(id, type) ON DELETE CASCADE | Content hash reference |
+| `associated_at` | BIGINT | PK (partial) | Unix timestamp when the document became associated with the relay |
+| `role` | TEXT | PK (partial) | Document role (see below) |
+| `document_id` | BYTEA | NOT NULL, part of FK -> document(id, type) ON DELETE CASCADE with `role` | Content hash reference |
 
-Primary key: `(relay_url, generated_at, metadata_type)`.
+Primary key: `(relay_url, associated_at, role)`.
 
-**Metadata types**: `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http`
+**Document roles**: `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http`
 
 ### service_state
 
@@ -252,12 +252,12 @@ All foreign keys use `ON DELETE CASCADE`:
 |------------|--------|-------------|----------------|
 | `event_observation` | `event_id` | `event(id)` | Deleting an event removes all relay associations |
 | `event_observation` | `relay_url` | `relay(url)` | Deleting a relay removes all event associations |
-| `relay_metadata` | `relay_url` | `relay(url)` | Deleting a relay removes all metadata snapshots |
-| `relay_metadata` | `metadata_id` | `metadata(id)` | Deleting metadata removes all references |
+| `relay_document` | `relay_url` | `relay(url)` | Deleting a relay removes all document snapshots |
+| `relay_document` | `document_id + role` | `document(id, type)` | Deleting a document removes all references |
 
 !!! warning "Invariants"
     - Every event must have at least one relay in `event_observation` (enforced by `orphan_event_delete()`)
-    - Orphaned metadata rows accumulate naturally; clean up with `orphan_metadata_delete()`
+    - Orphaned document rows accumulate naturally; clean up with `orphan_document_delete()`
 
 ---
 
@@ -289,7 +289,7 @@ All CRUD functions share these properties:
 ### relay_insert
 
 ```sql
-relay_insert(p_urls TEXT[], p_networks TEXT[], p_discovered_ats BIGINT[]) -> INTEGER
+relay_insert(p_urls TEXT[], p_networks TEXT[], p_stored_ats BIGINT[]) -> INTEGER
 ```
 
 Bulk-inserts relay records. Existing relays (by URL) are silently skipped.
@@ -308,13 +308,13 @@ Bulk-inserts Nostr events. Duplicate events (by id) are silently skipped.
 - **BigBrotr**: Stores all 7 fields
 - **LilBrotr**: Accepts all 7 parameters for interface compatibility but stores only `id`, `pubkey`, `created_at`, `kind`, and computed `tagvalues`
 
-### metadata_insert
+### document_insert
 
 ```sql
-metadata_insert(p_ids BYTEA[], p_metadata_types TEXT[], p_data JSONB[]) -> INTEGER
+document_insert(p_ids BYTEA[], p_document_roles TEXT[], p_data JSONB[]) -> INTEGER
 ```
 
-Bulk-inserts content-addressed metadata documents. Duplicate hashes are silently skipped.
+Bulk-inserts content-addressed documents. Duplicate hashes are silently skipped.
 
 ### event_observation_insert
 
@@ -324,16 +324,16 @@ event_observation_insert(p_event_ids BYTEA[], p_relay_urls TEXT[], p_observed_at
 
 Bulk-inserts event-observation junction records. Both event and relay must already exist.
 
-### relay_metadata_insert
+### relay_document_insert
 
 ```sql
-relay_metadata_insert(
-    p_relay_urls TEXT[], p_metadata_ids BYTEA[],
-    p_metadata_types TEXT[], p_generated_ats BIGINT[]
+relay_document_insert(
+    p_relay_urls TEXT[], p_document_ids BYTEA[],
+    p_roles TEXT[], p_associated_ats BIGINT[]
 ) -> INTEGER
 ```
 
-Bulk-inserts relay-metadata junction records. Both relay and metadata must already exist.
+Bulk-inserts relay-document junction records. Both relay and document must already exist.
 
 ### service_state_upsert
 
@@ -376,7 +376,7 @@ Atomic multi-table operations that call Level 1 CRUD functions within a single t
 event_observation_insert_cascade(
     p_event_ids BYTEA[], p_pubkeys BYTEA[], p_created_ats BIGINT[],
     p_kinds INTEGER[], p_tags JSONB[], p_content_values TEXT[], p_sigs BYTEA[],
-    p_relay_urls TEXT[], p_relay_networks TEXT[], p_relay_discovered_ats BIGINT[],
+    p_relay_urls TEXT[], p_relay_networks TEXT[], p_relay_stored_ats BIGINT[],
     p_observed_ats BIGINT[]
 ) -> INTEGER
 ```
@@ -389,20 +389,20 @@ Atomically inserts relays, events, and event-observation junctions:
 
 Returns the number of junction rows inserted.
 
-### relay_metadata_insert_cascade
+### relay_document_insert_cascade
 
 ```sql
-relay_metadata_insert_cascade(
-    p_relay_urls TEXT[], p_relay_networks TEXT[], p_relay_discovered_ats BIGINT[],
-    p_metadata_ids BYTEA[], p_metadata_types TEXT[],
-    p_metadata_data JSONB[], p_generated_ats BIGINT[]
+relay_document_insert_cascade(
+    p_relay_urls TEXT[], p_relay_networks TEXT[], p_relay_stored_ats BIGINT[],
+    p_document_ids BYTEA[], p_roles TEXT[],
+    p_document_data JSONB[], p_associated_ats BIGINT[]
 ) -> INTEGER
 ```
 
-Atomically inserts relays, metadata documents, and relay-metadata junctions:
+Atomically inserts relays, documents, and relay-document junctions:
 
 1. `relay_insert()` -- ensures relays exist
-2. `metadata_insert()` -- ensures metadata exists
+2. `document_insert()` -- ensures document rows exist
 3. Inserts junction records
 
 Returns the number of junction rows inserted.
@@ -413,13 +413,13 @@ Returns the number of junction rows inserted.
 
 All cleanup functions use configurable batch sizes to limit lock duration and WAL volume. They loop until fewer than `p_batch_size` rows are deleted, returning the total count.
 
-### orphan_metadata_delete
+### orphan_document_delete
 
 ```sql
-orphan_metadata_delete(p_batch_size INTEGER DEFAULT 10000) -> INTEGER
+orphan_document_delete(p_batch_size INTEGER DEFAULT 10000) -> INTEGER
 ```
 
-Removes metadata records with no references in `relay_metadata`. Schedule: daily or after bulk deletions.
+Removes document records with no references in `relay_document`. Schedule: daily or after bulk deletions.
 
 ### orphan_event_delete
 
@@ -514,7 +514,7 @@ Per-relay event counts, averaged round-trip times, and NIP-11 info.
 |--------|------|-------------|
 | `relay_url` | TEXT PRIMARY KEY | Relay WebSocket URL |
 | `network` | TEXT | Network type |
-| `discovered_at` | BIGINT | Unix discovery timestamp |
+| `stored_at` | BIGINT | Unix archive-entry timestamp |
 | `event_count` | BIGINT | Total events on relay |
 | `unique_pubkeys` | INTEGER | Unique authors on relay |
 | `unique_kinds` | INTEGER | Unique event kinds on relay |
@@ -522,7 +522,7 @@ Per-relay event counts, averaged round-trip times, and NIP-11 info.
 | `events_last_24h`, `events_last_7d`, `events_last_30d` | BIGINT | Rolling activity windows |
 | `regular_count`, `replaceable_count`, `ephemeral_count`, `addressable_count` | BIGINT | Event counts by NIP-01 category |
 | `avg_rtt_open`, `avg_rtt_read`, `avg_rtt_write` | NUMERIC(10,2) | NIP-66 RTT averages |
-| `nip11_name`, `nip11_software`, `nip11_version` | TEXT | Current NIP-11 metadata fields |
+| `nip11_name`, `nip11_software`, `nip11_version` | TEXT | Current NIP-11 document fields |
 
 ---
 
@@ -530,19 +530,19 @@ Per-relay event counts, averaged round-trip times, and NIP-11 info.
 
 All deployments (BigBrotr, LilBrotr) share the same current-state tables. The Refresher maintains them incrementally through checkpointed refresh functions rather than `REFRESH MATERIALIZED VIEW CONCURRENTLY`.
 
-### relay_metadata_current
+### relay_document_current
 
-Latest metadata snapshot per relay and check type.
+Latest document snapshot per relay and role.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `relay_url` | TEXT | PRIMARY KEY (partial) | Relay WebSocket URL |
-| `metadata_type` | TEXT | PRIMARY KEY (partial) | Check type |
-| `generated_at` | BIGINT | NOT NULL | Timestamp of latest snapshot |
-| `metadata_id` | BYTEA | NOT NULL | Content-addressed hash |
+| `role` | TEXT | PRIMARY KEY (partial) | Document role |
+| `associated_at` | BIGINT | NOT NULL | Timestamp of latest association |
+| `document_id` | BYTEA | NOT NULL | Content-addressed hash |
 | `data` | JSONB | NOT NULL | Complete JSON document |
 
-Primary key: `(relay_url, metadata_type)`.
+Primary key: `(relay_url, role)`.
 
 ### events_replaceable_current
 
@@ -611,7 +611,7 @@ Primary key: `(follower_pubkey, followed_pubkey)`.
 
 ### relay_software_counts
 
-NIP-11 software distribution across relays. Depends on `relay_metadata_current`.
+NIP-11 software distribution across relays. Depends on `relay_document_current`.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -623,7 +623,7 @@ Primary key: `(software, version)`.
 
 ### supported_nip_counts
 
-NIP support distribution from NIP-11 info. Depends on `relay_metadata_current`.
+NIP support distribution from NIP-11 info. Depends on `relay_document_current`.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -730,7 +730,7 @@ Current-state refresh functions accept `(p_after BIGINT, p_until BIGINT)` range 
 
 | Function | Target Table | Recommended Schedule |
 |----------|-------------|---------------------|
-| `relay_metadata_current_refresh(after, until)` | relay_metadata_current | Daily |
+| `relay_document_current_refresh(after, until)` | relay_document_current | Daily |
 | `events_replaceable_current_refresh(after, until)` | events_replaceable_current | Hourly |
 | `events_addressable_current_refresh(after, until)` | events_addressable_current | Hourly |
 | `contact_lists_current_refresh(after, until)` | contact_lists_current | Hourly |
@@ -761,11 +761,11 @@ Analytics refresh functions also accept `(p_after BIGINT, p_until BIGINT)` range
 | Function | Purpose | Recommended Schedule |
 |----------|---------|---------------------|
 | `rolling_windows_refresh()` | Refresh rolling time-window columns in summary tables | Hourly |
-| `relay_stats_metadata_refresh()` | Refresh metadata-derived columns in relay_stats (RTT, NIP-11) | Daily |
+| `relay_stats_document_refresh()` | Refresh document-derived columns in relay_stats (RTT, NIP-11) | Daily |
 | `nip85_follower_count_refresh()` | Recompute NIP-85 follower/following counts | Hourly |
 
 !!! note
-    `relay_software_counts` and `supported_nip_counts` depend on `relay_metadata_current`; the Refresher config validates that `relay_metadata_current` is included when those analytics targets are enabled.
+    `relay_software_counts` and `supported_nip_counts` depend on `relay_document_current`; the Refresher config validates that `relay_document_current` is included when those analytics targets are enabled.
 
 ---
 
@@ -792,14 +792,14 @@ Analytics refresh functions also accept `(p_after BIGINT, p_until BIGINT)` range
 | `idx_event_observation_observed_at` | `observed_at DESC` | BTREE | Global observed_at ordering for API |
 | `idx_event_observation_relay_url_observed_at_event_id` | `relay_url, observed_at ASC, event_id ASC` | BTREE | Finder cursor pagination (covers relay_url-only via prefix) |
 
-#### relay_metadata Indexes
+#### relay_document Indexes
 
 | Index | Columns | Type | Purpose |
 |-------|---------|------|---------|
-| PK | `relay_url, generated_at, metadata_type` | BTREE | Composite primary key |
-| `idx_relay_metadata_generated_at` | `generated_at DESC` | BTREE | Recent health checks |
-| `idx_relay_metadata_metadata_id` | `metadata_id` | BTREE | Content-addressed lookups |
-| `idx_relay_metadata_relay_url_metadata_type_generated_at` | `relay_url, metadata_type, generated_at DESC` | BTREE | Latest metadata per relay+type |
+| PK | `relay_url, associated_at, role` | BTREE | Composite primary key |
+| `idx_relay_document_associated_at` | `associated_at DESC` | BTREE | Recent relay-document associations |
+| `idx_relay_document_document_id` | `document_id` | BTREE | Content-addressed lookups |
+| `idx_relay_document_relay_url_role_associated_at` | `relay_url, role, associated_at DESC` | BTREE | Latest document per relay+role |
 
 #### service_state Indexes
 
@@ -833,7 +833,7 @@ Current-state and analytics tables use primary keys for deterministic upserts. A
 
 | Index | Table | Columns | Unique |
 |-------|-------|---------|--------|
-| `idx_relay_metadata_current_type_generated_at` | relay_metadata_current | `metadata_type, generated_at DESC` | No |
+| `idx_relay_document_current_role_associated_at` | relay_document_current | `role, associated_at ASC` | No |
 | `idx_events_replaceable_current_id` | events_replaceable_current | `id` | Yes |
 | `idx_events_addressable_current_id` | events_addressable_current | `id` | Yes |
 | `idx_contact_lists_current_source_seen_at_follower` | contact_lists_current | `source_seen_at DESC, follower_pubkey` | No |
@@ -857,7 +857,7 @@ SQL files execute in alphabetical order via Docker's `/docker-entrypoint-initdb.
 |------|---------|
 | `00_extensions.sql` | `btree_gin`, `pg_stat_statements` |
 | `01_functions_utility.sql` | Tag and event-address utility functions |
-| `02_tables_core.sql` | Core relay, event, metadata, junction, and service-state tables |
+| `02_tables_core.sql` | Core relay, event, document, junction, and service-state tables |
 | `03_tables_current.sql` | Current-state tables |
 | `04_tables_analytics.sql` | Analytics and NIP-85 rank tables |
 | `05_functions_crud.sql` | CRUD, cascade, and service-state functions |
@@ -877,7 +877,7 @@ SQL files execute in alphabetical order via Docker's `/docker-entrypoint-initdb.
 |------|---------|
 | `00_extensions.sql` | `btree_gin`, `pg_stat_statements` |
 | `01_functions_utility.sql` | Tag and event-address utility functions |
-| `02_tables_core.sql` | Core relay, event, metadata, junction, and service-state tables |
+| `02_tables_core.sql` | Core relay, event, document, junction, and service-state tables |
 | `03_tables_current.sql` | Current-state tables |
 | `04_tables_analytics.sql` | Analytics and NIP-85 rank tables |
 | `05_functions_crud.sql` | CRUD, cascade, and service-state functions |
@@ -932,12 +932,12 @@ CREATE TABLE event (
 | Category | Count | Functions |
 |----------|-------|-----------|
 | Utility | 5 | `tags_to_tagvalues`, event address helpers, and `bolt11_amount_msats` |
-| CRUD (Level 1) | 8 | `relay_insert`, `event_insert`, `metadata_insert`, `event_observation_insert`, `relay_metadata_insert`, `service_state_upsert`, `service_state_get`, `service_state_delete` |
-| CRUD (Level 2) | 2 | `event_observation_insert_cascade`, `relay_metadata_insert_cascade` |
-| Cleanup | 2 | `orphan_metadata_delete`, `orphan_event_delete` |
-| Current refresh | 5 | `relay_metadata_current_refresh`, `events_replaceable_current_refresh`, `events_addressable_current_refresh`, `contact_lists_current_refresh`, `contact_list_edges_current_refresh` |
-| Analytics refresh | 13 | `daily_counts_refresh`, metadata analytics, entity stats, and NIP-85 stats refresh functions |
-| Periodic refresh | 3 | `rolling_windows_refresh`, `relay_stats_metadata_refresh`, `nip85_follower_count_refresh` |
+| CRUD (Level 1) | 8 | `relay_insert`, `event_insert`, `document_insert`, `event_observation_insert`, `relay_document_insert`, `service_state_upsert`, `service_state_get`, `service_state_delete` |
+| CRUD (Level 2) | 2 | `event_observation_insert_cascade`, `relay_document_insert_cascade` |
+| Cleanup | 2 | `orphan_document_delete`, `orphan_event_delete` |
+| Current refresh | 5 | `relay_document_current_refresh`, `events_replaceable_current_refresh`, `events_addressable_current_refresh`, `contact_lists_current_refresh`, `contact_list_edges_current_refresh` |
+| Analytics refresh | 13 | `daily_counts_refresh`, document-backed analytics, entity stats, and NIP-85 stats refresh functions |
+| Periodic refresh | 3 | `rolling_windows_refresh`, `relay_stats_document_refresh`, `nip85_follower_count_refresh` |
 | **Total** | **38** | |
 
 ---
@@ -949,7 +949,7 @@ CREATE TABLE event (
 | Refresh current-state and analytics tables | Hourly/Daily | Run via Refresher service (orchestrates configured targets individually) |
 | Refresh periodic reconciliation targets | Hourly/Daily | Run via Refresher service (orchestrates configured targets individually) |
 | Delete orphan events | Daily | `SELECT orphan_event_delete()` |
-| Delete orphan metadata | Daily | `SELECT orphan_metadata_delete()` |
+| Delete orphan documents | Daily | `SELECT orphan_document_delete()` |
 | VACUUM ANALYZE | Weekly | `VACUUM ANALYZE event; VACUUM ANALYZE event_observation;` |
 
 ---

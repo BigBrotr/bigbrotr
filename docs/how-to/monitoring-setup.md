@@ -133,7 +133,7 @@ BigBrotr includes service and database alerting rules in `monitoring/prometheus/
 | **CacheHitRatioLow** | `pg_stat_database_blks_hit{datname="bigbrotr"} / (...) < 0.95` | 10 minutes | warning |
 | **RefresherTargetsFailing** | `service_gauge{service="refresher", name="targets_failed"} > 0` | 10 minutes | warning |
 | **RefresherEventWatermarkLagHigh** | `service_gauge{service="refresher", name="watermark_event_observation_lag_seconds"} > 3600` | 30 minutes | warning |
-| **RefresherMetadataWatermarkLagHigh** | `service_gauge{service="refresher", name="watermark_relay_metadata_lag_seconds"} > 3600` | 30 minutes | warning |
+| **RefresherDocumentWatermarkLagHigh** | `service_gauge{service="refresher", name="watermark_relay_document_lag_seconds"} > 3600` | 30 minutes | warning |
 | **RefresherMaxDurationBudgetHit** | `service_gauge{service="refresher", name="cycle_stopped_due_to_max_duration"} > 0` | 30 minutes | warning |
 | **RefresherNoSuccessfulCycle** | `time() - service_gauge{service="refresher", name="last_cycle_timestamp"} > 172800` | 15 minutes | critical |
 

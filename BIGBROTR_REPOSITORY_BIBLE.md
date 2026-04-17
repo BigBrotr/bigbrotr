@@ -117,7 +117,7 @@ The intended operational flow is:
 1. `Seeder` loads an initial relay list from disk.
 2. `Finder` expands the candidate set from APIs and archived events.
 3. `Validator` tests candidate relays and promotes valid ones into `relay`.
-4. `Monitor` runs NIP-11 and NIP-66 checks and stores relay metadata.
+4. `Monitor` runs NIP-11 and NIP-66 checks and stores relay documents.
 5. `Synchronizer` fetches and stores canonical Nostr events from relays.
 6. `Refresher` turns append-only core data into current-state and analytics
    tables.
@@ -248,10 +248,10 @@ Files:
   Canonical Nostr event wrapper for persistence.
 - `event_observation.py`
   Event-observation junction row.
-- `metadata.py`
-  Content-addressed metadata document model.
-- `relay_metadata.py`
-  Relay-metadata time-series reference model.
+- `document.py`
+  Content-addressed document model.
+- `relay_document.py`
+  Relay-document time-series reference model.
 - `service_state.py`
   Shared operational state model.
 - `_validation.py`
@@ -523,7 +523,7 @@ enough to monitor and synchronize”.
 Purpose:
 
 - run relay health and capability checks
-- persist structured relay metadata
+- persist structured relay documents
 - optionally publish monitor-side events
 
 Files:
@@ -553,8 +553,8 @@ Core behavior:
 
 - selects relays from `relay`
 - runs NIP-11 and NIP-66 checks
-- produces structured metadata payloads
-- inserts into `metadata` and `relay_metadata`
+- produces structured document payloads
+- inserts into `document` and `relay_document`
 - may publish NIP-66-related events
 
 Monitor is one of the largest services because it coordinates:
@@ -564,7 +564,7 @@ Monitor is one of the largest services because it coordinates:
 - SSL probing
 - network probing
 - geo enrichment
-- metadata persistence
+- document persistence
 - optional event publication
 
 ### 5.6 `services/synchronizer/`
@@ -774,9 +774,9 @@ Current built-in read models:
 - `relays`
 - `events`
 - `event-observations`
-- `metadata-documents`
-- `relay-metadata-history`
-- `relay-metadata-current`
+- `document-store`
+- `relay-document-history`
+- `relay-document-current`
 - `pubkey-stats`
 - `kind-stats`
 - `relay-stats`
@@ -825,9 +825,9 @@ The core domain revolves around these concepts:
 - `EventObservation`
   An observation that a given relay served a given event at a specific time.
 - `Metadata`
-  A content-addressed metadata document.
-- `RelayMetadata`
-  A time-series reference from relay to metadata snapshot.
+  A content-addressed document.
+- `RelayDocument`
+  A time-series reference from relay to document snapshot.
 - `ServiceState`
   Persisted operational state used by services for checkpoints and cursors.
 
@@ -890,15 +890,15 @@ The schema can be understood in four conceptual layers.
 - `relay`
 - `event`
 - `event_observation`
-- `metadata`
-- `relay_metadata`
+- `document`
+- `relay_document`
 - `service_state`
 
 These are the core persisted facts and operational state.
 
 #### Current-state tables
 
-- `relay_metadata_current`
+- `relay_document_current`
 - `events_replaceable_current`
 - `events_addressable_current`
 - `contact_lists_current`
@@ -958,16 +958,15 @@ lightweight shape is retained to save storage.
 
 Records which relay served which event and when it was first seen there.
 
-#### `metadata`
+#### `document`
 
-Content-addressed metadata document store keyed by content hash plus metadata
-type.
+Content-addressed document store keyed by content hash plus role/type.
 
-This allows multiple relays with identical metadata payloads to share one row.
+This allows multiple relays with identical document payloads to share one row.
 
-#### `relay_metadata`
+#### `relay_document`
 
-Time-series link between relays and generated metadata snapshots.
+Time-series link between relays and generated document snapshots.
 
 #### `service_state`
 
@@ -1571,8 +1570,8 @@ Input:
 Flow:
 
 - `Monitor` probes relays
-- emits structured metadata
-- stores metadata snapshots in content-addressed form
+- emits structured documents
+- stores document snapshots in content-addressed form
 
 ### 19.3 Archiving
 
@@ -1593,7 +1592,7 @@ Flow:
 Input:
 
 - append-only core archive tables
-- relay metadata history
+- relay-document history
 
 Flow:
 

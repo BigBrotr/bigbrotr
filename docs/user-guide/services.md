@@ -38,8 +38,8 @@ flowchart LR
     subgraph Database
         SS["service_state"]
         RE["relay"]
-        MD["metadata"]
-        RM["relay_metadata"]
+        MD["document"]
+        RM["relay_document"]
         EV["event"]
         ER["event_observation"]
         CT["current tables"]
@@ -230,7 +230,7 @@ flowchart TD
 **Mode**: Continuous (`run_forever`)
 
 **Reads**: `relay` (validated relays)
-**Writes**: `metadata`, `relay_metadata` (health check results); publishes Nostr kind 0, 10166, 30166 events
+**Writes**: `document`, `relay_document` (health-check results); publishes Nostr kind 0, 10166, 30166 events
 
 ### How It Works
 
@@ -241,7 +241,7 @@ to `nips/event_builders.py`.
 **Orchestration flow:**
 
 1. `run()` -- update geo databases, open geo readers, publish profile/announcement, delegate to `monitor()`
-2. `monitor()` -- count relays, fetch in chunks, check concurrently via `_iter_concurrent()`, persist metadata, update checkpoints
+2. `monitor()` -- count relays, fetch in chunks, check concurrently via `_iter_concurrent()`, persist relay documents, update checkpoints
 3. `check_relay(relay)` -- run NIP-11 + all NIP-66 checks, return `CheckResult`
 4. `publish_discovery(relay, result)` -- build and broadcast kind 30166 per successful check
 5. `publish_announcement()` -- kind 10166 (monitor capabilities)
@@ -377,7 +377,7 @@ flowchart TD
 1. Resolve the configured `current.targets` and `analytics.targets` into canonical dependency-safe order
 2. Incrementally refresh each current-state table from its source watermark range
 3. Incrementally refresh each analytics table from its source watermark range
-4. Run enabled periodic reconciliations (`rolling_windows`, `relay_stats_metadata`, `nip85_followers`) and emit per-target timing, row, watermark-lag, and failure metrics
+4. Run enabled periodic reconciliations (`rolling_windows`, `relay_stats_document`, `nip85_followers`) and emit per-target timing, row, watermark-lag, and failure metrics
 
 Each target is isolated by default: one failed refresh does not stop the rest of the cycle unless `processing.continue_on_target_error` is disabled.
 
@@ -388,7 +388,7 @@ Each target is isolated by default: one failed refresh does not stop the rest of
 | `current.targets` | list[string] | canonical current-state set | Current-state tables to refresh incrementally |
 | `analytics.targets` | list[string] | canonical analytics set | Analytics tables to refresh incrementally |
 | `periodic.rolling_windows` | bool | `true` | Recompute rolling time-window columns |
-| `periodic.relay_stats_metadata` | bool | `true` | Refresh `relay_stats` metadata fields |
+| `periodic.relay_stats_document` | bool | `true` | Refresh `relay_stats` document-backed fields |
 | `periodic.nip85_followers` | bool | `true` | Recompute NIP-85 follower/following counts |
 | `processing.max_duration` | float or null | `null` | Maximum seconds for one refresh cycle |
 | `processing.max_targets_per_cycle` | int or null | `null` | Maximum targets attempted per cycle |
@@ -517,7 +517,7 @@ Endpoints also include `/health` (readiness check), `GET /api/v1/read-models`, a
 `GET /api/v1/read-models/{read_model}` for public surface discovery.
 
 The discovery surface now exposes canonical, product-level read-model IDs such as
-`relays`, `relay-stats`, and `relay-metadata-current`. Legacy table-shaped aliases
+`relays`, `relay-stats`, and `relay-document-current`. Legacy table-shaped aliases
 remain accepted for compatibility, but discovery and deployment configs should prefer
 the canonical IDs.
 
@@ -573,7 +573,7 @@ For read models without a stable primary key, the API falls back to offset pagin
 The Dvm supports per-read-model pricing via `ReadModelPolicy.price`. When a job's bid is below the required price, a payment-required feedback event is published instead of the query result.
 
 As with the HTTP API, DVM announcements and deployment config should use the canonical
-read-model IDs (`relays`, `relay-stats`, `relay-metadata-current`, ...). Legacy
+read-model IDs (`relays`, `relay-stats`, `relay-document-current`, ...). Legacy
 table-shaped aliases are still accepted on inbound jobs for compatibility.
 
 When the target read model has a primary key, DVM list jobs default to the same

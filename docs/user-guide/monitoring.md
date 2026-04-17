@@ -301,7 +301,7 @@ Fires when the Refresher service has failing current-state, analytics, or period
 | CacheHitRatioLow | Buffer cache hit < 95% | 10 min | warning |
 | RefresherTargetsFailing | Failing refresh targets > 0 | 10 min | warning |
 | RefresherEventWatermarkLagHigh | Event watermark lag > 1h | 30 min | warning |
-| RefresherMetadataWatermarkLagHigh | Metadata watermark lag > 1h | 30 min | warning |
+| RefresherDocumentWatermarkLagHigh | Relay-document watermark lag > 1h | 30 min | warning |
 | RefresherMaxDurationBudgetHit | Cycle cut by `processing.max_duration` | 30 min | warning |
 | RefresherNoSuccessfulCycle | No successful refresher cycle for > 48h | 15 min | critical |
 | FinderNoSuccessfulCycle | No successful finder cycle for > 1h | 15 min | warning |

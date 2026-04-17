@@ -140,19 +140,19 @@ groups:
             the latest visible event_observation source watermark for over 30 minutes.
 
       # --------------------------------------------------------------------
-      # RefresherMetadataWatermarkLagHigh: Relay metadata backlog not refreshed
+      # RefresherDocumentWatermarkLagHigh: Relay-document backlog not refreshed
       # --------------------------------------------------------------------
-      - alert: RefresherMetadataWatermarkLagHigh
+      - alert: RefresherDocumentWatermarkLagHigh
         expr: >-
           service_gauge{service="refresher", name="watermark_relay_document_lag_seconds"} > 3600
         for: 30m
         labels:
           severity: warning
         annotations:
-          summary: "Refresher metadata watermark lag is {{ $value | printf \"%.0f\" }}s"
+          summary: "Refresher relay-document watermark lag is {{ $value | printf \"%.0f\" }}s"
           description: >-
             The refresher relay_document watermark is more than one hour
-            behind the latest visible relay metadata source watermark.
+            behind the latest visible relay-document source watermark.
 
       # --------------------------------------------------------------------
       # RefresherMaxDurationBudgetHit: Cycle repeatedly cut by max_duration

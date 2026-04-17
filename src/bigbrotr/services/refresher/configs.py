@@ -201,7 +201,7 @@ class PeriodicRefreshConfig(BaseModel):
     )
     relay_stats_document: bool = Field(
         default=True,
-        description="Refresh relay_stats metadata fields from current relay metadata",
+        description="Refresh relay_stats document-backed fields from current relay documents",
     )
     nip85_followers: bool = Field(
         default=True,
