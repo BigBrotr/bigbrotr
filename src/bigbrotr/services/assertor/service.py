@@ -20,19 +20,17 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import EventKind, ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
-from bigbrotr.nips.event_builders import (
-    build_addressable_assertion,
-    build_event_assertion,
-    build_identifier_assertion,
-    build_profile_event,
-    build_trusted_provider_list,
-    build_user_assertion,
-)
-from bigbrotr.nips.nip85.data import (
+from bigbrotr.nips.nip85 import (
     AddressableAssertion,
     EventAssertion,
     IdentifierAssertion,
     UserAssertion,
+    build_addressable_assertion,
+    build_event_assertion,
+    build_identifier_assertion,
+    build_provider_profile,
+    build_trusted_provider_list,
+    build_user_assertion,
 )
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.utils.protocol import (
@@ -371,7 +369,7 @@ class Assertor(BaseService[AssertorConfig]):
                 save_hash=self._save_hash,
                 publish_events=broadcast_events,
                 build_state_key=build_state_key,
-                build_profile_event=build_profile_event,
+                build_provider_profile=build_provider_profile,
                 provider_profile_content=provider_profile_content,
                 content_hash=content_hash,
             )

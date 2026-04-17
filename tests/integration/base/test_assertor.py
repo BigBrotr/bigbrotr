@@ -426,6 +426,7 @@ def _assert_published_event_payloads(
     published_builders: list[Any],
     *,
     config: AssertorConfig,
+    author_pubkey: str,
     event_address: str,
     identifier: str,
 ) -> None:
@@ -452,11 +453,16 @@ def _assert_published_event_payloads(
     ]
     assert _tag_values(events_by_kind[EventKind.NIP85_USER_ASSERTION], "rank") == ["89"]
     assert _tag_values(events_by_kind[EventKind.NIP85_EVENT_ASSERTION], "rank") == ["81"]
+    assert _tag_values(events_by_kind[EventKind.NIP85_EVENT_ASSERTION], "p") == [author_pubkey]
     assert _tag_values(events_by_kind[EventKind.NIP85_ADDRESSABLE_ASSERTION], "a") == [
         event_address
     ]
+    assert _tag_values(events_by_kind[EventKind.NIP85_ADDRESSABLE_ASSERTION], "p") == [
+        author_pubkey
+    ]
     assert _tag_values(events_by_kind[EventKind.NIP85_ADDRESSABLE_ASSERTION], "rank") == ["84"]
     assert _tag_values(events_by_kind[EventKind.NIP85_IDENTIFIER_ASSERTION], "d") == [identifier]
+    assert _tag_values(events_by_kind[EventKind.NIP85_IDENTIFIER_ASSERTION], "i") == [identifier]
     assert _tag_values(events_by_kind[EventKind.NIP85_IDENTIFIER_ASSERTION], "rank") == ["73"]
     assert sorted(_tag_values(events_by_kind[EventKind.NIP85_IDENTIFIER_ASSERTION], "k")) == [
         "book",
@@ -567,6 +573,7 @@ class TestAssertorIntegration:
         _assert_published_event_payloads(
             published_builders,
             config=config,
+            author_pubkey=author,
             event_address=event_address,
             identifier=identifier,
         )

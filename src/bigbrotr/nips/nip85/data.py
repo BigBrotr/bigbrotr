@@ -203,6 +203,7 @@ class EventAssertion:
     def tags_hash(self) -> str:
         """SHA-256 hex digest of all tag values for change detection."""
         values = [
+            self.author_pubkey,
             str(self.rank),
             str(self.comment_count),
             str(self.quote_count),
@@ -250,6 +251,7 @@ class AddressableAssertion:
     def tags_hash(self) -> str:
         """SHA-256 hex digest of all tag values for change detection."""
         values = [
+            self.author_pubkey,
             str(self.rank),
             str(self.comment_count),
             str(self.quote_count),

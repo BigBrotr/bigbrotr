@@ -4,6 +4,13 @@ from __future__ import annotations
 
 import pytest
 
+from bigbrotr.nips.event_builders import (
+    build_addressable_assertion,
+    build_event_assertion,
+    build_identifier_assertion,
+    build_trusted_provider_list,
+    build_user_assertion,
+)
 from bigbrotr.nips.nip85.data import (
     AddressableAssertion,
     EventAssertion,
@@ -23,6 +30,12 @@ def test_public_package_exports_all_nip85_models() -> None:
     assert public_nip85.IdentifierAssertion is IdentifierAssertion
     assert public_nip85.TrustedProviderDeclaration is TrustedProviderDeclaration
     assert public_nip85.UserAssertion is UserAssertion
+    assert public_nip85.build_user_assertion is build_user_assertion
+    assert public_nip85.build_event_assertion is build_event_assertion
+    assert public_nip85.build_addressable_assertion is build_addressable_assertion
+    assert public_nip85.build_identifier_assertion is build_identifier_assertion
+    assert public_nip85.build_trusted_provider_list is build_trusted_provider_list
+    assert public_nip85.build_provider_profile.__name__ == "build_profile_event"
 
 
 class TestUserAssertionProperties:
@@ -168,6 +181,11 @@ class TestEventAssertionProperties:
         h2 = a.tags_hash()
         assert h1 == h2
 
+    def test_tags_hash_tracks_author_pubkey(self) -> None:
+        a1 = EventAssertion(event_id="ee" * 32, author_pubkey="aa" * 32)
+        a2 = EventAssertion(event_id="ee" * 32, author_pubkey="bb" * 32)
+        assert a1.tags_hash() != a2.tags_hash()
+
 
 class TestEventAssertionFromDbRow:
     def test_full_row(self) -> None:
@@ -208,6 +226,17 @@ class TestAddressableAssertionProperties:
         assert a.author_pubkey == "bb" * 32
         assert a.rank == 84
         assert a.zap_amount_sats == 100
+
+    def test_tags_hash_tracks_author_pubkey(self) -> None:
+        a1 = AddressableAssertion(
+            event_address="30023:" + ("aa" * 32) + ":article",
+            author_pubkey="bb" * 32,
+        )
+        a2 = AddressableAssertion(
+            event_address="30023:" + ("aa" * 32) + ":article",
+            author_pubkey="cc" * 32,
+        )
+        assert a1.tags_hash() != a2.tags_hash()
 
 
 class TestIdentifierAssertionProperties:

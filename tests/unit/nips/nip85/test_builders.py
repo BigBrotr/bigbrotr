@@ -155,6 +155,12 @@ class TestBuildEventAssertion:
         tags = _extract_tags(build_event_assertion(a))
         assert tags["rank"] == ["91"]
 
+    def test_author_pubkey_is_emitted_as_p_tag(self) -> None:
+        author_pubkey = "ab" * 32
+        a = EventAssertion(event_id="ff" * 32, author_pubkey=author_pubkey)
+        tags = _extract_tags(build_event_assertion(a))
+        assert tags["p"] == [author_pubkey]
+
     def test_zap_amount_in_sats(self) -> None:
         a = EventAssertion(event_id="ee" * 32, zap_amount_msats=42000)
         tags = _extract_tags(build_event_assertion(a))
@@ -163,6 +169,7 @@ class TestBuildEventAssertion:
     def test_all_nip85_tags_present(self) -> None:
         a = EventAssertion(
             event_id="ee" * 32,
+            author_pubkey="ab" * 32,
             comment_count=10,
             quote_count=3,
             repost_count=5,
@@ -174,6 +181,7 @@ class TestBuildEventAssertion:
         expected_keys = {
             "d",
             "e",
+            "p",
             "rank",
             "comment_cnt",
             "quote_cnt",
@@ -195,15 +203,18 @@ class TestBuildAddressableAssertion:
 
     def test_d_and_a_tags_use_event_address(self) -> None:
         event_address = "30023:" + ("ff" * 32) + ":article"
-        a = AddressableAssertion(event_address=event_address, rank=77)
+        author_pubkey = "cd" * 32
+        a = AddressableAssertion(event_address=event_address, author_pubkey=author_pubkey, rank=77)
         tags = _extract_tags(build_addressable_assertion(a))
         assert tags["d"] == [event_address]
         assert tags["a"] == [event_address]
+        assert tags["p"] == [author_pubkey]
         assert tags["rank"] == ["77"]
 
     def test_all_nip85_tags_present(self) -> None:
         a = AddressableAssertion(
             event_address="30023:" + ("aa" * 32) + ":alpha",
+            author_pubkey="cd" * 32,
             rank=88,
             comment_count=10,
             quote_count=3,
@@ -216,6 +227,7 @@ class TestBuildAddressableAssertion:
         expected_keys = {
             "d",
             "a",
+            "p",
             "rank",
             "comment_cnt",
             "quote_cnt",
@@ -235,7 +247,7 @@ class TestBuildIdentifierAssertion:
         event = build_identifier_assertion(a).sign_with_keys(Keys.generate())
         assert event.kind().as_u16() == EventKind.NIP85_IDENTIFIER_ASSERTION
 
-    def test_d_tag_and_k_tags_included(self) -> None:
+    def test_d_i_and_k_tags_included(self) -> None:
         a = IdentifierAssertion(
             identifier="isbn:9780140328721",
             rank=55,
@@ -245,13 +257,9 @@ class TestBuildIdentifierAssertion:
         )
         tags = _extract_tags(build_identifier_assertion(a))
         assert tags["d"] == ["isbn:9780140328721"]
+        assert tags["i"] == ["isbn:9780140328721"]
         assert tags["rank"] == ["55"]
         assert sorted(tags["k"]) == ["book", "isbn"]
-
-    def test_i_tag_is_not_added_by_default(self) -> None:
-        a = IdentifierAssertion(identifier="geo:41.9028,12.4964", k_tags=("place",))
-        tags = _extract_tags(build_identifier_assertion(a))
-        assert "i" not in tags
 
 
 class TestBuildTrustedProviderList:

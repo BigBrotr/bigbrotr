@@ -1670,6 +1670,9 @@ class TestAssertorPublishAddressableAndIdentifierFlow:
         assert skipped == 0
         assert failed == 0
         mock_broadcast.assert_awaited_once()
+        event = mock_broadcast.await_args.args[0][0].sign_with_keys(service._config.keys.keys)
+        tag_vectors = [list(tag.as_vec()) for tag in event.tags().to_vec()]
+        assert ["p", "bb" * 32] in tag_vectors
         saved_key = mock_brotr.upsert_service_state.call_args[0][0][0].state_key
         assert saved_key.startswith("global-pagerank:30384:")
 
@@ -1699,6 +1702,9 @@ class TestAssertorPublishAddressableAndIdentifierFlow:
         assert skipped == 0
         assert failed == 0
         mock_broadcast.assert_awaited_once()
+        event = mock_broadcast.await_args.args[0][0].sign_with_keys(service._config.keys.keys)
+        tag_vectors = [list(tag.as_vec()) for tag in event.tags().to_vec()]
+        assert ["i", "isbn:9780140328721"] in tag_vectors
         saved_key = mock_brotr.upsert_service_state.call_args[0][0][0].state_key
         assert saved_key == "global-pagerank:30385:isbn:9780140328721"
 

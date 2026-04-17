@@ -489,6 +489,8 @@ def build_event_assertion(assertion: EventAssertion) -> EventBuilder:
         Tag.parse(["zap_cnt", str(assertion.zap_count)]),
         Tag.parse(["zap_amount", str(assertion.zap_amount_sats)]),
     ]
+    if assertion.author_pubkey:
+        tags.append(Tag.parse(["p", assertion.author_pubkey]))
 
     return EventBuilder(Kind(EventKind.NIP85_EVENT_ASSERTION), "").tags(tags)
 
@@ -506,6 +508,8 @@ def build_addressable_assertion(assertion: AddressableAssertion) -> EventBuilder
         Tag.parse(["zap_cnt", str(assertion.zap_count)]),
         Tag.parse(["zap_amount", str(assertion.zap_amount_sats)]),
     ]
+    if assertion.author_pubkey:
+        tags.append(Tag.parse(["p", assertion.author_pubkey]))
 
     return EventBuilder(Kind(EventKind.NIP85_ADDRESSABLE_ASSERTION), "").tags(tags)
 
@@ -514,6 +518,7 @@ def build_identifier_assertion(assertion: IdentifierAssertion) -> EventBuilder:
     """Build a Kind 30385 NIP-85 identifier trusted assertion event."""
     tags: list[Tag] = [
         Tag.identifier(assertion.identifier),
+        Tag.parse(["i", assertion.identifier]),
         Tag.parse(["rank", str(assertion.rank)]),
         Tag.parse(["comment_cnt", str(assertion.comment_count)]),
         Tag.parse(["reaction_cnt", str(assertion.reaction_count)]),

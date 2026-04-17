@@ -82,7 +82,7 @@ class ProviderProfileRuntime:
         Awaitable[list[BroadcastClientResult]],
     ]
     build_state_key: Callable[..., str]
-    build_profile_event: Callable[..., EventBuilder]
+    build_provider_profile: Callable[..., EventBuilder]
     provider_profile_content: Callable[..., dict[str, Any]]
     content_hash: Callable[[Any], str]
 
@@ -205,7 +205,7 @@ async def publish_provider_profile(runtime: ProviderProfileRuntime) -> tuple[int
     extra_fields = {key: value for key, value in content.items() if key not in base_profile_fields}
 
     try:
-        builder = runtime.build_profile_event(
+        builder = runtime.build_provider_profile(
             name=kind0.name,
             about=kind0.about,
             picture=kind0.picture,
