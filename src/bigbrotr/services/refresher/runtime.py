@@ -61,6 +61,16 @@ class RefreshCycleResult:
         """Number of configured targets not attempted because the cycle stopped early."""
         return max(0, self.targets_total - self.targets_attempted)
 
+    @property
+    def event_observation_backlog_remaining(self) -> bool:
+        """Whether event-observation backlog remained after the cycle."""
+        return self.watermark_event_observation_lag_seconds > 0
+
+    @property
+    def relay_document_backlog_remaining(self) -> bool:
+        """Whether relay-document backlog remained after the cycle."""
+        return self.watermark_relay_document_lag_seconds > 0
+
 
 @dataclass(frozen=True, slots=True)
 class RefreshCyclePlan:
@@ -90,6 +100,14 @@ def emit_cycle_metrics(
     service.set_gauge(
         "watermark_relay_document_lag_seconds",
         result.watermark_relay_document_lag_seconds,
+    )
+    service.set_gauge(
+        "watermark_event_observation_backlog_remaining",
+        1 if result.event_observation_backlog_remaining else 0,
+    )
+    service.set_gauge(
+        "watermark_relay_document_backlog_remaining",
+        1 if result.relay_document_backlog_remaining else 0,
     )
     service.set_gauge(
         "cycle_stopped_due_to_max_duration",

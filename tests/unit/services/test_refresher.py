@@ -594,6 +594,10 @@ class TestRefresherRun:
         assert len(refresh_completed) == 1
         assert refresh_completed[0].kwargs["refreshed"] == 2
         assert refresh_completed[0].kwargs["failed"] == 0
+        assert refresh_completed[0].kwargs["event_watermark_lag_seconds"] == 0
+        assert refresh_completed[0].kwargs["event_backlog_remaining"] is False
+        assert refresh_completed[0].kwargs["document_watermark_lag_seconds"] == 0
+        assert refresh_completed[0].kwargs["document_backlog_remaining"] is False
 
     async def test_refresh_failures_continue_to_later_targets(
         self, mock_refresher_brotr: Brotr
@@ -635,6 +639,8 @@ class TestRefresherRun:
         assert len(refresh_completed) == 1
         assert refresh_completed[0].kwargs["refreshed"] == 1
         assert refresh_completed[0].kwargs["failed"] == 1
+        assert refresh_completed[0].kwargs["event_watermark_lag_seconds"] == 0
+        assert refresh_completed[0].kwargs["event_backlog_remaining"] is False
 
     async def test_fail_fast_mode_raises_after_first_target_failure(
         self, mock_refresher_brotr: Brotr
@@ -826,6 +832,7 @@ class TestRefresherRun:
             result = await refresher.refresh()
 
         assert result.watermark_event_observation_lag_seconds == 5
+        assert result.event_observation_backlog_remaining is True
 
     async def test_relay_document_watermark_lag_is_reported(
         self, mock_refresher_brotr: Brotr
@@ -852,6 +859,7 @@ class TestRefresherRun:
             result = await refresher.refresh()
 
         assert result.watermark_relay_document_lag_seconds == 5
+        assert result.relay_document_backlog_remaining is True
 
 
 class TestRefresherMetrics:
@@ -880,3 +888,36 @@ class TestRefresherMetrics:
         assert first_four[1] == call("targets_current_total", 0)
         assert first_four[2] == call("targets_analytics_total", 1)
         assert first_four[3] == call("targets_periodic_total", 3)
+        assert call("watermark_event_observation_backlog_remaining", 0) in mock_gauge.call_args_list
+        assert call("watermark_relay_document_backlog_remaining", 0) in mock_gauge.call_args_list
+
+    async def test_backlog_gauges_reflect_remaining_source_lag(
+        self,
+        mock_refresher_brotr: Brotr,
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(analytics=["pubkey_kind_stats"]),
+        )
+
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.get_max_observed_at",
+                AsyncMock(return_value=50),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.refresh_incremental_target",
+                AsyncMock(return_value=1),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
+                AsyncMock(return_value=55),
+            ),
+            patch.object(refresher, "set_gauge") as mock_gauge,
+        ):
+            await refresher.refresh()
+
+        emitted = {call_item.args[0]: call_item.args[1] for call_item in mock_gauge.call_args_list}
+        assert emitted["watermark_event_observation_lag_seconds"] == 5
+        assert emitted["watermark_event_observation_backlog_remaining"] == 1
+        assert emitted["watermark_relay_document_backlog_remaining"] == 0

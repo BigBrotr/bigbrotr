@@ -121,6 +121,8 @@ class Refresher(BaseService[RefresherConfig]):
         self.set_gauge("rows_refreshed", 0)
         self.set_gauge("cycle_stopped_due_to_max_duration", 0)
         self.set_gauge("cycle_stopped_due_to_max_targets", 0)
+        self.set_gauge("watermark_event_observation_backlog_remaining", 0)
+        self.set_gauge("watermark_relay_document_backlog_remaining", 0)
 
         target_results: list[RefreshTargetResult] = []
         source_checkpoints: dict[WatermarkSource, int] = {}
@@ -151,6 +153,10 @@ class Refresher(BaseService[RefresherConfig]):
             skipped=cycle_result.targets_skipped,
             rows=cycle_result.rows_refreshed,
             cutoff_reason=cycle_result.cutoff_reason,
+            event_watermark_lag_seconds=cycle_result.watermark_event_observation_lag_seconds,
+            event_backlog_remaining=cycle_result.event_observation_backlog_remaining,
+            document_watermark_lag_seconds=cycle_result.watermark_relay_document_lag_seconds,
+            document_backlog_remaining=cycle_result.relay_document_backlog_remaining,
         )
         return cycle_result
 

@@ -137,6 +137,12 @@ BigBrotr includes service and database alerting rules in `monitoring/prometheus/
 | **RefresherMaxDurationBudgetHit** | `service_gauge{service="refresher", name="cycle_stopped_due_to_max_duration"} > 0` | 30 minutes | warning |
 | **RefresherNoSuccessfulCycle** | `time() - service_gauge{service="refresher", name="last_cycle_timestamp"} > 172800` | 15 minutes | critical |
 
+The refresher also exports boolean backlog gauges
+(`watermark_event_observation_backlog_remaining` and
+`watermark_relay_document_backlog_remaining`) so operators can distinguish
+"lag exists right now" from a fully caught-up cycle even when bounded source
+windows are enabled by design.
+
 ### Verify alerts are loaded
 
 1. Open `http://localhost:9090/alerts`
