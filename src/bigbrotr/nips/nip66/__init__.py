@@ -35,7 +35,7 @@ Nip66                                        Top-level container
 
 Note:
     Each test produces a separate
-    [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] record
+    [RelayDocument][bigbrotr.models.relay_document.RelayDocument] record
     with a distinct [MetadataType][bigbrotr.models.document.MetadataType]
     variant (``NIP66_RTT``, ``NIP66_SSL``, ``NIP66_GEO``, ``NIP66_NET``,
     ``NIP66_DNS``, ``NIP66_HTTP``). Tests are executed concurrently via
@@ -78,7 +78,7 @@ from .nip66 import (
     Nip66Dependencies,
     Nip66Options,
     Nip66Selection,
-    RelayNip66MetadataTuple,
+    RelayNip66DocumentTuple,
 )
 from .rtt import Nip66RttDependencies, Nip66RttMetadata
 from .ssl import Nip66SslMetadata
@@ -109,5 +109,5 @@ __all__ = [
     "Nip66SslData",
     "Nip66SslLogs",
     "Nip66SslMetadata",
-    "RelayNip66MetadataTuple",
+    "RelayNip66DocumentTuple",
 ]

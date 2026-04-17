@@ -25,9 +25,9 @@ read_models:
     enabled: true
   documents:
     enabled: true
-  relay-metadata-history:
+  relay-document-history:
     enabled: true
-  relay-metadata-current:
+  relay-document-current:
     enabled: true
   pubkey-stats:
     enabled: true

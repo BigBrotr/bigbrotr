@@ -1,4 +1,4 @@
-"""Unit tests for Nip11 class, Nip11.fetch(), and RelayNip11MetadataTuple."""
+"""Unit tests for Nip11 class, Nip11.fetch(), and RelayNip11DocumentTuple."""
 
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -17,7 +17,7 @@ from bigbrotr.nips.nip11 import (
     Nip11Options,
     Nip11Selection,
 )
-from bigbrotr.nips.nip11.nip11 import RelayNip11MetadataTuple
+from bigbrotr.nips.nip11.nip11 import RelayNip11DocumentTuple
 
 
 # =============================================================================
@@ -185,71 +185,71 @@ class TestNip11DataAccessFailed:
 class TestNip11Serialization:
     """Test Nip11 serialization."""
 
-    def test_to_relay_metadata_tuple(self, nip11: Nip11):
-        """to_relay_metadata_tuple returns RelayNip11MetadataTuple."""
-        result = nip11.to_relay_metadata_tuple()
-        assert isinstance(result, RelayNip11MetadataTuple)
+    def test_to_relay_document_tuple(self, nip11: Nip11):
+        """to_relay_document_tuple returns RelayNip11DocumentTuple."""
+        result = nip11.to_relay_document_tuple()
+        assert isinstance(result, RelayNip11DocumentTuple)
 
-    def test_to_relay_metadata_tuple_nip11_info(self, nip11: Nip11):
-        """to_relay_metadata_tuple returns RelayMetadata for nip11_info."""
-        result = nip11.to_relay_metadata_tuple()
+    def test_to_relay_document_tuple_nip11_info(self, nip11: Nip11):
+        """to_relay_document_tuple returns RelayDocument for nip11_info."""
+        result = nip11.to_relay_document_tuple()
         assert result.nip11_info is not None
-        assert result.nip11_info.metadata.type == MetadataType.NIP11_INFO
+        assert result.nip11_info.document.type == MetadataType.NIP11_INFO
         assert result.nip11_info.relay is nip11.relay
-        assert result.nip11_info.generated_at == nip11.generated_at
+        assert result.nip11_info.associated_at == nip11.generated_at
 
-    def test_to_relay_metadata_tuple_contains_metadata(self, nip11: Nip11):
-        """RelayMetadata contains Document with info data."""
-        result = nip11.to_relay_metadata_tuple()
-        metadata = result.nip11_info.metadata
+    def test_to_relay_document_tuple_contains_metadata(self, nip11: Nip11):
+        """RelayDocument contains Document with info data."""
+        result = nip11.to_relay_document_tuple()
+        metadata = result.nip11_info.document
         assert isinstance(metadata, Document)
         assert metadata.data["data"]["name"] == "Test Relay"
         assert metadata.data["logs"]["success"] is True
 
-    def test_to_relay_metadata_tuple_none_info(self, nip11_no_info: Nip11):
-        """to_relay_metadata_tuple returns None for nip11_info when info is None."""
-        result = nip11_no_info.to_relay_metadata_tuple()
+    def test_to_relay_document_tuple_none_info(self, nip11_no_info: Nip11):
+        """to_relay_document_tuple returns None for nip11_info when info is None."""
+        result = nip11_no_info.to_relay_document_tuple()
         assert result.nip11_info is None
 
 
 # =============================================================================
-# RelayNip11MetadataTuple Tests
+# RelayNip11DocumentTuple Tests
 # =============================================================================
 
 
-class TestRelayNip11MetadataTuple:
-    """Test RelayNip11MetadataTuple NamedTuple."""
+class TestRelayNip11DocumentTuple:
+    """Test RelayNip11DocumentTuple NamedTuple."""
 
     def test_is_named_tuple(self):
-        """RelayNip11MetadataTuple is a NamedTuple."""
-        assert hasattr(RelayNip11MetadataTuple, "_fields")
-        assert "nip11_info" in RelayNip11MetadataTuple._fields
+        """RelayNip11DocumentTuple is a NamedTuple."""
+        assert hasattr(RelayNip11DocumentTuple, "_fields")
+        assert "nip11_info" in RelayNip11DocumentTuple._fields
 
     def test_construction(self, nip11: Nip11):
-        """RelayNip11MetadataTuple can be constructed directly."""
-        result = nip11.to_relay_metadata_tuple()
-        tuple_direct = RelayNip11MetadataTuple(nip11_info=result.nip11_info)
+        """RelayNip11DocumentTuple can be constructed directly."""
+        result = nip11.to_relay_document_tuple()
+        tuple_direct = RelayNip11DocumentTuple(nip11_info=result.nip11_info)
         assert tuple_direct.nip11_info == result.nip11_info
 
     def test_construction_with_none(self):
-        """RelayNip11MetadataTuple can be constructed with None."""
-        tuple_none = RelayNip11MetadataTuple(nip11_info=None)
+        """RelayNip11DocumentTuple can be constructed with None."""
+        tuple_none = RelayNip11DocumentTuple(nip11_info=None)
         assert tuple_none.nip11_info is None
 
     def test_tuple_unpacking(self, nip11: Nip11):
-        """RelayNip11MetadataTuple can be unpacked."""
-        result = nip11.to_relay_metadata_tuple()
+        """RelayNip11DocumentTuple can be unpacked."""
+        result = nip11.to_relay_document_tuple()
         (nip11_info,) = result
         assert nip11_info == result.nip11_info
 
     def test_field_access_by_index(self, nip11: Nip11):
-        """RelayNip11MetadataTuple fields accessible by index."""
-        result = nip11.to_relay_metadata_tuple()
+        """RelayNip11DocumentTuple fields accessible by index."""
+        result = nip11.to_relay_document_tuple()
         assert result[0] == result.nip11_info
 
     def test_immutable(self, nip11: Nip11):
-        """RelayNip11MetadataTuple is immutable."""
-        result = nip11.to_relay_metadata_tuple()
+        """RelayNip11DocumentTuple is immutable."""
+        result = nip11.to_relay_document_tuple()
         with pytest.raises((TypeError, AttributeError)):
             result.nip11_info = None
 
@@ -690,9 +690,9 @@ class TestNip11Integration:
         assert nip11.info.data.name == "Test Relay"
         assert nip11.info.data.supported_nips == [1, 11, 42, 65]
 
-        result = nip11.to_relay_metadata_tuple()
+        result = nip11.to_relay_document_tuple()
         assert result.nip11_info is not None
-        assert result.nip11_info.metadata.data["data"]["name"] == "Test Relay"
+        assert result.nip11_info.document.data["data"]["name"] == "Test Relay"
 
     def test_full_workflow_failure(self, relay: Relay):
         """Full workflow with failed info retrieval."""
@@ -704,9 +704,9 @@ class TestNip11Integration:
         assert nip11.info.logs.success is False
         assert nip11.info.data.name is None
 
-        result = nip11.to_relay_metadata_tuple()
+        result = nip11.to_relay_document_tuple()
         assert result.nip11_info is not None
-        assert result.nip11_info.metadata.data["logs"]["success"] is False
+        assert result.nip11_info.document.data["logs"]["success"] is False
 
     def test_roundtrip_through_metadata(
         self,
@@ -719,8 +719,8 @@ class TestNip11Integration:
         info_metadata = Nip11InfoMetadata(data=info_data, logs=info_logs)
         nip11 = Nip11(relay=relay, info=info_metadata)
 
-        result = nip11.to_relay_metadata_tuple()
-        metadata_dict = result.nip11_info.metadata.data
+        result = nip11.to_relay_document_tuple()
+        metadata_dict = result.nip11_info.document.data
         reconstructed = Nip11InfoMetadata.from_dict(metadata_dict)
 
         assert reconstructed.data.name == info_data.name

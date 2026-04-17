@@ -24,10 +24,10 @@ from .queries import (
     WatermarkSource,
     get_event_relay_watermark,
     get_incremental_target_spec,
-    get_max_generated_at,
+    get_max_associated_at,
     get_max_seen_at,
     get_periodic_target_spec,
-    get_relay_metadata_watermark,
+    get_relay_document_watermark,
     refresh_incremental_target,
     refresh_periodic_target,
 )
@@ -233,8 +233,8 @@ class Refresher(BaseService[RefresherConfig]):
         until = checkpoint
 
         try:
-            if spec.watermark_source == WatermarkSource.RELAY_METADATA:
-                until = await get_max_generated_at(self._brotr, checkpoint)
+            if spec.watermark_source == WatermarkSource.RELAY_DOCUMENT:
+                until = await get_max_associated_at(self._brotr, checkpoint)
             else:
                 until = await get_max_seen_at(self._brotr, checkpoint)
             if until == checkpoint:
@@ -336,12 +336,12 @@ class Refresher(BaseService[RefresherConfig]):
                 - source_checkpoints[WatermarkSource.EVENT_RELAY],
             )
 
-        metadata_lag = 0
-        if WatermarkSource.RELAY_METADATA in source_checkpoints:
-            metadata_lag = max(
+        document_lag = 0
+        if WatermarkSource.RELAY_DOCUMENT in source_checkpoints:
+            document_lag = max(
                 0,
-                await get_relay_metadata_watermark(self._brotr)
-                - source_checkpoints[WatermarkSource.RELAY_METADATA],
+                await get_relay_document_watermark(self._brotr)
+                - source_checkpoints[WatermarkSource.RELAY_DOCUMENT],
             )
 
         refreshed = sum(1 for result in target_results if result.succeeded)
@@ -359,7 +359,7 @@ class Refresher(BaseService[RefresherConfig]):
             rows_refreshed=rows_refreshed,
             cleanup_removed_checkpoints=self._last_cleanup_removed,
             watermark_event_relay_lag_seconds=event_lag,
-            watermark_relay_metadata_lag_seconds=metadata_lag,
+            watermark_relay_document_lag_seconds=document_lag,
             cutoff_reason=cutoff_reason,
             target_results=tuple(target_results),
         )

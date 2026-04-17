@@ -22,7 +22,7 @@ Attributes:
     Document: Content-addressed metadata with SHA-256 hashing.
         Supports seven [MetadataType][bigbrotr.models.document.MetadataType]
         values (nip11_info, nip66_rtt, etc.).
-    RelayMetadata: Junction linking a [Relay][bigbrotr.models.relay.Relay] to a
+    RelayDocument: Junction linking a [Relay][bigbrotr.models.relay.Relay] to a
         [Document][bigbrotr.models.document.Document] record via
         content-addressed hashing, with cascade insert support.
     ServiceState: Cursor-based processing state for services,
@@ -41,7 +41,7 @@ See Also:
     [bigbrotr.models.event][]: Nostr event wrapper with database serialization.
     [bigbrotr.models.event_relay][]: Event-to-relay junction model.
     [bigbrotr.models.document][]: Content-addressed metadata with SHA-256 hashing.
-    [bigbrotr.models.relay_metadata][]: Relay-to-metadata junction model.
+    [bigbrotr.models.relay_document][]: Relay-to-document junction model.
     [bigbrotr.models.service_state][]: Service state persistence types.
     [bigbrotr.models.constants][]: Shared constants and enumerations.
     [bigbrotr.nips][]: NIP-11 and NIP-66 models (separate package with I/O).
@@ -52,7 +52,7 @@ from .document import Document, MetadataType
 from .event import Event
 from .event_relay import EventRelay
 from .relay import Relay
-from .relay_metadata import RelayMetadata
+from .relay_document import RelayDocument
 from .service_state import ServiceState, ServiceStateDbParams, ServiceStateType
 
 
@@ -65,7 +65,7 @@ __all__ = [
     "MetadataType",
     "NetworkType",
     "Relay",
-    "RelayMetadata",
+    "RelayDocument",
     "ServiceName",
     "ServiceState",
     "ServiceStateDbParams",

@@ -3,9 +3,9 @@ Unit tests for models.nips.nip66.nip66 module.
 
 Tests:
 - Nip66 construction and validation
-- Nip66.to_relay_metadata_tuple() conversion
+- Nip66.to_relay_document_tuple() conversion
 - Nip66.probe()
-- RelayNip66MetadataTuple named tuple
+- RelayNip66DocumentTuple named tuple
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from bigbrotr.models import Relay, RelayMetadata
+from bigbrotr.models import Relay, RelayDocument
 from bigbrotr.models.document import MetadataType
 from bigbrotr.nips.nip66 import (
     Nip66,
@@ -34,7 +34,7 @@ from bigbrotr.nips.nip66 import (
     Nip66RttMetadata,
     Nip66RttMultiPhaseLogs,
     Nip66SslMetadata,
-    RelayNip66MetadataTuple,
+    RelayNip66DocumentTuple,
 )
 from bigbrotr.nips.nip66.nip66 import Nip66Dependencies, Nip66Selection
 
@@ -219,35 +219,35 @@ class TestNip66MetadataAccess:
         assert nip66_full.http.data.http_powered_by == "Strfry"
 
 
-class TestNip66ToRelayMetadataTuple:
-    """Test to_relay_metadata_tuple() method."""
+class TestNip66ToRelayDocumentTuple:
+    """Test to_relay_document_tuple() method."""
 
     def test_returns_named_tuple_of_six(self, nip66_full: Nip66) -> None:
-        """Returns RelayNip66MetadataTuple with 6 fields."""
-        result = nip66_full.to_relay_metadata_tuple()
-        assert isinstance(result, RelayNip66MetadataTuple)
-        assert isinstance(result.rtt, RelayMetadata)
-        assert isinstance(result.ssl, RelayMetadata)
-        assert isinstance(result.geo, RelayMetadata)
-        assert isinstance(result.net, RelayMetadata)
-        assert isinstance(result.dns, RelayMetadata)
-        assert isinstance(result.http, RelayMetadata)
+        """Returns RelayNip66DocumentTuple with 6 fields."""
+        result = nip66_full.to_relay_document_tuple()
+        assert isinstance(result, RelayNip66DocumentTuple)
+        assert isinstance(result.rtt, RelayDocument)
+        assert isinstance(result.ssl, RelayDocument)
+        assert isinstance(result.geo, RelayDocument)
+        assert isinstance(result.net, RelayDocument)
+        assert isinstance(result.dns, RelayDocument)
+        assert isinstance(result.http, RelayDocument)
 
-    def test_correct_metadata_types(self, nip66_full: Nip66) -> None:
-        """Each RelayMetadata has correct type via metadata.type."""
-        result = nip66_full.to_relay_metadata_tuple()
-        assert result.rtt.metadata.type == MetadataType.NIP66_RTT
-        assert result.ssl.metadata.type == MetadataType.NIP66_SSL
-        assert result.geo.metadata.type == MetadataType.NIP66_GEO
-        assert result.net.metadata.type == MetadataType.NIP66_NET
-        assert result.dns.metadata.type == MetadataType.NIP66_DNS
-        assert result.http.metadata.type == MetadataType.NIP66_HTTP
+    def test_correct_roles(self, nip66_full: Nip66) -> None:
+        """Each RelayDocument has correct type via metadata.type."""
+        result = nip66_full.to_relay_document_tuple()
+        assert result.rtt.document.type == MetadataType.NIP66_RTT
+        assert result.ssl.document.type == MetadataType.NIP66_SSL
+        assert result.geo.document.type == MetadataType.NIP66_GEO
+        assert result.net.document.type == MetadataType.NIP66_NET
+        assert result.dns.document.type == MetadataType.NIP66_DNS
+        assert result.http.document.type == MetadataType.NIP66_HTTP
 
     def test_returns_none_for_missing_metadata(self, nip66_rtt_only: Nip66) -> None:
         """Returns None for missing metadata types."""
-        result = nip66_rtt_only.to_relay_metadata_tuple()
-        assert isinstance(result.rtt, RelayMetadata)
-        assert result.rtt.metadata.data["data"]["rtt_open"] == 100
+        result = nip66_rtt_only.to_relay_document_tuple()
+        assert isinstance(result.rtt, RelayDocument)
+        assert result.rtt.document.data["data"]["rtt_open"] == 100
         assert result.ssl is None
         assert result.geo is None
         assert result.net is None
@@ -255,8 +255,8 @@ class TestNip66ToRelayMetadataTuple:
         assert result.http is None
 
     def test_preserves_relay(self, nip66_full: Nip66) -> None:
-        """Each RelayMetadata preserves relay reference."""
-        result = nip66_full.to_relay_metadata_tuple()
+        """Each RelayDocument preserves relay reference."""
+        result = nip66_full.to_relay_document_tuple()
         assert result.rtt.relay is nip66_full.relay
         assert result.ssl.relay is nip66_full.relay
         assert result.geo.relay is nip66_full.relay
@@ -265,19 +265,19 @@ class TestNip66ToRelayMetadataTuple:
         assert result.http.relay is nip66_full.relay
 
     def test_preserves_generated_at(self, nip66_full: Nip66) -> None:
-        """Each RelayMetadata preserves generated_at timestamp."""
-        result = nip66_full.to_relay_metadata_tuple()
-        assert result.rtt.generated_at == 1234567890
-        assert result.ssl.generated_at == 1234567890
-        assert result.geo.generated_at == 1234567890
-        assert result.net.generated_at == 1234567890
-        assert result.dns.generated_at == 1234567890
-        assert result.http.generated_at == 1234567890
+        """Each RelayDocument preserves generated_at timestamp."""
+        result = nip66_full.to_relay_document_tuple()
+        assert result.rtt.associated_at == 1234567890
+        assert result.ssl.associated_at == 1234567890
+        assert result.geo.associated_at == 1234567890
+        assert result.net.associated_at == 1234567890
+        assert result.dns.associated_at == 1234567890
+        assert result.http.associated_at == 1234567890
 
     def test_all_none_returns_all_none(self, relay: Relay) -> None:
         """All None metadata returns all None in tuple."""
         nip66 = Nip66(relay=relay)
-        result = nip66.to_relay_metadata_tuple()
+        result = nip66.to_relay_document_tuple()
         assert result.rtt is None
         assert result.ssl is None
         assert result.geo is None
@@ -618,12 +618,12 @@ class TestNip66Probe:
             await Nip66.probe(relay, selection=selection, deps=deps)
 
 
-class TestRelayNip66MetadataTuple:
-    """Test RelayNip66MetadataTuple named tuple."""
+class TestRelayNip66DocumentTuple:
+    """Test RelayNip66DocumentTuple named tuple."""
 
     def test_named_tuple_fields(self) -> None:
         """Verify named tuple has all expected fields."""
-        fields = RelayNip66MetadataTuple._fields
+        fields = RelayNip66DocumentTuple._fields
         assert "rtt" in fields
         assert "ssl" in fields
         assert "geo" in fields
@@ -634,7 +634,7 @@ class TestRelayNip66MetadataTuple:
 
     def test_can_build_tuple_with_all_none(self) -> None:
         """Can build tuple with all None values."""
-        result = RelayNip66MetadataTuple(
+        result = RelayNip66DocumentTuple(
             rtt=None,
             ssl=None,
             geo=None,
@@ -646,10 +646,10 @@ class TestRelayNip66MetadataTuple:
 
     def test_can_iterate(self, nip66_full: Nip66) -> None:
         """Can iterate over tuple values."""
-        result = nip66_full.to_relay_metadata_tuple()
+        result = nip66_full.to_relay_document_tuple()
         values = list(result)
         assert len(values) == 6
-        assert all(isinstance(v, RelayMetadata) for v in values)
+        assert all(isinstance(v, RelayDocument) for v in values)
 
 
 class TestNip66Immutability:

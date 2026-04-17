@@ -10,7 +10,7 @@
 /*
  * orphan_document_delete(p_batch_size) -> INTEGER
  *
- * Removes document rows that have no references in relay_metadata,
+ * Removes document rows that have no references in relay_document,
  * processing in configurable batches to limit lock duration and WAL volume.
  * This happens when old relay metadata snapshots are deleted but their
  * underlying content-addressed documents remain. Safe to run at any time.
@@ -19,7 +19,7 @@
  *   p_batch_size  Maximum rows to delete per iteration (default 10,000)
  *
  * Returns: Total number of deleted rows across all batches
- * Schedule: Daily, or after bulk relay_metadata deletions
+ * Schedule: Daily, or after bulk relay_document deletions
  */
 CREATE OR REPLACE FUNCTION orphan_document_delete(p_batch_size INTEGER DEFAULT 10000)
 RETURNS INTEGER
@@ -33,8 +33,8 @@ BEGIN
         DELETE FROM document m WHERE (m.id, m.type) IN (
             SELECT m2.id, m2.type FROM document m2
             WHERE NOT EXISTS (
-                SELECT 1 FROM relay_metadata rm
-                WHERE rm.metadata_id = m2.id AND rm.metadata_type = m2.type
+                SELECT 1 FROM relay_document rm
+                WHERE rm.document_id = m2.id AND rm.role = m2.type
             )
             LIMIT p_batch_size
         );

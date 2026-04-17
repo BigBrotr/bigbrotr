@@ -23,7 +23,7 @@ class TestNipRegistry:
         assert entry.dependencies_cls is Nip11Dependencies
         assert entry.metadata_types == (MetadataType.NIP11_INFO,)
         assert entry.protocol_event_kinds == ()
-        assert entry.capabilities == ("fetch", "relay_metadata")
+        assert entry.capabilities == ("fetch", "relay_document")
 
     def test_nip66_entry_tracks_metadata_and_protocol_kinds(self) -> None:
         entry = NIP_REGISTRY[66]
@@ -46,7 +46,7 @@ class TestNipRegistry:
             int(EventKind.MONITOR_ANNOUNCEMENT),
             int(EventKind.RELAY_DISCOVERY),
         )
-        assert entry.capabilities == ("probe", "relay_metadata", "monitor_events")
+        assert entry.capabilities == ("probe", "relay_document", "monitor_events")
 
     def test_nip85_entry_is_capability_only(self) -> None:
         entry = NIP_REGISTRY[85]

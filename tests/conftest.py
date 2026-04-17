@@ -21,7 +21,7 @@ from nostr_sdk import Keys
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.core.pool import Pool
 from bigbrotr.core.pool_config import DatabaseConfig, PoolConfig
-from bigbrotr.models import EventRelay, Relay, RelayMetadata
+from bigbrotr.models import EventRelay, Relay, RelayDocument
 from bigbrotr.models.document import Document, MetadataType
 from bigbrotr.models.event import Event
 
@@ -244,17 +244,17 @@ def sample_loki_relay() -> Relay:
 
 
 @pytest.fixture
-def sample_metadata() -> RelayMetadata:
-    """Sample RelayMetadata for testing."""
+def sample_metadata() -> RelayDocument:
+    """Sample RelayDocument for testing."""
     relay = Relay("wss://relay.example.com", stored_at=1700000000)
     metadata = Document(
         type=MetadataType.NIP11_INFO,
         data={"name": "Test Relay", "supported_nips": [1, 2, 9, 11]},
     )
-    return RelayMetadata(
+    return RelayDocument(
         relay=relay,
-        metadata=metadata,
-        generated_at=1700000001,
+        document=metadata,
+        associated_at=1700000001,
     )
 
 

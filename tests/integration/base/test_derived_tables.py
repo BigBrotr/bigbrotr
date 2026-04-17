@@ -7,7 +7,7 @@ import time
 import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import EventRelay, Relay, RelayMetadata
+from bigbrotr.models import EventRelay, Relay, RelayDocument
 from bigbrotr.models.document import Document, MetadataType
 from bigbrotr.models.event import Event
 from tests.conftest import make_mock_event
@@ -20,11 +20,11 @@ def _rm(
     relay_url: str,
     data: dict,
     meta_type: MetadataType = MetadataType.NIP11_INFO,
-    generated_at: int = 1700000001,
-) -> RelayMetadata:
+    associated_at: int = 1700000001,
+) -> RelayDocument:
     relay = Relay(relay_url, stored_at=1700000000)
     metadata = Document(type=meta_type, data=data)
-    return RelayMetadata(relay=relay, metadata=metadata, generated_at=generated_at)
+    return RelayDocument(relay=relay, document=metadata, associated_at=associated_at)
 
 
 async def _refresh_metadata_current(
@@ -32,29 +32,29 @@ async def _refresh_metadata_current(
 ) -> None:
     """Refresh relay metadata current-state facts with the given range."""
     await brotr.fetchval(
-        "SELECT relay_metadata_current_refresh($1::BIGINT, $2::BIGINT)", after, until
+        "SELECT relay_document_current_refresh($1::BIGINT, $2::BIGINT)", after, until
     )
 
 
-class TestRelayMetadataCurrent:
+class TestRelayDocumentCurrent:
     async def test_empty_view(self, brotr: Brotr) -> None:
         await _refresh_metadata_current(brotr)
-        rows = await brotr.fetch("SELECT * FROM relay_metadata_current")
+        rows = await brotr.fetch("SELECT * FROM relay_document_current")
         assert len(rows) == 0
 
-    async def test_returns_latest_snapshot_by_generated_at(self, brotr: Brotr) -> None:
-        rm_old = _rm("wss://latest1.example.com", {"name": "Old"}, generated_at=1700000001)
-        rm_new = _rm("wss://latest1.example.com", {"name": "New"}, generated_at=1700000002)
-        await brotr.insert_relay_metadata([rm_old, rm_new], cascade=True)
+    async def test_returns_latest_snapshot_by_associated_at(self, brotr: Brotr) -> None:
+        rm_old = _rm("wss://latest1.example.com", {"name": "Old"}, associated_at=1700000001)
+        rm_new = _rm("wss://latest1.example.com", {"name": "New"}, associated_at=1700000002)
+        await brotr.insert_relay_document([rm_old, rm_new], cascade=True)
         await _refresh_metadata_current(brotr)
 
         row = await brotr.fetchrow(
-            "SELECT * FROM relay_metadata_current WHERE relay_url = $1 AND metadata_type = $2",
+            "SELECT * FROM relay_document_current WHERE relay_url = $1 AND role = $2",
             "wss://latest1.example.com",
             "nip11_info",
         )
         assert row is not None
-        assert row["generated_at"] == 1700000002
+        assert row["associated_at"] == 1700000002
         assert row["data"]["name"] == "New"
 
     async def test_multiple_types_per_relay(self, brotr: Brotr) -> None:
@@ -64,16 +64,15 @@ class TestRelayMetadataCurrent:
             {"ssl_valid": True},
             MetadataType.NIP66_SSL,
         )
-        await brotr.insert_relay_metadata([rm_info, rm_ssl], cascade=True)
+        await brotr.insert_relay_document([rm_info, rm_ssl], cascade=True)
         await _refresh_metadata_current(brotr)
 
         rows = await brotr.fetch(
-            "SELECT metadata_type FROM relay_metadata_current "
-            "WHERE relay_url = $1 ORDER BY metadata_type",
+            "SELECT role FROM relay_document_current WHERE relay_url = $1 ORDER BY role",
             "wss://multi-t.example.com",
         )
         assert len(rows) == 2
-        assert {r["metadata_type"] for r in rows} == {"nip11_info", "nip66_ssl"}
+        assert {r["role"] for r in rows} == {"nip11_info", "nip66_ssl"}
 
 
 # ============================================================================
@@ -102,20 +101,20 @@ def _event_relay(
     return EventRelay(event=Event(mock), relay=relay, seen_at=seen_at or created_at + 1)
 
 
-def _nip11_metadata(relay_url: str, data: dict, generated_at: int = 1700000001) -> RelayMetadata:
+def _nip11_metadata(relay_url: str, data: dict, associated_at: int = 1700000001) -> RelayDocument:
     relay = Relay(relay_url, stored_at=1700000000)
     envelope = {"data": data, "logs": {"success": True}}
     metadata = Document(type=MetadataType.NIP11_INFO, data=envelope)
-    return RelayMetadata(relay=relay, metadata=metadata, generated_at=generated_at)
+    return RelayDocument(relay=relay, document=metadata, associated_at=associated_at)
 
 
 def _nip66_metadata(
-    relay_url: str, meta_type: MetadataType, data: dict, generated_at: int = 1700000001
-) -> RelayMetadata:
+    relay_url: str, meta_type: MetadataType, data: dict, associated_at: int = 1700000001
+) -> RelayDocument:
     relay = Relay(relay_url, stored_at=1700000000)
     envelope = {"data": data, "logs": {"success": True}}
     metadata = Document(type=meta_type, data=envelope)
-    return RelayMetadata(relay=relay, metadata=metadata, generated_at=generated_at)
+    return RelayDocument(relay=relay, document=metadata, associated_at=associated_at)
 
 
 def _event_address(kind: int, pubkey: str, d_tag: str) -> str:
@@ -508,9 +507,9 @@ class TestRelayStats:
             "wss://meta.example.com",
             {"name": "Test", "software": "strfry", "version": "2.0"},
         )
-        await brotr.insert_relay_metadata([rm], cascade=True)
+        await brotr.insert_relay_document([rm], cascade=True)
         await _refresh_metadata_current(brotr)
-        await brotr.execute("SELECT relay_stats_metadata_refresh()")
+        await brotr.execute("SELECT relay_stats_document_refresh()")
 
         row = await brotr.fetchrow(
             "SELECT nip11_name, nip11_software FROM relay_stats WHERE relay_url = $1",
@@ -529,11 +528,11 @@ class TestRelayStats:
                 "wss://rtt.example.com",
                 MetadataType.NIP66_RTT,
                 {"rtt_open": rtt, "rtt_read": rtt + 10, "rtt_write": rtt + 20},
-                generated_at=1700000001 + i,
+                associated_at=1700000001 + i,
             )
-            await brotr.insert_relay_metadata([rm], cascade=True)
+            await brotr.insert_relay_document([rm], cascade=True)
 
-        await brotr.execute("SELECT relay_stats_metadata_refresh()")
+        await brotr.execute("SELECT relay_stats_document_refresh()")
 
         row = await brotr.fetchrow(
             "SELECT avg_rtt_open, avg_rtt_read, avg_rtt_write"
@@ -558,7 +557,7 @@ class TestRelayStats:
         )
 
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://deleted-relay.example.com")
-        await brotr.execute("SELECT relay_stats_metadata_refresh()")
+        await brotr.execute("SELECT relay_stats_document_refresh()")
 
         assert (
             await brotr.fetchval(
@@ -676,7 +675,7 @@ class TestRelaySoftwareCounts:
             er = _event_relay(f"{0x50 + i:064x}", url)
             await brotr.insert_event_relay([er], cascade=True)
             rm = _nip11_metadata(url, {"software": sw, "version": ver})
-            await brotr.insert_relay_metadata([rm], cascade=True)
+            await brotr.insert_relay_document([rm], cascade=True)
 
         await _refresh_metadata_current(brotr)
         await brotr.fetchval(
@@ -702,8 +701,8 @@ class TestSupportedNipCounts:
         for i, (url, nips) in enumerate(relay_nips):
             er = _event_relay(f"{0x60 + i:064x}", url)
             await brotr.insert_event_relay([er], cascade=True)
-            rm = _nip11_metadata(url, {"supported_nips": nips}, generated_at=1700000001 + i)
-            await brotr.insert_relay_metadata([rm], cascade=True)
+            rm = _nip11_metadata(url, {"supported_nips": nips}, associated_at=1700000001 + i)
+            await brotr.insert_relay_document([rm], cascade=True)
 
         await _refresh_metadata_current(brotr)
         await brotr.fetchval(

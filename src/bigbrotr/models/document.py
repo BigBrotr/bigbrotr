@@ -12,7 +12,7 @@ the internal structure of ``data``; higher-level models in
 conventions for what goes inside it.
 
 See Also:
-    [bigbrotr.models.relay_metadata][]: Junction model linking a
+    [bigbrotr.models.relay_document][]: Junction model linking a
         [Relay][bigbrotr.models.relay.Relay] to a
         [Document][bigbrotr.models.document.Document] record.
     [bigbrotr.nips.nip11][]: Produces ``nip11_info``-typed metadata from
@@ -60,7 +60,7 @@ class MetadataType(StrEnum):
         [Document][bigbrotr.models.document.Document]: The content-addressed container
             that carries a [MetadataType][bigbrotr.models.document.MetadataType] alongside
             its data.
-        [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]: Junction model
+        [RelayDocument][bigbrotr.models.relay_document.RelayDocument]: Junction model
             linking a relay to a stored document record.
     """
 
@@ -136,8 +136,8 @@ class Document:
         The content hash is derived from ``data`` alone. The ``type`` is stored
         alongside the hash on the ``document`` table with composite primary key
         ``(id, type)``, ensuring each document is tied to exactly one type.
-        The ``relay_metadata`` junction table references the stored document
-        via a compound foreign key on ``(metadata_id, metadata_type)``.
+        The ``relay_document`` junction table references the stored document
+        via a compound foreign key on ``(document_id, role)``.
 
         Computed fields (``_canonical_json``, ``_content_hash``, ``_db_params``)
         are set via ``object.__setattr__`` in ``__post_init__`` because the
@@ -154,7 +154,7 @@ class Document:
         [DocumentDbParams][bigbrotr.models.document.DocumentDbParams]: Database
             parameter container produced by
             [to_db_params()][bigbrotr.models.document.Document.to_db_params].
-        [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]: Junction
+        [RelayDocument][bigbrotr.models.relay_document.RelayDocument]: Junction
             linking a [Relay][bigbrotr.models.relay.Relay] to this document record.
     """
 

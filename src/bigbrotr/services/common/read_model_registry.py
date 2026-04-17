@@ -164,10 +164,10 @@ READ_MODEL_REGISTRY: dict[str, ReadModelEntry] = {
     "events": _catalog_read_model("events", "event"),
     "event-observations": _catalog_read_model("event-observations", "event_relay"),
     "documents": _catalog_read_model("documents", "document"),
-    "relay-metadata-history": _catalog_read_model("relay-metadata-history", "relay_metadata"),
-    "relay-metadata-current": _catalog_read_model(
-        "relay-metadata-current",
-        "relay_metadata_current",
+    "relay-document-history": _catalog_read_model("relay-document-history", "relay_document"),
+    "relay-document-current": _catalog_read_model(
+        "relay-document-current",
+        "relay_document_current",
     ),
     "pubkey-stats": _catalog_read_model("pubkey-stats", "pubkey_stats"),
     "kind-stats": _catalog_read_model("kind-stats", "kind_stats"),

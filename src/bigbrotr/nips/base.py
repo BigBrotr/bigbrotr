@@ -336,8 +336,8 @@ class BaseNip(BaseModel, ABC):
 
     Subclasses must implement:
 
-    * ``to_relay_metadata_tuple()`` — converts results to database-ready
-      [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] records.
+    * ``to_relay_document_tuple()`` — converts results to database-ready
+      [RelayDocument][bigbrotr.models.relay_document.RelayDocument] records.
     * A semantic async factory such as ``fetch()`` or ``probe()`` that
       performs I/O and returns a populated instance. Concrete subclasses
       should treat that semantic entrypoint as the public contract. These
@@ -373,5 +373,5 @@ class BaseNip(BaseModel, ABC):
     )
 
     @abstractmethod
-    def to_relay_metadata_tuple(self) -> tuple[Any, ...]:
-        """Convert to a database-ready tuple of RelayMetadata records."""
+    def to_relay_document_tuple(self) -> tuple[Any, ...]:
+        """Convert to a database-ready tuple of RelayDocument records."""

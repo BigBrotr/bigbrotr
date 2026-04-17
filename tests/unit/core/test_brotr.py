@@ -6,7 +6,7 @@ Tests:
 - Brotr initialization with defaults and custom config
 - Factory methods (from_yaml, from_dict)
 - Helper methods (_validate_batch_size, _transpose_to_columns, _call_procedure)
-- Insert operations (insert_event, insert_event_relay, insert_relay, insert_document, insert_relay_metadata)
+- Insert operations (insert_event, insert_event_relay, insert_relay, insert_document, insert_relay_document)
 - Service state operations (upsert_service_state, get_service_state, delete_service_state)
 - Cleanup operations (delete_orphan_event, delete_orphan_document)
 - Refresh procedure operations (run_refresh_procedure / refresh_materialized_view alias)
@@ -509,40 +509,40 @@ class TestInsertDocument:
 
     async def test_single_document(self, mock_brotr: Brotr, sample_metadata: Any) -> None:
         """Test inserting single document record."""
-        inserted = await mock_brotr.insert_document([sample_metadata.metadata])
+        inserted = await mock_brotr.insert_document([sample_metadata.document])
         assert inserted == 1
 
 
-class TestInsertRelayMetadata:
-    """Tests for Brotr.insert_relay_metadata() method."""
+class TestInsertRelayDocument:
+    """Tests for Brotr.insert_relay_document() method."""
 
     async def test_empty_list_returns_zero(self, mock_brotr: Brotr) -> None:
         """Test that empty list returns 0."""
-        inserted = await mock_brotr.insert_relay_metadata([])
+        inserted = await mock_brotr.insert_relay_document([])
         assert inserted == 0
 
     async def test_single_metadata(self, mock_brotr: Brotr, sample_metadata: Any) -> None:
         """Test inserting single relay metadata."""
-        inserted = await mock_brotr.insert_relay_metadata([sample_metadata])
+        inserted = await mock_brotr.insert_relay_document([sample_metadata])
         assert inserted == 1
 
     async def test_cascade_true_calls_cascade_procedure(
         self, mock_brotr: Brotr, mock_pool: Pool, sample_metadata: Any
     ) -> None:
-        """Test that cascade=True calls relay_metadata_insert_cascade."""
-        await mock_brotr.insert_relay_metadata([sample_metadata], cascade=True)
+        """Test that cascade=True calls relay_document_insert_cascade."""
+        await mock_brotr.insert_relay_document([sample_metadata], cascade=True)
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
         query = mock_conn.fetchval.call_args[0][0]
-        assert "relay_metadata_insert_cascade" in query
+        assert "relay_document_insert_cascade" in query
 
     async def test_cascade_false_calls_junction_procedure(
         self, mock_brotr: Brotr, mock_pool: Pool, sample_metadata: Any
     ) -> None:
-        """Test that cascade=False calls relay_metadata_insert (junction-only)."""
-        await mock_brotr.insert_relay_metadata([sample_metadata], cascade=False)
+        """Test that cascade=False calls relay_document_insert (junction-only)."""
+        await mock_brotr.insert_relay_document([sample_metadata], cascade=False)
         mock_conn = mock_pool._mock_connection  # type: ignore[attr-defined]
         query = mock_conn.fetchval.call_args[0][0]
-        assert "relay_metadata_insert(" in query
+        assert "relay_document_insert(" in query
         assert "cascade" not in query
 
 

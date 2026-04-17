@@ -30,7 +30,7 @@ class WatermarkSource(StrEnum):
     """Append-only source used to checkpoint one incremental target."""
 
     EVENT_RELAY = "event_relay"
-    RELAY_METADATA = "relay_metadata"
+    RELAY_DOCUMENT = "relay_document"
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,9 +53,9 @@ class PeriodicRefreshTargetSpec:
     metric_key: str
 
 
-_RELAY_METADATA_TARGETS: frozenset[IncrementalRefreshTarget] = frozenset(
+_RELAY_DOCUMENT_TARGETS: frozenset[IncrementalRefreshTarget] = frozenset(
     {
-        CurrentRefreshTarget.RELAY_METADATA_CURRENT,
+        CurrentRefreshTarget.RELAY_DOCUMENT_CURRENT,
         AnalyticsRefreshTarget.RELAY_SOFTWARE_COUNTS,
         AnalyticsRefreshTarget.SUPPORTED_NIP_COUNTS,
     }
@@ -67,8 +67,8 @@ INCREMENTAL_REFRESH_TARGET_SPECS: dict[IncrementalRefreshTarget, IncrementalRefr
             target=target,
             target_group="current",
             watermark_source=(
-                WatermarkSource.RELAY_METADATA
-                if target in _RELAY_METADATA_TARGETS
+                WatermarkSource.RELAY_DOCUMENT
+                if target in _RELAY_DOCUMENT_TARGETS
                 else WatermarkSource.EVENT_RELAY
             ),
             sql_function=f"{target.value}_refresh",
@@ -81,8 +81,8 @@ INCREMENTAL_REFRESH_TARGET_SPECS: dict[IncrementalRefreshTarget, IncrementalRefr
             target=target,
             target_group="analytics",
             watermark_source=(
-                WatermarkSource.RELAY_METADATA
-                if target in _RELAY_METADATA_TARGETS
+                WatermarkSource.RELAY_DOCUMENT
+                if target in _RELAY_DOCUMENT_TARGETS
                 else WatermarkSource.EVENT_RELAY
             ),
             sql_function=f"{target.value}_refresh",
@@ -98,10 +98,10 @@ PERIODIC_REFRESH_TARGET_SPECS: dict[PeriodicRefreshTarget, PeriodicRefreshTarget
         sql_function="rolling_windows_refresh",
         metric_key=PeriodicRefreshTarget.ROLLING_WINDOWS.value,
     ),
-    PeriodicRefreshTarget.RELAY_STATS_METADATA: PeriodicRefreshTargetSpec(
-        target=PeriodicRefreshTarget.RELAY_STATS_METADATA,
-        sql_function="relay_stats_metadata_refresh",
-        metric_key=PeriodicRefreshTarget.RELAY_STATS_METADATA.value,
+    PeriodicRefreshTarget.RELAY_STATS_DOCUMENT: PeriodicRefreshTargetSpec(
+        target=PeriodicRefreshTarget.RELAY_STATS_DOCUMENT,
+        sql_function="relay_stats_document_refresh",
+        metric_key=PeriodicRefreshTarget.RELAY_STATS_DOCUMENT.value,
     ),
     PeriodicRefreshTarget.NIP85_FOLLOWERS: PeriodicRefreshTargetSpec(
         target=PeriodicRefreshTarget.NIP85_FOLLOWERS,
@@ -129,9 +129,9 @@ async def get_event_relay_watermark(brotr: Brotr) -> int:
     return int(result) if result else 0
 
 
-async def get_relay_metadata_watermark(brotr: Brotr) -> int:
-    """Return the latest visible ``relay_metadata.generated_at`` watermark."""
-    result = await brotr.fetchval("SELECT COALESCE(MAX(generated_at), 0) FROM relay_metadata")
+async def get_relay_document_watermark(brotr: Brotr) -> int:
+    """Return the latest visible ``relay_document.associated_at`` watermark."""
+    result = await brotr.fetchval("SELECT COALESCE(MAX(associated_at), 0) FROM relay_document")
     return int(result) if result else 0
 
 
@@ -146,10 +146,10 @@ async def get_max_seen_at(brotr: Brotr, after: int) -> int:
     return int(time.time())
 
 
-async def get_max_generated_at(brotr: Brotr, after: int) -> int:
-    """Return wall-clock timestamp if newer ``relay_metadata`` rows exist."""
+async def get_max_associated_at(brotr: Brotr, after: int) -> int:
+    """Return wall-clock timestamp if newer ``relay_document`` rows exist."""
     exists = await brotr.fetchval(
-        "SELECT EXISTS(SELECT 1 FROM relay_metadata WHERE generated_at > $1)",
+        "SELECT EXISTS(SELECT 1 FROM relay_document WHERE associated_at > $1)",
         after,
     )
     if not exists:

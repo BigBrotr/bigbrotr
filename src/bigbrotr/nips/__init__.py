@@ -19,7 +19,7 @@ Attributes:
     Nip66: Orchestrates six parallel health tests per relay: RTT (round-trip
         time), SSL (certificate chain), DNS (A/AAAA/CNAME), Geo (GeoIP location),
         Net (ASN info), HTTP (response headers). Each test produces a separate
-        [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] record
+        [RelayDocument][bigbrotr.models.relay_document.RelayDocument] record
         with the appropriate [MetadataType][bigbrotr.models.document.MetadataType].
     BaseData, BaseLogs, BaseNipMetadata: Shared abstract base classes inherited by
         all NIP data, log, and metadata models.

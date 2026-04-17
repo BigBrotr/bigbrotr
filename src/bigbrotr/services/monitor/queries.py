@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from bigbrotr.core.brotr import Brotr
-    from bigbrotr.models import Relay, RelayMetadata
+    from bigbrotr.models import Relay, RelayDocument
     from bigbrotr.models.constants import NetworkType
 
 
@@ -211,27 +211,27 @@ async def iter_relays_to_monitor_pages(
         yield page
 
 
-async def insert_relay_metadata(brotr: Brotr, records: list[RelayMetadata]) -> int:
-    """Batch-insert relay-metadata junction records.
+async def insert_relay_document(brotr: Brotr, records: list[RelayDocument]) -> int:
+    """Batch-insert relay-document junction records.
 
     Splits *records* into batches respecting
     [BatchConfig.max_size][bigbrotr.core.brotr.BatchConfig] and delegates
     each chunk to
-    [Brotr.insert_relay_metadata()][bigbrotr.core.brotr.Brotr.insert_relay_metadata]
+    [Brotr.insert_relay_document()][bigbrotr.core.brotr.Brotr.insert_relay_document]
     (cascade mode).
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
-        records: [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
+        records: [RelayDocument][bigbrotr.models.relay_document.RelayDocument]
             instances to insert.
 
     Returns:
-        Number of new relay-metadata records inserted.
+        Number of new relay-document records inserted.
     """
     return await batched_insert(
         brotr,
         records,
-        lambda chunk: brotr.insert_relay_metadata(chunk, cascade=True),
+        lambda chunk: brotr.insert_relay_document(chunk, cascade=True),
     )
 
 

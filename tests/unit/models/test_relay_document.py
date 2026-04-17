@@ -1,4 +1,4 @@
-"""Unit tests for the RelayMetadata model."""
+"""Unit tests for the RelayDocument model."""
 
 import json
 from dataclasses import FrozenInstanceError
@@ -6,9 +6,9 @@ from time import time
 
 import pytest
 
-from bigbrotr.models import Relay, RelayMetadata
+from bigbrotr.models import Relay, RelayDocument
 from bigbrotr.models.document import Document, MetadataType
-from bigbrotr.models.relay_metadata import RelayMetadataDbParams
+from bigbrotr.models.relay_document import RelayDocumentDbParams
 
 
 # =============================================================================
@@ -22,13 +22,13 @@ def relay():
 
 
 @pytest.fixture
-def metadata():
+def document():
     return Document(type=MetadataType.NIP11_INFO, data={"name": "Test", "value": 42})
 
 
 @pytest.fixture
-def relay_metadata(relay, metadata):
-    return RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
+def relay_document(relay, document):
+    return RelayDocument(relay=relay, document=document, associated_at=1234567890)
 
 
 # =============================================================================
@@ -37,27 +37,27 @@ def relay_metadata(relay, metadata):
 
 
 class TestConstruction:
-    """RelayMetadata construction."""
+    """RelayDocument construction."""
 
     def test_with_all_params(self, relay):
         metadata = Document(type=MetadataType.NIP11_INFO, data={"name": "Test"})
-        rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
+        rm = RelayDocument(relay=relay, document=metadata, associated_at=1234567890)
         assert rm.relay is relay
-        assert rm.metadata is metadata
-        assert rm.metadata.type == MetadataType.NIP11_INFO
-        assert rm.generated_at == 1234567890
+        assert rm.document is metadata
+        assert rm.document.type == MetadataType.NIP11_INFO
+        assert rm.associated_at == 1234567890
 
-    def test_generated_at_defaults_to_now(self, relay):
+    def test_associated_at_defaults_to_now(self, relay):
         before = int(time())
         metadata = Document(type=MetadataType.NIP11_INFO, data={"name": "Test"})
-        rm = RelayMetadata(relay=relay, metadata=metadata)
+        rm = RelayDocument(relay=relay, document=metadata)
         after = int(time())
-        assert before <= rm.generated_at <= after
+        assert before <= rm.associated_at <= after
 
-    def test_generated_at_explicit(self, relay):
+    def test_associated_at_explicit(self, relay):
         metadata = Document(type=MetadataType.NIP66_RTT, data={"rtt": 100})
-        rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=9999999999)
-        assert rm.generated_at == 9999999999
+        rm = RelayDocument(relay=relay, document=metadata, associated_at=9999999999)
+        assert rm.associated_at == 9999999999
 
     @pytest.mark.parametrize(
         "mtype",
@@ -71,15 +71,15 @@ class TestConstruction:
             MetadataType.NIP66_HTTP,
         ],
     )
-    def test_all_metadata_types(self, relay, mtype):
+    def test_all_roles(self, relay, mtype):
         metadata = Document(type=mtype, data={"test": "data"})
-        rm = RelayMetadata(relay=relay, metadata=metadata)
-        assert rm.metadata.type == mtype
+        rm = RelayDocument(relay=relay, document=metadata)
+        assert rm.document.type == mtype
 
-    def test_custom_metadata_type_allowed(self, relay):
-        metadata = Document(type="custom_metadata_type", data={"test": "data"})
-        rm = RelayMetadata(relay=relay, metadata=metadata)
-        assert rm.metadata.type == "custom_metadata_type"
+    def test_custom_role_allowed(self, relay):
+        metadata = Document(type="custom_role", data={"test": "data"})
+        rm = RelayDocument(relay=relay, document=metadata)
+        assert rm.document.type == "custom_role"
 
 
 # =============================================================================
@@ -90,23 +90,23 @@ class TestConstruction:
 class TestImmutability:
     """Frozen dataclass behavior."""
 
-    def test_relay_mutation_blocked(self, relay, metadata):
-        rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
+    def test_relay_mutation_blocked(self, relay, document):
+        rm = RelayDocument(relay=relay, document=document, associated_at=1234567890)
         with pytest.raises(FrozenInstanceError):
             rm.relay = Relay("wss://other.relay", stored_at=9999999999)
 
-    def test_metadata_mutation_blocked(self, relay, metadata):
-        rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
+    def test_document_mutation_blocked(self, relay, document):
+        rm = RelayDocument(relay=relay, document=document, associated_at=1234567890)
         with pytest.raises(FrozenInstanceError):
-            rm.metadata = Document(type=MetadataType.NIP11_INFO, data={"other": "data"})
+            rm.document = Document(type=MetadataType.NIP11_INFO, data={"other": "data"})
 
-    def test_generated_at_mutation_blocked(self, relay, metadata):
-        rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
+    def test_associated_at_mutation_blocked(self, relay, document):
+        rm = RelayDocument(relay=relay, document=document, associated_at=1234567890)
         with pytest.raises(FrozenInstanceError):
-            rm.generated_at = 9999999999
+            rm.associated_at = 9999999999
 
-    def test_new_attribute_blocked(self, relay, metadata):
-        rm = RelayMetadata(relay=relay, metadata=metadata)
+    def test_new_attribute_blocked(self, relay, document):
+        rm = RelayDocument(relay=relay, document=document)
         with pytest.raises((AttributeError, TypeError, FrozenInstanceError)):
             rm.new_attr = "value"
 
@@ -117,41 +117,41 @@ class TestImmutability:
 
 
 class TestToDbParams:
-    """RelayMetadata.to_db_params() method."""
+    """RelayDocument.to_db_params() method."""
 
-    def test_returns_relay_metadata_db_params(self, relay, metadata):
-        rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
+    def test_returns_relay_document_db_params(self, relay, document):
+        rm = RelayDocument(relay=relay, document=document, associated_at=1234567890)
         result = rm.to_db_params()
-        assert isinstance(result, RelayMetadataDbParams)
+        assert isinstance(result, RelayDocumentDbParams)
         assert isinstance(result, tuple)
         assert len(result) == 7
-        assert isinstance(result.metadata_id, bytes)
-        assert len(result.metadata_id) == 32
+        assert isinstance(result.document_id, bytes)
+        assert len(result.document_id) == 32
 
     def test_structure(self, relay):
         metadata = Document(type=MetadataType.NIP66_RTT, data={"name": "Test", "value": 42})
-        rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=9999999999)
+        rm = RelayDocument(relay=relay, document=metadata, associated_at=9999999999)
         result = rm.to_db_params()
         assert result.relay_url == "wss://relay.example.com:8080/nostr"
         assert result.relay_network == "clearnet"
         assert result.relay_stored_at == 1234567890
-        parsed = json.loads(result.metadata_data)
+        parsed = json.loads(result.document_data)
         assert parsed == {"name": "Test", "value": 42}
-        assert result.metadata_type == "nip66_rtt"
-        assert result.generated_at == 9999999999
+        assert result.role == "nip66_rtt"
+        assert result.associated_at == 9999999999
 
-    def test_custom_metadata_type_round_trips(self, relay):
-        metadata = Document(type="custom_metadata_type", data={"name": "Test"})
-        rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=9999999999)
+    def test_custom_role_round_trips(self, relay):
+        metadata = Document(type="custom_role", data={"name": "Test"})
+        rm = RelayDocument(relay=relay, document=metadata, associated_at=9999999999)
         result = rm.to_db_params()
-        assert result.metadata_type == "custom_metadata_type"
+        assert result.role == "custom_role"
 
     def test_with_tor_relay(self):
         from tests.fixtures.relays import ONION_HOST
 
         tor_relay = Relay(f"ws://{ONION_HOST}.onion", stored_at=1234567890)
         metadata = Document(type=MetadataType.NIP11_INFO, data={"test": "data"})
-        rm = RelayMetadata(relay=tor_relay, metadata=metadata, generated_at=1234567890)
+        rm = RelayDocument(relay=tor_relay, document=metadata, associated_at=1234567890)
         result = rm.to_db_params()
         assert result.relay_url == f"ws://{ONION_HOST}.onion"
         assert result.relay_network == "tor"
@@ -159,18 +159,18 @@ class TestToDbParams:
     def test_with_i2p_relay(self):
         i2p_relay = Relay("ws://relay.i2p", stored_at=1234567890)
         metadata = Document(type=MetadataType.NIP66_GEO, data={"test": "data"})
-        rm = RelayMetadata(relay=i2p_relay, metadata=metadata, generated_at=1234567890)
+        rm = RelayDocument(relay=i2p_relay, document=metadata, associated_at=1234567890)
         result = rm.to_db_params()
         assert result.relay_url == "ws://relay.i2p"
         assert result.relay_network == "i2p"
 
-    def test_metadata_id_matches_content_hash(self, relay, metadata):
-        rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
+    def test_document_id_matches_content_hash(self, relay, document):
+        rm = RelayDocument(relay=relay, document=document, associated_at=1234567890)
         result = rm.to_db_params()
-        assert result.metadata_id == metadata.content_hash
+        assert result.document_id == document.content_hash
 
-    def test_caching(self, relay, metadata):
-        rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
+    def test_caching(self, relay, document):
+        rm = RelayDocument(relay=relay, document=document, associated_at=1234567890)
         assert rm.to_db_params() is rm.to_db_params()
 
 
@@ -182,35 +182,35 @@ class TestToDbParams:
 class TestEquality:
     """Equality behavior."""
 
-    def test_equal(self, relay, metadata):
-        rm1 = RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
-        rm2 = RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
+    def test_equal(self, relay, document):
+        rm1 = RelayDocument(relay=relay, document=document, associated_at=1234567890)
+        rm2 = RelayDocument(relay=relay, document=document, associated_at=1234567890)
         assert rm1 == rm2
 
     def test_different_type(self, relay):
         metadata1 = Document(type=MetadataType.NIP11_INFO, data={"test": "data"})
         metadata2 = Document(type=MetadataType.NIP66_RTT, data={"test": "data"})
-        rm1 = RelayMetadata(relay=relay, metadata=metadata1, generated_at=1234567890)
-        rm2 = RelayMetadata(relay=relay, metadata=metadata2, generated_at=1234567890)
+        rm1 = RelayDocument(relay=relay, document=metadata1, associated_at=1234567890)
+        rm2 = RelayDocument(relay=relay, document=metadata2, associated_at=1234567890)
         assert rm1 != rm2
 
-    def test_different_generated_at(self, relay, metadata):
-        rm1 = RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
-        rm2 = RelayMetadata(relay=relay, metadata=metadata, generated_at=9999999999)
+    def test_different_associated_at(self, relay, document):
+        rm1 = RelayDocument(relay=relay, document=document, associated_at=1234567890)
+        rm2 = RelayDocument(relay=relay, document=document, associated_at=9999999999)
         assert rm1 != rm2
 
-    def test_different_relay(self, metadata):
+    def test_different_relay(self, document):
         relay1 = Relay("wss://relay1.example.com", stored_at=1234567890)
         relay2 = Relay("wss://relay2.example.com", stored_at=1234567890)
-        rm1 = RelayMetadata(relay=relay1, metadata=metadata, generated_at=1234567890)
-        rm2 = RelayMetadata(relay=relay2, metadata=metadata, generated_at=1234567890)
+        rm1 = RelayDocument(relay=relay1, document=document, associated_at=1234567890)
+        rm2 = RelayDocument(relay=relay2, document=document, associated_at=1234567890)
         assert rm1 != rm2
 
     def test_different_metadata_value(self, relay):
         metadata1 = Document(type=MetadataType.NIP11_INFO, data={"key": "value1"})
         metadata2 = Document(type=MetadataType.NIP11_INFO, data={"key": "value2"})
-        rm1 = RelayMetadata(relay=relay, metadata=metadata1, generated_at=1234567890)
-        rm2 = RelayMetadata(relay=relay, metadata=metadata2, generated_at=1234567890)
+        rm1 = RelayDocument(relay=relay, document=metadata1, associated_at=1234567890)
+        rm2 = RelayDocument(relay=relay, document=metadata2, associated_at=1234567890)
         assert rm1 != rm2
 
 
@@ -224,9 +224,9 @@ class TestEdgeCases:
 
     def test_with_empty_metadata(self, relay):
         empty_metadata = Document(type=MetadataType.NIP11_INFO, data={})
-        rm = RelayMetadata(relay=relay, metadata=empty_metadata, generated_at=1234567890)
+        rm = RelayDocument(relay=relay, document=empty_metadata, associated_at=1234567890)
         result = rm.to_db_params()
-        assert result.metadata_data == "{}"
+        assert result.document_data == "{}"
 
     def test_with_complex_metadata(self, relay):
         complex_metadata = Document(
@@ -237,20 +237,20 @@ class TestEdgeCases:
                 "tags": ["tag1", "tag2"],
             },
         )
-        rm = RelayMetadata(relay=relay, metadata=complex_metadata, generated_at=1234567890)
+        rm = RelayDocument(relay=relay, document=complex_metadata, associated_at=1234567890)
         result = rm.to_db_params()
-        parsed = json.loads(result.metadata_data)
+        parsed = json.loads(result.document_data)
         assert parsed["nested"]["deep"]["value"] == [1, 2, 3]
 
-    def test_generated_at_zero(self, relay):
+    def test_associated_at_zero(self, relay):
         metadata = Document(type=MetadataType.NIP11_INFO, data={"test": "data"})
-        rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=0)
-        assert rm.generated_at == 0
+        rm = RelayDocument(relay=relay, document=metadata, associated_at=0)
+        assert rm.associated_at == 0
 
     def test_with_ipv6_relay(self):
         ipv6_relay = Relay("wss://[2001:4860:4860::8888]", stored_at=1234567890)
         metadata = Document(type=MetadataType.NIP66_DNS, data={"dns": "data"})
-        rm = RelayMetadata(relay=ipv6_relay, metadata=metadata, generated_at=1234567890)
+        rm = RelayDocument(relay=ipv6_relay, document=metadata, associated_at=1234567890)
         result = rm.to_db_params()
         assert result.relay_url == "wss://[2001:4860:4860::8888]"
         assert result.relay_network == "clearnet"
@@ -267,23 +267,23 @@ class TestTypeValidation:
     def test_relay_non_relay_rejected(self):
         metadata = Document(type=MetadataType.NIP11_INFO, data={"key": "value"})
         with pytest.raises(TypeError, match="relay must be a Relay"):
-            RelayMetadata(relay="not a relay", metadata=metadata, generated_at=123)  # type: ignore[arg-type]
+            RelayDocument(relay="not a relay", document=metadata, associated_at=123)  # type: ignore[arg-type]
 
     def test_metadata_non_metadata_rejected(self, relay):
-        with pytest.raises(TypeError, match="metadata must be a Document"):
-            RelayMetadata(relay=relay, metadata="not metadata", generated_at=123)  # type: ignore[arg-type]
+        with pytest.raises(TypeError, match="document must be a Document"):
+            RelayDocument(relay=relay, document="not metadata", associated_at=123)  # type: ignore[arg-type]
 
-    def test_generated_at_non_int_rejected(self, relay):
+    def test_associated_at_non_int_rejected(self, relay):
         metadata = Document(type=MetadataType.NIP11_INFO, data={"key": "value"})
-        with pytest.raises(TypeError, match="generated_at must be an int"):
-            RelayMetadata(relay=relay, metadata=metadata, generated_at="abc")  # type: ignore[arg-type]
+        with pytest.raises(TypeError, match="associated_at must be an int"):
+            RelayDocument(relay=relay, document=metadata, associated_at="abc")  # type: ignore[arg-type]
 
-    def test_generated_at_bool_rejected(self, relay):
+    def test_associated_at_bool_rejected(self, relay):
         metadata = Document(type=MetadataType.NIP11_INFO, data={"key": "value"})
-        with pytest.raises(TypeError, match="generated_at must be an int"):
-            RelayMetadata(relay=relay, metadata=metadata, generated_at=True)  # type: ignore[arg-type]
+        with pytest.raises(TypeError, match="associated_at must be an int"):
+            RelayDocument(relay=relay, document=metadata, associated_at=True)  # type: ignore[arg-type]
 
-    def test_generated_at_negative_rejected(self, relay):
+    def test_associated_at_negative_rejected(self, relay):
         metadata = Document(type=MetadataType.NIP11_INFO, data={"key": "value"})
-        with pytest.raises(ValueError, match="generated_at must be non-negative"):
-            RelayMetadata(relay=relay, metadata=metadata, generated_at=-1)
+        with pytest.raises(ValueError, match="associated_at must be non-negative"):
+            RelayDocument(relay=relay, document=metadata, associated_at=-1)

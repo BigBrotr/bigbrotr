@@ -465,7 +465,7 @@ COMMENT ON FUNCTION kind_stats_refresh(BIGINT, BIGINT) IS
  * unique_kinds from relay_kind_stats.
  *
  * Does NOT update RTT/NIP-11/network fields — those are handled by
- * relay_stats_metadata_refresh().
+ * relay_stats_document_refresh().
  */
 CREATE OR REPLACE FUNCTION relay_stats_refresh(
     p_after BIGINT,
@@ -535,7 +535,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION relay_stats_refresh(BIGINT, BIGINT) IS
-'Incremental refresh of relay_stats event counts. Cross-tabs must be refreshed first. Call relay_stats_metadata_refresh() separately for RTT/NIP-11.';
+'Incremental refresh of relay_stats event counts. Cross-tabs must be refreshed first. Call relay_stats_document_refresh() separately for RTT/NIP-11.';
 
 
 -- **************************************************************************
@@ -839,14 +839,14 @@ COMMENT ON FUNCTION rolling_windows_refresh() IS
 
 
 /*
- * relay_stats_metadata_refresh() -> VOID
+ * relay_stats_document_refresh() -> VOID
  *
  * Updates RTT averages, NIP-11 info, network, and stored_at fields
  * in relay_stats. Ensures new relays (with no events yet) get a row.
  *
  * Designed to run periodically (e.g., hourly or after monitor cycles).
  */
-CREATE OR REPLACE FUNCTION relay_stats_metadata_refresh()
+CREATE OR REPLACE FUNCTION relay_stats_document_refresh()
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
@@ -883,12 +883,12 @@ BEGIN
             m.data -> 'data' ->> 'rtt_read' AS rtt_read,
             m.data -> 'data' ->> 'rtt_write' AS rtt_write,
             ROW_NUMBER() OVER (
-                PARTITION BY rm.relay_url ORDER BY rm.generated_at DESC
+                PARTITION BY rm.relay_url ORDER BY rm.associated_at DESC
             ) AS rn
-        FROM relay_metadata AS rm
+        FROM relay_document AS rm
         INNER JOIN document AS m
-            ON rm.metadata_id = m.id AND rm.metadata_type = m.type
-        WHERE rm.metadata_type = 'nip66_rtt'
+            ON rm.document_id = m.id AND rm.role = m.type
+        WHERE rm.role = 'nip66_rtt'
     ),
     rtt_agg AS (
         SELECT
@@ -907,19 +907,19 @@ BEGIN
     FROM rtt_agg rtt
     WHERE rs.relay_url = rtt.relay_url;
 
-    -- Update NIP-11 info from current relay metadata
+    -- Update NIP-11 info from current relay documents
     UPDATE relay_stats rs SET
         nip11_name     = rmc.data -> 'data' ->> 'name',
         nip11_software = rmc.data -> 'data' ->> 'software',
         nip11_version  = rmc.data -> 'data' ->> 'version'
-    FROM relay_metadata_current AS rmc
-    WHERE rmc.metadata_type = 'nip11_info'
+    FROM relay_document_current AS rmc
+    WHERE rmc.role = 'nip11_info'
       AND rs.relay_url = rmc.relay_url;
 END;
 $$;
 
-COMMENT ON FUNCTION relay_stats_metadata_refresh() IS
-'Update relay_stats RTT, NIP-11, network, and stored_at from document-backed relay metadata tables. Seeds new relays.';
+COMMENT ON FUNCTION relay_stats_document_refresh() IS
+'Update relay_stats RTT, NIP-11, network, and stored_at from document-backed relay tables. Seeds new relays.';
 
 
 -- **************************************************************************
@@ -930,7 +930,7 @@ COMMENT ON FUNCTION relay_stats_metadata_refresh() IS
 /*
  * relay_software_counts_refresh(p_after, p_until) -> INTEGER
  *
- * Recomputes software distribution from relay_metadata_current only when the
+ * Recomputes software distribution from relay_document_current only when the
  * relay metadata watermark advances.
  */
 CREATE OR REPLACE FUNCTION relay_software_counts_refresh(
@@ -944,10 +944,10 @@ DECLARE
 BEGIN
     IF NOT EXISTS (
         SELECT 1
-        FROM relay_metadata_current
-        WHERE metadata_type = 'nip11_info'
-          AND generated_at > p_after
-          AND generated_at <= p_until
+        FROM relay_document_current
+        WHERE role = 'nip11_info'
+          AND associated_at > p_after
+          AND associated_at <= p_until
     ) THEN
         RETURN 0;
     END IF;
@@ -959,8 +959,8 @@ BEGIN
         data -> 'data' ->> 'software' AS software,
         COALESCE(data -> 'data' ->> 'version', 'unknown') AS version,
         COUNT(*) AS relay_count
-    FROM relay_metadata_current
-    WHERE metadata_type = 'nip11_info'
+    FROM relay_document_current
+    WHERE role = 'nip11_info'
       AND data -> 'data' ->> 'software' IS NOT NULL
     GROUP BY data -> 'data' ->> 'software', COALESCE(data -> 'data' ->> 'version', 'unknown');
 
@@ -970,13 +970,13 @@ END;
 $$;
 
 COMMENT ON FUNCTION relay_software_counts_refresh(BIGINT, BIGINT) IS
-'Refresh relay_software_counts from relay_metadata_current when current NIP-11 metadata changes.';
+'Refresh relay_software_counts from relay_document_current when current NIP-11 metadata changes.';
 
 
 /*
  * supported_nip_counts_refresh(p_after, p_until) -> INTEGER
  *
- * Recomputes supported NIP distribution from relay_metadata_current only when
+ * Recomputes supported NIP distribution from relay_document_current only when
  * the relay metadata watermark advances.
  */
 CREATE OR REPLACE FUNCTION supported_nip_counts_refresh(
@@ -990,10 +990,10 @@ DECLARE
 BEGIN
     IF NOT EXISTS (
         SELECT 1
-        FROM relay_metadata_current
-        WHERE metadata_type = 'nip11_info'
-          AND generated_at > p_after
-          AND generated_at <= p_until
+        FROM relay_document_current
+        WHERE role = 'nip11_info'
+          AND associated_at > p_after
+          AND associated_at <= p_until
     ) THEN
         RETURN 0;
     END IF;
@@ -1004,9 +1004,9 @@ BEGIN
     SELECT
         nip_text::INTEGER AS nip,
         COUNT(*) AS relay_count
-    FROM relay_metadata_current
+    FROM relay_document_current
     CROSS JOIN LATERAL jsonb_array_elements_text(data -> 'data' -> 'supported_nips') AS nip_text
-    WHERE metadata_type = 'nip11_info'
+    WHERE role = 'nip11_info'
       AND data -> 'data' ? 'supported_nips'
       AND jsonb_typeof(data -> 'data' -> 'supported_nips') = 'array'
       AND nip_text ~ '^\d+$'
@@ -1018,7 +1018,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION supported_nip_counts_refresh(BIGINT, BIGINT) IS
-'Refresh supported_nip_counts from relay_metadata_current when current NIP-11 metadata changes.';
+'Refresh supported_nip_counts from relay_document_current when current NIP-11 metadata changes.';
 
 
 /*

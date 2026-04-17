@@ -30,7 +30,7 @@ Note:
     NIP-11 results are stored as
     [MetadataType.NIP11_INFO][bigbrotr.models.document.MetadataType] records
     in the database via
-    [Nip11.to_relay_metadata_tuple][bigbrotr.nips.nip11.nip11.Nip11.to_relay_metadata_tuple].
+    [Nip11.to_relay_document_tuple][bigbrotr.nips.nip11.nip11.Nip11.to_relay_document_tuple].
 
 See Also:
     [bigbrotr.models.document.MetadataType][bigbrotr.models.document.MetadataType]:
@@ -59,7 +59,7 @@ from .nip11 import (
     Nip11Dependencies,
     Nip11Options,
     Nip11Selection,
-    RelayNip11MetadataTuple,
+    RelayNip11DocumentTuple,
 )
 
 
@@ -76,5 +76,5 @@ __all__ = [
     "Nip11InfoMetadata",
     "Nip11Options",
     "Nip11Selection",
-    "RelayNip11MetadataTuple",
+    "RelayNip11DocumentTuple",
 ]

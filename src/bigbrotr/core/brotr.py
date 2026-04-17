@@ -11,7 +11,7 @@ instances ([Relay][bigbrotr.models.relay.Relay],
 [Event][bigbrotr.models.event.Event],
 [EventRelay][bigbrotr.models.event_relay.EventRelay],
 [Document][bigbrotr.models.document.Document],
-[RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]) to enforce
+[RelayDocument][bigbrotr.models.relay_document.RelayDocument]) to enforce
 type safety at the API boundary.
 
 Uses composition with [Pool][bigbrotr.core.pool.Pool] for connection
@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
     from types import TracebackType
 
-    from bigbrotr.models import Document, Event, EventRelay, Relay, RelayMetadata
+    from bigbrotr.models import Document, Event, EventRelay, Relay, RelayDocument
 
 
 class _DbParamRecord(Protocol):
@@ -70,7 +70,7 @@ class Brotr:
     [Event][bigbrotr.models.event.Event],
     [EventRelay][bigbrotr.models.event_relay.EventRelay],
     [Document][bigbrotr.models.document.Document],
-    [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]) and call
+    [RelayDocument][bigbrotr.models.relay_document.RelayDocument]) and call
     domain-specific stored procedures. However, all domain SQL queries
     live in service query modules, not here.
 
@@ -544,7 +544,7 @@ class Brotr:
         Python for deterministic behavior across environments.
 
         Use
-        [insert_relay_metadata()][bigbrotr.core.brotr.Brotr.insert_relay_metadata]
+        [insert_relay_document()][bigbrotr.core.brotr.Brotr.insert_relay_document]
         with ``cascade=True`` to also create the relay association in a
         single stored procedure call.
 
@@ -568,8 +568,8 @@ class Brotr:
             ``__post_init__`` method.
 
         See Also:
-            [insert_relay_metadata()][bigbrotr.core.brotr.Brotr.insert_relay_metadata]:
-                Cascade insert that also creates relay-metadata junction records.
+            [insert_relay_document()][bigbrotr.core.brotr.Brotr.insert_relay_document]:
+                Cascade insert that also creates relay-document junction records.
         """
         return await self._insert_record_batch(
             "insert_document",
@@ -578,29 +578,29 @@ class Brotr:
             log_event="document_inserted",
         )
 
-    async def insert_relay_metadata(
-        self, records: list[RelayMetadata], *, cascade: bool = True
+    async def insert_relay_document(
+        self, records: list[RelayDocument], *, cascade: bool = True
     ) -> int:
-        """Bulk-insert relay-metadata junction records.
+        """Bulk-insert relay-document junction records.
 
         Links relays to content-addressed document records. SHA-256 hashes
         are computed in Python for deterministic deduplication.
 
         Args:
             records: Validated
-                [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
+                [RelayDocument][bigbrotr.models.relay_document.RelayDocument]
                 dataclass instances.
             cascade: If ``True`` (default), also inserts the parent
                 [Relay][bigbrotr.models.relay.Relay] and
                 [Document][bigbrotr.models.document.Document] records
-                (relays -> document -> relay_metadata) via the
-                ``relay_metadata_insert_cascade`` stored procedure. If
+                (relays -> document -> relay_document) via the
+                ``relay_document_insert_cascade`` stored procedure. If
                 ``False``, only inserts junction rows via
-                ``relay_metadata_insert`` and expects foreign keys to
+                ``relay_document_insert`` and expects foreign keys to
                 already exist.
 
         Returns:
-            Number of new relay-metadata records inserted.
+            Number of new relay-document records inserted.
 
         Raises:
             asyncpg.PostgresError: On database errors.
@@ -616,28 +616,28 @@ class Brotr:
         if not records:
             return 0
 
-        self._validate_batch_size(records, "insert_relay_metadata")
+        self._validate_batch_size(records, "insert_relay_document")
 
         params = [record.to_db_params() for record in records]
 
         if cascade:
-            # Cascade: relays -> document -> relay_metadata in one procedure call
+            # Cascade: relays -> document -> relay_document in one procedure call
             columns = self._transpose_to_columns(params)
-            procedure = "relay_metadata_insert_cascade"
+            procedure = "relay_document_insert_cascade"
         else:
             # Junction-only: caller guarantees foreign keys exist
             relay_urls = [p.relay_url for p in params]
-            metadata_ids = [p.metadata_id for p in params]
-            metadata_types = [p.metadata_type for p in params]
-            generated_ats = [p.generated_at for p in params]
-            procedure = "relay_metadata_insert"
-            columns = (relay_urls, metadata_ids, metadata_types, generated_ats)
+            document_ids = [p.document_id for p in params]
+            roles = [p.role for p in params]
+            associated_ats = [p.associated_at for p in params]
+            procedure = "relay_document_insert"
+            columns = (relay_urls, document_ids, roles, associated_ats)
 
         return await self._call_counting_procedure(
             procedure,
             *columns,
             timeout=self._config.timeouts.batch,
-            log_event="relay_metadata_inserted",
+            log_event="relay_document_inserted",
             attempted=len(params),
             cascade=cascade,
         )

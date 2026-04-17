@@ -674,9 +674,9 @@ class TestBaseNip:
 
         assert issubclass(BaseNip, ABC)
 
-    def test_has_abstract_to_relay_metadata_tuple(self):
-        """BaseNip declares to_relay_metadata_tuple as abstract."""
-        assert "to_relay_metadata_tuple" in BaseNip.__abstractmethods__
+    def test_has_abstract_to_relay_document_tuple(self):
+        """BaseNip declares to_relay_document_tuple as abstract."""
+        assert "to_relay_document_tuple" in BaseNip.__abstractmethods__
 
 
 # =============================================================================

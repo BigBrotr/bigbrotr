@@ -146,7 +146,7 @@ COMMENT ON TABLE kind_stats IS
 -- ==========================================================================
 -- One row per relay. Event counts maintained incrementally;
 -- unique_pubkeys and unique_kinds derived from cross-tab row counts.
--- RTT averages and NIP-11 info refreshed via relay_stats_metadata_refresh().
+-- RTT averages and NIP-11 info refreshed via relay_stats_document_refresh().
 --
 -- Refresh: relay_stats_refresh(p_after, p_until)
 
@@ -175,7 +175,7 @@ CREATE TABLE IF NOT EXISTS relay_stats (
 );
 
 COMMENT ON TABLE relay_stats IS
-'Rich per-relay statistics. Event counts via relay_stats_refresh(after, until). Metadata via relay_stats_metadata_refresh().';
+'Rich per-relay statistics. Event counts via relay_stats_refresh(after, until). Metadata via relay_stats_document_refresh().';
 
 
 -- **************************************************************************
@@ -387,7 +387,7 @@ COMMENT ON TABLE nip85_identifier_ranks IS
 -- relay_software_counts: NIP-11 software distribution
 -- ==========================================================================
 -- Count of relays by software name and version from current NIP-11 metadata.
--- Recomputed from relay_metadata_current when the metadata watermark advances.
+-- Recomputed from relay_document_current when the metadata watermark advances.
 --
 -- Refresh: relay_software_counts_refresh(p_after, p_until)
 
@@ -399,7 +399,7 @@ CREATE TABLE IF NOT EXISTS relay_software_counts (
 );
 
 COMMENT ON TABLE relay_software_counts IS
-'NIP-11 software distribution across relays. Refreshed from relay_metadata_current via relay_software_counts_refresh(after, until).';
+'NIP-11 software distribution across relays. Refreshed from relay_document_current via relay_software_counts_refresh(after, until).';
 
 
 -- ==========================================================================

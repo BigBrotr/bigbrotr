@@ -59,23 +59,23 @@ CREATE INDEX IF NOT EXISTS idx_event_relay_relay_url_seen_at_event_id
 ON event_relay USING btree (relay_url, seen_at ASC, event_id ASC);
 
 -- ==========================================================================
--- TABLE INDEXES: relay_metadata
+-- TABLE INDEXES: relay_document
 -- ==========================================================================
 
--- Recent health checks: ORDER BY generated_at DESC
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_generated_at
-ON relay_metadata USING btree (generated_at DESC);
+-- Recent relay-document associations: ORDER BY associated_at DESC
+CREATE INDEX IF NOT EXISTS idx_relay_document_associated_at
+ON relay_document USING btree (associated_at DESC);
 
--- Compound FK lookups: WHERE metadata_id = ? AND metadata_type = ?
+-- Compound FK lookups: WHERE document_id = ? AND role = ?
 -- Also used by orphan_document_delete() to verify references
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_metadata_id_type
-ON relay_metadata USING btree (metadata_id, metadata_type);
+CREATE INDEX IF NOT EXISTS idx_relay_document_document_id_role
+ON relay_document USING btree (document_id, role);
 
--- Latest metadata per relay and type (powers relay_metadata_current refresh):
--- WHERE relay_url = ? AND metadata_type = ? ORDER BY generated_at DESC
--- Also covers (relay_url) and (relay_url, metadata_type) via leftmost prefix
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_relay_url_metadata_type_generated_at
-ON relay_metadata USING btree (relay_url, metadata_type, generated_at DESC);
+-- Latest document per relay and role (powers relay_document_current refresh):
+-- WHERE relay_url = ? AND role = ? ORDER BY associated_at DESC
+-- Also covers (relay_url) and (relay_url, role) via leftmost prefix
+CREATE INDEX IF NOT EXISTS idx_relay_document_relay_url_role_associated_at
+ON relay_document USING btree (relay_url, role, associated_at DESC);
 
 
 -- ==========================================================================

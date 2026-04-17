@@ -12,7 +12,7 @@ See Also:
         wrapped by this junction.
     [bigbrotr.models.relay][]: The [Relay][bigbrotr.models.relay.Relay] model
         wrapped by this junction.
-    [bigbrotr.models.relay_metadata][]: Analogous junction model linking a
+    [bigbrotr.models.relay_document][]: Analogous junction model linking a
         [Relay][bigbrotr.models.relay.Relay] to a
         [Document][bigbrotr.models.document.Document] record.
 """
@@ -101,7 +101,7 @@ class EventRelay:
         [EventRelayDbParams][bigbrotr.models.event_relay.EventRelayDbParams]: Database
             parameter container produced by
             [to_db_params()][bigbrotr.models.event_relay.EventRelay.to_db_params].
-        [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]: Analogous
+        [RelayDocument][bigbrotr.models.relay_document.RelayDocument]: Analogous
             junction model for relay-to-metadata associations.
     """
 

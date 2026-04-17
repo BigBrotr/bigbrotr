@@ -2,10 +2,10 @@
 Junction model linking a [Relay][bigbrotr.models.relay.Relay] to a
 [Document][bigbrotr.models.document.Document] record.
 
-Maps to the ``relay_metadata`` table, representing a time-series snapshot
+Maps to the ``relay_document`` table, representing a time-series snapshot
 that associates a relay with a specific stored document. Document records
 are deduplicated via content-addressed hashing (SHA-256 computed in Python).
-The database uses the ``relay_metadata_insert_cascade`` stored procedure
+The database uses the ``relay_document_insert_cascade`` stored procedure
 to atomically insert the relay, document, and junction record in a single call.
 
 See Also:
@@ -29,28 +29,28 @@ from .document import Document
 from .relay import Relay
 
 
-class RelayMetadataDbParams(NamedTuple):
-    """Positional parameters for the relay-metadata junction insert procedure.
+class RelayDocumentDbParams(NamedTuple):
+    """Positional parameters for the relay-document junction insert procedure.
 
     Produced by
-    [RelayMetadata.to_db_params()][bigbrotr.models.relay_metadata.RelayMetadata.to_db_params]
-    and consumed by the ``relay_metadata_insert_cascade`` stored procedure
+    [RelayDocument.to_db_params()][bigbrotr.models.relay_document.RelayDocument.to_db_params]
+    and consumed by the ``relay_document_insert_cascade`` stored procedure
     in PostgreSQL.
 
     Attributes:
         relay_url: Relay WebSocket URL (from [RelayDbParams][bigbrotr.models.relay.RelayDbParams]).
         relay_network: Network type string (e.g., ``"clearnet"``, ``"tor"``).
         relay_stored_at: Unix timestamp when the relay entered the canonical stored relay pool.
-        metadata_id: SHA-256 content hash (32 bytes,
+        document_id: SHA-256 content hash (32 bytes,
             from [DocumentDbParams][bigbrotr.models.document.DocumentDbParams]).
-        metadata_type: Document type identifier. Built-in callers typically
+        role: Document role identifier. Built-in callers typically
             use [MetadataType][bigbrotr.models.document.MetadataType], but
             arbitrary non-empty strings are accepted.
-        metadata_data: Canonical JSON string for JSONB storage.
-        generated_at: Unix timestamp when the metadata was collected.
+        document_data: Canonical JSON string for JSONB storage.
+        associated_at: Unix timestamp when the document became associated with the relay.
 
     See Also:
-        [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]: The model that
+        [RelayDocument][bigbrotr.models.relay_document.RelayDocument]: The model that
             produces these parameters.
         [RelayDbParams][bigbrotr.models.relay.RelayDbParams]: Source of the relay fields.
         [DocumentDbParams][bigbrotr.models.document.DocumentDbParams]: Source of the
@@ -60,43 +60,44 @@ class RelayMetadataDbParams(NamedTuple):
     relay_url: str
     relay_network: str
     relay_stored_at: int
-    metadata_id: bytes
-    metadata_type: str
-    metadata_data: str
-    generated_at: int
+    document_id: bytes
+    role: str
+    document_data: str
+    associated_at: int
 
 
 @dataclass(frozen=True, slots=True)
-class RelayMetadata:
+class RelayDocument:
     """Immutable junction linking a [Relay][bigbrotr.models.relay.Relay] to a
     [Document][bigbrotr.models.document.Document] record.
 
-    The metadata type identifier is carried by the
+    The document role identifier is carried by the
     [Document][bigbrotr.models.document.Document] object and stored on both the
-    ``document`` table (as part of the composite PK) and the ``relay_metadata``
+    ``document`` table (as part of the composite PK) and the ``relay_document``
     junction table (as part of the compound FK) for type-filtered queries.
 
     Attributes:
-        relay: The [Relay][bigbrotr.models.relay.Relay] this metadata belongs to.
-        metadata: The [Document][bigbrotr.models.document.Document] record
+        relay: The [Relay][bigbrotr.models.relay.Relay] this document belongs to.
+        document: The [Document][bigbrotr.models.document.Document] record
             (with type and content hash).
-        generated_at: Unix timestamp when the metadata was collected (defaults to now).
+        associated_at: Unix timestamp when the document became associated with the relay
+            (defaults to now).
 
     Examples:
         ```python
         relay = Relay("wss://relay.damus.io")
-        meta = Document(type=MetadataType.NIP11_INFO, data={"name": "Damus"})
-        rm = RelayMetadata(relay=relay, metadata=meta)
-        rm.generated_at       # Auto-set to current time
-        params = rm.to_db_params()
+        document = Document(type=MetadataType.NIP11_INFO, data={"name": "Damus"})
+        rd = RelayDocument(relay=relay, document=document)
+        rd.associated_at      # Auto-set to current time
+        params = rd.to_db_params()
         params.relay_url      # 'wss://relay.damus.io'
-        params.metadata_type  # MetadataType.NIP11_INFO
+        params.role           # MetadataType.NIP11_INFO
         ```
 
     Note:
-        The ``metadata_type`` exists on both the ``document`` table (composite
-        PK ``(id, type)``) and the ``relay_metadata`` junction table
-        (compound FK ``(metadata_id, metadata_type)``). This enforces referential
+        The ``role`` exists on both the ``document`` table (composite
+        PK ``(id, type)``) and the ``relay_document`` junction table
+        (compound FK ``(document_id, role)``). This enforces referential
         integrity at the type level and enables efficient type-filtered queries
         (e.g., "latest NIP-11 info for all relays") without joining through
         the ``document`` table.
@@ -107,17 +108,17 @@ class RelayMetadata:
             junction.
         [MetadataType][bigbrotr.models.document.MetadataType]: Built-in catalog
             of metadata classifications used by the current application.
-        [RelayMetadataDbParams][bigbrotr.models.relay_metadata.RelayMetadataDbParams]:
+        [RelayDocumentDbParams][bigbrotr.models.relay_document.RelayDocumentDbParams]:
             Database parameter container produced by
-            [to_db_params()][bigbrotr.models.relay_metadata.RelayMetadata.to_db_params].
+            [to_db_params()][bigbrotr.models.relay_document.RelayDocument.to_db_params].
         [EventRelay][bigbrotr.models.event_relay.EventRelay]: Analogous junction
             model for event-to-relay associations.
     """
 
     relay: Relay
-    metadata: Document
-    generated_at: int = field(default_factory=lambda: int(time()))
-    _db_params: RelayMetadataDbParams = field(
+    document: Document
+    associated_at: int = field(default_factory=lambda: int(time()))
+    _db_params: RelayDocumentDbParams = field(
         default=None,
         init=False,
         repr=False,
@@ -128,39 +129,39 @@ class RelayMetadata:
     def __post_init__(self) -> None:
         """Validate field types and compute database parameters (fail-fast)."""
         validate_instance(self.relay, Relay, "relay")
-        validate_instance(self.metadata, Document, "metadata")
-        validate_timestamp(self.generated_at, "generated_at")
+        validate_instance(self.document, Document, "document")
+        validate_timestamp(self.associated_at, "associated_at")
         object.__setattr__(self, "_db_params", self._compute_db_params())
 
-    def _compute_db_params(self) -> RelayMetadataDbParams:
+    def _compute_db_params(self) -> RelayDocumentDbParams:
         """Compute positional parameters for the cascade insert procedure.
 
         Merges the [RelayDbParams][bigbrotr.models.relay.RelayDbParams] and
         [DocumentDbParams][bigbrotr.models.document.DocumentDbParams] from the
-        contained models with the junction ``generated_at`` timestamp and
-        ``metadata_type`` into a single flat tuple.
+        contained models with the junction ``associated_at`` timestamp and
+        ``role`` into a single flat tuple.
 
         Returns:
-            [RelayMetadataDbParams][bigbrotr.models.relay_metadata.RelayMetadataDbParams]
-            combining relay, metadata, and junction fields.
+            [RelayDocumentDbParams][bigbrotr.models.relay_document.RelayDocumentDbParams]
+            combining relay, document, and junction fields.
         """
         r = self.relay.to_db_params()
-        m = self.metadata.to_db_params()
-        return RelayMetadataDbParams(
+        d = self.document.to_db_params()
+        return RelayDocumentDbParams(
             relay_url=r.url,
             relay_network=r.network,
             relay_stored_at=r.stored_at,
-            metadata_id=m.id,
-            metadata_type=m.type,
-            metadata_data=m.data,
-            generated_at=self.generated_at,
+            document_id=d.id,
+            role=d.type,
+            document_data=d.data,
+            associated_at=self.associated_at,
         )
 
-    def to_db_params(self) -> RelayMetadataDbParams:
+    def to_db_params(self) -> RelayDocumentDbParams:
         """Return cached positional parameters for the cascade insert procedure.
 
         Returns:
-            [RelayMetadataDbParams][bigbrotr.models.relay_metadata.RelayMetadataDbParams]
-            combining relay, metadata, and junction fields.
+            [RelayDocumentDbParams][bigbrotr.models.relay_document.RelayDocumentDbParams]
+            combining relay, document, and junction fields.
         """
         return self._db_params

@@ -105,12 +105,12 @@ class TestMonitorChunk:
 
 
 class TestMonitorPersistence:
-    async def test_persist_chunk_outcome_stores_metadata_and_checkpoints(self) -> None:
+    async def test_persist_chunk_outcome_stores_documents_and_checkpoints(self) -> None:
         relay = _relay()
         nip11_info = MagicMock()
         nip11_info.to_dict.return_value = {"name": "relay"}
         result = CheckResult(generated_at=123, nip11_info=nip11_info)
-        insert_relay_metadata_fn = AsyncMock(return_value=1)
+        insert_relay_document_fn = AsyncMock(return_value=1)
         upsert_monitor_checkpoints_fn = AsyncMock()
 
         await persist_chunk_outcome(
@@ -125,18 +125,18 @@ class TestMonitorPersistence:
                     nip66_dns=False,
                     nip66_http=False,
                 ),
-                insert_relay_metadata=insert_relay_metadata_fn,
+                insert_relay_document=insert_relay_document_fn,
                 upsert_monitor_checkpoints=upsert_monitor_checkpoints_fn,
             ),
             chunk_outcome=MonitorChunkOutcome(successful=((relay, result),)),
             checked_at=456,
         )
 
-        insert_relay_metadata_fn.assert_awaited_once()
-        metadata = insert_relay_metadata_fn.await_args.args[1]
-        assert len(metadata) == 1
-        assert metadata[0].relay == relay
-        assert metadata[0].generated_at == 123
+        insert_relay_document_fn.assert_awaited_once()
+        documents = insert_relay_document_fn.await_args.args[1]
+        assert len(documents) == 1
+        assert documents[0].relay == relay
+        assert documents[0].associated_at == 123
         upsert_monitor_checkpoints_fn.assert_awaited_once()
         assert upsert_monitor_checkpoints_fn.await_args.args[1] == [relay]
         assert upsert_monitor_checkpoints_fn.await_args.args[2] == 456

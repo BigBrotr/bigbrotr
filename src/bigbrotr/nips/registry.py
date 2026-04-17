@@ -42,7 +42,7 @@ NIP_REGISTRY: dict[int, NipEntry] = {
         dependencies_cls=Nip11Dependencies,
         metadata_types=(MetadataType.NIP11_INFO,),
         protocol_event_kinds=(),
-        capabilities=("fetch", "relay_metadata"),
+        capabilities=("fetch", "relay_document"),
     ),
     66: NipEntry(
         slug="nip66",
@@ -63,7 +63,7 @@ NIP_REGISTRY: dict[int, NipEntry] = {
             int(EventKind.MONITOR_ANNOUNCEMENT),
             int(EventKind.RELAY_DISCOVERY),
         ),
-        capabilities=("probe", "relay_metadata", "monitor_events"),
+        capabilities=("probe", "relay_document", "monitor_events"),
     ),
     85: NipEntry(
         slug="nip85",

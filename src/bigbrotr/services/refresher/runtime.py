@@ -52,7 +52,7 @@ class RefreshCycleResult:
     rows_refreshed: int = 0
     cleanup_removed_checkpoints: int = 0
     watermark_event_relay_lag_seconds: int = 0
-    watermark_relay_metadata_lag_seconds: int = 0
+    watermark_relay_document_lag_seconds: int = 0
     cutoff_reason: str | None = None
     target_results: tuple[RefreshTargetResult, ...] = ()
 
@@ -88,8 +88,8 @@ def emit_cycle_metrics(
         result.watermark_event_relay_lag_seconds,
     )
     service.set_gauge(
-        "watermark_relay_metadata_lag_seconds",
-        result.watermark_relay_metadata_lag_seconds,
+        "watermark_relay_document_lag_seconds",
+        result.watermark_relay_document_lag_seconds,
     )
     service.set_gauge(
         "cycle_stopped_due_to_max_duration",

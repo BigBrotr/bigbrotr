@@ -3,9 +3,9 @@ Top-level NIP-66 model with semantic probe entrypoint and database serialization
 
 Orchestrates all [NIP-66](https://github.com/nostr-protocol/nips/blob/master/66.md)
 monitoring tests (RTT, SSL, GEO, NET, DNS, HTTP) via the ``probe()``
-async factory method, and provides ``to_relay_metadata_tuple()`` for
+async factory method, and provides ``to_relay_document_tuple()`` for
 converting results into database-ready
-[RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] records.
+[RelayDocument][bigbrotr.models.relay_document.RelayDocument] records.
 
 See Also:
     [bigbrotr.nips.nip66.rtt.Nip66RttMetadata][bigbrotr.nips.nip66.rtt.Nip66RttMetadata]:
@@ -38,7 +38,7 @@ from nostr_sdk import EventBuilder, Filter, Keys, Kind
 from bigbrotr.models.constants import EventKind
 from bigbrotr.models.document import Document, MetadataType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.models.relay_metadata import RelayMetadata
+from bigbrotr.models.relay_document import RelayDocument
 from bigbrotr.nips.base import (
     BaseNip,
     BaseNipDependencies,
@@ -138,26 +138,26 @@ class Nip66Dependencies(BaseNipDependencies):
     asn_reader: geoip2.database.Reader | None = None
 
 
-class RelayNip66MetadataTuple(NamedTuple):
-    """Database-ready tuple of NIP-66 ``RelayMetadata`` records.
+class RelayNip66DocumentTuple(NamedTuple):
+    """Database-ready tuple of NIP-66 ``RelayDocument`` records.
 
     Each field is ``None`` if the corresponding test was not run or
     was not applicable to the relay's network type. No ``nip66_`` prefix
     because this is a NIP-66-only container.
 
     See Also:
-        [Nip66.to_relay_metadata_tuple][bigbrotr.nips.nip66.nip66.Nip66.to_relay_metadata_tuple]:
+        [Nip66.to_relay_document_tuple][bigbrotr.nips.nip66.nip66.Nip66.to_relay_document_tuple]:
             Method that produces instances of this tuple.
-        [bigbrotr.nips.nip11.nip11.RelayNip11MetadataTuple][bigbrotr.nips.nip11.nip11.RelayNip11MetadataTuple]:
-            Companion tuple for NIP-11 metadata records.
+        [bigbrotr.nips.nip11.nip11.RelayNip11DocumentTuple][bigbrotr.nips.nip11.nip11.RelayNip11DocumentTuple]:
+            Companion tuple for NIP-11 document records.
     """
 
-    rtt: RelayMetadata | None
-    ssl: RelayMetadata | None
-    geo: RelayMetadata | None
-    net: RelayMetadata | None
-    dns: RelayMetadata | None
-    http: RelayMetadata | None
+    rtt: RelayDocument | None
+    ssl: RelayDocument | None
+    geo: RelayDocument | None
+    net: RelayDocument | None
+    dns: RelayDocument | None
+    http: RelayDocument | None
 
 
 class Nip66(BaseNip):
@@ -206,7 +206,7 @@ class Nip66(BaseNip):
         nip66 = await Nip66.probe(relay, timeout=10.0, selection=selection)
         nip66.ssl is not None    # True (SSL test ran)
         nip66.rtt is None        # True (RTT was disabled)
-        records = nip66.to_relay_metadata_tuple()
+        records = nip66.to_relay_document_tuple()
         ```
     """
 
@@ -217,12 +217,12 @@ class Nip66(BaseNip):
     dns: Nip66DnsMetadata | None = None
     http: Nip66HttpMetadata | None = None
 
-    def to_relay_metadata_tuple(self) -> RelayNip66MetadataTuple:
-        """Convert to a ``RelayMetadata`` tuple for database storage.
+    def to_relay_document_tuple(self) -> RelayNip66DocumentTuple:
+        """Convert to a ``RelayDocument`` tuple for database storage.
 
         Returns:
-            A [RelayNip66MetadataTuple][bigbrotr.nips.nip66.nip66.RelayNip66MetadataTuple]
-            with one [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
+            A [RelayNip66DocumentTuple][bigbrotr.nips.nip66.nip66.RelayNip66DocumentTuple]
+            with one [RelayDocument][bigbrotr.models.relay_document.RelayDocument]
             per test that produced results, or ``None`` for tests that were
             skipped. Each record is tagged with the corresponding
             [MetadataType][bigbrotr.models.document.MetadataType] variant
@@ -231,16 +231,16 @@ class Nip66(BaseNip):
 
         def make(
             metadata: BaseNipMetadata | None, metadata_type: MetadataType
-        ) -> RelayMetadata | None:
+        ) -> RelayDocument | None:
             if metadata is None:
                 return None
-            return RelayMetadata(
+            return RelayDocument(
                 relay=self.relay,
-                metadata=Document(type=metadata_type, data=metadata.to_dict()),
-                generated_at=self.generated_at,
+                document=Document(type=metadata_type, data=metadata.to_dict()),
+                associated_at=self.generated_at,
             )
 
-        return RelayNip66MetadataTuple(
+        return RelayNip66DocumentTuple(
             rtt=make(self.rtt, MetadataType.NIP66_RTT),
             ssl=make(self.ssl, MetadataType.NIP66_SSL),
             geo=make(self.geo, MetadataType.NIP66_GEO),

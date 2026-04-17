@@ -7,12 +7,12 @@
  */
 
 -- ==========================================================================
--- CURRENT TABLE INDEXES: relay_metadata_current
+-- CURRENT TABLE INDEXES: relay_document_current
 -- ==========================================================================
 
--- Filter current snapshots by check type and refresh window.
-CREATE INDEX IF NOT EXISTS idx_relay_metadata_current_type_generated_at
-ON relay_metadata_current USING btree (metadata_type, generated_at ASC);
+-- Filter current snapshots by role and refresh window.
+CREATE INDEX IF NOT EXISTS idx_relay_document_current_role_associated_at
+ON relay_document_current USING btree (role, associated_at ASC);
 
 -- events_replaceable_current: current-state lookups by kind and sync window
 CREATE UNIQUE INDEX IF NOT EXISTS idx_events_replaceable_current_id

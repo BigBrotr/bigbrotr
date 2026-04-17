@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import EventRelay, Relay, RelayMetadata
+from bigbrotr.models import EventRelay, Relay, RelayDocument
 from bigbrotr.models.document import Document, MetadataType
 from bigbrotr.models.event import Event
 from tests.conftest import make_mock_event
@@ -20,15 +20,15 @@ def _event_relay(event_id: str, relay_url: str) -> EventRelay:
     return EventRelay(event=Event(mock), relay=relay, seen_at=1700000001)
 
 
-def _relay_metadata(
+def _relay_document(
     relay_url: str,
     data: dict,
     meta_type: MetadataType = MetadataType.NIP11_INFO,
-    generated_at: int = 1700000001,
-) -> RelayMetadata:
+    associated_at: int = 1700000001,
+) -> RelayDocument:
     relay = Relay(relay_url, stored_at=1700000000)
     metadata = Document(type=meta_type, data=data)
-    return RelayMetadata(relay=relay, metadata=metadata, generated_at=generated_at)
+    return RelayDocument(relay=relay, document=metadata, associated_at=associated_at)
 
 
 # =============================================================================
@@ -122,8 +122,8 @@ class TestOrphanDocumentDelete:
         assert await brotr.delete_orphan_document() == 0
 
     async def test_deletes_orphaned_after_relay_delete(self, brotr: Brotr) -> None:
-        rm = _relay_metadata("wss://orphan-meta1.example.com", {"name": "Orphan"})
-        await brotr.insert_relay_metadata([rm], cascade=True)
+        rm = _relay_document("wss://orphan-meta1.example.com", {"name": "Orphan"})
+        await brotr.insert_relay_document([rm], cascade=True)
 
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://orphan-meta1.example.com")
         assert await brotr.fetchval("SELECT COUNT(*) FROM document") == 1
@@ -133,10 +133,10 @@ class TestOrphanDocumentDelete:
         assert await brotr.fetchval("SELECT COUNT(*) FROM document") == 0
 
     async def test_preserves_non_orphaned(self, brotr: Brotr) -> None:
-        rm = _relay_metadata(
+        rm = _relay_document(
             "wss://keep-meta.example.com", {"issuer": "CA"}, MetadataType.NIP66_SSL
         )
-        await brotr.insert_relay_metadata([rm], cascade=True)
+        await brotr.insert_relay_document([rm], cascade=True)
 
         assert await brotr.delete_orphan_document() == 0
         assert await brotr.fetchval("SELECT COUNT(*) FROM document") == 1
@@ -146,9 +146,9 @@ class TestOrphanDocumentDelete:
         relay2 = Relay("wss://shared-m2.example.com", stored_at=1700000000)
         metadata = Document(type=MetadataType.NIP11_INFO, data={"name": "Shared"})
 
-        rm1 = RelayMetadata(relay=relay1, metadata=metadata, generated_at=1700000001)
-        rm2 = RelayMetadata(relay=relay2, metadata=metadata, generated_at=1700000001)
-        await brotr.insert_relay_metadata([rm1, rm2], cascade=True)
+        rm1 = RelayDocument(relay=relay1, document=metadata, associated_at=1700000001)
+        rm2 = RelayDocument(relay=relay2, document=metadata, associated_at=1700000001)
+        await brotr.insert_relay_document([rm1, rm2], cascade=True)
 
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://shared-m1.example.com")
 
@@ -157,10 +157,10 @@ class TestOrphanDocumentDelete:
 
     async def test_multiple_orphans_different_types(self, brotr: Brotr) -> None:
         rms = [
-            _relay_metadata(f"wss://orph-mt{i}.example.com", {"i": i}, MetadataType.NIP66_RTT)
+            _relay_document(f"wss://orph-mt{i}.example.com", {"i": i}, MetadataType.NIP66_RTT)
             for i in range(3)
         ]
-        await brotr.insert_relay_metadata(rms, cascade=True)
+        await brotr.insert_relay_document(rms, cascade=True)
 
         for i in range(3):
             await brotr.execute("DELETE FROM relay WHERE url = $1", f"wss://orph-mt{i}.example.com")
@@ -169,11 +169,11 @@ class TestOrphanDocumentDelete:
         assert deleted == 3
 
     async def test_mixed_orphaned_and_referenced(self, brotr: Brotr) -> None:
-        rm_keep = _relay_metadata("wss://meta-keep.example.com", {"k": 1})
-        rm_orphan = _relay_metadata(
+        rm_keep = _relay_document("wss://meta-keep.example.com", {"k": 1})
+        rm_orphan = _relay_document(
             "wss://meta-orphan.example.com", {"k": 2}, MetadataType.NIP66_GEO
         )
-        await brotr.insert_relay_metadata([rm_keep, rm_orphan], cascade=True)
+        await brotr.insert_relay_document([rm_keep, rm_orphan], cascade=True)
 
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://meta-orphan.example.com")
 
@@ -182,8 +182,8 @@ class TestOrphanDocumentDelete:
         assert await brotr.fetchval("SELECT COUNT(*) FROM document") == 1
 
     async def test_idempotent_after_cleanup(self, brotr: Brotr) -> None:
-        rm = _relay_metadata("wss://meta-idemp.example.com", {"x": 1}, MetadataType.NIP66_DNS)
-        await brotr.insert_relay_metadata([rm], cascade=True)
+        rm = _relay_document("wss://meta-idemp.example.com", {"x": 1}, MetadataType.NIP66_DNS)
+        await brotr.insert_relay_document([rm], cascade=True)
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://meta-idemp.example.com")
 
         assert await brotr.delete_orphan_document() == 1

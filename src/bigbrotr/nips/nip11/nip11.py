@@ -4,8 +4,8 @@ Top-level NIP-11 model with semantic fetch entrypoint and database serialization
 Wraps the [Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]
 container and provides ``fetch()`` for retrieving a relay's
 [NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md) information
-document, and ``to_relay_metadata_tuple()`` for converting the result into
-database-ready [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
+document, and ``to_relay_document_tuple()`` for converting the result into
+database-ready [RelayDocument][bigbrotr.models.relay_document.RelayDocument]
 records.
 
 See Also:
@@ -15,7 +15,7 @@ See Also:
         Content-addressed metadata model used for database storage.
     [bigbrotr.models.document.MetadataType][bigbrotr.models.document.MetadataType]:
         The ``NIP11_INFO`` variant used when creating metadata records.
-    [bigbrotr.models.relay_metadata.RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]:
+    [bigbrotr.models.relay_document.RelayDocument][bigbrotr.models.relay_document.RelayDocument]:
         Junction model linking a relay to its metadata.
 """
 
@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from bigbrotr.models.document import Document, MetadataType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.models.relay_metadata import RelayMetadata
+from bigbrotr.models.relay_document import RelayDocument
 from bigbrotr.nips.base import (
     BaseNip,
     BaseNipDependencies,
@@ -96,17 +96,17 @@ class Nip11Dependencies(BaseNipDependencies):
     """
 
 
-class RelayNip11MetadataTuple(NamedTuple):
-    """Database-ready tuple of NIP-11 ``RelayMetadata`` records.
+class RelayNip11DocumentTuple(NamedTuple):
+    """Database-ready tuple of NIP-11 ``RelayDocument`` records.
 
     See Also:
-        [Nip11.to_relay_metadata_tuple][bigbrotr.nips.nip11.nip11.Nip11.to_relay_metadata_tuple]:
+        [Nip11.to_relay_document_tuple][bigbrotr.nips.nip11.nip11.Nip11.to_relay_document_tuple]:
             Method that produces instances of this tuple.
-        [bigbrotr.nips.nip66.nip66.RelayNip66MetadataTuple][bigbrotr.nips.nip66.nip66.RelayNip66MetadataTuple]:
-            Companion tuple for NIP-66 metadata records.
+        [bigbrotr.nips.nip66.nip66.RelayNip66DocumentTuple][bigbrotr.nips.nip66.nip66.RelayNip66DocumentTuple]:
+            Companion tuple for NIP-66 document records.
     """
 
-    nip11_info: RelayMetadata | None
+    nip11_info: RelayDocument | None
 
 
 class Nip11(BaseNip):
@@ -147,28 +147,28 @@ class Nip11(BaseNip):
 
     info: Nip11InfoMetadata | None = None
 
-    def to_relay_metadata_tuple(self) -> RelayNip11MetadataTuple:
-        """Convert to a ``RelayMetadata`` tuple for database storage.
+    def to_relay_document_tuple(self) -> RelayNip11DocumentTuple:
+        """Convert to a ``RelayDocument`` tuple for database storage.
 
         Returns:
-            A [RelayNip11MetadataTuple][bigbrotr.nips.nip11.nip11.RelayNip11MetadataTuple]
+            A [RelayNip11DocumentTuple][bigbrotr.nips.nip11.nip11.RelayNip11DocumentTuple]
             with the info metadata wrapped in a
-            [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] junction
+            [RelayDocument][bigbrotr.models.relay_document.RelayDocument] junction
             record tagged as
             [MetadataType.NIP11_INFO][bigbrotr.models.document.MetadataType],
             or ``None`` if no info retrieval was performed.
         """
-        nip11_info: RelayMetadata | None = None
+        nip11_info: RelayDocument | None = None
         if self.info is not None:
-            nip11_info = RelayMetadata(
+            nip11_info = RelayDocument(
                 relay=self.relay,
-                metadata=Document(
+                document=Document(
                     type=MetadataType.NIP11_INFO,
                     data=self.info.to_dict(),
                 ),
-                generated_at=self.generated_at,
+                associated_at=self.generated_at,
             )
-        return RelayNip11MetadataTuple(nip11_info=nip11_info)
+        return RelayNip11DocumentTuple(nip11_info=nip11_info)
 
     @classmethod
     async def fetch(  # noqa: PLR0913

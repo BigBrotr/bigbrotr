@@ -19,12 +19,12 @@
 
 
 /*
- * relay_metadata_current_refresh(p_after, p_until) -> INTEGER
+ * relay_document_current_refresh(p_after, p_until) -> INTEGER
  *
- * Maintains the current metadata row per (relay_url, metadata_type) using
- * generated_at DESC, metadata_id DESC as the winner ordering.
+ * Maintains the current relay-document row per (relay_url, role) using
+ * associated_at DESC, document_id DESC as the winner ordering.
  */
-CREATE OR REPLACE FUNCTION relay_metadata_current_refresh(
+CREATE OR REPLACE FUNCTION relay_document_current_refresh(
     p_after BIGINT,
     p_until BIGINT
 ) RETURNS INTEGER
@@ -36,44 +36,44 @@ BEGIN
     WITH new_rows AS (
         SELECT DISTINCT
             rm.relay_url,
-            rm.metadata_type,
-            rm.generated_at,
-            rm.metadata_id,
+            rm.role,
+            rm.associated_at,
+            rm.document_id,
             m.data
-        FROM relay_metadata AS rm
+        FROM relay_document AS rm
         INNER JOIN document AS m
-            ON rm.metadata_id = m.id AND rm.metadata_type = m.type
-        WHERE rm.generated_at > p_after
-          AND rm.generated_at <= p_until
+            ON rm.document_id = m.id AND rm.role = m.type
+        WHERE rm.associated_at > p_after
+          AND rm.associated_at <= p_until
     ),
     delta AS (
-        SELECT DISTINCT ON (relay_url, metadata_type)
+        SELECT DISTINCT ON (relay_url, role)
             relay_url,
-            metadata_type,
-            generated_at,
-            metadata_id,
+            role,
+            associated_at,
+            document_id,
             data
         FROM new_rows
-        ORDER BY relay_url, metadata_type, generated_at DESC, metadata_id DESC
+        ORDER BY relay_url, role, associated_at DESC, document_id DESC
     )
-    INSERT INTO relay_metadata_current
-        (relay_url, metadata_type, generated_at, metadata_id, data)
+    INSERT INTO relay_document_current
+        (relay_url, role, associated_at, document_id, data)
     SELECT
         relay_url,
-        metadata_type,
-        generated_at,
-        metadata_id,
+        role,
+        associated_at,
+        document_id,
         data
     FROM delta
-    ON CONFLICT (relay_url, metadata_type) DO UPDATE SET
-        generated_at = EXCLUDED.generated_at,
-        metadata_id  = EXCLUDED.metadata_id,
+    ON CONFLICT (relay_url, role) DO UPDATE SET
+        associated_at = EXCLUDED.associated_at,
+        document_id   = EXCLUDED.document_id,
         data         = EXCLUDED.data
-    WHERE EXCLUDED.generated_at > relay_metadata_current.generated_at
+    WHERE EXCLUDED.associated_at > relay_document_current.associated_at
        OR (
-           EXCLUDED.generated_at = relay_metadata_current.generated_at
-           AND ENCODE(EXCLUDED.metadata_id, 'hex')
-               > ENCODE(relay_metadata_current.metadata_id, 'hex')
+           EXCLUDED.associated_at = relay_document_current.associated_at
+           AND ENCODE(EXCLUDED.document_id, 'hex')
+               > ENCODE(relay_document_current.document_id, 'hex')
        );
 
     GET DIAGNOSTICS v_rows = ROW_COUNT;
@@ -81,8 +81,8 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION relay_metadata_current_refresh(BIGINT, BIGINT) IS
-'Incremental refresh of current relay metadata snapshots keyed by (relay_url, metadata_type).';
+COMMENT ON FUNCTION relay_document_current_refresh(BIGINT, BIGINT) IS
+'Incremental refresh of current relay-document rows keyed by (relay_url, role).';
 
 
 /*

@@ -4,7 +4,7 @@
  * Incremental current-state tables for Brotr.
  *
  * These relations store the current winner for logical keys such as
- * (relay_url, metadata_type), (pubkey, kind), and (pubkey, kind, d_tag).
+ * (relay_url, role), (pubkey, kind), and (pubkey, kind, d_tag).
  * They are maintained by refresh functions in 08_functions_refresh_current.sql.
  *
  * Dependencies: 02_tables_core.sql
@@ -22,27 +22,27 @@
 
 
 -- ==========================================================================
--- relay_metadata_current: Current metadata per relay and check type
+-- relay_document_current: Current document per relay and role
 -- ==========================================================================
--- One row per (relay_url, metadata_type), containing the most recent metadata
--- snapshot selected by generated_at DESC, metadata_id DESC.
+-- One row per (relay_url, role), containing the most recent relay-document
+-- association selected by associated_at DESC, document_id DESC.
 --
--- The row stores both metadata_id and the denormalized JSON payload so the
+-- The row stores both document_id and the denormalized JSON payload so the
 -- current-state table is self-contained for readers and downstream refreshes.
 --
--- Refresh: relay_metadata_current_refresh(p_after, p_until)
+-- Refresh: relay_document_current_refresh(p_after, p_until)
 
-CREATE TABLE IF NOT EXISTS relay_metadata_current (
+CREATE TABLE IF NOT EXISTS relay_document_current (
     relay_url TEXT NOT NULL,
-    metadata_type TEXT NOT NULL,
-    generated_at BIGINT NOT NULL,
-    metadata_id BYTEA NOT NULL,
+    role TEXT NOT NULL,
+    associated_at BIGINT NOT NULL,
+    document_id BYTEA NOT NULL,
     data JSONB NOT NULL,
-    PRIMARY KEY (relay_url, metadata_type)
+    PRIMARY KEY (relay_url, role)
 );
 
-COMMENT ON TABLE relay_metadata_current IS
-'Current metadata snapshot per (relay_url, metadata_type). Incrementally refreshed via relay_metadata_current_refresh(after, until).';
+COMMENT ON TABLE relay_document_current IS
+'Current relay-document association per (relay_url, role). Incrementally refreshed via relay_document_current_refresh(after, until).';
 
 
 -- ==========================================================================

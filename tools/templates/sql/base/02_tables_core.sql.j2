@@ -149,32 +149,33 @@ COMMENT ON COLUMN document.data IS 'Complete JSON document (NIP-11 relay info or
 
 
 -- ==========================================================================
--- relay_metadata: Time-series metadata snapshots per relay
+-- relay_document: Time-series document associations per relay
 -- ==========================================================================
--- Links relays to metadata documents over time, creating a history of health
--- check results. Each row represents one metadata snapshot for one relay at
--- one point in time. The metadata_type column distinguishes between different
-{% block relay_metadata_check_types_comment %}
+-- Links relays to stored documents over time, creating a history of health
+-- check results. Each row represents one relay-document association at one
+-- point in time. The role column distinguishes between different document
+-- roles such as NIP-11 info and the NIP-66 check families.
+{% block relay_document_check_types_comment %}
 -- check types: nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net,
 -- nip66_dns, nip66_http.
 {% endblock %}
 
-CREATE TABLE IF NOT EXISTS relay_metadata (
+CREATE TABLE IF NOT EXISTS relay_document (
     relay_url TEXT NOT NULL,
-    metadata_id BYTEA NOT NULL,
-    metadata_type TEXT NOT NULL,
-    generated_at BIGINT NOT NULL,
+    document_id BYTEA NOT NULL,
+    role TEXT NOT NULL,
+    associated_at BIGINT NOT NULL,
 
-    PRIMARY KEY (relay_url, generated_at, metadata_type),
+    PRIMARY KEY (relay_url, associated_at, role),
     FOREIGN KEY (relay_url) REFERENCES relay (url) ON DELETE CASCADE,
-    FOREIGN KEY (metadata_id, metadata_type) REFERENCES document (id, type) ON DELETE CASCADE
+    FOREIGN KEY (document_id, role) REFERENCES document (id, type) ON DELETE CASCADE
 );
 
-COMMENT ON TABLE relay_metadata IS 'Time-series relay metadata snapshots linking relays to metadata documents';
-COMMENT ON COLUMN relay_metadata.relay_url IS 'Foreign key to relay.url';
-COMMENT ON COLUMN relay_metadata.metadata_id IS 'Foreign key to document(id, type) (content-addressed hash)';
-COMMENT ON COLUMN relay_metadata.metadata_type IS 'Check type: nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, or nip66_http';
-COMMENT ON COLUMN relay_metadata.generated_at IS 'Unix timestamp when the metadata was collected';
+COMMENT ON TABLE relay_document IS 'Time-series relay-document associations linking relays to stored documents';
+COMMENT ON COLUMN relay_document.relay_url IS 'Foreign key to relay.url';
+COMMENT ON COLUMN relay_document.document_id IS 'Foreign key to document(id, type) (content-addressed hash)';
+COMMENT ON COLUMN relay_document.role IS 'Document role: nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, or nip66_http';
+COMMENT ON COLUMN relay_document.associated_at IS 'Unix timestamp when the document became associated with the relay';
 
 
 -- ==========================================================================

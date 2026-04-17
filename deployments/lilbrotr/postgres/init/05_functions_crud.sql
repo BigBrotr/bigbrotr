@@ -5,12 +5,12 @@
  *
  *   Level 1 (Base) - Single-table operations:
  *     relay_insert, event_insert, document_insert,
- *     event_relay_insert, relay_metadata_insert,
+ *     event_relay_insert, relay_document_insert,
  *     service_state_upsert, service_state_get, service_state_delete
  *
  *   Level 2 (Cascade) - Multi-table atomic operations that call Level 1:
  *     event_relay_insert_cascade  -> relay + event + event_relay
- *     relay_metadata_insert_cascade -> relay + document + relay_metadata
+ *     relay_document_insert_cascade -> relay + document + relay_document
  *
  * IMPORTANT: Function signatures are fixed and called by src/bigbrotr/core/brotr.py.
  * All parameters must be accepted even if not stored. To customize event
@@ -202,27 +202,27 @@ COMMENT ON FUNCTION event_relay_insert(BYTEA [], TEXT [], BIGINT []) IS
 
 
 /*
- * relay_metadata_insert(TEXT[], BYTEA[], TEXT[], BIGINT[]) -> INTEGER
+ * relay_document_insert(TEXT[], BYTEA[], TEXT[], BIGINT[]) -> INTEGER
  *
- * Bulk-inserts relay-metadata junction records. Both the referenced relay
- * and metadata MUST already exist; use relay_metadata_insert_cascade()
+ * Bulk-inserts relay-document junction records. Both the referenced relay
+ * and document MUST already exist; use relay_document_insert_cascade()
  * if they may not exist yet.
  *
  * Parameters:
  *   p_relay_urls       - Array of relay URLs (must exist in relay table)
- *   p_metadata_ids     - Array of metadata SHA-256 hashes (must exist in document table)
- *   p_metadata_types   - Array of check types (nip11_info, nip66_rtt, etc.)
- *   p_generated_ats    - Array of Unix collection timestamps
+ *   p_document_ids     - Array of document SHA-256 hashes (must exist in document table)
+ *   p_roles            - Array of document roles (nip11_info, nip66_rtt, etc.)
+ *   p_associated_ats   - Array of Unix association timestamps
  *
  * Returns: Number of newly inserted rows
  */
-DROP FUNCTION IF EXISTS relay_metadata_insert(TEXT [], JSONB [], TEXT [], BIGINT []);
-DROP FUNCTION IF EXISTS relay_metadata_insert(TEXT [], BYTEA [], JSONB [], TEXT [], BIGINT []);
-CREATE OR REPLACE FUNCTION relay_metadata_insert(
+DROP FUNCTION IF EXISTS relay_document_insert(TEXT [], JSONB [], TEXT [], BIGINT []);
+DROP FUNCTION IF EXISTS relay_document_insert(TEXT [], BYTEA [], JSONB [], TEXT [], BIGINT []);
+CREATE OR REPLACE FUNCTION relay_document_insert(
     p_relay_urls TEXT [],
-    p_metadata_ids BYTEA [],
-    p_metadata_types TEXT [],
-    p_generated_ats BIGINT []
+    p_document_ids BYTEA [],
+    p_roles TEXT [],
+    p_associated_ats BIGINT []
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -230,19 +230,19 @@ AS $$
 DECLARE
     v_row_count INTEGER;
 BEGIN
-    INSERT INTO relay_metadata (relay_url, metadata_id, metadata_type, generated_at)
-    SELECT relay_url, metadata_id, metadata_type, generated_at
-    FROM unnest(p_relay_urls, p_metadata_ids, p_metadata_types, p_generated_ats)
-        AS t(relay_url, metadata_id, metadata_type, generated_at)
-    ON CONFLICT (relay_url, generated_at, metadata_type) DO NOTHING;
+    INSERT INTO relay_document (relay_url, document_id, role, associated_at)
+    SELECT relay_url, document_id, role, associated_at
+    FROM unnest(p_relay_urls, p_document_ids, p_roles, p_associated_ats)
+        AS t(relay_url, document_id, role, associated_at)
+    ON CONFLICT (relay_url, associated_at, role) DO NOTHING;
 
     GET DIAGNOSTICS v_row_count = ROW_COUNT;
     RETURN v_row_count;
 END;
 $$;
 
-COMMENT ON FUNCTION relay_metadata_insert(TEXT [], BYTEA [], TEXT [], BIGINT []) IS
-'Bulk insert relay-metadata junctions, returns number of rows inserted';
+COMMENT ON FUNCTION relay_document_insert(TEXT [], BYTEA [], TEXT [], BIGINT []) IS
+'Bulk insert relay-document junctions, returns number of rows inserted';
 
 
 -- ==========================================================================
@@ -304,25 +304,25 @@ COMMENT ON FUNCTION event_relay_insert_cascade(
 
 
 /*
- * relay_metadata_insert_cascade(...) -> INTEGER
+ * relay_document_insert_cascade(...) -> INTEGER
  *
  * Atomically inserts relays, document rows, and their junction records
  * in a single transaction. Delegates to relay_insert() and document_insert()
  * internally.
  *
- * Parameters: Arrays of relay fields + metadata fields + types + timestamps
- * Returns: Number of junction rows inserted in relay_metadata
+ * Parameters: Arrays of relay fields + document fields + roles + timestamps
+ * Returns: Number of junction rows inserted in relay_document
  */
-DROP FUNCTION IF EXISTS relay_metadata_insert_cascade(TEXT [], TEXT [], BIGINT [], JSONB [], TEXT [], BIGINT []);
-DROP FUNCTION IF EXISTS relay_metadata_insert_cascade(TEXT [], TEXT [], BIGINT [], BYTEA [], JSONB [], TEXT [], BIGINT []);
-CREATE OR REPLACE FUNCTION relay_metadata_insert_cascade(
+DROP FUNCTION IF EXISTS relay_document_insert_cascade(TEXT [], TEXT [], BIGINT [], JSONB [], TEXT [], BIGINT []);
+DROP FUNCTION IF EXISTS relay_document_insert_cascade(TEXT [], TEXT [], BIGINT [], BYTEA [], JSONB [], TEXT [], BIGINT []);
+CREATE OR REPLACE FUNCTION relay_document_insert_cascade(
     p_relay_urls TEXT [],
     p_relay_networks TEXT [],
     p_relay_stored_ats BIGINT [],
-    p_metadata_ids BYTEA [],
-    p_metadata_types TEXT [],
-    p_metadata_data JSONB [],
-    p_generated_ats BIGINT []
+    p_document_ids BYTEA [],
+    p_roles TEXT [],
+    p_document_data JSONB [],
+    p_associated_ats BIGINT []
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -334,22 +334,22 @@ BEGIN
     PERFORM relay_insert(p_relay_urls, p_relay_networks, p_relay_stored_ats);
 
     -- Ensure document rows exist (using pre-computed content hashes)
-    PERFORM document_insert(p_metadata_ids, p_metadata_types, p_metadata_data);
+    PERFORM document_insert(p_document_ids, p_roles, p_document_data);
 
     -- Insert junction records with full column aliases
-    INSERT INTO relay_metadata (relay_url, metadata_id, metadata_type, generated_at)
-    SELECT relay_url, metadata_id, metadata_type, generated_at
-    FROM unnest(p_relay_urls, p_metadata_ids, p_metadata_types, p_generated_ats)
-        AS t(relay_url, metadata_id, metadata_type, generated_at)
-    ON CONFLICT (relay_url, generated_at, metadata_type) DO NOTHING;
+    INSERT INTO relay_document (relay_url, document_id, role, associated_at)
+    SELECT relay_url, document_id, role, associated_at
+    FROM unnest(p_relay_urls, p_document_ids, p_roles, p_associated_ats)
+        AS t(relay_url, document_id, role, associated_at)
+    ON CONFLICT (relay_url, associated_at, role) DO NOTHING;
 
     GET DIAGNOSTICS v_row_count = ROW_COUNT;
     RETURN v_row_count;
 END;
 $$;
 
-COMMENT ON FUNCTION relay_metadata_insert_cascade(TEXT [], TEXT [], BIGINT [], BYTEA [], TEXT [], JSONB [], BIGINT []) IS
-'Atomically insert relay metadata with relays and junctions, returns junction row count';
+COMMENT ON FUNCTION relay_document_insert_cascade(TEXT [], TEXT [], BIGINT [], BYTEA [], TEXT [], JSONB [], BIGINT []) IS
+'Atomically insert relay documents with relays and junctions, returns junction row count';
 
 
 -- ==========================================================================

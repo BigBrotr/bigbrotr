@@ -53,7 +53,7 @@ def _config(
             "analytics": {"targets": [] if analytics is None else analytics},
             "periodic": {
                 "rolling_windows": periodic,
-                "relay_stats_metadata": periodic,
+                "relay_stats_document": periodic,
                 "nip85_followers": periodic,
             },
         }
@@ -275,7 +275,7 @@ class TestRefresherIntegration:
                     "analytics": {"targets": ["pubkey_kind_stats"]},
                     "periodic": {
                         "rolling_windows": False,
-                        "relay_stats_metadata": False,
+                        "relay_stats_document": False,
                         "nip85_followers": False,
                     },
                 }

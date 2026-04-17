@@ -129,7 +129,7 @@ from .publishing import (
 from .queries import (
     count_relays_to_monitor,
     delete_stale_checkpoints,
-    insert_relay_metadata,
+    insert_relay_document,
     is_publish_due,
     iter_relays_to_monitor_pages,
     upsert_monitor_checkpoints,
@@ -539,7 +539,7 @@ class Monitor(
             context=MonitorChunkPersistence(
                 brotr=self._brotr,
                 store=self._config.processing.store,
-                insert_relay_metadata=insert_relay_metadata,
+                insert_relay_document=insert_relay_document,
                 upsert_monitor_checkpoints=upsert_monitor_checkpoints,
             ),
             chunk_outcome=chunk_outcome,

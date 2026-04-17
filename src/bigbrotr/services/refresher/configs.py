@@ -24,7 +24,7 @@ TargetT = TypeVar("TargetT", bound=StrEnum)
 class CurrentRefreshTarget(StrEnum):
     """Current-state tables maintained by the refresher in dependency order."""
 
-    RELAY_METADATA_CURRENT = "relay_metadata_current"
+    RELAY_DOCUMENT_CURRENT = "relay_document_current"
     EVENTS_REPLACEABLE_CURRENT = "events_replaceable_current"
     EVENTS_ADDRESSABLE_CURRENT = "events_addressable_current"
     CONTACT_LISTS_CURRENT = "contact_lists_current"
@@ -53,7 +53,7 @@ class PeriodicRefreshTarget(StrEnum):
     """Periodic reconciliation tasks run after incremental table refreshes."""
 
     ROLLING_WINDOWS = "rolling_windows"
-    RELAY_STATS_METADATA = "relay_stats_metadata"
+    RELAY_STATS_DOCUMENT = "relay_stats_document"
     NIP85_FOLLOWERS = "nip85_followers"
 
 
@@ -71,10 +71,10 @@ _TARGET_DEPENDENCIES: dict[str, frozenset[str]] = {
         {CurrentRefreshTarget.CONTACT_LISTS_CURRENT.value}
     ),
     AnalyticsRefreshTarget.RELAY_SOFTWARE_COUNTS.value: frozenset(
-        {CurrentRefreshTarget.RELAY_METADATA_CURRENT.value}
+        {CurrentRefreshTarget.RELAY_DOCUMENT_CURRENT.value}
     ),
     AnalyticsRefreshTarget.SUPPORTED_NIP_COUNTS.value: frozenset(
-        {CurrentRefreshTarget.RELAY_METADATA_CURRENT.value}
+        {CurrentRefreshTarget.RELAY_DOCUMENT_CURRENT.value}
     ),
     AnalyticsRefreshTarget.PUBKEY_STATS.value: frozenset(
         {
@@ -199,7 +199,7 @@ class PeriodicRefreshConfig(BaseModel):
         default=True,
         description="Recompute rolling time-window columns after incremental refreshes",
     )
-    relay_stats_metadata: bool = Field(
+    relay_stats_document: bool = Field(
         default=True,
         description="Refresh relay_stats metadata fields from current relay metadata",
     )

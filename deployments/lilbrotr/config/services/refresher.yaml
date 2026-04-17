@@ -21,7 +21,7 @@ processing:
 
 current:
   targets:
-    - relay_metadata_current
+    - relay_document_current
     - events_replaceable_current
     - events_addressable_current
     - contact_lists_current
@@ -45,7 +45,7 @@ analytics:
 
 periodic:
   rolling_windows: true
-  relay_stats_metadata: true
+  relay_stats_document: true
   nip85_followers: true
 
 cleanup:

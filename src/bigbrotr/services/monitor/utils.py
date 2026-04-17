@@ -12,7 +12,7 @@ import random
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar
 
-from bigbrotr.models import Document, MetadataType, RelayMetadata
+from bigbrotr.models import Document, MetadataType, RelayDocument
 
 
 if TYPE_CHECKING:
@@ -175,11 +175,11 @@ def extract_result(results: dict[str, Any], key: str) -> Any:
     return value
 
 
-def collect_metadata(
+def collect_documents(
     successful: list[tuple[Relay, CheckResult]],
     store: MetadataFlags,
-) -> list[RelayMetadata]:
-    """Build storable metadata records from successful health check results.
+) -> list[RelayDocument]:
+    """Build storable relay-document records from successful health check results.
 
     Iterates over successful relay/result pairs and collects metadata for
     each check type enabled in ``store``. Field names in ``CheckResult``,
@@ -191,23 +191,23 @@ def collect_metadata(
         store: Flags controlling which metadata types to include.
 
     Returns:
-        List of [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
+        List of [RelayDocument][bigbrotr.models.relay_document.RelayDocument]
         ready for batch insertion.
     """
-    metadata: list[RelayMetadata] = []
+    documents: list[RelayDocument] = []
     for relay, result in successful:
         for meta_type in MetadataType:
             field = meta_type.value
             nip_meta: BaseNipMetadata | None = getattr(result, field)
             if nip_meta and getattr(store, field):
-                metadata.append(
-                    RelayMetadata(
+                documents.append(
+                    RelayDocument(
                         relay=relay,
-                        metadata=Document(type=meta_type, data=nip_meta.to_dict()),
-                        generated_at=result.generated_at,
+                        document=Document(type=meta_type, data=nip_meta.to_dict()),
+                        associated_at=result.generated_at,
                     )
                 )
-    return metadata
+    return documents
 
 
 async def retry_fetch(

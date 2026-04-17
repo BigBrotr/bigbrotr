@@ -62,7 +62,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
 
     -- Current-state tables + analytics tables: DML required for incremental refresh
     GRANT INSERT, UPDATE, DELETE ON daily_counts TO ${REFRESHER_ROLE};
-    GRANT INSERT, UPDATE, DELETE ON relay_metadata_current TO ${REFRESHER_ROLE};
+    GRANT INSERT, UPDATE, DELETE ON relay_document_current TO ${REFRESHER_ROLE};
     GRANT INSERT, UPDATE, DELETE ON relay_software_counts TO ${REFRESHER_ROLE};
     GRANT INSERT, UPDATE, DELETE ON supported_nip_counts TO ${REFRESHER_ROLE};
     GRANT INSERT, UPDATE, DELETE ON events_replaceable_current TO ${REFRESHER_ROLE};
@@ -94,7 +94,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     GRANT EXECUTE ON FUNCTION nip85_follower_count_refresh() TO ${WRITER_ROLE};
     GRANT EXECUTE ON FUNCTION bolt11_amount_msats(TEXT) TO ${WRITER_ROLE};
     GRANT EXECUTE ON FUNCTION daily_counts_refresh(BIGINT, BIGINT) TO ${REFRESHER_ROLE};
-    GRANT EXECUTE ON FUNCTION relay_metadata_current_refresh(BIGINT, BIGINT) TO ${REFRESHER_ROLE};
+    GRANT EXECUTE ON FUNCTION relay_document_current_refresh(BIGINT, BIGINT) TO ${REFRESHER_ROLE};
     GRANT EXECUTE ON FUNCTION relay_software_counts_refresh(BIGINT, BIGINT) TO ${REFRESHER_ROLE};
     GRANT EXECUTE ON FUNCTION supported_nip_counts_refresh(BIGINT, BIGINT) TO ${REFRESHER_ROLE};
     GRANT EXECUTE ON FUNCTION events_replaceable_current_refresh(BIGINT, BIGINT) TO ${REFRESHER_ROLE};

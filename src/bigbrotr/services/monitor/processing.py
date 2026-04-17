@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
-from .queries import insert_relay_metadata, upsert_monitor_checkpoints
-from .utils import CheckResult, MonitorChunkOutcome, MonitorProgress, collect_metadata
+from .queries import insert_relay_document, upsert_monitor_checkpoints
+from .utils import CheckResult, MonitorChunkOutcome, MonitorProgress, collect_documents
 
 
 if TYPE_CHECKING:
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.core.logger import Logger
-    from bigbrotr.models import Relay, RelayMetadata
+    from bigbrotr.models import Relay, RelayDocument
     from bigbrotr.models.constants import NetworkType
 
     from .configs import MetadataFlags
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     MonitorGaugeIncrement = Callable[[str], None]
     MonitorGaugeSetter = Callable[[str, int], None]
     MonitorRelayWorker = Callable[[Relay], AsyncGenerator[tuple[Relay, CheckResult | None], None]]
-    MonitorInsertRelayMetadata = Callable[[Brotr, list[RelayMetadata]], Awaitable[int]]
+    MonitorInsertRelayDocument = Callable[[Brotr, list[RelayDocument]], Awaitable[int]]
     MonitorUpsertCheckpoints = Callable[[Brotr, list[Relay], int], Awaitable[None]]
 
 
@@ -72,7 +72,7 @@ class MonitorChunkPersistence:
 
     brotr: Brotr
     store: MetadataFlags
-    insert_relay_metadata: MonitorInsertRelayMetadata = insert_relay_metadata
+    insert_relay_document: MonitorInsertRelayDocument = insert_relay_document
     upsert_monitor_checkpoints: MonitorUpsertCheckpoints = upsert_monitor_checkpoints
 
 
@@ -152,12 +152,12 @@ async def persist_chunk_outcome(
     chunk_outcome: MonitorChunkOutcome,
     checked_at: int,
 ) -> None:
-    """Persist one processed monitor chunk to metadata and service state."""
-    metadata = collect_metadata(
+    """Persist one processed monitor chunk to relay documents and service state."""
+    documents = collect_documents(
         list(chunk_outcome.successful),
         context.store,
     )
-    await context.insert_relay_metadata(context.brotr, metadata)
+    await context.insert_relay_document(context.brotr, documents)
     await context.upsert_monitor_checkpoints(
         context.brotr,
         list(chunk_outcome.checked_relays),

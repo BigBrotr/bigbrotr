@@ -78,14 +78,14 @@ def sample_catalog() -> Catalog:
 def composite_pk_catalog() -> Catalog:
     catalog = Catalog()
     catalog._tables = {
-        "relay_metadata": TableSchema(
-            name="relay_metadata",
+        "relay_document": TableSchema(
+            name="relay_document",
             columns=(
                 ColumnSchema(name="relay_url", pg_type="text", nullable=False),
-                ColumnSchema(name="metadata_id", pg_type="bytea", nullable=False),
-                ColumnSchema(name="metadata_type", pg_type="text", nullable=False),
+                ColumnSchema(name="document_id", pg_type="bytea", nullable=False),
+                ColumnSchema(name="role", pg_type="text", nullable=False),
             ),
-            primary_key=("relay_url", "metadata_id", "metadata_type"),
+            primary_key=("relay_url", "document_id", "role"),
             is_view=False,
         ),
     }
@@ -267,12 +267,12 @@ class TestApiBuildApp:
     def test_composite_pk_route_generated(
         self, mock_brotr: Brotr, composite_pk_catalog: Catalog
     ) -> None:
-        config = ApiConfig(read_models={"relay-metadata-history": ReadModelPolicy(enabled=True)})
+        config = ApiConfig(read_models={"relay-document-history": ReadModelPolicy(enabled=True)})
         service = Api(brotr=mock_brotr, config=config)
         service._read_models.catalog = composite_pk_catalog
         app = service._build_app()
         paths = [r.path for r in app.routes]
-        assert any("relay_url" in p and "metadata_id" in p and "metadata_type" in p for p in paths)
+        assert any("relay_url" in p and "document_id" in p and "role" in p for p in paths)
 
     def test_disabled_read_model_not_routed(self, test_client: TestClient) -> None:
         resp = test_client.get("/v1/service_state")

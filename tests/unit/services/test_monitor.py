@@ -50,7 +50,7 @@ from bigbrotr.services.monitor.queries import (
     delete_stale_checkpoints,
     fetch_relays_to_monitor,
     fetch_relays_to_monitor_page,
-    insert_relay_metadata,
+    insert_relay_document,
     is_publish_due,
     iter_relays_to_monitor_pages,
     upsert_monitor_checkpoints,
@@ -67,7 +67,7 @@ from bigbrotr.services.monitor.utils import (
     MonitorChunkOutcome,
     MonitorCyclePlan,
     MonitorProgress,
-    collect_metadata,
+    collect_documents,
     extract_result,
     log_reason,
     log_success,
@@ -292,7 +292,7 @@ def query_brotr() -> MagicMock:
     brotr.fetch = AsyncMock(return_value=[])
     brotr.fetchval = AsyncMock(return_value=0)
     brotr.upsert_service_state = AsyncMock(return_value=0)
-    brotr.insert_relay_metadata = AsyncMock(return_value=0)
+    brotr.insert_relay_document = AsyncMock(return_value=0)
     brotr.config.batch.max_size = 1000
     return brotr
 
@@ -1277,29 +1277,29 @@ class TestMonitorRelayPages:
         ]
 
 
-class TestInsertRelayMetadata:
+class TestInsertRelayDocument:
     async def test_delegates_to_batched_insert(self, query_brotr: MagicMock) -> None:
-        query_brotr.insert_relay_metadata = AsyncMock(return_value=5)
+        query_brotr.insert_relay_document = AsyncMock(return_value=5)
 
-        result = await insert_relay_metadata(query_brotr, [MagicMock(), MagicMock()])
+        result = await insert_relay_document(query_brotr, [MagicMock(), MagicMock()])
 
         assert result == 5
-        query_brotr.insert_relay_metadata.assert_awaited_once()
+        query_brotr.insert_relay_document.assert_awaited_once()
 
     async def test_splits_large_batch(self, query_brotr: MagicMock) -> None:
         query_brotr.config.batch.max_size = 2
-        query_brotr.insert_relay_metadata = AsyncMock(return_value=2)
+        query_brotr.insert_relay_document = AsyncMock(return_value=2)
 
         records = [MagicMock() for _ in range(5)]
-        result = await insert_relay_metadata(query_brotr, records)
+        result = await insert_relay_document(query_brotr, records)
 
         assert result == 6  # 2 + 2 + 2
-        assert query_brotr.insert_relay_metadata.await_count == 3
+        assert query_brotr.insert_relay_document.await_count == 3
 
     async def test_empty_returns_zero(self, query_brotr: MagicMock) -> None:
-        result = await insert_relay_metadata(query_brotr, [])
+        result = await insert_relay_document(query_brotr, [])
         assert result == 0
-        query_brotr.insert_relay_metadata.assert_not_awaited()
+        query_brotr.insert_relay_document.assert_not_awaited()
 
 
 class TestSaveMonitoringMarkers:
@@ -1562,7 +1562,7 @@ class TestMonitorHelpers:
 
         with (
             patch(
-                "bigbrotr.services.monitor.service.insert_relay_metadata",
+                "bigbrotr.services.monitor.service.insert_relay_document",
                 new_callable=AsyncMock,
             ) as mock_insert,
             patch(
@@ -1793,7 +1793,7 @@ class TestMonitorRun:
                 return_value=MonitorChunkOutcome(),
             ),
             patch(
-                "bigbrotr.services.monitor.service.insert_relay_metadata",
+                "bigbrotr.services.monitor.service.insert_relay_document",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -2686,7 +2686,7 @@ class TestMonitorMetrics:
             ),
             patch.object(monitor, "_monitor_worker", side_effect=fake_monitor_worker),
             patch(
-                "bigbrotr.services.monitor.service.insert_relay_metadata",
+                "bigbrotr.services.monitor.service.insert_relay_document",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -3226,7 +3226,7 @@ class TestMonitorMaxRelaysBudget:
             ),
             patch.object(monitor, "_monitor_worker", side_effect=fake_worker),
             patch(
-                "bigbrotr.services.monitor.service.insert_relay_metadata",
+                "bigbrotr.services.monitor.service.insert_relay_document",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -3270,7 +3270,7 @@ class TestMonitorMaxRelaysBudget:
             ),
             patch.object(monitor, "_monitor_worker", side_effect=fake_worker),
             patch(
-                "bigbrotr.services.monitor.service.insert_relay_metadata",
+                "bigbrotr.services.monitor.service.insert_relay_document",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -3478,10 +3478,10 @@ class TestRetryFetch:
 # ============================================================================
 
 
-class TestCollectMetadata:
+class TestCollectDocuments:
     def test_empty_input(self) -> None:
         store = MetadataFlags()
-        result = collect_metadata([], store)
+        result = collect_documents([], store)
 
         assert result == []
 
@@ -3499,11 +3499,11 @@ class TestCollectMetadata:
             nip66_http=True,
         )
 
-        result = collect_metadata([(relay, check_result)], store)
+        result = collect_documents([(relay, check_result)], store)
 
         assert len(result) == 1
         assert result[0].relay is relay
-        assert result[0].generated_at == 1700000000
+        assert result[0].associated_at == 1700000000
 
     def test_skips_disabled_types(self) -> None:
         relay = Relay("wss://relay.example.com")
@@ -3511,7 +3511,7 @@ class TestCollectMetadata:
         check_result = _make_check_result(generated_at=1700000000, nip11_info=nip11_meta)
         store = MetadataFlags(nip11_info=False)
 
-        result = collect_metadata([(relay, check_result)], store)
+        result = collect_documents([(relay, check_result)], store)
 
         assert len(result) == 0
 
@@ -3520,7 +3520,7 @@ class TestCollectMetadata:
         check_result = _make_check_result(generated_at=1700000000)
         store = MetadataFlags()
 
-        result = collect_metadata([(relay, check_result)], store)
+        result = collect_documents([(relay, check_result)], store)
 
         assert len(result) == 0
 
@@ -3533,6 +3533,6 @@ class TestCollectMetadata:
         result2 = _make_check_result(generated_at=200, nip11_info=nip11)
         store = MetadataFlags()
 
-        result = collect_metadata([(relay1, result1), (relay2, result2)], store)
+        result = collect_documents([(relay1, result1), (relay2, result2)], store)
 
         assert len(result) == 3

@@ -33,10 +33,10 @@ from bigbrotr.services.refresher.queries import (
     WatermarkSource,
     get_event_relay_watermark,
     get_incremental_target_spec,
-    get_max_generated_at,
+    get_max_associated_at,
     get_max_seen_at,
     get_periodic_target_spec,
-    get_relay_metadata_watermark,
+    get_relay_document_watermark,
 )
 from bigbrotr.services.refresher.service import RefreshCycleTotals, RefreshTargetResult
 
@@ -44,7 +44,7 @@ from bigbrotr.services.refresher.service import RefreshCycleTotals, RefreshTarge
 def _periodic_config(enabled: bool = False) -> dict[str, bool]:
     return {
         "rolling_windows": enabled,
-        "relay_stats_metadata": enabled,
+        "relay_stats_document": enabled,
         "nip85_followers": enabled,
     }
 
@@ -165,7 +165,7 @@ class TestRefreshTargetConfig:
     def test_dependency_validation_accepts_complete_selection(self) -> None:
         validate_refresh_dependencies(
             current_targets=[
-                CurrentRefreshTarget.RELAY_METADATA_CURRENT,
+                CurrentRefreshTarget.RELAY_DOCUMENT_CURRENT,
                 CurrentRefreshTarget.EVENTS_REPLACEABLE_CURRENT,
                 CurrentRefreshTarget.CONTACT_LISTS_CURRENT,
             ],
@@ -196,16 +196,16 @@ class TestRefreshQueryRegistry:
     @pytest.mark.parametrize(
         "target",
         [
-            CurrentRefreshTarget.RELAY_METADATA_CURRENT,
+            CurrentRefreshTarget.RELAY_DOCUMENT_CURRENT,
             AnalyticsRefreshTarget.RELAY_SOFTWARE_COUNTS,
             AnalyticsRefreshTarget.SUPPORTED_NIP_COUNTS,
         ],
     )
-    def test_metadata_targets_use_relay_metadata_watermark(
+    def test_document_targets_use_relay_document_watermark(
         self, target: CurrentRefreshTarget | AnalyticsRefreshTarget
     ) -> None:
         assert (
-            get_incremental_target_spec(target).watermark_source is WatermarkSource.RELAY_METADATA
+            get_incremental_target_spec(target).watermark_source is WatermarkSource.RELAY_DOCUMENT
         )
 
     def test_event_targets_use_event_relay_watermark(self) -> None:
@@ -221,8 +221,8 @@ class TestRefreshQueryRegistry:
             "rolling_windows_refresh"
         )
         assert get_periodic_target_spec(
-            PeriodicRefreshTarget.RELAY_STATS_METADATA
-        ).sql_function == ("relay_stats_metadata_refresh")
+            PeriodicRefreshTarget.RELAY_STATS_DOCUMENT
+        ).sql_function == ("relay_stats_document_refresh")
         assert get_periodic_target_spec(PeriodicRefreshTarget.NIP85_FOLLOWERS).sql_function == (
             "nip85_follower_count_refresh"
         )
@@ -232,14 +232,14 @@ class TestRefreshQueryRegistry:
         brotr.fetchval = AsyncMock(side_effect=[123, 456])
 
         assert await get_event_relay_watermark(brotr) == 123
-        assert await get_relay_metadata_watermark(brotr) == 456
+        assert await get_relay_document_watermark(brotr) == 456
 
     async def test_incremental_watermarks_hold_checkpoint_without_new_rows(self) -> None:
         brotr = MagicMock(spec=Brotr)
         brotr.fetchval = AsyncMock(return_value=False)
 
         assert await get_max_seen_at(brotr, 100) == 100
-        assert await get_max_generated_at(brotr, 200) == 200
+        assert await get_max_associated_at(brotr, 200) == 200
 
     async def test_incremental_watermarks_advance_to_wall_clock_when_rows_exist(self) -> None:
         brotr = MagicMock(spec=Brotr)
@@ -247,7 +247,7 @@ class TestRefreshQueryRegistry:
 
         with patch("bigbrotr.services.refresher.queries.time.time", return_value=999):
             assert await get_max_seen_at(brotr, 100) == 999
-            assert await get_max_generated_at(brotr, 200) == 999
+            assert await get_max_associated_at(brotr, 200) == 999
 
 
 class TestRefresherInit:
@@ -366,7 +366,7 @@ class TestRefresherRun:
         ]
         assert [target.value for target in plan.periodic_targets] == [
             "rolling_windows",
-            "relay_stats_metadata",
+            "relay_stats_document",
             "nip85_followers",
         ]
         assert plan.totals == RefreshCycleTotals(
@@ -376,19 +376,19 @@ class TestRefresherRun:
             periodic=3,
         )
 
-    async def test_uses_relay_metadata_watermark_for_metadata_targets(
+    async def test_uses_relay_document_watermark_for_document_targets(
         self, mock_refresher_brotr: Brotr
     ) -> None:
         refresher = Refresher(
             brotr=mock_refresher_brotr,
-            config=_refresher_config(current=["relay_metadata_current"]),
+            config=_refresher_config(current=["relay_document_current"]),
         )
 
         with (
             patch(
-                "bigbrotr.services.refresher.service.get_max_generated_at",
+                "bigbrotr.services.refresher.service.get_max_associated_at",
                 AsyncMock(return_value=5),
-            ) as mock_generated,
+            ) as mock_associated,
             patch(
                 "bigbrotr.services.refresher.service.get_max_seen_at", AsyncMock(return_value=5)
             ) as mock_seen,
@@ -397,13 +397,13 @@ class TestRefresherRun:
                 AsyncMock(return_value=1),
             ),
             patch(
-                "bigbrotr.services.refresher.service.get_relay_metadata_watermark",
+                "bigbrotr.services.refresher.service.get_relay_document_watermark",
                 AsyncMock(return_value=5),
             ),
         ):
             await refresher.run()
 
-        mock_generated.assert_awaited_once_with(mock_refresher_brotr, 0)
+        mock_associated.assert_awaited_once_with(mock_refresher_brotr, 0)
         mock_seen.assert_not_called()
 
     async def test_run_incremental_cycle_targets_updates_source_checkpoints(
@@ -770,17 +770,17 @@ class TestRefresherRun:
 
         assert result.watermark_event_relay_lag_seconds == 5
 
-    async def test_relay_metadata_watermark_lag_is_reported(
+    async def test_relay_document_watermark_lag_is_reported(
         self, mock_refresher_brotr: Brotr
     ) -> None:
         refresher = Refresher(
             brotr=mock_refresher_brotr,
-            config=_refresher_config(current=["relay_metadata_current"]),
+            config=_refresher_config(current=["relay_document_current"]),
         )
 
         with (
             patch(
-                "bigbrotr.services.refresher.service.get_max_generated_at",
+                "bigbrotr.services.refresher.service.get_max_associated_at",
                 AsyncMock(return_value=50),
             ),
             patch(
@@ -788,13 +788,13 @@ class TestRefresherRun:
                 AsyncMock(return_value=1),
             ),
             patch(
-                "bigbrotr.services.refresher.service.get_relay_metadata_watermark",
+                "bigbrotr.services.refresher.service.get_relay_document_watermark",
                 AsyncMock(return_value=55),
             ),
         ):
             result = await refresher.refresh()
 
-        assert result.watermark_relay_metadata_lag_seconds == 5
+        assert result.watermark_relay_document_lag_seconds == 5
 
 
 class TestRefresherMetrics:
