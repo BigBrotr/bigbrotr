@@ -8,7 +8,10 @@ from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 import asyncpg
 
 from bigbrotr.models.constants import EventKind
-from bigbrotr.services.assertor.utils import PROVIDER_PROFILE_SUBJECT_ID
+from bigbrotr.services.assertor.utils import (
+    PROVIDER_PROFILE_SUBJECT_ID,
+    TRUSTED_PROVIDER_LIST_SUBJECT_ID,
+)
 from bigbrotr.utils.protocol import summarize_broadcast_results
 
 
@@ -18,6 +21,7 @@ if TYPE_CHECKING:
     from nostr_sdk import Client, EventBuilder
 
     from bigbrotr.core.logger import Logger
+    from bigbrotr.nips.nip85 import TrustedProviderDeclaration
     from bigbrotr.utils.protocol import BroadcastClientResult
 
     from .configs import AssertorConfig
@@ -80,7 +84,28 @@ class ProviderProfileRuntime:
     build_state_key: Callable[..., str]
     build_profile_event: Callable[..., EventBuilder]
     provider_profile_content: Callable[..., dict[str, Any]]
-    content_hash: Callable[[dict[str, Any]], str]
+    content_hash: Callable[[Any], str]
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedProviderListRuntime:
+    """Dependencies for trusted-provider-list publish coordination."""
+
+    config: AssertorConfig
+    client: Client
+    logger: Logger
+    service_pubkey: str
+    mark_seen_state_key: Callable[[str], None]
+    is_unchanged: Callable[[str, str], Awaitable[bool]]
+    save_hash: Callable[[str, str], Awaitable[None]]
+    publish_events: Callable[
+        [list[EventBuilder], list[Client]],
+        Awaitable[list[BroadcastClientResult]],
+    ]
+    build_state_key: Callable[..., str]
+    build_trusted_provider_list: Callable[..., EventBuilder]
+    trusted_provider_declarations: Callable[..., tuple[TrustedProviderDeclaration, ...]]
+    content_hash: Callable[[Any], str]
 
 
 async def publish_assertion_rows(
@@ -213,6 +238,71 @@ async def publish_provider_profile(runtime: ProviderProfileRuntime) -> tuple[int
     except (asyncpg.PostgresError, OSError) as exc:
         runtime.logger.error(
             "provider_profile_publish_failed",
+            algorithm_id=runtime.config.algorithm_id,
+            error=str(exc),
+        )
+        return 0, 0, 1
+
+
+async def publish_trusted_provider_list(
+    runtime: TrustedProviderListRuntime,
+) -> tuple[int, int, int]:
+    """Publish the optional Kind 10040 trusted-provider list when its content changes."""
+    state_key = runtime.build_state_key(
+        algorithm_id=runtime.config.algorithm_id,
+        kind=EventKind.NIP85_TRUSTED_PROVIDER_LIST,
+        subject_id=TRUSTED_PROVIDER_LIST_SUBJECT_ID,
+    )
+    runtime.mark_seen_state_key(state_key)
+
+    declarations = runtime.trusted_provider_declarations(
+        config=runtime.config,
+        service_pubkey=runtime.service_pubkey,
+    )
+    content = runtime.config.trusted_provider_list.content
+    current_hash = runtime.content_hash(
+        {
+            "content": content,
+            "declarations": [
+                {
+                    "result_kind": declaration.result_kind,
+                    "tag_name": declaration.tag_name,
+                    "service_pubkey": declaration.service_pubkey,
+                    "relay_hint": declaration.relay_hint,
+                }
+                for declaration in declarations
+            ],
+        }
+    )
+    if await runtime.is_unchanged(state_key, current_hash):
+        return 0, 1, 0
+
+    try:
+        builder = runtime.build_trusted_provider_list(declarations, content=content)
+        successful_relays, failed_relays = summarize_broadcast_results(
+            await runtime.publish_events([builder], [runtime.client])
+        )
+        if successful_relays:
+            await runtime.save_hash(state_key, current_hash)
+            runtime.logger.info(
+                "trusted_provider_list_published",
+                algorithm_id=runtime.config.algorithm_id,
+                declarations=len(declarations),
+                relays=len(successful_relays),
+                failed_relays=len(failed_relays),
+            )
+            return 1, 0, 0
+
+        runtime.logger.warning(
+            "trusted_provider_list_publish_failed",
+            algorithm_id=runtime.config.algorithm_id,
+            error="no relays accepted trusted provider list",
+            failed_relays=failed_relays,
+        )
+        return 0, 0, 1
+    except (asyncpg.PostgresError, OSError) as exc:
+        runtime.logger.error(
+            "trusted_provider_list_publish_failed",
             algorithm_id=runtime.config.algorithm_id,
             error=str(exc),
         )

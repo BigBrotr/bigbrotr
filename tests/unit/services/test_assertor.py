@@ -90,6 +90,10 @@ class TestAssertorConfig:
         assert config.publishing.allow_insecure is False
         assert config.cleanup.remove_stale_checkpoints is True
         assert config.provider_profile.enabled is False
+        assert config.trusted_provider_list.enabled is False
+        assert config.trusted_provider_list.relay_hint is None
+        assert config.trusted_provider_list.tag_names == ["rank"]
+        assert config.trusted_provider_list.content == ""
 
     def test_custom_values(
         self,
@@ -104,6 +108,12 @@ class TestAssertorConfig:
             },
             publishing={"allow_insecure": True, "relays": ["wss://relay.example.com"]},
             cleanup={"remove_stale_checkpoints": False},
+            trusted_provider_list={
+                "enabled": True,
+                "relay_hint": "wss://publish.example.com",
+                "tag_names": ["rank", "comment_cnt"],
+                "content": "nip44-ciphertext",
+            },
         )
         assert config.algorithm_id == "trust-graph"
         assert config.selection.batch_size == 100
@@ -113,6 +123,10 @@ class TestAssertorConfig:
         assert config.publishing.allow_insecure is True
         assert [relay.url for relay in config.publishing.relays] == ["wss://relay.example.com"]
         assert config.cleanup.remove_stale_checkpoints is False
+        assert config.trusted_provider_list.enabled is True
+        assert config.trusted_provider_list.relay_hint == "wss://publish.example.com"
+        assert config.trusted_provider_list.tag_names == ["rank", "comment_cnt"]
+        assert config.trusted_provider_list.content == "nip44-ciphertext"
 
     def test_batch_size_validation(
         self,
@@ -151,6 +165,14 @@ class TestAssertorConfig:
     def test_duplicate_kinds_rejected(self) -> None:
         with pytest.raises(ValidationError, match="duplicate assertion kinds"):
             AssertorConfig(selection={"kinds": [30382, 30382]})
+
+    def test_duplicate_trusted_provider_tags_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="duplicate trusted-provider tag names"):
+            AssertorConfig(trusted_provider_list={"tag_names": ["rank", "rank"]})
+
+    def test_colon_in_trusted_provider_tag_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="must not contain ':'"):
+            AssertorConfig(trusted_provider_list={"tag_names": ["30382:rank"]})
 
 
 class TestAssertorInit:
@@ -273,6 +295,7 @@ class TestAssertorRun:
         service._publish_addressable_assertions = AsyncMock()
         service._publish_identifier_assertions = AsyncMock()
         service._publish_provider_profile = AsyncMock()
+        service._publish_trusted_provider_list = AsyncMock()
         service._publish_timed = AsyncMock(  # type: ignore[method-assign]
             side_effect=[
                 PublishKindResult(published=2),
@@ -285,6 +308,7 @@ class TestAssertorRun:
         assert result == (
             PublishKindResult(published=2),
             PublishKindResult(failed=1),
+            PublishKindResult(),
             PublishKindResult(),
             PublishKindResult(),
             PublishKindResult(),
@@ -313,6 +337,7 @@ class TestAssertorRun:
         service._publish_addressable_assertions = AsyncMock()
         service._publish_identifier_assertions = AsyncMock()
         service._publish_provider_profile = AsyncMock()
+        service._publish_trusted_provider_list = AsyncMock()
         service._publish_timed = AsyncMock(  # type: ignore[method-assign]
             side_effect=[
                 PublishKindResult(skipped=3),
@@ -328,10 +353,53 @@ class TestAssertorRun:
             PublishKindResult(),
             PublishKindResult(skipped=3),
             PublishKindResult(published=1),
+            PublishKindResult(),
         )
         assert [call.args[0] for call in service._publish_timed.await_args_list] == [
             service._publish_identifier_assertions,
             service._publish_provider_profile,
+        ]
+
+    async def test_run_selected_publishers_runs_trusted_provider_list_when_enabled(
+        self,
+        mock_brotr: MagicMock,
+    ) -> None:
+        from bigbrotr.services.assertor.service import PublishKindResult
+
+        service = _assertor_harness(
+            mock_brotr,
+            config=AssertorConfig(
+                selection={"kinds": [EventKind.NIP85_IDENTIFIER_ASSERTION]},
+                trusted_provider_list={"enabled": True},
+                metrics={"enabled": False},
+            ),
+        )
+        service._publish_user_assertions = AsyncMock()
+        service._publish_event_assertions = AsyncMock()
+        service._publish_addressable_assertions = AsyncMock()
+        service._publish_identifier_assertions = AsyncMock()
+        service._publish_provider_profile = AsyncMock()
+        service._publish_trusted_provider_list = AsyncMock()
+        service._publish_timed = AsyncMock(  # type: ignore[method-assign]
+            side_effect=[
+                PublishKindResult(skipped=3),
+                PublishKindResult(published=1),
+            ]
+        )
+
+        result = await service._run_selected_publishers()
+
+        assert result == (
+            PublishKindResult(),
+            PublishKindResult(),
+            PublishKindResult(),
+            PublishKindResult(skipped=3),
+            PublishKindResult(),
+            PublishKindResult(published=1),
+        )
+        assert [call.args[0] for call in service._publish_timed.await_args_list] == [
+            service._publish_identifier_assertions,
+            service._publish_trusted_provider_list,
         ]
 
     async def test_run_checkpoint_cleanup_obeys_cleanup_toggle(self, mock_brotr: MagicMock) -> None:
@@ -1035,6 +1103,27 @@ class TestAssertorUtils:
             "software": "bigbrotr",
         }
 
+    def test_trusted_provider_declarations_use_canonical_defaults(self) -> None:
+        from bigbrotr.services.assertor.utils import trusted_provider_declarations
+
+        declarations = trusted_provider_declarations(
+            config=AssertorConfig(
+                selection={"kinds": [30385, 30382]},
+                publishing={"relays": ["wss://relay.example.com"]},
+                trusted_provider_list={"enabled": True},
+            ),
+            service_pubkey="aa" * 32,
+        )
+
+        assert [declaration.kind_tag for declaration in declarations] == [
+            "30382:rank",
+            "30385:rank",
+        ]
+        assert all(declaration.service_pubkey == "aa" * 32 for declaration in declarations)
+        assert all(
+            declaration.relay_hint == "wss://relay.example.com" for declaration in declarations
+        )
+
 
 class TestAssertorProviderProfile:
     @pytest.fixture
@@ -1145,6 +1234,130 @@ class TestAssertorProviderProfile:
         service._logger.error.assert_called_once()
 
 
+class TestAssertorTrustedProviderList:
+    @pytest.fixture
+    def mock_brotr(self) -> MagicMock:
+        brotr = MagicMock()
+        brotr.get_service_state = AsyncMock(return_value=[])
+        brotr.upsert_service_state = AsyncMock()
+        brotr.delete_service_state = AsyncMock(return_value=0)
+        return brotr
+
+    def _make_service(self, mock_brotr: MagicMock) -> MagicMock:
+        return _assertor_harness(
+            mock_brotr,
+            config=AssertorConfig(
+                selection={"kinds": [30382, 30385]},
+                publishing={"relays": ["wss://relay.example.com"]},
+                trusted_provider_list={
+                    "enabled": True,
+                    "content": "nip44-ciphertext",
+                    "tag_names": ["rank"],
+                },
+                metrics={"enabled": False},
+            ),
+        )
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    async def test_publishes_trusted_provider_list_when_content_changes(
+        self,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        mock_broadcast.return_value = _broadcast_results()
+        service = self._make_service(mock_brotr)
+
+        published, skipped, failed = await service._publish_trusted_provider_list()
+
+        assert (published, skipped, failed) == (1, 0, 0)
+        saved_state = mock_brotr.upsert_service_state.call_args[0][0][0]
+        assert saved_state.state_key == "global-pagerank:10040:trusted_provider_list"
+        assert "global-pagerank:10040:trusted_provider_list" in service._cycle_seen_state_keys
+
+        builder = mock_broadcast.await_args.args[0][0]
+        event = builder.sign_with_keys(service._config.keys.keys)
+        assert event.kind().as_u16() == EventKind.NIP85_TRUSTED_PROVIDER_LIST
+        assert event.content() == "nip44-ciphertext"
+        assert [list(tag.as_vec()) for tag in event.tags().to_vec()] == [
+            ["30382:rank", service._keys.public_key().to_hex(), "wss://relay.example.com"],
+            ["30385:rank", service._keys.public_key().to_hex(), "wss://relay.example.com"],
+        ]
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    async def test_skips_unchanged_trusted_provider_list(
+        self,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        service = self._make_service(mock_brotr)
+        from bigbrotr.services.assertor.utils import content_hash, trusted_provider_declarations
+
+        state = MagicMock()
+        state.state_value = {
+            "hash": content_hash(
+                {
+                    "content": service._config.trusted_provider_list.content,
+                    "declarations": [
+                        {
+                            "result_kind": declaration.result_kind,
+                            "tag_name": declaration.tag_name,
+                            "service_pubkey": declaration.service_pubkey,
+                            "relay_hint": declaration.relay_hint,
+                        }
+                        for declaration in trusted_provider_declarations(
+                            config=service._config,
+                            service_pubkey=service._keys.public_key().to_hex(),
+                        )
+                    ],
+                }
+            )
+        }
+        mock_brotr.get_service_state = AsyncMock(return_value=[state])
+
+        published, skipped, failed = await service._publish_trusted_provider_list()
+
+        assert (published, skipped, failed) == (0, 1, 0)
+        mock_broadcast.assert_not_awaited()
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    async def test_trusted_provider_list_publish_failure_when_no_relays_accept(
+        self,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        mock_broadcast.return_value = _broadcast_results(
+            successful_relays=(),
+            failed_relays={"wss://relay.example": "timeout"},
+        )
+        service = self._make_service(mock_brotr)
+
+        published, skipped, failed = await service._publish_trusted_provider_list()
+
+        assert (published, skipped, failed) == (0, 0, 1)
+        mock_brotr.upsert_service_state.assert_not_awaited()
+        service._logger.warning.assert_called_once_with(
+            "trusted_provider_list_publish_failed",
+            algorithm_id=service._config.algorithm_id,
+            error="no relays accepted trusted provider list",
+            failed_relays={"wss://relay.example": "timeout"},
+        )
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    async def test_trusted_provider_list_publish_error_counts_as_failed(
+        self,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        mock_broadcast.side_effect = OSError("relay disconnected")
+        service = self._make_service(mock_brotr)
+
+        published, skipped, failed = await service._publish_trusted_provider_list()
+
+        assert (published, skipped, failed) == (0, 0, 1)
+        mock_brotr.upsert_service_state.assert_not_awaited()
+        service._logger.error.assert_called_once()
+
+
 class TestAssertorCheckpointCleanup:
     async def test_delete_stale_checkpoints_removes_only_current_algorithm_stale_keys(
         self,
@@ -1157,6 +1370,7 @@ class TestAssertorCheckpointCleanup:
         disabled_kind_key = "global-pagerank:30383:" + ("cc" * 32)
         other_algorithm_key = "other-algo:30382:" + ("dd" * 32)
         profile_key = "global-pagerank:0:provider_profile"
+        trusted_provider_list_key = "global-pagerank:10040:trusted_provider_list"
         noncanonical_key = "user:" + ("ee" * 32)
 
         def _state(key: str) -> MagicMock:
@@ -1179,10 +1393,11 @@ class TestAssertorCheckpointCleanup:
                         "website": "https://bigbrotr.com",
                     },
                 },
+                trusted_provider_list={"enabled": True},
             )
             svc._logger = MagicMock()
             svc._state_store = ServiceStateStore(svc._brotr)
-            svc._cycle_seen_state_keys = {keep_key, profile_key}
+            svc._cycle_seen_state_keys = {keep_key, profile_key, trusted_provider_list_key}
 
             with (
                 patch.object(
@@ -1195,6 +1410,7 @@ class TestAssertorCheckpointCleanup:
                             _state(disabled_kind_key),
                             _state(other_algorithm_key),
                             _state(profile_key),
+                            _state(trusted_provider_list_key),
                             _state(noncanonical_key),
                         ]
                     ),

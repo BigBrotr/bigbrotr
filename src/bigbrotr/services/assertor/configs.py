@@ -80,6 +80,48 @@ class ProviderProfileConfig(BaseModel):
     )
 
 
+class TrustedProviderListConfig(BaseModel):
+    """Optional Kind 10040 trusted-provider list publishing for the service key."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable Kind 10040 trusted-provider list publishing for the service key",
+    )
+    relay_hint: str | None = Field(
+        default=None,
+        description=(
+            "Canonical relay hint to advertise in Kind 10040 declarations; "
+            "defaults to the first publishing relay when omitted"
+        ),
+    )
+    tag_names: list[str] = Field(
+        default_factory=lambda: ["rank"],
+        min_length=1,
+        description=(
+            "Assertion tag names to declare for each enabled assertion kind in "
+            "the Kind 10040 provider list"
+        ),
+    )
+    content: str = Field(
+        default="",
+        description="Optional event content for Kind 10040 publishing",
+    )
+
+    @field_validator("tag_names")
+    @classmethod
+    def tag_names_valid(cls, v: list[str]) -> list[str]:
+        normalized = [tag.strip() for tag in v]
+        if any(not tag for tag in normalized):
+            raise ValueError("tag_names must not contain blank values")
+        if any(":" in tag for tag in normalized):
+            raise ValueError("tag_names must not contain ':'")
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("duplicate trusted-provider tag names are not allowed")
+        return normalized
+
+
 class AssertorSelectionConfig(BaseModel):
     """Subject selection and per-kind assertion scope."""
 
@@ -172,6 +214,8 @@ class AssertorConfig(BaseServiceConfig):
         publishing: Relay publishing settings for assertion events.
         cleanup: Checkpoint cleanup behavior.
         provider_profile: Optional Kind 0 profile metadata for the service key.
+        trusted_provider_list: Optional Kind 10040 trusted-provider list
+            publishing settings for the service key.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -218,4 +262,8 @@ class AssertorConfig(BaseServiceConfig):
     provider_profile: ProviderProfileConfig = Field(
         default_factory=ProviderProfileConfig,
         description="Optional Kind 0 provider profile publishing settings",
+    )
+    trusted_provider_list: TrustedProviderListConfig = Field(
+        default_factory=TrustedProviderListConfig,
+        description="Optional Kind 10040 trusted-provider list publishing settings",
     )

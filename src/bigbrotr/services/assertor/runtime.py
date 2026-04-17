@@ -36,6 +36,7 @@ class PublishCycleResult:
     addressable: PublishKindResult = field(default_factory=PublishKindResult)
     identifier: PublishKindResult = field(default_factory=PublishKindResult)
     provider_profile: PublishKindResult = field(default_factory=PublishKindResult)
+    trusted_provider_list: PublishKindResult = field(default_factory=PublishKindResult)
     checkpoint_cleanup_removed: int = 0
 
     @property
@@ -80,6 +81,21 @@ class PublishCycleResult:
         """Provider profile events that failed in this cycle."""
         return self.provider_profile.failed
 
+    @property
+    def trusted_provider_lists_published(self) -> int:
+        """Trusted-provider-list events published in this cycle."""
+        return self.trusted_provider_list.published
+
+    @property
+    def trusted_provider_lists_skipped(self) -> int:
+        """Trusted-provider-list events skipped in this cycle."""
+        return self.trusted_provider_list.skipped
+
+    @property
+    def trusted_provider_lists_failed(self) -> int:
+        """Trusted-provider-list events that failed in this cycle."""
+        return self.trusted_provider_list.failed
+
 
 async def publish_timed(
     publish_func: Callable[[], Awaitable[tuple[int, int, int]]],
@@ -108,7 +124,9 @@ async def run_selected_publishers(  # noqa: PLR0913
     publish_addressable_assertions: Callable[[], Awaitable[tuple[int, int, int]]],
     publish_identifier_assertions: Callable[[], Awaitable[tuple[int, int, int]]],
     publish_provider_profile: Callable[[], Awaitable[tuple[int, int, int]]],
+    publish_trusted_provider_list: Callable[[], Awaitable[tuple[int, int, int]]],
 ) -> tuple[
+    PublishKindResult,
     PublishKindResult,
     PublishKindResult,
     PublishKindResult,
@@ -122,6 +140,7 @@ async def run_selected_publishers(  # noqa: PLR0913
         "addressable": PublishKindResult(),
         "identifier": PublishKindResult(),
         "provider_profile": PublishKindResult(),
+        "trusted_provider_list": PublishKindResult(),
     }
 
     selected: list[tuple[str, Callable[[], Awaitable[tuple[int, int, int]]]]] = []
@@ -135,6 +154,8 @@ async def run_selected_publishers(  # noqa: PLR0913
         selected.append(("identifier", publish_identifier_assertions))
     if config.provider_profile.enabled:
         selected.append(("provider_profile", publish_provider_profile))
+    if config.trusted_provider_list.enabled:
+        selected.append(("trusted_provider_list", publish_trusted_provider_list))
 
     for result_name, publish_func in selected:
         results[result_name] = await publish_timed_func(publish_func)
@@ -145,6 +166,7 @@ async def run_selected_publishers(  # noqa: PLR0913
         results["addressable"],
         results["identifier"],
         results["provider_profile"],
+        results["trusted_provider_list"],
     )
 
 
@@ -174,6 +196,18 @@ def emit_publish_metrics(
     service.set_gauge("provider_profiles_published", result.provider_profiles_published)
     service.set_gauge("provider_profiles_skipped", result.provider_profiles_skipped)
     service.set_gauge("provider_profiles_failed", result.provider_profiles_failed)
+    service.set_gauge(
+        "trusted_provider_lists_published",
+        result.trusted_provider_lists_published,
+    )
+    service.set_gauge(
+        "trusted_provider_lists_skipped",
+        result.trusted_provider_lists_skipped,
+    )
+    service.set_gauge(
+        "trusted_provider_lists_failed",
+        result.trusted_provider_lists_failed,
+    )
     service.set_gauge("checkpoint_cleanup_removed", result.checkpoint_cleanup_removed)
     service.set_gauge("stale_checkpoints_removed", result.checkpoint_cleanup_removed)
     service.set_gauge("phase_duration_cleanup_seconds", cleanup_duration)
@@ -199,4 +233,20 @@ def emit_publish_metrics(
     service.set_gauge(
         "phase_duration_provider_profile_seconds",
         result.provider_profile.duration_seconds,
+    )
+    service.set_gauge(
+        "trusted_provider_list_published",
+        result.trusted_provider_list.published,
+    )
+    service.set_gauge(
+        "trusted_provider_list_skipped",
+        result.trusted_provider_list.skipped,
+    )
+    service.set_gauge(
+        "trusted_provider_list_failed",
+        result.trusted_provider_list.failed,
+    )
+    service.set_gauge(
+        "phase_duration_trusted_provider_list_seconds",
+        result.trusted_provider_list.duration_seconds,
     )

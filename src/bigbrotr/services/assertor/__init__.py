@@ -1,4 +1,4 @@
-"""NIP-85 Trusted Assertions publisher service.
+"""NIP-85 provider-package publisher service.
 
 See Also:
     [Assertor][bigbrotr.services.assertor.Assertor]: The service class.
@@ -13,6 +13,7 @@ from .configs import (
     AssertorSelectionConfig,
     ProviderProfileConfig,
     ProviderProfileKind0Content,
+    TrustedProviderListConfig,
 )
 from .service import Assertor, PublishCycleResult, PublishKindResult
 
@@ -27,4 +28,5 @@ __all__ = [
     "ProviderProfileKind0Content",
     "PublishCycleResult",
     "PublishKindResult",
+    "TrustedProviderListConfig",
 ]

@@ -67,6 +67,7 @@ class TestRunSelectedPublishers:
         publish_addressable_assertions = AsyncMock()
         publish_identifier_assertions = AsyncMock()
         publish_provider_profile = AsyncMock()
+        publish_trusted_provider_list = AsyncMock()
 
         result = await run_selected_publishers(
             config=config,
@@ -76,11 +77,13 @@ class TestRunSelectedPublishers:
             publish_addressable_assertions=publish_addressable_assertions,
             publish_identifier_assertions=publish_identifier_assertions,
             publish_provider_profile=publish_provider_profile,
+            publish_trusted_provider_list=publish_trusted_provider_list,
         )
 
         assert result == (
             PublishKindResult(published=2),
             PublishKindResult(failed=1),
+            PublishKindResult(),
             PublishKindResult(),
             PublishKindResult(),
             PublishKindResult(),
@@ -111,6 +114,7 @@ class TestRunSelectedPublishers:
             publish_addressable_assertions=AsyncMock(),
             publish_identifier_assertions=AsyncMock(),
             publish_provider_profile=AsyncMock(),
+            publish_trusted_provider_list=AsyncMock(),
         )
 
         assert result == (
@@ -118,6 +122,40 @@ class TestRunSelectedPublishers:
             PublishKindResult(),
             PublishKindResult(),
             PublishKindResult(skipped=3),
+            PublishKindResult(published=1),
+            PublishKindResult(),
+        )
+
+    async def test_runs_trusted_provider_list_when_enabled(self) -> None:
+        config = AssertorConfig(
+            selection={"kinds": [EventKind.NIP85_IDENTIFIER_ASSERTION]},
+            trusted_provider_list={"enabled": True},
+            metrics={"enabled": False},
+        )
+        publish_timed_func = AsyncMock(
+            side_effect=[
+                PublishKindResult(skipped=3),
+                PublishKindResult(published=1),
+            ]
+        )
+
+        result = await run_selected_publishers(
+            config=config,
+            publish_timed_func=publish_timed_func,
+            publish_user_assertions=AsyncMock(),
+            publish_event_assertions=AsyncMock(),
+            publish_addressable_assertions=AsyncMock(),
+            publish_identifier_assertions=AsyncMock(),
+            publish_provider_profile=AsyncMock(),
+            publish_trusted_provider_list=AsyncMock(),
+        )
+
+        assert result == (
+            PublishKindResult(),
+            PublishKindResult(),
+            PublishKindResult(),
+            PublishKindResult(skipped=3),
+            PublishKindResult(),
             PublishKindResult(published=1),
         )
 
@@ -149,6 +187,7 @@ class TestEmitPublishMetrics:
         result = PublishCycleResult(
             user=PublishKindResult(eligible=3, published=2, skipped=1, duration_seconds=1.5),
             provider_profile=PublishKindResult(published=1, duration_seconds=0.25),
+            trusted_provider_list=PublishKindResult(skipped=1, duration_seconds=0.1),
             checkpoint_cleanup_removed=4,
         )
 
@@ -158,8 +197,10 @@ class TestEmitPublishMetrics:
         service.set_gauge.assert_any_call("assertions_skipped", 1)
         service.set_gauge.assert_any_call("assertions_failed", 0)
         service.set_gauge.assert_any_call("provider_profiles_published", 1)
+        service.set_gauge.assert_any_call("trusted_provider_lists_skipped", 1)
         service.set_gauge.assert_any_call("checkpoint_cleanup_removed", 4)
         service.set_gauge.assert_any_call("user_assertions_eligible", 3)
         service.set_gauge.assert_any_call("phase_duration_user_seconds", 1.5)
         service.set_gauge.assert_any_call("phase_duration_cleanup_seconds", 0.5)
         service.set_gauge.assert_any_call("provider_profile_published", 1)
+        service.set_gauge.assert_any_call("trusted_provider_list_skipped", 1)

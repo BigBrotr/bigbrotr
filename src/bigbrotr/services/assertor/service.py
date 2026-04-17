@@ -1,10 +1,15 @@
 """Assertor service for BigBrotr.
 
-Reads NIP-85 facts and public score outputs and publishes Trusted Assertion events
-(kinds 30382-30385). Change detection uses canonical
-``<algorithm_id>:<kind>:<subject_id>`` checkpoint keys, provider profile
-publishing is optional and content-based, and stale checkpoints are removed
-when subjects are no longer eligible.
+Reads NIP-85 facts and public score outputs and publishes the full provider
+package for one algorithm-scoped service key:
+
+- trusted assertions (kinds 30382-30385);
+- optional Kind 0 provider profile;
+- optional Kind 10040 trusted-provider list.
+
+Change detection uses canonical ``<algorithm_id>:<kind>:<subject_id>``
+checkpoint keys, and stale checkpoints are removed when subjects are no longer
+eligible.
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ from bigbrotr.nips.event_builders import (
     build_event_assertion,
     build_identifier_assertion,
     build_profile_event,
+    build_trusted_provider_list,
     build_user_assertion,
 )
 from bigbrotr.nips.nip85.data import (
@@ -42,8 +48,10 @@ from .publishing import (
     ProviderProfileRuntime,
     PublishPlan,
     PublishRuntime,
+    TrustedProviderListRuntime,
     publish_assertion_rows,
     publish_provider_profile,
+    publish_trusted_provider_list,
 )
 from .queries import (
     fetch_addressable_rows,
@@ -64,6 +72,7 @@ from .utils import (
     content_hash,
     parse_state_key,
     provider_profile_content,
+    trusted_provider_declarations,
 )
 
 
@@ -80,7 +89,7 @@ __all__ = ["Assertor", "PublishCycleResult", "PublishKindResult"]
 
 
 class Assertor(BaseService[AssertorConfig]):
-    """NIP-85 Trusted Assertions publisher."""
+    """NIP-85 provider-package publisher."""
 
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.ASSERTOR
     CONFIG_CLASS: ClassVar[type[AssertorConfig]] = AssertorConfig
@@ -163,6 +172,7 @@ class Assertor(BaseService[AssertorConfig]):
             addressable_result,
             identifier_result,
             provider_profile_result,
+            trusted_provider_list_result,
         ) = await self._run_selected_publishers()
 
         removed, cleanup_duration = await self._run_checkpoint_cleanup()
@@ -173,6 +183,7 @@ class Assertor(BaseService[AssertorConfig]):
             addressable=addressable_result,
             identifier=identifier_result,
             provider_profile=provider_profile_result,
+            trusted_provider_list=trusted_provider_list_result,
             checkpoint_cleanup_removed=removed,
         )
         self._emit_publish_metrics(result, cleanup_duration=cleanup_duration)
@@ -185,6 +196,9 @@ class Assertor(BaseService[AssertorConfig]):
             provider_profiles_published=result.provider_profiles_published,
             provider_profiles_skipped=result.provider_profiles_skipped,
             provider_profiles_failed=result.provider_profiles_failed,
+            trusted_provider_lists_published=result.trusted_provider_lists_published,
+            trusted_provider_lists_skipped=result.trusted_provider_lists_skipped,
+            trusted_provider_lists_failed=result.trusted_provider_lists_failed,
             checkpoints_removed=result.checkpoint_cleanup_removed,
         )
 
@@ -193,6 +207,7 @@ class Assertor(BaseService[AssertorConfig]):
     async def _run_selected_publishers(
         self,
     ) -> tuple[
+        PublishKindResult,
         PublishKindResult,
         PublishKindResult,
         PublishKindResult,
@@ -208,6 +223,7 @@ class Assertor(BaseService[AssertorConfig]):
             publish_addressable_assertions=self._publish_addressable_assertions,
             publish_identifier_assertions=self._publish_identifier_assertions,
             publish_provider_profile=self._publish_provider_profile,
+            publish_trusted_provider_list=self._publish_trusted_provider_list,
         )
 
     async def _run_checkpoint_cleanup(self) -> tuple[int, float]:
@@ -361,6 +377,28 @@ class Assertor(BaseService[AssertorConfig]):
             )
         )
 
+    async def _publish_trusted_provider_list(self) -> tuple[int, int, int]:
+        """Publish the optional Kind 10040 trusted-provider list when it changes."""
+        if self._client is None:
+            return 0, 0, 0
+
+        return await publish_trusted_provider_list(
+            TrustedProviderListRuntime(
+                config=self._config,
+                client=self._client,
+                logger=self._logger,
+                service_pubkey=self._keys.public_key().to_hex(),
+                mark_seen_state_key=self._mark_seen_state_key,
+                is_unchanged=self._is_unchanged,
+                save_hash=self._save_hash,
+                publish_events=broadcast_events,
+                build_state_key=build_state_key,
+                build_trusted_provider_list=build_trusted_provider_list,
+                trusted_provider_declarations=trusted_provider_declarations,
+                content_hash=content_hash,
+            )
+        )
+
     def _mark_seen_state_key(self, state_key: str) -> None:
         """Track checkpoints that were still eligible in the current cycle."""
         self._cycle_seen_state_keys.add(state_key)
@@ -372,6 +410,8 @@ class Assertor(BaseService[AssertorConfig]):
         configured_kinds = {int(kind) for kind in self._config.selection.kinds}
         if self._config.provider_profile.enabled:
             configured_kinds.add(int(EventKind.SET_METADATA))
+        if self._config.trusted_provider_list.enabled:
+            configured_kinds.add(int(EventKind.NIP85_TRUSTED_PROVIDER_LIST))
 
         stale: list[ServiceState] = []
         for state in states:

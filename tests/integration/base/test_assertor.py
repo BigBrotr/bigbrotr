@@ -337,6 +337,7 @@ def _make_assertor_config(
     algorithm_id: str,
     *,
     provider_profile_enabled: bool = True,
+    trusted_provider_list_enabled: bool = True,
 ) -> AssertorConfig:
     return AssertorConfig.model_validate(
         {
@@ -356,6 +357,11 @@ def _make_assertor_config(
                     "about": "NIP-85 trusted assertion provider",
                     "website": "https://bigbrotr.com",
                 },
+            },
+            "trusted_provider_list": {
+                "enabled": trusted_provider_list_enabled,
+                "relay_hint": "wss://relay.damus.io",
+                "tag_names": ["rank"],
             },
         }
     )
@@ -383,6 +389,7 @@ def _assert_final_checkpoint_state(
     addressable_key: str,
     identifier_key: str,
     profile_key: str,
+    trusted_provider_list_key: str,
     stale_user_key: str,
     stale_event_key: str,
     stale_addressable_key: str,
@@ -394,6 +401,7 @@ def _assert_final_checkpoint_state(
     assert addressable_key in state_by_key
     assert identifier_key in state_by_key
     assert profile_key in state_by_key
+    assert trusted_provider_list_key in state_by_key
     assert stale_user_key not in state_by_key
     assert stale_event_key not in state_by_key
     assert stale_addressable_key not in state_by_key
@@ -402,7 +410,14 @@ def _assert_final_checkpoint_state(
     assert not any(key.startswith("user:") for key in state_by_key)
     assert not any(key.startswith("event:") for key in state_by_key)
 
-    for key in (user_key, event_key, addressable_key, identifier_key, profile_key):
+    for key in (
+        user_key,
+        event_key,
+        addressable_key,
+        identifier_key,
+        profile_key,
+        trusted_provider_list_key,
+    ):
         assert "hash" in state_by_key[key].state_value
         assert state_by_key[key].state_value["timestamp"] > 0
 
@@ -419,11 +434,22 @@ def _assert_published_event_payloads(
 
     assert set(events_by_kind) == {
         EventKind.SET_METADATA,
+        EventKind.NIP85_TRUSTED_PROVIDER_LIST,
         EventKind.NIP85_USER_ASSERTION,
         EventKind.NIP85_EVENT_ASSERTION,
         EventKind.NIP85_ADDRESSABLE_ASSERTION,
         EventKind.NIP85_IDENTIFIER_ASSERTION,
     }
+    trusted_provider_tags = [
+        list(tag.as_vec())
+        for tag in events_by_kind[EventKind.NIP85_TRUSTED_PROVIDER_LIST].tags().to_vec()
+    ]
+    assert trusted_provider_tags == [
+        ["30382:rank", config.keys.keys.public_key().to_hex(), "wss://relay.damus.io"],
+        ["30383:rank", config.keys.keys.public_key().to_hex(), "wss://relay.damus.io"],
+        ["30384:rank", config.keys.keys.public_key().to_hex(), "wss://relay.damus.io"],
+        ["30385:rank", config.keys.keys.public_key().to_hex(), "wss://relay.damus.io"],
+    ]
     assert _tag_values(events_by_kind[EventKind.NIP85_USER_ASSERTION], "rank") == ["89"]
     assert _tag_values(events_by_kind[EventKind.NIP85_EVENT_ASSERTION], "rank") == ["81"]
     assert _tag_values(events_by_kind[EventKind.NIP85_ADDRESSABLE_ASSERTION], "a") == [
@@ -522,6 +548,7 @@ class TestAssertorIntegration:
         addressable_key = f"{algorithm_id}:30384:{event_address}"
         identifier_key = f"{algorithm_id}:30385:{identifier}"
         profile_key = f"{algorithm_id}:0:provider_profile"
+        trusted_provider_list_key = f"{algorithm_id}:10040:trusted_provider_list"
 
         _assert_final_checkpoint_state(
             state_by_key,
@@ -530,6 +557,7 @@ class TestAssertorIntegration:
             addressable_key=addressable_key,
             identifier_key=identifier_key,
             profile_key=profile_key,
+            trusted_provider_list_key=trusted_provider_list_key,
             stale_user_key=stale_user_key,
             stale_event_key=stale_event_key,
             stale_addressable_key=stale_addressable_key,
@@ -569,6 +597,8 @@ class TestAssertorIntegration:
         assert second_result.assertions_skipped == 4
         assert second_result.provider_profiles_published == 0
         assert second_result.provider_profiles_skipped == 1
+        assert second_result.trusted_provider_lists_published == 0
+        assert second_result.trusted_provider_lists_skipped == 1
         assert second_result.checkpoint_cleanup_removed == 0
         assert second_published_builders == []
 
@@ -581,6 +611,7 @@ class TestAssertorIntegration:
         config = _make_assertor_config(
             "no-eligible-pagerank",
             provider_profile_enabled=False,
+            trusted_provider_list_enabled=False,
         )
         mock_broadcast = AsyncMock(return_value=1)
 
@@ -601,5 +632,7 @@ class TestAssertorIntegration:
         assert result.assertions_skipped == 0
         assert result.provider_profiles_published == 0
         assert result.provider_profiles_skipped == 0
+        assert result.trusted_provider_lists_published == 0
+        assert result.trusted_provider_lists_skipped == 0
         assert result.checkpoint_cleanup_removed == 0
         mock_broadcast.assert_not_awaited()

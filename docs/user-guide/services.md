@@ -451,7 +451,7 @@ target registry offline instead of introducing a second derivation owner.
 
 ## Assertor
 
-**Purpose**: Publish NIP-85 trusted assertions and the optional provider profile for an algorithm-scoped service key.
+**Purpose**: Publish the full NIP-85 provider package for an algorithm-scoped service key: trusted assertions, optional provider profile, and optional trusted-provider list.
 
 **Mode**: Continuous (`run_forever`)
 
@@ -463,7 +463,7 @@ target registry offline instead of introducing a second derivation owner.
 1. On startup (`__aenter__`), build a Nostr client from the configured signing key and connect to relays
 2. During each `run()` cycle, query eligible user, event, addressable, and identifier facts joined with the current algorithm's public scores
 3. Hash each assertion payload and compare it against `service_state` using `<algorithm_id>:<kind>:<subject_id>` checkpoint keys
-4. Publish only changed assertions, optionally publish a Kind 0 provider profile, then persist the new hashes
+4. Publish only changed assertions, optionally publish a Kind 0 provider profile and a Kind 10040 trusted-provider list, then persist the new hashes
 5. Remove stale or non-canonical checkpoints after the cycle, keeping only current canonical state for the active algorithm namespace
 
 ### Configuration
@@ -479,6 +479,10 @@ target registry offline instead of introducing a second derivation owner.
 | `selection.top_topics` | int | `5` | Maximum topic tags included in user assertions |
 | `cleanup.remove_stale_checkpoints` | bool | `true` | Remove stale or non-canonical checkpoints after each cycle |
 | `provider_profile.enabled` | bool | `false` | Publish a Kind 0 provider profile for the assertor identity |
+| `trusted_provider_list.enabled` | bool | `false` | Publish a Kind 10040 trusted-provider list for the assertor identity |
+| `trusted_provider_list.relay_hint` | string/null | first publishing relay | Canonical relay hint advertised in Kind 10040 declarations |
+| `trusted_provider_list.tag_names` | list[string] | `["rank"]` | Assertion tag names declared for each enabled assertion kind |
+| `trusted_provider_list.content` | string | `""` | Optional Kind 10040 event content |
 
 !!! note "Assertor Key Lifecycle"
     The shipped BigBrotr and LilBrotr deployments configure the Assertor with
@@ -489,10 +493,11 @@ target registry offline instead of introducing a second derivation owner.
     personalized point of view.
 
 !!! note "Trusted Provider Declarations"
-    NIP-85 kind `10040` events declare a user's trusted providers. Those are
-    user/client authorization events, so the Assertor does not publish them as
-    part of its provider flow. The NIP helper layer exposes a dedicated builder
-    for projects that need to create public or NIP-44 encrypted provider lists.
+    When `trusted_provider_list.enabled` is true, Assertor publishes a Kind
+    `10040` event that declares the configured service key as a provider for
+    each enabled assertion kind and each configured tag name. The event uses
+    the configured `relay_hint` when present, otherwise the first publishing
+    relay.
 
 !!! tip "API Reference"
     See [`bigbrotr.services.assertor`](../reference/services/assertor/index.md) for the complete Assertor API.
@@ -670,7 +675,7 @@ For complete configuration details including all fields, defaults, constraints, 
 | Synchronizer | `filters`, `limit`, `timeouts.max_duration` | Archival throughput and scope |
 | Refresher | `current.targets`, `analytics.targets`, `periodic.*`, `interval` | Which shared derivations run incrementally or periodically and how often |
 | Ranker | `algorithm_id`, `graph.*`, `export.batch_size` | PageRank namespace, graph behavior, and snapshot export throughput |
-| Assertor | `algorithm_id`, `selection.kinds`, `provider_profile.enabled` | Assertion namespace, publish scope, and provider identity |
+| Assertor | `algorithm_id`, `selection.kinds`, `provider_profile.enabled`, `trusted_provider_list.enabled` | Assertion namespace, publish scope, and provider package identity |
 | Api | `read_models`, `max_page_size`, `cors_origins` | Which read models to expose and pagination limits |
 | Dvm | `relays`, `read_models`, `kind` | Which relays to listen on and read models to serve |
 

@@ -89,7 +89,7 @@ bigbrotr/
 |   |   +-- synchronizer/             # Event collection
 |   |   +-- refresher/                # Derived facts refresh
 |   |   +-- ranker/                   # NIP-85 rank computation + snapshot export
-|   |   +-- assertor/                 # NIP-85 trusted assertion publishing
+|   |   +-- assertor/                 # NIP-85 provider-package publishing
 |   |   +-- api/                      # Read-only REST API
 |   |   +-- dvm/                      # NIP-90 Data Vending Machine
 |   |   +-- common/                   # Shared constants, configs, queries, mixins

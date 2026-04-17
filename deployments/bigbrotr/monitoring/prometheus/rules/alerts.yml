@@ -426,6 +426,22 @@ groups:
             more than 15 minutes while provider profile publishing is enabled.
 
       # --------------------------------------------------------------------
+      # AssertorTrustedProviderListFailures: Kind 10040 publishing is failing
+      # --------------------------------------------------------------------
+      - alert: AssertorTrustedProviderListFailures
+        expr: >-
+          service_gauge{service="assertor", name="trusted_provider_lists_failed"} > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Assertor trusted-provider-list publishing is failing"
+          description: >-
+            Assertor has reported Kind 10040 trusted-provider-list publish
+            failures for more than 15 minutes while trusted-provider-list
+            publishing is enabled.
+
+      # --------------------------------------------------------------------
       # AssertorEligibleSubjectsNotHandled: eligible assertions are not handled
       # --------------------------------------------------------------------
       - alert: AssertorEligibleSubjectsNotHandled

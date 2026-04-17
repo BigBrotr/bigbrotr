@@ -237,7 +237,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(service_gauge{service=\"assertor\", name=~\"assertions_failed|provider_profiles_failed\"})",
+          "expr": "sum(service_gauge{service=\"assertor\", name=~\"assertions_failed|provider_profiles_failed|trusted_provider_lists_failed\"})",
           "refId": "A",
           "instant": true
         }
@@ -324,13 +324,13 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service_gauge{service=\"assertor\", name=~\"provider_profile_(published|skipped|failed)\"}",
+          "expr": "service_gauge{service=\"assertor\", name=~\"provider_profile_(published|skipped|failed)|trusted_provider_list_(published|skipped|failed)\"}",
           "refId": "A",
           "legendFormat": "{{name}}",
           "instant": true
         }
       ],
-      "title": "Provider Profile",
+      "title": "Provider Package",
       "type": "bargauge"
     },
     {

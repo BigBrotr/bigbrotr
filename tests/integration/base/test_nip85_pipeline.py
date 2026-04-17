@@ -308,6 +308,11 @@ def _make_assertor_config(algorithm_id: str) -> AssertorConfig:
                     "website": "https://bigbrotr.com",
                 },
             },
+            "trusted_provider_list": {
+                "enabled": True,
+                "relay_hint": "wss://relay.damus.io",
+                "tag_names": ["rank"],
+            },
         }
     )
 
@@ -410,6 +415,9 @@ def _assert_published_events(
 ) -> None:
     signed_events = [builder.sign_with_keys(config.keys.keys) for builder in published_builders]
     assert EventKind.SET_METADATA in {event.kind().as_u16() for event in signed_events}
+    assert EventKind.NIP85_TRUSTED_PROVIDER_LIST in {
+        event.kind().as_u16() for event in signed_events
+    }
 
     def _find_by_kind_and_d(kind: int, subject_id: str) -> Any:
         for event in signed_events:
@@ -426,6 +434,11 @@ def _assert_published_events(
         event_address,
     )
     identifier_event = _find_by_kind_and_d(EventKind.NIP85_IDENTIFIER_ASSERTION, identifier)
+    trusted_provider_list_event = next(
+        event
+        for event in signed_events
+        if event.kind().as_u16() == EventKind.NIP85_TRUSTED_PROVIDER_LIST
+    )
 
     assert _tag_values(user_event, "rank") == [str(pubkey_scores[author])]
     assert _tag_values(event_event, "rank") == [str(event_scores[root_event_id])]
@@ -436,6 +449,12 @@ def _assert_published_events(
     assert sorted(_tag_values(identifier_event, "k")) == [
         "book",
         "isbn",
+    ]
+    assert [list(tag.as_vec()) for tag in trusted_provider_list_event.tags().to_vec()] == [
+        ["30382:rank", config.keys.keys.public_key().to_hex(), "wss://relay.damus.io"],
+        ["30383:rank", config.keys.keys.public_key().to_hex(), "wss://relay.damus.io"],
+        ["30384:rank", config.keys.keys.public_key().to_hex(), "wss://relay.damus.io"],
+        ["30385:rank", config.keys.keys.public_key().to_hex(), "wss://relay.damus.io"],
     ]
 
 
@@ -594,6 +613,7 @@ class TestNip85PipelineSmoke:
         state_keys = {row.state_key for row in state_rows}
         assert {
             f"{algorithm_id}:0:provider_profile",
+            f"{algorithm_id}:10040:trusted_provider_list",
             f"{algorithm_id}:30382:{author}",
             f"{algorithm_id}:30383:{root_event_id}",
             f"{algorithm_id}:30384:{event_address}",

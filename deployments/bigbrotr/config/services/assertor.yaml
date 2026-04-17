@@ -1,8 +1,8 @@
 # =============================================================================
 # Assertor Service Configuration (BigBrotr)
 # =============================================================================
-# NIP-85 Trusted Assertions publisher. Reads ranked NIP-85 facts and publishes
-# kinds 30382/30383/30384/30385 to configured relays.
+# NIP-85 provider-package publisher. Reads ranked NIP-85 facts and publishes
+# trusted assertions, provider profile, and trusted-provider list events.
 # Only values that differ from defaults are specified here.
 # =============================================================================
 
@@ -38,6 +38,12 @@ provider_profile:
     website: https://bigbrotr.com
     extra_fields:
       software: bigbrotr
+
+trusted_provider_list:
+  enabled: true
+  relay_hint: wss://relay.damus.io
+  tag_names:
+    - rank
 
 metrics:
   enabled: true

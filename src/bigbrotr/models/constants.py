@@ -89,7 +89,7 @@ class ServiceName(StrEnum):
             ([Api][bigbrotr.services.api.Api]).
         DVM: NIP-90 Data Vending Machine service
             ([Dvm][bigbrotr.services.dvm.Dvm]).
-        ASSERTOR: NIP-85 Trusted Assertions publisher
+        ASSERTOR: NIP-85 provider-package publisher
             ([Assertor][bigbrotr.services.assertor.Assertor]).
 
     See Also:

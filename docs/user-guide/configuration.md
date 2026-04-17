@@ -76,7 +76,7 @@ deployments/
 | `NOSTR_PRIVATE_KEY_MONITOR` | No | Monitor | Service-specific key used for Monitor publishing and NIP-66 write probes. Blank/unset generates one ephemeral key at config creation. |
 | `NOSTR_PRIVATE_KEY_SYNCHRONIZER` | No | Synchronizer | Service-specific key used for NIP-42-authenticated relay reads. Blank/unset generates one ephemeral key at config creation. |
 | `NOSTR_PRIVATE_KEY_DVM` | No | Dvm | Service-specific key used for NIP-89/NIP-90 signing. Blank/unset generates one ephemeral key at config creation. |
-| `NOSTR_PRIVATE_KEY_ASSERTOR` | No | Assertor | Service-specific key used for NIP-85 assertion signing and optional provider profile publishing. Blank/unset generates one ephemeral key at config creation. |
+| `NOSTR_PRIVATE_KEY_ASSERTOR` | No | Assertor | Service-specific key used for NIP-85 provider-package signing. Blank/unset generates one ephemeral key at config creation. |
 | `GRAFANA_PASSWORD` | Docker only | Grafana | Grafana admin password |
 
 ### Setting Environment Variables
@@ -835,7 +835,7 @@ cleanup:
 
 ## Assertor Configuration
 
-Publishes NIP-85 trusted assertion events using canonical algorithm-scoped checkpoints.
+Publishes the NIP-85 provider package using canonical algorithm-scoped checkpoints.
 
 ```yaml
 interval: 3600.0
@@ -879,6 +879,13 @@ provider_profile:
     banner: null
     lud16: null
     extra_fields: {}
+
+trusted_provider_list:
+  enabled: false
+  relay_hint: null
+  tag_names:
+    - rank
+  content: ""
 ```
 
 The shipped BigBrotr and LilBrotr deployments set `keys.keys_env` to
@@ -902,6 +909,10 @@ service key for each distinct algorithm or personalized point of view.
 | `cleanup.remove_stale_checkpoints` | bool | `true` | - | Delete stale or non-canonical checkpoints after each cycle |
 | `provider_profile.enabled` | bool | `false` | - | Publish a Kind 0 provider profile for the assertor identity |
 | `provider_profile.kind0_content.*` | object | defaults | - | Metadata fields for the provider profile content |
+| `trusted_provider_list.enabled` | bool | `false` | - | Publish a Kind 10040 trusted-provider list for the assertor identity |
+| `trusted_provider_list.relay_hint` | string/null | first publishing relay | - | Canonical relay hint advertised in Kind 10040 declarations |
+| `trusted_provider_list.tag_names` | list[string] | `["rank"]` | non-empty distinct strings without `:` | Assertion tag names declared for each enabled assertion kind |
+| `trusted_provider_list.content` | string | `""` | - | Optional Kind 10040 event content (for example encrypted private declarations) |
 
 ---
 

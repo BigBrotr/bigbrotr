@@ -320,6 +320,7 @@ Fires when the Refresher service has failing current-state, analytics, or period
 | AssertorNoSuccessfulCycle | No successful assertor cycle for > 2h | 15 min | critical |
 | AssertorPublishFailures | NIP-85 assertion publish failures > 0 | 15 min | warning |
 | AssertorProviderProfileFailures | Provider profile publish failures > 0 | 15 min | warning |
+| AssertorTrustedProviderListFailures | Trusted-provider-list publish failures > 0 | 15 min | warning |
 | AssertorEligibleSubjectsNotHandled | Eligible subjects but no published/skipped assertions | 30 min | warning |
 
 ---
@@ -365,7 +366,7 @@ Service-specific dashboards add focused panels:
 | Ranker | graph and sync volume, staged fact rows, exported rank rows, phase durations, checkpoint lag, DuckDB health, cycle cutoffs |
 | API | tables exposed, request counters, request failure rate |
 | DVM | tables exposed, request counters, request failure rate |
-| Assertor | assertion outcomes, provider profile status, per-kind assertion counts, publish phase durations |
+| Assertor | assertion outcomes, provider package status, per-kind assertion counts, publish phase durations |
 
 ### Thresholds
 

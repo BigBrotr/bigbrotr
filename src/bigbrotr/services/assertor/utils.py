@@ -6,13 +6,16 @@ import hashlib
 import json
 from typing import TYPE_CHECKING, Any, Final
 
+from bigbrotr.nips.nip85 import TrustedProviderDeclaration
+
 
 if TYPE_CHECKING:
-    from .configs import ProviderProfileKind0Content
+    from .configs import AssertorConfig, ProviderProfileKind0Content
 
 
 CHECKPOINT_PARTS: Final[int] = 3
 PROVIDER_PROFILE_SUBJECT_ID: Final[str] = "provider_profile"
+TRUSTED_PROVIDER_LIST_SUBJECT_ID: Final[str] = "trusted_provider_list"
 
 
 def build_state_key(*, algorithm_id: str, kind: int, subject_id: str) -> str:
@@ -32,8 +35,8 @@ def parse_state_key(state_key: str) -> tuple[str, int, str] | None:
     return parts[0], kind, parts[2]
 
 
-def content_hash(content: dict[str, Any]) -> str:
-    """Compute a stable SHA-256 hash for JSON profile content."""
+def content_hash(content: Any) -> str:
+    """Compute a stable SHA-256 hash for JSON-serializable publication content."""
     return hashlib.sha256(
         json.dumps(content, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
@@ -65,3 +68,23 @@ def provider_profile_content(
             content[key] = value
 
     return content
+
+
+def trusted_provider_declarations(
+    *,
+    config: AssertorConfig,
+    service_pubkey: str,
+) -> tuple[TrustedProviderDeclaration, ...]:
+    """Build the canonical Kind 10040 declaration set for the active provider package."""
+    relay_hint = config.trusted_provider_list.relay_hint or config.publishing.relays[0].url
+    declarations = [
+        TrustedProviderDeclaration(
+            result_kind=int(result_kind),
+            tag_name=tag_name,
+            service_pubkey=service_pubkey,
+            relay_hint=relay_hint,
+        )
+        for result_kind in sorted(config.selection.kinds)
+        for tag_name in sorted(config.trusted_provider_list.tag_names)
+    ]
+    return tuple(declarations)
