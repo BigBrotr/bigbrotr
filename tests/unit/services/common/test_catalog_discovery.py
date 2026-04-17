@@ -43,7 +43,7 @@ class TestCatalogDiscovery:
                 ),
                 _row(
                     table_name="relay",
-                    column_name="discovered_at",
+                    column_name="stored_at",
                     data_type="bigint",
                     is_nullable=False,
                 ),
@@ -55,7 +55,7 @@ class TestCatalogDiscovery:
         assert columns == {
             "relay": [
                 ColumnSchema(name="url", pg_type="text", nullable=False),
-                ColumnSchema(name="discovered_at", pg_type="bigint", nullable=False),
+                ColumnSchema(name="stored_at", pg_type="bigint", nullable=False),
             ]
         }
 

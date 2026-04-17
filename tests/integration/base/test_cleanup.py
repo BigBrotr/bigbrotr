@@ -16,7 +16,7 @@ pytestmark = pytest.mark.integration
 
 def _event_relay(event_id: str, relay_url: str) -> EventRelay:
     mock = make_mock_event(event_id=event_id, sig="ee" * 64)
-    relay = Relay(relay_url, discovered_at=1700000000)
+    relay = Relay(relay_url, stored_at=1700000000)
     return EventRelay(event=Event(mock), relay=relay, seen_at=1700000001)
 
 
@@ -26,7 +26,7 @@ def _relay_metadata(
     meta_type: MetadataType = MetadataType.NIP11_INFO,
     generated_at: int = 1700000001,
 ) -> RelayMetadata:
-    relay = Relay(relay_url, discovered_at=1700000000)
+    relay = Relay(relay_url, stored_at=1700000000)
     metadata = Metadata(type=meta_type, data=data)
     return RelayMetadata(relay=relay, metadata=metadata, generated_at=generated_at)
 
@@ -91,8 +91,8 @@ class TestOrphanEventDelete:
     ) -> None:
         mock = make_mock_event(event_id="c1" * 32, sig="ee" * 64)
         event = Event(mock)
-        relay1 = Relay("wss://ev-multi-r1.example.com", discovered_at=1700000000)
-        relay2 = Relay("wss://ev-multi-r2.example.com", discovered_at=1700000000)
+        relay1 = Relay("wss://ev-multi-r1.example.com", stored_at=1700000000)
+        relay2 = Relay("wss://ev-multi-r2.example.com", stored_at=1700000000)
         er1 = EventRelay(event=event, relay=relay1, seen_at=1700000001)
         er2 = EventRelay(event=event, relay=relay2, seen_at=1700000001)
         await brotr.insert_event_relay([er1, er2], cascade=True)
@@ -142,8 +142,8 @@ class TestOrphanMetadataDelete:
         assert await brotr.fetchval("SELECT COUNT(*) FROM metadata") == 1
 
     async def test_shared_metadata_preserved_when_one_relay_deleted(self, brotr: Brotr) -> None:
-        relay1 = Relay("wss://shared-m1.example.com", discovered_at=1700000000)
-        relay2 = Relay("wss://shared-m2.example.com", discovered_at=1700000000)
+        relay1 = Relay("wss://shared-m1.example.com", stored_at=1700000000)
+        relay2 = Relay("wss://shared-m2.example.com", stored_at=1700000000)
         metadata = Metadata(type=MetadataType.NIP11_INFO, data={"name": "Shared"})
 
         rm1 = RelayMetadata(relay=relay1, metadata=metadata, generated_at=1700000001)

@@ -84,7 +84,7 @@ class TestEventInsert:
 
 class TestEventRelayInsertCascade:
     async def test_creates_relay_event_and_junction(self, brotr: Brotr):
-        relay = Relay("wss://cascade.example.com", discovered_at=1700000000)
+        relay = Relay("wss://cascade.example.com", stored_at=1700000000)
         mock = make_mock_event(event_id="01" * 32, sig="ee" * 64)
         er = EventRelay(event=Event(mock), relay=relay, seen_at=1700000001)
 
@@ -111,7 +111,7 @@ class TestEventRelayInsertCascade:
         )
 
     async def test_junction_columns(self, brotr: Brotr):
-        relay = Relay("wss://junction.example.com", discovered_at=1700000000)
+        relay = Relay("wss://junction.example.com", stored_at=1700000000)
         mock = make_mock_event(event_id="02" * 32, sig="ee" * 64)
         er = EventRelay(event=Event(mock), relay=relay, seen_at=1700000099)
 
@@ -127,7 +127,7 @@ class TestEventRelayInsertCascade:
         assert junction["seen_at"] == 1700000099
 
     async def test_batch_same_relay(self, brotr: Brotr):
-        relay = Relay("wss://batch.example.com", discovered_at=1700000000)
+        relay = Relay("wss://batch.example.com", stored_at=1700000000)
         ers = [
             EventRelay(
                 event=Event(make_mock_event(event_id=f"{i:064x}", sig="ee" * 64)),
@@ -145,8 +145,8 @@ class TestEventRelayInsertCascade:
         assert await brotr.fetchval("SELECT COUNT(*) FROM event_relay") == 5
 
     async def test_same_event_two_relays(self, brotr: Brotr):
-        relay1 = Relay("wss://relay-a.example.com", discovered_at=1700000000)
-        relay2 = Relay("wss://relay-b.example.com", discovered_at=1700000000)
+        relay1 = Relay("wss://relay-a.example.com", stored_at=1700000000)
+        relay2 = Relay("wss://relay-b.example.com", stored_at=1700000000)
         mock = make_mock_event(event_id="03" * 32, sig="ee" * 64)
         event = Event(mock)
 
@@ -161,7 +161,7 @@ class TestEventRelayInsertCascade:
         assert await brotr.fetchval("SELECT COUNT(*) FROM event_relay") == 2
 
     async def test_duplicate_returns_zero(self, brotr: Brotr):
-        relay = Relay("wss://dup-cascade.example.com", discovered_at=1700000000)
+        relay = Relay("wss://dup-cascade.example.com", stored_at=1700000000)
         mock = make_mock_event(event_id="04" * 32, sig="ee" * 64)
         er = EventRelay(event=Event(mock), relay=relay, seen_at=1700000001)
 
@@ -171,10 +171,10 @@ class TestEventRelayInsertCascade:
         assert second == 0
 
     async def test_clearnet_and_tor_in_same_batch(self, brotr: Brotr):
-        clearnet = Relay("wss://clear.example.com", discovered_at=1700000000)
+        clearnet = Relay("wss://clear.example.com", stored_at=1700000000)
         tor = Relay(
             f"ws://{ONION_HOST}.onion",
-            discovered_at=1700000000,
+            stored_at=1700000000,
         )
         er_clear = EventRelay(
             event=Event(make_mock_event(event_id="05" * 32, sig="ee" * 64)),
@@ -195,10 +195,10 @@ class TestEventRelayInsertCascade:
         assert await brotr.fetchval("SELECT COUNT(*) FROM event_relay") == 2
 
     async def test_relay_network_column(self, brotr: Brotr):
-        clearnet = Relay("wss://netcheck.example.com", discovered_at=1700000000)
+        clearnet = Relay("wss://netcheck.example.com", stored_at=1700000000)
         tor = Relay(
             f"ws://{ONION_HOST}.onion",
-            discovered_at=1700000000,
+            stored_at=1700000000,
         )
 
         er1 = EventRelay(
@@ -224,7 +224,7 @@ class TestEventRelayInsertCascade:
         assert tor_row["network"] == "tor"
 
     async def test_large_batch(self, brotr: Brotr):
-        relay = Relay("wss://large.example.com", discovered_at=1700000000)
+        relay = Relay("wss://large.example.com", stored_at=1700000000)
         ers = [
             EventRelay(
                 event=Event(make_mock_event(event_id=f"{i:064x}", sig="ee" * 64)),
@@ -243,7 +243,7 @@ class TestEventRelayInsertCascade:
 
 class TestEventRelayInsertNonCascade:
     async def test_with_existing_fks(self, brotr: Brotr):
-        relay = Relay("wss://fk-exists.example.com", discovered_at=1700000000)
+        relay = Relay("wss://fk-exists.example.com", stored_at=1700000000)
         await brotr.insert_relay([relay])
 
         mock = make_mock_event(event_id="10" * 32, sig="ee" * 64)
@@ -261,14 +261,14 @@ class TestEventRelayInsertNonCascade:
         event = Event(mock)
         await brotr.insert_event([event])
 
-        missing_relay = Relay("wss://missing.example.com", discovered_at=1700000000)
+        missing_relay = Relay("wss://missing.example.com", stored_at=1700000000)
         er = EventRelay(event=event, relay=missing_relay, seen_at=1700000001)
 
         with pytest.raises(asyncpg.ForeignKeyViolationError):
             await brotr.insert_event_relay([er], cascade=False)
 
     async def test_missing_event_raises(self, brotr: Brotr):
-        relay = Relay("wss://fk-event-missing.example.com", discovered_at=1700000000)
+        relay = Relay("wss://fk-event-missing.example.com", stored_at=1700000000)
         await brotr.insert_relay([relay])
 
         mock = make_mock_event(event_id="12" * 32, sig="ee" * 64)
@@ -279,7 +279,7 @@ class TestEventRelayInsertNonCascade:
             await brotr.insert_event_relay([er], cascade=False)
 
     async def test_duplicate_junction_returns_zero(self, brotr: Brotr):
-        relay = Relay("wss://dup-junction.example.com", discovered_at=1700000000)
+        relay = Relay("wss://dup-junction.example.com", stored_at=1700000000)
         await brotr.insert_relay([relay])
 
         mock = make_mock_event(event_id="13" * 32, sig="ee" * 64)
@@ -300,7 +300,7 @@ class TestTagvalues:
             tags=[["e", "abc123"], ["p", "def456"]],
             sig="ee" * 64,
         )
-        relay = Relay("wss://tags1.example.com", discovered_at=1700000000)
+        relay = Relay("wss://tags1.example.com", stored_at=1700000000)
         er = EventRelay(event=Event(mock), relay=relay, seen_at=1700000001)
         await brotr.insert_event_relay([er], cascade=True)
 
@@ -316,7 +316,7 @@ class TestTagvalues:
             tags=[["relay", "wss://some.url"], ["nonce", "12345"]],
             sig="ee" * 64,
         )
-        relay = Relay("wss://tags2.example.com", discovered_at=1700000000)
+        relay = Relay("wss://tags2.example.com", stored_at=1700000000)
         er = EventRelay(event=Event(mock), relay=relay, seen_at=1700000001)
         await brotr.insert_event_relay([er], cascade=True)
 
@@ -332,7 +332,7 @@ class TestTagvalues:
             tags=[["e", "id1"], ["relay", "wss://skip"], ["p", "pk1"]],
             sig="ee" * 64,
         )
-        relay = Relay("wss://tags3.example.com", discovered_at=1700000000)
+        relay = Relay("wss://tags3.example.com", stored_at=1700000000)
         er = EventRelay(event=Event(mock), relay=relay, seen_at=1700000001)
         await brotr.insert_event_relay([er], cascade=True)
 
@@ -344,7 +344,7 @@ class TestTagvalues:
 
     async def test_empty_tags(self, brotr: Brotr):
         mock = make_mock_event(event_id="23" * 32, tags=[], sig="ee" * 64)
-        relay = Relay("wss://tags4.example.com", discovered_at=1700000000)
+        relay = Relay("wss://tags4.example.com", stored_at=1700000000)
         er = EventRelay(event=Event(mock), relay=relay, seen_at=1700000001)
         await brotr.insert_event_relay([er], cascade=True)
 
@@ -360,7 +360,7 @@ class TestTagvalues:
             tags=[["e", "id1"], ["e", "id2"]],
             sig="ee" * 64,
         )
-        relay = Relay("wss://tags5.example.com", discovered_at=1700000000)
+        relay = Relay("wss://tags5.example.com", stored_at=1700000000)
         er = EventRelay(event=Event(mock), relay=relay, seen_at=1700000001)
         await brotr.insert_event_relay([er], cascade=True)
 

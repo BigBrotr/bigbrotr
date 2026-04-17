@@ -47,31 +47,31 @@ from tests.fixtures.relays import LOKI_HOST, ONION_HOST
 @pytest.fixture
 def relay() -> Relay:
     """Create a clearnet test relay (wss://)."""
-    return Relay(url="wss://relay.example.com", discovered_at=1234567890)
+    return Relay(url="wss://relay.example.com", stored_at=1234567890)
 
 
 @pytest.fixture
 def relay_with_port() -> Relay:
     """Create a clearnet relay with explicit port."""
-    return Relay(url="wss://relay.example.com:8443", discovered_at=1234567890)
+    return Relay(url="wss://relay.example.com:8443", stored_at=1234567890)
 
 
 @pytest.fixture
 def tor_relay() -> Relay:
     """Create a Tor relay (.onion)."""
-    return Relay(url=f"ws://{ONION_HOST}.onion", discovered_at=1234567890)
+    return Relay(url=f"ws://{ONION_HOST}.onion", stored_at=1234567890)
 
 
 @pytest.fixture
 def i2p_relay() -> Relay:
     """Create an I2P relay (.i2p)."""
-    return Relay(url="ws://example.i2p", discovered_at=1234567890)
+    return Relay(url="ws://example.i2p", stored_at=1234567890)
 
 
 @pytest.fixture
 def loki_relay() -> Relay:
     """Create a Lokinet relay (.loki)."""
-    return Relay(url=f"ws://{LOKI_HOST}.loki", discovered_at=1234567890)
+    return Relay(url=f"ws://{LOKI_HOST}.loki", stored_at=1234567890)
 
 
 # =============================================================================

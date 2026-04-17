@@ -22,7 +22,7 @@ def _rm(
     meta_type: MetadataType = MetadataType.NIP11_INFO,
     generated_at: int = 1700000001,
 ) -> RelayMetadata:
-    relay = Relay(relay_url, discovered_at=1700000000)
+    relay = Relay(relay_url, stored_at=1700000000)
     metadata = Metadata(type=meta_type, data=data)
     return RelayMetadata(relay=relay, metadata=metadata, generated_at=generated_at)
 
@@ -98,12 +98,12 @@ def _event_relay(
         sig="ee" * 64,
         tags=tags,
     )
-    relay = Relay(relay_url, discovered_at=1700000000)
+    relay = Relay(relay_url, stored_at=1700000000)
     return EventRelay(event=Event(mock), relay=relay, seen_at=seen_at or created_at + 1)
 
 
 def _nip11_metadata(relay_url: str, data: dict, generated_at: int = 1700000001) -> RelayMetadata:
-    relay = Relay(relay_url, discovered_at=1700000000)
+    relay = Relay(relay_url, stored_at=1700000000)
     envelope = {"data": data, "logs": {"success": True}}
     metadata = Metadata(type=MetadataType.NIP11_INFO, data=envelope)
     return RelayMetadata(relay=relay, metadata=metadata, generated_at=generated_at)
@@ -112,7 +112,7 @@ def _nip11_metadata(relay_url: str, data: dict, generated_at: int = 1700000001) 
 def _nip66_metadata(
     relay_url: str, meta_type: MetadataType, data: dict, generated_at: int = 1700000001
 ) -> RelayMetadata:
-    relay = Relay(relay_url, discovered_at=1700000000)
+    relay = Relay(relay_url, stored_at=1700000000)
     envelope = {"data": data, "logs": {"success": True}}
     metadata = Metadata(type=meta_type, data=envelope)
     return RelayMetadata(relay=relay, metadata=metadata, generated_at=generated_at)

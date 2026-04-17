@@ -40,7 +40,7 @@ def sample_columns() -> tuple[ColumnSchema, ...]:
     return (
         ColumnSchema(name="url", pg_type="text", nullable=False),
         ColumnSchema(name="network", pg_type="text", nullable=False),
-        ColumnSchema(name="discovered_at", pg_type="bigint", nullable=False),
+        ColumnSchema(name="stored_at", pg_type="bigint", nullable=False),
     )
 
 
@@ -326,10 +326,10 @@ class TestCatalogQuery:
         mock_row.items.return_value = [
             ("url", "wss://relay.example.com"),
             ("network", "clearnet"),
-            ("discovered_at", 100),
+            ("stored_at", 100),
         ]
         mock_row.__iter__ = lambda self: iter(self.items())
-        mock_row.keys.return_value = ["url", "network", "discovered_at"]
+        mock_row.keys.return_value = ["url", "network", "stored_at"]
         mock_row.__getitem__ = lambda self, key: dict(self.items())[key]
 
         catalog_brotr.fetchval = AsyncMock(return_value=1)  # type: ignore[method-assign]
@@ -427,7 +427,7 @@ class TestCatalogQuery:
             "relay",
             limit=10,
             offset=0,
-            filters={"network": "clearnet", "discovered_at": ">=:1000000"},
+            filters={"network": "clearnet", "stored_at": ">=:1000000"},
         )
 
         # Verify correct parameter indexing ($1, $2 for filters, $3/$4 for limit/offset)
@@ -477,11 +477,11 @@ class TestCatalogQuery:
             "relay",
             limit=10,
             offset=0,
-            sort="discovered_at:desc",
+            sort="stored_at:desc",
         )
 
         call_args = catalog_brotr.fetch.call_args
-        assert "ORDER BY discovered_at DESC" in call_args[0][0]
+        assert "ORDER BY stored_at DESC" in call_args[0][0]
 
     async def test_query_prefers_primary_key_keyset_when_requested(
         self, populated_catalog: Catalog, catalog_brotr: Brotr
@@ -943,7 +943,7 @@ class TestDataErrorConversion:
                 "relay",
                 limit=10,
                 offset=0,
-                filters={"discovered_at": ">=:not_a_number"},
+                filters={"stored_at": ">=:not_a_number"},
             )
 
     async def test_query_data_error_on_data_fetch(
@@ -1066,7 +1066,7 @@ class TestOperatorTypeValidation:
                 "relay",
                 limit=10,
                 offset=0,
-                filters={"discovered_at": "ILIKE:%1%"},
+                filters={"stored_at": "ILIKE:%1%"},
             )
 
     async def test_ilike_on_bytea_column_rejected(

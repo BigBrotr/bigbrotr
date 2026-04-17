@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True, slots=True)
 class _MonitorRelayPageToken:
     last_monitored: int
-    discovered_at: int
+    stored_at: int
     relay_url: str
 
 
@@ -116,11 +116,11 @@ async def fetch_relays_to_monitor(
     """
     rows = await brotr.fetch(
         f"""
-        SELECT r.url, r.network, r.discovered_at
+        SELECT r.url, r.network, r.stored_at
         {_RELAYS_TO_MONITOR_WHERE}
         ORDER BY
             COALESCE((ss.state_value->>'timestamp')::BIGINT, 0) ASC,
-            r.discovered_at ASC
+            r.stored_at ASC
         """,
         networks,
         monitored_before,
@@ -147,20 +147,20 @@ async def fetch_relays_to_monitor_page(
         f"""
         SELECT r.url,
                r.network,
-               r.discovered_at,
+               r.stored_at,
                COALESCE((ss.state_value->>'timestamp')::BIGINT, 0) AS last_monitored
         {_RELAYS_TO_MONITOR_WHERE}
           AND (
                 $5::bigint IS NULL
                 OR (
                     COALESCE((ss.state_value->>'timestamp')::BIGINT, 0),
-                    r.discovered_at,
+                    r.stored_at,
                     r.url
                 ) > ($5::bigint, $6::bigint, $7::text)
           )
         ORDER BY
             COALESCE((ss.state_value->>'timestamp')::BIGINT, 0) ASC,
-            r.discovered_at ASC,
+            r.stored_at ASC,
             r.url ASC
         LIMIT $8
         """,
@@ -169,7 +169,7 @@ async def fetch_relays_to_monitor_page(
         ServiceName.MONITOR,
         ServiceStateType.CHECKPOINT,
         after.last_monitored if after is not None else None,
-        after.discovered_at if after is not None else 0,
+        after.stored_at if after is not None else 0,
         after.relay_url if after is not None else "",
         limit,
     )
@@ -182,7 +182,7 @@ async def fetch_relays_to_monitor_page(
         relays.append(relay)
         next_token = _MonitorRelayPageToken(
             last_monitored=int(row["last_monitored"]),
-            discovered_at=relay.discovered_at,
+            stored_at=relay.stored_at,
             relay_url=relay.url,
         )
     return relays, next_token

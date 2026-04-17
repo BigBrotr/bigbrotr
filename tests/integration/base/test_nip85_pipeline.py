@@ -130,7 +130,7 @@ def _event_relay(
         tags=tags or [],
         content=content,
     )
-    relay = Relay(relay_url, discovered_at=1_700_000_000)
+    relay = Relay(relay_url, stored_at=1_700_000_000)
     return EventRelay(event=Event(mock), relay=relay, seen_at=created_at + 1)
 
 

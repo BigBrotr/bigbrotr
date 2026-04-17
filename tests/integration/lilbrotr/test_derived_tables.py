@@ -31,7 +31,7 @@ def _event_relay(
         sig="ee" * 64,
         tags=tags,
     )
-    relay = Relay(relay_url, discovered_at=1700000000)
+    relay = Relay(relay_url, stored_at=1700000000)
     return EventRelay(event=Event(mock), relay=relay, seen_at=seen_at or created_at + 1)
 
 

@@ -25,7 +25,7 @@ class TestTransactionCommit:
     async def test_insert_visible_after_commit(self, brotr: Brotr) -> None:
         async with brotr.transaction() as conn:
             await conn.execute(
-                "INSERT INTO relay (url, network, discovered_at) VALUES ($1, $2, $3)",
+                "INSERT INTO relay (url, network, stored_at) VALUES ($1, $2, $3)",
                 "wss://tx-commit.example.com",
                 "clearnet",
                 1700000000,
@@ -41,7 +41,7 @@ class TestTransactionCommit:
         async with brotr.transaction() as conn:
             for i in range(5):
                 await conn.execute(
-                    "INSERT INTO relay (url, network, discovered_at) VALUES ($1, $2, $3)",
+                    "INSERT INTO relay (url, network, stored_at) VALUES ($1, $2, $3)",
                     f"wss://tx-multi{i}.example.com",
                     "clearnet",
                     1700000000,
@@ -51,7 +51,7 @@ class TestTransactionCommit:
         assert count == 5
 
     async def test_cross_table_transaction(self, brotr: Brotr) -> None:
-        await brotr.insert_relay([Relay("wss://tx-cross.example.com", discovered_at=1700000000)])
+        await brotr.insert_relay([Relay("wss://tx-cross.example.com", stored_at=1700000000)])
         mock = make_mock_event(event_id="f1" * 32, sig="ee" * 64)
         await brotr.insert_event([Event(mock)])
 
@@ -72,7 +72,7 @@ class TestTransactionRollback:
         with pytest.raises(RuntimeError, match="abort"):
             async with brotr.transaction() as conn:
                 await conn.execute(
-                    "INSERT INTO relay (url, network, discovered_at) VALUES ($1, $2, $3)",
+                    "INSERT INTO relay (url, network, stored_at) VALUES ($1, $2, $3)",
                     "wss://tx-rollback.example.com",
                     "clearnet",
                     1700000000,
@@ -88,13 +88,13 @@ class TestTransactionRollback:
         with pytest.raises(RuntimeError):
             async with brotr.transaction() as conn:
                 await conn.execute(
-                    "INSERT INTO relay (url, network, discovered_at) VALUES ($1, $2, $3)",
+                    "INSERT INTO relay (url, network, stored_at) VALUES ($1, $2, $3)",
                     "wss://tx-partial1.example.com",
                     "clearnet",
                     1700000000,
                 )
                 await conn.execute(
-                    "INSERT INTO relay (url, network, discovered_at) VALUES ($1, $2, $3)",
+                    "INSERT INTO relay (url, network, stored_at) VALUES ($1, $2, $3)",
                     "wss://tx-partial2.example.com",
                     "clearnet",
                     1700000000,
@@ -131,15 +131,14 @@ class TestBatchSizeValidation:
     async def test_relay_batch_exceeds_max_size(self, brotr: Brotr) -> None:
         max_size = brotr.config.batch.max_size
         oversized = [
-            Relay(f"wss://batch{i}.example.com", discovered_at=1700000000)
-            for i in range(max_size + 1)
+            Relay(f"wss://batch{i}.example.com", stored_at=1700000000) for i in range(max_size + 1)
         ]
         with pytest.raises(ValueError, match="batch size"):
             await brotr.insert_relay(oversized)
 
     async def test_event_relay_batch_exceeds_max_size(self, brotr: Brotr) -> None:
         max_size = brotr.config.batch.max_size
-        relay = Relay("wss://batchev.example.com", discovered_at=1700000000)
+        relay = Relay("wss://batchev.example.com", stored_at=1700000000)
         oversized = [
             EventRelay(
                 event=Event(make_mock_event(event_id=f"{i:064x}", sig="ee" * 64)),
@@ -161,7 +160,7 @@ class TestBatchSizeValidation:
 
     async def test_batch_at_exact_max_size_accepted(self, brotr: Brotr) -> None:
         relays = [
-            Relay(f"wss://exact-batch{i}.example.com", discovered_at=1700000000) for i in range(100)
+            Relay(f"wss://exact-batch{i}.example.com", stored_at=1700000000) for i in range(100)
         ]
         inserted = await brotr.insert_relay(relays)
         assert inserted == 100
@@ -174,12 +173,8 @@ class TestBatchSizeValidation:
 
 class TestConcurrentOperations:
     async def test_concurrent_relay_inserts_no_error(self, brotr: Brotr) -> None:
-        batch_a = [
-            Relay(f"wss://conc-a{i}.example.com", discovered_at=1700000000) for i in range(20)
-        ]
-        batch_b = [
-            Relay(f"wss://conc-b{i}.example.com", discovered_at=1700000000) for i in range(20)
-        ]
+        batch_a = [Relay(f"wss://conc-a{i}.example.com", stored_at=1700000000) for i in range(20)]
+        batch_b = [Relay(f"wss://conc-b{i}.example.com", stored_at=1700000000) for i in range(20)]
 
         results = await asyncio.gather(
             brotr.insert_relay(batch_a),
@@ -191,7 +186,7 @@ class TestConcurrentOperations:
         assert count == 40
 
     async def test_concurrent_insert_same_relay_dedup(self, brotr: Brotr) -> None:
-        relay = Relay("wss://conc-same.example.com", discovered_at=1700000000)
+        relay = Relay("wss://conc-same.example.com", stored_at=1700000000)
 
         results = await asyncio.gather(
             brotr.insert_relay([relay]),
@@ -209,7 +204,7 @@ class TestConcurrentOperations:
         ers = []
         for i in range(10):
             mock = make_mock_event(event_id=f"{i + 100:064x}", sig="ee" * 64)
-            relay = Relay(f"wss://conc-er{i}.example.com", discovered_at=1700000000)
+            relay = Relay(f"wss://conc-er{i}.example.com", stored_at=1700000000)
             ers.append(EventRelay(event=Event(mock), relay=relay, seen_at=1700000001))
 
         batch1, batch2 = ers[:5], ers[5:]

@@ -841,7 +841,7 @@ COMMENT ON FUNCTION rolling_windows_refresh() IS
 /*
  * relay_stats_metadata_refresh() -> VOID
  *
- * Updates RTT averages, NIP-11 info, network, and discovered_at fields
+ * Updates RTT averages, NIP-11 info, network, and stored_at fields
  * in relay_stats. Ensures new relays (with no events yet) get a row.
  *
  * Designed to run periodically (e.g., hourly or after monitor cycles).
@@ -860,20 +860,20 @@ BEGIN
     );
 
     -- Seed new relays that have no relay_stats row yet
-    INSERT INTO relay_stats (relay_url, network, discovered_at)
-    SELECT r.url, r.network, r.discovered_at
+    INSERT INTO relay_stats (relay_url, network, stored_at)
+    SELECT r.url, r.network, r.stored_at
     FROM relay AS r
     WHERE NOT EXISTS (SELECT 1 FROM relay_stats WHERE relay_url = r.url)
     ON CONFLICT (relay_url) DO NOTHING;
 
-    -- Update network and discovered_at from relay table
+    -- Update network and stored_at from relay table
     UPDATE relay_stats rs SET
         network = r.network,
-        discovered_at = r.discovered_at
+        stored_at = r.stored_at
     FROM relay r
     WHERE rs.relay_url = r.url
       AND (rs.network IS DISTINCT FROM r.network
-           OR rs.discovered_at IS DISTINCT FROM r.discovered_at);
+           OR rs.stored_at IS DISTINCT FROM r.stored_at);
 
     -- Update RTT averages (last 10 measurements)
     WITH rtt_ranked AS (
@@ -919,7 +919,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION relay_stats_metadata_refresh() IS
-'Update relay_stats RTT, NIP-11, network, and discovered_at from metadata tables. Seeds new relays.';
+'Update relay_stats RTT, NIP-11, network, and stored_at from metadata tables. Seeds new relays.';
 
 
 -- **************************************************************************

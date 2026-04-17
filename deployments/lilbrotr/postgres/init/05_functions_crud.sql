@@ -34,14 +34,14 @@
  * Parameters:
  *   p_urls            - Array of relay WebSocket URLs
  *   p_networks        - Array of network types (clearnet, tor, i2p, loki)
- *   p_discovered_ats  - Array of Unix discovery timestamps
+ *   p_stored_ats  - Array of Unix archive-entry timestamps for canonical relay rows
  *
  * Returns: Number of newly inserted rows
  */
 CREATE OR REPLACE FUNCTION relay_insert(
     p_urls TEXT [],
     p_networks TEXT [],
-    p_discovered_ats BIGINT []
+    p_stored_ats BIGINT []
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -49,9 +49,9 @@ AS $$
 DECLARE
     v_row_count INTEGER;
 BEGIN
-    INSERT INTO relay (url, network, discovered_at)
-    SELECT * FROM unnest(p_urls, p_networks, p_discovered_ats)
-        AS t(url, network, discovered_at)
+    INSERT INTO relay (url, network, stored_at)
+    SELECT * FROM unnest(p_urls, p_networks, p_stored_ats)
+        AS t(url, network, stored_at)
     ON CONFLICT (url) DO NOTHING;
 
     GET DIAGNOSTICS v_row_count = ROW_COUNT;
@@ -270,7 +270,7 @@ CREATE OR REPLACE FUNCTION event_relay_insert_cascade(
     p_sigs BYTEA [],
     p_relay_urls TEXT [],
     p_relay_networks TEXT [],
-    p_relay_discovered_ats BIGINT [],
+    p_relay_stored_ats BIGINT [],
     p_seen_ats BIGINT []
 )
 RETURNS INTEGER
@@ -280,7 +280,7 @@ DECLARE
     v_row_count INTEGER;
 BEGIN
     -- Ensure relay records exist before inserting junction rows
-    PERFORM relay_insert(p_relay_urls, p_relay_networks, p_relay_discovered_ats);
+    PERFORM relay_insert(p_relay_urls, p_relay_networks, p_relay_stored_ats);
 
     -- Ensure event records exist (customize event_insert, not this function)
     PERFORM event_insert(p_event_ids, p_pubkeys, p_created_ats, p_kinds, p_tags, p_content_values, p_sigs);
@@ -318,7 +318,7 @@ DROP FUNCTION IF EXISTS relay_metadata_insert_cascade(TEXT [], TEXT [], BIGINT [
 CREATE OR REPLACE FUNCTION relay_metadata_insert_cascade(
     p_relay_urls TEXT [],
     p_relay_networks TEXT [],
-    p_relay_discovered_ats BIGINT [],
+    p_relay_stored_ats BIGINT [],
     p_metadata_ids BYTEA [],
     p_metadata_types TEXT [],
     p_metadata_data JSONB [],
@@ -331,7 +331,7 @@ DECLARE
     v_row_count INTEGER;
 BEGIN
     -- Ensure relay records exist before inserting junction rows
-    PERFORM relay_insert(p_relay_urls, p_relay_networks, p_relay_discovered_ats);
+    PERFORM relay_insert(p_relay_urls, p_relay_networks, p_relay_stored_ats);
 
     -- Ensure metadata records exist (using pre-computed content hashes)
     PERFORM metadata_insert(p_metadata_ids, p_metadata_types, p_metadata_data);

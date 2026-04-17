@@ -1168,7 +1168,7 @@ class TestFetchRelaysToMonitor:
 
     async def test_returns_relay_objects(self, query_brotr: MagicMock) -> None:
         row = _make_dict_row(
-            {"url": "wss://relay.example.com", "network": "clearnet", "discovered_at": 1700000000}
+            {"url": "wss://relay.example.com", "network": "clearnet", "stored_at": 1700000000}
         )
         query_brotr.fetch = AsyncMock(return_value=[row])
 
@@ -1180,11 +1180,9 @@ class TestFetchRelaysToMonitor:
     async def test_skips_invalid_urls(self, query_brotr: MagicMock) -> None:
         rows = [
             _make_dict_row(
-                {"url": "wss://valid.relay.com", "network": "clearnet", "discovered_at": 1700000000}
+                {"url": "wss://valid.relay.com", "network": "clearnet", "stored_at": 1700000000}
             ),
-            _make_dict_row(
-                {"url": "not-valid", "network": "clearnet", "discovered_at": 1700000000}
-            ),
+            _make_dict_row({"url": "not-valid", "network": "clearnet", "stored_at": 1700000000}),
         ]
         query_brotr.fetch = AsyncMock(return_value=rows)
 
@@ -1236,7 +1234,7 @@ class TestMonitorRelayPages:
                         {
                             "url": "wss://relay1.example.com",
                             "network": "clearnet",
-                            "discovered_at": 1,
+                            "stored_at": 1,
                             "last_monitored": 0,
                         }
                     ),
@@ -1244,7 +1242,7 @@ class TestMonitorRelayPages:
                         {
                             "url": "wss://relay2.example.com",
                             "network": "clearnet",
-                            "discovered_at": 2,
+                            "stored_at": 2,
                             "last_monitored": 0,
                         }
                     ),
@@ -1254,7 +1252,7 @@ class TestMonitorRelayPages:
                         {
                             "url": "wss://relay3.example.com",
                             "network": "clearnet",
-                            "discovered_at": 3,
+                            "stored_at": 3,
                             "last_monitored": 0,
                         }
                     ),

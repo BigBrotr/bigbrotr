@@ -153,7 +153,7 @@ COMMENT ON TABLE kind_stats IS
 CREATE TABLE IF NOT EXISTS relay_stats (
     relay_url TEXT PRIMARY KEY,
     network TEXT,
-    discovered_at BIGINT,
+    stored_at BIGINT,
     event_count BIGINT NOT NULL DEFAULT 0,
     unique_pubkeys INTEGER NOT NULL DEFAULT 0,
     unique_kinds INTEGER NOT NULL DEFAULT 0,

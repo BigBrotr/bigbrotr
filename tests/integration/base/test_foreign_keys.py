@@ -17,7 +17,7 @@ pytestmark = pytest.mark.integration
 
 def _event_relay(event_id: str, relay_url: str, seen_at: int = 1700000001) -> EventRelay:
     mock = make_mock_event(event_id=event_id, sig="ee" * 64)
-    relay = Relay(relay_url, discovered_at=1700000000)
+    relay = Relay(relay_url, stored_at=1700000000)
     return EventRelay(event=Event(mock), relay=relay, seen_at=seen_at)
 
 
@@ -27,7 +27,7 @@ def _relay_metadata(
     meta_type: MetadataType = MetadataType.NIP11_INFO,
     generated_at: int = 1700000001,
 ) -> RelayMetadata:
-    relay = Relay(relay_url, discovered_at=1700000000)
+    relay = Relay(relay_url, stored_at=1700000000)
     metadata = Metadata(type=meta_type, data=data)
     return RelayMetadata(relay=relay, metadata=metadata, generated_at=generated_at)
 
@@ -56,8 +56,8 @@ class TestRelayCascadeToEventRelay:
     async def test_relay_delete_only_removes_own_junctions(self, brotr: Brotr) -> None:
         mock = make_mock_event(event_id="a3" * 32, sig="ee" * 64)
         event = Event(mock)
-        relay1 = Relay("wss://fk-own1.example.com", discovered_at=1700000000)
-        relay2 = Relay("wss://fk-own2.example.com", discovered_at=1700000000)
+        relay1 = Relay("wss://fk-own1.example.com", stored_at=1700000000)
+        relay2 = Relay("wss://fk-own2.example.com", stored_at=1700000000)
         er1 = EventRelay(event=event, relay=relay1, seen_at=1700000001)
         er2 = EventRelay(event=event, relay=relay2, seen_at=1700000001)
         await brotr.insert_event_relay([er1, er2], cascade=True)
@@ -91,8 +91,8 @@ class TestRelayCascadeToRelayMetadata:
         assert await brotr.fetchval("SELECT COUNT(*) FROM metadata") == 1
 
     async def test_relay_delete_only_removes_own_metadata_junctions(self, brotr: Brotr) -> None:
-        relay1 = Relay("wss://fk-rmown1.example.com", discovered_at=1700000000)
-        relay2 = Relay("wss://fk-rmown2.example.com", discovered_at=1700000000)
+        relay1 = Relay("wss://fk-rmown1.example.com", stored_at=1700000000)
+        relay2 = Relay("wss://fk-rmown2.example.com", stored_at=1700000000)
         metadata = Metadata(type=MetadataType.NIP11_INFO, data={"shared": True})
         rm1 = RelayMetadata(relay=relay1, metadata=metadata, generated_at=1700000001)
         rm2 = RelayMetadata(relay=relay2, metadata=metadata, generated_at=1700000001)
@@ -124,7 +124,7 @@ class TestEventRelayForeignKeys:
             )
 
     async def test_missing_event_raises(self, brotr: Brotr) -> None:
-        await brotr.insert_relay([Relay("wss://fk-noev.example.com", discovered_at=1700000000)])
+        await brotr.insert_relay([Relay("wss://fk-noev.example.com", stored_at=1700000000)])
 
         with pytest.raises(asyncpg.ForeignKeyViolationError):
             await brotr.execute(
@@ -148,7 +148,7 @@ class TestEventRelayForeignKeys:
         await brotr.insert_event([event2])
         er2 = EventRelay(
             event=event2,
-            relay=Relay("wss://fk-nc-ok.example.com", discovered_at=1700000000),
+            relay=Relay("wss://fk-nc-ok.example.com", stored_at=1700000000),
             seen_at=1700000002,
         )
         inserted = await brotr.insert_event_relay([er2], cascade=False)
@@ -172,7 +172,7 @@ class TestRelayMetadataForeignKeys:
             )
 
     async def test_missing_metadata_raises(self, brotr: Brotr) -> None:
-        await brotr.insert_relay([Relay("wss://fk-nometa.example.com", discovered_at=1700000000)])
+        await brotr.insert_relay([Relay("wss://fk-nometa.example.com", stored_at=1700000000)])
 
         with pytest.raises(asyncpg.ForeignKeyViolationError):
             await brotr.execute(
@@ -185,7 +185,7 @@ class TestRelayMetadataForeignKeys:
             )
 
     async def test_non_cascade_insert_with_existing_fks(self, brotr: Brotr) -> None:
-        relay = Relay("wss://fk-rm-nc.example.com", discovered_at=1700000000)
+        relay = Relay("wss://fk-rm-nc.example.com", stored_at=1700000000)
         metadata = Metadata(type=MetadataType.NIP11_INFO, data={"name": "Pre-inserted"})
         await brotr.insert_relay([relay])
         await brotr.insert_metadata([metadata])

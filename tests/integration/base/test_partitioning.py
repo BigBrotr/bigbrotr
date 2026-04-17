@@ -76,7 +76,7 @@ class TestPartitionDistribution:
     """Verify data distributes across multiple partitions."""
 
     async def test_events_span_multiple_partitions(self, brotr: Brotr) -> None:
-        relay = Relay("wss://part-dist.example.com", discovered_at=1700000000)
+        relay = Relay("wss://part-dist.example.com", stored_at=1700000000)
         events = [_make_event_relay(relay, i) for i in range(50)]
         await brotr.insert_event_relay(events, cascade=True)
 
@@ -92,7 +92,7 @@ class TestPartitionColocation:
     """Verify event and event_relay with the same id hash to the same partition."""
 
     async def test_same_id_colocated(self, brotr: Brotr) -> None:
-        relay = Relay("wss://coloc.example.com", discovered_at=1700000000)
+        relay = Relay("wss://coloc.example.com", stored_at=1700000000)
         events = [_make_event_relay(relay, i) for i in range(30)]
         await brotr.insert_event_relay(events, cascade=True)
 

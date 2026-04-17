@@ -90,7 +90,7 @@ class TestMetadataInsert:
 
 class TestRelayMetadataInsertCascade:
     async def test_cascade_creates_all_rows(self, brotr: Brotr) -> None:
-        relay = Relay("wss://meta-cascade.example.com", discovered_at=1700000000)
+        relay = Relay("wss://meta-cascade.example.com", stored_at=1700000000)
         metadata = Metadata(
             type=MetadataType.NIP11_INFO,
             data={"name": "Cascade Test"},
@@ -121,7 +121,7 @@ class TestRelayMetadataInsertCascade:
         assert junction["generated_at"] == 1700000001
 
     async def test_junction_columns(self, brotr: Brotr) -> None:
-        relay = Relay("wss://jnc-cols.example.com", discovered_at=1700000000)
+        relay = Relay("wss://jnc-cols.example.com", stored_at=1700000000)
         metadata = Metadata(type=MetadataType.NIP66_GEO, data={"country": "JP"})
         rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=1700000050)
 
@@ -137,8 +137,8 @@ class TestRelayMetadataInsertCascade:
         assert row["generated_at"] == 1700000050
 
     async def test_same_metadata_different_relays(self, brotr: Brotr) -> None:
-        relay1 = Relay("wss://meta-r1.example.com", discovered_at=1700000000)
-        relay2 = Relay("wss://meta-r2.example.com", discovered_at=1700000000)
+        relay1 = Relay("wss://meta-r1.example.com", stored_at=1700000000)
+        relay2 = Relay("wss://meta-r2.example.com", stored_at=1700000000)
         metadata = Metadata(type=MetadataType.NIP66_RTT, data={"rtt_open": 100})
 
         rm1 = RelayMetadata(relay=relay1, metadata=metadata, generated_at=1700000001)
@@ -155,7 +155,7 @@ class TestRelayMetadataInsertCascade:
         assert junction_count == 2
 
     async def test_same_relay_different_timestamps(self, brotr: Brotr) -> None:
-        relay = Relay("wss://multi-ts.example.com", discovered_at=1700000000)
+        relay = Relay("wss://multi-ts.example.com", stored_at=1700000000)
         metadata = Metadata(type=MetadataType.NIP11_INFO, data={"name": "Multi TS"})
 
         rm1 = RelayMetadata(relay=relay, metadata=metadata, generated_at=1700000001)
@@ -169,7 +169,7 @@ class TestRelayMetadataInsertCascade:
         assert junction_count == 2
 
     async def test_duplicate_junction_ignored(self, brotr: Brotr) -> None:
-        relay = Relay("wss://dup-jnc.example.com", discovered_at=1700000000)
+        relay = Relay("wss://dup-jnc.example.com", stored_at=1700000000)
         metadata = Metadata(type=MetadataType.NIP11_INFO, data={"name": "Dup Junction"})
         rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=1700000001)
 
@@ -181,7 +181,7 @@ class TestRelayMetadataInsertCascade:
     async def test_batch_of_five(self, brotr: Brotr) -> None:
         records = []
         for i in range(5):
-            relay = Relay(f"wss://batch-{i}.example.com", discovered_at=1700000000)
+            relay = Relay(f"wss://batch-{i}.example.com", stored_at=1700000000)
             metadata = Metadata(
                 type=MetadataType.NIP11_INFO,
                 data={"name": f"Relay {i}", "index": i},
@@ -205,7 +205,7 @@ class TestRelayMetadataInsertCascade:
 
 class TestRelayMetadataInsertNonCascade:
     async def test_with_existing_fks(self, brotr: Brotr) -> None:
-        relay = Relay("wss://meta-fk.example.com", discovered_at=1700000000)
+        relay = Relay("wss://meta-fk.example.com", stored_at=1700000000)
         await brotr.insert_relay([relay])
 
         metadata = Metadata(type=MetadataType.NIP11_INFO, data={"name": "FK Test"})
@@ -226,7 +226,7 @@ class TestRelayMetadataInsertNonCascade:
         metadata = Metadata(type=MetadataType.NIP11_INFO, data={"name": "Missing Relay"})
         await brotr.insert_metadata([metadata])
 
-        missing_relay = Relay("wss://no-relay.example.com", discovered_at=1700000000)
+        missing_relay = Relay("wss://no-relay.example.com", stored_at=1700000000)
         rm = RelayMetadata(
             relay=missing_relay,
             metadata=metadata,
@@ -237,7 +237,7 @@ class TestRelayMetadataInsertNonCascade:
             await brotr.insert_relay_metadata([rm], cascade=False)
 
     async def test_missing_metadata_raises(self, brotr: Brotr) -> None:
-        relay = Relay("wss://has-relay.example.com", discovered_at=1700000000)
+        relay = Relay("wss://has-relay.example.com", stored_at=1700000000)
         await brotr.insert_relay([relay])
 
         metadata = Metadata(type=MetadataType.NIP66_DNS, data={"resolver": "8.8.8.8"})

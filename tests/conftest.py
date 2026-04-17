@@ -215,38 +215,38 @@ def sample_event() -> EventRelay:
     """Sample Nostr EventRelay for testing."""
     mock_nostr_event = make_mock_event()
     event = Event(mock_nostr_event)
-    relay = Relay("wss://relay.example.com", discovered_at=1700000000)
+    relay = Relay("wss://relay.example.com", stored_at=1700000000)
     return EventRelay(event=event, relay=relay, seen_at=1700000001)
 
 
 @pytest.fixture
 def sample_relay() -> Relay:
     """Sample clearnet Relay for testing."""
-    return Relay("wss://relay.example.com", discovered_at=1700000000)
+    return Relay("wss://relay.example.com", stored_at=1700000000)
 
 
 @pytest.fixture
 def sample_tor_relay() -> Relay:
     """Sample Tor relay for testing."""
-    return Relay(f"ws://{'a' * 56}.onion", discovered_at=1700000000)
+    return Relay(f"ws://{'a' * 56}.onion", stored_at=1700000000)
 
 
 @pytest.fixture
 def sample_i2p_relay() -> Relay:
     """Sample I2P relay for testing."""
-    return Relay("wss://example.i2p", discovered_at=1700000000)
+    return Relay("wss://example.i2p", stored_at=1700000000)
 
 
 @pytest.fixture
 def sample_loki_relay() -> Relay:
     """Sample Lokinet relay for testing."""
-    return Relay(f"ws://{'d' * 52}.loki", discovered_at=1700000000)
+    return Relay(f"ws://{'d' * 52}.loki", stored_at=1700000000)
 
 
 @pytest.fixture
 def sample_metadata() -> RelayMetadata:
     """Sample RelayMetadata for testing."""
-    relay = Relay("wss://relay.example.com", discovered_at=1700000000)
+    relay = Relay("wss://relay.example.com", stored_at=1700000000)
     metadata = Metadata(
         type=MetadataType.NIP11_INFO,
         data={"name": "Test Relay", "supported_nips": [1, 2, 9, 11]},
@@ -261,7 +261,7 @@ def sample_metadata() -> RelayMetadata:
 @pytest.fixture
 def sample_events_batch() -> list[EventRelay]:
     """Generate a batch of sample EventRelay objects."""
-    relay = Relay("wss://relay.example.com", discovered_at=1700000000)
+    relay = Relay("wss://relay.example.com", stored_at=1700000000)
     return [
         EventRelay(
             event=Event(
@@ -281,7 +281,7 @@ def sample_events_batch() -> list[EventRelay]:
 @pytest.fixture
 def sample_relays_batch() -> list[Relay]:
     """Generate a batch of sample Relay objects."""
-    return [Relay(f"wss://relay{i}.example.com", discovered_at=1700000000) for i in range(10)]
+    return [Relay(f"wss://relay{i}.example.com", stored_at=1700000000) for i in range(10)]
 
 
 def create_mock_record(data: dict[str, Any]) -> MagicMock:

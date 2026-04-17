@@ -40,7 +40,7 @@ class RelayMetadataDbParams(NamedTuple):
     Attributes:
         relay_url: Relay WebSocket URL (from [RelayDbParams][bigbrotr.models.relay.RelayDbParams]).
         relay_network: Network type string (e.g., ``"clearnet"``, ``"tor"``).
-        relay_discovered_at: Unix timestamp of relay discovery.
+        relay_stored_at: Unix timestamp when the relay entered the canonical stored relay pool.
         metadata_id: SHA-256 content hash (32 bytes,
             from [MetadataDbParams][bigbrotr.models.metadata.MetadataDbParams]).
         metadata_type: Metadata type identifier. Built-in callers typically
@@ -59,7 +59,7 @@ class RelayMetadataDbParams(NamedTuple):
 
     relay_url: str
     relay_network: str
-    relay_discovered_at: int
+    relay_stored_at: int
     metadata_id: bytes
     metadata_type: str
     metadata_data: str
@@ -149,7 +149,7 @@ class RelayMetadata:
         return RelayMetadataDbParams(
             relay_url=r.url,
             relay_network=r.network,
-            relay_discovered_at=r.discovered_at,
+            relay_stored_at=r.stored_at,
             metadata_id=m.id,
             metadata_type=m.type,
             metadata_data=m.data,

@@ -57,7 +57,7 @@ async def batched_insert(
 
 def try_parse_relay(
     url: str,
-    discovered_at: int | None = None,
+    stored_at: int | None = None,
     *,
     allow_local: bool = False,
 ) -> Relay | None:
@@ -69,7 +69,8 @@ def try_parse_relay(
 
     Args:
         url: Potential relay URL string.
-        discovered_at: Optional Unix timestamp of first discovery.  When
+        stored_at: Optional Unix timestamp for archive entry into the canonical
+            stored relay pool. When
             ``None`` (default), ``Relay`` uses the current time.
         allow_local: Whether local relay URLs are accepted.
 
@@ -83,7 +84,7 @@ def try_parse_relay(
     try:
         return Relay.parse(
             url,
-            discovered_at=discovered_at,
+            stored_at=stored_at,
             allow_local=allow_local,
         )
     except (ValueError, TypeError):
@@ -94,19 +95,19 @@ def parse_relay_row(row: Any) -> Relay | None:
     """Construct a Relay from a database row with network cross-check.
 
     Builds a [Relay][bigbrotr.models.relay.Relay] from ``row["url"]`` and
-    ``row["discovered_at"]``, then verifies that the network detected from
+    ``row["stored_at"]``, then verifies that the network detected from
     the URL matches ``row["network"]``.  A mismatch is logged as a warning
     (possible data integrity issue) but the relay is still returned with
     the detected network.  Returns ``None`` if the URL fails validation.
 
     Args:
-        row: Database row with ``url``, ``network``, and ``discovered_at``.
+        row: Database row with ``url``, ``network``, and ``stored_at``.
 
     Returns:
         [Relay][bigbrotr.models.relay.Relay] if valid, ``None`` otherwise.
     """
     try:
-        relay = Relay(row["url"], row["discovered_at"])
+        relay = Relay(row["url"], row["stored_at"])
     except (ValueError, TypeError) as e:
         logger.warning("invalid_relay_row_skipped: %s (%s)", row["url"], e)
         return None

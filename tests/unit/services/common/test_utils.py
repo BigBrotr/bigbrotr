@@ -91,19 +91,19 @@ class TestParseRelayUrl:
         assert result.url == "wss://127.0.0.1"
         assert result.network.value == "local"
 
-    def test_discovered_at(self) -> None:
-        """Test parsing with an explicit discovered_at timestamp."""
-        result = try_parse_relay("wss://relay.example.com", discovered_at=1700000000)
+    def test_stored_at(self) -> None:
+        """Test parsing with an explicit stored_at timestamp."""
+        result = try_parse_relay("wss://relay.example.com", stored_at=1700000000)
 
         assert isinstance(result, Relay)
-        assert result.discovered_at == 1700000000
+        assert result.stored_at == 1700000000
 
-    def test_discovered_at_none_uses_default(self) -> None:
-        """Test that discovered_at=None lets Relay use current time."""
+    def test_stored_at_none_uses_default(self) -> None:
+        """Test that stored_at=None lets Relay use current time."""
         result = try_parse_relay("wss://relay.example.com")
 
         assert isinstance(result, Relay)
-        assert result.discovered_at > 0
+        assert result.stored_at > 0
 
     def test_tor_url(self) -> None:
         """Test parsing a valid .onion relay URL."""
@@ -113,9 +113,9 @@ class TestParseRelayUrl:
         assert isinstance(result, Relay)
         assert result.url == url
 
-    def test_invalid_discovered_at_type_returns_none(self) -> None:
+    def test_invalid_stored_at_type_returns_none(self) -> None:
         """Test that TypeError from Relay constructor returns None."""
-        result = try_parse_relay("wss://relay.example.com", discovered_at="not_an_int")  # type: ignore[arg-type]
+        result = try_parse_relay("wss://relay.example.com", stored_at="not_an_int")  # type: ignore[arg-type]
 
         assert result is None
 
@@ -186,18 +186,18 @@ class TestParseRelayRow:
 
     def test_valid_row(self) -> None:
         """Test constructing a Relay from a valid DB row."""
-        row = {"url": "wss://relay.example.com", "network": "clearnet", "discovered_at": 1700000000}
+        row = {"url": "wss://relay.example.com", "network": "clearnet", "stored_at": 1700000000}
         result = parse_relay_row(row)
 
         assert isinstance(result, Relay)
         assert result.url == "wss://relay.example.com"
         assert result.network.value == "clearnet"
-        assert result.discovered_at == 1700000000
+        assert result.stored_at == 1700000000
 
     def test_tor_row(self) -> None:
         """Test constructing a Relay from a Tor DB row."""
         url = "ws://juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion"
-        row = {"url": url, "network": "tor", "discovered_at": 1700000000}
+        row = {"url": url, "network": "tor", "stored_at": 1700000000}
         result = parse_relay_row(row)
 
         assert isinstance(result, Relay)
@@ -205,7 +205,7 @@ class TestParseRelayRow:
 
     def test_invalid_url_returns_none(self, caplog: logging.LogRecord) -> None:
         """Test that an invalid URL returns None with warning."""
-        row = {"url": "not-valid", "network": "clearnet", "discovered_at": 1700000000}
+        row = {"url": "not-valid", "network": "clearnet", "stored_at": 1700000000}
 
         with caplog.at_level(logging.WARNING):
             result = parse_relay_row(row)
@@ -215,7 +215,7 @@ class TestParseRelayRow:
 
     def test_network_mismatch_logs_warning(self, caplog: logging.LogRecord) -> None:
         """Test that network mismatch logs a warning but still returns the relay."""
-        row = {"url": "wss://relay.example.com", "network": "tor", "discovered_at": 1700000000}
+        row = {"url": "wss://relay.example.com", "network": "tor", "stored_at": 1700000000}
 
         with caplog.at_level(logging.WARNING):
             result = parse_relay_row(row)
@@ -228,7 +228,7 @@ class TestParseRelayRow:
 
     def test_network_match_no_warning(self, caplog: logging.LogRecord) -> None:
         """Test that matching network produces no warning."""
-        row = {"url": "wss://relay.example.com", "network": "clearnet", "discovered_at": 1700000000}
+        row = {"url": "wss://relay.example.com", "network": "clearnet", "stored_at": 1700000000}
 
         with caplog.at_level(logging.WARNING):
             result = parse_relay_row(row)

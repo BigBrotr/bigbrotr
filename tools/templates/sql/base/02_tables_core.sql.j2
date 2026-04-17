@@ -23,13 +23,13 @@
 CREATE TABLE IF NOT EXISTS relay (
     url TEXT PRIMARY KEY,
     network TEXT NOT NULL,
-    discovered_at BIGINT NOT NULL
+    stored_at BIGINT NOT NULL
 );
 
 COMMENT ON TABLE relay IS 'Registry of validated Nostr relays across clearnet and overlay networks';
 COMMENT ON COLUMN relay.url IS 'WebSocket URL (e.g., wss://relay.example.com)';
 COMMENT ON COLUMN relay.network IS 'Network type: clearnet, tor, i2p, or loki';
-COMMENT ON COLUMN relay.discovered_at IS 'Unix timestamp when first discovered and validated';
+COMMENT ON COLUMN relay.stored_at IS 'Unix timestamp when the relay row entered the canonical stored relay pool';
 
 
 {% block events_table %}

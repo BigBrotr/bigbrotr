@@ -47,7 +47,7 @@ class EventRelayDbParams(NamedTuple):
         relay_url: Fully normalized relay WebSocket URL
             (from [RelayDbParams][bigbrotr.models.relay.RelayDbParams]).
         relay_network: Network type string (e.g., ``"clearnet"``, ``"tor"``).
-        relay_discovered_at: Unix timestamp of relay discovery.
+        relay_stored_at: Unix timestamp when the relay entered the canonical stored relay pool.
         seen_at: Unix timestamp when the event was first observed on this relay.
 
     See Also:
@@ -66,7 +66,7 @@ class EventRelayDbParams(NamedTuple):
     sig: bytes
     relay_url: str
     relay_network: str
-    relay_discovered_at: int
+    relay_stored_at: int
     seen_at: int
 
 
@@ -146,7 +146,7 @@ class EventRelay:
             sig=e.sig,
             relay_url=r.url,
             relay_network=r.network,
-            relay_discovered_at=r.discovered_at,
+            relay_stored_at=r.stored_at,
             seen_at=self.seen_at,
         )
 

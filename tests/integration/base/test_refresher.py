@@ -36,7 +36,7 @@ def _event_relay(
             tags=tags,
         )
     )
-    relay = Relay(relay_url, discovered_at=1700000000)
+    relay = Relay(relay_url, stored_at=1700000000)
     return EventRelay(event=event, relay=relay, seen_at=seen_at or created_at + 1)
 
 

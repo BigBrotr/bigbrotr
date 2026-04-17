@@ -18,7 +18,7 @@ from bigbrotr.models.relay_metadata import RelayMetadataDbParams
 
 @pytest.fixture
 def relay():
-    return Relay("wss://relay.example.com:8080/nostr", discovered_at=1234567890)
+    return Relay("wss://relay.example.com:8080/nostr", stored_at=1234567890)
 
 
 @pytest.fixture
@@ -93,7 +93,7 @@ class TestImmutability:
     def test_relay_mutation_blocked(self, relay, metadata):
         rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
         with pytest.raises(FrozenInstanceError):
-            rm.relay = Relay("wss://other.relay", discovered_at=9999999999)
+            rm.relay = Relay("wss://other.relay", stored_at=9999999999)
 
     def test_metadata_mutation_blocked(self, relay, metadata):
         rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=1234567890)
@@ -134,7 +134,7 @@ class TestToDbParams:
         result = rm.to_db_params()
         assert result.relay_url == "wss://relay.example.com:8080/nostr"
         assert result.relay_network == "clearnet"
-        assert result.relay_discovered_at == 1234567890
+        assert result.relay_stored_at == 1234567890
         parsed = json.loads(result.metadata_data)
         assert parsed == {"name": "Test", "value": 42}
         assert result.metadata_type == "nip66_rtt"
@@ -149,7 +149,7 @@ class TestToDbParams:
     def test_with_tor_relay(self):
         from tests.fixtures.relays import ONION_HOST
 
-        tor_relay = Relay(f"ws://{ONION_HOST}.onion", discovered_at=1234567890)
+        tor_relay = Relay(f"ws://{ONION_HOST}.onion", stored_at=1234567890)
         metadata = Metadata(type=MetadataType.NIP11_INFO, data={"test": "data"})
         rm = RelayMetadata(relay=tor_relay, metadata=metadata, generated_at=1234567890)
         result = rm.to_db_params()
@@ -157,7 +157,7 @@ class TestToDbParams:
         assert result.relay_network == "tor"
 
     def test_with_i2p_relay(self):
-        i2p_relay = Relay("ws://relay.i2p", discovered_at=1234567890)
+        i2p_relay = Relay("ws://relay.i2p", stored_at=1234567890)
         metadata = Metadata(type=MetadataType.NIP66_GEO, data={"test": "data"})
         rm = RelayMetadata(relay=i2p_relay, metadata=metadata, generated_at=1234567890)
         result = rm.to_db_params()
@@ -200,8 +200,8 @@ class TestEquality:
         assert rm1 != rm2
 
     def test_different_relay(self, metadata):
-        relay1 = Relay("wss://relay1.example.com", discovered_at=1234567890)
-        relay2 = Relay("wss://relay2.example.com", discovered_at=1234567890)
+        relay1 = Relay("wss://relay1.example.com", stored_at=1234567890)
+        relay2 = Relay("wss://relay2.example.com", stored_at=1234567890)
         rm1 = RelayMetadata(relay=relay1, metadata=metadata, generated_at=1234567890)
         rm2 = RelayMetadata(relay=relay2, metadata=metadata, generated_at=1234567890)
         assert rm1 != rm2
@@ -248,7 +248,7 @@ class TestEdgeCases:
         assert rm.generated_at == 0
 
     def test_with_ipv6_relay(self):
-        ipv6_relay = Relay("wss://[2001:4860:4860::8888]", discovered_at=1234567890)
+        ipv6_relay = Relay("wss://[2001:4860:4860::8888]", stored_at=1234567890)
         metadata = Metadata(type=MetadataType.NIP66_DNS, data={"dns": "data"})
         rm = RelayMetadata(relay=ipv6_relay, metadata=metadata, generated_at=1234567890)
         result = rm.to_db_params()

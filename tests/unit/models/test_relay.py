@@ -387,21 +387,21 @@ class TestImmutability:
 
 
 class TestTimestamp:
-    """discovered_at timestamp handling."""
+    """stored_at timestamp handling."""
 
     def test_defaults_to_now(self):
         before = int(time())
         r = Relay("wss://relay.example.com")
         after = int(time())
-        assert before <= r.discovered_at <= after
+        assert before <= r.stored_at <= after
 
     def test_explicit_timestamp(self):
-        r = Relay("wss://relay.example.com", discovered_at=1234567890)
-        assert r.discovered_at == 1234567890
+        r = Relay("wss://relay.example.com", stored_at=1234567890)
+        assert r.stored_at == 1234567890
 
     def test_timestamp_zero(self):
-        r = Relay("wss://relay.example.com", discovered_at=0)
-        assert r.discovered_at == 0
+        r = Relay("wss://relay.example.com", stored_at=0)
+        assert r.stored_at == 0
 
 
 # =============================================================================
@@ -413,26 +413,26 @@ class TestToDbParams:
     """Relay.to_db_params() serialization."""
 
     def test_returns_relay_db_params(self):
-        r = Relay("wss://relay.example.com", discovered_at=1234567890)
+        r = Relay("wss://relay.example.com", stored_at=1234567890)
         params = r.to_db_params()
         assert isinstance(params, RelayDbParams)
         assert len(params) == 3
 
     def test_structure_clearnet(self):
-        r = Relay("wss://relay.example.com", discovered_at=1234567890)
+        r = Relay("wss://relay.example.com", stored_at=1234567890)
         params = r.to_db_params()
         assert params.url == "wss://relay.example.com"
         assert params.network == "clearnet"
-        assert params.discovered_at == 1234567890
+        assert params.stored_at == 1234567890
 
     def test_structure_tor(self):
-        r = Relay(f"ws://{ONION_HOST}.onion", discovered_at=1234567890)
+        r = Relay(f"ws://{ONION_HOST}.onion", stored_at=1234567890)
         params = r.to_db_params()
         assert params.url == f"ws://{ONION_HOST}.onion"
         assert params.network == "tor"
 
     def test_with_port_and_path(self):
-        r = Relay("wss://relay.example.com:8080/nostr", discovered_at=1234567890)
+        r = Relay("wss://relay.example.com:8080/nostr", stored_at=1234567890)
         params = r.to_db_params()
         assert params.url == "wss://relay.example.com:8080/nostr"
 
@@ -443,7 +443,7 @@ class TestToDbParams:
         assert params.network == "clearnet"
 
     def test_caching(self):
-        r = Relay("wss://relay.example.com", discovered_at=1234567890)
+        r = Relay("wss://relay.example.com", stored_at=1234567890)
         assert r.to_db_params() is r.to_db_params()
 
 
@@ -456,29 +456,29 @@ class TestEquality:
     """Equality and hashing."""
 
     def test_equal_same_url_and_timestamp(self):
-        r1 = Relay("wss://relay.example.com", discovered_at=1234567890)
-        r2 = Relay("wss://relay.example.com", discovered_at=1234567890)
+        r1 = Relay("wss://relay.example.com", stored_at=1234567890)
+        r2 = Relay("wss://relay.example.com", stored_at=1234567890)
         assert r1 == r2
 
     def test_different_url(self):
-        r1 = Relay("wss://relay1.example.com", discovered_at=1234567890)
-        r2 = Relay("wss://relay2.example.com", discovered_at=1234567890)
+        r1 = Relay("wss://relay1.example.com", stored_at=1234567890)
+        r2 = Relay("wss://relay2.example.com", stored_at=1234567890)
         assert r1 != r2
 
     def test_different_timestamp(self):
-        r1 = Relay("wss://relay.example.com", discovered_at=1234567890)
-        r2 = Relay("wss://relay.example.com", discovered_at=9999999999)
+        r1 = Relay("wss://relay.example.com", stored_at=1234567890)
+        r2 = Relay("wss://relay.example.com", stored_at=9999999999)
         assert r1 != r2
 
     def test_hashable(self):
-        r1 = Relay("wss://relay.example.com", discovered_at=1234567890)
-        r2 = Relay("wss://relay.example.com", discovered_at=1234567890)
+        r1 = Relay("wss://relay.example.com", stored_at=1234567890)
+        r2 = Relay("wss://relay.example.com", stored_at=1234567890)
         assert hash(r1) == hash(r2)
 
     def test_set_deduplication(self):
-        r1 = Relay("wss://relay.example.com", discovered_at=1234567890)
-        r2 = Relay("wss://relay.example.com", discovered_at=1234567890)
-        r3 = Relay("wss://other.relay.com", discovered_at=1234567890)
+        r1 = Relay("wss://relay.example.com", stored_at=1234567890)
+        r2 = Relay("wss://relay.example.com", stored_at=1234567890)
+        r3 = Relay("wss://other.relay.com", stored_at=1234567890)
         s = {r1, r2, r3}
         assert len(s) == 2
 
@@ -520,27 +520,27 @@ class TestTypeValidation:
 
     def test_url_non_string_rejected(self):
         with pytest.raises(TypeError, match="url must be a str"):
-            Relay(url=12345, discovered_at=1234567890)  # type: ignore[arg-type]
+            Relay(url=12345, stored_at=1234567890)  # type: ignore[arg-type]
 
-    def test_discovered_at_non_int_rejected(self):
-        with pytest.raises(TypeError, match="discovered_at must be an int"):
-            Relay(url="wss://relay.example.com", discovered_at="abc")  # type: ignore[arg-type]
+    def test_stored_at_non_int_rejected(self):
+        with pytest.raises(TypeError, match="stored_at must be an int"):
+            Relay(url="wss://relay.example.com", stored_at="abc")  # type: ignore[arg-type]
 
-    def test_discovered_at_float_rejected(self):
-        with pytest.raises(TypeError, match="discovered_at must be an int"):
-            Relay(url="wss://relay.example.com", discovered_at=1.5)  # type: ignore[arg-type]
+    def test_stored_at_float_rejected(self):
+        with pytest.raises(TypeError, match="stored_at must be an int"):
+            Relay(url="wss://relay.example.com", stored_at=1.5)  # type: ignore[arg-type]
 
-    def test_discovered_at_bool_rejected(self):
-        with pytest.raises(TypeError, match="discovered_at must be an int"):
-            Relay(url="wss://relay.example.com", discovered_at=True)  # type: ignore[arg-type]
+    def test_stored_at_bool_rejected(self):
+        with pytest.raises(TypeError, match="stored_at must be an int"):
+            Relay(url="wss://relay.example.com", stored_at=True)  # type: ignore[arg-type]
 
-    def test_discovered_at_negative_rejected(self):
-        with pytest.raises(ValueError, match="discovered_at must be non-negative"):
-            Relay(url="wss://relay.example.com", discovered_at=-1)
+    def test_stored_at_negative_rejected(self):
+        with pytest.raises(ValueError, match="stored_at must be non-negative"):
+            Relay(url="wss://relay.example.com", stored_at=-1)
 
-    def test_discovered_at_zero_accepted(self):
-        r = Relay(url="wss://relay.example.com", discovered_at=0)
-        assert r.discovered_at == 0
+    def test_stored_at_zero_accepted(self):
+        r = Relay(url="wss://relay.example.com", stored_at=0)
+        assert r.stored_at == 0
 
 
 # =============================================================================

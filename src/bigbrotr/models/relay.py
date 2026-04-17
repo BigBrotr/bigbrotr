@@ -41,7 +41,7 @@ class RelayDbParams(NamedTuple):
     Attributes:
         url: Fully normalized WebSocket URL including scheme.
         network: Network type string (e.g., ``"clearnet"``, ``"tor"``).
-        discovered_at: Unix timestamp when the relay was first discovered.
+        stored_at: Unix timestamp when the relay entered the canonical stored relay pool.
 
     See Also:
         [Relay][bigbrotr.models.relay.Relay]: The model that produces these parameters.
@@ -49,7 +49,7 @@ class RelayDbParams(NamedTuple):
 
     url: str
     network: str
-    discovered_at: int
+    stored_at: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +76,7 @@ class Relay:
         host: Hostname or IP address (brackets stripped for IPv6).
         port: Explicit port number, or ``None`` when using the default.
         path: URL path component, or ``None``.
-        discovered_at: Unix timestamp when the relay was first discovered.
+        stored_at: Unix timestamp when the relay entered the canonical stored relay pool.
 
     Raises:
         ValueError: If the URL is not in canonical form, malformed,
@@ -122,7 +122,7 @@ class Relay:
     """
 
     url: str
-    discovered_at: int = field(default_factory=lambda: int(time()))
+    stored_at: int = field(default_factory=lambda: int(time()))
 
     network: NetworkType = field(init=False)
     scheme: str = field(init=False)
@@ -145,7 +145,7 @@ class Relay:
             ValueError: If the URL is not canonical, invalid, or contains null bytes.
         """
         validate_str_no_null(self.url, "url")
-        validate_timestamp(self.discovered_at, "discovered_at")
+        validate_timestamp(self.stored_at, "stored_at")
 
         # Defence in depth: re-sanitize to guarantee canonical form even though
         # callers should pre-sanitize.  This duplicates the RFC 3986 parse in
@@ -171,14 +171,14 @@ class Relay:
         cls,
         raw: str,
         *,
-        discovered_at: int | None = None,
+        stored_at: int | None = None,
         allow_local: bool = False,
     ) -> Relay:
         """Parse raw input into a canonical Relay using an explicit policy.
 
         Args:
             raw: Raw relay URL string from untrusted input.
-            discovered_at: Optional discovery timestamp.
+            stored_at: Optional archive-entry timestamp for the canonical stored relay row.
             allow_local: When ``True``, accept canonical local relay URLs
                 such as ``ws://localhost`` or ``wss://127.0.0.1:7447``.
 
@@ -190,8 +190,8 @@ class Relay:
             TypeError: If field types are invalid.
         """
         canonical = normalize_relay_url(raw, allow_local=allow_local)
-        if discovered_at is not None:
-            return cls(canonical, discovered_at)
+        if stored_at is not None:
+            return cls(canonical, stored_at)
         return cls(canonical)
 
     def _compute_db_params(self) -> RelayDbParams:
@@ -203,12 +203,12 @@ class Relay:
 
         Returns:
             [RelayDbParams][bigbrotr.models.relay.RelayDbParams] with the
-            normalized URL, network name, and discovery timestamp.
+            normalized URL, network name, and archive-entry timestamp.
         """
         return RelayDbParams(
             url=self.url,
             network=self.network,
-            discovered_at=self.discovered_at,
+            stored_at=self.stored_at,
         )
 
     def to_db_params(self) -> RelayDbParams:
@@ -220,6 +220,6 @@ class Relay:
 
         Returns:
             [RelayDbParams][bigbrotr.models.relay.RelayDbParams] with the
-            normalized URL, network name, and discovery timestamp.
+            normalized URL, network name, and archive-entry timestamp.
         """
         return self._db_params

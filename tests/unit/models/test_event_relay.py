@@ -34,7 +34,7 @@ def mock_event():
 
 @pytest.fixture
 def relay():
-    return Relay("wss://relay.example.com", discovered_at=1234567890)
+    return Relay("wss://relay.example.com", stored_at=1234567890)
 
 
 @pytest.fixture
@@ -86,7 +86,7 @@ class TestImmutability:
     def test_relay_mutation_blocked(self, mock_event, relay):
         er = EventRelay(mock_event, relay, seen_at=1234567890)
         with pytest.raises(FrozenInstanceError):
-            er.relay = Relay("wss://other.relay", discovered_at=9999999999)
+            er.relay = Relay("wss://other.relay", stored_at=9999999999)
 
     def test_seen_at_mutation_blocked(self, mock_event, relay):
         er = EventRelay(mock_event, relay, seen_at=1234567890)
@@ -130,7 +130,7 @@ class TestToDbParams:
         result = er.to_db_params()
         assert result.relay_url == "wss://relay.example.com"
         assert result.relay_network == "clearnet"
-        assert result.relay_discovered_at == 1234567890
+        assert result.relay_stored_at == 1234567890
 
     def test_seen_at_param_last(self, mock_event, relay):
         er = EventRelay(mock_event, relay, seen_at=9999999999)
@@ -145,7 +145,7 @@ class TestToDbParams:
     def test_with_different_relay_networks(self, mock_event):
         from tests.fixtures.relays import ONION_HOST
 
-        tor_relay = Relay(f"ws://{ONION_HOST}.onion", discovered_at=1234567890)
+        tor_relay = Relay(f"ws://{ONION_HOST}.onion", stored_at=1234567890)
         er = EventRelay(mock_event, tor_relay, seen_at=1234567890)
         result = er.to_db_params()
         assert result.relay_url == f"ws://{ONION_HOST}.onion"
@@ -175,8 +175,8 @@ class TestEquality:
         assert er1 != er2
 
     def test_different_relay(self, mock_event):
-        relay1 = Relay("wss://relay1.example.com", discovered_at=1234567890)
-        relay2 = Relay("wss://relay2.example.com", discovered_at=1234567890)
+        relay1 = Relay("wss://relay1.example.com", stored_at=1234567890)
+        relay2 = Relay("wss://relay2.example.com", stored_at=1234567890)
         er1 = EventRelay(mock_event, relay1, seen_at=1234567890)
         er2 = EventRelay(mock_event, relay2, seen_at=1234567890)
         assert er1 != er2
@@ -216,20 +216,20 @@ class TestEdgeCases:
     """Edge cases and boundary conditions."""
 
     def test_with_port_and_path_relay(self, mock_event):
-        relay = Relay("wss://relay.example.com:8080/nostr", discovered_at=1234567890)
+        relay = Relay("wss://relay.example.com:8080/nostr", stored_at=1234567890)
         er = EventRelay(mock_event, relay, seen_at=1234567890)
         result = er.to_db_params()
         assert result.relay_url == "wss://relay.example.com:8080/nostr"
 
     def test_with_ipv6_relay(self, mock_event):
-        relay = Relay("wss://[2001:4860:4860::8888]", discovered_at=1234567890)
+        relay = Relay("wss://[2001:4860:4860::8888]", stored_at=1234567890)
         er = EventRelay(mock_event, relay, seen_at=1234567890)
         result = er.to_db_params()
         assert result.relay_url == "wss://[2001:4860:4860::8888]"
         assert result.relay_network == "clearnet"
 
     def test_with_i2p_relay(self, mock_event):
-        relay = Relay("ws://relay.i2p", discovered_at=1234567890)
+        relay = Relay("ws://relay.i2p", stored_at=1234567890)
         er = EventRelay(mock_event, relay, seen_at=1234567890)
         result = er.to_db_params()
         assert result.relay_url == "ws://relay.i2p"
@@ -238,7 +238,7 @@ class TestEdgeCases:
     def test_with_loki_relay(self, mock_event):
         from tests.fixtures.relays import LOKI_HOST
 
-        relay = Relay(f"ws://{LOKI_HOST}.loki", discovered_at=1234567890)
+        relay = Relay(f"ws://{LOKI_HOST}.loki", stored_at=1234567890)
         er = EventRelay(mock_event, relay, seen_at=1234567890)
         result = er.to_db_params()
         assert result.relay_url == f"ws://{LOKI_HOST}.loki"
@@ -254,7 +254,7 @@ class TestTypeValidation:
     """Runtime type validation in __post_init__."""
 
     def test_event_non_event_rejected(self):
-        relay = Relay("wss://relay.example.com", discovered_at=1234567890)
+        relay = Relay("wss://relay.example.com", stored_at=1234567890)
         with pytest.raises(TypeError, match="event must be an Event"):
             EventRelay(event="not an event", relay=relay, seen_at=123)  # type: ignore[arg-type]
 
@@ -263,16 +263,16 @@ class TestTypeValidation:
             EventRelay(event=mock_event, relay="not a relay", seen_at=123)  # type: ignore[arg-type]
 
     def test_seen_at_non_int_rejected(self, mock_event):
-        relay = Relay("wss://relay.example.com", discovered_at=1234567890)
+        relay = Relay("wss://relay.example.com", stored_at=1234567890)
         with pytest.raises(TypeError, match="seen_at must be an int"):
             EventRelay(event=mock_event, relay=relay, seen_at="abc")  # type: ignore[arg-type]
 
     def test_seen_at_bool_rejected(self, mock_event):
-        relay = Relay("wss://relay.example.com", discovered_at=1234567890)
+        relay = Relay("wss://relay.example.com", stored_at=1234567890)
         with pytest.raises(TypeError, match="seen_at must be an int"):
             EventRelay(event=mock_event, relay=relay, seen_at=True)  # type: ignore[arg-type]
 
     def test_seen_at_negative_rejected(self, mock_event):
-        relay = Relay("wss://relay.example.com", discovered_at=1234567890)
+        relay = Relay("wss://relay.example.com", stored_at=1234567890)
         with pytest.raises(ValueError, match="seen_at must be non-negative"):
             EventRelay(event=mock_event, relay=relay, seen_at=-1)
