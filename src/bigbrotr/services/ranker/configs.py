@@ -89,7 +89,7 @@ class RankerSyncConfig(BaseModel):
 
 
 class RankerFactsStageConfig(BaseModel):
-    """PostgreSQL fact staging settings for non-user rank subjects."""
+    """PostgreSQL fact staging settings for non-user score subjects."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -179,7 +179,7 @@ class RankerConfig(BaseServiceConfig):
     )
     export: RankerExportConfig = Field(
         default_factory=RankerExportConfig,
-        description="Batch settings for PostgreSQL rank export",
+        description="Batch settings for PostgreSQL score export",
     )
     cleanup: RankerCleanupConfig = Field(
         default_factory=RankerCleanupConfig,

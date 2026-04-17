@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 _USER_QUERY = """
 SELECT
     n.pubkey,
-    s.score AS rank,
+    s.score AS score,
     n.post_count,
     n.reply_count,
     n.reaction_count_sent,
@@ -51,7 +51,7 @@ _EVENT_QUERY = """
 SELECT
     s.event_id,
     s.author_pubkey,
-    sc.score AS rank,
+    sc.score AS score,
     s.comment_count,
     s.quote_count,
     s.repost_count,
@@ -72,7 +72,7 @@ _ADDRESSABLE_QUERY = """
 SELECT
     s.event_address,
     s.author_pubkey,
-    sc.score AS rank,
+    sc.score AS score,
     s.comment_count,
     s.quote_count,
     s.repost_count,
@@ -92,7 +92,7 @@ OFFSET $3
 _IDENTIFIER_QUERY = """
 SELECT
     s.identifier,
-    sc.score AS rank,
+    sc.score AS score,
     s.comment_count,
     s.reaction_count,
     s.k_tags

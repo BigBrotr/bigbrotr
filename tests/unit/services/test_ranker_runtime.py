@@ -112,7 +112,7 @@ class TestRankerRuntimeHelpers:
             graph_nodes=11,
             graph_edges=17,
             non_user_staged=RankRowCounts(event=4, addressable=5, identifier=6),
-            rank_counts=RankRowCounts(pubkey=7, event=8, addressable=9, identifier=10),
+            score_counts=RankRowCounts(pubkey=7, event=8, addressable=9, identifier=10),
             checkpoint=GraphSyncCheckpoint(source_seen_at=123, follower_pubkey="a" * 64),
             checkpoint_lag_seconds=99,
             duckdb_file_size_bytes=1234,

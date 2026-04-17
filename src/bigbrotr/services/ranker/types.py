@@ -10,8 +10,8 @@ from .queries import (
     EventStatFact,
     GraphSyncCheckpoint,
     IdentifierStatFact,
-    RankExportRow,
     RankSubjectType,
+    ScoreExportRow,
 )
 from .runtime import RankPhaseDurations, RankRowCounts
 
@@ -40,7 +40,7 @@ class _StageResult:
 
 @dataclass(frozen=True, slots=True)
 class _ExportSubjectResult:
-    """Internal result of staging one rank subject for export."""
+    """Internal result of staging one score subject for export."""
 
     rows: int = 0
     cutoff_reason: str | None = None
@@ -56,10 +56,10 @@ class _ExportResult:
 
 @dataclass(frozen=True, slots=True)
 class _ExportStageSpec:
-    """Internal specification for exporting one rank subject type."""
+    """Internal specification for exporting one score subject type."""
 
     subject_type: RankSubjectType
-    fetch_batch: Callable[..., list[RankExportRow]]
+    fetch_batch: Callable[..., list[ScoreExportRow]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +69,7 @@ class _CycleBuildInput:
     rank_run_id: int | None
     sync_result: _GraphSyncResult
     non_user_staged: RankRowCounts = field(default_factory=RankRowCounts)
-    rank_counts: RankRowCounts = field(default_factory=RankRowCounts)
+    score_counts: RankRowCounts = field(default_factory=RankRowCounts)
     cleanup_removed: int = 0
     phase_durations: RankPhaseDurations = field(default_factory=RankPhaseDurations)
     cutoff_reason: str | None = None
@@ -80,7 +80,7 @@ class _ComputeExportResult:
     """Internal result of the compute+export phase after graph sync and staging."""
 
     rank_run_id: int
-    rank_counts: RankRowCounts = field(default_factory=RankRowCounts)
+    score_counts: RankRowCounts = field(default_factory=RankRowCounts)
     phase_durations: RankPhaseDurations = field(default_factory=RankPhaseDurations)
     cutoff_reason: str | None = None
 

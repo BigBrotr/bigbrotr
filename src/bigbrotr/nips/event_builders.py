@@ -441,7 +441,7 @@ def build_user_assertion(assertion: UserAssertion) -> EventBuilder:
     tags: list[Tag] = [
         Tag.identifier(assertion.pubkey),
         Tag.parse(["p", assertion.pubkey]),
-        Tag.parse(["rank", str(assertion.rank)]),
+        Tag.parse(["rank", str(assertion.score)]),
         Tag.parse(["followers", str(assertion.follower_count)]),
         Tag.parse(["post_cnt", str(assertion.post_count)]),
         Tag.parse(["reply_cnt", str(assertion.reply_count)]),
@@ -481,7 +481,7 @@ def build_event_assertion(assertion: EventAssertion) -> EventBuilder:
     tags: list[Tag] = [
         Tag.identifier(assertion.event_id),
         Tag.parse(["e", assertion.event_id]),
-        Tag.parse(["rank", str(assertion.rank)]),
+        Tag.parse(["rank", str(assertion.score)]),
         Tag.parse(["comment_cnt", str(assertion.comment_count)]),
         Tag.parse(["quote_cnt", str(assertion.quote_count)]),
         Tag.parse(["repost_cnt", str(assertion.repost_count)]),
@@ -500,7 +500,7 @@ def build_addressable_assertion(assertion: AddressableAssertion) -> EventBuilder
     tags: list[Tag] = [
         Tag.identifier(assertion.event_address),
         Tag.parse(["a", assertion.event_address]),
-        Tag.parse(["rank", str(assertion.rank)]),
+        Tag.parse(["rank", str(assertion.score)]),
         Tag.parse(["comment_cnt", str(assertion.comment_count)]),
         Tag.parse(["quote_cnt", str(assertion.quote_count)]),
         Tag.parse(["repost_cnt", str(assertion.repost_count)]),
@@ -519,7 +519,7 @@ def build_identifier_assertion(assertion: IdentifierAssertion) -> EventBuilder:
     tags: list[Tag] = [
         Tag.identifier(assertion.identifier),
         Tag.parse(["i", assertion.identifier]),
-        Tag.parse(["rank", str(assertion.rank)]),
+        Tag.parse(["rank", str(assertion.score)]),
         Tag.parse(["comment_cnt", str(assertion.comment_count)]),
         Tag.parse(["reaction_cnt", str(assertion.reaction_count)]),
     ]

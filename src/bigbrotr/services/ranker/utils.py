@@ -17,7 +17,7 @@ from .queries import (
     FollowEdgeFact,
     GraphSyncCheckpoint,
     IdentifierStatFact,
-    RankExportRow,
+    ScoreExportRow,
 )
 
 
@@ -223,15 +223,15 @@ class RankerStore:
             ignore_self_follows=ignore_self_follows,
         )
 
-    def fetch_pubkey_rank_batch(
+    def fetch_pubkey_score_batch(
         self,
         *,
         after_subject_id: str,
         limit: int,
-    ) -> list[RankExportRow]:
-        """Fetch one deterministic export batch from the final PageRank snapshot."""
+    ) -> list[ScoreExportRow]:
+        """Fetch one deterministic export batch from the final PageRank score snapshot."""
         self.ensure_initialized()
-        return store_graph.fetch_pubkey_rank_batch(
+        return store_graph.fetch_pubkey_score_batch(
             self._connection(),
             after_subject_id=after_subject_id,
             limit=limit,
@@ -274,40 +274,40 @@ class RankerStore:
             raise RuntimeError("RankerStore connection must be used from a single dedicated thread")
         return conn
 
-    def fetch_event_rank_batch(
+    def fetch_event_score_batch(
         self,
         *,
         after_subject_id: str,
         limit: int,
-    ) -> list[RankExportRow]:
-        """Fetch one deterministic export batch from the final event-rank snapshot."""
-        return self._fetch_rank_batch(
+    ) -> list[ScoreExportRow]:
+        """Fetch one deterministic export batch from the final event-score snapshot."""
+        return self._fetch_score_batch(
             table_name="nip85_event_ranks_curr",
             after_subject_id=after_subject_id,
             limit=limit,
         )
 
-    def fetch_addressable_rank_batch(
+    def fetch_addressable_score_batch(
         self,
         *,
         after_subject_id: str,
         limit: int,
-    ) -> list[RankExportRow]:
-        """Fetch one deterministic export batch from the final addressable snapshot."""
-        return self._fetch_rank_batch(
+    ) -> list[ScoreExportRow]:
+        """Fetch one deterministic export batch from the final addressable score snapshot."""
+        return self._fetch_score_batch(
             table_name="nip85_addressable_ranks_curr",
             after_subject_id=after_subject_id,
             limit=limit,
         )
 
-    def fetch_identifier_rank_batch(
+    def fetch_identifier_score_batch(
         self,
         *,
         after_subject_id: str,
         limit: int,
-    ) -> list[RankExportRow]:
-        """Fetch one deterministic export batch from the final identifier snapshot."""
-        return self._fetch_rank_batch(
+    ) -> list[ScoreExportRow]:
+        """Fetch one deterministic export batch from the final identifier score snapshot."""
+        return self._fetch_score_batch(
             table_name="nip85_identifier_ranks_curr",
             after_subject_id=after_subject_id,
             limit=limit,
@@ -327,15 +327,15 @@ class RankerStore:
     ) -> None:
         store_graph.delete_followers(conn, follower_node_ids)
 
-    def _fetch_rank_batch(
+    def _fetch_score_batch(
         self,
         *,
         table_name: str,
         after_subject_id: str,
         limit: int,
-    ) -> list[RankExportRow]:
+    ) -> list[ScoreExportRow]:
         self.ensure_initialized()
-        return store_non_user.fetch_rank_batch(
+        return store_non_user.fetch_score_batch(
             self._connection(),
             table_name=table_name,
             after_subject_id=after_subject_id,

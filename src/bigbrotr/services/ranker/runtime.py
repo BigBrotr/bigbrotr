@@ -78,7 +78,7 @@ class RankCycleResult:
     graph_nodes: int = 0
     graph_edges: int = 0
     non_user_staged: RankRowCounts = field(default_factory=RankRowCounts)
-    rank_counts: RankRowCounts = field(default_factory=RankRowCounts)
+    score_counts: RankRowCounts = field(default_factory=RankRowCounts)
     checkpoint: GraphSyncCheckpoint = field(default_factory=GraphSyncCheckpoint)
     checkpoint_lag_seconds: int = 0
     duckdb_file_size_bytes: int = 0
@@ -151,12 +151,12 @@ def emit_cycle_metrics(
     service.set_gauge("facts_stage_event_rows", result.non_user_staged.event)
     service.set_gauge("facts_stage_addressable_rows", result.non_user_staged.addressable)
     service.set_gauge("facts_stage_identifier_rows", result.non_user_staged.identifier)
-    service.set_gauge("export_pubkey_rows", result.rank_counts.pubkey)
-    service.set_gauge("export_event_rows", result.rank_counts.event)
-    service.set_gauge("export_addressable_rows", result.rank_counts.addressable)
-    service.set_gauge("export_identifier_rows", result.rank_counts.identifier)
-    service.set_gauge("pubkey_scores_written", result.rank_counts.pubkey)
-    service.set_gauge("non_user_scores_written", result.rank_counts.non_user)
+    service.set_gauge("export_pubkey_rows", result.score_counts.pubkey)
+    service.set_gauge("export_event_rows", result.score_counts.event)
+    service.set_gauge("export_addressable_rows", result.score_counts.addressable)
+    service.set_gauge("export_identifier_rows", result.score_counts.identifier)
+    service.set_gauge("pubkey_scores_written", result.score_counts.pubkey)
+    service.set_gauge("non_user_scores_written", result.score_counts.non_user)
     service.set_gauge("phase_duration_cleanup_seconds", result.phase_durations.cleanup_seconds)
     service.set_gauge("phase_duration_sync_seconds", result.phase_durations.sync_seconds)
     service.set_gauge(

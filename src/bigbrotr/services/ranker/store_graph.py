@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
-from .queries import ContactListFact, FollowEdgeFact, GraphSyncCheckpoint, RankExportRow
+from .queries import ContactListFact, FollowEdgeFact, GraphSyncCheckpoint, ScoreExportRow
 
 
 if TYPE_CHECKING:
@@ -297,13 +297,13 @@ def compute_pubkey_pagerank(
         raise
 
 
-def fetch_pubkey_rank_batch(
+def fetch_pubkey_score_batch(
     conn: duckdb.DuckDBPyConnection,
     *,
     after_subject_id: str,
     limit: int,
-) -> list[RankExportRow]:
-    """Fetch one deterministic export batch from the final PageRank snapshot."""
+) -> list[ScoreExportRow]:
+    """Fetch one deterministic score-export batch from the final PageRank snapshot."""
     node_count_row = conn.execute("SELECT COUNT(*) FROM pagerank_curr").fetchone()
     node_count = int(node_count_row[0]) if node_count_row is not None else 0
     if node_count == 0:
@@ -311,17 +311,16 @@ def fetch_pubkey_rank_batch(
 
     baseline_score = 1.0 / float(node_count)
     rows = conn.execute(
-        _PUBKEY_RANK_EXPORT_QUERY,
+        _PUBKEY_SCORE_EXPORT_QUERY,
         [baseline_score, after_subject_id, limit],
     ).fetchall()
 
     return [
-        RankExportRow(
+        ScoreExportRow(
             subject_id=str(subject_id),
-            raw_score=float(raw_score),
-            rank=int(rank),
+            score=float(score),
         )
-        for subject_id, raw_score, rank in rows
+        for subject_id, score in rows
     ]
 
 
@@ -405,11 +404,10 @@ LEFT JOIN inbound AS i ON i.node_id = c.node_id
 ORDER BY c.node_id
 """
 
-_PUBKEY_RANK_EXPORT_QUERY: Final[str] = """
+_PUBKEY_SCORE_EXPORT_QUERY: Final[str] = """
 SELECT
     n.pubkey AS subject_id,
-    p.raw_score,
-    CAST(ROUND(LEAST(25 * LOG10((p.raw_score / ?) + 1), 100.0)) AS BIGINT) AS rank
+    CAST(ROUND(LEAST(25 * LOG10((p.raw_score / ?) + 1), 100.0)) AS DOUBLE) AS score
 FROM pagerank_curr AS p
 INNER JOIN pubkey_nodes AS n ON n.node_id = p.node_id
 WHERE n.pubkey > ?

@@ -520,7 +520,7 @@ class TestAssertorPublishUserFlow:
     def _make_row(self, pubkey: str = "aa" * 32, post_count: int = 10) -> dict:
         return {
             "pubkey": pubkey,
-            "rank": 42,
+            "score": 42,
             "post_count": post_count,
             "reply_count": 0,
             "reaction_count_recd": 0,
@@ -807,7 +807,7 @@ class TestAssertorCheckpointNamespacing:
             {
                 "event_address": event_address,
                 "author_pubkey": "bb" * 32,
-                "rank": 61,
+                "score": 61,
                 "comment_count": 1,
                 "quote_count": 0,
                 "repost_count": 0,
@@ -836,7 +836,7 @@ class TestAssertorCheckpointNamespacing:
         mock_fetch.return_value = [
             {
                 "identifier": identifier,
-                "rank": 73,
+                "score": 73,
                 "comment_count": 2,
                 "reaction_count": 5,
                 "k_tags": ["book"],
@@ -1464,7 +1464,7 @@ class TestAssertorPublishEventFlow:
         return {
             "event_id": event_id,
             "author_pubkey": "ff" * 32,
-            "rank": 88,
+            "score": 88,
             "comment_count": 5,
             "quote_count": 2,
             "repost_count": 1,
@@ -1652,7 +1652,7 @@ class TestAssertorPublishAddressableAndIdentifierFlow:
             {
                 "event_address": "30023:" + ("aa" * 32) + ":article",
                 "author_pubkey": "bb" * 32,
-                "rank": 81,
+                "score": 81,
                 "comment_count": 5,
                 "quote_count": 1,
                 "repost_count": 2,
@@ -1687,7 +1687,7 @@ class TestAssertorPublishAddressableAndIdentifierFlow:
         mock_fetch.return_value = [
             {
                 "identifier": "isbn:9780140328721",
-                "rank": 66,
+                "score": 66,
                 "comment_count": 4,
                 "reaction_count": 7,
                 "k_tags": ["book", "isbn"],

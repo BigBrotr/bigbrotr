@@ -66,7 +66,7 @@ Execution baseline:
 | 3. Python domain-model and `Brotr` alignment | done | `DocumentType` rename, service-state owner vocabulary alignment, and the domain-facing fixture/test pass are all closed |
 | 4. Shared derivation and maintenance pipeline alignment | done | `Refresher` ownership, source-watermark checkpointing, bounded incremental windows, and backlog reporting are all closed |
 | 5. Service-boundary alignment | done | `Monitor`, offline `Refresher` ownership, `Assertor` package-complete publication, and `Ranker` boundary hardening are all closed |
-| 6. Score/output and NIP capability alignment | in progress | The static capability registry and NIP-85 builder/publication alignment are now closed; the deeper score-vocabulary sweep remains pending |
+| 6. Score/output and NIP capability alignment | done | The static capability registry, NIP-85 builder/publication alignment, and score-vocabulary sweep are all closed |
 | 7. Protocol-agnostic read-core implementation | not started | |
 | 8. Deployment-contract normalization | not started | |
 | 9. Repository-wide documentation rewrite | not started | |
@@ -136,7 +136,7 @@ Execution baseline:
 |--------------|--------|--------|-------|
 | 6.1 Formalize the static capability registry | done | `refactor: formalize static nip capability registry` | Strengthened `NIP_REGISTRY` into a more formal static capability surface by replacing loose strings with `NipCapability`, renaming `metadata_types` to `document_types`, adding explicit `service_names`, and exposing static lookup helpers for service, document type, event kind, and capability resolution. The slice also expanded the lazy public `bigbrotr.nips` surface accordingly, added targeted registry/lazy-import coverage, and updated architecture/developer docs so `nips/` is now described as the NIP-aware layer that includes the static registry plus NIP-85 builder/data helpers rather than only the NIP-11/NIP-66 runtime implementations. Targeted NIP + lazy-import suites, full `make ci`, and `uv lock --check` passed before closure |
 | 6.2 Align NIP-85 event builders and publication paths | done | `refactor: align nip85 builders with assertor publication` | Aligned the NIP-85 provider-package surface so the Assertor now imports its assertion and provider-package builders from `bigbrotr.nips.nip85` instead of the generic top-level builder module, exported the NIP-85 builders directly from that package, and tightened builder semantics so event/addressable assertions emit canonical author `p` tags while identifier assertions emit the canonical `i` subject tag. The slice also updated assertion change-detection hashes to track author-tag changes, expanded unit/integration coverage to assert the new public tags and package exports, and revalidated the work with targeted NIP-85/assertor suites, full `make ci`, and `uv lock --check` before closure |
-| 6.3 Align score-output naming and usage | not started | | |
+| 6.3 Align score-output naming and usage | done | `refactor: align score-output vocabulary` | Aligned the public/shared score vocabulary to `score` across ranker export helpers, assertor-facing joins, NIP-85 assertion models, touched config/docs, and the audited unit/integration test surface while intentionally preserving `rank` only where it remains part of an intentional contract: private DuckDB compute intermediates and the published NIP-85 `rank` tag. The slice renamed score-stage helpers/types/methods, kept `from_db_row()` tolerant of legacy `rank` rows for compatibility, and revalidated the work with targeted unit suites (`181 passed`), targeted integration suites (`5 passed`), `python3 tools/generate_sql.py --check`, full `make ci`, and `uv lock --check` before closure |
 
 ### Tranche 7 — Protocol-Agnostic Read-Core Implementation
 
@@ -203,15 +203,12 @@ Each entry should include:
 - Classification: improvement / watch point, not blocker
 
 - Originating work package: `5.4 Ranker boundary hardening`
-- Deferred item: the private DuckDB store and helper types still use
-  `raw_score` / `rank` for internal intermediates and deterministic export
-  ordering
-- Why deferred: the slice hardened the public/service boundary first by
-  removing DuckDB run bookkeeping from the public cycle result and by
-  realigning score-facing logs, gauges, and docs; a deeper private naming sweep
-  belongs with the later cross-surface score vocabulary pass
-- Future tranche: `6.3 Align score-output naming and usage`
-- Classification: improvement / watch point, not blocker
+- Follow-up status: resolved in `6.3 Align score-output naming and usage`
+- Outcome: the public/shared/export helper vocabulary now consistently uses
+  `score`; private DuckDB compute tables intentionally retain `raw_score` /
+  `rank` only as local ranking intermediates, and the published NIP-85 `rank`
+  tag remains intact as part of the protocol-facing output contract
+- Classification: closed follow-up
 
 - Originating work package: `3.1 Python model rename and semantic alignment`
 - Follow-up status: resolved in `3.2 Brotr API alignment with the new shared schema`

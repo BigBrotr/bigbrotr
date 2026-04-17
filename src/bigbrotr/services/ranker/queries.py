@@ -81,12 +81,11 @@ class IdentifierStatFact:
 
 
 @dataclass(frozen=True, slots=True)
-class RankExportRow:
-    """One final rank row to export into the public PostgreSQL score tables."""
+class ScoreExportRow:
+    """One final public score row to export into PostgreSQL score tables."""
 
     subject_id: str
-    raw_score: float
-    rank: int
+    score: float
 
 
 RankSubjectType = Literal["pubkey", "event", "addressable", "identifier"]
@@ -168,10 +167,10 @@ LIMIT $2
 """
 
 _STAGE_TABLE_NAMES: Final[dict[RankSubjectType, str]] = {
-    "pubkey": "ranker_pubkey_ranks_stage",
-    "event": "ranker_event_ranks_stage",
-    "addressable": "ranker_addressable_ranks_stage",
-    "identifier": "ranker_identifier_ranks_stage",
+    "pubkey": "ranker_pubkey_scores_stage",
+    "event": "ranker_event_scores_stage",
+    "addressable": "ranker_addressable_scores_stage",
+    "identifier": "ranker_identifier_scores_stage",
 }
 
 _TARGET_TABLE_NAMES: Final[dict[RankSubjectType, str]] = {
@@ -181,192 +180,184 @@ _TARGET_TABLE_NAMES: Final[dict[RankSubjectType, str]] = {
     "identifier": "identifier_score",
 }
 
-_CREATE_PUBKEY_RANK_STAGE_QUERY = """
-CREATE TEMP TABLE ranker_pubkey_ranks_stage (
+_CREATE_PUBKEY_SCORE_STAGE_QUERY = """
+CREATE TEMP TABLE ranker_pubkey_scores_stage (
     subject_id TEXT PRIMARY KEY,
-    raw_score DOUBLE PRECISION NOT NULL,
-    rank INTEGER NOT NULL,
+    score DOUBLE PRECISION NOT NULL,
     computed_at BIGINT NOT NULL
 ) ON COMMIT DROP
 """
 
-_CREATE_EVENT_RANK_STAGE_QUERY = """
-CREATE TEMP TABLE ranker_event_ranks_stage (
+_CREATE_EVENT_SCORE_STAGE_QUERY = """
+CREATE TEMP TABLE ranker_event_scores_stage (
     subject_id TEXT PRIMARY KEY,
-    raw_score DOUBLE PRECISION NOT NULL,
-    rank INTEGER NOT NULL,
+    score DOUBLE PRECISION NOT NULL,
     computed_at BIGINT NOT NULL
 ) ON COMMIT DROP
 """
 
-_CREATE_ADDRESSABLE_RANK_STAGE_QUERY = """
-CREATE TEMP TABLE ranker_addressable_ranks_stage (
+_CREATE_ADDRESSABLE_SCORE_STAGE_QUERY = """
+CREATE TEMP TABLE ranker_addressable_scores_stage (
     subject_id TEXT PRIMARY KEY,
-    raw_score DOUBLE PRECISION NOT NULL,
-    rank INTEGER NOT NULL,
+    score DOUBLE PRECISION NOT NULL,
     computed_at BIGINT NOT NULL
 ) ON COMMIT DROP
 """
 
-_CREATE_IDENTIFIER_RANK_STAGE_QUERY = """
-CREATE TEMP TABLE ranker_identifier_ranks_stage (
+_CREATE_IDENTIFIER_SCORE_STAGE_QUERY = """
+CREATE TEMP TABLE ranker_identifier_scores_stage (
     subject_id TEXT PRIMARY KEY,
-    raw_score DOUBLE PRECISION NOT NULL,
-    rank INTEGER NOT NULL,
+    score DOUBLE PRECISION NOT NULL,
     computed_at BIGINT NOT NULL
 ) ON COMMIT DROP
 """
 
-_CREATE_RANK_STAGE_QUERIES: Final[dict[RankSubjectType, str]] = {
-    "pubkey": _CREATE_PUBKEY_RANK_STAGE_QUERY,
-    "event": _CREATE_EVENT_RANK_STAGE_QUERY,
-    "addressable": _CREATE_ADDRESSABLE_RANK_STAGE_QUERY,
-    "identifier": _CREATE_IDENTIFIER_RANK_STAGE_QUERY,
+_CREATE_SCORE_STAGE_QUERIES: Final[dict[RankSubjectType, str]] = {
+    "pubkey": _CREATE_PUBKEY_SCORE_STAGE_QUERY,
+    "event": _CREATE_EVENT_SCORE_STAGE_QUERY,
+    "addressable": _CREATE_ADDRESSABLE_SCORE_STAGE_QUERY,
+    "identifier": _CREATE_IDENTIFIER_SCORE_STAGE_QUERY,
 }
 
-_INSERT_PUBKEY_RANK_STAGE_QUERY = """
-INSERT INTO ranker_pubkey_ranks_stage (subject_id, raw_score, rank, computed_at)
+_INSERT_PUBKEY_SCORE_STAGE_QUERY = """
+INSERT INTO ranker_pubkey_scores_stage (subject_id, score, computed_at)
 SELECT
     t.subject_id,
-    t.raw_score,
-    t.rank,
-    $4
-FROM UNNEST($1::TEXT[], $2::DOUBLE PRECISION[], $3::INTEGER[]) AS t(subject_id, raw_score, rank)
+    t.score,
+    $3
+FROM UNNEST($1::TEXT[], $2::DOUBLE PRECISION[]) AS t(subject_id, score)
 """
 
-_INSERT_EVENT_RANK_STAGE_QUERY = """
-INSERT INTO ranker_event_ranks_stage (subject_id, raw_score, rank, computed_at)
+_INSERT_EVENT_SCORE_STAGE_QUERY = """
+INSERT INTO ranker_event_scores_stage (subject_id, score, computed_at)
 SELECT
     t.subject_id,
-    t.raw_score,
-    t.rank,
-    $4
-FROM UNNEST($1::TEXT[], $2::DOUBLE PRECISION[], $3::INTEGER[]) AS t(subject_id, raw_score, rank)
+    t.score,
+    $3
+FROM UNNEST($1::TEXT[], $2::DOUBLE PRECISION[]) AS t(subject_id, score)
 """
 
-_INSERT_ADDRESSABLE_RANK_STAGE_QUERY = """
-INSERT INTO ranker_addressable_ranks_stage (subject_id, raw_score, rank, computed_at)
+_INSERT_ADDRESSABLE_SCORE_STAGE_QUERY = """
+INSERT INTO ranker_addressable_scores_stage (subject_id, score, computed_at)
 SELECT
     t.subject_id,
-    t.raw_score,
-    t.rank,
-    $4
-FROM UNNEST($1::TEXT[], $2::DOUBLE PRECISION[], $3::INTEGER[]) AS t(subject_id, raw_score, rank)
+    t.score,
+    $3
+FROM UNNEST($1::TEXT[], $2::DOUBLE PRECISION[]) AS t(subject_id, score)
 """
 
-_INSERT_IDENTIFIER_RANK_STAGE_QUERY = """
-INSERT INTO ranker_identifier_ranks_stage (subject_id, raw_score, rank, computed_at)
+_INSERT_IDENTIFIER_SCORE_STAGE_QUERY = """
+INSERT INTO ranker_identifier_scores_stage (subject_id, score, computed_at)
 SELECT
     t.subject_id,
-    t.raw_score,
-    t.rank,
-    $4
-FROM UNNEST($1::TEXT[], $2::DOUBLE PRECISION[], $3::INTEGER[]) AS t(subject_id, raw_score, rank)
+    t.score,
+    $3
+FROM UNNEST($1::TEXT[], $2::DOUBLE PRECISION[]) AS t(subject_id, score)
 """
 
-_INSERT_RANK_STAGE_QUERIES: Final[dict[RankSubjectType, str]] = {
-    "pubkey": _INSERT_PUBKEY_RANK_STAGE_QUERY,
-    "event": _INSERT_EVENT_RANK_STAGE_QUERY,
-    "addressable": _INSERT_ADDRESSABLE_RANK_STAGE_QUERY,
-    "identifier": _INSERT_IDENTIFIER_RANK_STAGE_QUERY,
+_INSERT_SCORE_STAGE_QUERIES: Final[dict[RankSubjectType, str]] = {
+    "pubkey": _INSERT_PUBKEY_SCORE_STAGE_QUERY,
+    "event": _INSERT_EVENT_SCORE_STAGE_QUERY,
+    "addressable": _INSERT_ADDRESSABLE_SCORE_STAGE_QUERY,
+    "identifier": _INSERT_IDENTIFIER_SCORE_STAGE_QUERY,
 }
 
-_DELETE_OBSOLETE_PUBKEY_RANKS_QUERY = """
+_DELETE_OBSOLETE_PUBKEY_SCORES_QUERY = """
 DELETE FROM pubkey_score AS r
 WHERE r.algorithm_id = $1
   AND NOT EXISTS (
       SELECT 1
-      FROM ranker_pubkey_ranks_stage AS s
+      FROM ranker_pubkey_scores_stage AS s
       WHERE s.subject_id = r.pubkey
   )
 """
 
-_DELETE_OBSOLETE_EVENT_RANKS_QUERY = """
+_DELETE_OBSOLETE_EVENT_SCORES_QUERY = """
 DELETE FROM event_score AS r
 WHERE r.algorithm_id = $1
   AND NOT EXISTS (
       SELECT 1
-      FROM ranker_event_ranks_stage AS s
+      FROM ranker_event_scores_stage AS s
       WHERE s.subject_id = r.event_id
   )
 """
 
-_DELETE_OBSOLETE_ADDRESSABLE_RANKS_QUERY = """
+_DELETE_OBSOLETE_ADDRESSABLE_SCORES_QUERY = """
 DELETE FROM addressable_score AS r
 WHERE r.algorithm_id = $1
   AND NOT EXISTS (
       SELECT 1
-      FROM ranker_addressable_ranks_stage AS s
+      FROM ranker_addressable_scores_stage AS s
       WHERE s.subject_id = r.event_address
   )
 """
 
-_DELETE_OBSOLETE_IDENTIFIER_RANKS_QUERY = """
+_DELETE_OBSOLETE_IDENTIFIER_SCORES_QUERY = """
 DELETE FROM identifier_score AS r
 WHERE r.algorithm_id = $1
   AND NOT EXISTS (
       SELECT 1
-      FROM ranker_identifier_ranks_stage AS s
+      FROM ranker_identifier_scores_stage AS s
       WHERE s.subject_id = r.identifier
   )
 """
 
-_DELETE_OBSOLETE_RANKS_QUERIES: Final[dict[RankSubjectType, str]] = {
-    "pubkey": _DELETE_OBSOLETE_PUBKEY_RANKS_QUERY,
-    "event": _DELETE_OBSOLETE_EVENT_RANKS_QUERY,
-    "addressable": _DELETE_OBSOLETE_ADDRESSABLE_RANKS_QUERY,
-    "identifier": _DELETE_OBSOLETE_IDENTIFIER_RANKS_QUERY,
+_DELETE_OBSOLETE_SCORE_QUERIES: Final[dict[RankSubjectType, str]] = {
+    "pubkey": _DELETE_OBSOLETE_PUBKEY_SCORES_QUERY,
+    "event": _DELETE_OBSOLETE_EVENT_SCORES_QUERY,
+    "addressable": _DELETE_OBSOLETE_ADDRESSABLE_SCORES_QUERY,
+    "identifier": _DELETE_OBSOLETE_IDENTIFIER_SCORES_QUERY,
 }
 
-_UPSERT_PUBKEY_RANKS_QUERY = """
+_UPSERT_PUBKEY_SCORES_QUERY = """
 INSERT INTO pubkey_score (algorithm_id, pubkey, score)
 SELECT
     $1,
     s.subject_id,
-    s.rank::DOUBLE PRECISION
-FROM ranker_pubkey_ranks_stage AS s
+    s.score
+FROM ranker_pubkey_scores_stage AS s
 ON CONFLICT (algorithm_id, pubkey) DO UPDATE SET
     score = EXCLUDED.score
 """
 
-_UPSERT_EVENT_RANKS_QUERY = """
+_UPSERT_EVENT_SCORES_QUERY = """
 INSERT INTO event_score (algorithm_id, event_id, score)
 SELECT
     $1,
     s.subject_id,
-    s.rank::DOUBLE PRECISION
-FROM ranker_event_ranks_stage AS s
+    s.score
+FROM ranker_event_scores_stage AS s
 ON CONFLICT (algorithm_id, event_id) DO UPDATE SET
     score = EXCLUDED.score
 """
 
-_UPSERT_ADDRESSABLE_RANKS_QUERY = """
+_UPSERT_ADDRESSABLE_SCORES_QUERY = """
 INSERT INTO addressable_score (algorithm_id, event_address, score)
 SELECT
     $1,
     s.subject_id,
-    s.rank::DOUBLE PRECISION
-FROM ranker_addressable_ranks_stage AS s
+    s.score
+FROM ranker_addressable_scores_stage AS s
 ON CONFLICT (algorithm_id, event_address) DO UPDATE SET
     score = EXCLUDED.score
 """
 
-_UPSERT_IDENTIFIER_RANKS_QUERY = """
+_UPSERT_IDENTIFIER_SCORES_QUERY = """
 INSERT INTO identifier_score (algorithm_id, identifier, score)
 SELECT
     $1,
     s.subject_id,
-    s.rank::DOUBLE PRECISION
-FROM ranker_identifier_ranks_stage AS s
+    s.score
+FROM ranker_identifier_scores_stage AS s
 ON CONFLICT (algorithm_id, identifier) DO UPDATE SET
     score = EXCLUDED.score
 """
 
-_UPSERT_RANKS_QUERIES: Final[dict[RankSubjectType, str]] = {
-    "pubkey": _UPSERT_PUBKEY_RANKS_QUERY,
-    "event": _UPSERT_EVENT_RANKS_QUERY,
-    "addressable": _UPSERT_ADDRESSABLE_RANKS_QUERY,
-    "identifier": _UPSERT_IDENTIFIER_RANKS_QUERY,
+_UPSERT_SCORE_QUERIES: Final[dict[RankSubjectType, str]] = {
+    "pubkey": _UPSERT_PUBKEY_SCORES_QUERY,
+    "event": _UPSERT_EVENT_SCORES_QUERY,
+    "addressable": _UPSERT_ADDRESSABLE_SCORES_QUERY,
+    "identifier": _UPSERT_IDENTIFIER_SCORES_QUERY,
 }
 
 
@@ -483,38 +474,37 @@ async def fetch_identifier_stats(
     ]
 
 
-async def create_rank_stages(
+async def create_score_stages(
     conn: asyncpg.Connection[asyncpg.Record],
 ) -> None:
-    """Create all per-transaction temp stage tables for rank export."""
+    """Create all per-transaction temp stage tables for score export."""
     for subject_type in _STAGE_TABLE_NAMES:
-        await conn.execute(_CREATE_RANK_STAGE_QUERIES[subject_type])
+        await conn.execute(_CREATE_SCORE_STAGE_QUERIES[subject_type])
 
 
-async def insert_rank_stage_batch(
+async def insert_score_stage_batch(
     conn: asyncpg.Connection[asyncpg.Record],
     subject_type: RankSubjectType,
-    rows: list[RankExportRow],
+    rows: list[ScoreExportRow],
     computed_at: int,
 ) -> None:
-    """Insert one rank batch into the temp stage table for one subject type."""
+    """Insert one score batch into the temp stage table for one subject type."""
     if not rows:
         return
 
     await conn.execute(
-        _INSERT_RANK_STAGE_QUERIES[subject_type],
+        _INSERT_SCORE_STAGE_QUERIES[subject_type],
         [row.subject_id for row in rows],
-        [row.raw_score for row in rows],
-        [row.rank for row in rows],
+        [row.score for row in rows],
         computed_at,
     )
 
 
-async def merge_rank_stage(
+async def merge_score_stage(
     conn: asyncpg.Connection[asyncpg.Record],
     subject_type: RankSubjectType,
     algorithm_id: str,
 ) -> None:
     """Replace one PostgreSQL public score set for a single subject type."""
-    await conn.execute(_DELETE_OBSOLETE_RANKS_QUERIES[subject_type], algorithm_id)
-    await conn.execute(_UPSERT_RANKS_QUERIES[subject_type], algorithm_id)
+    await conn.execute(_DELETE_OBSOLETE_SCORE_QUERIES[subject_type], algorithm_id)
+    await conn.execute(_UPSERT_SCORE_QUERIES[subject_type], algorithm_id)

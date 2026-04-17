@@ -211,7 +211,7 @@ class TestAddressableAssertionProperties:
         row = {
             "event_address": "30023:" + ("aa" * 32) + ":article",
             "author_pubkey": "bb" * 32,
-            "rank": 84,
+            "score": 84,
             "comment_count": 10,
             "quote_count": 3,
             "repost_count": 5,
@@ -224,7 +224,7 @@ class TestAddressableAssertionProperties:
 
         assert a.event_address == "30023:" + ("aa" * 32) + ":article"
         assert a.author_pubkey == "bb" * 32
-        assert a.rank == 84
+        assert a.score == 84
         assert a.zap_amount_sats == 100
 
     def test_tags_hash_tracks_author_pubkey(self) -> None:
@@ -243,7 +243,7 @@ class TestIdentifierAssertionProperties:
     def test_from_db_row_preserves_k_tags(self) -> None:
         row = {
             "identifier": "isbn:9780140328721",
-            "rank": 73,
+            "score": 73,
             "comment_count": 3,
             "reaction_count": 4,
             "k_tags": ["book", "isbn"],
@@ -252,7 +252,7 @@ class TestIdentifierAssertionProperties:
         a = IdentifierAssertion.from_db_row(row)
 
         assert a.identifier == "isbn:9780140328721"
-        assert a.rank == 73
+        assert a.score == 73
         assert a.k_tags == ("book", "isbn")
 
 

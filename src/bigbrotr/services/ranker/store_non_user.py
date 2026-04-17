@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
 
-from .queries import AddressableStatFact, EventStatFact, IdentifierStatFact, RankExportRow
+from .queries import AddressableStatFact, EventStatFact, IdentifierStatFact, ScoreExportRow
 
 
 if TYPE_CHECKING:
@@ -145,46 +145,45 @@ def compute_non_user_ranks(conn: duckdb.DuckDBPyConnection) -> None:
         raise
 
 
-def fetch_rank_batch(
+def fetch_score_batch(
     conn: duckdb.DuckDBPyConnection,
     *,
     table_name: str,
     after_subject_id: str,
     limit: int,
-) -> list[RankExportRow]:
-    """Fetch one deterministic export batch from one non-user rank snapshot."""
+) -> list[ScoreExportRow]:
+    """Fetch one deterministic score-export batch from one non-user score snapshot."""
     rows = conn.execute(
-        _RANK_BATCH_QUERIES[table_name],
+        _SCORE_BATCH_QUERIES[table_name],
         [after_subject_id, limit],
     ).fetchall()
 
     return [
-        RankExportRow(
+        ScoreExportRow(
             subject_id=str(subject_id),
-            raw_score=float(raw_score),
-            rank=int(rank),
+            score=float(score),
         )
-        for subject_id, raw_score, rank in rows
+        for subject_id, score in rows
     ]
 
 
-_RANK_BATCH_QUERIES: Final[dict[str, str]] = {
+_SCORE_BATCH_QUERIES: Final[dict[str, str]] = {
     "nip85_event_ranks_curr": """
-SELECT subject_id, raw_score, rank
+SELECT subject_id, CAST(rank AS DOUBLE) AS score
 FROM nip85_event_ranks_curr
 WHERE subject_id > ?
 ORDER BY subject_id ASC
 LIMIT ?
 """,
     "nip85_addressable_ranks_curr": """
-SELECT subject_id, raw_score, rank
+SELECT subject_id, CAST(rank AS DOUBLE) AS score
 FROM nip85_addressable_ranks_curr
 WHERE subject_id > ?
 ORDER BY subject_id ASC
 LIMIT ?
 """,
     "nip85_identifier_ranks_curr": """
-SELECT subject_id, raw_score, rank
+SELECT subject_id, CAST(rank AS DOUBLE) AS score
 FROM nip85_identifier_ranks_curr
 WHERE subject_id > ?
 ORDER BY subject_id ASC

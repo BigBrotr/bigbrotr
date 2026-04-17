@@ -12,17 +12,17 @@ from bigbrotr.models.constants import ServiceName
 from .configs import RankerConfig
 from .queries import (
     GraphSyncCheckpoint,
-    RankExportRow,
     RankSubjectType,
-    create_rank_stages,
+    ScoreExportRow,
+    create_score_stages,
     fetch_addressable_stats,
     fetch_changed_contact_lists,
     fetch_event_stats,
     fetch_follow_edges_for_followers,
     fetch_identifier_stats,
     get_contact_list_source_watermark,
-    insert_rank_stage_batch,
-    merge_rank_stage,
+    insert_score_stage_batch,
+    merge_score_stage,
 )
 from .runtime import (
     RankCycleResult,
@@ -143,11 +143,11 @@ class Ranker(BaseService[RankerConfig]):
                 event_stats_staged=result.non_user_staged.event,
                 addressable_stats_staged=result.non_user_staged.addressable,
                 identifier_stats_staged=result.non_user_staged.identifier,
-                pubkey_scores_written=result.rank_counts.pubkey,
-                event_scores_written=result.rank_counts.event,
-                addressable_scores_written=result.rank_counts.addressable,
-                identifier_scores_written=result.rank_counts.identifier,
-                non_user_scores_written=result.rank_counts.non_user,
+                pubkey_scores_written=result.score_counts.pubkey,
+                event_scores_written=result.score_counts.event,
+                addressable_scores_written=result.score_counts.addressable,
+                identifier_scores_written=result.score_counts.identifier,
+                non_user_scores_written=result.score_counts.non_user,
                 checkpoint_seen_at=result.checkpoint.source_seen_at,
                 checkpoint_follower_pubkey=result.checkpoint.follower_pubkey,
                 checkpoint_lag_seconds=result.checkpoint_lag_seconds,
@@ -205,7 +205,7 @@ class Ranker(BaseService[RankerConfig]):
                 cutoff_reason=cutoff_reason,
             )
 
-        compute_export_result = await self._compute_and_export_ranks(
+        compute_export_result = await self._compute_and_export_scores(
             cycle_start=cycle_start,
             phase_durations=RankPhaseDurations(
                 cleanup_seconds=cleanup_duration,
@@ -227,12 +227,12 @@ class Ranker(BaseService[RankerConfig]):
             rank_run_id=compute_export_result.rank_run_id,
             sync_result=sync_result,
             non_user_staged=stage_result.counts,
-            rank_counts=compute_export_result.rank_counts,
+            score_counts=compute_export_result.score_counts,
             cleanup_removed=cleanup_removed,
             phase_durations=compute_export_result.phase_durations,
         )
 
-    async def _compute_and_export_ranks(
+    async def _compute_and_export_scores(
         self,
         *,
         cycle_start: float,
@@ -281,7 +281,7 @@ class Ranker(BaseService[RankerConfig]):
                 )
 
             export_start = time.monotonic()
-            export_result = await self._export_rank_snapshots(
+            export_result = await self._export_score_snapshots(
                 cycle_start=cycle_start,
                 computed_at=int(time.time()),
             )
@@ -312,7 +312,7 @@ class Ranker(BaseService[RankerConfig]):
             )
             return _ComputeExportResult(
                 rank_run_id=rank_run.run_id,
-                rank_counts=export_result.counts,
+                score_counts=export_result.counts,
                 phase_durations=full_phase_durations,
             )
         except Exception:
@@ -344,7 +344,7 @@ class Ranker(BaseService[RankerConfig]):
             graph_nodes=graph_stats.node_count,
             graph_edges=graph_stats.edge_count,
             non_user_staged=data.non_user_staged,
-            rank_counts=data.rank_counts,
+            score_counts=data.score_counts,
             checkpoint=data.sync_result.checkpoint,
             checkpoint_lag_seconds=max(
                 0,
@@ -549,7 +549,7 @@ class Ranker(BaseService[RankerConfig]):
             if len(rows) < limit:
                 return rows_staged, None
 
-    async def _export_rank_snapshots(
+    async def _export_score_snapshots(
         self,
         *,
         cycle_start: float,
@@ -557,17 +557,17 @@ class Ranker(BaseService[RankerConfig]):
     ) -> _ExportResult:
         """Snapshot-export all final NIP-85 score tables into PostgreSQL."""
         async with self._brotr.transaction() as conn:
-            await create_rank_stages(conn)
+            await create_score_stages(conn)
 
             counts = RankRowCounts()
             specs = (
-                _ExportStageSpec("pubkey", self._store.fetch_pubkey_rank_batch),
-                _ExportStageSpec("event", self._store.fetch_event_rank_batch),
-                _ExportStageSpec("addressable", self._store.fetch_addressable_rank_batch),
-                _ExportStageSpec("identifier", self._store.fetch_identifier_rank_batch),
+                _ExportStageSpec("pubkey", self._store.fetch_pubkey_score_batch),
+                _ExportStageSpec("event", self._store.fetch_event_score_batch),
+                _ExportStageSpec("addressable", self._store.fetch_addressable_score_batch),
+                _ExportStageSpec("identifier", self._store.fetch_identifier_score_batch),
             )
             for spec in specs:
-                subject_result = await self._populate_rank_stage(
+                subject_result = await self._populate_score_stage(
                     conn,
                     subject_type=spec.subject_type,
                     fetch_batch=spec.fetch_batch,
@@ -586,16 +586,16 @@ class Ranker(BaseService[RankerConfig]):
                     counts = replace(counts, identifier=subject_result.rows)
 
             for spec in specs:
-                await merge_rank_stage(conn, spec.subject_type, self._config.algorithm_id)
+                await merge_score_stage(conn, spec.subject_type, self._config.algorithm_id)
 
         return _ExportResult(counts)
 
-    async def _populate_rank_stage(
+    async def _populate_score_stage(
         self,
         conn: asyncpg.Connection[asyncpg.Record],
         *,
         subject_type: RankSubjectType,
-        fetch_batch: Callable[..., list[RankExportRow]],
+        fetch_batch: Callable[..., list[ScoreExportRow]],
         cycle_start: float,
         computed_at: int,
     ) -> _ExportSubjectResult:
@@ -630,7 +630,7 @@ class Ranker(BaseService[RankerConfig]):
             if not rows:
                 return _ExportSubjectResult(rows=total_rows)
 
-            await insert_rank_stage_batch(conn, subject_type, rows, computed_at)
+            await insert_score_stage_batch(conn, subject_type, rows, computed_at)
             total_rows += len(rows)
             batches_processed += 1
             after_subject_id = rows[-1].subject_id

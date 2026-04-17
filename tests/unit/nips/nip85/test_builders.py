@@ -92,7 +92,7 @@ class TestBuildUserAssertion:
     def test_all_nip85_tags_present(self) -> None:
         a = UserAssertion(
             pubkey="aa" * 32,
-            rank=89,
+            score=89,
             post_count=100,
             reply_count=20,
             reaction_count_recd=50,
@@ -151,7 +151,7 @@ class TestBuildEventAssertion:
         assert event_id in tags["e"]
 
     def test_rank_tag_included(self) -> None:
-        a = EventAssertion(event_id="ff" * 32, rank=91)
+        a = EventAssertion(event_id="ff" * 32, score=91)
         tags = _extract_tags(build_event_assertion(a))
         assert tags["rank"] == ["91"]
 
@@ -204,7 +204,11 @@ class TestBuildAddressableAssertion:
     def test_d_and_a_tags_use_event_address(self) -> None:
         event_address = "30023:" + ("ff" * 32) + ":article"
         author_pubkey = "cd" * 32
-        a = AddressableAssertion(event_address=event_address, author_pubkey=author_pubkey, rank=77)
+        a = AddressableAssertion(
+            event_address=event_address,
+            author_pubkey=author_pubkey,
+            score=77,
+        )
         tags = _extract_tags(build_addressable_assertion(a))
         assert tags["d"] == [event_address]
         assert tags["a"] == [event_address]
@@ -215,7 +219,7 @@ class TestBuildAddressableAssertion:
         a = AddressableAssertion(
             event_address="30023:" + ("aa" * 32) + ":alpha",
             author_pubkey="cd" * 32,
-            rank=88,
+            score=88,
             comment_count=10,
             quote_count=3,
             repost_count=5,
@@ -250,7 +254,7 @@ class TestBuildIdentifierAssertion:
     def test_d_i_and_k_tags_included(self) -> None:
         a = IdentifierAssertion(
             identifier="isbn:9780140328721",
-            rank=55,
+            score=55,
             comment_count=3,
             reaction_count=4,
             k_tags=("book", "isbn"),

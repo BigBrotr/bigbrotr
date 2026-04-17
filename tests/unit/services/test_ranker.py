@@ -21,16 +21,16 @@ from bigbrotr.services.ranker.queries import (
     FollowEdgeFact,
     GraphSyncCheckpoint,
     IdentifierStatFact,
-    RankExportRow,
-    create_rank_stages,
+    ScoreExportRow,
+    create_score_stages,
     fetch_addressable_stats,
     fetch_changed_contact_lists,
     fetch_event_stats,
     fetch_follow_edges_for_followers,
     fetch_identifier_stats,
     get_contact_list_source_watermark,
-    insert_rank_stage_batch,
-    merge_rank_stage,
+    insert_score_stage_batch,
+    merge_score_stage,
 )
 from bigbrotr.services.ranker.service import RankPhaseDurations
 from bigbrotr.services.ranker.utils import RankerStore
@@ -217,32 +217,31 @@ class TestRankerQueries:
         brotr.fetchval.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_rank_stage_helpers_use_subject_specific_queries(self) -> None:
+    async def test_score_stage_helpers_use_subject_specific_queries(self) -> None:
         conn = MagicMock()
         conn.execute = AsyncMock()
 
-        await create_rank_stages(conn)
+        await create_score_stages(conn)
         assert conn.execute.await_count == 4
 
         conn.execute.reset_mock()
-        await insert_rank_stage_batch(conn, "event", [], 1234)
+        await insert_score_stage_batch(conn, "event", [], 1234)
         conn.execute.assert_not_awaited()
 
         rows = [
-            RankExportRow("11" * 32, 0.75, 88),
-            RankExportRow("22" * 32, 0.25, 44),
+            ScoreExportRow("11" * 32, 88.0),
+            ScoreExportRow("22" * 32, 44.0),
         ]
-        await insert_rank_stage_batch(conn, "event", rows, 1234)
+        await insert_score_stage_batch(conn, "event", rows, 1234)
         conn.execute.assert_awaited_once()
         assert conn.execute.await_args.args[1:] == (
             ["11" * 32, "22" * 32],
-            [0.75, 0.25],
-            [88, 44],
+            [88.0, 44.0],
             1234,
         )
 
         conn.execute.reset_mock()
-        await merge_rank_stage(conn, "event", "global-pagerank")
+        await merge_score_stage(conn, "event", "global-pagerank")
         assert conn.execute.await_count == 2
         assert [await_call.args[1] for await_call in conn.execute.await_args_list] == [
             "global-pagerank",
@@ -506,7 +505,7 @@ class TestRankerStore:
             ignore_self_follows=True,
         )
 
-        rows = store.fetch_pubkey_rank_batch(after_subject_id="", limit=10)
+        rows = store.fetch_pubkey_score_batch(after_subject_id="", limit=10)
         assert [row.subject_id for row in rows] == [pubkey_a, pubkey_b, pubkey_c, pubkey_d]
 
         expected = _reference_pagerank(
@@ -522,13 +521,30 @@ class TestRankerStore:
             ignore_self_follows=True,
         )
 
-        for row in rows:
-            assert row.raw_score == pytest.approx(expected[row.subject_id], rel=1e-9, abs=1e-9)
-            assert row.rank == _normalize_rank(raw_score=row.raw_score, node_count=4)
+        with duckdb.connect(str(tmp_path / "ranker.duckdb")) as conn:
+            raw_rows = conn.execute(
+                """
+                SELECT n.pubkey, p.raw_score
+                FROM pagerank_curr AS p
+                INNER JOIN pubkey_nodes AS n ON n.node_id = p.node_id
+                ORDER BY n.pubkey ASC
+                """
+            ).fetchall()
 
-        assert sum(row.raw_score for row in rows) == pytest.approx(1.0, rel=1e-9, abs=1e-9)
+        raw_scores = {str(subject_id): float(raw_score) for subject_id, raw_score in raw_rows}
+        for subject_id, raw_score in raw_scores.items():
+            assert raw_score == pytest.approx(expected[subject_id], rel=1e-9, abs=1e-9)
+
+        for row in rows:
+            assert row.score == pytest.approx(
+                float(_normalize_rank(raw_score=expected[row.subject_id], node_count=4)),
+                rel=1e-9,
+                abs=1e-9,
+            )
+
+        assert sum(raw_scores.values()) == pytest.approx(1.0, rel=1e-9, abs=1e-9)
         assert rows[3].subject_id == pubkey_d
-        assert rows[3].raw_score < rows[0].raw_score
+        assert raw_scores[rows[3].subject_id] < raw_scores[rows[0].subject_id]
 
     def test_start_and_finish_rank_run(self, tmp_path: Path) -> None:
         store = RankerStore(
@@ -694,9 +710,9 @@ class TestRankerStore:
             "isbn:9788806229645": _non_user_identifier_raw(comment_count=1, reaction_count=9),
         }
 
-        event_rows = store.fetch_event_rank_batch(after_subject_id="", limit=10)
-        addressable_rows = store.fetch_addressable_rank_batch(after_subject_id="", limit=10)
-        identifier_rows = store.fetch_identifier_rank_batch(after_subject_id="", limit=10)
+        event_rows = store.fetch_event_score_batch(after_subject_id="", limit=10)
+        addressable_rows = store.fetch_addressable_score_batch(after_subject_id="", limit=10)
+        identifier_rows = store.fetch_identifier_score_batch(after_subject_id="", limit=10)
 
         assert [row.subject_id for row in event_rows] == ["11" * 32, "22" * 32]
         assert [row.subject_id for row in addressable_rows] == [
@@ -708,31 +724,90 @@ class TestRankerStore:
             "isbn:9788806229645",
         ]
 
-        for row in event_rows:
-            assert row.raw_score == pytest.approx(
-                expected_event_raw_scores[row.subject_id], rel=1e-9, abs=1e-9
+        with duckdb.connect(str(tmp_path / "ranker.duckdb")) as conn:
+            event_internal_rows = conn.execute(
+                """
+                SELECT subject_id, raw_score, rank
+                FROM nip85_event_ranks_curr
+                ORDER BY subject_id ASC
+                """
+            ).fetchall()
+            addressable_internal_rows = conn.execute(
+                """
+                SELECT subject_id, raw_score, rank
+                FROM nip85_addressable_ranks_curr
+                ORDER BY subject_id ASC
+                """
+            ).fetchall()
+            identifier_internal_rows = conn.execute(
+                """
+                SELECT subject_id, raw_score, rank
+                FROM nip85_identifier_ranks_curr
+                ORDER BY subject_id ASC
+                """
+            ).fetchall()
+
+        for subject_id, raw_score, rank in event_internal_rows:
+            assert float(raw_score) == pytest.approx(
+                expected_event_raw_scores[str(subject_id)], rel=1e-9, abs=1e-9
             )
-            assert row.rank == _normalize_non_user_rank(
-                raw_score=row.raw_score,
+            assert int(rank) == _normalize_non_user_rank(
+                raw_score=float(raw_score),
                 all_raw_scores=list(expected_event_raw_scores.values()),
             )
 
-        for row in addressable_rows:
-            assert row.raw_score == pytest.approx(
-                expected_addressable_raw_scores[row.subject_id], rel=1e-9, abs=1e-9
+        for subject_id, raw_score, rank in addressable_internal_rows:
+            assert float(raw_score) == pytest.approx(
+                expected_addressable_raw_scores[str(subject_id)], rel=1e-9, abs=1e-9
             )
-            assert row.rank == _normalize_non_user_rank(
-                raw_score=row.raw_score,
+            assert int(rank) == _normalize_non_user_rank(
+                raw_score=float(raw_score),
                 all_raw_scores=list(expected_addressable_raw_scores.values()),
             )
 
-        for row in identifier_rows:
-            assert row.raw_score == pytest.approx(
-                expected_identifier_raw_scores[row.subject_id], rel=1e-9, abs=1e-9
+        for subject_id, raw_score, rank in identifier_internal_rows:
+            assert float(raw_score) == pytest.approx(
+                expected_identifier_raw_scores[str(subject_id)], rel=1e-9, abs=1e-9
             )
-            assert row.rank == _normalize_non_user_rank(
-                raw_score=row.raw_score,
+            assert int(rank) == _normalize_non_user_rank(
+                raw_score=float(raw_score),
                 all_raw_scores=list(expected_identifier_raw_scores.values()),
+            )
+
+        for row in event_rows:
+            assert row.score == pytest.approx(
+                float(
+                    _normalize_non_user_rank(
+                        raw_score=expected_event_raw_scores[row.subject_id],
+                        all_raw_scores=list(expected_event_raw_scores.values()),
+                    )
+                ),
+                rel=1e-9,
+                abs=1e-9,
+            )
+
+        for row in addressable_rows:
+            assert row.score == pytest.approx(
+                float(
+                    _normalize_non_user_rank(
+                        raw_score=expected_addressable_raw_scores[row.subject_id],
+                        all_raw_scores=list(expected_addressable_raw_scores.values()),
+                    )
+                ),
+                rel=1e-9,
+                abs=1e-9,
+            )
+
+        for row in identifier_rows:
+            assert row.score == pytest.approx(
+                float(
+                    _normalize_non_user_rank(
+                        raw_score=expected_identifier_raw_scores[row.subject_id],
+                        all_raw_scores=list(expected_identifier_raw_scores.values()),
+                    )
+                ),
+                rel=1e-9,
+                abs=1e-9,
             )
 
 
@@ -809,7 +884,7 @@ class TestRankerService:
             graph_nodes=0,
             graph_edges=0,
             non_user_staged=RankRowCounts(),
-            rank_counts=RankRowCounts(),
+            score_counts=RankRowCounts(),
             checkpoint=GraphSyncCheckpoint(),
             duckdb_file_size_bytes=0,
         )
@@ -946,7 +1021,7 @@ class TestRankerService:
         assert result.graph_nodes == 4
         assert result.graph_edges == 3
         assert result.non_user_staged == RankRowCounts(event=1, addressable=1, identifier=1)
-        assert result.rank_counts == RankRowCounts(
+        assert result.score_counts == RankRowCounts(
             pubkey=4,
             event=1,
             addressable=1,
@@ -957,10 +1032,10 @@ class TestRankerService:
         assert store.get_graph_stats().node_count == 4
         assert store.get_graph_stats().edge_count == 3
         assert store.load_checkpoint() == GraphSyncCheckpoint(20, "d" * 64)
-        assert store.fetch_pubkey_rank_batch(after_subject_id="", limit=10)
-        assert store.fetch_event_rank_batch(after_subject_id="", limit=10)
-        assert store.fetch_addressable_rank_batch(after_subject_id="", limit=10)
-        assert store.fetch_identifier_rank_batch(after_subject_id="", limit=10)
+        assert store.fetch_pubkey_score_batch(after_subject_id="", limit=10)
+        assert store.fetch_event_score_batch(after_subject_id="", limit=10)
+        assert store.fetch_addressable_score_batch(after_subject_id="", limit=10)
+        assert store.fetch_identifier_score_batch(after_subject_id="", limit=10)
 
     @pytest.mark.asyncio
     async def test_run_with_no_changes_keeps_empty_graph(
@@ -1056,7 +1131,7 @@ class TestRankerService:
         assert result.changed_followers_synced == 1
         assert result.sync_batches_processed == 1
         assert result.checkpoint == GraphSyncCheckpoint(10, "a" * 64)
-        assert result.rank_counts == RankRowCounts()
+        assert result.score_counts == RankRowCounts()
 
     @pytest.mark.asyncio
     async def test_fact_stage_budget_stops_before_compute(
@@ -1093,7 +1168,7 @@ class TestRankerService:
 
         assert result.cutoff_reason == "facts_stage_event_rows"
         assert result.non_user_staged == RankRowCounts(event=1)
-        assert result.rank_counts == RankRowCounts()
+        assert result.score_counts == RankRowCounts()
 
     @pytest.mark.asyncio
     async def test_fact_stage_exact_row_budget_completes(
@@ -1139,7 +1214,7 @@ class TestRankerService:
 
         assert result.cutoff_reason is None
         assert result.non_user_staged == RankRowCounts(event=1)
-        assert result.rank_counts.event == 1
+        assert result.score_counts.event == 1
 
     @pytest.mark.asyncio
     async def test_export_budget_stops_without_partial_snapshot_merge(
@@ -1199,7 +1274,7 @@ class TestRankerService:
         result = await Ranker(brotr=mock_brotr, config=config).rank()
 
         assert result.cutoff_reason == "export_pubkey_max_batches"
-        assert result.rank_counts == RankRowCounts()
+        assert result.score_counts == RankRowCounts()
         assert result.graph_nodes == 2
         assert result.graph_edges == 2
 
@@ -1247,7 +1322,7 @@ class TestRankerService:
         result = await Ranker(brotr=mock_brotr, config=config).rank()
 
         assert result.cutoff_reason is None
-        assert result.rank_counts.pubkey == 1
+        assert result.score_counts.pubkey == 1
         assert result.graph_nodes == 1
 
     @pytest.mark.asyncio
@@ -1281,7 +1356,7 @@ class TestRankerService:
 
         assert result.cutoff_reason == "max_duration"
         assert result.changed_followers_synced == 0
-        assert result.rank_counts == RankRowCounts()
+        assert result.score_counts == RankRowCounts()
 
     def test_budget_helper_methods_report_duration_and_sync_cutoffs(
         self,
@@ -1428,7 +1503,7 @@ class TestRankerService:
         assert (identifier_rows, identifier_cutoff) == (1, "facts_stage_identifier_rows")
 
     @pytest.mark.asyncio
-    async def test_populate_rank_stage_stops_on_duration_cutoff(
+    async def test_populate_score_stage_stops_on_duration_cutoff(
         self,
         mock_brotr: Brotr,
         ranker_config: RankerConfig,
@@ -1438,7 +1513,7 @@ class TestRankerService:
         monkeypatch.setattr(ranker, "_cycle_cutoff_reason", lambda _cycle_start: "max_duration")
         fetch_batch = MagicMock()
 
-        result = await ranker._populate_rank_stage(
+        result = await ranker._populate_score_stage(
             MagicMock(),
             subject_type="pubkey",
             fetch_batch=fetch_batch,
@@ -1524,7 +1599,7 @@ class TestRankerService:
         ranker._store.finish_rank_run.assert_called_once_with(7, status="cutoff")
 
     @pytest.mark.asyncio
-    async def test_compute_and_export_ranks_returns_cutoff_after_compute(
+    async def test_compute_and_export_scores_returns_cutoff_after_compute(
         self,
         mock_brotr: Brotr,
         ranker_config: RankerConfig,
@@ -1549,11 +1624,11 @@ class TestRankerService:
         monkeypatch.setattr(ranker, "_cycle_cutoff_reason", MagicMock(return_value="max_duration"))
         monkeypatch.setattr(
             ranker,
-            "_export_rank_snapshots",
+            "_export_score_snapshots",
             AsyncMock(side_effect=AssertionError("export should not run")),
         )
 
-        result = await ranker._compute_and_export_ranks(
+        result = await ranker._compute_and_export_scores(
             cycle_start=time.monotonic(),
             phase_durations=RankPhaseDurations(),
         )
@@ -1618,7 +1693,7 @@ class TestRankerService:
         ],
     )
     @pytest.mark.asyncio
-    async def test_export_rank_snapshots_reports_later_subject_cutoffs(
+    async def test_export_score_snapshots_reports_later_subject_cutoffs(
         self,
         mock_brotr: Brotr,
         tmp_path: Path,
@@ -1632,30 +1707,30 @@ class TestRankerService:
 
             def _rows(
                 self, subject: str, *, after_subject_id: str, limit: int
-            ) -> list[RankExportRow]:
+            ) -> list[ScoreExportRow]:
                 if subject != self.subject:
                     return []
                 suffix = "01" if not after_subject_id else "02"
-                return [RankExportRow(suffix * 32, 0.5, 50)][:limit]
+                return [ScoreExportRow(suffix * 32, 50.0)][:limit]
 
-            def fetch_pubkey_rank_batch(
+            def fetch_pubkey_score_batch(
                 self, *, after_subject_id: str, limit: int
-            ) -> list[RankExportRow]:
+            ) -> list[ScoreExportRow]:
                 return self._rows("pubkey", after_subject_id=after_subject_id, limit=limit)
 
-            def fetch_event_rank_batch(
+            def fetch_event_score_batch(
                 self, *, after_subject_id: str, limit: int
-            ) -> list[RankExportRow]:
+            ) -> list[ScoreExportRow]:
                 return self._rows("event", after_subject_id=after_subject_id, limit=limit)
 
-            def fetch_addressable_rank_batch(
+            def fetch_addressable_score_batch(
                 self, *, after_subject_id: str, limit: int
-            ) -> list[RankExportRow]:
+            ) -> list[ScoreExportRow]:
                 return self._rows("addressable", after_subject_id=after_subject_id, limit=limit)
 
-            def fetch_identifier_rank_batch(
+            def fetch_identifier_score_batch(
                 self, *, after_subject_id: str, limit: int
-            ) -> list[RankExportRow]:
+            ) -> list[ScoreExportRow]:
                 return self._rows("identifier", after_subject_id=after_subject_id, limit=limit)
 
         ranker = Ranker(
@@ -1674,10 +1749,10 @@ class TestRankerService:
         ranker._store = FakeStore(cutoff_subject)  # type: ignore[assignment]
 
         with patch(
-            "bigbrotr.services.ranker.service.insert_rank_stage_batch",
+            "bigbrotr.services.ranker.service.insert_score_stage_batch",
             AsyncMock(),
         ) as mock_insert:
-            result = await ranker._export_rank_snapshots(
+            result = await ranker._export_score_snapshots(
                 cycle_start=time.monotonic(),
                 computed_at=123,
             )

@@ -34,7 +34,7 @@ class UserAssertion:
 
     Attributes:
         pubkey: Hex-encoded pubkey (64 chars) -- the assertion subject.
-        rank: Normalized provider score in the range 0-100.
+        score: Normalized provider score in the range 0-100.
         post_count: Total kind=1 events authored.
         reply_count: Kind=1 events with an ``e`` tag (replies).
         reaction_count_recd: Kind=7 events with tag ``p=pubkey``.
@@ -56,7 +56,7 @@ class UserAssertion:
     """
 
     pubkey: str
-    rank: int = 0
+    score: int = 0
     post_count: int = 0
     reply_count: int = 0
     reaction_count_recd: int = 0
@@ -113,7 +113,7 @@ class UserAssertion:
     def tags_hash(self) -> str:
         """SHA-256 hex digest of all tag values for change detection."""
         values = [
-            str(self.rank),
+            str(self.score),
             str(self.follower_count),
             str(self.first_created_at or 0),
             str(self.post_count),
@@ -145,7 +145,7 @@ class UserAssertion:
 
         return cls(
             pubkey=row["pubkey"],
-            rank=int(row.get("rank", 0)),
+            score=int(row.get("score", row.get("rank", 0))),
             post_count=int(row.get("post_count", 0)),
             reply_count=int(row.get("reply_count", 0)),
             reaction_count_recd=int(row.get("reaction_count_recd", 0)),
@@ -177,7 +177,7 @@ class EventAssertion:
     Attributes:
         event_id: Hex-encoded event id (64 chars) -- the assertion subject.
         author_pubkey: Hex-encoded pubkey of the event's author.
-        rank: Normalized provider score in the range 0-100.
+        score: Normalized provider score in the range 0-100.
         comment_count: Kind=1 events with tag ``e=event_id``.
         quote_count: Events with tag ``q=event_id``.
         repost_count: Kind=6 events with tag ``e=event_id``.
@@ -188,7 +188,7 @@ class EventAssertion:
 
     event_id: str
     author_pubkey: str = ""
-    rank: int = 0
+    score: int = 0
     comment_count: int = 0
     quote_count: int = 0
     repost_count: int = 0
@@ -204,7 +204,7 @@ class EventAssertion:
         """SHA-256 hex digest of all tag values for change detection."""
         values = [
             self.author_pubkey,
-            str(self.rank),
+            str(self.score),
             str(self.comment_count),
             str(self.quote_count),
             str(self.repost_count),
@@ -220,7 +220,7 @@ class EventAssertion:
         return cls(
             event_id=row["event_id"],
             author_pubkey=row.get("author_pubkey", ""),
-            rank=int(row.get("rank", 0)),
+            score=int(row.get("score", row.get("rank", 0))),
             comment_count=int(row.get("comment_count", 0)),
             quote_count=int(row.get("quote_count", 0)),
             repost_count=int(row.get("repost_count", 0)),
@@ -236,7 +236,7 @@ class AddressableAssertion:
 
     event_address: str
     author_pubkey: str = ""
-    rank: int = 0
+    score: int = 0
     comment_count: int = 0
     quote_count: int = 0
     repost_count: int = 0
@@ -252,7 +252,7 @@ class AddressableAssertion:
         """SHA-256 hex digest of all tag values for change detection."""
         values = [
             self.author_pubkey,
-            str(self.rank),
+            str(self.score),
             str(self.comment_count),
             str(self.quote_count),
             str(self.repost_count),
@@ -264,11 +264,11 @@ class AddressableAssertion:
 
     @classmethod
     def from_db_row(cls, row: dict[str, Any]) -> AddressableAssertion:
-        """Construct from a joined nip85_addressable_stats + rank row."""
+        """Construct from a joined nip85_addressable_stats + score row."""
         return cls(
             event_address=row["event_address"],
             author_pubkey=row.get("author_pubkey", ""),
-            rank=int(row.get("rank", 0)),
+            score=int(row.get("score", row.get("rank", 0))),
             comment_count=int(row.get("comment_count", 0)),
             quote_count=int(row.get("quote_count", 0)),
             repost_count=int(row.get("repost_count", 0)),
@@ -283,7 +283,7 @@ class IdentifierAssertion:
     """NIP-85 kind 30385: per-NIP-73 identifier engagement metrics."""
 
     identifier: str
-    rank: int = 0
+    score: int = 0
     comment_count: int = 0
     reaction_count: int = 0
     k_tags: tuple[str, ...] = ()
@@ -291,7 +291,7 @@ class IdentifierAssertion:
     def tags_hash(self) -> str:
         """SHA-256 hex digest of all tag values for change detection."""
         values = [
-            str(self.rank),
+            str(self.score),
             str(self.comment_count),
             str(self.reaction_count),
             ",".join(self.k_tags),
@@ -300,11 +300,11 @@ class IdentifierAssertion:
 
     @classmethod
     def from_db_row(cls, row: dict[str, Any]) -> IdentifierAssertion:
-        """Construct from a joined nip85_identifier_stats + rank row."""
+        """Construct from a joined nip85_identifier_stats + score row."""
         raw_k_tags = row.get("k_tags") or []
         return cls(
             identifier=row["identifier"],
-            rank=int(row.get("rank", 0)),
+            score=int(row.get("score", row.get("rank", 0))),
             comment_count=int(row.get("comment_count", 0)),
             reaction_count=int(row.get("reaction_count", 0)),
             k_tags=tuple(str(tag) for tag in raw_k_tags),
