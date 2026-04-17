@@ -41,7 +41,7 @@ BEGIN
             rm.metadata_id,
             m.data
         FROM relay_metadata AS rm
-        INNER JOIN metadata AS m
+        INNER JOIN document AS m
             ON rm.metadata_id = m.id AND rm.metadata_type = m.type
         WHERE rm.generated_at > p_after
           AND rm.generated_at <= p_until

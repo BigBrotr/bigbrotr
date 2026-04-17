@@ -288,7 +288,7 @@ class TestStructuredFormatter:
         """Test that stdlib loggers without structured_kv still format correctly."""
         formatter = StructuredFormatter()
         record = logging.LogRecord(
-            name="models.metadata",
+            name="models.document",
             level=logging.WARNING,
             pathname="",
             lineno=0,
@@ -298,7 +298,7 @@ class TestStructuredFormatter:
         )
         # No structured_kv attribute at all
         result = formatter.format(record)
-        assert result == "warning models.metadata validation failed"
+        assert result == "warning models.document validation failed"
 
     def test_message_with_percent_args(self) -> None:
         """Test that getMessage() properly expands %-formatting args."""
@@ -759,7 +759,7 @@ class TestIntegration:
         """Test plain stdlib logger records format cleanly through StructuredFormatter."""
         formatter = StructuredFormatter()
         record = logging.LogRecord(
-            name="models.metadata",
+            name="models.document",
             level=logging.WARNING,
             pathname="",
             lineno=0,
@@ -768,7 +768,7 @@ class TestIntegration:
             exc_info=None,
         )
         result = formatter.format(record)
-        assert result == "warning models.metadata unknown type: foo"
+        assert result == "warning models.document unknown type: foo"
 
     def test_truncation_end_to_end(self) -> None:
         """Test that truncation flows from Logger config through StructuredFormatter."""

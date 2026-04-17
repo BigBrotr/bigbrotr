@@ -1,7 +1,7 @@
 """Monitor service for relay health monitoring with NIP-66 compliance.
 
 Performs comprehensive health checks on relays and stores results as
-content-addressed [Metadata][bigbrotr.models.metadata.Metadata]. Optionally
+content-addressed [Document][bigbrotr.models.document.Document]. Optionally
 publishes Kind 30166 relay discovery events and Kind 10166 monitor
 announcements to the Nostr network.
 
@@ -167,7 +167,7 @@ class Monitor(
     """Relay health monitoring service with NIP-66 compliance.
 
     Performs comprehensive health checks on relays and stores results as
-    content-addressed [Metadata][bigbrotr.models.metadata.Metadata].
+    content-addressed [Document][bigbrotr.models.document.Document].
     Optionally publishes NIP-66 events:
 
     - **Kind 10166**: Monitor announcement (capabilities, frequency, timeouts).

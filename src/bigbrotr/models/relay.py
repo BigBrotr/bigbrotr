@@ -12,7 +12,7 @@ See Also:
     [bigbrotr.models.event_relay][]: Links a [Relay][bigbrotr.models.relay.Relay] to an
         [Event][bigbrotr.models.event.Event] via the ``event_relay`` junction table.
     [bigbrotr.models.relay_metadata][]: Links a [Relay][bigbrotr.models.relay.Relay] to a
-        [Metadata][bigbrotr.models.metadata.Metadata] record via the ``relay_metadata``
+        [Document][bigbrotr.models.document.Document] record via the ``relay_metadata``
         junction table.
     [bigbrotr.utils.transport][]: Uses [Relay][bigbrotr.models.relay.Relay] URLs for
         WebSocket connectivity checks.
@@ -116,7 +116,7 @@ class Relay:
         [RelayDbParams][bigbrotr.models.relay.RelayDbParams]: Database parameter container
             produced by [to_db_params()][bigbrotr.models.relay.Relay.to_db_params].
         [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]: Junction linking
-            a relay to a [Metadata][bigbrotr.models.metadata.Metadata] record.
+            a relay to a [Document][bigbrotr.models.document.Document] record.
         [EventRelay][bigbrotr.models.event_relay.EventRelay]: Junction linking a relay
             to an [Event][bigbrotr.models.event.Event].
     """

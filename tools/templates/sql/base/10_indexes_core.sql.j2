@@ -67,7 +67,7 @@ CREATE INDEX IF NOT EXISTS idx_relay_metadata_generated_at
 ON relay_metadata USING btree (generated_at DESC);
 
 -- Compound FK lookups: WHERE metadata_id = ? AND metadata_type = ?
--- Also used by orphan_metadata_delete() to verify references
+-- Also used by orphan_document_delete() to verify references
 CREATE INDEX IF NOT EXISTS idx_relay_metadata_metadata_id_type
 ON relay_metadata USING btree (metadata_id, metadata_type);
 

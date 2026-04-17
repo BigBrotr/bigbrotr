@@ -886,7 +886,7 @@ BEGIN
                 PARTITION BY rm.relay_url ORDER BY rm.generated_at DESC
             ) AS rn
         FROM relay_metadata AS rm
-        INNER JOIN metadata AS m
+        INNER JOIN document AS m
             ON rm.metadata_id = m.id AND rm.metadata_type = m.type
         WHERE rm.metadata_type = 'nip66_rtt'
     ),
@@ -919,7 +919,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION relay_stats_metadata_refresh() IS
-'Update relay_stats RTT, NIP-11, network, and stored_at from metadata tables. Seeds new relays.';
+'Update relay_stats RTT, NIP-11, network, and stored_at from document-backed relay metadata tables. Seeds new relays.';
 
 
 -- **************************************************************************

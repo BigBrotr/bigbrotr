@@ -22,8 +22,8 @@ from bigbrotr.core.brotr import Brotr
 from bigbrotr.core.pool import Pool
 from bigbrotr.core.pool_config import DatabaseConfig, PoolConfig
 from bigbrotr.models import EventRelay, Relay, RelayMetadata
+from bigbrotr.models.document import Document, MetadataType
 from bigbrotr.models.event import Event
-from bigbrotr.models.metadata import Metadata, MetadataType
 
 
 pytest_plugins = ["tests.fixtures.relays"]
@@ -247,7 +247,7 @@ def sample_loki_relay() -> Relay:
 def sample_metadata() -> RelayMetadata:
     """Sample RelayMetadata for testing."""
     relay = Relay("wss://relay.example.com", stored_at=1700000000)
-    metadata = Metadata(
+    metadata = Document(
         type=MetadataType.NIP11_INFO,
         data={"name": "Test Relay", "supported_nips": [1, 2, 9, 11]},
     )

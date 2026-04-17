@@ -4,13 +4,13 @@
  * CRUD stored functions for bulk data operations. Organized in two levels:
  *
  *   Level 1 (Base) - Single-table operations:
- *     relay_insert, event_insert, metadata_insert,
+ *     relay_insert, event_insert, document_insert,
  *     event_relay_insert, relay_metadata_insert,
  *     service_state_upsert, service_state_get, service_state_delete
  *
  *   Level 2 (Cascade) - Multi-table atomic operations that call Level 1:
  *     event_relay_insert_cascade  -> relay + event + event_relay
- *     relay_metadata_insert_cascade -> relay + metadata + relay_metadata
+ *     relay_metadata_insert_cascade -> relay + document + relay_metadata
  *
  * IMPORTANT: Function signatures are fixed and called by src/bigbrotr/core/brotr.py.
  * All parameters must be accepted even if not stored. To customize event
@@ -127,23 +127,23 @@ COMMENT ON FUNCTION event_insert(BYTEA [], BYTEA [], BIGINT [], INTEGER [], JSON
 
 
 /*
- * metadata_insert(BYTEA[], TEXT[], JSONB[]) -> INTEGER
+ * document_insert(BYTEA[], TEXT[], JSONB[]) -> INTEGER
  *
- * Bulk-inserts content-addressed metadata records. The SHA-256 hash (id) is
+ * Bulk-inserts content-addressed document records. The SHA-256 hash (id) is
  * pre-computed in the application layer for deterministic deduplication.
  * Duplicates (same hash + same type) are silently skipped.
  *
  * Parameters:
  *   p_ids             - Array of pre-computed SHA-256 hashes (32 bytes)
  *   p_metadata_types  - Array of metadata types (nip11_info, nip66_rtt, etc.)
- *   p_data            - Array of JSON metadata documents
+ *   p_data            - Array of JSON documents
  *
  * Returns: Number of newly inserted rows
  */
-DROP FUNCTION IF EXISTS metadata_insert(JSONB []);
-DROP FUNCTION IF EXISTS metadata_insert(BYTEA [], JSONB []);
-DROP FUNCTION IF EXISTS metadata_insert(BYTEA [], JSONB [], TEXT []);
-CREATE OR REPLACE FUNCTION metadata_insert(
+DROP FUNCTION IF EXISTS document_insert(JSONB []);
+DROP FUNCTION IF EXISTS document_insert(BYTEA [], JSONB []);
+DROP FUNCTION IF EXISTS document_insert(BYTEA [], JSONB [], TEXT []);
+CREATE OR REPLACE FUNCTION document_insert(
     p_ids BYTEA [],
     p_metadata_types TEXT [],
     p_data JSONB []
@@ -154,7 +154,7 @@ AS $$
 DECLARE
     v_row_count INTEGER;
 BEGIN
-    INSERT INTO metadata (id, type, data)
+    INSERT INTO document (id, type, data)
     SELECT * FROM unnest(p_ids, p_metadata_types, p_data)
         AS t(id, type, data)
     ON CONFLICT (id, type) DO NOTHING;
@@ -164,8 +164,8 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION metadata_insert(BYTEA [], TEXT [], JSONB []) IS
-'Bulk insert content-addressed metadata records, returns number of rows inserted';
+COMMENT ON FUNCTION document_insert(BYTEA [], TEXT [], JSONB []) IS
+'Bulk insert content-addressed document records, returns number of rows inserted';
 
 
 /*
@@ -216,7 +216,7 @@ COMMENT ON FUNCTION event_relay_insert(BYTEA [], TEXT [], BIGINT []) IS
  *
  * Parameters:
  *   p_relay_urls       - Array of relay URLs (must exist in relay table)
- *   p_metadata_ids     - Array of metadata SHA-256 hashes (must exist in metadata table)
+ *   p_metadata_ids     - Array of metadata SHA-256 hashes (must exist in document table)
  *   p_metadata_types   - Array of check types (nip11_info, nip66_rtt, etc.)
  *   p_generated_ats    - Array of Unix collection timestamps
  *
@@ -312,8 +312,8 @@ COMMENT ON FUNCTION event_relay_insert_cascade(
 /*
  * relay_metadata_insert_cascade(...) -> INTEGER
  *
- * Atomically inserts relays, metadata documents, and their junction records
- * in a single transaction. Delegates to relay_insert() and metadata_insert()
+ * Atomically inserts relays, document rows, and their junction records
+ * in a single transaction. Delegates to relay_insert() and document_insert()
  * internally.
  *
  * Parameters: Arrays of relay fields + metadata fields + types + timestamps
@@ -339,8 +339,8 @@ BEGIN
     -- Ensure relay records exist before inserting junction rows
     PERFORM relay_insert(p_relay_urls, p_relay_networks, p_relay_stored_ats);
 
-    -- Ensure metadata records exist (using pre-computed content hashes)
-    PERFORM metadata_insert(p_metadata_ids, p_metadata_types, p_metadata_data);
+    -- Ensure document rows exist (using pre-computed content hashes)
+    PERFORM document_insert(p_metadata_ids, p_metadata_types, p_metadata_data);
 
     -- Insert junction records with full column aliases
     INSERT INTO relay_metadata (relay_url, metadata_id, metadata_type, generated_at)

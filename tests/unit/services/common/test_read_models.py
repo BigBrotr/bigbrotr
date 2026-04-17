@@ -87,7 +87,7 @@ class TestReadModelRegistry:
             "api",
             policies={
                 "relays": ReadModelPolicy(enabled=True),
-                "metadata-documents": ReadModelPolicy(enabled=True),
+                "documents": ReadModelPolicy(enabled=True),
             },
             available_catalog_names={"relay", "event"},
         )
@@ -100,7 +100,7 @@ class TestReadModelRegistry:
             policies={
                 "relays": ReadModelPolicy(enabled=True),
                 "events": ReadModelPolicy(enabled=False),
-                "metadata-documents": ReadModelPolicy(enabled=True),
+                "documents": ReadModelPolicy(enabled=True),
             },
             available_catalog_names={"relay"},
         )

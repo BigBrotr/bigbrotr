@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from bigbrotr.models import Relay, RelayMetadata
-from bigbrotr.models.metadata import MetadataType
+from bigbrotr.models.document import MetadataType
 from bigbrotr.nips.nip66 import (
     Nip66,
     Nip66DnsData,

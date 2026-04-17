@@ -71,7 +71,7 @@ class ServiceStateDbParams(NamedTuple):
     state_values JSONB[])``.
 
     The ``state_value`` field is pre-serialized to a JSON string, consistent
-    with how ``EventDbParams.tags`` and ``MetadataDbParams.data`` handle
+    with how ``EventDbParams.tags`` and ``DocumentDbParams.data`` handle
     JSONB columns. This allows asyncpg's registered JSONB codec to pass
     the value through without needing explicit ``::jsonb[]`` casts.
 

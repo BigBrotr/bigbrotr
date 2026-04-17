@@ -20,7 +20,7 @@ BEGIN
     RAISE NOTICE '  btree_gin, pg_stat_statements';
     RAISE NOTICE '';
     RAISE NOTICE 'Tables:';
-    RAISE NOTICE '  relay, event (HASH x), event_relay (HASH x), metadata, relay_metadata, service_state';
+    RAISE NOTICE '  relay, event (HASH x), event_relay (HASH x), document, relay_metadata, service_state';
     RAISE NOTICE '';
     RAISE NOTICE 'Current Tables (5):';
     RAISE NOTICE '  relay_metadata_current';
@@ -45,7 +45,7 @@ BEGIN
     RAISE NOTICE '  tags_to_tagvalues, event_d_tag, normalize_event_address, event_address, bolt11_amount_msats';
     RAISE NOTICE '';
     RAISE NOTICE 'CRUD Functions (Base):';
-    RAISE NOTICE '  relay_insert, event_insert, metadata_insert';
+    RAISE NOTICE '  relay_insert, event_insert, document_insert';
     RAISE NOTICE '  event_relay_insert, relay_metadata_insert';
     RAISE NOTICE '  service_state_upsert, service_state_get, service_state_delete';
     RAISE NOTICE '';
@@ -53,7 +53,7 @@ BEGIN
     RAISE NOTICE '  event_relay_insert_cascade, relay_metadata_insert_cascade';
     RAISE NOTICE '';
     RAISE NOTICE 'Cleanup Functions:';
-    RAISE NOTICE '  orphan_metadata_delete, orphan_event_delete';
+    RAISE NOTICE '  orphan_document_delete, orphan_event_delete';
     RAISE NOTICE '';
     RAISE NOTICE 'Current Refresh Functions (5):';
     RAISE NOTICE '  relay_metadata_current_refresh';

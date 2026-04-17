@@ -11,9 +11,9 @@ records.
 See Also:
     [bigbrotr.nips.nip11.info.Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:
         The metadata container with HTTP info retrieval capabilities.
-    [bigbrotr.models.metadata.Metadata][bigbrotr.models.metadata.Metadata]:
+    [bigbrotr.models.document.Document][bigbrotr.models.document.Document]:
         Content-addressed metadata model used for database storage.
-    [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+    [bigbrotr.models.document.MetadataType][bigbrotr.models.document.MetadataType]:
         The ``NIP11_INFO`` variant used when creating metadata records.
     [bigbrotr.models.relay_metadata.RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]:
         Junction model linking a relay to its metadata.
@@ -25,7 +25,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 
-from bigbrotr.models.metadata import Metadata, MetadataType
+from bigbrotr.models.document import Document, MetadataType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.models.relay_metadata import RelayMetadata
 from bigbrotr.nips.base import (
@@ -155,14 +155,14 @@ class Nip11(BaseNip):
             with the info metadata wrapped in a
             [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata] junction
             record tagged as
-            [MetadataType.NIP11_INFO][bigbrotr.models.metadata.MetadataType],
+            [MetadataType.NIP11_INFO][bigbrotr.models.document.MetadataType],
             or ``None`` if no info retrieval was performed.
         """
         nip11_info: RelayMetadata | None = None
         if self.info is not None:
             nip11_info = RelayMetadata(
                 relay=self.relay,
-                metadata=Metadata(
+                metadata=Document(
                     type=MetadataType.NIP11_INFO,
                     data=self.info.to_dict(),
                 ),

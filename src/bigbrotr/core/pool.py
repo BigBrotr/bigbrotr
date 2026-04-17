@@ -73,7 +73,7 @@ def _json_encode(value: Any) -> str:
     codec to work correctly for both:
 
     * Direct dict/list values (e.g., ``service_state.state_value``)
-    * Pre-serialized JSON strings (e.g., ``event.tags``, ``metadata.data``)
+    * Pre-serialized JSON strings (e.g., ``event.tags``, ``document.data``)
 
     Without this, ``json.dumps(string)`` double-encodes pre-serialized JSON.
     """

@@ -19,7 +19,7 @@ read_models:
     enabled: false
   event-observations:
     enabled: false
-  metadata-documents:
+  documents:
     enabled: true
   relay-metadata-history:
     enabled: true

@@ -7,8 +7,8 @@ import pytest
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import EventRelay, Relay, RelayMetadata
+from bigbrotr.models.document import Document, MetadataType
 from bigbrotr.models.event import Event
-from bigbrotr.models.metadata import Metadata, MetadataType
 from tests.conftest import make_mock_event
 
 
@@ -28,7 +28,7 @@ def _relay_metadata(
     generated_at: int = 1700000001,
 ) -> RelayMetadata:
     relay = Relay(relay_url, stored_at=1700000000)
-    metadata = Metadata(type=meta_type, data=data)
+    metadata = Document(type=meta_type, data=data)
     return RelayMetadata(relay=relay, metadata=metadata, generated_at=generated_at)
 
 
@@ -83,17 +83,17 @@ class TestRelayCascadeToRelayMetadata:
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://fk-rm1.example.com")
         assert await brotr.fetchval("SELECT COUNT(*) FROM relay_metadata") == 0
 
-    async def test_relay_delete_does_not_cascade_to_metadata(self, brotr: Brotr) -> None:
+    async def test_relay_delete_does_not_cascade_to_document(self, brotr: Brotr) -> None:
         rm = _relay_metadata("wss://fk-rm2.example.com", {"name": "Orphan"})
         await brotr.insert_relay_metadata([rm], cascade=True)
 
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://fk-rm2.example.com")
-        assert await brotr.fetchval("SELECT COUNT(*) FROM metadata") == 1
+        assert await brotr.fetchval("SELECT COUNT(*) FROM document") == 1
 
     async def test_relay_delete_only_removes_own_metadata_junctions(self, brotr: Brotr) -> None:
         relay1 = Relay("wss://fk-rmown1.example.com", stored_at=1700000000)
         relay2 = Relay("wss://fk-rmown2.example.com", stored_at=1700000000)
-        metadata = Metadata(type=MetadataType.NIP11_INFO, data={"shared": True})
+        metadata = Document(type=MetadataType.NIP11_INFO, data={"shared": True})
         rm1 = RelayMetadata(relay=relay1, metadata=metadata, generated_at=1700000001)
         rm2 = RelayMetadata(relay=relay2, metadata=metadata, generated_at=1700000001)
         await brotr.insert_relay_metadata([rm1, rm2], cascade=True)
@@ -101,7 +101,7 @@ class TestRelayCascadeToRelayMetadata:
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://fk-rmown1.example.com")
 
         assert await brotr.fetchval("SELECT COUNT(*) FROM relay_metadata") == 1
-        assert await brotr.fetchval("SELECT COUNT(*) FROM metadata") == 1
+        assert await brotr.fetchval("SELECT COUNT(*) FROM document") == 1
 
 
 # =============================================================================
@@ -157,8 +157,8 @@ class TestEventRelayForeignKeys:
 
 class TestRelayMetadataForeignKeys:
     async def test_missing_relay_raises(self, brotr: Brotr) -> None:
-        metadata = Metadata(type=MetadataType.NIP11_INFO, data={"name": "No relay"})
-        await brotr.insert_metadata([metadata])
+        metadata = Document(type=MetadataType.NIP11_INFO, data={"name": "No relay"})
+        await brotr.insert_document([metadata])
 
         with pytest.raises(asyncpg.ForeignKeyViolationError):
             params = metadata.to_db_params()
@@ -186,9 +186,9 @@ class TestRelayMetadataForeignKeys:
 
     async def test_non_cascade_insert_with_existing_fks(self, brotr: Brotr) -> None:
         relay = Relay("wss://fk-rm-nc.example.com", stored_at=1700000000)
-        metadata = Metadata(type=MetadataType.NIP11_INFO, data={"name": "Pre-inserted"})
+        metadata = Document(type=MetadataType.NIP11_INFO, data={"name": "Pre-inserted"})
         await brotr.insert_relay([relay])
-        await brotr.insert_metadata([metadata])
+        await brotr.insert_document([metadata])
 
         rm = RelayMetadata(relay=relay, metadata=metadata, generated_at=1700000001)
         inserted = await brotr.insert_relay_metadata([rm], cascade=False)
@@ -219,22 +219,22 @@ class TestOrphanLifecycle:
         assert deleted == 1
         assert await brotr.fetchval("SELECT COUNT(*) FROM event") == 0
 
-    async def test_relay_delete_then_metadata_orphan_cleanup(self, brotr: Brotr) -> None:
+    async def test_relay_delete_then_document_orphan_cleanup(self, brotr: Brotr) -> None:
         rm = _relay_metadata("wss://lifecycle-meta.example.com", {"name": "Lifecycle"})
         await brotr.insert_relay_metadata([rm], cascade=True)
 
         assert await brotr.fetchval("SELECT COUNT(*) FROM relay") == 1
-        assert await brotr.fetchval("SELECT COUNT(*) FROM metadata") == 1
+        assert await brotr.fetchval("SELECT COUNT(*) FROM document") == 1
         assert await brotr.fetchval("SELECT COUNT(*) FROM relay_metadata") == 1
 
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://lifecycle-meta.example.com")
 
         assert await brotr.fetchval("SELECT COUNT(*) FROM relay_metadata") == 0
-        assert await brotr.fetchval("SELECT COUNT(*) FROM metadata") == 1
+        assert await brotr.fetchval("SELECT COUNT(*) FROM document") == 1
 
-        deleted = await brotr.delete_orphan_metadata()
+        deleted = await brotr.delete_orphan_document()
         assert deleted == 1
-        assert await brotr.fetchval("SELECT COUNT(*) FROM metadata") == 0
+        assert await brotr.fetchval("SELECT COUNT(*) FROM document") == 0
 
     async def test_full_cleanup_pipeline(self, brotr: Brotr) -> None:
         er = _event_relay("c3" * 32, "wss://pipeline.example.com")
@@ -246,11 +246,11 @@ class TestOrphanLifecycle:
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://pipeline.example.com")
 
         ev_deleted = await brotr.delete_orphan_event()
-        meta_deleted = await brotr.delete_orphan_metadata()
+        meta_deleted = await brotr.delete_orphan_document()
         assert ev_deleted == 1
         assert meta_deleted == 1
 
         assert await brotr.fetchval("SELECT COUNT(*) FROM event") == 0
-        assert await brotr.fetchval("SELECT COUNT(*) FROM metadata") == 0
+        assert await brotr.fetchval("SELECT COUNT(*) FROM document") == 0
         assert await brotr.fetchval("SELECT COUNT(*) FROM event_relay") == 0
         assert await brotr.fetchval("SELECT COUNT(*) FROM relay_metadata") == 0

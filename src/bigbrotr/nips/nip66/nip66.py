@@ -20,7 +20,7 @@ See Also:
         Network/ASN test implementation.
     [bigbrotr.nips.nip66.http.Nip66HttpMetadata][bigbrotr.nips.nip66.http.Nip66HttpMetadata]:
         HTTP test implementation.
-    [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+    [bigbrotr.models.document.MetadataType][bigbrotr.models.document.MetadataType]:
         Enum with ``NIP66_*`` variants for each test type.
     [bigbrotr.nips.nip11.nip11.Nip11][bigbrotr.nips.nip11.nip11.Nip11]:
         Companion NIP-11 model with the same factory/serialization pattern.
@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from nostr_sdk import EventBuilder, Filter, Keys, Kind
 
 from bigbrotr.models.constants import EventKind
-from bigbrotr.models.metadata import Metadata, MetadataType
+from bigbrotr.models.document import Document, MetadataType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.models.relay_metadata import RelayMetadata
 from bigbrotr.nips.base import (
@@ -225,7 +225,7 @@ class Nip66(BaseNip):
             with one [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]
             per test that produced results, or ``None`` for tests that were
             skipped. Each record is tagged with the corresponding
-            [MetadataType][bigbrotr.models.metadata.MetadataType] variant
+            [MetadataType][bigbrotr.models.document.MetadataType] variant
             (``NIP66_RTT``, ``NIP66_SSL``, etc.).
         """
 
@@ -236,7 +236,7 @@ class Nip66(BaseNip):
                 return None
             return RelayMetadata(
                 relay=self.relay,
-                metadata=Metadata(type=metadata_type, data=metadata.to_dict()),
+                metadata=Document(type=metadata_type, data=metadata.to_dict()),
                 generated_at=self.generated_at,
             )
 

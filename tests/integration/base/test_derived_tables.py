@@ -8,8 +8,8 @@ import pytest
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import EventRelay, Relay, RelayMetadata
+from bigbrotr.models.document import Document, MetadataType
 from bigbrotr.models.event import Event
-from bigbrotr.models.metadata import Metadata, MetadataType
 from tests.conftest import make_mock_event
 
 
@@ -23,7 +23,7 @@ def _rm(
     generated_at: int = 1700000001,
 ) -> RelayMetadata:
     relay = Relay(relay_url, stored_at=1700000000)
-    metadata = Metadata(type=meta_type, data=data)
+    metadata = Document(type=meta_type, data=data)
     return RelayMetadata(relay=relay, metadata=metadata, generated_at=generated_at)
 
 
@@ -105,7 +105,7 @@ def _event_relay(
 def _nip11_metadata(relay_url: str, data: dict, generated_at: int = 1700000001) -> RelayMetadata:
     relay = Relay(relay_url, stored_at=1700000000)
     envelope = {"data": data, "logs": {"success": True}}
-    metadata = Metadata(type=MetadataType.NIP11_INFO, data=envelope)
+    metadata = Document(type=MetadataType.NIP11_INFO, data=envelope)
     return RelayMetadata(relay=relay, metadata=metadata, generated_at=generated_at)
 
 
@@ -114,7 +114,7 @@ def _nip66_metadata(
 ) -> RelayMetadata:
     relay = Relay(relay_url, stored_at=1700000000)
     envelope = {"data": data, "logs": {"success": True}}
-    metadata = Metadata(type=meta_type, data=envelope)
+    metadata = Document(type=meta_type, data=envelope)
     return RelayMetadata(relay=relay, metadata=metadata, generated_at=generated_at)
 
 

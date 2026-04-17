@@ -8,8 +8,8 @@ import pytest
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import EventRelay, Relay
+from bigbrotr.models.document import Document, MetadataType
 from bigbrotr.models.event import Event
-from bigbrotr.models.metadata import Metadata, MetadataType
 from tests.conftest import make_mock_event
 
 
@@ -153,10 +153,10 @@ class TestBatchSizeValidation:
     async def test_metadata_batch_exceeds_max_size(self, brotr: Brotr) -> None:
         max_size = brotr.config.batch.max_size
         oversized = [
-            Metadata(type=MetadataType.NIP11_INFO, data={"i": i}) for i in range(max_size + 1)
+            Document(type=MetadataType.NIP11_INFO, data={"i": i}) for i in range(max_size + 1)
         ]
         with pytest.raises(ValueError, match="batch size"):
-            await brotr.insert_metadata(oversized)
+            await brotr.insert_document(oversized)
 
     async def test_batch_at_exact_max_size_accepted(self, brotr: Brotr) -> None:
         relays = [

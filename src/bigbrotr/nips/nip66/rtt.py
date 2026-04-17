@@ -93,7 +93,7 @@ class Nip66RttMetadata(BaseNipMetadata):
     See Also:
         [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
             Top-level model that orchestrates this alongside other tests.
-        [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+        [bigbrotr.models.document.MetadataType][bigbrotr.models.document.MetadataType]:
             The ``NIP66_RTT`` variant used when storing these results.
     """
 

@@ -19,11 +19,11 @@ Attributes:
     EventRelay: Junction linking an [Event][bigbrotr.models.event.Event] to the
         [Relay][bigbrotr.models.relay.Relay] where it was observed, with cascade
         insert support for atomic multi-table writes.
-    Metadata: Content-addressed metadata with SHA-256 hashing.
-        Supports seven [MetadataType][bigbrotr.models.metadata.MetadataType]
+    Document: Content-addressed metadata with SHA-256 hashing.
+        Supports seven [MetadataType][bigbrotr.models.document.MetadataType]
         values (nip11_info, nip66_rtt, etc.).
     RelayMetadata: Junction linking a [Relay][bigbrotr.models.relay.Relay] to a
-        [Metadata][bigbrotr.models.metadata.Metadata] record via
+        [Document][bigbrotr.models.document.Document] record via
         content-addressed hashing, with cascade insert support.
     ServiceState: Cursor-based processing state for services,
         enabling resume after restart.
@@ -40,7 +40,7 @@ See Also:
     [bigbrotr.models.relay][]: Relay URL validation and network detection.
     [bigbrotr.models.event][]: Nostr event wrapper with database serialization.
     [bigbrotr.models.event_relay][]: Event-to-relay junction model.
-    [bigbrotr.models.metadata][]: Content-addressed metadata with SHA-256 hashing.
+    [bigbrotr.models.document][]: Content-addressed metadata with SHA-256 hashing.
     [bigbrotr.models.relay_metadata][]: Relay-to-metadata junction model.
     [bigbrotr.models.service_state][]: Service state persistence types.
     [bigbrotr.models.constants][]: Shared constants and enumerations.
@@ -48,9 +48,9 @@ See Also:
 """
 
 from .constants import EVENT_KIND_MAX, EventKind, NetworkType, ServiceName
+from .document import Document, MetadataType
 from .event import Event
 from .event_relay import EventRelay
-from .metadata import Metadata, MetadataType
 from .relay import Relay
 from .relay_metadata import RelayMetadata
 from .service_state import ServiceState, ServiceStateDbParams, ServiceStateType
@@ -58,10 +58,10 @@ from .service_state import ServiceState, ServiceStateDbParams, ServiceStateType
 
 __all__ = [
     "EVENT_KIND_MAX",
+    "Document",
     "Event",
     "EventKind",
     "EventRelay",
-    "Metadata",
     "MetadataType",
     "NetworkType",
     "Relay",

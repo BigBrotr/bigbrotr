@@ -8,12 +8,12 @@
  */
 
 /*
- * orphan_metadata_delete(p_batch_size) -> INTEGER
+ * orphan_document_delete(p_batch_size) -> INTEGER
  *
- * Removes metadata records that have no references in relay_metadata,
+ * Removes document rows that have no references in relay_metadata,
  * processing in configurable batches to limit lock duration and WAL volume.
- * This happens when old metadata snapshots are deleted but their underlying
- * content-addressed documents remain. Safe to run at any time.
+ * This happens when old relay metadata snapshots are deleted but their
+ * underlying content-addressed documents remain. Safe to run at any time.
  *
  * Parameters:
  *   p_batch_size  Maximum rows to delete per iteration (default 10,000)
@@ -21,7 +21,7 @@
  * Returns: Total number of deleted rows across all batches
  * Schedule: Daily, or after bulk relay_metadata deletions
  */
-CREATE OR REPLACE FUNCTION orphan_metadata_delete(p_batch_size INTEGER DEFAULT 10000)
+CREATE OR REPLACE FUNCTION orphan_document_delete(p_batch_size INTEGER DEFAULT 10000)
 RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
@@ -30,8 +30,8 @@ DECLARE
     v_batch INTEGER;
 BEGIN
     LOOP
-        DELETE FROM metadata m WHERE (m.id, m.type) IN (
-            SELECT m2.id, m2.type FROM metadata m2
+        DELETE FROM document m WHERE (m.id, m.type) IN (
+            SELECT m2.id, m2.type FROM document m2
             WHERE NOT EXISTS (
                 SELECT 1 FROM relay_metadata rm
                 WHERE rm.metadata_id = m2.id AND rm.metadata_type = m2.type
@@ -46,8 +46,8 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION orphan_metadata_delete(INTEGER) IS
-'Delete unreferenced metadata in batches to limit lock duration';
+COMMENT ON FUNCTION orphan_document_delete(INTEGER) IS
+'Delete unreferenced documents in batches to limit lock duration';
 
 
 /*

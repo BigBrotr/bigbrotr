@@ -231,27 +231,27 @@ COMMENT ON COLUMN event_relay.seen_at IS 'Unix timestamp when event was first ob
 
 
 -- ==========================================================================
--- metadata: Content-addressed NIP-11 and NIP-66 document storage
+-- document: Content-addressed NIP-11 and NIP-66 document storage
 -- ==========================================================================
--- Stores JSON metadata documents deduplicated by their SHA-256 content hash
+-- Stores JSON documents deduplicated by their SHA-256 content hash
 -- and metadata type. The composite primary key (id, type) ensures
 -- each document is associated with exactly one type. Content-addressed
 -- deduplication still operates within a type: identical data with the same
 -- type shares a single row.
 
-CREATE TABLE IF NOT EXISTS metadata (
+CREATE TABLE IF NOT EXISTS document (
     id BYTEA NOT NULL,
     type TEXT NOT NULL,
     data JSONB NOT NULL,
     PRIMARY KEY (id, type)
 );
 
-ALTER TABLE metadata ALTER COLUMN data SET COMPRESSION lz4;
+ALTER TABLE document ALTER COLUMN data SET COMPRESSION lz4;
 
-COMMENT ON TABLE metadata IS 'Content-addressed storage for NIP-11/NIP-66 metadata (deduplicated by SHA-256 hash + type)';
-COMMENT ON COLUMN metadata.id IS 'SHA-256 hash of the JSON data (content-addressed key, part of composite PK)';
-COMMENT ON COLUMN metadata.type IS 'Check type: nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, or nip66_http';
-COMMENT ON COLUMN metadata.data IS 'Complete JSON document (NIP-11 relay info or NIP-66 check result)';
+COMMENT ON TABLE document IS 'Content-addressed storage for NIP-11/NIP-66 documents (deduplicated by SHA-256 hash + type)';
+COMMENT ON COLUMN document.id IS 'SHA-256 hash of the JSON data (content-addressed key, part of composite PK)';
+COMMENT ON COLUMN document.type IS 'Check type: nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, or nip66_http';
+COMMENT ON COLUMN document.data IS 'Complete JSON document (NIP-11 relay info or NIP-66 check result)';
 
 
 -- ==========================================================================
@@ -271,12 +271,12 @@ CREATE TABLE IF NOT EXISTS relay_metadata (
 
     PRIMARY KEY (relay_url, generated_at, metadata_type),
     FOREIGN KEY (relay_url) REFERENCES relay (url) ON DELETE CASCADE,
-    FOREIGN KEY (metadata_id, metadata_type) REFERENCES metadata (id, type) ON DELETE CASCADE
+    FOREIGN KEY (metadata_id, metadata_type) REFERENCES document (id, type) ON DELETE CASCADE
 );
 
 COMMENT ON TABLE relay_metadata IS 'Time-series relay metadata snapshots linking relays to metadata documents';
 COMMENT ON COLUMN relay_metadata.relay_url IS 'Foreign key to relay.url';
-COMMENT ON COLUMN relay_metadata.metadata_id IS 'Foreign key to metadata(id, type) (content-addressed hash)';
+COMMENT ON COLUMN relay_metadata.metadata_id IS 'Foreign key to document(id, type) (content-addressed hash)';
 COMMENT ON COLUMN relay_metadata.metadata_type IS 'Check type: nip11_info, nip66_rtt, nip66_ssl, nip66_geo, nip66_net, nip66_dns, or nip66_http';
 COMMENT ON COLUMN relay_metadata.generated_at IS 'Unix timestamp when the metadata was collected';
 

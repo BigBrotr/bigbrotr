@@ -28,14 +28,14 @@ Nip11                                    Top-level container
 
 Note:
     NIP-11 results are stored as
-    [MetadataType.NIP11_INFO][bigbrotr.models.metadata.MetadataType] records
+    [MetadataType.NIP11_INFO][bigbrotr.models.document.MetadataType] records
     in the database via
     [Nip11.to_relay_metadata_tuple][bigbrotr.nips.nip11.nip11.Nip11.to_relay_metadata_tuple].
 
 See Also:
-    [bigbrotr.models.metadata.MetadataType][bigbrotr.models.metadata.MetadataType]:
+    [bigbrotr.models.document.MetadataType][bigbrotr.models.document.MetadataType]:
         The ``NIP11_INFO`` variant that tags these records.
-    [bigbrotr.models.metadata.Metadata][bigbrotr.models.metadata.Metadata]:
+    [bigbrotr.models.document.Document][bigbrotr.models.document.Document]:
         Content-addressed wrapper for NIP-11 payloads.
     [bigbrotr.nips.nip66][bigbrotr.nips.nip66]: Companion NIP-66 monitoring
         module that collects health metrics alongside NIP-11 info.

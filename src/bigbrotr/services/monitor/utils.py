@@ -12,7 +12,7 @@ import random
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar
 
-from bigbrotr.models import Metadata, MetadataType, RelayMetadata
+from bigbrotr.models import Document, MetadataType, RelayMetadata
 
 
 if TYPE_CHECKING:
@@ -203,7 +203,7 @@ def collect_metadata(
                 metadata.append(
                     RelayMetadata(
                         relay=relay,
-                        metadata=Metadata(type=meta_type, data=nip_meta.to_dict()),
+                        metadata=Document(type=meta_type, data=nip_meta.to_dict()),
                         generated_at=result.generated_at,
                     )
                 )

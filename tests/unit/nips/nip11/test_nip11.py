@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
-from bigbrotr.models.metadata import Metadata, MetadataType
+from bigbrotr.models.document import Document, MetadataType
 from bigbrotr.models.relay import Relay
 from bigbrotr.nips.nip11 import (
     Nip11,
@@ -199,10 +199,10 @@ class TestNip11Serialization:
         assert result.nip11_info.generated_at == nip11.generated_at
 
     def test_to_relay_metadata_tuple_contains_metadata(self, nip11: Nip11):
-        """RelayMetadata contains Metadata with info data."""
+        """RelayMetadata contains Document with info data."""
         result = nip11.to_relay_metadata_tuple()
         metadata = result.nip11_info.metadata
-        assert isinstance(metadata, Metadata)
+        assert isinstance(metadata, Document)
         assert metadata.data["data"]["name"] == "Test Relay"
         assert metadata.data["logs"]["success"] is True
 
@@ -713,7 +713,7 @@ class TestNip11Integration:
         relay: Relay,
         complete_nip11_data: dict[str, Any],
     ):
-        """Verify data survives roundtrip through Metadata."""
+        """Verify data survives roundtrip through Document."""
         info_data = Nip11InfoData.from_dict(complete_nip11_data)
         info_logs = Nip11InfoLogs(success=True)
         info_metadata = Nip11InfoMetadata(data=info_data, logs=info_logs)

@@ -1,12 +1,12 @@
 """
-Content-addressed metadata with SHA-256 deduplication.
+Content-addressed documents with SHA-256 deduplication.
 
 Stores arbitrary JSON-compatible data with a type classification
-([MetadataType][bigbrotr.models.metadata.MetadataType]). A deterministic
+([MetadataType][bigbrotr.models.document.MetadataType]). A deterministic
 content hash is computed from the canonical JSON representation of the
 data, enabling content-addressed deduplication in PostgreSQL.
 
-The [Metadata][bigbrotr.models.metadata.Metadata] class is agnostic about
+The [Document][bigbrotr.models.document.Document] class is agnostic about
 the internal structure of ``data``; higher-level models in
 [bigbrotr.nips.nip11][] and [bigbrotr.nips.nip66][] define their own
 conventions for what goes inside it.
@@ -14,7 +14,7 @@ conventions for what goes inside it.
 See Also:
     [bigbrotr.models.relay_metadata][]: Junction model linking a
         [Relay][bigbrotr.models.relay.Relay] to a
-        [Metadata][bigbrotr.models.metadata.Metadata] record.
+        [Document][bigbrotr.models.document.Document] record.
     [bigbrotr.nips.nip11][]: Produces ``nip11_info``-typed metadata from
         relay information documents.
     [bigbrotr.nips.nip66][]: Produces ``nip66_*``-typed metadata from
@@ -42,7 +42,7 @@ from ._validation import (
 
 
 class MetadataType(StrEnum):
-    """Metadata type identifiers stored in the ``metadata.type`` column.
+    """Document type identifiers stored in the ``document.type`` column.
 
     Each value corresponds to a specific data source or monitoring test
     performed by the [Monitor][bigbrotr.services.monitor.Monitor] service.
@@ -57,11 +57,11 @@ class MetadataType(StrEnum):
         NIP66_HTTP: NIP-66 HTTP header information (server, content-type, CORS).
 
     See Also:
-        [Metadata][bigbrotr.models.metadata.Metadata]: The content-addressed container
-            that carries a [MetadataType][bigbrotr.models.metadata.MetadataType] alongside
+        [Document][bigbrotr.models.document.Document]: The content-addressed container
+            that carries a [MetadataType][bigbrotr.models.document.MetadataType] alongside
             its data.
         [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]: Junction model
-            linking a relay to a metadata record.
+            linking a relay to a stored document record.
     """
 
     NIP11_INFO = "nip11_info"
@@ -73,22 +73,22 @@ class MetadataType(StrEnum):
     NIP66_HTTP = "nip66_http"
 
 
-class MetadataDbParams(NamedTuple):
-    """Positional parameters for the metadata database insert procedure.
+class DocumentDbParams(NamedTuple):
+    """Positional parameters for the document database insert procedure.
 
-    Produced by [Metadata.to_db_params()][bigbrotr.models.metadata.Metadata.to_db_params]
-    and consumed by the ``metadata_insert`` stored procedure in PostgreSQL.
+    Produced by [Document.to_db_params()][bigbrotr.models.document.Document.to_db_params]
+    and consumed by the ``document_insert`` stored procedure in PostgreSQL.
 
     Attributes:
         id: SHA-256 content hash (32 bytes), part of composite PK ``(id, type)``.
-        type: Metadata type identifier, part of composite PK ``(id, type)``.
+        type: Document type identifier, part of composite PK ``(id, type)``.
             Built-in callers typically use
-            [MetadataType][bigbrotr.models.metadata.MetadataType], but arbitrary
+            [MetadataType][bigbrotr.models.document.MetadataType], but arbitrary
             non-empty strings are accepted.
         data: Canonical JSON string for PostgreSQL JSONB storage.
 
     See Also:
-        [Metadata][bigbrotr.models.metadata.Metadata]: The model that produces these
+        [Document][bigbrotr.models.document.Document]: The model that produces these
             parameters.
     """
 
@@ -98,8 +98,8 @@ class MetadataDbParams(NamedTuple):
 
 
 @dataclass(frozen=True, slots=True)
-class Metadata:
-    """Immutable metadata with deterministic content hashing.
+class Document:
+    """Immutable document with deterministic content hashing.
 
     On construction, the ``data`` dict is validated for strict JSON
     compatibility, normalized only for deterministic ordering, and a
@@ -112,32 +112,32 @@ class Metadata:
 
     Attributes:
         type: The metadata classification. Built-in callers use the
-            [MetadataType][bigbrotr.models.metadata.MetadataType] catalog, but
+            [MetadataType][bigbrotr.models.document.MetadataType] catalog, but
             arbitrary non-empty string IDs are accepted for extensibility.
         data: Deterministically normalized JSON-compatible dictionary.
 
     Examples:
         ```python
-        meta = Metadata(type=MetadataType.NIP11_INFO, data={"name": "My Relay"})
+        meta = Document(type=MetadataType.NIP11_INFO, data={"name": "My Relay"})
         meta.content_hash    # 32-byte SHA-256 digest
         meta.canonical_json  # '{"name":"My Relay"}'
-        meta.to_db_params()  # MetadataDbParams(...)
+        meta.to_db_params()  # DocumentDbParams(...)
         ```
 
         Identical data always produces the same hash (content-addressed):
 
         ```python
-        m1 = Metadata(type=MetadataType.NIP11_INFO, data={"b": 2, "a": 1})
-        m2 = Metadata(type=MetadataType.NIP11_INFO, data={"a": 1, "b": 2})
+        m1 = Document(type=MetadataType.NIP11_INFO, data={"b": 2, "a": 1})
+        m2 = Document(type=MetadataType.NIP11_INFO, data={"a": 1, "b": 2})
         m1.content_hash == m2.content_hash  # True
         ```
 
     Note:
         The content hash is derived from ``data`` alone. The ``type`` is stored
-        alongside the hash on the ``metadata`` table with composite primary key
+        alongside the hash on the ``document`` table with composite primary key
         ``(id, type)``, ensuring each document is tied to exactly one type.
-        The ``relay_metadata`` junction table references metadata via a
-        compound foreign key on ``(metadata_id, metadata_type)``.
+        The ``relay_metadata`` junction table references the stored document
+        via a compound foreign key on ``(metadata_id, metadata_type)``.
 
         Computed fields (``_canonical_json``, ``_content_hash``, ``_db_params``)
         are set via ``object.__setattr__`` in ``__post_init__`` because the
@@ -149,13 +149,13 @@ class Metadata:
         bytes, and unsupported JSON values are rejected before hashing.
 
     See Also:
-        [MetadataType][bigbrotr.models.metadata.MetadataType]: Enum of supported
+        [MetadataType][bigbrotr.models.document.MetadataType]: Enum of supported
             metadata classifications.
-        [MetadataDbParams][bigbrotr.models.metadata.MetadataDbParams]: Database
+        [DocumentDbParams][bigbrotr.models.document.DocumentDbParams]: Database
             parameter container produced by
-            [to_db_params()][bigbrotr.models.metadata.Metadata.to_db_params].
+            [to_db_params()][bigbrotr.models.document.Document.to_db_params].
         [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]: Junction
-            linking a [Relay][bigbrotr.models.relay.Relay] to this metadata record.
+            linking a [Relay][bigbrotr.models.relay.Relay] to this document record.
     """
 
     type: str
@@ -163,7 +163,7 @@ class Metadata:
 
     _canonical_json: str = field(default="", init=False, repr=False, compare=False)
     _content_hash: bytes = field(default=b"", init=False, repr=False, compare=False)
-    _db_params: MetadataDbParams = field(
+    _db_params: DocumentDbParams = field(
         default=None,
         init=False,
         repr=False,
@@ -197,13 +197,13 @@ class Metadata:
 
         Computed once at construction time. Identical semantic data always
         produces the same 32-byte hash, enabling content-addressed
-        deduplication in the ``metadata`` table.
+        deduplication in the ``document`` table.
 
         Returns:
             32-byte SHA-256 digest suitable for PostgreSQL BYTEA columns.
 
         See Also:
-            [canonical_json][bigbrotr.models.metadata.Metadata.canonical_json]:
+            [canonical_json][bigbrotr.models.document.Document.canonical_json]:
                 The JSON string from which this hash is derived.
         """
         return self._content_hash
@@ -219,32 +219,32 @@ class Metadata:
         """
         return self._canonical_json
 
-    def _compute_db_params(self) -> MetadataDbParams:
+    def _compute_db_params(self) -> DocumentDbParams:
         """Compute positional parameters for the database insert procedure.
 
         Called once during ``__post_init__`` to populate the ``_db_params``
         cache. All subsequent access goes through
-        [to_db_params()][bigbrotr.models.metadata.Metadata.to_db_params].
+        [to_db_params()][bigbrotr.models.document.Document.to_db_params].
 
         Returns:
-            [MetadataDbParams][bigbrotr.models.metadata.MetadataDbParams] with
+            [DocumentDbParams][bigbrotr.models.document.DocumentDbParams] with
             the content hash as ``id``, the canonical JSON as ``data``,
             and the metadata type.
         """
-        return MetadataDbParams(
+        return DocumentDbParams(
             id=self._content_hash,
             type=self.type,
             data=self._canonical_json,
         )
 
-    def to_db_params(self) -> MetadataDbParams:
+    def to_db_params(self) -> DocumentDbParams:
         """Return cached positional parameters for the database insert procedure.
 
         The result is computed once during construction and cached for the
         lifetime of the (frozen) instance.
 
         Returns:
-            [MetadataDbParams][bigbrotr.models.metadata.MetadataDbParams] with
+            [DocumentDbParams][bigbrotr.models.document.DocumentDbParams] with
             the content hash as ``id``, the canonical JSON as ``data``,
             and the metadata type.
         """

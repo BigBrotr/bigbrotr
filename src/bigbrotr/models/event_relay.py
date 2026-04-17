@@ -14,7 +14,7 @@ See Also:
         wrapped by this junction.
     [bigbrotr.models.relay_metadata][]: Analogous junction model linking a
         [Relay][bigbrotr.models.relay.Relay] to a
-        [Metadata][bigbrotr.models.metadata.Metadata] record.
+        [Document][bigbrotr.models.document.Document] record.
 """
 
 from __future__ import annotations

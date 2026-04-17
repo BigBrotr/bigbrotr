@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, NamedTuple
 
 from bigbrotr.models.constants import EventKind
-from bigbrotr.models.metadata import MetadataType
+from bigbrotr.models.document import MetadataType
 
 from .nip11 import Nip11, Nip11Dependencies, Nip11Options, Nip11Selection
 from .nip66 import Nip66, Nip66Dependencies, Nip66Options, Nip66Selection

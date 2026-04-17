@@ -1,5 +1,5 @@
 from bigbrotr.models.constants import EventKind
-from bigbrotr.models.metadata import MetadataType
+from bigbrotr.models.document import MetadataType
 from bigbrotr.nips import NIP_REGISTRY, NipEntry
 from bigbrotr.nips.nip11 import Nip11, Nip11Dependencies, Nip11Options, Nip11Selection
 from bigbrotr.nips.nip66 import Nip66, Nip66Dependencies, Nip66Options, Nip66Selection

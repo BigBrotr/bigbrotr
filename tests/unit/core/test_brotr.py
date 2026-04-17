@@ -6,9 +6,9 @@ Tests:
 - Brotr initialization with defaults and custom config
 - Factory methods (from_yaml, from_dict)
 - Helper methods (_validate_batch_size, _transpose_to_columns, _call_procedure)
-- Insert operations (insert_event, insert_event_relay, insert_relay, insert_metadata, insert_relay_metadata)
+- Insert operations (insert_event, insert_event_relay, insert_relay, insert_document, insert_relay_metadata)
 - Service state operations (upsert_service_state, get_service_state, delete_service_state)
-- Cleanup operations (delete_orphan_event, delete_orphan_metadata)
+- Cleanup operations (delete_orphan_event, delete_orphan_document)
 - Refresh procedure operations (run_refresh_procedure / refresh_materialized_view alias)
 - Explicit lifecycle methods (connect, close)
 - Context manager support
@@ -499,17 +499,17 @@ class TestInsertEventRelay:
         assert "cascade" not in query
 
 
-class TestInsertMetadata:
-    """Tests for Brotr.insert_metadata() method."""
+class TestInsertDocument:
+    """Tests for Brotr.insert_document() method."""
 
     async def test_empty_list_returns_zero(self, mock_brotr: Brotr) -> None:
         """Test that empty list returns 0."""
-        inserted = await mock_brotr.insert_metadata([])
+        inserted = await mock_brotr.insert_document([])
         assert inserted == 0
 
-    async def test_single_metadata(self, mock_brotr: Brotr, sample_metadata: Any) -> None:
-        """Test inserting single metadata record."""
-        inserted = await mock_brotr.insert_metadata([sample_metadata.metadata])
+    async def test_single_document(self, mock_brotr: Brotr, sample_metadata: Any) -> None:
+        """Test inserting single document record."""
+        inserted = await mock_brotr.insert_document([sample_metadata.metadata])
         assert inserted == 1
 
 
@@ -731,12 +731,12 @@ class TestDeleteOrphanEvent:
         assert result == 1  # Mock returns 1 by default
 
 
-class TestDeleteOrphanMetadata:
-    """Tests for Brotr.delete_orphan_metadata() method."""
+class TestDeleteOrphanDocument:
+    """Tests for Brotr.delete_orphan_document() method."""
 
     async def test_returns_deleted_count(self, mock_brotr: Brotr) -> None:
-        """Test that method returns count of deleted metadata."""
-        result = await mock_brotr.delete_orphan_metadata()
+        """Test that method returns count of deleted documents."""
+        result = await mock_brotr.delete_orphan_document()
         assert result == 1  # Mock returns 1 by default
 
 

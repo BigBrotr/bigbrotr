@@ -1,17 +1,17 @@
 """
 Junction model linking a [Relay][bigbrotr.models.relay.Relay] to a
-[Metadata][bigbrotr.models.metadata.Metadata] record.
+[Document][bigbrotr.models.document.Document] record.
 
 Maps to the ``relay_metadata`` table, representing a time-series snapshot
-that associates a relay with a specific metadata record. Metadata records
+that associates a relay with a specific stored document. Document records
 are deduplicated via content-addressed hashing (SHA-256 computed in Python).
 The database uses the ``relay_metadata_insert_cascade`` stored procedure
-to atomically insert the relay, metadata, and junction record in a single call.
+to atomically insert the relay, document, and junction record in a single call.
 
 See Also:
     [bigbrotr.models.relay][]: The [Relay][bigbrotr.models.relay.Relay] model
         wrapped by this junction.
-    [bigbrotr.models.metadata][]: The [Metadata][bigbrotr.models.metadata.Metadata]
+    [bigbrotr.models.document][]: The [Document][bigbrotr.models.document.Document]
         model wrapped by this junction.
     [bigbrotr.models.event_relay][]: Analogous junction model linking a
         [Relay][bigbrotr.models.relay.Relay] to an
@@ -25,7 +25,7 @@ from time import time
 from typing import NamedTuple
 
 from ._validation import validate_instance, validate_timestamp
-from .metadata import Metadata
+from .document import Document
 from .relay import Relay
 
 
@@ -42,9 +42,9 @@ class RelayMetadataDbParams(NamedTuple):
         relay_network: Network type string (e.g., ``"clearnet"``, ``"tor"``).
         relay_stored_at: Unix timestamp when the relay entered the canonical stored relay pool.
         metadata_id: SHA-256 content hash (32 bytes,
-            from [MetadataDbParams][bigbrotr.models.metadata.MetadataDbParams]).
-        metadata_type: Metadata type identifier. Built-in callers typically
-            use [MetadataType][bigbrotr.models.metadata.MetadataType], but
+            from [DocumentDbParams][bigbrotr.models.document.DocumentDbParams]).
+        metadata_type: Document type identifier. Built-in callers typically
+            use [MetadataType][bigbrotr.models.document.MetadataType], but
             arbitrary non-empty strings are accepted.
         metadata_data: Canonical JSON string for JSONB storage.
         generated_at: Unix timestamp when the metadata was collected.
@@ -53,8 +53,8 @@ class RelayMetadataDbParams(NamedTuple):
         [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]: The model that
             produces these parameters.
         [RelayDbParams][bigbrotr.models.relay.RelayDbParams]: Source of the relay fields.
-        [MetadataDbParams][bigbrotr.models.metadata.MetadataDbParams]: Source of the
-            metadata fields.
+        [DocumentDbParams][bigbrotr.models.document.DocumentDbParams]: Source of the
+            document fields.
     """
 
     relay_url: str
@@ -69,23 +69,23 @@ class RelayMetadataDbParams(NamedTuple):
 @dataclass(frozen=True, slots=True)
 class RelayMetadata:
     """Immutable junction linking a [Relay][bigbrotr.models.relay.Relay] to a
-    [Metadata][bigbrotr.models.metadata.Metadata] record.
+    [Document][bigbrotr.models.document.Document] record.
 
     The metadata type identifier is carried by the
-    [Metadata][bigbrotr.models.metadata.Metadata] object and stored on both the
-    ``metadata`` table (as part of the composite PK) and the ``relay_metadata``
+    [Document][bigbrotr.models.document.Document] object and stored on both the
+    ``document`` table (as part of the composite PK) and the ``relay_metadata``
     junction table (as part of the compound FK) for type-filtered queries.
 
     Attributes:
         relay: The [Relay][bigbrotr.models.relay.Relay] this metadata belongs to.
-        metadata: The [Metadata][bigbrotr.models.metadata.Metadata] record
+        metadata: The [Document][bigbrotr.models.document.Document] record
             (with type and content hash).
         generated_at: Unix timestamp when the metadata was collected (defaults to now).
 
     Examples:
         ```python
         relay = Relay("wss://relay.damus.io")
-        meta = Metadata(type=MetadataType.NIP11_INFO, data={"name": "Damus"})
+        meta = Document(type=MetadataType.NIP11_INFO, data={"name": "Damus"})
         rm = RelayMetadata(relay=relay, metadata=meta)
         rm.generated_at       # Auto-set to current time
         params = rm.to_db_params()
@@ -94,18 +94,18 @@ class RelayMetadata:
         ```
 
     Note:
-        The ``metadata_type`` exists on both the ``metadata`` table (composite
+        The ``metadata_type`` exists on both the ``document`` table (composite
         PK ``(id, type)``) and the ``relay_metadata`` junction table
         (compound FK ``(metadata_id, metadata_type)``). This enforces referential
         integrity at the type level and enables efficient type-filtered queries
         (e.g., "latest NIP-11 info for all relays") without joining through
-        the ``metadata`` table.
+        the ``document`` table.
 
     See Also:
         [Relay][bigbrotr.models.relay.Relay]: The relay half of this junction.
-        [Metadata][bigbrotr.models.metadata.Metadata]: The metadata half of this
+        [Document][bigbrotr.models.document.Document]: The document half of this
             junction.
-        [MetadataType][bigbrotr.models.metadata.MetadataType]: Built-in catalog
+        [MetadataType][bigbrotr.models.document.MetadataType]: Built-in catalog
             of metadata classifications used by the current application.
         [RelayMetadataDbParams][bigbrotr.models.relay_metadata.RelayMetadataDbParams]:
             Database parameter container produced by
@@ -115,7 +115,7 @@ class RelayMetadata:
     """
 
     relay: Relay
-    metadata: Metadata
+    metadata: Document
     generated_at: int = field(default_factory=lambda: int(time()))
     _db_params: RelayMetadataDbParams = field(
         default=None,
@@ -128,7 +128,7 @@ class RelayMetadata:
     def __post_init__(self) -> None:
         """Validate field types and compute database parameters (fail-fast)."""
         validate_instance(self.relay, Relay, "relay")
-        validate_instance(self.metadata, Metadata, "metadata")
+        validate_instance(self.metadata, Document, "metadata")
         validate_timestamp(self.generated_at, "generated_at")
         object.__setattr__(self, "_db_params", self._compute_db_params())
 
@@ -136,7 +136,7 @@ class RelayMetadata:
         """Compute positional parameters for the cascade insert procedure.
 
         Merges the [RelayDbParams][bigbrotr.models.relay.RelayDbParams] and
-        [MetadataDbParams][bigbrotr.models.metadata.MetadataDbParams] from the
+        [DocumentDbParams][bigbrotr.models.document.DocumentDbParams] from the
         contained models with the junction ``generated_at`` timestamp and
         ``metadata_type`` into a single flat tuple.
 

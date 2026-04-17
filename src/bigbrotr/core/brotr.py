@@ -2,7 +2,7 @@
 High-level database interface built on stored procedures.
 
 Provides typed wrappers around PostgreSQL stored procedures for all data
-operations: relay management, event ingestion, metadata storage, service
+operations: relay management, event ingestion, document storage, service
 state persistence, and derived-state refresh procedures.
 
 Bulk inserts use array parameters to perform the entire batch in a single
@@ -10,7 +10,7 @@ database round-trip. All insert methods accept only validated dataclass
 instances ([Relay][bigbrotr.models.relay.Relay],
 [Event][bigbrotr.models.event.Event],
 [EventRelay][bigbrotr.models.event_relay.EventRelay],
-[Metadata][bigbrotr.models.metadata.Metadata],
+[Document][bigbrotr.models.document.Document],
 [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]) to enforce
 type safety at the API boundary.
 
@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
     from types import TracebackType
 
-    from bigbrotr.models import Event, EventRelay, Metadata, Relay, RelayMetadata
+    from bigbrotr.models import Document, Event, EventRelay, Relay, RelayMetadata
 
 
 class _DbParamRecord(Protocol):
@@ -69,7 +69,7 @@ class Brotr:
     ([Relay][bigbrotr.models.relay.Relay],
     [Event][bigbrotr.models.event.Event],
     [EventRelay][bigbrotr.models.event_relay.EventRelay],
-    [Metadata][bigbrotr.models.metadata.Metadata],
+    [Document][bigbrotr.models.document.Document],
     [RelayMetadata][bigbrotr.models.relay_metadata.RelayMetadata]) and call
     domain-specific stored procedures. However, all domain SQL queries
     live in service query modules, not here.
@@ -115,9 +115,9 @@ class Brotr:
         [bigbrotr.models.event.Event][bigbrotr.models.event.Event]: Event
             dataclass consumed by
             [insert_event()][bigbrotr.core.brotr.Brotr.insert_event].
-        [bigbrotr.models.metadata.Metadata][bigbrotr.models.metadata.Metadata]:
-            Metadata dataclass consumed by
-            [insert_metadata()][bigbrotr.core.brotr.Brotr.insert_metadata].
+        [bigbrotr.models.document.Document][bigbrotr.models.document.Document]:
+            Document dataclass consumed by
+            [insert_document()][bigbrotr.core.brotr.Brotr.insert_document].
     """
 
     def __init__(
@@ -535,11 +535,11 @@ class Brotr:
             cascade=cascade,
         )
 
-    async def insert_metadata(self, records: list[Metadata]) -> int:
-        """Bulk-insert metadata records into the ``metadata`` table.
+    async def insert_document(self, records: list[Document]) -> int:
+        """Bulk-insert document records into the ``document`` table.
 
-        Metadata is content-addressed: each record's SHA-256 hash combined
-        with its metadata type forms the composite primary key, providing
+        Document is content-addressed: each record's SHA-256 hash combined
+        with its document type forms the composite primary key, providing
         automatic deduplication within each type. The hash is computed in
         Python for deterministic behavior across environments.
 
@@ -549,11 +549,11 @@ class Brotr:
         single stored procedure call.
 
         Args:
-            records: Validated [Metadata][bigbrotr.models.metadata.Metadata]
+            records: Validated [Document][bigbrotr.models.document.Document]
                 dataclass instances.
 
         Returns:
-            Number of new metadata records inserted (duplicates are skipped).
+            Number of new document records inserted (duplicates are skipped).
 
         Raises:
             asyncpg.PostgresError: On database errors.
@@ -561,10 +561,10 @@ class Brotr:
                 from [BatchConfig][bigbrotr.core.brotr.BatchConfig].
 
         Note:
-            The ``metadata`` table has columns ``id``, ``type``, and
+            The ``document`` table has columns ``id``, ``type``, and
             ``data`` with composite PK ``(id, type)``.
             The SHA-256 hash is computed over the canonical JSON representation
-            in the [Metadata][bigbrotr.models.metadata.Metadata] model's
+            in the [Document][bigbrotr.models.document.Document] model's
             ``__post_init__`` method.
 
         See Also:
@@ -572,10 +572,10 @@ class Brotr:
                 Cascade insert that also creates relay-metadata junction records.
         """
         return await self._insert_record_batch(
-            "insert_metadata",
-            "metadata_insert",
+            "insert_document",
+            "document_insert",
             records,
-            log_event="metadata_inserted",
+            log_event="document_inserted",
         )
 
     async def insert_relay_metadata(
@@ -583,7 +583,7 @@ class Brotr:
     ) -> int:
         """Bulk-insert relay-metadata junction records.
 
-        Links relays to content-addressed metadata records. SHA-256 hashes
+        Links relays to content-addressed document records. SHA-256 hashes
         are computed in Python for deterministic deduplication.
 
         Args:
@@ -592,8 +592,8 @@ class Brotr:
                 dataclass instances.
             cascade: If ``True`` (default), also inserts the parent
                 [Relay][bigbrotr.models.relay.Relay] and
-                [Metadata][bigbrotr.models.metadata.Metadata] records
-                (relays -> metadata -> relay_metadata) via the
+                [Document][bigbrotr.models.document.Document] records
+                (relays -> document -> relay_metadata) via the
                 ``relay_metadata_insert_cascade`` stored procedure. If
                 ``False``, only inserts junction rows via
                 ``relay_metadata_insert`` and expects foreign keys to
@@ -608,10 +608,10 @@ class Brotr:
                 from [BatchConfig][bigbrotr.core.brotr.BatchConfig].
 
         See Also:
-            [insert_metadata()][bigbrotr.core.brotr.Brotr.insert_metadata]:
-                Insert metadata without relay associations.
+            [insert_document()][bigbrotr.core.brotr.Brotr.insert_document]:
+                Insert documents without relay associations.
             [insert_relay()][bigbrotr.core.brotr.Brotr.insert_relay]:
-                Insert relays without metadata associations.
+                Insert relays without document associations.
         """
         if not records:
             return 0
@@ -621,7 +621,7 @@ class Brotr:
         params = [record.to_db_params() for record in records]
 
         if cascade:
-            # Cascade: relays -> metadata -> relay_metadata in one procedure call
+            # Cascade: relays -> document -> relay_metadata in one procedure call
             columns = self._transpose_to_columns(params)
             procedure = "relay_metadata_insert_cascade"
         else:
@@ -657,24 +657,24 @@ class Brotr:
             asyncpg.PostgresError: On database errors.
 
         See Also:
-            [delete_orphan_metadata()][bigbrotr.core.brotr.Brotr.delete_orphan_metadata]:
-                Companion cleanup for orphaned metadata records.
+            [delete_orphan_document()][bigbrotr.core.brotr.Brotr.delete_orphan_document]:
+                Companion cleanup for orphaned document records.
         """
         return await self._call_counting_procedure(
             "orphan_event_delete",
             timeout=self._config.timeouts.cleanup,
         )
 
-    async def delete_orphan_metadata(self) -> int:
-        """Delete metadata records that have no associated relay in the junction table.
+    async def delete_orphan_document(self) -> int:
+        """Delete document records that have no associated relay in the junction table.
 
-        Orphaned metadata occurs when all relay associations for a content-
+        Orphaned documents occur when all relay associations for a content-
         addressed blob are removed (e.g., superseded NIP-11 or NIP-66 data).
-        Removing them reclaims storage. Calls the ``orphan_metadata_delete``
+        Removing them reclaims storage. Calls the ``orphan_document_delete``
         stored procedure.
 
         Returns:
-            Number of orphaned metadata records deleted.
+            Number of orphaned document records deleted.
 
         Raises:
             asyncpg.PostgresError: On database errors.
@@ -684,7 +684,7 @@ class Brotr:
                 Companion cleanup for orphaned event records.
         """
         return await self._call_counting_procedure(
-            "orphan_metadata_delete",
+            "orphan_document_delete",
             timeout=self._config.timeouts.cleanup,
         )
 
