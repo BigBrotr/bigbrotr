@@ -8,19 +8,26 @@ from bigbrotr.services.common.catalog import Catalog, ColumnSchema, QueryResult,
 from bigbrotr.services.common.configs import ReadModelPolicy
 from bigbrotr.services.common.read_models import (
     READ_MODEL_REGISTRY,
+    READABLE_RESOURCE_REGISTRY,
+    ReadableResourceEntry,
     ReadModelEntry,
     ReadModelQuery,
     ReadModelQueryError,
     ReadModelSurface,
     build_read_model_meta,
     normalize_read_model_policies,
+    normalize_readable_resource_policies,
     parse_read_model_filter_string,
     read_model_query_from_http_params,
     read_model_query_from_job_params,
     read_models_for_surface,
+    readable_resources_for_surface,
     resolve_surface_read_model,
     resolve_surface_read_model_names,
     resolve_surface_read_models,
+    resolve_surface_readable_resource,
+    resolve_surface_readable_resource_names,
+    resolve_surface_readable_resources,
 )
 
 
@@ -30,6 +37,13 @@ def _configured_read_models(path: Path) -> set[str]:
 
 
 class TestReadModelRegistry:
+    def test_registry_aliases_point_to_same_object(self) -> None:
+        assert READABLE_RESOURCE_REGISTRY is READ_MODEL_REGISTRY
+
+    def test_registry_entries_are_readable_resource_entry(self) -> None:
+        for entry in READABLE_RESOURCE_REGISTRY.values():
+            assert isinstance(entry, ReadableResourceEntry)
+
     def test_registry_entries_are_read_model_entry(self) -> None:
         for entry in READ_MODEL_REGISTRY.values():
             assert isinstance(entry, ReadModelEntry)
@@ -37,6 +51,8 @@ class TestReadModelRegistry:
     def test_all_entries_are_catalog_compatibility_read_models(self) -> None:
         for read_model_id, entry in READ_MODEL_REGISTRY.items():
             assert entry.read_model_id == read_model_id
+            assert entry.resource_id == read_model_id
+            assert entry.relation_name == entry.catalog_name
             assert entry.surfaces
 
     def test_registry_covers_all_configured_api_read_models(self) -> None:
@@ -68,6 +84,7 @@ class TestReadModelRegistry:
         expected = set().union(*(_configured_read_models(path) for path in api_configs))
 
         assert set(read_models_for_surface("api")) == expected
+        assert set(readable_resources_for_surface("api")) == expected
 
     def test_dvm_surface_matches_configured_dvm_read_models(self) -> None:
         dvm_configs = (
@@ -78,12 +95,25 @@ class TestReadModelRegistry:
         expected = set().union(*(_configured_read_models(path) for path in dvm_configs))
 
         assert set(read_models_for_surface("dvm")) == expected
+        assert set(readable_resources_for_surface("dvm")) == expected
 
     def test_internal_state_tables_are_not_public_read_models(self) -> None:
         assert "service_state" not in READ_MODEL_REGISTRY
 
     def test_resolve_surface_read_models_filters_by_config_and_catalog(self) -> None:
         enabled = resolve_surface_read_models(
+            "api",
+            policies={
+                "relays": ReadModelPolicy(enabled=True),
+                "documents": ReadModelPolicy(enabled=True),
+            },
+            available_catalog_names={"relay", "event"},
+        )
+
+        assert set(enabled) == {"relays"}
+
+    def test_resolve_surface_readable_resources_filters_by_config_and_catalog(self) -> None:
+        enabled = resolve_surface_readable_resources(
             "api",
             policies={
                 "relays": ReadModelPolicy(enabled=True),
@@ -119,8 +149,30 @@ class TestReadModelRegistry:
 
         assert resolved == ["events", "relays"]
 
+    def test_resolve_surface_readable_resource_names_returns_stable_sorted_ids(self) -> None:
+        resolved = resolve_surface_readable_resource_names(
+            "dvm",
+            policies={
+                "events": ReadModelPolicy(enabled=True),
+                "relays": ReadModelPolicy(enabled=True),
+            },
+            available_catalog_names={"relay", "event"},
+        )
+
+        assert resolved == ["events", "relays"]
+
     def test_resolve_surface_read_model_filters_out_missing_catalog_entries(self) -> None:
         resolved = resolve_surface_read_model(
+            "dvm",
+            name="relays",
+            policies={"relays": ReadModelPolicy(enabled=True)},
+            available_catalog_names={"event"},
+        )
+
+        assert resolved is None
+
+    def test_resolve_surface_readable_resource_filters_out_missing_catalog_entries(self) -> None:
+        resolved = resolve_surface_readable_resource(
             "dvm",
             name="relays",
             policies={"relays": ReadModelPolicy(enabled=True)},
@@ -244,6 +296,42 @@ class TestReadModelRegistry:
             "supports_identity_lookup": True,
             "default_pagination_mode": "cursor",
             "supports_cursor_pagination": True,
+        }
+
+    def test_entry_contract_exposes_readable_resource_descriptor(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {
+            "relay": TableSchema(
+                name="relay",
+                columns=(
+                    ColumnSchema(name="url", pg_type="text", nullable=False),
+                    ColumnSchema(name="network", pg_type="text", nullable=False),
+                ),
+                primary_key=("url",),
+                is_view=False,
+            )
+        }
+
+        contract = READABLE_RESOURCE_REGISTRY["relays"].contract(catalog)
+
+        assert contract == {
+            "id": "relays",
+            "name": "Relays",
+            "backing_kind": "relation",
+            "relation_name": "relay",
+            "identity_fields": ["url"],
+            "default_traversal_order": ["url:asc"],
+            "cursor_key_fields": ["url"],
+            "allowed_filters": ["url", "network"],
+            "allowed_sorts": ["url", "network"],
+            "pagination": {
+                "default_mode": "cursor",
+                "supports_cursor": True,
+                "supports_offset": True,
+                "supports_total_opt_in": True,
+                "cursor_param": "cursor",
+                "meta_cursor_field": "next_cursor",
+            },
         }
 
     def test_entry_detail_uses_registered_backend_schema(self) -> None:
@@ -663,6 +751,19 @@ class TestReadModelQueryHelpers:
             match=r"read_models contains non-public API read models: relay, relay_stats",
         ):
             normalize_read_model_policies(
+                {
+                    "relay": ReadModelPolicy(enabled=True),
+                    "relay_stats": ReadModelPolicy(enabled=True),
+                },
+                surface="api",
+            )
+
+    def test_normalize_readable_resource_policies_rejects_non_canonical_names(self) -> None:
+        with pytest.raises(
+            ValueError,
+            match=r"read_models contains non-public API read models: relay, relay_stats",
+        ):
+            normalize_readable_resource_policies(
                 {
                     "relay": ReadModelPolicy(enabled=True),
                     "relay_stats": ReadModelPolicy(enabled=True),

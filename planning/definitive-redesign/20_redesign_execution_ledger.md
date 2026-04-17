@@ -67,7 +67,7 @@ Execution baseline:
 | 4. Shared derivation and maintenance pipeline alignment | done | `Refresher` ownership, source-watermark checkpointing, bounded incremental windows, and backlog reporting are all closed |
 | 5. Service-boundary alignment | done | `Monitor`, offline `Refresher` ownership, `Assertor` package-complete publication, and `Ranker` boundary hardening are all closed |
 | 6. Score/output and NIP capability alignment | done | The static capability registry, NIP-85 builder/publication alignment, and score-vocabulary sweep are all closed |
-| 7. Protocol-agnostic read-core implementation | not started | |
+| 7. Protocol-agnostic read-core implementation | in progress | The readable-resource contract layer is now in place above the historical read-model seam; shared read-core execution and adapter migrations remain pending |
 | 8. Deployment-contract normalization | not started | |
 | 9. Repository-wide documentation rewrite | not started | |
 | 10. Final cleanup, rename sweep, and closeout audit | not started | |
@@ -142,7 +142,7 @@ Execution baseline:
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 7.1 Readable-resource contract introduction | not started | | |
+| 7.1 Readable-resource contract introduction | done | `refactor: introduce readable resource contract` | Evolved the shared registry from an implicit read-model alias map into an explicit readable-resource descriptor layer by introducing `READABLE_RESOURCE_REGISTRY`, `ReadableResourceEntry`, resource-level contract descriptors (`id`, semantic name, backing kind, relation name, identity fields, traversal/cursor fields, filter/sort capabilities, pagination), and readable-resource resolution helpers while preserving the historical `read model` names as compatibility aliases for API/DVM/config seams. The slice also exposed the new registry from `services.common.read_models`, aligned shared module docstrings to the new center of gravity, and added targeted coverage proving registry alias stability, resource-contract descriptors, and adapter compatibility. Targeted read-core/API/DVM unit suites (`209 passed`), targeted lint/mypy, full `make ci`, and `uv lock --check` passed before closure |
 | 7.2 Shared read-core evolution from current read-model stack | not started | | |
 | 7.3 `API` adapter alignment | not started | | |
 | 7.4 `DVM` adapter alignment | not started | | |
@@ -216,6 +216,17 @@ Each entry should include:
   vocabulary across model, `Brotr`, SQL, shared queries, tooling, touched docs,
   and the audited test surface
 - Classification: closed follow-up
+
+- Originating work package: `7.1 Readable-resource contract introduction`
+- Deferred item: resources without identity fields still expose an empty
+  `default_traversal_order` / `cursor_key_fields` contract until the shared
+  read-core starts enforcing explicit bounded traversal policy
+- Why deferred: this slice introduced the registry contract honestly without
+  changing public adapter behavior or inventing fake stable ordering for
+  relation-backed resources that still depend on the current `Catalog`
+  execution defaults
+- Future tranche: `7.5 Read-core boundedness and contract audit`
+- Classification: improvement / watch point, not blocker
 
 ---
 

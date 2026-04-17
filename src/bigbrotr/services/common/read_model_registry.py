@@ -1,4 +1,4 @@
-"""Built-in registry and resolution helpers for public read models."""
+"""Readable-resource registry with read-model compatibility helpers."""
 
 from __future__ import annotations
 
@@ -18,32 +18,36 @@ if TYPE_CHECKING:
 
 ReadSurface = Literal["api", "dvm"]
 _READ_SURFACES: tuple[ReadSurface, ...] = ("api", "dvm")
-ReadModelSchemaHandler = Callable[["Catalog", "ReadModelEntry"], "TableSchema"]
-ReadModelQueryHandler = Callable[
-    ["Brotr", "Catalog", "ReadModelEntry", ReadModelQuery],
+ReadableResourceKind = Literal["relation", "handler"]
+ReadableResourceSchemaHandler = Callable[["Catalog", "ReadableResourceEntry"], "TableSchema"]
+ReadableResourceQueryHandler = Callable[
+    ["Brotr", "Catalog", "ReadableResourceEntry", ReadModelQuery],
     Awaitable["QueryResult"],
 ]
-ReadModelGetByPkHandler = Callable[
-    ["Brotr", "Catalog", "ReadModelEntry", dict[str, str]],
+ReadableResourceGetByPkHandler = Callable[
+    ["Brotr", "Catalog", "ReadableResourceEntry", dict[str, str]],
     Awaitable[dict[str, Any] | None],
 ]
+ReadModelSchemaHandler = ReadableResourceSchemaHandler
+ReadModelQueryHandler = ReadableResourceQueryHandler
+ReadModelGetByPkHandler = ReadableResourceGetByPkHandler
 
 
-def _catalog_schema_handler(catalog: Catalog, read_model: ReadModelEntry) -> TableSchema:
-    """Resolve one read-model schema through the shared catalog."""
-    return catalog.tables[read_model.catalog_name]
+def _catalog_schema_handler(catalog: Catalog, resource: ReadableResourceEntry) -> TableSchema:
+    """Resolve one resource schema through the shared catalog."""
+    return catalog.tables[resource.catalog_name]
 
 
 async def _catalog_query_handler(
     brotr: Brotr,
     catalog: Catalog,
-    read_model: ReadModelEntry,
+    resource: ReadableResourceEntry,
     request: ReadModelQuery,
 ) -> QueryResult:
-    """Execute one read-model list query through the shared catalog."""
+    """Execute one relation-backed resource query through the shared catalog."""
     return await catalog.query(
         brotr,
-        read_model.catalog_name,
+        resource.catalog_name,
         limit=request.limit,
         offset=request.offset,
         max_page_size=request.max_page_size,
@@ -58,34 +62,61 @@ async def _catalog_query_handler(
 async def _catalog_get_by_pk_handler(
     brotr: Brotr,
     catalog: Catalog,
-    read_model: ReadModelEntry,
+    resource: ReadableResourceEntry,
     pk_values: dict[str, str],
 ) -> dict[str, Any] | None:
     """Execute one primary-key lookup through the shared catalog."""
     return await catalog.get_by_pk(
         brotr,
-        read_model.catalog_name,
+        resource.catalog_name,
         pk_values,
     )
 
 
+def _default_semantic_name(resource_id: str) -> str:
+    """Build a human-readable semantic name from a stable resource ID."""
+    return resource_id.replace("-", " ").title()
+
+
 @dataclass(frozen=True, slots=True)
-class ReadModelEntry:
-    """One built-in read model exposed by one or more public surfaces."""
+class ReadableResourceEntry:
+    """One readable resource exposed by one or more public surfaces.
+
+    The current runtime still uses the historical `read model` vocabulary in
+    adapter config and transport contracts. This descriptor is the canonical
+    internal contract; compatibility accessors preserve the old names until the
+    later read-core migration slices.
+    """
 
     read_model_id: str
     catalog_name: str
+    semantic_name: str = ""
     surfaces: tuple[ReadSurface, ...] = ("api", "dvm")
-    schema_handler: ReadModelSchemaHandler = _catalog_schema_handler
-    query_handler: ReadModelQueryHandler = _catalog_query_handler
-    get_by_pk_handler: ReadModelGetByPkHandler = _catalog_get_by_pk_handler
+    backing_kind: ReadableResourceKind = "relation"
+    default_traversal_order: tuple[str, ...] = ()
+    cursor_key_fields: tuple[str, ...] = ()
+    allowed_filters: tuple[str, ...] = ()
+    allowed_sorts: tuple[str, ...] = ()
+    schema_handler: ReadableResourceSchemaHandler = _catalog_schema_handler
+    query_handler: ReadableResourceQueryHandler = _catalog_query_handler
+    get_by_pk_handler: ReadableResourceGetByPkHandler = _catalog_get_by_pk_handler
+
+    @property
+    def resource_id(self) -> str:
+        """Return the stable readable-resource ID."""
+        return self.read_model_id
+
+    @property
+    def relation_name(self) -> str:
+        """Return the backing relation name for relation-backed resources."""
+        return self.catalog_name
 
     def schema(self, catalog: Catalog) -> TableSchema:
-        """Resolve the discovered schema backing this read model."""
+        """Resolve the discovered schema backing this readable resource."""
         return self.schema_handler(catalog, self)
 
     def pagination(self, catalog: Catalog) -> dict[str, Any]:
-        """Build the discovery-time pagination contract for this read model."""
+        """Build the discovery-time pagination contract for this resource."""
         supports_identity_lookup = bool(self.schema(catalog).primary_key)
         return {
             "default_mode": "cursor" if supports_identity_lookup else "offset",
@@ -96,13 +127,32 @@ class ReadModelEntry:
             "meta_cursor_field": "next_cursor" if supports_identity_lookup else None,
         }
 
+    def contract(self, catalog: Catalog) -> dict[str, Any]:
+        """Return the internal readable-resource contract descriptor."""
+        schema = self.schema(catalog)
+        identity_fields = list(schema.primary_key)
+        return {
+            "id": self.resource_id,
+            "name": self.semantic_name or _default_semantic_name(self.resource_id),
+            "backing_kind": self.backing_kind,
+            "relation_name": self.relation_name if self.backing_kind == "relation" else None,
+            "identity_fields": identity_fields,
+            "default_traversal_order": list(self.default_traversal_order)
+            or [f"{field}:asc" for field in identity_fields],
+            "cursor_key_fields": list(self.cursor_key_fields) or identity_fields,
+            "allowed_filters": list(self.allowed_filters)
+            or [column.name for column in schema.columns],
+            "allowed_sorts": list(self.allowed_sorts) or [column.name for column in schema.columns],
+            "pagination": self.pagination(catalog),
+        }
+
     def summary(self, *, catalog: Catalog, route_prefix: str) -> dict[str, Any]:
-        """Build the public summary payload for this read model."""
+        """Build the public summary payload for this resource."""
         schema = self.schema(catalog)
         pagination = self.pagination(catalog)
         return {
-            "id": self.read_model_id,
-            "path": f"{route_prefix}/{self.read_model_id}",
+            "id": self.resource_id,
+            "path": f"{route_prefix}/{self.resource_id}",
             "field_count": len(schema.columns),
             "supports_identity_lookup": bool(schema.primary_key),
             "default_pagination_mode": pagination["default_mode"],
@@ -110,11 +160,11 @@ class ReadModelEntry:
         }
 
     def detail(self, *, catalog: Catalog, route_prefix: str) -> dict[str, Any]:
-        """Build the public detail payload for this read model."""
+        """Build the public detail payload for this resource."""
         schema = self.schema(catalog)
         return {
-            "id": self.read_model_id,
-            "path": f"{route_prefix}/{self.read_model_id}",
+            "id": self.resource_id,
+            "path": f"{route_prefix}/{self.resource_id}",
             "fields": [
                 {
                     "name": column.name,
@@ -146,76 +196,141 @@ class ReadModelEntry:
         return await self.get_by_pk_handler(brotr, catalog, self, pk_values)
 
 
-def _catalog_read_model(
-    read_model_id: str,
-    catalog_name: str,
+ReadModelEntry = ReadableResourceEntry
+
+
+def _catalog_readable_resource(
+    resource_id: str,
+    relation_name: str,
+    *,
+    semantic_name: str | None = None,
     surfaces: tuple[ReadSurface, ...] = ("api", "dvm"),
-) -> ReadModelEntry:
-    """Build one catalog-backed read model entry."""
-    return ReadModelEntry(
-        read_model_id=read_model_id,
-        catalog_name=catalog_name,
+) -> ReadableResourceEntry:
+    """Build one relation-backed readable-resource entry."""
+    return ReadableResourceEntry(
+        read_model_id=resource_id,
+        catalog_name=relation_name,
+        semantic_name=semantic_name or _default_semantic_name(resource_id),
         surfaces=surfaces,
     )
 
 
-READ_MODEL_REGISTRY: dict[str, ReadModelEntry] = {
-    "relays": _catalog_read_model("relays", "relay"),
-    "events": _catalog_read_model("events", "event"),
-    "event-observations": _catalog_read_model("event-observations", "event_observation"),
-    "documents": _catalog_read_model("documents", "document"),
-    "relay-document-history": _catalog_read_model("relay-document-history", "relay_document"),
-    "relay-document-current": _catalog_read_model(
+READABLE_RESOURCE_REGISTRY: dict[str, ReadableResourceEntry] = {
+    "relays": _catalog_readable_resource("relays", "relay", semantic_name="Relays"),
+    "events": _catalog_readable_resource("events", "event", semantic_name="Events"),
+    "event-observations": _catalog_readable_resource(
+        "event-observations",
+        "event_observation",
+        semantic_name="Event observations",
+    ),
+    "documents": _catalog_readable_resource("documents", "document", semantic_name="Documents"),
+    "relay-document-history": _catalog_readable_resource(
+        "relay-document-history",
+        "relay_document",
+        semantic_name="Relay document history",
+    ),
+    "relay-document-current": _catalog_readable_resource(
         "relay-document-current",
         "relay_document_current",
+        semantic_name="Relay document current",
     ),
-    "pubkey-stats": _catalog_read_model("pubkey-stats", "pubkey_stats"),
-    "kind-stats": _catalog_read_model("kind-stats", "kind_stats"),
-    "relay-stats": _catalog_read_model("relay-stats", "relay_stats"),
-    "pubkey-relay-stats": _catalog_read_model("pubkey-relay-stats", "pubkey_relay_stats"),
-    "pubkey-kind-stats": _catalog_read_model("pubkey-kind-stats", "pubkey_kind_stats"),
-    "relay-kind-stats": _catalog_read_model("relay-kind-stats", "relay_kind_stats"),
-    "relay-software-counts": _catalog_read_model("relay-software-counts", "relay_software_counts"),
-    "supported-nip-counts": _catalog_read_model("supported-nip-counts", "supported_nip_counts"),
-    "daily-counts": _catalog_read_model("daily-counts", "daily_counts"),
-    "replaceable-events-current": _catalog_read_model(
+    "pubkey-stats": _catalog_readable_resource(
+        "pubkey-stats",
+        "pubkey_stats",
+        semantic_name="Pubkey stats",
+    ),
+    "kind-stats": _catalog_readable_resource(
+        "kind-stats",
+        "kind_stats",
+        semantic_name="Kind stats",
+    ),
+    "relay-stats": _catalog_readable_resource(
+        "relay-stats",
+        "relay_stats",
+        semantic_name="Relay stats",
+    ),
+    "pubkey-relay-stats": _catalog_readable_resource(
+        "pubkey-relay-stats",
+        "pubkey_relay_stats",
+        semantic_name="Pubkey relay stats",
+    ),
+    "pubkey-kind-stats": _catalog_readable_resource(
+        "pubkey-kind-stats",
+        "pubkey_kind_stats",
+        semantic_name="Pubkey kind stats",
+    ),
+    "relay-kind-stats": _catalog_readable_resource(
+        "relay-kind-stats",
+        "relay_kind_stats",
+        semantic_name="Relay kind stats",
+    ),
+    "relay-software-counts": _catalog_readable_resource(
+        "relay-software-counts",
+        "relay_software_counts",
+        semantic_name="Relay software counts",
+    ),
+    "supported-nip-counts": _catalog_readable_resource(
+        "supported-nip-counts",
+        "supported_nip_counts",
+        semantic_name="Supported NIP counts",
+    ),
+    "daily-counts": _catalog_readable_resource(
+        "daily-counts",
+        "daily_counts",
+        semantic_name="Daily counts",
+    ),
+    "replaceable-events-current": _catalog_readable_resource(
         "replaceable-events-current",
         "replaceable_event_current",
+        semantic_name="Replaceable events current",
     ),
-    "addressable-events-current": _catalog_read_model(
+    "addressable-events-current": _catalog_readable_resource(
         "addressable-events-current",
         "addressable_event_current",
+        semantic_name="Addressable events current",
     ),
-    "nip85-pubkey-stats": _catalog_read_model("nip85-pubkey-stats", "nip85_pubkey_stats"),
-    "nip85-event-stats": _catalog_read_model("nip85-event-stats", "nip85_event_stats"),
-    "nip85-addressable-stats": _catalog_read_model(
+    "nip85-pubkey-stats": _catalog_readable_resource(
+        "nip85-pubkey-stats",
+        "nip85_pubkey_stats",
+        semantic_name="NIP-85 pubkey stats",
+    ),
+    "nip85-event-stats": _catalog_readable_resource(
+        "nip85-event-stats",
+        "nip85_event_stats",
+        semantic_name="NIP-85 event stats",
+    ),
+    "nip85-addressable-stats": _catalog_readable_resource(
         "nip85-addressable-stats",
         "nip85_addressable_stats",
+        semantic_name="NIP-85 addressable stats",
     ),
-    "nip85-identifier-stats": _catalog_read_model(
+    "nip85-identifier-stats": _catalog_readable_resource(
         "nip85-identifier-stats",
         "nip85_identifier_stats",
+        semantic_name="NIP-85 identifier stats",
     ),
 }
+READ_MODEL_REGISTRY = READABLE_RESOURCE_REGISTRY
 
-READ_MODELS_BY_SURFACE: dict[ReadSurface, dict[str, ReadModelEntry]] = {
+READABLE_RESOURCES_BY_SURFACE: dict[ReadSurface, dict[str, ReadableResourceEntry]] = {
     surface: {
-        read_model_id: entry
-        for read_model_id, entry in READ_MODEL_REGISTRY.items()
+        resource_id: entry
+        for resource_id, entry in READABLE_RESOURCE_REGISTRY.items()
         if surface in entry.surfaces
     }
     for surface in _READ_SURFACES
 }
+READ_MODELS_BY_SURFACE = READABLE_RESOURCES_BY_SURFACE
 
 
-def normalize_read_model_policies(
+def normalize_readable_resource_policies(
     policies: Mapping[str, ReadModelPolicy],
     *,
     surface: ReadSurface,
 ) -> dict[str, ReadModelPolicy]:
-    """Validate config policies against the canonical public read-model IDs."""
+    """Validate config policies against canonical public readable-resource IDs."""
     normalized = dict(policies)
-    allowed = set(read_models_for_surface(surface))
+    allowed = set(readable_resources_for_surface(surface))
 
     invalid = sorted(set(normalized) - allowed)
     if invalid:
@@ -229,9 +344,38 @@ def normalize_read_model_policies(
     return normalized
 
 
+def normalize_read_model_policies(
+    policies: Mapping[str, ReadModelPolicy],
+    *,
+    surface: ReadSurface,
+) -> dict[str, ReadModelPolicy]:
+    """Compatibility wrapper over readable-resource policy validation."""
+    return normalize_readable_resource_policies(policies, surface=surface)
+
+
+def readable_resources_for_surface(surface: ReadSurface) -> dict[str, ReadableResourceEntry]:
+    """Return the readable resources exposed by one public surface."""
+    return dict(READABLE_RESOURCES_BY_SURFACE[surface])
+
+
 def read_models_for_surface(surface: ReadSurface) -> dict[str, ReadModelEntry]:
-    """Return the built-in read models exposed by one public surface."""
-    return dict(READ_MODELS_BY_SURFACE[surface])
+    """Compatibility wrapper returning the readable resources for one surface."""
+    return readable_resources_for_surface(surface)
+
+
+def resolve_surface_readable_resources(
+    surface: ReadSurface,
+    *,
+    policies: Mapping[str, ReadModelPolicy],
+    available_catalog_names: set[str],
+) -> dict[str, ReadableResourceEntry]:
+    """Resolve one public surface to enabled, discoverable readable resources."""
+    enabled_names = {name for name, policy in policies.items() if policy.enabled}
+    return {
+        resource_id: entry
+        for resource_id, entry in sorted(readable_resources_for_surface(surface).items())
+        if entry.catalog_name in available_catalog_names and resource_id in enabled_names
+    }
 
 
 def resolve_surface_read_models(
@@ -240,13 +384,27 @@ def resolve_surface_read_models(
     policies: Mapping[str, ReadModelPolicy],
     available_catalog_names: set[str],
 ) -> dict[str, ReadModelEntry]:
-    """Resolve one public surface to enabled, discoverable read-model entries."""
-    enabled_names = {name for name, policy in policies.items() if policy.enabled}
-    return {
-        read_model_id: entry
-        for read_model_id, entry in sorted(read_models_for_surface(surface).items())
-        if entry.catalog_name in available_catalog_names and read_model_id in enabled_names
-    }
+    """Compatibility wrapper resolving enabled readable resources."""
+    return resolve_surface_readable_resources(
+        surface,
+        policies=policies,
+        available_catalog_names=available_catalog_names,
+    )
+
+
+def resolve_surface_readable_resource(
+    surface: ReadSurface,
+    *,
+    name: str,
+    policies: Mapping[str, ReadModelPolicy],
+    available_catalog_names: set[str],
+) -> ReadableResourceEntry | None:
+    """Resolve one public readable-resource name to an enabled entry."""
+    return resolve_surface_readable_resources(
+        surface,
+        policies=policies,
+        available_catalog_names=available_catalog_names,
+    ).get(name)
 
 
 def resolve_surface_read_model(
@@ -256,12 +414,29 @@ def resolve_surface_read_model(
     policies: Mapping[str, ReadModelPolicy],
     available_catalog_names: set[str],
 ) -> ReadModelEntry | None:
-    """Resolve one public read-model name to an enabled, discoverable entry."""
-    return resolve_surface_read_models(
+    """Compatibility wrapper for resolving one enabled readable resource."""
+    return resolve_surface_readable_resource(
         surface,
+        name=name,
         policies=policies,
         available_catalog_names=available_catalog_names,
-    ).get(name)
+    )
+
+
+def resolve_surface_readable_resource_names(
+    surface: ReadSurface,
+    *,
+    policies: Mapping[str, ReadModelPolicy],
+    available_catalog_names: set[str],
+) -> list[str]:
+    """Resolve one public surface to the ordered list of enabled readable-resource IDs."""
+    return list(
+        resolve_surface_readable_resources(
+            surface,
+            policies=policies,
+            available_catalog_names=available_catalog_names,
+        )
+    )
 
 
 def resolve_surface_read_model_names(
@@ -270,11 +445,9 @@ def resolve_surface_read_model_names(
     policies: Mapping[str, ReadModelPolicy],
     available_catalog_names: set[str],
 ) -> list[str]:
-    """Resolve one public surface to the ordered list of enabled read-model IDs."""
-    return list(
-        resolve_surface_read_models(
-            surface,
-            policies=policies,
-            available_catalog_names=available_catalog_names,
-        )
+    """Compatibility wrapper for enabled readable-resource IDs."""
+    return resolve_surface_readable_resource_names(
+        surface,
+        policies=policies,
+        available_catalog_names=available_catalog_names,
     )

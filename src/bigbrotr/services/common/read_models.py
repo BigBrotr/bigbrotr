@@ -1,4 +1,4 @@
-"""Runtime surface wrapper for built-in public read models."""
+"""Runtime surface wrapper for public readable resources and read-model compatibility."""
 
 from __future__ import annotations
 
@@ -16,13 +16,20 @@ if TYPE_CHECKING:
 
 from .read_model_registry import (
     READ_MODEL_REGISTRY,
+    READABLE_RESOURCE_REGISTRY,
+    ReadableResourceEntry,
     ReadModelEntry,
     ReadSurface,
     normalize_read_model_policies,
+    normalize_readable_resource_policies,
     read_models_for_surface,
+    readable_resources_for_surface,
     resolve_surface_read_model,
     resolve_surface_read_model_names,
     resolve_surface_read_models,
+    resolve_surface_readable_resource,
+    resolve_surface_readable_resource_names,
+    resolve_surface_readable_resources,
 )
 from .read_model_requests import (
     ReadModelQuery,
@@ -35,26 +42,37 @@ from .read_model_requests import (
 
 
 __all__ = [
+    "READABLE_RESOURCE_REGISTRY",
     "READ_MODEL_REGISTRY",
     "ReadModelEntry",
     "ReadModelQuery",
     "ReadModelQueryError",
     "ReadModelSurface",
     "ReadSurface",
+    "ReadableResourceEntry",
     "build_read_model_meta",
     "normalize_read_model_policies",
+    "normalize_readable_resource_policies",
     "parse_read_model_filter_string",
     "read_model_query_from_http_params",
     "read_model_query_from_job_params",
     "read_models_for_surface",
+    "readable_resources_for_surface",
     "resolve_surface_read_model",
     "resolve_surface_read_model_names",
     "resolve_surface_read_models",
+    "resolve_surface_readable_resource",
+    "resolve_surface_readable_resource_names",
+    "resolve_surface_readable_resources",
 ]
 
 
 class ReadModelSurface:
-    """Resolve and execute the public read-model surface for one service."""
+    """Resolve and execute the public readable-resource surface for one service.
+
+    The class name stays stable for the current adapter and config migration
+    path, but the registry it wraps is now the readable-resource contract.
+    """
 
     __slots__ = ("_catalog", "_policy_source")
 
@@ -85,7 +103,7 @@ class ReadModelSurface:
             )
 
     def enabled_names(self, surface: ReadSurface) -> list[str]:
-        """Return enabled read-model IDs for one public surface."""
+        """Return enabled readable-resource IDs for one public surface."""
         policies = self._policy_source()
         return resolve_surface_read_model_names(
             surface,
@@ -94,7 +112,7 @@ class ReadModelSurface:
         )
 
     def enabled_entries(self, surface: ReadSurface) -> dict[str, ReadModelEntry]:
-        """Return enabled read-model entries for one public surface."""
+        """Return enabled readable-resource entries for one public surface."""
         policies = self._policy_source()
         return resolve_surface_read_models(
             surface,
@@ -103,7 +121,7 @@ class ReadModelSurface:
         )
 
     def resolve(self, surface: ReadSurface, name: str) -> ReadModelEntry | None:
-        """Resolve one public read-model name to an enabled entry for one surface."""
+        """Resolve one public readable-resource name to an enabled entry."""
         policies = self._policy_source()
         return resolve_surface_read_model(
             surface,
@@ -118,7 +136,7 @@ class ReadModelSurface:
         read_model: ReadModelEntry,
         request: ReadModelQuery,
     ) -> QueryResult:
-        """Execute one resolved read-model query through the shared catalog context."""
+        """Execute one resolved readable-resource query through the shared catalog."""
         return await read_model.query(brotr, self._catalog, request)
 
     async def get_entry_by_pk(
@@ -127,7 +145,7 @@ class ReadModelSurface:
         read_model: ReadModelEntry,
         pk_values: dict[str, str],
     ) -> dict[str, Any] | None:
-        """Fetch one resolved read-model row by primary key."""
+        """Fetch one resolved readable-resource row by primary key."""
         return await read_model.get_by_pk(brotr, self._catalog, pk_values)
 
     def build_summaries(
@@ -136,7 +154,7 @@ class ReadModelSurface:
         *,
         route_prefix: str,
     ) -> list[dict[str, Any]]:
-        """Build discovery summaries for enabled public read models on one surface."""
+        """Build discovery summaries for enabled readable resources."""
         return [
             read_model.summary(catalog=self._catalog, route_prefix=route_prefix)
             for read_model_id, read_model in self.enabled_entries(surface).items()
@@ -149,7 +167,7 @@ class ReadModelSurface:
         *,
         route_prefix: str,
     ) -> dict[str, Any] | None:
-        """Build the discovery detail payload for one enabled public read model."""
+        """Build the discovery detail payload for one enabled readable resource."""
         read_model = self.resolve(surface, name)
         if read_model is None:
             return None
