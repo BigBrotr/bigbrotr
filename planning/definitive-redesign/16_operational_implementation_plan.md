@@ -20,6 +20,7 @@ The goal is to define:
 
 This document should be treated as the working execution companion to:
 
+- [21_canonical_rename_ledger.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/21_canonical_rename_ledger.md)
 - [12_best_db_schema.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/12_best_db_schema.md)
 - [14_core_read_layer_proposal.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/14_core_read_layer_proposal.md)
 - [15_deployment_contract_proposal.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/15_deployment_contract_proposal.md)
@@ -658,7 +659,9 @@ Audit focus:
 Exit condition:
 
 - one canonical rename ledger exists and later tranches can follow it without
-  guessing.
+  guessing;
+- later schema, Python, tests, and documentation work now have one explicit
+  target vocabulary source.
 
 #### Work Package 1.2 — Final contract freeze
 

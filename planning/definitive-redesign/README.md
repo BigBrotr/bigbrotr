@@ -166,6 +166,15 @@ Canonical execution-status ledger for the redesign:
 - commit/audit/follow-up tracking;
 - explicit memory of what is done, what changed, and what still remains.
 
+### `21_canonical_rename_ledger.md`
+
+Canonical target-vocabulary ledger for the redesign:
+
+- old term -> canonical term mapping;
+- schema/read/deployment naming decisions in one place;
+- explicit keep/rename/conceptual-only status;
+- vocabulary contract for later implementation tranches.
+
 ### `99_definitive_master_plan.md`
 
 Final distilled plan resulting from the three iterations and their audits.
@@ -184,6 +193,7 @@ Recommended order:
 8. `19_documentation_rewrite_program.md`
 9. `16_operational_implementation_plan.md`
 10. `20_redesign_execution_ledger.md`
+11. `21_canonical_rename_ledger.md`
 
 The iteration files are intentionally more verbose and analytical. The final
 plan is intentionally more decisive and executable.
@@ -205,6 +215,7 @@ At this point, the highest-value “current truth” files in this directory are
 - `19_documentation_rewrite_program.md`
 - `16_operational_implementation_plan.md`
 - `20_redesign_execution_ledger.md`
+- `21_canonical_rename_ledger.md`
 - `99_definitive_master_plan.md`
 
 ## Canonical Topic Map
@@ -230,5 +241,7 @@ each major topic.
   `19_documentation_rewrite_program.md`
 - current redesign progress, completed work, and remaining work:
   `20_redesign_execution_ledger.md`
+- canonical target vocabulary and rename mapping:
+  `21_canonical_rename_ledger.md`
 - distilled top-level redesign direction:
   `99_definitive_master_plan.md`

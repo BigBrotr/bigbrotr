@@ -43,6 +43,7 @@ This plan therefore aims to:
 
 The detailed execution companion for this master plan is:
 
+- [21_canonical_rename_ledger.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/21_canonical_rename_ledger.md)
 - [17_integral_codebase_validation.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/17_integral_codebase_validation.md)
 - [18_code_excellence_standard.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/18_code_excellence_standard.md)
 - [19_documentation_rewrite_program.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/19_documentation_rewrite_program.md)
@@ -406,6 +407,10 @@ Examples of the desired direction include:
 - `document` over `metadata`;
 - `event_observation` over `event_relay`;
 - `score` over `raw_score` or stored ordinal rank.
+
+The canonical source for rename execution is:
+
+- [21_canonical_rename_ledger.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/21_canonical_rename_ledger.md)
 
 ---
 
