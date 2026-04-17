@@ -803,7 +803,7 @@ This includes:
 - replaceable current;
 - addressable current;
 - relay-document current;
-- explicit decision about view-first contact graph exposure.
+- explicit decision about the contact-graph materialization boundary.
 
 Audit focus:
 

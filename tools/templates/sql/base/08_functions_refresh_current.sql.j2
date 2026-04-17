@@ -4,7 +4,7 @@
  * Incremental refresh functions for current-state tables.
  *
  * These functions maintain non-additive winner-takes-latest facts derived
- * from append-only event and relay metadata streams.
+ * from append-only event and relay-document streams.
  *
  * Dependencies: 03_tables_current.sql
  */
@@ -38,11 +38,8 @@ BEGIN
             rm.relay_url,
             rm.role,
             rm.associated_at,
-            rm.document_id,
-            m.data
+            rm.document_id
         FROM relay_document AS rm
-        INNER JOIN document AS m
-            ON rm.document_id = m.id AND rm.role = m.type
         WHERE rm.associated_at > p_after
           AND rm.associated_at <= p_until
     ),
@@ -51,24 +48,21 @@ BEGIN
             relay_url,
             role,
             associated_at,
-            document_id,
-            data
+            document_id
         FROM new_rows
         ORDER BY relay_url, role, associated_at DESC, document_id DESC
     )
     INSERT INTO relay_document_current
-        (relay_url, role, associated_at, document_id, data)
+        (relay_url, role, associated_at, document_id)
     SELECT
         relay_url,
         role,
         associated_at,
-        document_id,
-        data
+        document_id
     FROM delta
     ON CONFLICT (relay_url, role) DO UPDATE SET
         associated_at = EXCLUDED.associated_at,
-        document_id   = EXCLUDED.document_id,
-        data         = EXCLUDED.data
+        document_id   = EXCLUDED.document_id
     WHERE EXCLUDED.associated_at > relay_document_current.associated_at
        OR (
            EXCLUDED.associated_at = relay_document_current.associated_at
@@ -86,12 +80,12 @@ COMMENT ON FUNCTION relay_document_current_refresh(BIGINT, BIGINT) IS
 
 
 /*
- * events_replaceable_current_refresh(p_after, p_until) -> INTEGER
+ * replaceable_event_current_refresh(p_after, p_until) -> INTEGER
  *
  * Maintains the current replaceable event per (pubkey, kind) for kinds
  * 0, 3, and 10000-19999. The winner is ordered by created_at DESC, id DESC.
  */
-CREATE OR REPLACE FUNCTION events_replaceable_current_refresh(
+CREATE OR REPLACE FUNCTION replaceable_event_current_refresh(
     p_after BIGINT,
     p_until BIGINT
 ) RETURNS INTEGER
@@ -105,11 +99,7 @@ BEGIN
             e.id,
             e.pubkey,
             e.created_at,
-            e.kind,
-            e.tags,
-            e.tagvalues,
-            e.content,
-            e.sig
+            e.kind
         FROM event_observation AS er
         INNER JOIN event AS e ON er.event_id = e.id
         WHERE er.observed_at > p_after
@@ -130,46 +120,40 @@ BEGIN
         SELECT DISTINCT ON (e.pubkey, e.kind)
             e.pubkey,
             e.kind,
-            e.id,
-            e.created_at,
-            seen.first_seen_at,
-            e.tags,
-            e.tagvalues,
-            e.content,
-            e.sig
+            e.id AS event_id,
+            e.created_at
         FROM new_events AS e
-        INNER JOIN LATERAL (
-            SELECT MIN(er.observed_at) AS first_seen_at
-            FROM event_observation AS er
-            WHERE er.event_id = e.id
-        ) AS seen ON TRUE
         ORDER BY e.pubkey, e.kind, e.created_at DESC, e.id DESC
     )
-    INSERT INTO events_replaceable_current
-        (pubkey, kind, id, created_at, first_seen_at, tags, tagvalues, content, sig)
+    INSERT INTO replaceable_event_current (pubkey, kind, event_id)
     SELECT
         pubkey,
         kind,
-        id,
-        created_at,
-        first_seen_at,
-        tags,
-        tagvalues,
-        content,
-        sig
+        event_id
     FROM delta
     ON CONFLICT (pubkey, kind) DO UPDATE SET
-        id            = EXCLUDED.id,
-        created_at    = EXCLUDED.created_at,
-        first_seen_at = EXCLUDED.first_seen_at,
-        tags          = EXCLUDED.tags,
-        tagvalues     = EXCLUDED.tagvalues,
-        content       = EXCLUDED.content,
-        sig           = EXCLUDED.sig
-    WHERE EXCLUDED.created_at > events_replaceable_current.created_at
+        event_id = EXCLUDED.event_id
+    WHERE (
+            SELECT e.created_at
+            FROM event AS e
+            WHERE e.id = EXCLUDED.event_id
+        ) > (
+            SELECT e.created_at
+            FROM event AS e
+            WHERE e.id = replaceable_event_current.event_id
+        )
        OR (
-           EXCLUDED.created_at = events_replaceable_current.created_at
-           AND ENCODE(EXCLUDED.id, 'hex') > ENCODE(events_replaceable_current.id, 'hex')
+           (
+               SELECT e.created_at
+               FROM event AS e
+               WHERE e.id = EXCLUDED.event_id
+           ) = (
+               SELECT e.created_at
+               FROM event AS e
+               WHERE e.id = replaceable_event_current.event_id
+           )
+           AND ENCODE(EXCLUDED.event_id, 'hex')
+               > ENCODE(replaceable_event_current.event_id, 'hex')
        );
 
     GET DIAGNOSTICS v_rows = ROW_COUNT;
@@ -177,17 +161,17 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION events_replaceable_current_refresh(BIGINT, BIGINT) IS
+COMMENT ON FUNCTION replaceable_event_current_refresh(BIGINT, BIGINT) IS
 'Incremental refresh of current replaceable events for truly new kinds 0, 3, and 10000-19999.';
 
 
 /*
- * events_addressable_current_refresh(p_after, p_until) -> INTEGER
+ * addressable_event_current_refresh(p_after, p_until) -> INTEGER
  *
- * Maintains the current addressable event per (pubkey, kind, d_tag) for
+ * Maintains the current addressable event per (pubkey, kind, d_value) for
  * kinds 30000-39999. The winner is ordered by created_at DESC, id DESC.
  */
-CREATE OR REPLACE FUNCTION events_addressable_current_refresh(
+CREATE OR REPLACE FUNCTION addressable_event_current_refresh(
     p_after BIGINT,
     p_until BIGINT
 ) RETURNS INTEGER
@@ -203,9 +187,7 @@ BEGIN
             e.created_at,
             e.kind,
             e.tags,
-            e.tagvalues,
-            e.content,
-            e.sig
+            e.tagvalues
         FROM event_observation AS er
         INNER JOIN event AS e ON er.event_id = e.id
         WHERE er.observed_at > p_after
@@ -225,60 +207,49 @@ BEGIN
             e.pubkey,
             e.created_at,
             e.kind,
-            e.tags,
-            e.tagvalues,
-            e.content,
-            e.sig,
-            seen.first_seen_at,
-            event_d_tag(e.tags, e.tagvalues) AS d_tag
+            event_d_tag(e.tags, e.tagvalues) AS d_value
         FROM new_events AS e
-        INNER JOIN LATERAL (
-            SELECT MIN(er.observed_at) AS first_seen_at
-            FROM event_observation AS er
-            WHERE er.event_id = e.id
-        ) AS seen ON TRUE
     ),
     delta AS (
-        SELECT DISTINCT ON (e.pubkey, e.kind, e.d_tag)
+        SELECT DISTINCT ON (e.pubkey, e.kind, e.d_value)
             e.pubkey,
             e.kind,
-            e.d_tag,
-            e.id,
-            e.created_at,
-            e.first_seen_at,
-            e.tags,
-            e.tagvalues,
-            e.content,
-            e.sig
+            e.d_value,
+            e.id AS event_id,
+            e.created_at
         FROM extracted AS e
-        ORDER BY e.pubkey, e.kind, e.d_tag, e.created_at DESC, e.id DESC
+        ORDER BY e.pubkey, e.kind, e.d_value, e.created_at DESC, e.id DESC
     )
-    INSERT INTO events_addressable_current
-        (pubkey, kind, d_tag, id, created_at, first_seen_at, tags, tagvalues, content, sig)
+    INSERT INTO addressable_event_current (pubkey, kind, d_value, event_id)
     SELECT
         pubkey,
         kind,
-        d_tag,
-        id,
-        created_at,
-        first_seen_at,
-        tags,
-        tagvalues,
-        content,
-        sig
+        d_value,
+        event_id
     FROM delta
-    ON CONFLICT (pubkey, kind, d_tag) DO UPDATE SET
-        id            = EXCLUDED.id,
-        created_at    = EXCLUDED.created_at,
-        first_seen_at = EXCLUDED.first_seen_at,
-        tags          = EXCLUDED.tags,
-        tagvalues     = EXCLUDED.tagvalues,
-        content       = EXCLUDED.content,
-        sig           = EXCLUDED.sig
-    WHERE EXCLUDED.created_at > events_addressable_current.created_at
+    ON CONFLICT (pubkey, kind, d_value) DO UPDATE SET
+        event_id = EXCLUDED.event_id
+    WHERE (
+            SELECT e.created_at
+            FROM event AS e
+            WHERE e.id = EXCLUDED.event_id
+        ) > (
+            SELECT e.created_at
+            FROM event AS e
+            WHERE e.id = addressable_event_current.event_id
+        )
        OR (
-           EXCLUDED.created_at = events_addressable_current.created_at
-           AND ENCODE(EXCLUDED.id, 'hex') > ENCODE(events_addressable_current.id, 'hex')
+           (
+               SELECT e.created_at
+               FROM event AS e
+               WHERE e.id = EXCLUDED.event_id
+           ) = (
+               SELECT e.created_at
+               FROM event AS e
+               WHERE e.id = addressable_event_current.event_id
+           )
+           AND ENCODE(EXCLUDED.event_id, 'hex')
+               > ENCODE(addressable_event_current.event_id, 'hex')
        );
 
     GET DIAGNOSTICS v_rows = ROW_COUNT;
@@ -286,5 +257,5 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION events_addressable_current_refresh(BIGINT, BIGINT) IS
+COMMENT ON FUNCTION addressable_event_current_refresh(BIGINT, BIGINT) IS
 'Incremental refresh of current addressable events for truly new kinds 30000-39999.';

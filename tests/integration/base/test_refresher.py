@@ -75,13 +75,13 @@ class TestRefresherIntegration:
         )
         refresher = Refresher(
             brotr=brotr,
-            config=_config(current=["events_replaceable_current"]),
+            config=_config(current=["replaceable_event_current"]),
         )
 
         result = await refresher.refresh()
 
         row = await brotr.fetchrow(
-            "SELECT pubkey, kind FROM events_replaceable_current WHERE pubkey = $1",
+            "SELECT pubkey, kind FROM replaceable_event_current WHERE pubkey = $1",
             bytes.fromhex("11" * 32),
         )
         assert row is not None
@@ -135,7 +135,7 @@ class TestRefresherIntegration:
         refresher = Refresher(
             brotr=brotr,
             config=_config(
-                current=["events_replaceable_current"],
+                current=["replaceable_event_current"],
                 analytics=["pubkey_kind_stats"],
                 periodic=False,
             ),
@@ -271,7 +271,7 @@ class TestRefresherIntegration:
                 {
                     "metrics": {"enabled": False},
                     "processing": {"max_targets_per_cycle": 1},
-                    "current": {"targets": ["events_replaceable_current"]},
+                    "current": {"targets": ["replaceable_event_current"]},
                     "analytics": {"targets": ["pubkey_kind_stats"]},
                     "periodic": {
                         "rolling_windows": False,

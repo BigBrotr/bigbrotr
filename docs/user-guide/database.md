@@ -25,12 +25,14 @@ Two schema variants exist:
 
 ## Schema Map
 
-The only enforced foreign keys are in the core archive graph. Current-state, analytics, and NIP-85 tables are regular tables maintained by refresh functions and ranker exports.
+The core archive graph and the narrow winner-map current tables carry the only
+enforced foreign keys. Analytics, contact-graph, and NIP-85 tables remain
+refresh-maintained operational relations.
 
 | Layer | Tables | Source |
 |-------|--------|--------|
 | Core archive | `relay`, `event`, `event_observation`, `document`, `relay_document`, `service_state` | Services and cascade insert functions |
-| Current state | `relay_document_current`, `events_replaceable_current`, `events_addressable_current`, `contact_lists_current`, `contact_list_edges_current` | Refresher, `08_functions_refresh_current.sql` |
+| Current state | `relay_document_current`, `replaceable_event_current`, `addressable_event_current`, `contact_lists_current`, `contact_list_edges_current` | Refresher, `08_functions_refresh_current.sql` |
 | Core analytics | `pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats`, `daily_counts`, `relay_software_counts`, `supported_nip_counts` | Refresher, `09_functions_refresh_analytics.sql` |
 | NIP-85 facts | `nip85_pubkey_stats`, `nip85_event_stats`, `nip85_addressable_stats`, `nip85_identifier_stats` | Refresher, `09_functions_refresh_analytics.sql` |
 | NIP-85 ranks | `nip85_pubkey_ranks`, `nip85_event_ranks`, `nip85_addressable_ranks`, `nip85_identifier_ranks` | Ranker snapshot exports |
@@ -99,8 +101,8 @@ flowchart LR
     document["document"]
 
     relay_document_current["relay_document_current"]
-    replaceable["events_replaceable_current"]
-    addressable["events_addressable_current"]
+    replaceable["replaceable_event_current"]
+    addressable["addressable_event_current"]
     contacts["contact_lists_current"]
     edges["contact_list_edges_current"]
 
@@ -532,7 +534,7 @@ All deployments (BigBrotr, LilBrotr) share the same current-state tables. The Re
 
 ### relay_document_current
 
-Latest document snapshot per relay and role.
+Latest relay-document winner per relay and role.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
@@ -540,11 +542,13 @@ Latest document snapshot per relay and role.
 | `role` | TEXT | PRIMARY KEY (partial) | Document role |
 | `associated_at` | BIGINT | NOT NULL | Timestamp of latest association |
 | `document_id` | BYTEA | NOT NULL | Content-addressed hash |
-| `data` | JSONB | NOT NULL | Complete JSON document |
 
 Primary key: `(relay_url, role)`.
 
-### events_replaceable_current
+This table is intentionally narrow. Rich document payload is reconstructed
+through `document` joins.
+
+### replaceable_event_current
 
 Latest replaceable event per author and kind.
 
@@ -552,32 +556,32 @@ Latest replaceable event per author and kind.
 |--------|------|-------------|-------------|
 | `pubkey` | BYTEA | PRIMARY KEY (partial) | Author public key |
 | `kind` | INTEGER | PRIMARY KEY (partial) | Event kind (replaceable range) |
-| `id` | BYTEA | NOT NULL | Current winning event hash |
-| `created_at` | BIGINT | NOT NULL | Event timestamp |
-| `first_seen_at` | BIGINT | NOT NULL | First observation timestamp for the winning event |
-| `tags`, `content`, `sig` | JSONB/TEXT/BYTEA | Nullable | Event payload fields, nullable for LilBrotr compatibility |
-| `tagvalues` | TEXT[] | NOT NULL | Computed single-char tag values |
+| `event_id` | BYTEA | NOT NULL, UNIQUE | Current winning event hash |
 
 Primary key: `(pubkey, kind)`.
 
-### events_addressable_current
+This table is intentionally narrow. Created-at ordering and payload shape are
+recovered through `event` and `event_observation`.
 
-Latest addressable event per author, kind, and d-tag identifier.
+### addressable_event_current
 
-BigBrotr extracts `d_tag` from the first `d` tag in the stored JSON tags. LilBrotr uses the same table definition but falls back to the ordered `tagvalues` entry `d:*` when full tags are not persisted.
+Latest addressable event per author, kind, and `d`-value identifier.
+
+BigBrotr extracts `d_value` from the first `d` tag in the stored JSON tags.
+LilBrotr uses the same table definition but falls back to the ordered
+`tagvalues` entry `d:*` when full tags are not persisted.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `pubkey` | BYTEA | PRIMARY KEY (partial) | Author public key |
 | `kind` | INTEGER | PRIMARY KEY (partial) | Event kind (addressable range) |
-| `d_tag` | TEXT | PRIMARY KEY (partial) | Addressable identifier |
-| `id` | BYTEA | NOT NULL | Current winning event hash |
-| `created_at` | BIGINT | NOT NULL | Event timestamp |
-| `first_seen_at` | BIGINT | NOT NULL | First observation timestamp for the winning event |
-| `tags`, `content`, `sig` | JSONB/TEXT/BYTEA | Nullable | Event payload fields, nullable for LilBrotr compatibility |
-| `tagvalues` | TEXT[] | NOT NULL | Computed single-char tag values |
+| `d_value` | TEXT | PRIMARY KEY (partial) | Addressable identifier |
+| `event_id` | BYTEA | NOT NULL, UNIQUE | Current winning event hash |
 
-Primary key: `(pubkey, kind, d_tag)`.
+Primary key: `(pubkey, kind, d_value)`.
+
+This table is intentionally narrow. Rich event payload and deterministic tie
+break semantics still come from the canonical `event` archive table.
 
 ### contact_lists_current
 
@@ -604,6 +608,12 @@ Current deduplicated follow graph edges.
 | `source_seen_at` | BIGINT | First observation timestamp for the source event |
 
 Primary key: `(follower_pubkey, followed_pubkey)`.
+
+!!! note
+    `contact_lists_current` and `contact_list_edges_current` remain
+    materialized operational facts for now because the Ranker graph sync and
+    `nip85_follower_count_refresh()` still consume them incrementally. They are
+    the explicit exception to the long-term view-first contact-graph target.
 
 ---
 
@@ -731,8 +741,8 @@ Current-state refresh functions accept `(p_after BIGINT, p_until BIGINT)` range 
 | Function | Target Table | Recommended Schedule |
 |----------|-------------|---------------------|
 | `relay_document_current_refresh(after, until)` | relay_document_current | Daily |
-| `events_replaceable_current_refresh(after, until)` | events_replaceable_current | Hourly |
-| `events_addressable_current_refresh(after, until)` | events_addressable_current | Hourly |
+| `replaceable_event_current_refresh(after, until)` | replaceable_event_current | Hourly |
+| `addressable_event_current_refresh(after, until)` | addressable_event_current | Hourly |
 | `contact_lists_current_refresh(after, until)` | contact_lists_current | Hourly |
 | `contact_list_edges_current_refresh(after, until)` | contact_list_edges_current | Hourly |
 
@@ -834,9 +844,11 @@ Current-state and analytics tables use primary keys for deterministic upserts. A
 | Index | Table | Columns | Unique |
 |-------|-------|---------|--------|
 | `idx_relay_document_current_role_associated_at` | relay_document_current | `role, associated_at ASC` | No |
-| `idx_events_replaceable_current_id` | events_replaceable_current | `id` | Yes |
-| `idx_events_addressable_current_id` | events_addressable_current | `id` | Yes |
-| `idx_contact_lists_current_source_seen_at_follower` | contact_lists_current | `source_seen_at DESC, follower_pubkey` | No |
+| `idx_replaceable_event_current_event_id` | replaceable_event_current | `event_id` | Yes |
+| `idx_replaceable_event_current_kind` | replaceable_event_current | `kind` | No |
+| `idx_addressable_event_current_event_id` | addressable_event_current | `event_id` | Yes |
+| `idx_addressable_event_current_kind` | addressable_event_current | `kind` | No |
+| `idx_contact_lists_current_source_seen_at_follower` | contact_lists_current | `source_seen_at ASC, follower_pubkey ASC` | No |
 | `idx_contact_list_edges_current_followed` | contact_list_edges_current | `followed_pubkey` | No |
 | `idx_nip85_event_stats_author` | nip85_event_stats | `author_pubkey` | No |
 | `idx_nip85_addressable_stats_author` | nip85_addressable_stats | `author_pubkey` | No |
@@ -935,7 +947,7 @@ CREATE TABLE event (
 | CRUD (Level 1) | 8 | `relay_insert`, `event_insert`, `document_insert`, `event_observation_insert`, `relay_document_insert`, `service_state_upsert`, `service_state_get`, `service_state_delete` |
 | CRUD (Level 2) | 2 | `event_observation_insert_cascade`, `relay_document_insert_cascade` |
 | Cleanup | 2 | `orphan_document_delete`, `orphan_event_delete` |
-| Current refresh | 5 | `relay_document_current_refresh`, `events_replaceable_current_refresh`, `events_addressable_current_refresh`, `contact_lists_current_refresh`, `contact_list_edges_current_refresh` |
+| Current refresh | 5 | `relay_document_current_refresh`, `replaceable_event_current_refresh`, `addressable_event_current_refresh`, `contact_lists_current_refresh`, `contact_list_edges_current_refresh` |
 | Analytics refresh | 13 | `daily_counts_refresh`, document-backed analytics, entity stats, and NIP-85 stats refresh functions |
 | Periodic refresh | 3 | `rolling_windows_refresh`, `relay_stats_document_refresh`, `nip85_follower_count_refresh` |
 | **Total** | **38** | |

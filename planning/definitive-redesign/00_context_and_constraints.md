@@ -297,8 +297,8 @@ Current understanding:
 
 - `contact_lists_current` and `contact_list_edges_current` look like canonical
   current graph facts derived from NIP-02 semantics.
-- `events_replaceable_current`, `events_addressable_current`, and
-  `relay_metadata_current` look more like winner indexes or convenience
+- `replaceable_event_current`, `addressable_event_current`, and
+  `relay_document_current` look more like winner indexes or convenience
   snapshots and are stronger candidates for slimming or redesign.
 
 ### 2. The Ranker boundary is mostly correct

@@ -255,8 +255,8 @@ def _make_refresher_config() -> RefresherConfig:
             "metrics": {"enabled": False},
             "current": {
                 "targets": [
-                    "events_replaceable_current",
-                    "events_addressable_current",
+                    "replaceable_event_current",
+                    "addressable_event_current",
                     "contact_lists_current",
                     "contact_list_edges_current",
                 ],

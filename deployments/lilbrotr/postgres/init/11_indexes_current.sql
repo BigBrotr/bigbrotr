@@ -14,25 +14,19 @@
 CREATE INDEX IF NOT EXISTS idx_relay_document_current_role_associated_at
 ON relay_document_current USING btree (role, associated_at ASC);
 
--- events_replaceable_current: current-state lookups by kind and sync window
-CREATE UNIQUE INDEX IF NOT EXISTS idx_events_replaceable_current_id
-ON events_replaceable_current USING btree (id);
+-- replaceable_event_current: current-state lookups by event_id and kind
+CREATE UNIQUE INDEX IF NOT EXISTS idx_replaceable_event_current_event_id
+ON replaceable_event_current USING btree (event_id);
 
-CREATE INDEX IF NOT EXISTS idx_events_replaceable_current_kind
-ON events_replaceable_current USING btree (kind);
+CREATE INDEX IF NOT EXISTS idx_replaceable_event_current_kind
+ON replaceable_event_current USING btree (kind);
 
-CREATE INDEX IF NOT EXISTS idx_events_replaceable_current_kind_first_seen_at
-ON events_replaceable_current USING btree (kind, first_seen_at ASC);
+-- addressable_event_current: current-state lookups by event_id and kind
+CREATE UNIQUE INDEX IF NOT EXISTS idx_addressable_event_current_event_id
+ON addressable_event_current USING btree (event_id);
 
--- events_addressable_current: current-state lookups by kind and sync window
-CREATE UNIQUE INDEX IF NOT EXISTS idx_events_addressable_current_id
-ON events_addressable_current USING btree (id);
-
-CREATE INDEX IF NOT EXISTS idx_events_addressable_current_kind
-ON events_addressable_current USING btree (kind);
-
-CREATE INDEX IF NOT EXISTS idx_events_addressable_current_kind_first_seen_at
-ON events_addressable_current USING btree (kind, first_seen_at ASC);
+CREATE INDEX IF NOT EXISTS idx_addressable_event_current_kind
+ON addressable_event_current USING btree (kind);
 
 -- contact_lists_current: change feed for ranker sync and analytics rebuild tools
 CREATE INDEX IF NOT EXISTS idx_contact_lists_current_source_seen_at_follower

@@ -115,7 +115,7 @@ class TestRefreshTargetConfig:
                 "current": {
                     "targets": [
                         "contact_list_edges_current",
-                        "events_replaceable_current",
+                        "replaceable_event_current",
                         "contact_lists_current",
                     ],
                 },
@@ -133,7 +133,7 @@ class TestRefreshTargetConfig:
         )
 
         assert config.current.targets == [
-            CurrentRefreshTarget.EVENTS_REPLACEABLE_CURRENT,
+            CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT,
             CurrentRefreshTarget.CONTACT_LISTS_CURRENT,
             CurrentRefreshTarget.CONTACT_LIST_EDGES_CURRENT,
         ]
@@ -157,8 +157,8 @@ class TestRefreshTargetConfig:
         with pytest.raises(ValidationError, match="duplicate refresher targets"):
             CurrentRefreshConfig(
                 targets=[
-                    CurrentRefreshTarget.EVENTS_REPLACEABLE_CURRENT,
-                    CurrentRefreshTarget.EVENTS_REPLACEABLE_CURRENT,
+                    CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT,
+                    CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT,
                 ],
             )
 
@@ -166,7 +166,7 @@ class TestRefreshTargetConfig:
         validate_refresh_dependencies(
             current_targets=[
                 CurrentRefreshTarget.RELAY_DOCUMENT_CURRENT,
-                CurrentRefreshTarget.EVENTS_REPLACEABLE_CURRENT,
+                CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT,
                 CurrentRefreshTarget.CONTACT_LISTS_CURRENT,
             ],
             analytics_targets=[AnalyticsRefreshTarget.RELAY_SOFTWARE_COUNTS],
@@ -211,7 +211,7 @@ class TestRefreshQueryRegistry:
     def test_event_targets_use_event_observation_watermark(self) -> None:
         assert (
             get_incremental_target_spec(
-                CurrentRefreshTarget.EVENTS_REPLACEABLE_CURRENT
+                CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT
             ).watermark_source
             is WatermarkSource.EVENT_OBSERVATION
         )
@@ -274,7 +274,7 @@ class TestRefresherCleanup:
     async def test_cleanup_no_stale(self, mock_refresher_brotr: Brotr) -> None:
         refresher = Refresher(
             brotr=mock_refresher_brotr,
-            config=_refresher_config(current=["events_replaceable_current"]),
+            config=_refresher_config(current=["replaceable_event_current"]),
         )
 
         result = await refresher.cleanup()
@@ -287,7 +287,7 @@ class TestRefresherCleanup:
             config=RefresherConfig.model_validate(
                 {
                     "metrics": {"enabled": False},
-                    "current": {"targets": ["events_replaceable_current"]},
+                    "current": {"targets": ["replaceable_event_current"]},
                     "analytics": {"targets": []},
                     "periodic": _periodic_config(False),
                     "cleanup": {"enabled": False},
@@ -351,7 +351,7 @@ class TestRefresherRun:
         refresher = Refresher(
             brotr=mock_refresher_brotr,
             config=_refresher_config(
-                current=["events_replaceable_current"],
+                current=["replaceable_event_current"],
                 analytics=["pubkey_kind_stats"],
                 periodic=True,
             ),
@@ -361,7 +361,7 @@ class TestRefresherRun:
 
         assert plan.cycle_start == 123.0
         assert [target.value for target in plan.incremental_targets] == [
-            "events_replaceable_current",
+            "replaceable_event_current",
             "pubkey_kind_stats",
         ]
         assert [target.value for target in plan.periodic_targets] == [
@@ -412,13 +412,13 @@ class TestRefresherRun:
     ) -> None:
         refresher = Refresher(
             brotr=mock_refresher_brotr,
-            config=_refresher_config(current=["events_replaceable_current"]),
+            config=_refresher_config(current=["replaceable_event_current"]),
         )
         plan = refresher._build_refresh_cycle_plan(cycle_start=123.0)
         target_results: list[RefreshTargetResult] = []
         source_checkpoints: dict[WatermarkSource, int] = {}
         result = RefreshTargetResult(
-            name="events_replaceable_current",
+            name="replaceable_event_current",
             target_group="current",
             rows=4,
         )
@@ -441,7 +441,7 @@ class TestRefresherRun:
             )
 
         assert cutoff_reason is None
-        mock_run.assert_awaited_once_with(CurrentRefreshTarget.EVENTS_REPLACEABLE_CURRENT)
+        mock_run.assert_awaited_once_with(CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT)
         assert target_results == [result]
         assert source_checkpoints == {WatermarkSource.EVENT_OBSERVATION: 11}
 
@@ -499,7 +499,7 @@ class TestRefresherRun:
         refresher = Refresher(
             brotr=mock_refresher_brotr,
             config=_refresher_config(
-                current=["events_replaceable_current"],
+                current=["replaceable_event_current"],
                 analytics=["pubkey_kind_stats"],
             ),
         )
@@ -522,7 +522,7 @@ class TestRefresherRun:
             result = await refresher.refresh()
 
         assert mock_refresh.await_args_list == [
-            call(mock_refresher_brotr, CurrentRefreshTarget.EVENTS_REPLACEABLE_CURRENT, 0, 11),
+            call(mock_refresher_brotr, CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT, 0, 11),
             call(mock_refresher_brotr, AnalyticsRefreshTarget.PUBKEY_KIND_STATS, 0, 22),
         ]
         assert mock_refresher_brotr.upsert_service_state.await_count == 2
@@ -547,7 +547,7 @@ class TestRefresherRun:
         refresher = Refresher(
             brotr=mock_refresher_brotr,
             config=_refresher_config(
-                current=["events_replaceable_current"],
+                current=["replaceable_event_current"],
                 analytics=["pubkey_kind_stats"],
             ),
         )
@@ -588,7 +588,7 @@ class TestRefresherRun:
         refresher = Refresher(
             brotr=mock_refresher_brotr,
             config=_refresher_config(
-                current=["events_replaceable_current"],
+                current=["replaceable_event_current"],
                 analytics=["pubkey_kind_stats"],
                 processing={"continue_on_target_error": False},
             ),
@@ -607,7 +607,7 @@ class TestRefresherRun:
                 "bigbrotr.services.refresher.service.get_event_observation_watermark",
                 AsyncMock(return_value=11),
             ),
-            pytest.raises(RuntimeError, match="events_replaceable_current"),
+            pytest.raises(RuntimeError, match="replaceable_event_current"),
         ):
             await refresher.refresh()
 
@@ -682,7 +682,7 @@ class TestRefresherRun:
         refresher = Refresher(
             brotr=mock_refresher_brotr,
             config=_refresher_config(
-                current=["events_replaceable_current"],
+                current=["replaceable_event_current"],
                 analytics=["pubkey_kind_stats"],
                 periodic=True,
                 processing={"max_targets_per_cycle": 1},

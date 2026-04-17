@@ -180,11 +180,11 @@ READ_MODEL_REGISTRY: dict[str, ReadModelEntry] = {
     "daily-counts": _catalog_read_model("daily-counts", "daily_counts"),
     "replaceable-events-current": _catalog_read_model(
         "replaceable-events-current",
-        "events_replaceable_current",
+        "replaceable_event_current",
     ),
     "addressable-events-current": _catalog_read_model(
         "addressable-events-current",
-        "events_addressable_current",
+        "addressable_event_current",
     ),
     "nip85-pubkey-stats": _catalog_read_model("nip85-pubkey-stats", "nip85_pubkey_stats"),
     "nip85-event-stats": _catalog_read_model("nip85-event-stats", "nip85_event_stats"),

@@ -295,7 +295,7 @@ All functions use `SECURITY INVOKER`, bulk array parameters, and `ON CONFLICT DO
 
 ### Current-State Tables (5)
 
-`relay_document_current`, `events_replaceable_current`, `events_addressable_current`, `contact_lists_current`, `contact_list_edges_current` — regular tables maintained incrementally by refresher procedures.
+`relay_document_current`, `replaceable_event_current`, `addressable_event_current`, `contact_lists_current`, `contact_list_edges_current` — narrow winner-map and contact-graph tables maintained incrementally by refresher procedures.
 
 ---
 

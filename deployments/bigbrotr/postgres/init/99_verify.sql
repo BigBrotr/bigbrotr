@@ -24,7 +24,7 @@ BEGIN
     RAISE NOTICE '';
     RAISE NOTICE 'Current Tables (5):';
     RAISE NOTICE '  relay_document_current';
-    RAISE NOTICE '  events_replaceable_current, events_addressable_current';
+    RAISE NOTICE '  replaceable_event_current, addressable_event_current';
     RAISE NOTICE '  contact_lists_current, contact_list_edges_current';
     RAISE NOTICE '';
     RAISE NOTICE 'Analytics Summary Tables (9):';
@@ -57,7 +57,7 @@ BEGIN
     RAISE NOTICE '';
     RAISE NOTICE 'Current Refresh Functions (5):';
     RAISE NOTICE '  relay_document_current_refresh';
-    RAISE NOTICE '  events_replaceable_current_refresh, events_addressable_current_refresh';
+    RAISE NOTICE '  replaceable_event_current_refresh, addressable_event_current_refresh';
     RAISE NOTICE '  contact_lists_current_refresh, contact_list_edges_current_refresh';
     RAISE NOTICE '';
     RAISE NOTICE 'Analytics Summary Refresh Functions (11):';

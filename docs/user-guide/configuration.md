@@ -711,8 +711,8 @@ processing:
 current:
   targets:
     - relay_document_current
-    - events_replaceable_current
-    - events_addressable_current
+    - replaceable_event_current
+    - addressable_event_current
     - contact_lists_current
     - contact_list_edges_current
 

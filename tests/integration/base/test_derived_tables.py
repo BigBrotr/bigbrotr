@@ -23,14 +23,14 @@ def _rm(
     associated_at: int = 1700000001,
 ) -> RelayDocument:
     relay = Relay(relay_url, stored_at=1700000000)
-    metadata = Document(type=meta_type, data=data)
-    return RelayDocument(relay=relay, document=metadata, associated_at=associated_at)
+    document = Document(type=meta_type, data=data)
+    return RelayDocument(relay=relay, document=document, associated_at=associated_at)
 
 
-async def _refresh_metadata_current(
+async def _refresh_document_current(
     brotr: Brotr, after: int = 0, until: int = 2_000_000_000
 ) -> None:
-    """Refresh relay metadata current-state facts with the given range."""
+    """Refresh relay-document current-state facts with the given range."""
     await brotr.fetchval(
         "SELECT relay_document_current_refresh($1::BIGINT, $2::BIGINT)", after, until
     )
@@ -38,7 +38,7 @@ async def _refresh_metadata_current(
 
 class TestRelayDocumentCurrent:
     async def test_empty_view(self, brotr: Brotr) -> None:
-        await _refresh_metadata_current(brotr)
+        await _refresh_document_current(brotr)
         rows = await brotr.fetch("SELECT * FROM relay_document_current")
         assert len(rows) == 0
 
@@ -46,7 +46,7 @@ class TestRelayDocumentCurrent:
         rm_old = _rm("wss://latest1.example.com", {"name": "Old"}, associated_at=1700000001)
         rm_new = _rm("wss://latest1.example.com", {"name": "New"}, associated_at=1700000002)
         await brotr.insert_relay_document([rm_old, rm_new], cascade=True)
-        await _refresh_metadata_current(brotr)
+        await _refresh_document_current(brotr)
 
         row = await brotr.fetchrow(
             "SELECT * FROM relay_document_current WHERE relay_url = $1 AND role = $2",
@@ -55,7 +55,7 @@ class TestRelayDocumentCurrent:
         )
         assert row is not None
         assert row["associated_at"] == 1700000002
-        assert row["data"]["name"] == "New"
+        assert row["document_id"] == rm_new.document.content_hash
 
     async def test_multiple_types_per_relay(self, brotr: Brotr) -> None:
         rm_info = _rm("wss://multi-t.example.com", {"name": "Multi"})
@@ -65,7 +65,7 @@ class TestRelayDocumentCurrent:
             MetadataType.NIP66_SSL,
         )
         await brotr.insert_relay_document([rm_info, rm_ssl], cascade=True)
-        await _refresh_metadata_current(brotr)
+        await _refresh_document_current(brotr)
 
         rows = await brotr.fetch(
             "SELECT role FROM relay_document_current WHERE relay_url = $1 ORDER BY role",
@@ -106,8 +106,8 @@ def _event_observation(
 def _nip11_metadata(relay_url: str, data: dict, associated_at: int = 1700000001) -> RelayDocument:
     relay = Relay(relay_url, stored_at=1700000000)
     envelope = {"data": data, "logs": {"success": True}}
-    metadata = Document(type=MetadataType.NIP11_INFO, data=envelope)
-    return RelayDocument(relay=relay, document=metadata, associated_at=associated_at)
+    document = Document(type=MetadataType.NIP11_INFO, data=envelope)
+    return RelayDocument(relay=relay, document=document, associated_at=associated_at)
 
 
 def _nip66_metadata(
@@ -115,8 +115,8 @@ def _nip66_metadata(
 ) -> RelayDocument:
     relay = Relay(relay_url, stored_at=1700000000)
     envelope = {"data": data, "logs": {"success": True}}
-    metadata = Document(type=meta_type, data=envelope)
-    return RelayDocument(relay=relay, document=metadata, associated_at=associated_at)
+    document = Document(type=meta_type, data=envelope)
+    return RelayDocument(relay=relay, document=document, associated_at=associated_at)
 
 
 def _event_address(kind: int, pubkey: str, d_tag: str) -> str:
@@ -149,14 +149,14 @@ async def _refresh_nip85(brotr: Brotr, after: int = 0, until: int = 2000000000) 
 
 async def _refresh_current_events(brotr: Brotr, after: int = 0, until: int = 2000000000) -> None:
     """Refresh current-state replaceable/addressable tables with the given range."""
-    for table in ["events_replaceable_current", "events_addressable_current"]:
+    for table in ["replaceable_event_current", "addressable_event_current"]:
         await brotr.fetchval(f"SELECT {table}_refresh($1::BIGINT, $2::BIGINT)", after, until)
 
 
 async def _refresh_contact_graph(brotr: Brotr, after: int = 0, until: int = 2000000000) -> None:
     """Refresh canonical contact-list facts after refreshing replaceable current state."""
     await brotr.fetchval(
-        "SELECT events_replaceable_current_refresh($1::BIGINT, $2::BIGINT)", after, until
+        "SELECT replaceable_event_current_refresh($1::BIGINT, $2::BIGINT)", after, until
     )
     for table in ["contact_lists_current", "contact_list_edges_current"]:
         await brotr.fetchval(f"SELECT {table}_refresh($1::BIGINT, $2::BIGINT)", after, until)
@@ -518,7 +518,7 @@ class TestRelayStats:
             {"name": "Test", "software": "strfry", "version": "2.0"},
         )
         await brotr.insert_relay_document([rm], cascade=True)
-        await _refresh_metadata_current(brotr)
+        await _refresh_document_current(brotr)
         await brotr.execute("SELECT relay_stats_document_refresh()")
 
         row = await brotr.fetchrow(
@@ -689,7 +689,7 @@ class TestRelaySoftwareCounts:
             rm = _nip11_metadata(url, {"software": sw, "version": ver})
             await brotr.insert_relay_document([rm], cascade=True)
 
-        await _refresh_metadata_current(brotr)
+        await _refresh_document_current(brotr)
         await brotr.fetchval(
             "SELECT relay_software_counts_refresh($1::BIGINT, $2::BIGINT)", 0, 2_000_000_000
         )
@@ -716,7 +716,7 @@ class TestSupportedNipCounts:
             rm = _nip11_metadata(url, {"supported_nips": nips}, associated_at=1700000001 + i)
             await brotr.insert_relay_document([rm], cascade=True)
 
-        await _refresh_metadata_current(brotr)
+        await _refresh_document_current(brotr)
         await brotr.fetchval(
             "SELECT supported_nip_counts_refresh($1::BIGINT, $2::BIGINT)", 0, 2_000_000_000
         )
@@ -751,7 +751,7 @@ class TestEventDailyCounts:
             assert row["event_count"] == 1
 
 
-# -- events_replaceable_current --
+# -- replaceable_event_current --
 
 
 class TestEventsReplaceableCurrent:
@@ -767,15 +767,15 @@ class TestEventsReplaceableCurrent:
         ]
         await brotr.insert_event_observation(ers, cascade=True)
         await brotr.fetchval(
-            "SELECT events_replaceable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
+            "SELECT replaceable_event_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
         )
 
         rows = await brotr.fetch(
-            "SELECT created_at FROM events_replaceable_current WHERE kind = 0 AND pubkey = $1",
+            "SELECT event_id FROM replaceable_event_current WHERE kind = 0 AND pubkey = $1",
             bytes.fromhex(pubkey),
         )
         assert len(rows) == 1
-        assert rows[0]["created_at"] == 2000
+        assert rows[0]["event_id"] == bytes.fromhex("a1" * 32)
 
     async def test_excludes_non_replaceable_kinds(self, brotr: Brotr) -> None:
         ers = [
@@ -785,18 +785,18 @@ class TestEventsReplaceableCurrent:
         ]
         await brotr.insert_event_observation(ers, cascade=True)
         await brotr.fetchval(
-            "SELECT events_replaceable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
+            "SELECT replaceable_event_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
         )
 
-        rows = await brotr.fetch("SELECT * FROM events_replaceable_current")
+        rows = await brotr.fetch("SELECT * FROM replaceable_event_current")
         assert len(rows) == 0
 
 
-# -- events_addressable_current --
+# -- addressable_event_current --
 
 
 class TestEventsAddressableCurrent:
-    async def test_current_per_pubkey_kind_dtag(self, brotr: Brotr) -> None:
+    async def test_current_per_pubkey_kind_d_value(self, brotr: Brotr) -> None:
         pubkey = "aa" * 32
         d_tags = [["d", "my-article"]]
         ers = [
@@ -819,19 +819,19 @@ class TestEventsAddressableCurrent:
         ]
         await brotr.insert_event_observation(ers, cascade=True)
         await brotr.fetchval(
-            "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
+            "SELECT addressable_event_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
         )
 
         rows = await brotr.fetch(
-            "SELECT created_at, d_tag FROM events_addressable_current"
+            "SELECT event_id, d_value FROM addressable_event_current"
             " WHERE kind = 30023 AND pubkey = $1",
             bytes.fromhex(pubkey),
         )
         assert len(rows) == 1
-        assert rows[0]["created_at"] == 2000
-        assert rows[0]["d_tag"] == "my-article"
+        assert rows[0]["event_id"] == bytes.fromhex("a1" * 32)
+        assert rows[0]["d_value"] == "my-article"
 
-    async def test_event_without_dtag_uses_empty_string(self, brotr: Brotr) -> None:
+    async def test_event_without_d_value_uses_empty_string(self, brotr: Brotr) -> None:
         er = _event_observation(
             "d0" * 32,
             "wss://addr2.example.com",
@@ -841,14 +841,14 @@ class TestEventsAddressableCurrent:
         )
         await brotr.insert_event_observation([er], cascade=True)
         await brotr.fetchval(
-            "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
+            "SELECT addressable_event_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
         )
 
-        rows = await brotr.fetch("SELECT d_tag FROM events_addressable_current WHERE kind = 30078")
+        rows = await brotr.fetch("SELECT d_value FROM addressable_event_current WHERE kind = 30078")
         assert len(rows) == 1
-        assert rows[0]["d_tag"] == ""
+        assert rows[0]["d_value"] == ""
 
-    async def test_first_dtag_wins_when_multiple_d_tags_present(self, brotr: Brotr) -> None:
+    async def test_first_d_value_wins_when_multiple_d_tags_present(self, brotr: Brotr) -> None:
         er = _event_observation(
             "d1" * 32,
             "wss://addr2.example.com",
@@ -859,15 +859,15 @@ class TestEventsAddressableCurrent:
         )
         await brotr.insert_event_observation([er], cascade=True)
         await brotr.fetchval(
-            "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
+            "SELECT addressable_event_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
         )
 
         row = await brotr.fetchrow(
-            "SELECT d_tag FROM events_addressable_current WHERE id = $1",
+            "SELECT d_value FROM addressable_event_current WHERE event_id = $1",
             bytes.fromhex("d1" * 32),
         )
         assert row is not None
-        assert row["d_tag"] == "first"
+        assert row["d_value"] == "first"
 
     async def test_excludes_non_addressable_kinds(self, brotr: Brotr) -> None:
         ers = [
@@ -876,10 +876,10 @@ class TestEventsAddressableCurrent:
         ]
         await brotr.insert_event_observation(ers, cascade=True)
         await brotr.fetchval(
-            "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
+            "SELECT addressable_event_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5000
         )
 
-        rows = await brotr.fetch("SELECT * FROM events_addressable_current")
+        rows = await brotr.fetch("SELECT * FROM addressable_event_current")
         assert len(rows) == 0
 
 

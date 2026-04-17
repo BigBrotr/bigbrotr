@@ -173,7 +173,7 @@ internals to API/DVM clients.
 - **All mutations** via stored procedures with bulk array parameters
 - **38 functions**: 5 utility, 10 CRUD/cascade/state, 2 cleanup (batched), 5 current refresh, 13 analytics refresh, 3 periodic (`rolling_windows_refresh`, `relay_stats_document_refresh`, `nip85_follower_count_refresh`). All `SECURITY INVOKER` (PostgreSQL default, not explicitly declared).
 - **6 summary tables** (incremental refresh): `pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats`
-- **5 current tables** (incremental refresh): `relay_document_current`, `events_replaceable_current`, `events_addressable_current`, `contact_lists_current`, `contact_list_edges_current`
+- **5 current tables** (incremental refresh): `relay_document_current`, `replaceable_event_current`, `addressable_event_current`, `contact_lists_current`, `contact_list_edges_current` (narrow winner maps plus contact-graph facts)
 - **Cascade functions**: `event_observation_insert_cascade` (relay + event + junction), `relay_document_insert_cascade` (relay + document + junction)
 - **`Brotr._pool` is private** -- services use Brotr methods, never pool directly
 - **Query conventions**: all domain queries in service-specific `queries.py` modules, use `$1`/`$2` parameterized placeholders (never f-strings for values). Timeouts are config-driven via `TimeoutsConfig` -- query functions never accept `timeout` parameters.

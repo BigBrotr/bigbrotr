@@ -53,14 +53,14 @@ async def _refresh_nip85(brotr: Brotr, after: int = 0, until: int = 2_000_000_00
 
 async def _refresh_contact_graph(brotr: Brotr, after: int = 0, until: int = 2_000_000_000) -> None:
     await brotr.fetchval(
-        "SELECT events_replaceable_current_refresh($1::BIGINT, $2::BIGINT)", after, until
+        "SELECT replaceable_event_current_refresh($1::BIGINT, $2::BIGINT)", after, until
     )
     for table in ["contact_lists_current", "contact_list_edges_current"]:
         await brotr.fetchval(f"SELECT {table}_refresh($1::BIGINT, $2::BIGINT)", after, until)
 
 
 class TestLilBrotrAddressableFallback:
-    async def test_addressable_d_tag_falls_back_to_tagvalues(self, brotr: Brotr) -> None:
+    async def test_addressable_d_value_falls_back_to_tagvalues(self, brotr: Brotr) -> None:
         er = _event_observation(
             "a1" * 32,
             "wss://lil-fallback.example.com",
@@ -71,17 +71,17 @@ class TestLilBrotrAddressableFallback:
         )
         await brotr.insert_event_observation([er], cascade=True)
         await brotr.fetchval(
-            "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5_000
+            "SELECT addressable_event_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5_000
         )
 
         row = await brotr.fetchrow(
-            "SELECT d_tag FROM events_addressable_current WHERE id = $1",
+            "SELECT d_value FROM addressable_event_current WHERE event_id = $1",
             bytes.fromhex("a1" * 32),
         )
         assert row is not None
-        assert row["d_tag"] == "my-article"
+        assert row["d_value"] == "my-article"
 
-    async def test_first_d_tag_wins_when_multiple_d_tags_are_present(self, brotr: Brotr) -> None:
+    async def test_first_d_value_wins_when_multiple_d_tags_are_present(self, brotr: Brotr) -> None:
         er = _event_observation(
             "a2" * 32,
             "wss://lil-fallback.example.com",
@@ -92,15 +92,15 @@ class TestLilBrotrAddressableFallback:
         )
         await brotr.insert_event_observation([er], cascade=True)
         await brotr.fetchval(
-            "SELECT events_addressable_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5_000
+            "SELECT addressable_event_current_refresh($1::BIGINT, $2::BIGINT)", 0, 5_000
         )
 
         row = await brotr.fetchrow(
-            "SELECT d_tag FROM events_addressable_current WHERE id = $1",
+            "SELECT d_value FROM addressable_event_current WHERE event_id = $1",
             bytes.fromhex("a2" * 32),
         )
         assert row is not None
-        assert row["d_tag"] == "first"
+        assert row["d_value"] == "first"
 
 
 class TestLilBrotrNip85Fallback:

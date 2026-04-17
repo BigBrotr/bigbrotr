@@ -25,8 +25,8 @@ class CurrentRefreshTarget(StrEnum):
     """Current-state tables maintained by the refresher in dependency order."""
 
     RELAY_DOCUMENT_CURRENT = "relay_document_current"
-    EVENTS_REPLACEABLE_CURRENT = "events_replaceable_current"
-    EVENTS_ADDRESSABLE_CURRENT = "events_addressable_current"
+    REPLACEABLE_EVENT_CURRENT = "replaceable_event_current"
+    ADDRESSABLE_EVENT_CURRENT = "addressable_event_current"
     CONTACT_LISTS_CURRENT = "contact_lists_current"
     CONTACT_LIST_EDGES_CURRENT = "contact_list_edges_current"
 
@@ -65,7 +65,7 @@ DEFAULT_PERIODIC_TARGETS: tuple[PeriodicRefreshTarget, ...] = tuple(PeriodicRefr
 
 _TARGET_DEPENDENCIES: dict[str, frozenset[str]] = {
     CurrentRefreshTarget.CONTACT_LISTS_CURRENT.value: frozenset(
-        {CurrentRefreshTarget.EVENTS_REPLACEABLE_CURRENT.value}
+        {CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT.value}
     ),
     CurrentRefreshTarget.CONTACT_LIST_EDGES_CURRENT.value: frozenset(
         {CurrentRefreshTarget.CONTACT_LISTS_CURRENT.value}

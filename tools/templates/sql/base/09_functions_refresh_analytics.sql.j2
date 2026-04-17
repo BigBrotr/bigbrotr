@@ -551,7 +551,7 @@ COMMENT ON FUNCTION relay_stats_refresh(BIGINT, BIGINT) IS
  * contact_lists_current_refresh(p_after, p_until) -> INTEGER
  *
  * Tracks current latest kind=3 contact list events from
- * events_replaceable_current. A follower is impacted only when their current
+ * replaceable_event_current. A follower is impacted only when their current
  * winning kind=3 event first became visible in the given observed_at range.
  */
 CREATE OR REPLACE FUNCTION contact_lists_current_refresh(
@@ -565,21 +565,27 @@ DECLARE
 BEGIN
     WITH changed_current AS (
         SELECT
-            erc.id,
-            erc.pubkey,
-            erc.created_at,
-            erc.tags,
-            erc.tagvalues,
-            erc.first_seen_at
-        FROM events_replaceable_current AS erc
-        WHERE erc.kind = 3
-          AND erc.first_seen_at > p_after
-          AND erc.first_seen_at <= p_until
+            rec.event_id,
+            rec.pubkey,
+            e.created_at,
+            e.tags,
+            e.tagvalues,
+            seen.first_seen_at
+        FROM replaceable_event_current AS rec
+        INNER JOIN event AS e ON e.id = rec.event_id
+        INNER JOIN LATERAL (
+            SELECT MIN(er.observed_at) AS first_seen_at
+            FROM event_observation AS er
+            WHERE er.event_id = rec.event_id
+        ) AS seen ON TRUE
+        WHERE rec.kind = 3
+          AND seen.first_seen_at > p_after
+          AND seen.first_seen_at <= p_until
     ),
     delta AS (
         SELECT
             ENCODE(pubkey, 'hex') AS follower_pubkey,
-            ENCODE(id, 'hex') AS source_event_id,
+            ENCODE(event_id, 'hex') AS source_event_id,
             created_at AS source_created_at,
             first_seen_at AS source_seen_at,
             COALESCE(exact_counts.cnt, fallback_counts.cnt, 0) AS follow_count
@@ -624,7 +630,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION contact_lists_current_refresh(BIGINT, BIGINT) IS
-'Incremental refresh of current latest kind=3 contact lists from events_replaceable_current. Stores one row per follower with stable source_seen_at and deduplicated follow_count.';
+'Incremental refresh of current latest kind=3 contact lists from replaceable_event_current plus canonical event/event_observation payload. Stores one row per follower with stable source_seen_at and deduplicated follow_count.';
 
 
 /*
@@ -662,11 +668,12 @@ BEGIN
             c.source_event_id,
             c.source_created_at,
             c.source_seen_at,
-            erc.tags,
-            erc.tagvalues
+            e.tags,
+            e.tagvalues
         FROM _changed_contact_lists AS c
-        INNER JOIN events_replaceable_current AS erc
-            ON ENCODE(erc.id, 'hex') = c.source_event_id
+        INNER JOIN replaceable_event_current AS rec
+            ON rec.event_id = DECODE(c.source_event_id, 'hex')
+        INNER JOIN event AS e ON e.id = rec.event_id
     ),
     exact_edges AS (
         SELECT
@@ -734,7 +741,7 @@ COMMENT ON FUNCTION contact_list_edges_current_refresh(BIGINT, BIGINT) IS
 
 
 -- **************************************************************************
--- PERIODIC REFRESH: Rolling windows and metadata
+-- PERIODIC REFRESH: Rolling windows and documents
 -- **************************************************************************
 
 
@@ -909,10 +916,12 @@ BEGIN
 
     -- Update NIP-11 info from current relay documents
     UPDATE relay_stats rs SET
-        nip11_name     = rmc.data -> 'data' ->> 'name',
-        nip11_software = rmc.data -> 'data' ->> 'software',
-        nip11_version  = rmc.data -> 'data' ->> 'version'
+        nip11_name     = d.data -> 'data' ->> 'name',
+        nip11_software = d.data -> 'data' ->> 'software',
+        nip11_version  = d.data -> 'data' ->> 'version'
     FROM relay_document_current AS rmc
+    INNER JOIN document AS d
+        ON d.id = rmc.document_id AND d.type = rmc.role
     WHERE rmc.role = 'nip11_info'
       AND rs.relay_url = rmc.relay_url;
 END;
@@ -923,7 +932,7 @@ COMMENT ON FUNCTION relay_stats_document_refresh() IS
 
 
 -- **************************************************************************
--- BOUNDED DERIVED TABLE REFRESH (relay metadata analytics)
+-- BOUNDED DERIVED TABLE REFRESH (relay-document analytics)
 -- **************************************************************************
 
 
@@ -931,7 +940,7 @@ COMMENT ON FUNCTION relay_stats_document_refresh() IS
  * relay_software_counts_refresh(p_after, p_until) -> INTEGER
  *
  * Recomputes software distribution from relay_document_current only when the
- * relay metadata watermark advances.
+ * relay-document watermark advances.
  */
 CREATE OR REPLACE FUNCTION relay_software_counts_refresh(
     p_after BIGINT,
@@ -956,13 +965,17 @@ BEGIN
 
     INSERT INTO relay_software_counts (software, version, relay_count)
     SELECT
-        data -> 'data' ->> 'software' AS software,
-        COALESCE(data -> 'data' ->> 'version', 'unknown') AS version,
+        d.data -> 'data' ->> 'software' AS software,
+        COALESCE(d.data -> 'data' ->> 'version', 'unknown') AS version,
         COUNT(*) AS relay_count
-    FROM relay_document_current
-    WHERE role = 'nip11_info'
-      AND data -> 'data' ->> 'software' IS NOT NULL
-    GROUP BY data -> 'data' ->> 'software', COALESCE(data -> 'data' ->> 'version', 'unknown');
+    FROM relay_document_current AS rmc
+    INNER JOIN document AS d
+        ON d.id = rmc.document_id AND d.type = rmc.role
+    WHERE rmc.role = 'nip11_info'
+      AND d.data -> 'data' ->> 'software' IS NOT NULL
+    GROUP BY
+        d.data -> 'data' ->> 'software',
+        COALESCE(d.data -> 'data' ->> 'version', 'unknown');
 
     GET DIAGNOSTICS v_rows = ROW_COUNT;
     RETURN v_rows;
@@ -970,14 +983,14 @@ END;
 $$;
 
 COMMENT ON FUNCTION relay_software_counts_refresh(BIGINT, BIGINT) IS
-'Refresh relay_software_counts from relay_document_current when current NIP-11 metadata changes.';
+'Refresh relay_software_counts from relay_document_current when current NIP-11 document winners change.';
 
 
 /*
  * supported_nip_counts_refresh(p_after, p_until) -> INTEGER
  *
  * Recomputes supported NIP distribution from relay_document_current only when
- * the relay metadata watermark advances.
+ * the relay-document watermark advances.
  */
 CREATE OR REPLACE FUNCTION supported_nip_counts_refresh(
     p_after BIGINT,
@@ -1004,11 +1017,13 @@ BEGIN
     SELECT
         nip_text::INTEGER AS nip,
         COUNT(*) AS relay_count
-    FROM relay_document_current
-    CROSS JOIN LATERAL jsonb_array_elements_text(data -> 'data' -> 'supported_nips') AS nip_text
-    WHERE role = 'nip11_info'
-      AND data -> 'data' ? 'supported_nips'
-      AND jsonb_typeof(data -> 'data' -> 'supported_nips') = 'array'
+    FROM relay_document_current AS rmc
+    INNER JOIN document AS d
+        ON d.id = rmc.document_id AND d.type = rmc.role
+    CROSS JOIN LATERAL jsonb_array_elements_text(d.data -> 'data' -> 'supported_nips') AS nip_text
+    WHERE rmc.role = 'nip11_info'
+      AND d.data -> 'data' ? 'supported_nips'
+      AND jsonb_typeof(d.data -> 'data' -> 'supported_nips') = 'array'
       AND nip_text ~ '^\d+$'
     GROUP BY nip_text::INTEGER;
 
@@ -1018,7 +1033,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION supported_nip_counts_refresh(BIGINT, BIGINT) IS
-'Refresh supported_nip_counts from relay_document_current when current NIP-11 metadata changes.';
+'Refresh supported_nip_counts from relay_document_current when current NIP-11 document winners change.';
 
 
 /*
