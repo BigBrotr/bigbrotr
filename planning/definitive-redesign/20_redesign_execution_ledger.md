@@ -95,7 +95,11 @@ Execution baseline:
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 2.1 Shared schema target implementation | not started | | |
+| 2.1a Relay archive-entry semantics | not started | | Split out from the original monolithic 2.1 after code-study revealed the storage-core migration was too broad for one safe audited slice |
+| 2.1b Document storage rename | not started | | |
+| 2.1c Relay-document history rename | not started | | |
+| 2.1d Event-observation rename | not started | | |
+| 2.1e Core-storage closure audit | not started | | |
 | 2.2 SQL function and current-table alignment | not started | | |
 | 2.3 Shared analytics and score-output alignment | not started | | |
 | 2.4 SQL/triggers/tests/fixtures audit loop | not started | | |

@@ -741,6 +741,52 @@ This includes:
 - removal of non-essential helper columns;
 - storage-profile coherence across base and profile overrides.
 
+This work package is intentionally too broad for one safe implementation
+commit if left monolithic.
+
+So execution should treat it as the following explicit sub-packages:
+
+##### 2.1a Relay archive-entry semantics
+
+Align the canonical relay row around:
+
+- `stored_at` instead of `discovered_at`;
+- relay-row meaning as entry into the canonical stored relay pool;
+- downstream relay-facing SQL/tests/runtime surfaces that depend on that field.
+
+##### 2.1b Document storage rename
+
+Align the content-addressed document table around:
+
+- `document` instead of `metadata`;
+- document terminology across schema, models, fixtures, and tests;
+- no semantic drift back toward the old “metadata as the center” model.
+
+##### 2.1c Relay-document history rename
+
+Align the relay-associated document history relation around:
+
+- `relay_document` instead of `relay_metadata`;
+- `associated_at` as the relation timestamp;
+- downstream relay-document history semantics across SQL and tests.
+
+##### 2.1d Event-observation rename
+
+Align the event-to-relay relation around:
+
+- `event_observation` instead of `event_relay`;
+- observation semantics instead of generic junction semantics;
+- runtime, refresh, and test surfaces that depend on that relation.
+
+##### 2.1e Core-storage closure audit
+
+After the four storage-name slices above:
+
+- audit the resulting core storage contract as one coherent set;
+- ensure base, `lilbrotr`, and `testbrotr` profiles still form one honest
+  storage-profile family;
+- ensure the migration did not leave mixed old/new vocabulary behind.
+
 Audit focus:
 
 - semantic correctness;
