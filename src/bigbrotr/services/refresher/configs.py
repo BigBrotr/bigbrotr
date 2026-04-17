@@ -22,17 +22,15 @@ TargetT = TypeVar("TargetT", bound=StrEnum)
 
 
 class CurrentRefreshTarget(StrEnum):
-    """Current-state tables maintained by the refresher in dependency order."""
+    """Narrow winner-map current tables maintained by the refresher."""
 
     RELAY_DOCUMENT_CURRENT = "relay_document_current"
     REPLACEABLE_EVENT_CURRENT = "replaceable_event_current"
     ADDRESSABLE_EVENT_CURRENT = "addressable_event_current"
-    CONTACT_LISTS_CURRENT = "contact_lists_current"
-    CONTACT_LIST_EDGES_CURRENT = "contact_list_edges_current"
 
 
 class AnalyticsRefreshTarget(StrEnum):
-    """Analytics tables maintained by the refresher in dependency order."""
+    """Shared analytics and operational-fact tables maintained incrementally."""
 
     DAILY_COUNTS = "daily_counts"
     RELAY_SOFTWARE_COUNTS = "relay_software_counts"
@@ -43,6 +41,8 @@ class AnalyticsRefreshTarget(StrEnum):
     PUBKEY_STATS = "pubkey_stats"
     KIND_STATS = "kind_stats"
     RELAY_STATS = "relay_stats"
+    CONTACT_LISTS_CURRENT = "contact_lists_current"
+    CONTACT_LIST_EDGES_CURRENT = "contact_list_edges_current"
     NIP85_PUBKEY_STATS = "nip85_pubkey_stats"
     NIP85_EVENT_STATS = "nip85_event_stats"
     NIP85_ADDRESSABLE_STATS = "nip85_addressable_stats"
@@ -64,11 +64,11 @@ DEFAULT_ANALYTICS_TARGETS: tuple[AnalyticsRefreshTarget, ...] = tuple(AnalyticsR
 DEFAULT_PERIODIC_TARGETS: tuple[PeriodicRefreshTarget, ...] = tuple(PeriodicRefreshTarget)
 
 _TARGET_DEPENDENCIES: dict[str, frozenset[str]] = {
-    CurrentRefreshTarget.CONTACT_LISTS_CURRENT.value: frozenset(
+    AnalyticsRefreshTarget.CONTACT_LISTS_CURRENT.value: frozenset(
         {CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT.value}
     ),
-    CurrentRefreshTarget.CONTACT_LIST_EDGES_CURRENT.value: frozenset(
-        {CurrentRefreshTarget.CONTACT_LISTS_CURRENT.value}
+    AnalyticsRefreshTarget.CONTACT_LIST_EDGES_CURRENT.value: frozenset(
+        {AnalyticsRefreshTarget.CONTACT_LISTS_CURRENT.value}
     ),
     AnalyticsRefreshTarget.RELAY_SOFTWARE_COUNTS.value: frozenset(
         {CurrentRefreshTarget.RELAY_DOCUMENT_CURRENT.value}
@@ -157,13 +157,13 @@ class ProcessingConfig(BaseModel):
 
 
 class CurrentRefreshConfig(BaseModel):
-    """Current-state target selection."""
+    """Narrow winner-map current target selection."""
 
     model_config = ConfigDict(extra="forbid")
 
     targets: list[CurrentRefreshTarget] = Field(
         default_factory=lambda: list(DEFAULT_CURRENT_TARGETS),
-        description="Current-state tables to refresh incrementally",
+        description="Narrow current winner-map tables to refresh incrementally",
     )
 
     @field_validator("targets")
@@ -173,13 +173,13 @@ class CurrentRefreshConfig(BaseModel):
 
 
 class AnalyticsRefreshConfig(BaseModel):
-    """Analytics target selection."""
+    """Shared analytics and operational-fact target selection."""
 
     model_config = ConfigDict(extra="forbid")
 
     targets: list[AnalyticsRefreshTarget] = Field(
         default_factory=lambda: list(DEFAULT_ANALYTICS_TARGETS),
-        description="Analytics tables to refresh incrementally",
+        description="Shared analytics and operational-fact tables to refresh incrementally",
     )
 
     @field_validator("targets")

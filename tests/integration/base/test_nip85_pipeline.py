@@ -257,8 +257,6 @@ def _make_refresher_config() -> RefresherConfig:
                 "targets": [
                     "replaceable_event_current",
                     "addressable_event_current",
-                    "contact_lists_current",
-                    "contact_list_edges_current",
                 ],
             },
             "analytics": {
@@ -267,6 +265,8 @@ def _make_refresher_config() -> RefresherConfig:
                     "pubkey_relay_stats",
                     "relay_kind_stats",
                     "pubkey_stats",
+                    "contact_lists_current",
+                    "contact_list_edges_current",
                     "nip85_pubkey_stats",
                     "nip85_event_stats",
                     "nip85_addressable_stats",

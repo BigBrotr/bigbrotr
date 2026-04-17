@@ -208,7 +208,7 @@ The remaining services are optional:
 
 - **Monitor** -- performs NIP-11/NIP-66 health checks and publishes Nostr events. Required if you want relay-document history and health data.
 - **Synchronizer** -- archives events from validated relays. Required only if you want to store Nostr events.
-- **Refresher** -- refreshes current-state tables, analytics facts, and periodic reconciliation targets. Required if you use derived analytics outputs.
+- **Refresher** -- refreshes narrow current winner tables, shared analytics facts, operational contact-graph facts, and periodic reconciliation targets. Required if you use derived analytics outputs.
 
 ### How much disk space does BigBrotr use?
 

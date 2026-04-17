@@ -60,7 +60,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     GRANT SELECT, INSERT, UPDATE, DELETE ON addressable_score TO ${RANKER_ROLE};
     GRANT SELECT, INSERT, UPDATE, DELETE ON identifier_score TO ${RANKER_ROLE};
 
-    -- Current-state tables + analytics tables: DML required for incremental refresh
+    -- Current-state tables + analytics/operational-fact tables: DML required for incremental refresh
     GRANT INSERT, UPDATE, DELETE ON daily_counts TO ${REFRESHER_ROLE};
     GRANT INSERT, UPDATE, DELETE ON relay_document_current TO ${REFRESHER_ROLE};
     GRANT INSERT, UPDATE, DELETE ON relay_software_counts TO ${REFRESHER_ROLE};

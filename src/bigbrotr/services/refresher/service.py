@@ -1,7 +1,7 @@
 """Refresher service for BigBrotr.
 
-Periodically refreshes incremental current-state tables, incremental analytics
-tables, and periodic reconciliation tasks. Target selection is fully
+Periodically refreshes narrow current winner tables, shared analytics and
+operational-fact tables, and periodic reconciliation tasks. Target selection is fully
 configuration-driven and SQL execution is constrained to the explicit registry
 in [queries.py][bigbrotr.services.refresher.queries].
 """
@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 
 
 class Refresher(BaseService[RefresherConfig]):
-    """Current-state and analytics refresh service."""
+    """Canonical shared-derivation refresh service."""
 
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.REFRESHER
     CONFIG_CLASS: ClassVar[type[RefresherConfig]] = RefresherConfig

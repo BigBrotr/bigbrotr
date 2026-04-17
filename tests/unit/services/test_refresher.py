@@ -114,14 +114,14 @@ class TestRefreshTargetConfig:
             {
                 "current": {
                     "targets": [
-                        "contact_list_edges_current",
                         "replaceable_event_current",
-                        "contact_lists_current",
                     ],
                 },
                 "analytics": {
                     "targets": [
+                        "contact_list_edges_current",
                         "relay_stats",
+                        "contact_lists_current",
                         "pubkey_relay_stats",
                         "pubkey_kind_stats",
                         "relay_kind_stats",
@@ -134,8 +134,6 @@ class TestRefreshTargetConfig:
 
         assert config.current.targets == [
             CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT,
-            CurrentRefreshTarget.CONTACT_LISTS_CURRENT,
-            CurrentRefreshTarget.CONTACT_LIST_EDGES_CURRENT,
         ]
         assert config.analytics.targets == [
             AnalyticsRefreshTarget.DAILY_COUNTS,
@@ -144,6 +142,8 @@ class TestRefreshTargetConfig:
             AnalyticsRefreshTarget.RELAY_KIND_STATS,
             AnalyticsRefreshTarget.PUBKEY_STATS,
             AnalyticsRefreshTarget.RELAY_STATS,
+            AnalyticsRefreshTarget.CONTACT_LISTS_CURRENT,
+            AnalyticsRefreshTarget.CONTACT_LIST_EDGES_CURRENT,
         ]
 
     def test_unknown_targets_are_rejected(self) -> None:
@@ -167,16 +167,18 @@ class TestRefreshTargetConfig:
             current_targets=[
                 CurrentRefreshTarget.RELAY_DOCUMENT_CURRENT,
                 CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT,
-                CurrentRefreshTarget.CONTACT_LISTS_CURRENT,
             ],
-            analytics_targets=[AnalyticsRefreshTarget.RELAY_SOFTWARE_COUNTS],
+            analytics_targets=[
+                AnalyticsRefreshTarget.RELAY_SOFTWARE_COUNTS,
+                AnalyticsRefreshTarget.CONTACT_LISTS_CURRENT,
+            ],
         )
 
     def test_dependency_validation_rejects_missing_upstream(self) -> None:
         with pytest.raises(ValueError, match="contact_list_edges_current requires"):
             validate_refresh_dependencies(
-                current_targets=[CurrentRefreshTarget.CONTACT_LIST_EDGES_CURRENT],
-                analytics_targets=[],
+                current_targets=[],
+                analytics_targets=[AnalyticsRefreshTarget.CONTACT_LIST_EDGES_CURRENT],
             )
 
     def test_config_validation_rejects_missing_analytics_dependency(self) -> None:

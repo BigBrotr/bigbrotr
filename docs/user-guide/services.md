@@ -42,8 +42,8 @@ flowchart LR
         RM["relay_document"]
         EV["event"]
         ER["event_observation"]
-        CT["current tables"]
-        ST["analytics tables"]
+        CT["current winner tables"]
+        ST["analytics and operational facts"]
         RK["score tables"]
         MV["materialized views"]
     end
@@ -365,18 +365,18 @@ flowchart TD
 
 ## Refresher
 
-**Purpose**: Refresh current-state tables, analytics facts, and periodic reconciliation tasks that power downstream services.
+**Purpose**: Refresh narrow current winner tables, shared analytics facts, operational contact-graph facts, and periodic reconciliation tasks that power downstream services.
 
 **Mode**: Continuous (`run_forever`)
 
 **Reads**: Base tables (indirectly, via refresh functions)
-**Writes**: current-state tables, analytics tables, and service checkpoints
+**Writes**: current winner tables, shared analytics tables, operational contact facts, and service checkpoints
 
 ### How It Works
 
 1. Resolve the configured `current.targets` and `analytics.targets` into canonical dependency-safe order
-2. Incrementally refresh each current-state table from its source watermark range
-3. Incrementally refresh each analytics table from its source watermark range
+2. Incrementally refresh each narrow current winner table from its source watermark range
+3. Incrementally refresh each shared analytics or operational-fact table from its source watermark range
 4. Run enabled periodic reconciliations (`rolling_windows`, `relay_stats_document`, `nip85_followers`) and emit per-target timing, row, watermark-lag, and failure metrics
 
 Each target is isolated by default: one failed refresh does not stop the rest of the cycle unless `processing.continue_on_target_error` is disabled.
@@ -385,8 +385,8 @@ Each target is isolated by default: one failed refresh does not stop the rest of
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `current.targets` | list[string] | canonical current-state set | Current-state tables to refresh incrementally |
-| `analytics.targets` | list[string] | canonical analytics set | Analytics tables to refresh incrementally |
+| `current.targets` | list[string] | canonical narrow current set | Narrow winner-map current tables to refresh incrementally |
+| `analytics.targets` | list[string] | canonical analytics set | Shared analytics and operational-fact tables to refresh incrementally |
 | `periodic.rolling_windows` | bool | `true` | Recompute rolling time-window columns |
 | `periodic.relay_stats_document` | bool | `true` | Refresh `relay_stats` document-backed fields |
 | `periodic.nip85_followers` | bool | `true` | Recompute NIP-85 follower/following counts |
@@ -662,7 +662,7 @@ For complete configuration details including all fields, defaults, constraints, 
 | Validator | `processing.chunk_size`, `cleanup.max_failures` | Throughput vs resource usage |
 | Monitor | `processing.compute.*`, `discovery.enabled` | Which checks to run and publish |
 | Synchronizer | `filters`, `limit`, `timeouts.max_duration` | Archival throughput and scope |
-| Refresher | `views`, `interval` | Which views to refresh and how often |
+| Refresher | `current.targets`, `analytics.targets`, `periodic.*`, `interval` | Which shared derivations run incrementally or periodically and how often |
 | Ranker | `algorithm_id`, `graph.*`, `export.batch_size` | PageRank namespace, graph behavior, and snapshot export throughput |
 | Assertor | `algorithm_id`, `selection.kinds`, `provider_profile.enabled` | Assertion namespace, publish scope, and provider identity |
 | Api | `read_models`, `max_page_size`, `cors_origins` | Which read models to expose and pagination limits |

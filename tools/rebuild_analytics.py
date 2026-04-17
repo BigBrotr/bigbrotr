@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""One-shot rebuild for current-state and analytics tables.
+"""One-shot rebuild for narrow current winner tables and analytics facts.
 
 The rebuild is intended for destructive maintenance windows or after fixing
 logic bugs in derived state. It:
 
-1. Truncates current-state and analytics tables
+1. Truncates narrow current winner tables and analytics/operational-fact tables
 2. Replays incremental refresh from ``after=0`` to ``until``
 3. Runs periodic reconciliation functions
 4. Aligns refresher checkpoints
@@ -100,7 +100,10 @@ def _runtime_config(
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments for the rebuild tool."""
     parser = argparse.ArgumentParser(
-        description="Rebuild current-state and analytics tables, then reset dependent checkpoints.",
+        description=(
+            "Rebuild narrow current winner tables and analytics/operational-fact tables, "
+            "then reset dependent checkpoints."
+        ),
     )
     parser.add_argument(
         "--deployment",
@@ -151,7 +154,10 @@ async def rebuild_analytics(
     *,
     until: int | None = None,
 ) -> RebuildResult:
-    """Rebuild current-state and analytics tables on a connected ``Brotr`` instance."""
+    """Rebuild narrow current winner tables and analytics facts.
+
+    The rebuild runs against an already connected ``Brotr`` instance.
+    """
     watermark = until if until is not None else int(time.time())
     result = RebuildResult(until=watermark)
 
@@ -218,11 +224,11 @@ def _print_dry_run(deployment: str, until: int | None) -> None:
     print("\nPhase 1 — Truncate derived tables")
     for table in [*CURRENT_TABLES, *ANALYTICS_TABLES]:
         print(f"  - {table}")
-    print("\nPhase 2 — Current-state replay")
+    print("\nPhase 2 — Current-winner replay")
     for target in CURRENT_TARGETS:
         spec = get_incremental_target_spec(target)
         print(f"  - {spec.sql_function}(0, {watermark})")
-    print("\nPhase 3 — Analytics replay")
+    print("\nPhase 3 — Analytics and operational-fact replay")
     for target in ANALYTICS_TARGETS:
         spec = get_incremental_target_spec(target)
         print(f"  - {spec.sql_function}(0, {watermark})")
@@ -231,7 +237,10 @@ def _print_dry_run(deployment: str, until: int | None) -> None:
         spec = get_periodic_target_spec(target)
         print(f"  - {spec.sql_function}()")
     print("\nPhase 5 — Checkpoints")
-    print("  - Upsert refresher checkpoints for all current-state and analytics tables")
+    print(
+        "  - Upsert refresher checkpoints for all current-winner and "
+        "analytics/operational-fact tables"
+    )
     print("  - Delete all assertor checkpoint hashes")
 
 
@@ -246,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print("=== Analytics Rebuild Complete ===\n")
     print(f"Until: {result.until}")
-    print("\nCurrent-state rows affected:")
+    print("\nCurrent-winner rows affected:")
     for table, rows in result.current_tables_refreshed.items():
         print(f"  - {table}: {rows}")
     print("\nAnalytics rows affected:")

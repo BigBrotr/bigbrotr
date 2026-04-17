@@ -18,7 +18,7 @@ Two schema variants exist:
 
 | Variant | Event Storage | Derived Tables | Regular Views | Disk Usage |
 |---------|--------------|----------------|---------------|------------|
-| **BigBrotr** | Full NIP-01 (id, pubkey, created_at, kind, tags, content, sig) | 5 current-state tables + 17 analytics/score tables | 0 | 100% |
+| **BigBrotr** | Full NIP-01 (id, pubkey, created_at, kind, tags, content, sig) | 3 current-state tables + 19 analytics/score tables | 0 | 100% |
 | **LilBrotr** | All 8 columns, with tags/content/sig nullable and always NULL | Same derived schema | 0 | ~40% |
 
 ---
@@ -32,8 +32,8 @@ refresh-maintained operational relations.
 | Layer | Tables | Source |
 |-------|--------|--------|
 | Core archive | `relay`, `event`, `event_observation`, `document`, `relay_document`, `service_state` | Services and cascade insert functions |
-| Current state | `relay_document_current`, `replaceable_event_current`, `addressable_event_current`, `contact_lists_current`, `contact_list_edges_current` | Refresher, `08_functions_refresh_current.sql` |
-| Core analytics | `pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats`, `daily_counts`, `relay_software_counts`, `supported_nip_counts` | Refresher, `09_functions_refresh_analytics.sql` |
+| Current state | `relay_document_current`, `replaceable_event_current`, `addressable_event_current` | Refresher, `08_functions_refresh_current.sql` |
+| Core analytics | `pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats`, `daily_counts`, `relay_software_counts`, `supported_nip_counts`, `contact_lists_current`, `contact_list_edges_current` | Refresher, `09_functions_refresh_analytics.sql` |
 | NIP-85 facts | `nip85_pubkey_stats`, `nip85_event_stats`, `nip85_addressable_stats`, `nip85_identifier_stats` | Refresher, `09_functions_refresh_analytics.sql` |
 | NIP-85 scores | `pubkey_score`, `event_score`, `addressable_score`, `identifier_score` | Ranker public score exports |
 
@@ -517,7 +517,7 @@ Per-relay event counts, averaged round-trip times, and NIP-11 info.
 
 ## Derived Current-State Tables
 
-All deployments (BigBrotr, LilBrotr) share the same current-state tables. The Refresher maintains them incrementally through checkpointed refresh functions rather than `REFRESH MATERIALIZED VIEW CONCURRENTLY`.
+All deployments (BigBrotr, LilBrotr) share the same narrow current-state tables. The Refresher maintains them incrementally through checkpointed refresh functions rather than `REFRESH MATERIALIZED VIEW CONCURRENTLY`.
 
 ### relay_document_current
 
@@ -570,9 +570,13 @@ Primary key: `(pubkey, kind, d_value)`.
 This table is intentionally narrow. Rich event payload and deterministic tie
 break semantics still come from the canonical `event` archive table.
 
+---
+
+## Analytics And Operational-Fact Tables
+
 ### contact_lists_current
 
-Current latest kind=3 contact list per author.
+Materialized current latest kind=3 contact list per author.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -584,7 +588,7 @@ Current latest kind=3 contact list per author.
 
 ### contact_list_edges_current
 
-Current deduplicated follow graph edges.
+Materialized deduplicated follow graph edges.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -601,10 +605,6 @@ Primary key: `(follower_pubkey, followed_pubkey)`.
     materialized operational facts for now because the Ranker graph sync and
     `nip85_follower_count_refresh()` still consume them incrementally. They are
     the explicit exception to the long-term view-first contact-graph target.
-
----
-
-## Metadata And Time-Series Analytics Tables
 
 ### relay_software_counts
 
@@ -728,8 +728,6 @@ Current-state refresh functions accept `(p_after BIGINT, p_until BIGINT)` range 
 | `relay_document_current_refresh(after, until)` | relay_document_current | Daily |
 | `replaceable_event_current_refresh(after, until)` | replaceable_event_current | Hourly |
 | `addressable_event_current_refresh(after, until)` | addressable_event_current | Hourly |
-| `contact_lists_current_refresh(after, until)` | contact_lists_current | Hourly |
-| `contact_list_edges_current_refresh(after, until)` | contact_list_edges_current | Hourly |
 
 ### Analytics Refresh Functions
 
@@ -737,6 +735,8 @@ Analytics refresh functions also accept `(p_after BIGINT, p_until BIGINT)` range
 
 | Function | Target Table | Recommended Schedule |
 |----------|-------------|---------------------|
+| `contact_lists_current_refresh(after, until)` | contact_lists_current | Hourly |
+| `contact_list_edges_current_refresh(after, until)` | contact_list_edges_current | Hourly |
 | `daily_counts_refresh(after, until)` | daily_counts | Daily |
 | `relay_software_counts_refresh(after, until)` | relay_software_counts | Daily |
 | `supported_nip_counts_refresh(after, until)` | supported_nip_counts | Daily |
@@ -824,7 +824,7 @@ Summary tables use their primary keys for uniqueness. Additional secondary index
 
 ### Current And Analytics Indexes
 
-Current-state and analytics tables use primary keys for deterministic upserts. Additional secondary indexes support common access paths.
+Narrow current winner tables and analytics/operational-fact tables use primary keys for deterministic upserts. Additional secondary indexes support common access paths.
 
 | Index | Table | Columns | Unique |
 |-------|-------|---------|--------|
@@ -932,8 +932,8 @@ CREATE TABLE event (
 | CRUD (Level 1) | 8 | `relay_insert`, `event_insert`, `document_insert`, `event_observation_insert`, `relay_document_insert`, `service_state_upsert`, `service_state_get`, `service_state_delete` |
 | CRUD (Level 2) | 2 | `event_observation_insert_cascade`, `relay_document_insert_cascade` |
 | Cleanup | 0 | none |
-| Current refresh | 5 | `relay_document_current_refresh`, `replaceable_event_current_refresh`, `addressable_event_current_refresh`, `contact_lists_current_refresh`, `contact_list_edges_current_refresh` |
-| Analytics refresh | 13 | `daily_counts_refresh`, document-backed analytics, entity stats, and NIP-85 stats refresh functions |
+| Current refresh | 3 | `relay_document_current_refresh`, `replaceable_event_current_refresh`, `addressable_event_current_refresh` |
+| Analytics refresh | 15 | `contact_lists_current_refresh`, `contact_list_edges_current_refresh`, `daily_counts_refresh`, document-backed analytics, entity stats, and NIP-85 stats refresh functions |
 | Periodic refresh | 3 | `rolling_windows_refresh`, `relay_stats_document_refresh`, `nip85_follower_count_refresh` |
 | **Total** | **38** | |
 
@@ -943,7 +943,7 @@ CREATE TABLE event (
 
 | Task | Frequency | Command |
 |------|-----------|---------|
-| Refresh current-state and analytics tables | Hourly/Daily | Run via Refresher service (orchestrates configured targets individually) |
+| Refresh current-state and analytics/operational-fact tables | Hourly/Daily | Run via Refresher service (orchestrates configured targets individually) |
 | Refresh periodic reconciliation targets | Hourly/Daily | Run via Refresher service (orchestrates configured targets individually) |
 | VACUUM ANALYZE | Weekly | `VACUUM ANALYZE event; VACUUM ANALYZE event_observation;` |
 

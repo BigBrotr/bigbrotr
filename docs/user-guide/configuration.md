@@ -693,8 +693,9 @@ timeouts:
 
 ## Refresher Configuration
 
-Refreshes current-state tables, analytics facts, and periodic reconciliation
-tasks from explicit, typed target lists.
+Refreshes narrow current winner tables, shared analytics facts, operational
+contact-graph facts, and periodic reconciliation tasks from explicit, typed
+target lists.
 
 ```yaml
 interval: 86400.0
@@ -713,8 +714,6 @@ current:
     - relay_document_current
     - replaceable_event_current
     - addressable_event_current
-    - contact_lists_current
-    - contact_list_edges_current
 
 analytics:
   targets:
@@ -727,6 +726,8 @@ analytics:
     - pubkey_stats
     - kind_stats
     - relay_stats
+    - contact_lists_current
+    - contact_list_edges_current
     - nip85_pubkey_stats
     - nip85_event_stats
     - nip85_addressable_stats
@@ -745,8 +746,8 @@ cleanup:
 
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
-| `current.targets` | list[string] | canonical current-state set | enum values | Current-state tables refreshed incrementally |
-| `analytics.targets` | list[string] | canonical analytics set | enum values | Analytics tables refreshed incrementally |
+| `current.targets` | list[string] | canonical narrow current set | enum values | Narrow winner-map current tables refreshed incrementally |
+| `analytics.targets` | list[string] | canonical analytics set | enum values | Shared analytics and operational-fact tables refreshed incrementally |
 | `periodic.rolling_windows` | bool | `true` | - | Recompute rolling time-window columns |
 | `periodic.relay_stats_document` | bool | `true` | - | Refresh `relay_stats` document-backed fields from relay documents |
 | `periodic.nip85_followers` | bool | `true` | - | Recompute NIP-85 follower and following counts |

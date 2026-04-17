@@ -61,7 +61,7 @@ Ten **independent** async services share a PostgreSQL database. Each runs on its
 | **Validator** | Tests candidates via WebSocket handshake, promotes valid relays | WebSocket |
 | **Monitor** | Runs NIP-11 + 6 NIP-66 health checks, publishes kind 10166/30166 events | HTTP, WS, DNS, SSL, GeoIP |
 | **Synchronizer** | Connects to relays, streams and archives signed events with cursor-based resumption | WebSocket |
-| **Refresher** | Refreshes current-state tables, analytics facts, and periodic reconciliations | None |
+| **Refresher** | Refreshes narrow current winner tables, shared analytics facts, operational contact-graph facts, and periodic reconciliations | None |
 | **Ranker** | Computes deterministic NIP-85 public scores in private DuckDB and exports them | PostgreSQL + DuckDB |
 | **Assertor** | Publishes NIP-85 trusted assertion events for users, events, addressables, and identifiers | WebSocket (Nostr) |
 | **Api** | Read-only REST API exposing registered read models over HTTP | HTTP (FastAPI) |
@@ -279,11 +279,11 @@ PostgreSQL 18 with PGBouncer (transaction-mode pooling) and asyncpg async driver
 | `relay_document` | Time-series snapshots linking relays to stored documents |
 | `service_state` | Per-service operational data (candidates, cursors, checkpoints) |
 
-### Stored Functions (36)
+### Stored Functions (38)
 
 - **5 utility**: `tags_to_tagvalues`, event-address helpers, and `bolt11_amount_msats`
 - **10 CRUD**: `relay_insert`, `event_insert`, `document_insert`, `event_observation_insert`, `relay_document_insert`, `event_observation_insert_cascade`, `relay_document_insert_cascade`, `service_state_upsert`, `service_state_get`, `service_state_delete`
-- **18 refresh**: 5 current-state refresh functions + 13 analytics refresh functions
+- **20 refresh**: 3 current-state refresh functions + 13 analytics/operational-fact refresh functions + 4 NIP-85 incremental refresh functions
 - **3 periodic**: `rolling_windows_refresh`, `relay_stats_document_refresh`, `nip85_follower_count_refresh`
 
 All functions use `SECURITY INVOKER`, bulk array parameters, and `ON CONFLICT DO NOTHING`.
@@ -292,9 +292,13 @@ All functions use `SECURITY INVOKER`, bulk array parameters, and `ON CONFLICT DO
 
 `pubkey_kind_stats`, `pubkey_relay_stats`, `relay_kind_stats`, `pubkey_stats`, `kind_stats`, `relay_stats` — incrementally refreshed via range-based refresh functions.
 
-### Current-State Tables (5)
+### Current-State Tables (3)
 
-`relay_document_current`, `replaceable_event_current`, `addressable_event_current`, `contact_lists_current`, `contact_list_edges_current` — narrow winner-map and contact-graph tables maintained incrementally by refresher procedures.
+`relay_document_current`, `replaceable_event_current`, `addressable_event_current` — narrow winner-map tables maintained incrementally by refresher procedures.
+
+### Operational Contact Facts (2)
+
+`contact_lists_current`, `contact_list_edges_current` — materialized contact-graph facts maintained incrementally by refresher procedures.
 
 ---
 

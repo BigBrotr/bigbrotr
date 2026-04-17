@@ -1,7 +1,8 @@
 # =============================================================================
 # Refresher Service Configuration (LilBrotr)
 # =============================================================================
-# Periodically refreshes incremental current-state and analytics tables.
+# Periodically refreshes narrow current winners, shared analytics facts,
+# and operational contact-graph facts.
 # Only values that differ from defaults are specified here.
 # =============================================================================
 
@@ -24,8 +25,6 @@ current:
     - relay_document_current
     - replaceable_event_current
     - addressable_event_current
-    - contact_lists_current
-    - contact_list_edges_current
 
 analytics:
   targets:
@@ -38,6 +37,8 @@ analytics:
     - pubkey_stats
     - kind_stats
     - relay_stats
+    - contact_lists_current
+    - contact_list_edges_current
     - nip85_pubkey_stats
     - nip85_event_stats
     - nip85_addressable_stats

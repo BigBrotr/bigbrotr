@@ -39,7 +39,7 @@ Ten independent async services share a PostgreSQL database, each with a distinct
 
     ---
 
-    36 stored functions, current-state tables, analytics tables, NIP-85 score tables, and content-addressed documents with SHA-256 deduplication.
+    38 stored functions, narrow current winner tables, analytics and operational-fact tables, NIP-85 score tables, and content-addressed documents with SHA-256 deduplication.
 
 -   :material-lightning-bolt:{ .lg .middle } **Fully Async**
 

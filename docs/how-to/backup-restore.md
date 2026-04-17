@@ -112,7 +112,7 @@ Stop all services that write to the database before restoring:
 
 ### Refresh derived analytics state
 
-After restoring, refresh current-state tables, analytics facts, and periodic reconciliation targets to ensure they reflect the restored data. The simplest approach is to start the Refresher service, which orchestrates all refreshes in the correct dependency order:
+After restoring, refresh narrow current winner tables, shared analytics facts, operational contact-graph facts, and periodic reconciliation targets to ensure they reflect the restored data. The simplest approach is to start the Refresher service, which orchestrates all refreshes in the correct dependency order:
 
 ```bash
 # Docker

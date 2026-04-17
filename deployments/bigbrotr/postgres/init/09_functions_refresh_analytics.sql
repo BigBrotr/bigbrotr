@@ -1,7 +1,7 @@
 /*
  * Brotr - 09_functions_refresh_analytics.sql
  *
- * Refresh functions for analytics tables and periodic reconciliations.
+ * Refresh functions for analytics tables, operational facts, and periodic reconciliations.
  *
  * Analytics tables use pure incremental SQL functions that receive a
  * caller-managed watermark range. The Python refresher service owns

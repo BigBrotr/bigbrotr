@@ -1,7 +1,7 @@
 /*
  * Brotr - 03_tables_current.sql
  *
- * Incremental current-state tables for Brotr.
+ * Incremental narrow current winner tables for Brotr.
  *
  * These relations store the current winner for logical keys such as
  * (relay_url, role), (pubkey, kind), and (pubkey, kind, d_value).
@@ -87,54 +87,3 @@ CREATE TABLE IF NOT EXISTS addressable_event_current (
 
 COMMENT ON TABLE addressable_event_current IS
 'Current addressable event per (pubkey, kind, d_value). Incrementally refreshed via addressable_event_current_refresh(after, until).';
-
-
--- ==========================================================================
--- contact_lists_current: Current latest kind=3 contact list per author
--- ==========================================================================
--- One row per pubkey whose latest replaceable kind=3 event is currently active.
--- source_seen_at stores the first observed_at timestamp of the current latest
--- replaceable event, making the row stable across later duplicate observations
--- on other relays.
--- follow_count is the deduplicated number of valid followed pubkeys in that
--- current list.
---
--- This table remains materialized as an explicit operational exception:
--- current ranker sync and follower-count maintenance still consume it as a
--- stored incremental fact set even though the long-term architectural default
--- is view-first contact-graph exposure.
---
--- Refresh: contact_lists_current_refresh(p_after, p_until)
-
-CREATE TABLE IF NOT EXISTS contact_lists_current (
-    follower_pubkey TEXT PRIMARY KEY,
-    source_event_id TEXT NOT NULL,
-    source_created_at BIGINT NOT NULL,
-    source_seen_at BIGINT NOT NULL,
-    follow_count BIGINT NOT NULL DEFAULT 0
-);
-
-COMMENT ON TABLE contact_lists_current IS
-'Current latest kind=3 contact list per pubkey. Incrementally refreshed via contact_lists_current_refresh(after, until).';
-
-
--- ==========================================================================
--- contact_list_edges_current: Current deduplicated follow graph edges
--- ==========================================================================
--- One row per current (follower, followed) edge derived from the latest kind=3
--- event of that follower. The source_* columns point back to the active contact
--- list event that produced the edge.
---
--- Refresh: contact_list_edges_current_refresh(p_after, p_until)
-
-CREATE TABLE IF NOT EXISTS contact_list_edges_current (
-    follower_pubkey TEXT NOT NULL,
-    followed_pubkey TEXT NOT NULL,
-    source_event_id TEXT NOT NULL,
-    source_created_at BIGINT NOT NULL,
-    source_seen_at BIGINT NOT NULL,
-    PRIMARY KEY (follower_pubkey, followed_pubkey)
-);
-
-COMMENT ON TABLE contact_list_edges_current IS
-'Current deduplicated follow graph edges derived from latest kind=3 contact lists. Incrementally refreshed via contact_list_edges_current_refresh(after, until).';

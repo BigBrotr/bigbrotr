@@ -776,8 +776,9 @@ class Brotr:
         """Run a long-running ``{target_name}_refresh`` stored procedure.
 
         This helper is intentionally generic: some refresh procedures maintain
-        current-state tables, some maintain analytics tables, and others may
-        refresh bounded reporting views in custom deployments.
+        narrow current winner tables, some maintain analytics or operational
+        fact tables, and others may refresh bounded reporting views in custom
+        deployments.
 
         Args:
             target_name: Logical target whose stored procedure is named

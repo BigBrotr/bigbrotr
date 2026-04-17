@@ -1,10 +1,10 @@
 /*
  * Brotr - 04_tables_analytics.sql
  *
- * Analytics layer: derived tables and reporting abstractions built on
+ * Analytics layer: shared derived tables, operational facts, and reporting abstractions built on
  * top of the core and current-state schema.
  *
- * Derived analytics tables are regular tables maintained by the
+ * Derived analytics and operational-fact tables are regular tables maintained by the
  * refresh functions in 09_functions_refresh_analytics.sql.
  *
  * NIP-85 summary tables provide per-pubkey social metrics and per-event
@@ -176,6 +176,57 @@ CREATE TABLE IF NOT EXISTS relay_stats (
 
 COMMENT ON TABLE relay_stats IS
 'Rich per-relay statistics. Event counts via relay_stats_refresh(after, until). Document-backed relay fields via relay_stats_document_refresh().';
+
+
+-- ==========================================================================
+-- contact_lists_current: Current latest kind=3 contact list per author
+-- ==========================================================================
+-- One row per pubkey whose latest replaceable kind=3 event is currently active.
+-- source_seen_at stores the first observed_at timestamp of the current latest
+-- replaceable event, making the row stable across later duplicate observations
+-- on other relays.
+-- follow_count is the deduplicated number of valid followed pubkeys in that
+-- current list.
+--
+-- This table remains materialized as an explicit operational exception:
+-- current ranker sync and follower-count maintenance still consume it as a
+-- stored incremental fact set even though the long-term architectural default
+-- is view-first contact-graph exposure.
+--
+-- Refresh: contact_lists_current_refresh(p_after, p_until)
+
+CREATE TABLE IF NOT EXISTS contact_lists_current (
+    follower_pubkey TEXT PRIMARY KEY,
+    source_event_id TEXT NOT NULL,
+    source_created_at BIGINT NOT NULL,
+    source_seen_at BIGINT NOT NULL,
+    follow_count BIGINT NOT NULL DEFAULT 0
+);
+
+COMMENT ON TABLE contact_lists_current IS
+'Current latest kind=3 contact list per pubkey. Incrementally refreshed via contact_lists_current_refresh(after, until).';
+
+
+-- ==========================================================================
+-- contact_list_edges_current: Current deduplicated follow graph edges
+-- ==========================================================================
+-- One row per current (follower, followed) edge derived from the latest kind=3
+-- event of that follower. The source_* columns point back to the active contact
+-- list event that produced the edge.
+--
+-- Refresh: contact_list_edges_current_refresh(p_after, p_until)
+
+CREATE TABLE IF NOT EXISTS contact_list_edges_current (
+    follower_pubkey TEXT NOT NULL,
+    followed_pubkey TEXT NOT NULL,
+    source_event_id TEXT NOT NULL,
+    source_created_at BIGINT NOT NULL,
+    source_seen_at BIGINT NOT NULL,
+    PRIMARY KEY (follower_pubkey, followed_pubkey)
+);
+
+COMMENT ON TABLE contact_list_edges_current IS
+'Current deduplicated follow graph edges derived from latest kind=3 contact lists. Incrementally refreshed via contact_list_edges_current_refresh(after, until).';
 
 
 -- **************************************************************************

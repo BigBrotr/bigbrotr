@@ -1,7 +1,7 @@
 /*
  * Brotr - 08_functions_refresh_current.sql
  *
- * Incremental refresh functions for current-state tables.
+ * Incremental refresh functions for narrow current winner tables.
  *
  * These functions maintain non-additive winner-takes-latest facts derived
  * from append-only event and relay-document streams.

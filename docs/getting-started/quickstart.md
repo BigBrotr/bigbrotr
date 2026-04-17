@@ -47,7 +47,8 @@ You should see both `postgres` and `pgbouncer` with status `healthy`.
 !!! note
     The PostgreSQL init scripts in `deployments/bigbrotr/postgres/init/` run
     automatically on first start. They create all tables, stored functions,
-    indexes, current-state tables, analytics tables, and reporting views.
+    indexes, narrow current winner tables, analytics and operational-fact
+    tables, and reporting views.
 
 ## Step 3: Set Environment Variables
 
@@ -166,7 +167,9 @@ The remaining seven services handle monitoring, event archiving, analytics, rank
   publishes results as kind 10166/30166 Nostr events and uses a service key for NIP-66 write probes
 - **Synchronizer** connects to validated relays, subscribes to events, and
   archives them with cursor-based pagination, using a service key for NIP-42-authenticated reads when needed
-- **Refresher** refreshes current-state tables, analytics facts, and periodic reconciliation targets that power downstream queries
+- **Refresher** refreshes narrow current winner tables, shared analytics facts,
+  operational contact-graph facts, and periodic reconciliation targets that
+  power downstream queries
 - **Ranker** keeps a private DuckDB graph store, computes NIP-85 ranks, and snapshot-exports them back to PostgreSQL
 - **Assertor** publishes NIP-85 trusted assertion events for users, events, addressables, and identifiers
   with its own service signing key
