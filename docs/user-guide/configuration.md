@@ -705,6 +705,7 @@ metrics:
   port: 8005
 
 processing:
+  max_source_window: 86400
   max_duration: null
   max_targets_per_cycle: null
   continue_on_target_error: true
@@ -751,6 +752,7 @@ cleanup:
 | `periodic.rolling_windows` | bool | `true` | - | Recompute rolling time-window columns |
 | `periodic.relay_stats_document` | bool | `true` | - | Refresh `relay_stats` document-backed fields from relay documents |
 | `periodic.nip85_followers` | bool | `true` | - | Recompute NIP-85 follower and following counts |
+| `processing.max_source_window` | int or null | `86400` | >= 1 | Maximum source timestamp span consumed by one incremental target slice |
 | `processing.max_duration` | float or null | `null` | 1-86400 | Maximum seconds for one refresh cycle |
 | `processing.max_targets_per_cycle` | int or null | `null` | >= 1 | Maximum targets attempted in one cycle |
 | `processing.continue_on_target_error` | bool | `true` | - | Continue after isolated target failures |

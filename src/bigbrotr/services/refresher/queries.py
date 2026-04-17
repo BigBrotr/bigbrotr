@@ -134,30 +134,67 @@ async def get_relay_document_watermark(brotr: Brotr) -> int:
     return int(result) if result else 0
 
 
-async def get_max_observed_at(brotr: Brotr, after: int) -> int:
-    """Return the latest ``event_observation.observed_at`` after checkpoint."""
-    result = await brotr.fetchval(
+def _bounded_source_until(
+    *,
+    after: int,
+    min_pending: int | None,
+    max_pending: int | None,
+    max_source_window: int | None,
+) -> int:
+    """Return the bounded upper watermark for one incremental source slice."""
+    if min_pending is None or max_pending is None:
+        return after
+    if max_source_window is None:
+        return max_pending
+    return min(max_pending, min_pending + max_source_window)
+
+
+async def get_max_observed_at(
+    brotr: Brotr,
+    after: int,
+    max_source_window: int | None = None,
+) -> int:
+    """Return the bounded ``event_observation.observed_at`` upper watermark."""
+    row = await brotr.fetchrow(
         """
-        SELECT COALESCE(MAX(observed_at), $1)
+        SELECT MIN(observed_at) AS min_observed_at, MAX(observed_at) AS max_observed_at
         FROM event_observation
         WHERE observed_at > $1
         """,
         after,
     )
-    return int(result) if result is not None else after
+    if row is None:
+        return after
+    return _bounded_source_until(
+        after=after,
+        min_pending=row["min_observed_at"],
+        max_pending=row["max_observed_at"],
+        max_source_window=max_source_window,
+    )
 
 
-async def get_max_associated_at(brotr: Brotr, after: int) -> int:
-    """Return the latest ``relay_document.associated_at`` after checkpoint."""
-    result = await brotr.fetchval(
+async def get_max_associated_at(
+    brotr: Brotr,
+    after: int,
+    max_source_window: int | None = None,
+) -> int:
+    """Return the bounded ``relay_document.associated_at`` upper watermark."""
+    row = await brotr.fetchrow(
         """
-        SELECT COALESCE(MAX(associated_at), $1)
+        SELECT MIN(associated_at) AS min_associated_at, MAX(associated_at) AS max_associated_at
         FROM relay_document
         WHERE associated_at > $1
         """,
         after,
     )
-    return int(result) if result is not None else after
+    if row is None:
+        return after
+    return _bounded_source_until(
+        after=after,
+        min_pending=row["min_associated_at"],
+        max_pending=row["max_associated_at"],
+        max_source_window=max_source_window,
+    )
 
 
 async def refresh_incremental_target(

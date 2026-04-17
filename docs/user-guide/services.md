@@ -380,6 +380,8 @@ flowchart TD
 4. Run enabled periodic reconciliations (`rolling_windows`, `relay_stats_document`, `nip85_followers`) and emit per-target timing, row, watermark-lag, and failure metrics
 
 Each target is isolated by default: one failed refresh does not stop the rest of the cycle unless `processing.continue_on_target_error` is disabled.
+Incremental source processing is also window-bounded by default, so a single target refresh
+does not have to consume an arbitrarily large backlog in one cycle.
 
 ### Configuration
 
@@ -390,6 +392,7 @@ Each target is isolated by default: one failed refresh does not stop the rest of
 | `periodic.rolling_windows` | bool | `true` | Recompute rolling time-window columns |
 | `periodic.relay_stats_document` | bool | `true` | Refresh `relay_stats` document-backed fields |
 | `periodic.nip85_followers` | bool | `true` | Recompute NIP-85 follower/following counts |
+| `processing.max_source_window` | int or null | `86400` | Maximum source timestamp span consumed by one incremental target slice |
 | `processing.max_duration` | float or null | `null` | Maximum seconds for one refresh cycle |
 | `processing.max_targets_per_cycle` | int or null | `null` | Maximum targets attempted per cycle |
 | `processing.continue_on_target_error` | bool | `true` | Continue after isolated target failures |

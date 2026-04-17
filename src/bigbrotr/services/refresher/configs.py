@@ -139,6 +139,14 @@ def validate_refresh_dependencies(
 class ProcessingConfig(BaseModel):
     """Refresher cycle processing budgets and failure policy."""
 
+    max_source_window: int | None = Field(
+        default=86_400,
+        ge=1,
+        description=(
+            "Maximum timestamp window per incremental source slice in seconds "
+            "(None = consume through latest visible source watermark)"
+        ),
+    )
     max_duration: float | None = Field(
         default=None,
         ge=1.0,

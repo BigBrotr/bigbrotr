@@ -46,10 +46,12 @@ def _config(
     current: list[str] | None = None,
     analytics: list[str] | None = None,
     periodic: bool = False,
+    processing: dict[str, object] | None = None,
 ) -> RefresherConfig:
     return RefresherConfig.model_validate(
         {
             "metrics": {"enabled": False},
+            "processing": processing or {},
             "current": {"targets": [] if current is None else current},
             "analytics": {"targets": [] if analytics is None else analytics},
             "periodic": {
@@ -394,6 +396,75 @@ class TestRefresherIntegration:
         assert current_row is not None
         assert current_row["document_id"] == second_document.document.content_hash
         assert current_row["associated_at"] == 150
+        assert state_after_second
+        assert state_after_second[0].state_value["timestamp"] == 150
+
+    async def test_incremental_source_window_bounds_backlog_progress(self, brotr: Brotr) -> None:
+        refresher = Refresher(
+            brotr=brotr,
+            config=_config(
+                analytics=["pubkey_kind_stats"],
+                processing={"max_source_window": 25},
+            ),
+        )
+        await brotr.insert_event_observation(
+            [
+                _event_observation(
+                    "70" * 32,
+                    "wss://refresher-window.example.com",
+                    kind=1,
+                    pubkey="99" * 32,
+                    observed_at=100,
+                ),
+                _event_observation(
+                    "71" * 32,
+                    "wss://refresher-window.example.com",
+                    kind=1,
+                    pubkey="aa" * 32,
+                    observed_at=150,
+                ),
+            ],
+            cascade=True,
+        )
+
+        first = await refresher.refresh()
+        first_row = await brotr.fetchrow(
+            "SELECT event_count FROM pubkey_kind_stats WHERE pubkey = $1 AND kind = $2",
+            "99" * 32,
+            1,
+        )
+        second_row_before_resume = await brotr.fetchrow(
+            "SELECT event_count FROM pubkey_kind_stats WHERE pubkey = $1 AND kind = $2",
+            "aa" * 32,
+            1,
+        )
+        state_after_first = await brotr.get_service_state(
+            ServiceName.REFRESHER,
+            ServiceStateType.CHECKPOINT,
+            "pubkey_kind_stats",
+        )
+
+        second = await refresher.refresh()
+        second_row_after_resume = await brotr.fetchrow(
+            "SELECT event_count FROM pubkey_kind_stats WHERE pubkey = $1 AND kind = $2",
+            "aa" * 32,
+            1,
+        )
+        state_after_second = await brotr.get_service_state(
+            ServiceName.REFRESHER,
+            ServiceStateType.CHECKPOINT,
+            "pubkey_kind_stats",
+        )
+
+        assert first.rows_refreshed >= 1
+        assert second.rows_refreshed >= 1
+        assert first_row is not None
+        assert first_row["event_count"] == 1
+        assert second_row_before_resume is None
+        assert state_after_first
+        assert state_after_first[0].state_value["timestamp"] == 125
+        assert second_row_after_resume is not None
+        assert second_row_after_resume["event_count"] == 1
         assert state_after_second
         assert state_after_second[0].state_value["timestamp"] == 150
 

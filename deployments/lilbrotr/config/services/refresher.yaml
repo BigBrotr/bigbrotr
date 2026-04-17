@@ -16,6 +16,7 @@ metrics:
   host: "0.0.0.0"                       # Bind to all interfaces for Docker access
 
 processing:
+  max_source_window: 86400               # Max source timestamp span per incremental target slice
   max_duration: null                     # Optional cycle time budget in seconds
   max_targets_per_cycle: null            # Optional cap for partial refresh cycles
   continue_on_target_error: true

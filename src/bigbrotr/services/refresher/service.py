@@ -234,9 +234,17 @@ class Refresher(BaseService[RefresherConfig]):
 
         try:
             if spec.watermark_source == WatermarkSource.RELAY_DOCUMENT:
-                until = await get_max_associated_at(self._brotr, checkpoint)
+                until = await get_max_associated_at(
+                    self._brotr,
+                    checkpoint,
+                    self._config.processing.max_source_window,
+                )
             else:
-                until = await get_max_observed_at(self._brotr, checkpoint)
+                until = await get_max_observed_at(
+                    self._brotr,
+                    checkpoint,
+                    self._config.processing.max_source_window,
+                )
             if until == checkpoint:
                 rows = 0
             else:

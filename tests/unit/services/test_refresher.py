@@ -90,6 +90,7 @@ class TestRefreshTargetConfig:
         assert config.current.targets == list(DEFAULT_CURRENT_TARGETS)
         assert config.analytics.targets == list(DEFAULT_ANALYTICS_TARGETS)
         assert config.periodic.enabled_targets() == list(PeriodicRefreshTarget)
+        assert config.processing.max_source_window == 86_400
         assert config.processing.max_duration is None
         assert config.processing.max_targets_per_cycle is None
         assert config.processing.continue_on_target_error is True
@@ -238,17 +239,39 @@ class TestRefreshQueryRegistry:
 
     async def test_incremental_watermarks_hold_checkpoint_without_new_rows(self) -> None:
         brotr = MagicMock(spec=Brotr)
-        brotr.fetchval = AsyncMock(side_effect=[100, 200])
+        brotr.fetchrow = AsyncMock(
+            side_effect=[
+                {"min_observed_at": None, "max_observed_at": None},
+                {"min_associated_at": None, "max_associated_at": None},
+            ]
+        )
 
         assert await get_max_observed_at(brotr, 100) == 100
         assert await get_max_associated_at(brotr, 200) == 200
 
     async def test_incremental_watermarks_advance_to_source_max_when_rows_exist(self) -> None:
         brotr = MagicMock(spec=Brotr)
-        brotr.fetchval = AsyncMock(side_effect=[150, 250])
+        brotr.fetchrow = AsyncMock(
+            side_effect=[
+                {"min_observed_at": 125, "max_observed_at": 150},
+                {"min_associated_at": 225, "max_associated_at": 250},
+            ]
+        )
 
         assert await get_max_observed_at(brotr, 100) == 150
         assert await get_max_associated_at(brotr, 200) == 250
+
+    async def test_incremental_watermarks_respect_bounded_source_window(self) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetchrow = AsyncMock(
+            side_effect=[
+                {"min_observed_at": 100, "max_observed_at": 250},
+                {"min_associated_at": 200, "max_associated_at": 400},
+            ]
+        )
+
+        assert await get_max_observed_at(brotr, 0, 25) == 125
+        assert await get_max_associated_at(brotr, 0, 50) == 250
 
 
 class TestRefresherInit:
@@ -404,8 +427,38 @@ class TestRefresherRun:
         ):
             await refresher.run()
 
-        mock_associated.assert_awaited_once_with(mock_refresher_brotr, 0)
+        mock_associated.assert_awaited_once_with(mock_refresher_brotr, 0, 86_400)
         mock_seen.assert_not_called()
+
+    async def test_passes_configured_source_window_to_event_watermark_query(
+        self,
+        mock_refresher_brotr: Brotr,
+    ) -> None:
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(
+                analytics=["pubkey_kind_stats"],
+                processing={"max_source_window": 25},
+            ),
+        )
+
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.get_max_observed_at",
+                AsyncMock(return_value=125),
+            ) as mock_seen,
+            patch(
+                "bigbrotr.services.refresher.service.refresh_incremental_target",
+                AsyncMock(return_value=1),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
+                AsyncMock(return_value=125),
+            ),
+        ):
+            await refresher.run()
+
+        mock_seen.assert_awaited_once_with(mock_refresher_brotr, 0, 25)
 
     async def test_run_incremental_cycle_targets_updates_source_checkpoints(
         self,
