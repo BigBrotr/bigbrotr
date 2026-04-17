@@ -1,4 +1,4 @@
-"""Unit tests for the analytics rebuild tool."""
+"""Unit tests for the refresher state rebuild tool."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 import yaml
-from tools import rebuild_analytics as rebuild
+from tools import rebuild_refresher_state as rebuild
 
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
@@ -90,7 +90,7 @@ class TestRuntimeConfig:
         }
 
 
-class TestRebuildAnalytics:
+class TestRebuildRefresherState:
     @pytest.mark.asyncio
     async def test_rebuild_orders_calls_and_resets_state(self) -> None:
         brotr = MagicMock()
@@ -120,7 +120,7 @@ class TestRebuildAnalytics:
         rebuild.refresh_incremental_target = refresh_incremental_target
         rebuild.refresh_periodic_target = refresh_periodic_target
         try:
-            result = await rebuild.rebuild_analytics(brotr, until=1234)
+            result = await rebuild.rebuild_refresher_state(brotr, until=1234)
         finally:
             rebuild.refresh_incremental_target = original_refresh_incremental_target
             rebuild.refresh_periodic_target = original_refresh_periodic_target
@@ -168,7 +168,7 @@ class TestRebuildAnalytics:
         rebuild.refresh_incremental_target = AsyncMock(return_value=0)
         rebuild.refresh_periodic_target = AsyncMock()
         try:
-            result = await rebuild.rebuild_analytics(brotr, until=4321)
+            result = await rebuild.rebuild_refresher_state(brotr, until=4321)
         finally:
             rebuild.refresh_incremental_target = original_refresh_incremental_target
             rebuild.refresh_periodic_target = original_refresh_periodic_target
@@ -193,7 +193,7 @@ class TestRebuildAnalytics:
         rebuild.refresh_periodic_target = refresh_periodic_target
         try:
             with pytest.raises(RuntimeError, match="boom"):
-                await rebuild.rebuild_analytics(brotr, until=1234)
+                await rebuild.rebuild_refresher_state(brotr, until=1234)
         finally:
             rebuild.refresh_incremental_target = original_refresh_incremental_target
             rebuild.refresh_periodic_target = original_refresh_periodic_target

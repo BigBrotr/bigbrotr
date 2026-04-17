@@ -719,6 +719,10 @@ Primary key: `(algorithm_id, <subject key>)`.
 
 The **Refresher** service (`python -m bigbrotr refresher`) orchestrates all refresh functions automatically, executing each configured target in dependency order with per-target logging, checkpoints, metrics, and error isolation.
 
+For offline rebuilds after destructive maintenance, use
+`tools/rebuild_refresher_state.py`; it replays the same Refresher-owned target
+registry rather than introducing an alternate derivation pipeline.
+
 ### Current-State Refresh Functions
 
 Current-state refresh functions accept `(p_after BIGINT, p_until BIGINT)` range parameters and return `INTEGER` (rows affected). The Refresher computes the range from each target checkpoint to the next source watermark.

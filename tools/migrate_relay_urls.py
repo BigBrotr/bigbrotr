@@ -24,9 +24,9 @@ Phase 3 — Finder reset:
     DELETE all finder cursors and checkpoints from service_state to force a
     full re-scan from the beginning.
 
-Phase 4 — Analytics rebuild:
-    Rebuild summary tables and reset dependent checkpoints so incremental
-    analytics and Assertor publications realign with the new relay set.
+Phase 4 — Refresher state rebuild:
+    Rebuild Refresher-owned shared derivation tables and reset dependent
+    checkpoints so downstream publications realign with the new relay set.
 
 Safety:
     - Phases 1-3 run in a single transaction (all-or-nothing).
@@ -57,9 +57,9 @@ from bigbrotr.models.relay_url import normalize_relay_url
 
 
 try:
-    from tools.rebuild_analytics import rebuild_analytics
+    from tools.rebuild_refresher_state import rebuild_refresher_state
 except ModuleNotFoundError:  # pragma: no cover - direct script execution path
-    from rebuild_analytics import rebuild_analytics
+    from rebuild_refresher_state import rebuild_refresher_state
 
 
 @dataclass
@@ -294,7 +294,7 @@ async def _run_rebuild(
         }
     )
     async with brotr:
-        await rebuild_analytics(brotr)
+        await rebuild_refresher_state(brotr)
 
 
 def main() -> None:
@@ -328,7 +328,7 @@ def main() -> None:
     )
 
     if not args.dry_run and (result.relays.renormalized or result.relays.invalid):
-        print("\n--- Phase 4: Analytics rebuild ---\n")
+        print("\n--- Phase 4: Refresher state rebuild ---\n")
         try:
             asyncio.run(
                 _run_rebuild(
@@ -341,11 +341,11 @@ def main() -> None:
             )
         except Exception:
             print(
-                "  Analytics rebuild failed; analytics may now be stale or unreliable "
-                "until tools/rebuild_analytics.py succeeds."
+                "  Refresher state rebuild failed; shared derivation state may now be stale "
+                "or unreliable until tools/rebuild_refresher_state.py succeeds."
             )
             raise
-        print("  Analytics rebuild completed successfully.")
+        print("  Refresher state rebuild completed successfully.")
 
     print(f"\n{'=' * 40}")
     print("  Phase 1 — Relays")
@@ -362,7 +362,7 @@ def main() -> None:
     print(f"    Cursors deleted:     {result.finder_cursors_deleted}")
     print(f"    Checkpoints deleted: {result.finder_checkpoints_deleted}")
     rebuilt = not args.dry_run and (result.relays.renormalized or result.relays.invalid)
-    print("  Phase 4 — Analytics rebuild")
+    print("  Phase 4 — Refresher state rebuild")
     print(f"    Rebuilt:            {'yes' if rebuilt else 'no'}")
     print(f"{'=' * 40}")
 

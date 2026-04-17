@@ -97,5 +97,5 @@ def test_main_reports_rebuild_failure(monkeypatch, capsys) -> None:
         migrate_tool.main()
 
     captured = capsys.readouterr()
-    assert "Analytics rebuild failed" in captured.out
-    assert "analytics may now be stale or unreliable" in captured.out
+    assert "Refresher state rebuild failed" in captured.out
+    assert "shared derivation state may now be stale or unreliable" in captured.out

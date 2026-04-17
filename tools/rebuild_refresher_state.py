@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""One-shot rebuild for narrow current winner tables and analytics facts.
+"""One-shot rebuild for Refresher-owned shared derivation state.
 
 The rebuild is intended for destructive maintenance windows or after fixing
 logic bugs in derived state. It:
 
-1. Truncates narrow current winner tables and analytics/operational-fact tables
+1. Truncates narrow current winner tables and shared analytics/operational-fact tables
 2. Replays incremental refresh from ``after=0`` to ``until``
-3. Runs periodic reconciliation functions
+3. Runs periodic reconciliation functions owned by the Refresher
 4. Aligns refresher checkpoints
-5. Clears assertor checkpoints so corrected assertions can be republished
+5. Clears downstream assertor checkpoints so corrected assertions can be republished
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ TRUNCATE_SQL = "TRUNCATE " + ", ".join([*CURRENT_TABLES, *ANALYTICS_TABLES])
 
 @dataclass(slots=True)
 class RebuildResult:
-    """Execution summary for one rebuild run."""
+    """Execution summary for one shared-derivation rebuild run."""
 
     until: int
     current_tables_refreshed: dict[str, int] = field(default_factory=dict)
@@ -101,7 +101,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments for the rebuild tool."""
     parser = argparse.ArgumentParser(
         description=(
-            "Rebuild narrow current winner tables and analytics/operational-fact tables, "
+            "Rebuild Refresher-owned current, analytics, and periodic shared derivations, "
             "then reset dependent checkpoints."
         ),
     )
@@ -149,12 +149,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
-async def rebuild_analytics(
+async def rebuild_refresher_state(
     brotr: Brotr,
     *,
     until: int | None = None,
 ) -> RebuildResult:
-    """Rebuild narrow current winner tables and analytics facts.
+    """Rebuild Refresher-owned shared derivation state.
 
     The rebuild runs against an already connected ``Brotr`` instance.
     """
@@ -213,12 +213,12 @@ async def _run_from_args(args: Namespace) -> RebuildResult:
         )
     )
     async with brotr:
-        return await rebuild_analytics(brotr, until=args.until)
+        return await rebuild_refresher_state(brotr, until=args.until)
 
 
 def _print_dry_run(deployment: str, until: int | None) -> None:
     watermark = until if until is not None else int(time.time())
-    print("=== Analytics Rebuild (DRY RUN) ===\n")
+    print("=== Refresher State Rebuild (DRY RUN) ===\n")
     print(f"Deployment: {deployment}")
     print(f"Until:      {watermark}")
     print("\nPhase 1 — Truncate derived tables")
@@ -228,7 +228,7 @@ def _print_dry_run(deployment: str, until: int | None) -> None:
     for target in CURRENT_TARGETS:
         spec = get_incremental_target_spec(target)
         print(f"  - {spec.sql_function}(0, {watermark})")
-    print("\nPhase 3 — Analytics and operational-fact replay")
+    print("\nPhase 3 — Shared analytics and operational-fact replay")
     for target in ANALYTICS_TARGETS:
         spec = get_incremental_target_spec(target)
         print(f"  - {spec.sql_function}(0, {watermark})")
@@ -253,7 +253,7 @@ def main(argv: list[str] | None = None) -> int:
 
     result = asyncio.run(_run_from_args(args))
 
-    print("=== Analytics Rebuild Complete ===\n")
+    print("=== Refresher State Rebuild Complete ===\n")
     print(f"Until: {result.until}")
     print("\nCurrent-winner rows affected:")
     for table, rows in result.current_tables_refreshed.items():

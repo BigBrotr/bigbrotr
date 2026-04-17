@@ -382,6 +382,10 @@ Each target is isolated by default: one failed refresh does not stop the rest of
 Incremental source processing is also window-bounded by default, so a single target refresh
 does not have to consume an arbitrarily large backlog in one cycle.
 
+For destructive maintenance windows, the repository also ships
+`tools/rebuild_refresher_state.py`, which replays the same Refresher-owned
+target registry offline instead of introducing a second derivation owner.
+
 ### Configuration
 
 | Field | Type | Default | Description |
