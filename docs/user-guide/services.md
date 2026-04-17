@@ -240,12 +240,11 @@ to `nips/event_builders.py`.
 
 **Orchestration flow:**
 
-1. `run()` -- update geo databases, open geo readers, publish profile/announcement, delegate to `monitor()`
-2. `monitor()` -- count relays, fetch in chunks, check concurrently via `_iter_concurrent()`, persist relay documents, update checkpoints
-3. `check_relay(relay)` -- run NIP-11 + all NIP-66 checks, return `CheckResult`
-4. `publish_discovery(relay, result)` -- build and broadcast kind 30166 per successful check
-5. `publish_announcement()` -- kind 10166 (monitor capabilities)
-6. `publish_profile()` -- kind 0 (monitor profile metadata)
+1. `run()` -- update geo databases, open geo readers, run the control-plane publication phase, then delegate to `monitor()`
+2. `_run_publication_phase()` -- publish kind 0, kind 10002, and kind 10166 if their intervals are due
+3. `monitor()` -- count relays, fetch in chunks, check concurrently via `_iter_concurrent()`, persist relay documents, update checkpoints, then run best-effort kind 30166 publication for successful results
+4. `check_relay(relay)` -- run NIP-11 + all NIP-66 checks, return `CheckResult`
+5. `publish_discovery(relay, result)` -- build and broadcast kind 30166 after persistence; publication failures do not discard the stored health-check result
 
 **CheckResult** (what each relay check produces):
 

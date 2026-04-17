@@ -2,8 +2,8 @@
 
 Performs comprehensive health checks on relays and stores results as
 content-addressed [Document][bigbrotr.models.document.Document]. Optionally
-publishes Kind 30166 relay discovery events and Kind 10166 monitor
-announcements to the Nostr network.
+publishes control-plane events (Kinds 0/10002/10166) and best-effort
+Kind 30166 relay discovery events to the Nostr network.
 
 Health checks include:
 
@@ -26,8 +26,10 @@ Note:
     Event building is delegated to [bigbrotr.nips.event_builders][bigbrotr.nips.event_builders]
     and broadcasting to [bigbrotr.utils.protocol][bigbrotr.utils.protocol]. The Monitor handles
     orchestration: when to publish, which data to extract from
-    [CheckResult][bigbrotr.services.monitor.CheckResult], and lifecycle
-    management of publishing intervals via service state markers.
+    [CheckResult][bigbrotr.services.monitor.CheckResult], lifecycle
+    management of publishing intervals via service state markers, and
+    the separation between probing, persistence, and best-effort
+    publication phases.
 
 See Also:
     [MonitorConfig][bigbrotr.services.monitor.MonitorConfig]: Configuration
@@ -173,11 +175,11 @@ class Monitor(
     - **Kind 10166**: Monitor announcement (capabilities, frequency, timeouts).
     - **Kind 30166**: Per-relay discovery event (RTT, SSL, geo, NIP-11 tags).
 
-    Each cycle updates GeoLite2 databases, publishes profile/announcement
-    events if due, fetches relays needing checks, processes them in chunks
-    with per-network semaphores, persists metadata results, and publishes
-    Kind 30166 discovery events. Supports clearnet (direct), Tor, I2P,
-    and Lokinet (via SOCKS5 proxy).
+    Each cycle updates GeoLite2 databases, publishes control-plane events
+    if due, fetches relays needing checks, processes them in chunks with
+    per-network semaphores, persists document results, and then publishes
+    Kind 30166 discovery events as a best-effort follow-up phase.
+    Supports clearnet (direct), Tor, I2P, and Lokinet (via SOCKS5 proxy).
 
     Event building is delegated to [bigbrotr.nips.event_builders][bigbrotr.nips.event_builders]
     and broadcasting to [bigbrotr.utils.protocol][bigbrotr.utils.protocol].
@@ -233,9 +235,9 @@ class Monitor(
     async def run(self) -> None:
         """Execute one complete monitoring cycle.
 
-        Orchestrates setup, publishing, monitoring, and cleanup.
+        Orchestrates setup, control-plane publication, probing, and cleanup.
         Delegates the core work to ``update_geo_databases``,
-        ``publish_profile``, ``publish_announcement``, and ``monitor``.
+        ``_run_publication_phase()``, and ``monitor()``.
 
         Publish relay connections are established lazily on first use
         via ``clients.get_relay_client()`` and torn down in the ``finally``
@@ -244,9 +246,7 @@ class Monitor(
         await self._open_cycle_resources()
 
         try:
-            await self.publish_profile()
-            await self.publish_relay_list()
-            await self.publish_announcement()
+            await self._run_publication_phase()
             await self.monitor()
         finally:
             await self._close_cycle_resources()
@@ -291,6 +291,12 @@ class Monitor(
             geo_readers=self.geo_readers,
             close_geo_readers_fn=self.geo_readers.close,
         )
+
+    async def _run_publication_phase(self) -> None:
+        """Run the control-plane publication phase for one monitor cycle."""
+        await self.publish_profile()
+        await self.publish_relay_list()
+        await self.publish_announcement()
 
     async def publish_profile(self) -> None:
         """Publish Kind 0 profile metadata if the configured interval has elapsed."""
@@ -426,8 +432,8 @@ class Monitor(
 
         Fetches relays in pages (``chunk_size``), checks each page
         concurrently via ``_iter_concurrent()``, persists results
-        at each pagination boundary, and publishes Kind 30166
-        discovery events per successful check.
+        at each pagination boundary, then publishes Kind 30166
+        discovery events as a best-effort post-persistence phase.
 
         Returns:
             Total number of relays processed (succeeded + failed).
@@ -518,6 +524,10 @@ class Monitor(
         """Process one relay page and return updated cycle progress."""
         chunk_outcome = await self._monitor_chunk(relays, plan)
         await self._persist_chunk_outcome(chunk_outcome, checked_at=int(time.time()))
+        await self._publish_chunk_discoveries(
+            chunk_outcome,
+            max_concurrency=plan.max_concurrency,
+        )
 
         next_progress = progress.advance(chunk_outcome)
         self._log_chunk_outcome(
@@ -546,6 +556,24 @@ class Monitor(
             checked_at=checked_at,
         )
 
+    async def _publish_chunk_discoveries(
+        self,
+        chunk_outcome: MonitorChunkOutcome,
+        *,
+        max_concurrency: int,
+    ) -> None:
+        """Publish discovery events after persistence for successful check results."""
+        successful = list(chunk_outcome.successful)
+        if not successful:
+            return
+
+        async for _ in self._iter_concurrent(
+            successful,
+            self._publish_discovery_worker,
+            max_concurrency=max_concurrency,
+        ):
+            continue
+
     def _log_chunk_outcome(
         self,
         chunk_outcome: MonitorChunkOutcome,
@@ -569,7 +597,6 @@ class Monitor(
         """Health-check a single relay for use with ``_iter_concurrent``.
 
         Acquires the per-network semaphore, runs all configured checks,
-        publishes a Kind 30166 discovery event for successful results,
         and yields ``(relay, result)`` or ``(relay, None)`` on failure.
         Yields exactly once — never raises, so every relay produces a
         result for the caller to classify.
@@ -579,8 +606,26 @@ class Monitor(
                 network_semaphores=self.network_semaphores,
                 logger=self._logger,
                 check_relay=self.check_relay,
-                publish_discovery=self.publish_discovery,
             ),
             relay=relay,
         ):
             yield item
+
+    async def _publish_discovery_worker(
+        self,
+        item: tuple[Relay, CheckResult],
+    ) -> AsyncGenerator[Relay, None]:
+        """Publish one relay discovery event without affecting check persistence."""
+        relay, result = item
+        try:
+            await self.publish_discovery(relay, result)
+        except Exception as error:
+            self._logger.error(
+                "publish_discovery_failed",
+                relay=relay.url,
+                error=str(error),
+                error_type=type(error).__name__,
+            )
+            return
+
+        yield relay

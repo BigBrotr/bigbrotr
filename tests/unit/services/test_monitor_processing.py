@@ -40,37 +40,32 @@ class TestMonitorWorker:
             network_semaphores=_SemaphoreMap(None),
             logger=logger,
             check_relay=AsyncMock(),
-            publish_discovery=AsyncMock(),
         )
 
         results = [item async for item in monitor_worker(context=context, relay=relay)]
 
         assert results == [(relay, None)]
         context.check_relay.assert_not_awaited()
-        context.publish_discovery.assert_not_awaited()
         logger.warning.assert_called_once_with(
             "unknown_network",
             url=relay.url,
             network=relay.network.value,
         )
 
-    async def test_successful_result_publishes_discovery(self) -> None:
+    async def test_successful_result_yields_result_without_publication_side_effect(self) -> None:
         relay = _relay()
         result = CheckResult(nip11_info=MagicMock())
         check_relay = AsyncMock(return_value=result)
-        publish_discovery = AsyncMock()
         context = MonitorWorkerContext(
             network_semaphores=_SemaphoreMap(asyncio.Semaphore(1)),
             logger=MagicMock(),
             check_relay=check_relay,
-            publish_discovery=publish_discovery,
         )
 
         results = [item async for item in monitor_worker(context=context, relay=relay)]
 
         assert results == [(relay, result)]
         check_relay.assert_awaited_once_with(relay)
-        publish_discovery.assert_awaited_once_with(relay, result)
 
 
 class TestMonitorChunk:

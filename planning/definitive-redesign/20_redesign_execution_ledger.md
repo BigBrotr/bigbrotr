@@ -125,8 +125,8 @@ Execution baseline:
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 5.1 `Monitor` boundary hardening | not started | | |
-| 5.2 `Synchronizer` boundary hardening | not started | | |
+| 5.1 `Monitor` internal restructuring | done | `refactor: isolate monitor discovery publication` | Clarified the internal `Monitor` boundary without splitting the service: per-relay workers now perform probing only, relay-document persistence remains the authoritative chunk-boundary write phase, and kind `30166` discovery publishing now runs as a separate post-persistence best-effort phase. This prevents discovery broadcast failures from reclassifying a healthy relay as a monitor failure or discarding already-computed health results, while keeping publication bounded through the existing concurrent stream machinery. The slice also introduced an explicit control-plane publication phase for kind `0` / `10002` / `10166`, updated monitor docs, and closed the remaining ledger drift so Tranche 5/6 names match the canonical operational plan. Targeted monitor suites (`215 passed`), `python3 tools/generate_sql.py --check`, full `make ci`, and `uv lock --check` passed before closure |
+| 5.2 `Refresher` authoritative ownership | not started | | |
 | 5.3 `Assertor` package-complete publication alignment | not started | | |
 | 5.4 `Ranker` boundary hardening | not started | | |
 
@@ -134,9 +134,9 @@ Execution baseline:
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 6.1 Public score-output alignment | not started | | |
-| 6.2 Capability-oriented `NIP_REGISTRY` alignment | not started | | |
-| 6.3 NIP publication and metadata consistency audit | not started | | |
+| 6.1 Formalize the static capability registry | not started | | |
+| 6.2 Align NIP-85 event builders and publication paths | not started | | |
+| 6.3 Align score-output naming and usage | not started | | |
 
 ### Tranche 7 — Protocol-Agnostic Read-Core Implementation
 

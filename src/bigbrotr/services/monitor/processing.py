@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from .configs import MetadataFlags
 
     MonitorCheckRelay = Callable[[Relay], Awaitable[CheckResult]]
-    MonitorPublishDiscovery = Callable[[Relay, CheckResult], Awaitable[None]]
     MonitorGaugeIncrement = Callable[[str], None]
     MonitorGaugeSetter = Callable[[str, int], None]
     MonitorRelayWorker = Callable[[Relay], AsyncGenerator[tuple[Relay, CheckResult | None], None]]
@@ -54,7 +53,6 @@ class MonitorWorkerContext:
     network_semaphores: MonitorSemaphoreLookup
     logger: Logger
     check_relay: MonitorCheckRelay
-    publish_discovery: MonitorPublishDiscovery
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +79,7 @@ async def monitor_worker(
     context: MonitorWorkerContext,
     relay: Relay,
 ) -> AsyncGenerator[tuple[Relay, CheckResult | None], None]:
-    """Check and optionally publish one relay for use with concurrent chunk iteration."""
+    """Check one relay for use with concurrent chunk iteration."""
     try:
         semaphore = context.network_semaphores.get(relay.network)
         if semaphore is None:
@@ -94,7 +92,6 @@ async def monitor_worker(
             if not result.has_data:
                 yield relay, None
                 return
-            await context.publish_discovery(relay, result)
             yield relay, result
     except Exception as error:  # Worker exception boundary — protects TaskGroup
         context.logger.error(

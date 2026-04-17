@@ -174,9 +174,12 @@ class _MonitorStub:
     _check_dependencies = Monitor._check_dependencies
     _monitor_chunk = Monitor._monitor_chunk
     _persist_chunk_outcome = Monitor._persist_chunk_outcome
+    _publish_chunk_discoveries = Monitor._publish_chunk_discoveries
+    _publish_discovery_worker = Monitor._publish_discovery_worker
     _log_chunk_outcome = Monitor._log_chunk_outcome
     _open_cycle_resources = Monitor._open_cycle_resources
     _close_cycle_resources = Monitor._close_cycle_resources
+    _run_publication_phase = Monitor._run_publication_phase
     _iter_monitor_pages = Monitor._iter_monitor_pages
     _process_monitor_page = Monitor._process_monitor_page
     run = Monitor.run
@@ -1633,7 +1636,28 @@ class TestMonitorRun:
         mock_count.assert_awaited_once()
         mock_iter_pages.assert_called_once()
 
-    async def test_run_calls_publish_then_monitor(
+    async def test_run_calls_control_plane_publication_then_monitor(
+        self,
+        stub: _MonitorStub,
+    ) -> None:
+        calls: list[str] = []
+
+        async def publication_phase() -> None:
+            calls.append("publication")
+
+        async def monitor_cycle() -> None:
+            calls.append("monitor")
+
+        stub._run_publication_phase = AsyncMock(side_effect=publication_phase)  # type: ignore[method-assign]
+        stub.monitor = AsyncMock(side_effect=monitor_cycle)
+        stub._open_cycle_resources = AsyncMock()  # type: ignore[method-assign]
+        stub._close_cycle_resources = AsyncMock()  # type: ignore[method-assign]
+
+        await stub.run()
+
+        assert calls == ["publication", "monitor"]
+
+    async def test_run_publication_phase_calls_profile_relay_list_and_announcement(
         self,
         stub: _MonitorStub,
     ) -> None:
@@ -1648,19 +1672,13 @@ class TestMonitorRun:
         async def publish_announcement() -> None:
             calls.append("announcement")
 
-        async def monitor_cycle() -> None:
-            calls.append("monitor")
-
         stub.publish_profile = AsyncMock(side_effect=publish_profile)
         stub.publish_relay_list = AsyncMock(side_effect=publish_relay_list)
         stub.publish_announcement = AsyncMock(side_effect=publish_announcement)
-        stub.monitor = AsyncMock(side_effect=monitor_cycle)
-        stub._open_cycle_resources = AsyncMock()  # type: ignore[method-assign]
-        stub._close_cycle_resources = AsyncMock()  # type: ignore[method-assign]
 
-        await stub.run()
+        await stub._run_publication_phase()
 
-        assert calls == ["profile", "relay_list", "announcement", "monitor"]
+        assert calls == ["profile", "relay_list", "announcement"]
 
     async def test_open_cycle_resources_uses_enabled_geo_readers(
         self,
@@ -1716,13 +1734,11 @@ class TestMonitorRun:
                 "_open_cycle_resources",
                 new_callable=AsyncMock,
             ) as mock_open,
-            patch.object(monitor, "publish_profile", new_callable=AsyncMock) as mock_profile,
-            patch.object(monitor, "publish_relay_list", new_callable=AsyncMock) as mock_relay_list,
             patch.object(
                 monitor,
-                "publish_announcement",
+                "_run_publication_phase",
                 new_callable=AsyncMock,
-            ) as mock_announcement,
+            ) as mock_publication,
             patch.object(monitor, "monitor", new_callable=AsyncMock) as mock_monitor,
             patch.object(
                 monitor,
@@ -1733,9 +1749,7 @@ class TestMonitorRun:
             await monitor.run()
 
         mock_open.assert_awaited_once()
-        mock_profile.assert_awaited_once()
-        mock_relay_list.assert_awaited_once()
-        mock_announcement.assert_awaited_once()
+        mock_publication.assert_awaited_once()
         mock_monitor.assert_awaited_once()
         mock_close.assert_awaited_once()
 
@@ -1860,6 +1874,11 @@ class TestMonitorRun:
                 "_persist_chunk_outcome",
                 new_callable=AsyncMock,
             ) as mock_persist,
+            patch.object(
+                monitor,
+                "_publish_chunk_discoveries",
+                new_callable=AsyncMock,
+            ) as mock_publish,
             patch.object(monitor, "_log_chunk_outcome") as mock_log,
         ):
             progress = await monitor._process_monitor_pages(plan, MonitorProgress(total=4))
@@ -1874,6 +1893,7 @@ class TestMonitorRun:
         )
         mock_chunk.assert_awaited_once()
         mock_persist.assert_awaited_once()
+        mock_publish.assert_awaited_once_with(outcome, max_concurrency=5)
         mock_log.assert_called_once_with(outcome, total=4, succeeded=1, failed=0)
 
     @patch(
@@ -1929,6 +1949,11 @@ class TestMonitorRun:
                 "_persist_chunk_outcome",
                 new_callable=AsyncMock,
             ) as mock_persist,
+            patch.object(
+                monitor,
+                "_publish_chunk_discoveries",
+                new_callable=AsyncMock,
+            ) as mock_publish,
             patch.object(monitor, "_log_chunk_outcome") as mock_log,
         ):
             progress = await monitor._process_monitor_page(
@@ -1947,7 +1972,52 @@ class TestMonitorRun:
         assert progress == MonitorProgress(total=4, succeeded=1, failed=0)
         mock_chunk.assert_awaited_once()
         mock_persist.assert_awaited_once()
+        mock_publish.assert_awaited_once_with(outcome, max_concurrency=5)
         mock_log.assert_called_once_with(outcome, total=4, succeeded=1, failed=0)
+
+    async def test_process_monitor_page_persists_before_discovery_publication(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        relay = Relay("wss://relay.example.com")
+        outcome = MonitorChunkOutcome(
+            successful=((relay, _make_check_result()),),
+            failed=(),
+        )
+        calls: list[str] = []
+
+        async def persist(*args: object, **kwargs: object) -> None:
+            calls.append("persist")
+
+        async def publish(*args: object, **kwargs: object) -> None:
+            calls.append("publish")
+
+        with (
+            patch.object(
+                monitor,
+                "_monitor_chunk",
+                new_callable=AsyncMock,
+                return_value=outcome,
+            ),
+            patch.object(monitor, "_persist_chunk_outcome", side_effect=persist),
+            patch.object(monitor, "_publish_chunk_discoveries", side_effect=publish),
+            patch.object(monitor, "_log_chunk_outcome"),
+        ):
+            await monitor._process_monitor_page(
+                [relay],
+                MonitorCyclePlan(
+                    networks=(NetworkType.CLEARNET,),
+                    monitored_before=0,
+                    max_relays=None,
+                    total=1,
+                    max_concurrency=5,
+                    chunk_size=1,
+                ),
+                MonitorProgress(total=1),
+            )
+
+        assert calls == ["persist", "publish"]
 
 
 # ============================================================================
@@ -2060,6 +2130,33 @@ class TestMonitoringWorker:
         assert r is relay
         assert res is result
 
+    async def test_discovery_publish_failure_does_not_change_worker_result(
+        self, mock_brotr: Brotr
+    ) -> None:
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
+
+        with (
+            patch.object(
+                Monitor,
+                "check_relay",
+                new_callable=AsyncMock,
+                return_value=result,
+            ),
+            patch.object(
+                Monitor,
+                "publish_discovery",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("publish failed"),
+            ) as mock_publish,
+        ):
+            results = [item async for item in monitor._monitor_worker(relay)]
+
+        assert results == [(relay, result)]
+        mock_publish.assert_not_awaited()
+
     async def test_empty_result_returns_none(self, mock_brotr: Brotr) -> None:
         config = _make_config()
         monitor = Monitor(brotr=mock_brotr, config=config)
@@ -2094,6 +2191,36 @@ class TestMonitoringWorker:
 
         assert r is relay
         assert res is None
+
+    async def test_publish_chunk_discoveries_logs_and_continues_on_failure(
+        self, mock_brotr: Brotr
+    ) -> None:
+        config = _make_config()
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        monitor._logger = MagicMock()
+        relay_ok = Relay("wss://ok.example.com")
+        relay_fail = Relay("wss://fail.example.com")
+        result = _make_check_result(nip66_rtt=_make_rtt_meta(rtt_open=100))
+
+        async def publish(relay: Relay, _result: CheckResult) -> None:
+            if relay.url == relay_fail.url:
+                raise RuntimeError("publish failed")
+
+        with patch.object(monitor, "publish_discovery", side_effect=publish):
+            await monitor._publish_chunk_discoveries(
+                MonitorChunkOutcome(
+                    successful=((relay_ok, result), (relay_fail, result)),
+                    failed=(),
+                ),
+                max_concurrency=2,
+            )
+
+        monitor._logger.error.assert_called_once_with(
+            "publish_discovery_failed",
+            relay=relay_fail.url,
+            error="publish failed",
+            error_type="RuntimeError",
+        )
 
     @pytest.mark.parametrize("exc_type", [asyncio.CancelledError, KeyboardInterrupt, SystemExit])
     async def test_fatal_exception_propagates(
