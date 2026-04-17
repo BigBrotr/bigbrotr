@@ -67,7 +67,7 @@ class ServiceName(StrEnum):
     """Canonical service identifiers used in logging, metrics, and persistence.
 
     Each member corresponds to one of the ten services. The string
-    values are used as the ``service_name`` column in the ``service_state``
+    values are used as the ``owner`` column in the ``service_state``
     table and as the ``service`` label in Prometheus metrics.
 
     Attributes:

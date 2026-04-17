@@ -173,7 +173,7 @@ async def rebuild_analytics(
     result.refresher_checkpoints_upserted = await brotr.upsert_service_state(
         [
             ServiceState(
-                service_name=ServiceName.REFRESHER,
+                owner=ServiceName.REFRESHER,
                 state_type=ServiceStateType.CHECKPOINT,
                 state_key=table,
                 state_value={"timestamp": watermark},
@@ -188,7 +188,7 @@ async def rebuild_analytics(
     )
     if assertor_states:
         result.assertor_checkpoints_deleted = await brotr.delete_service_state(
-            service_names=[s.service_name for s in assertor_states],
+            owners=[s.owner for s in assertor_states],
             state_types=[s.state_type for s in assertor_states],
             state_keys=[s.state_key for s in assertor_states],
         )

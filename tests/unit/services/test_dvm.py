@@ -87,8 +87,8 @@ def sample_dvm_catalog() -> Catalog:
         ),
         "service_state": TableSchema(
             name="service_state",
-            columns=(ColumnSchema(name="service_name", pg_type="text", nullable=False),),
-            primary_key=("service_name",),
+            columns=(ColumnSchema(name="owner", pg_type="text", nullable=False),),
+            primary_key=("owner",),
             is_view=False,
         ),
         "event": TableSchema(

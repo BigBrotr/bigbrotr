@@ -302,13 +302,13 @@ class TestRefresherCleanup:
 
     async def test_cleanup_removes_stale_checkpoints(self, mock_refresher_brotr: Brotr) -> None:
         stale = ServiceState(
-            service_name=ServiceName.REFRESHER,
+            owner=ServiceName.REFRESHER,
             state_type=ServiceStateType.CHECKPOINT,
             state_key="old_removed_table",
             state_value={"timestamp": 100},
         )
         current = ServiceState(
-            service_name=ServiceName.REFRESHER,
+            owner=ServiceName.REFRESHER,
             state_type=ServiceStateType.CHECKPOINT,
             state_key="pubkey_kind_stats",
             state_value={"timestamp": 200},

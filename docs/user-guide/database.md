@@ -78,7 +78,7 @@ erDiagram
     }
 
     service_state {
-        text service_name PK
+        text owner PK
         text state_type PK
         text state_key PK
         jsonb state_value
@@ -233,16 +233,16 @@ Primary key: `(relay_url, associated_at, role)`.
 
 ### service_state
 
-Generic key-value store for per-service persistent state between restarts.
+Generic key-value store for shared operational state between restarts.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
-| `service_name` | TEXT | PK (partial) | Service identifier |
+| `owner` | TEXT | PK (partial) | State owner identifier |
 | `state_type` | TEXT | PK (partial) | State category: `checkpoint`, `cursor` |
-| `state_key` | TEXT | PK (partial) | Unique key within service+type |
+| `state_key` | TEXT | PK (partial) | Unique key within owner+type |
 | `state_value` | JSONB | NOT NULL, DEFAULT `{}` | Service-specific JSONB state value |
 
-Primary key: `(service_name, state_type, state_key)`.
+Primary key: `(owner, state_type, state_key)`.
 
 ---
 
@@ -342,7 +342,7 @@ Bulk-inserts relay-document junction records. Both relay and document must alrea
 
 ```sql
 service_state_upsert(
-    p_service_names TEXT[], p_state_types TEXT[], p_state_keys TEXT[],
+    p_owners TEXT[], p_state_types TEXT[], p_state_keys TEXT[],
     p_state_values JSONB[]
 ) -> INTEGER
 ```
@@ -353,7 +353,7 @@ Bulk upsert service state records. Uses `DISTINCT ON` within the batch to dedupl
 
 ```sql
 service_state_get(
-    p_service_name TEXT, p_state_type TEXT, p_state_key TEXT DEFAULT NULL
+    p_owner TEXT, p_state_type TEXT, p_state_key TEXT DEFAULT NULL
 ) -> TABLE(state_key TEXT, state_value JSONB)
 ```
 
@@ -362,7 +362,7 @@ Retrieves service state records. If `p_state_key` is NULL, returns all records f
 ### service_state_delete
 
 ```sql
-service_state_delete(p_service_names TEXT[], p_state_types TEXT[], p_state_keys TEXT[]) -> INTEGER
+service_state_delete(p_owners TEXT[], p_state_types TEXT[], p_state_keys TEXT[]) -> INTEGER
 ```
 
 Bulk-deletes service state records matching composite keys.
@@ -800,11 +800,11 @@ Analytics refresh functions also accept `(p_after BIGINT, p_until BIGINT)` range
 
 | Index | Columns | Type | Purpose |
 |-------|---------|------|---------|
-| PK | `service_name, state_type, state_key` | BTREE | Covers single and double-prefix queries |
+| PK | `owner, state_type, state_key` | BTREE | Covers single and double-prefix queries |
 | `idx_service_state_candidate_network` | `state_value ->> 'network'` (partial) | BTREE | Validator: filter candidates by network |
 
 !!! note
-    The partial index on `service_state` has a WHERE clause: `WHERE service_name = 'validator' AND state_type = 'checkpoint'`. Only validator checkpoint rows contain the `network` key in their `state_value` JSONB.
+    The partial index on `service_state` has a WHERE clause: `WHERE owner = 'validator' AND state_type = 'checkpoint'`. Only validator checkpoint rows contain the `network` key in their `state_value` JSONB.
 
 ### Summary Table Indexes
 

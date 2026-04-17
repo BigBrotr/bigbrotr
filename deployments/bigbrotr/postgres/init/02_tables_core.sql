@@ -301,9 +301,9 @@ COMMENT ON COLUMN relay_document.associated_at IS 'Unix timestamp when the docum
 
 
 -- ==========================================================================
--- service_state: Persistent key-value store for service state
+-- service_state: Persistent key-value store for shared operational state
 -- ==========================================================================
--- Generic JSONB storage for per-service operational data. Each service uses
+-- Generic JSONB storage for operational state. Each owner uses
 -- this table to persist state between restarts:
 --   - Finder: stores relay URL candidates awaiting validation
 --   - Validator: tracks validation attempt counts per candidate
@@ -311,15 +311,15 @@ COMMENT ON COLUMN relay_document.associated_at IS 'Unix timestamp when the docum
 --   - Monitor: stores health check scheduling state
 
 CREATE TABLE IF NOT EXISTS service_state (
-    service_name TEXT NOT NULL,
+    owner TEXT NOT NULL,
     state_type TEXT NOT NULL,
     state_key TEXT NOT NULL,
     state_value JSONB NOT NULL DEFAULT '{}',
-    PRIMARY KEY (service_name, state_type, state_key)
+    PRIMARY KEY (owner, state_type, state_key)
 );
 
-COMMENT ON TABLE service_state IS 'Per-service persistent state (cursors, checkpoints)';
-COMMENT ON COLUMN service_state.service_name IS 'Service identifier (finder, validator, synchronizer, monitor)';
+COMMENT ON TABLE service_state IS 'Persistent shared operational state (cursors, checkpoints)';
+COMMENT ON COLUMN service_state.owner IS 'State owner identifier (finder, validator, synchronizer, monitor)';
 COMMENT ON COLUMN service_state.state_type IS 'State category (cursor, checkpoint)';
-COMMENT ON COLUMN service_state.state_key IS 'Unique key within service+type (typically a relay URL or entity ID)';
+COMMENT ON COLUMN service_state.state_key IS 'Unique key within owner+type (typically a relay URL or entity ID)';
 COMMENT ON COLUMN service_state.state_value IS 'JSONB payload; each state type stores its own business timestamp';

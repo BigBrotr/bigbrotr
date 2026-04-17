@@ -71,7 +71,7 @@ class TestInsertRelaysAsCandidates:
         records = query_brotr.upsert_service_state.call_args[0][0]
         assert len(records) == 1
         record = records[0]
-        assert record.service_name == ServiceName.VALIDATOR
+        assert record.owner == ServiceName.VALIDATOR
         assert record.state_type == ServiceStateType.CHECKPOINT
         assert record.state_key == "wss://relay.example.com"
         assert record.state_value["failures"] == 0

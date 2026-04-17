@@ -67,7 +67,7 @@ class ServiceStateDbParams(NamedTuple):
     """Database parameter container for the ``service_state`` table.
 
     Column order matches the ``service_state_upsert`` stored procedure
-    signature: ``(service_names TEXT[], state_types TEXT[], state_keys TEXT[],
+    signature: ``(owners TEXT[], state_types TEXT[], state_keys TEXT[],
     state_values JSONB[])``.
 
     The ``state_value`` field is pre-serialized to a JSON string, consistent
@@ -80,7 +80,7 @@ class ServiceStateDbParams(NamedTuple):
             Returns a cached instance of this tuple.
     """
 
-    service_name: str
+    owner: str
     state_type: str
     state_key: str
     state_value: str
@@ -94,7 +94,7 @@ class ServiceState:
     from ``Brotr.get_service_state()``.
 
     Attributes:
-        service_name: Owning service identifier. Built-in services use the
+        owner: State owner identifier. Built-in services use the
             [ServiceName][bigbrotr.models.constants.ServiceName] catalog, but
             arbitrary non-empty string IDs are accepted for extensibility.
         state_type: Discriminator. Built-in records use the
@@ -110,7 +110,7 @@ class ServiceState:
     Examples:
         ```python
         state = ServiceState(
-            service_name=ServiceName.SYNCHRONIZER,
+            owner=ServiceName.SYNCHRONIZER,
             state_type=ServiceStateType.CURSOR,
             state_key="wss://relay.damus.io",
             state_value={"timestamp": 1700000000},
@@ -132,7 +132,7 @@ class ServiceState:
             Database parameter container returned by ``to_db_params()``.
     """
 
-    service_name: str
+    owner: str
     state_type: str
     state_key: str
     state_value: Mapping[str, Any]
@@ -146,9 +146,9 @@ class ServiceState:
     )
 
     def __post_init__(self) -> None:
-        normalized_service_name = _normalize_state_token(self.service_name, "service_name")
+        normalized_owner = _normalize_state_token(self.owner, "owner")
         normalized_state_type = _normalize_state_token(self.state_type, "state_type")
-        object.__setattr__(self, "service_name", normalized_service_name)
+        object.__setattr__(self, "owner", normalized_owner)
         object.__setattr__(self, "state_type", normalized_state_type)
         validate_str_not_empty(self.state_key, "state_key")
         validate_mapping(self.state_value, "state_value")
@@ -160,7 +160,7 @@ class ServiceState:
 
     def _compute_db_params(self) -> ServiceStateDbParams:
         return ServiceStateDbParams(
-            service_name=self.service_name,
+            owner=self.owner,
             state_type=self.state_type,
             state_key=self.state_key,
             state_value=self._json_value,

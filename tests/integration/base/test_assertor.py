@@ -221,7 +221,7 @@ def _tag_values(event: Any, tag_name: str) -> list[str]:
 
 def _checkpoint_state(*, state_key: str, hash_value: str, timestamp: int) -> ServiceState:
     return ServiceState(
-        service_name=ServiceName.ASSERTOR,
+        owner=ServiceName.ASSERTOR,
         state_type=ServiceStateType.CHECKPOINT,
         state_key=state_key,
         state_value={"hash": hash_value, "timestamp": timestamp},

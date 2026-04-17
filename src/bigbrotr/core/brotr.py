@@ -652,7 +652,7 @@ class Brotr:
 
         Services use this to persist operational state (cursors, monitoring
         markers, publication markers, candidates) across restarts. Each record is identified by the
-        composite key ``(service_name, state_type, state_key)``. Calls the
+        composite key ``(owner, state_type, state_key)``. Calls the
         ``service_state_upsert`` stored procedure.
 
         Args:
@@ -678,7 +678,7 @@ class Brotr:
 
     async def get_service_state(
         self,
-        service_name: str,
+        owner: str,
         state_type: str,
         key: str | None = None,
     ) -> list[ServiceState]:
@@ -687,7 +687,7 @@ class Brotr:
         Calls the ``service_state_get`` stored procedure.
 
         Args:
-            service_name: Owning service identifier. Built-in callers
+            owner: State owner identifier. Built-in callers
                 typically use names from
                 [ServiceName][bigbrotr.models.constants.ServiceName], but any
                 normalized non-empty string is accepted.
@@ -709,14 +709,14 @@ class Brotr:
         """
         rows = await self.fetch(
             "SELECT * FROM service_state_get($1, $2, $3)",
-            service_name,
+            owner,
             state_type,
             key,
         )
 
         return [
             ServiceState(
-                service_name=service_name,
+                owner=owner,
                 state_type=state_type,
                 state_key=row["state_key"],
                 state_value=row["state_value"],
@@ -726,7 +726,7 @@ class Brotr:
 
     async def delete_service_state(
         self,
-        service_names: list[str],
+        owners: list[str],
         state_types: list[str],
         state_keys: list[str],
     ) -> int:
@@ -736,7 +736,7 @@ class Brotr:
         parallel arrays identifying the records to remove.
 
         Args:
-            service_names: Service identifier for each record.
+            owners: Owner identifier for each record.
             state_types: State type identifier for each record.
             state_keys: State key for each record.
 
@@ -749,27 +749,27 @@ class Brotr:
             [get_service_state()][bigbrotr.core.brotr.Brotr.get_service_state]:
                 Retrieve state records.
         """
-        if not service_names:
+        if not owners:
             return 0
 
-        if not (len(service_names) == len(state_types) == len(state_keys)):
+        if not (len(owners) == len(state_types) == len(state_keys)):
             raise ValueError(
                 f"Parallel arrays must have equal length: "
-                f"service_names={len(service_names)}, "
+                f"owners={len(owners)}, "
                 f"state_types={len(state_types)}, "
                 f"state_keys={len(state_keys)}"
             )
 
-        self._validate_batch_size(service_names, "delete_service_state")
+        self._validate_batch_size(owners, "delete_service_state")
 
         return await self._call_counting_procedure(
             "service_state_delete",
-            service_names,
+            owners,
             state_types,
             state_keys,
             timeout=self._config.timeouts.batch,
             log_event="service_state_deleted",
-            attempted=len(service_names),
+            attempted=len(owners),
         )
 
     async def run_refresh_procedure(self, target_name: str) -> None:

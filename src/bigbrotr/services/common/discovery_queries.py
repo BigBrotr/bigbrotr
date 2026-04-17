@@ -28,7 +28,7 @@ async def insert_relays_as_candidates(brotr: Brotr, relays: list[Relay]) -> int:
         WHERE NOT EXISTS (SELECT 1 FROM relay r WHERE r.url = t.url)
           AND NOT EXISTS (
               SELECT 1 FROM service_state ss
-              WHERE ss.service_name = $2 AND ss.state_type = $3
+              WHERE ss.owner = $2 AND ss.state_type = $3
                 AND ss.state_key = t.url
           )
         """,

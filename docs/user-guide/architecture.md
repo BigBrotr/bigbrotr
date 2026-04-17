@@ -84,11 +84,10 @@ Key characteristics:
 ```python
 @dataclass(frozen=True, slots=True)
 class ServiceState:
-    service_name: ServiceName
+    owner: ServiceName
     state_type: ServiceStateType
     state_key: str
-    state_value: dict[str, Any]
-    updated_at: int
+    state_value: Mapping[str, Any]
 ```
 
 ---

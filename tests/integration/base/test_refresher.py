@@ -160,13 +160,13 @@ class TestRefresherIntegration:
         await brotr.upsert_service_state(
             [
                 ServiceState(
-                    service_name=ServiceName.REFRESHER,
+                    owner=ServiceName.REFRESHER,
                     state_type=ServiceStateType.CHECKPOINT,
                     state_key="old_target",
                     state_value={"timestamp": 100},
                 ),
                 ServiceState(
-                    service_name=ServiceName.REFRESHER,
+                    owner=ServiceName.REFRESHER,
                     state_type=ServiceStateType.CHECKPOINT,
                     state_key="pubkey_kind_stats",
                     state_value={"timestamp": 100},
@@ -237,7 +237,7 @@ class TestRefresherIntegration:
         await brotr.upsert_service_state(
             [
                 ServiceState(
-                    service_name=ServiceName.REFRESHER,
+                    owner=ServiceName.REFRESHER,
                     state_type=ServiceStateType.CHECKPOINT,
                     state_key="pubkey_kind_stats",
                     state_value={"timestamp": 150},

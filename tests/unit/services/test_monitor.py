@@ -1158,7 +1158,7 @@ class TestFetchRelaysToMonitor:
         sql = args[0][0]
         assert "FROM relay r" in sql
         assert "LEFT JOIN service_state ss" in sql
-        assert "service_name = $3" in sql
+        assert "owner = $3" in sql
         assert "state_type = $4" in sql
         assert "LIMIT" not in sql
         assert args[0][1] == [NetworkType.CLEARNET]
@@ -1323,7 +1323,7 @@ class TestSaveMonitoringMarkers:
         states = query_brotr.upsert_service_state.call_args[0][0]
         state = states[0]
         assert isinstance(state, ServiceState)
-        assert state.service_name == ServiceName.MONITOR
+        assert state.owner == ServiceName.MONITOR
         assert state.state_type == ServiceStateType.CHECKPOINT
         assert state.state_key == relay.url
         assert state.state_value == {"timestamp": now}
@@ -1377,7 +1377,7 @@ class TestUpsertPublishCheckpoints:
         assert len(states) == 1
         state = states[0]
         assert isinstance(state, ServiceState)
-        assert state.service_name == ServiceName.MONITOR
+        assert state.owner == ServiceName.MONITOR
         assert state.state_type == ServiceStateType.CHECKPOINT
         assert state.state_key == "announcement"
         assert "timestamp" in state.state_value

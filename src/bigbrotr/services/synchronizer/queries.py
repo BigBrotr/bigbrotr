@@ -36,7 +36,7 @@ async def count_cursors_to_sync(brotr: Brotr, end: int, networks: Sequence[Netwo
             SELECT state_key,
                    (state_value->>'timestamp')::bigint AS ts
             FROM service_state
-            WHERE service_name = $1
+            WHERE owner = $1
               AND state_type = $2
         )
         SELECT count(*)::int
@@ -80,7 +80,7 @@ async def fetch_cursors_to_sync(
                    (state_value->>'timestamp')::bigint AS ts,
                    state_value->>'id' AS cursor_id
             FROM service_state
-            WHERE service_name = $1
+            WHERE owner = $1
               AND state_type = $2
         )
         SELECT r.url, c.state_value
@@ -115,7 +115,7 @@ async def fetch_cursors_to_sync_page(
                    (state_value->>'timestamp')::bigint AS ts,
                    state_value->>'id' AS cursor_id
             FROM service_state
-            WHERE service_name = $1
+            WHERE owner = $1
               AND state_type = $2
         )
         SELECT r.url, c.state_value
@@ -187,7 +187,7 @@ async def delete_stale_cursors(brotr: Brotr) -> int:
         """
         WITH deleted AS (
             DELETE FROM service_state
-            WHERE service_name = $1
+            WHERE owner = $1
               AND state_type = $2
               AND NOT EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)
             RETURNING 1

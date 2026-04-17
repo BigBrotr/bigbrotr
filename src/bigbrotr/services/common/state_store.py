@@ -26,7 +26,7 @@ MappingLike: TypeAlias = Mapping[str, Any]
 _FETCH_STATE_ROWS_SQL = """
     SELECT state_key, state_value
     FROM service_state
-    WHERE service_name = $1
+    WHERE owner = $1
       AND state_type = $2
       AND state_key = ANY($3::text[])
     """
@@ -67,20 +67,20 @@ class ServiceStateStore:
         )
 
     @staticmethod
-    def encode_checkpoint(service_name: str, checkpoint: Checkpoint) -> ServiceState:
+    def encode_checkpoint(owner: str, checkpoint: Checkpoint) -> ServiceState:
         """Encode a typed checkpoint as a service-state row."""
         return ServiceState(
-            service_name=service_name,
+            owner=owner,
             state_type=ServiceStateType.CHECKPOINT,
             state_key=checkpoint.key,
             state_value={"timestamp": checkpoint.timestamp},
         )
 
     @staticmethod
-    def encode_cursor(service_name: str, cursor: Cursor) -> ServiceState:
+    def encode_cursor(owner: str, cursor: Cursor) -> ServiceState:
         """Encode a typed cursor as a service-state row."""
         return ServiceState(
-            service_name=service_name,
+            owner=owner,
             state_type=ServiceStateType.CURSOR,
             state_key=cursor.key,
             state_value={"timestamp": cursor.timestamp, "id": cursor.id},
@@ -95,7 +95,7 @@ class ServiceStateStore:
     ) -> ServiceState:
         """Encode a validator candidate as a service-state row."""
         return ServiceState(
-            service_name=ServiceName.VALIDATOR,
+            owner=ServiceName.VALIDATOR,
             state_type=ServiceStateType.CHECKPOINT,
             state_key=candidate.key,
             state_value={
@@ -107,7 +107,7 @@ class ServiceStateStore:
 
     @staticmethod
     def encode_hash(
-        service_name: str,
+        owner: str,
         key: str,
         hash_value: str,
         *,
@@ -115,7 +115,7 @@ class ServiceStateStore:
     ) -> ServiceState:
         """Encode a persisted hash checkpoint."""
         return ServiceState(
-            service_name=service_name,
+            owner=owner,
             state_type=ServiceStateType.CHECKPOINT,
             state_key=key,
             state_value={"hash": hash_value, "timestamp": timestamp},
@@ -123,25 +123,25 @@ class ServiceStateStore:
 
     async def get(
         self,
-        service_name: str,
+        owner: str,
         state_type: str,
         key: str | None = None,
     ) -> list[ServiceState]:
-        return await self._brotr.get_service_state(service_name, state_type, key)
+        return await self._brotr.get_service_state(owner, state_type, key)
 
     async def upsert(self, records: list[ServiceState]) -> int:
         return await batched_insert(self._brotr, records, self._brotr.upsert_service_state)
 
     async def delete_keys(
         self,
-        service_name: str,
+        owner: str,
         state_type: str,
         keys: list[str],
     ) -> int:
         if not keys:
             return 0
         return await self._delete_chunked(
-            [service_name] * len(keys),
+            [owner] * len(keys),
             [state_type] * len(keys),
             keys,
         )
@@ -150,14 +150,14 @@ class ServiceStateStore:
         if not states:
             return 0
         return await self._delete_chunked(
-            [state.service_name for state in states],
+            [state.owner for state in states],
             [state.state_type for state in states],
             [state.state_key for state in states],
         )
 
     async def _delete_chunked(
         self,
-        service_names: list[str],
+        owners: list[str],
         state_types: list[str],
         state_keys: list[str],
     ) -> int:
@@ -165,7 +165,7 @@ class ServiceStateStore:
         batch_size = batch_size_for(self._brotr, len(state_keys))
         for i in range(0, len(state_keys), batch_size):
             total += await self._brotr.delete_service_state(
-                service_names[i : i + batch_size],
+                owners[i : i + batch_size],
                 state_types[i : i + batch_size],
                 state_keys[i : i + batch_size],
             )
@@ -173,12 +173,12 @@ class ServiceStateStore:
 
     async def fetch_checkpoints(
         self,
-        service_name: str,
+        owner: str,
         keys: list[str],
         checkpoint_type: type[_CheckpointT],
     ) -> list[_CheckpointT]:
         return await self._fetch_typed_states(
-            service_name,
+            owner,
             ServiceStateType.CHECKPOINT,
             keys,
             lambda key, payload: self.decode_checkpoint(key, payload, checkpoint_type),
@@ -187,22 +187,22 @@ class ServiceStateStore:
 
     async def upsert_checkpoints(
         self,
-        service_name: str,
+        owner: str,
         checkpoints: Sequence[Checkpoint],
     ) -> int:
-        records = [self.encode_checkpoint(service_name, checkpoint) for checkpoint in checkpoints]
+        records = [self.encode_checkpoint(owner, checkpoint) for checkpoint in checkpoints]
         return await self.upsert(records)
 
     async def fetch_cursors(
         self,
-        service_name: str,
+        owner: str,
         keys: list[str],
         cursor_type: type[_CursorT],
     ) -> list[_CursorT]:
         if not keys:
             return []
         return await self._fetch_typed_states(
-            service_name,
+            owner,
             ServiceStateType.CURSOR,
             keys,
             lambda key, payload: self.decode_cursor(key, payload, cursor_type),
@@ -211,7 +211,7 @@ class ServiceStateStore:
 
     async def _fetch_typed_states(
         self,
-        service_name: str,
+        owner: str,
         state_type: str,
         keys: list[str],
         decode: Callable[[str, MappingLike], _StateT],
@@ -221,7 +221,7 @@ class ServiceStateStore:
             return []
         rows = await self._brotr.fetch(
             _FETCH_STATE_ROWS_SQL,
-            service_name,
+            owner,
             state_type,
             keys,
         )
@@ -235,20 +235,20 @@ class ServiceStateStore:
 
     async def upsert_cursors(
         self,
-        service_name: str,
+        owner: str,
         cursors: Sequence[Cursor],
         *,
         skip_zero_timestamp: bool = False,
     ) -> int:
         records = [
-            self.encode_cursor(service_name, cursor)
+            self.encode_cursor(owner, cursor)
             for cursor in cursors
             if not skip_zero_timestamp or cursor.timestamp > 0
         ]
         return await self.upsert(records)
 
-    async def fetch_hash(self, service_name: str, key: str) -> str | None:
-        states = await self.get(service_name, ServiceStateType.CHECKPOINT, key)
+    async def fetch_hash(self, owner: str, key: str) -> str | None:
+        states = await self.get(owner, ServiceStateType.CHECKPOINT, key)
         if not states:
             return None
         hash_value = states[0].state_value.get("hash")
@@ -258,12 +258,10 @@ class ServiceStateStore:
 
     async def upsert_hash(
         self,
-        service_name: str,
+        owner: str,
         key: str,
         hash_value: str,
         *,
         timestamp: int,
     ) -> int:
-        return await self.upsert(
-            [self.encode_hash(service_name, key, hash_value, timestamp=timestamp)]
-        )
+        return await self.upsert([self.encode_hash(owner, key, hash_value, timestamp=timestamp)])

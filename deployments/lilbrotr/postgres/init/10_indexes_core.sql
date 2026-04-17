@@ -86,4 +86,4 @@ ON relay_document USING btree (relay_url, role, associated_at DESC);
 -- Partial index: only validator checkpoint rows contain the 'network' key.
 CREATE INDEX IF NOT EXISTS idx_service_state_candidate_network
 ON service_state USING btree ((state_value ->> 'network'))
-WHERE service_name = 'validator' AND state_type = 'checkpoint';
+WHERE owner = 'validator' AND state_type = 'checkpoint';

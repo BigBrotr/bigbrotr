@@ -570,7 +570,7 @@ class TestUpsertServiceState:
         """Test upserting single record."""
         records = [
             ServiceState(
-                service_name=ServiceName.FINDER,
+                owner=ServiceName.FINDER,
                 state_type=ServiceStateType.CURSOR,
                 state_key="key1",
                 state_value={"count": 1},
@@ -584,19 +584,19 @@ class TestUpsertServiceState:
         mock_pool._mock_connection.fetchval = AsyncMock(return_value=3)
         records = [
             ServiceState(
-                service_name=ServiceName.FINDER,
+                owner=ServiceName.FINDER,
                 state_type=ServiceStateType.CURSOR,
                 state_key="key1",
                 state_value={"count": 1},
             ),
             ServiceState(
-                service_name=ServiceName.FINDER,
+                owner=ServiceName.FINDER,
                 state_type=ServiceStateType.CURSOR,
                 state_key="key2",
                 state_value={"count": 2},
             ),
             ServiceState(
-                service_name=ServiceName.MONITOR,
+                owner=ServiceName.MONITOR,
                 state_type=ServiceStateType.CHECKPOINT,
                 state_key="key3",
                 state_value={"status": "ok"},
@@ -609,7 +609,7 @@ class TestUpsertServiceState:
         """Test that batch exceeding max_size raises ValueError."""
         records = [
             ServiceState(
-                service_name=ServiceName.FINDER,
+                owner=ServiceName.FINDER,
                 state_type=ServiceStateType.CURSOR,
                 state_key=f"key{i}",
                 state_value={"i": i},
@@ -670,7 +670,7 @@ class TestGetServiceState:
         result = await mock_brotr.get_service_state("custom_service", "custom_state")
 
         assert len(result) == 1
-        assert result[0].service_name == "custom_service"
+        assert result[0].owner == "custom_service"
         assert result[0].state_type == "custom_state"
         assert result[0].state_key == "custom_key"
 

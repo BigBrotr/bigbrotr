@@ -49,7 +49,7 @@ async def delete_stale_checkpoints(brotr: Brotr, keep_keys: list[str]) -> int:
         """
         WITH deleted AS (
             DELETE FROM service_state
-            WHERE service_name = $1
+            WHERE owner = $1
               AND state_type = $2
               AND state_key != ALL($3)
               AND NOT EXISTS (SELECT 1 FROM relay r WHERE r.url = state_key)
@@ -67,7 +67,7 @@ async def delete_stale_checkpoints(brotr: Brotr, keep_keys: list[str]) -> int:
 _RELAYS_TO_MONITOR_WHERE = """
     FROM relay r
     LEFT JOIN service_state ss ON
-        ss.service_name = $3
+        ss.owner = $3
         AND ss.state_type = $4
         AND ss.state_key = r.url
     WHERE

@@ -417,7 +417,7 @@ class TestAssertorRun:
         mock_brotr.upsert_service_state.assert_awaited_once()
         call_args = mock_brotr.upsert_service_state.call_args[0][0]
         assert len(call_args) == 1
-        assert call_args[0].service_name == ServiceName.ASSERTOR
+        assert call_args[0].owner == ServiceName.ASSERTOR
         assert call_args[0].state_key == "test_subject"
         assert call_args[0].state_value["hash"] == "abc123"
 
@@ -1161,7 +1161,7 @@ class TestAssertorCheckpointCleanup:
 
         def _state(key: str) -> MagicMock:
             state = MagicMock()
-            state.service_name = ServiceName.ASSERTOR
+            state.owner = ServiceName.ASSERTOR
             state.state_type = "checkpoint"
             state.state_key = key
             return state

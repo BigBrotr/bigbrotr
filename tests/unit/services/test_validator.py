@@ -250,7 +250,7 @@ class TestCountCandidates:
         args = query_brotr.fetchval.call_args
         sql = args[0][0]
         assert "count(*)::int" in sql
-        assert "service_name = $1" in sql
+        assert "owner = $1" in sql
         assert "state_type = $2" in sql
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][2] == ServiceStateType.CHECKPOINT

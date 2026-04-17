@@ -89,7 +89,7 @@ class TestPayloadCodecs:
         )
 
         assert state == ServiceState(
-            service_name=ServiceName.ASSERTOR,
+            owner=ServiceName.ASSERTOR,
             state_type=ServiceStateType.CHECKPOINT,
             state_key="subject",
             state_value={"hash": "deadbeef", "timestamp": 42},
@@ -187,7 +187,7 @@ class TestServiceStateStore:
         deleted = await ServiceStateStore(brotr).delete_states(
             [
                 ServiceState(
-                    service_name=ServiceName.REFRESHER,
+                    owner=ServiceName.REFRESHER,
                     state_type=ServiceStateType.CHECKPOINT,
                     state_key="target",
                     state_value={"timestamp": 1},
@@ -204,19 +204,19 @@ class TestServiceStateStore:
         deleted = await ServiceStateStore(query_brotr).delete_states(
             [
                 ServiceState(
-                    service_name=ServiceName.FINDER,
+                    owner=ServiceName.FINDER,
                     state_type=ServiceStateType.CURSOR,
                     state_key="a",
                     state_value={"timestamp": 1, "id": "0" * 64},
                 ),
                 ServiceState(
-                    service_name=ServiceName.FINDER,
+                    owner=ServiceName.FINDER,
                     state_type=ServiceStateType.CURSOR,
                     state_key="b",
                     state_value={"timestamp": 2, "id": "1" * 64},
                 ),
                 ServiceState(
-                    service_name=ServiceName.FINDER,
+                    owner=ServiceName.FINDER,
                     state_type=ServiceStateType.CURSOR,
                     state_key="c",
                     state_value={"timestamp": 3, "id": "2" * 64},
@@ -231,7 +231,7 @@ class TestServiceStateStore:
         query_brotr.get_service_state = AsyncMock(
             return_value=[
                 ServiceState(
-                    service_name=ServiceName.ASSERTOR,
+                    owner=ServiceName.ASSERTOR,
                     state_type=ServiceStateType.CHECKPOINT,
                     state_key="subject",
                     state_value={"hash": "deadbeef", "timestamp": 1},

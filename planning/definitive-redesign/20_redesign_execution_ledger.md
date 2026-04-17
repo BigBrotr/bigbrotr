@@ -109,7 +109,7 @@ Execution baseline:
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
 | 3.1 Python model rename and semantic alignment | done | `refactor: rename metadata types to document types` | Renamed the public model enum from `MetadataType` to `DocumentType` across the package root, model exports, NIP registry wiring, monitor utilities, tests, and the touched user/developer docs; closure audit cleaned remaining metadata-centric wording in `Document`, `RelayDocument`, NIP docstrings, and monitor helper docs, fixed the top-level `bigbrotr.__all__` ordering drift caught by `test_dir_returns_all`, fixed the sorted-`__all__` drift caught by `make ci`, and revalidated the slice with targeted unit/integration coverage, full `make ci`, and `uv lock --check` before closure |
-| 3.2 `Brotr` API alignment with the new shared schema | not started | | |
+| 3.2 `Brotr` API alignment with the new shared schema | done | `refactor: align service-state owner vocabulary` | Aligned the `service_state` contract to the final schema-facing `owner` vocabulary across the `ServiceState` model, `ServiceStateDbParams`, `Brotr` query/delete surfaces, shared `ServiceStateStore`, direct service queries, rebuild/migration tooling, SQL templates, generated deployment init SQL, touched user-guide docs, and the affected unit/integration/API/DVM test surfaces; closure audit confirmed there is no remaining live `service_name` drift in the service-state path, regenerated SQL stayed in sync, and the slice revalidated with a large targeted suite (`854 passed`), full `make ci`, and `uv lock --check` before closure |
 | 3.3 Domain-facing tests and fixtures alignment | not started | | |
 
 ### Tranche 4 — Shared Derivation And Maintenance Pipeline Alignment
@@ -203,14 +203,11 @@ Each entry should include:
 - Classification: improvement / watch point, not blocker
 
 - Originating work package: `3.1 Python model rename and semantic alignment`
-- Deferred item: `ServiceState` and the `Brotr` service-state surface still use
-  the historical `service_name`-centric Python vocabulary instead of the final
-  schema-facing `owner` vocabulary
-- Why deferred: changing that contract would pull `Brotr`, every service using
-  `service_state`, and a large test surface into the slice; it belongs to the
-  next `Brotr`-alignment work package rather than the model-only rename slice
-- Future tranche: `3.2 Brotr API alignment with the new shared schema`
-- Classification: planned follow-up, not blocker
+- Follow-up status: resolved in `3.2 Brotr API alignment with the new shared schema`
+- Outcome: the service-state path now uses the final schema-facing `owner`
+  vocabulary across model, `Brotr`, SQL, shared queries, tooling, touched docs,
+  and the audited test surface
+- Classification: closed follow-up
 
 ---
 

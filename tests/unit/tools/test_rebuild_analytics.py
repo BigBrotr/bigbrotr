@@ -101,7 +101,7 @@ class TestRebuildAnalytics:
         brotr.get_service_state = AsyncMock(
             return_value=[
                 ServiceState(
-                    service_name=ServiceName.ASSERTOR,
+                    owner=ServiceName.ASSERTOR,
                     state_type=ServiceStateType.CHECKPOINT,
                     state_key="user:" + "aa" * 32,
                     state_value={"hash": "deadbeef"},

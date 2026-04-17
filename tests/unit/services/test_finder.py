@@ -793,7 +793,7 @@ class TestSaveApiCheckpoints:
         assert urls == {"https://api1.example.com", "https://api2.example.com"}
         by_key = {cp.key: cp.timestamp for cp in checkpoints}
         for r in records:
-            assert r.service_name == ServiceName.FINDER
+            assert r.owner == ServiceName.FINDER
             assert r.state_type == ServiceStateType.CHECKPOINT
             assert r.state_value == {"timestamp": by_key[r.state_key]}
 
@@ -1676,7 +1676,7 @@ class TestFinderFindFromEvents:
             upsert_calls = mock_brotr.upsert_service_state.call_args_list
             cursor_saved = any(
                 call[0][0]
-                and call[0][0][0].service_name == "finder"
+                and call[0][0][0].owner == "finder"
                 and call[0][0][0].state_type == "cursor"
                 for call in upsert_calls
             )

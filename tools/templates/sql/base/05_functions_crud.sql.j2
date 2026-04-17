@@ -380,17 +380,17 @@ COMMENT ON FUNCTION relay_document_insert_cascade(TEXT [], TEXT [], BIGINT [], B
  * service_state_upsert(TEXT[], TEXT[], TEXT[], JSONB[]) -> INTEGER
  *
  * Bulk upsert (insert or replace) service state records. When a record with
- * the same (service_name, state_type, state_key) already exists, its
+ * the same (owner, state_type, state_key) already exists, its
  * state_value is fully replaced. DISTINCT ON deduplicates within the batch.
  *
  * Parameters:
- *   p_service_names   - Array of service identifiers
+ *   p_owners          - Array of state owner identifiers
  *   p_state_types     - Array of state categories
- *   p_state_keys      - Array of unique keys within each service+type
+ *   p_state_keys      - Array of unique keys within each owner+type
  *   p_state_values    - Array of JSONB values
  */
 CREATE OR REPLACE FUNCTION service_state_upsert(
-    p_service_names TEXT [],
+    p_owners TEXT [],
     p_state_types TEXT [],
     p_state_keys TEXT [],
     p_state_values JSONB []
@@ -401,16 +401,16 @@ AS $$
 DECLARE
     v_row_count INTEGER;
 BEGIN
-    INSERT INTO service_state (service_name, state_type, state_key, state_value)
-    SELECT DISTINCT ON (service_name, state_type, state_key)
-        service_name, state_type, state_key, state_value
+    INSERT INTO service_state (owner, state_type, state_key, state_value)
+    SELECT DISTINCT ON (owner, state_type, state_key)
+        owner, state_type, state_key, state_value
     FROM unnest(
-        p_service_names,
+        p_owners,
         p_state_types,
         p_state_keys,
         p_state_values
-    ) AS t(service_name, state_type, state_key, state_value)
-    ON CONFLICT (service_name, state_type, state_key)
+    ) AS t(owner, state_type, state_key, state_value)
+    ON CONFLICT (owner, state_type, state_key)
     DO UPDATE SET
         state_value = EXCLUDED.state_value;
 
@@ -428,17 +428,17 @@ COMMENT ON FUNCTION service_state_upsert(TEXT [], TEXT [], TEXT [], JSONB []) IS
  *
  * Retrieves service state records. When p_state_key is provided, returns the
  * single matching record. When NULL, returns all records for the given
- * service and state type, ordered by state_key ascending.
+ * owner and state type, ordered by state_key ascending.
  *
  * Parameters:
- *   p_service_name  - Service identifier
+ *   p_owner       - State owner identifier
  *   p_state_type    - State category
  *   p_state_key     - Specific key to retrieve (NULL for all records)
  *
  * Returns: Table of (state_key TEXT, state_value JSONB)
  */
 CREATE OR REPLACE FUNCTION service_state_get(
-    p_service_name TEXT,
+    p_owner TEXT,
     p_state_type TEXT,
     p_state_key TEXT DEFAULT NULL
 )
@@ -453,14 +453,14 @@ BEGIN
         RETURN QUERY
         SELECT ss.state_key, ss.state_value
         FROM service_state ss
-        WHERE ss.service_name = p_service_name
+        WHERE ss.owner = p_owner
           AND ss.state_type = p_state_type
           AND ss.state_key = p_state_key;
     ELSE
         RETURN QUERY
         SELECT ss.state_key, ss.state_value
         FROM service_state ss
-        WHERE ss.service_name = p_service_name
+        WHERE ss.owner = p_owner
           AND ss.state_type = p_state_type
         ORDER BY ss.state_key ASC;
     END IF;
@@ -477,14 +477,14 @@ COMMENT ON FUNCTION service_state_get IS
  * Bulk-deletes service state records matching the given composite keys.
  *
  * Parameters:
- *   p_service_names  - Array of service identifiers
+ *   p_owners         - Array of state owner identifiers
  *   p_state_types    - Array of state categories
  *   p_state_keys     - Array of unique keys
  *
  * Returns: Number of rows deleted
  */
 CREATE OR REPLACE FUNCTION service_state_delete(
-    p_service_names TEXT [],
+    p_owners TEXT [],
     p_state_types TEXT [],
     p_state_keys TEXT []
 )
@@ -496,13 +496,13 @@ DECLARE
 BEGIN
     DELETE FROM service_state ss
     USING unnest(
-        p_service_names,
+        p_owners,
         p_state_types,
         p_state_keys
-    ) AS d(sn, st, sk)
-    WHERE ss.service_name = d.sn
-      AND ss.state_type = d.st
-      AND ss.state_key = d.sk;
+    ) AS d(owner, state_type, state_key)
+    WHERE ss.owner = d.owner
+      AND ss.state_type = d.state_type
+      AND ss.state_key = d.state_key;
 
     GET DIAGNOSTICS v_row_count = ROW_COUNT;
     RETURN v_row_count;

@@ -143,7 +143,7 @@ async def migrate(  # noqa: PLR0912, PLR0913, PLR0915
                     await conn.execute(
                         """
                         INSERT INTO service_state
-                            (service_name, state_type, state_key, state_value)
+                            (owner, state_type, state_key, state_value)
                         VALUES ('validator', 'checkpoint', $1,
                                 jsonb_build_object('network', $2::text, 'failures', 0))
                         ON CONFLICT DO NOTHING
@@ -160,7 +160,7 @@ async def migrate(  # noqa: PLR0912, PLR0913, PLR0915
                 """
                 SELECT state_key, state_value
                 FROM service_state
-                WHERE service_name = 'validator' AND state_type = 'checkpoint'
+                WHERE owner = 'validator' AND state_type = 'checkpoint'
                 ORDER BY state_key
                 """
             )
@@ -179,7 +179,7 @@ async def migrate(  # noqa: PLR0912, PLR0913, PLR0915
                         await conn.execute(
                             """
                             DELETE FROM service_state
-                            WHERE service_name = 'validator'
+                            WHERE owner = 'validator'
                               AND state_type = 'checkpoint'
                               AND state_key = $1
                             """,
@@ -199,7 +199,7 @@ async def migrate(  # noqa: PLR0912, PLR0913, PLR0915
                     await conn.execute(
                         """
                         DELETE FROM service_state
-                        WHERE service_name = 'validator'
+                        WHERE owner = 'validator'
                           AND state_type = 'checkpoint'
                           AND state_key = $1
                         """,
@@ -209,7 +209,7 @@ async def migrate(  # noqa: PLR0912, PLR0913, PLR0915
                     await conn.execute(
                         """
                         INSERT INTO service_state
-                            (service_name, state_type, state_key, state_value)
+                            (owner, state_type, state_key, state_value)
                         VALUES ('validator', 'checkpoint', $1, $2::jsonb)
                         ON CONFLICT DO NOTHING
                         """,
@@ -226,7 +226,7 @@ async def migrate(  # noqa: PLR0912, PLR0913, PLR0915
                 tag = await conn.execute(
                     """
                     DELETE FROM service_state
-                    WHERE service_name = 'finder' AND state_type = 'cursor'
+                    WHERE owner = 'finder' AND state_type = 'cursor'
                     """
                 )
                 result.finder_cursors_deleted = int(tag.split()[-1])
@@ -234,7 +234,7 @@ async def migrate(  # noqa: PLR0912, PLR0913, PLR0915
                 tag = await conn.execute(
                     """
                     DELETE FROM service_state
-                    WHERE service_name = 'finder' AND state_type = 'checkpoint'
+                    WHERE owner = 'finder' AND state_type = 'checkpoint'
                     """
                 )
                 result.finder_checkpoints_deleted = int(tag.split()[-1])
@@ -242,7 +242,7 @@ async def migrate(  # noqa: PLR0912, PLR0913, PLR0915
                 row = await conn.fetchval(
                     """
                     SELECT count(*)::int FROM service_state
-                    WHERE service_name = 'finder' AND state_type = 'cursor'
+                    WHERE owner = 'finder' AND state_type = 'cursor'
                     """
                 )
                 result.finder_cursors_deleted = row or 0
@@ -250,7 +250,7 @@ async def migrate(  # noqa: PLR0912, PLR0913, PLR0915
                 row = await conn.fetchval(
                     """
                     SELECT count(*)::int FROM service_state
-                    WHERE service_name = 'finder' AND state_type = 'checkpoint'
+                    WHERE owner = 'finder' AND state_type = 'checkpoint'
                     """
                 )
                 result.finder_checkpoints_deleted = row or 0
