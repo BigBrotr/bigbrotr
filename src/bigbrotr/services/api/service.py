@@ -1,9 +1,12 @@
-"""REST API service for read-only read-model exposure via FastAPI.
+"""REST API service for read-only readable-resource exposure via FastAPI.
 
 Registers paginated endpoints for all enabled public read models.
 [ReadModelPolicy][bigbrotr.services.common.configs.ReadModelPolicy] remains the
-shared access-policy model, but the public HTTP contract is expressed in
-terms of named read models rather than raw database tables.
+shared access-policy model, but the adapter now executes directly through the
+shared
+[ReadCore][bigbrotr.services.common.read_models.ReadCore] while preserving the
+historical public HTTP contract in terms of named read models rather than raw
+database tables.
 
 The HTTP server runs as a background ``asyncio.Task`` alongside the
 standard ``run_forever()`` cycle.  Each ``run()`` cycle logs request
@@ -53,7 +56,7 @@ from fastapi.responses import JSONResponse
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.read_models import ReadModelSurface
+from bigbrotr.services.common.read_models import ReadCore
 
 from .configs import ApiConfig
 from .routes import register_read_model_data_routes, register_read_model_routes
@@ -92,7 +95,7 @@ class Api(BaseService[ApiConfig]):
     def __init__(self, brotr: Brotr, config: ApiConfig | None = None) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: ApiConfig
-        self._read_models = ReadModelSurface(policy_source=lambda: self._config.read_models)
+        self._read_core = ReadCore(policy_source=lambda: self._config.read_models)
         self._server: uvicorn.Server | None = None
         self._server_task: asyncio.Task[None] | None = None
         self._requests_total = 0
@@ -100,10 +103,10 @@ class Api(BaseService[ApiConfig]):
 
     async def __aenter__(self) -> Api:
         await super().__aenter__()
-        await self._read_models.discover(self._brotr, logger=self._logger)
+        await self._read_core.discover(self._brotr, logger=self._logger)
 
         app = self._build_app()
-        read_model_count = len(self._read_models.enabled_names("api"))
+        read_model_count = len(self._read_core.enabled_resource_ids("api"))
         self._logger.info("endpoints_registered", count=read_model_count)
         self.set_gauge("read_models_exposed", read_model_count)
 
@@ -162,7 +165,7 @@ class Api(BaseService[ApiConfig]):
         self._requests_total = 0
         self._requests_failed = 0
 
-        read_models_exposed = len(self._read_models.enabled_names("api"))
+        read_models_exposed = len(self._read_core.enabled_resource_ids("api"))
         self._logger.info(
             "cycle_stats",
             requests_total=total,
@@ -253,7 +256,7 @@ class Api(BaseService[ApiConfig]):
         """Register read-model discovery endpoints."""
         register_read_model_routes(
             app,
-            read_models=self._read_models,
+            read_core=self._read_core,
             route_prefix=self._config.route_prefix,
         )
 
@@ -262,7 +265,7 @@ class Api(BaseService[ApiConfig]):
         register_read_model_data_routes(
             app,
             brotr=self._brotr,
-            read_models=self._read_models,
+            read_core=self._read_core,
             route_prefix=self._config.route_prefix,
             default_page_size=self._config.default_page_size,
             max_page_size=self._config.max_page_size,

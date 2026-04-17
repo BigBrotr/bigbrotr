@@ -18,7 +18,7 @@ from bigbrotr.services.common.catalog import (
     TableSchema,
 )
 from bigbrotr.services.common.configs import ReadModelPolicy
-from bigbrotr.services.common.read_models import ReadModelSurface
+from bigbrotr.services.common.read_models import ReadCore
 
 
 @pytest.fixture
@@ -39,19 +39,19 @@ def sample_catalog() -> Catalog:
 
 
 @pytest.fixture
-def read_models_surface(sample_catalog: Catalog) -> ReadModelSurface:
+def read_core(sample_catalog: Catalog) -> ReadCore:
     policies = {"relays": ReadModelPolicy(enabled=True)}
-    surface = ReadModelSurface(policy_source=lambda: policies)
-    surface.catalog = sample_catalog
-    return surface
+    core = ReadCore(policy_source=lambda: policies)
+    core.catalog = sample_catalog
+    return core
 
 
 @pytest.fixture
-def handler(mock_brotr: Brotr, read_models_surface: ReadModelSurface) -> ApiReadModelHandler:
-    read_model = read_models_surface.enabled_entries("api")["relays"]
+def handler(mock_brotr: Brotr, read_core: ReadCore) -> ApiReadModelHandler:
+    read_model = read_core.enabled_resources("api")["relays"]
     return ApiReadModelHandler(
         brotr=mock_brotr,
-        read_models=read_models_surface,
+        read_core=read_core,
         read_model_id="relays",
         read_model=read_model,
         default_page_size=10,
@@ -89,7 +89,7 @@ class TestApiReadModelHandler:
         request = _build_request("/v1/relays", query_string="limit=10")
 
         with patch.object(
-            handler.read_models.catalog,
+            handler.read_core.catalog,
             "query",
             new_callable=AsyncMock,
             return_value=mock_result,
@@ -117,7 +117,7 @@ class TestApiReadModelHandler:
         request = _build_request("/v1/relays", query_string="network=clearnet")
 
         with patch.object(
-            handler.read_models.catalog,
+            handler.read_core.catalog,
             "query",
             new_callable=AsyncMock,
             side_effect=CatalogError("Unknown column: network"),
@@ -130,12 +130,12 @@ class TestApiReadModelHandler:
     async def test_list_rows_timeout_returns_504(
         self,
         mock_brotr: Brotr,
-        read_models_surface: ReadModelSurface,
+        read_core: ReadCore,
     ) -> None:
-        read_model = read_models_surface.enabled_entries("api")["relays"]
+        read_model = read_core.enabled_resources("api")["relays"]
         handler = ApiReadModelHandler(
             brotr=mock_brotr,
-            read_models=read_models_surface,
+            read_core=read_core,
             read_model_id="relays",
             read_model=read_model,
             default_page_size=10,
@@ -147,7 +147,7 @@ class TestApiReadModelHandler:
         async def slow_query(*args: object, **kwargs: object) -> None:
             await asyncio.sleep(10)
 
-        with patch.object(handler.read_models.catalog, "query", side_effect=slow_query):
+        with patch.object(handler.read_core.catalog, "query", side_effect=slow_query):
             response = await handler.list_rows(request)
 
         assert response.status_code == 504
@@ -160,7 +160,7 @@ class TestApiReadModelHandler:
         )
 
         with patch.object(
-            handler.read_models.catalog,
+            handler.read_core.catalog,
             "get_by_pk",
             new_callable=AsyncMock,
             return_value={"url": "wss://relay.example.com", "network": "clearnet"},
@@ -178,12 +178,12 @@ class TestApiReadModelHandler:
     async def test_get_row_timeout_returns_504(
         self,
         mock_brotr: Brotr,
-        read_models_surface: ReadModelSurface,
+        read_core: ReadCore,
     ) -> None:
-        read_model = read_models_surface.enabled_entries("api")["relays"]
+        read_model = read_core.enabled_resources("api")["relays"]
         handler = ApiReadModelHandler(
             brotr=mock_brotr,
-            read_models=read_models_surface,
+            read_core=read_core,
             read_model_id="relays",
             read_model=read_model,
             default_page_size=10,
@@ -199,7 +199,7 @@ class TestApiReadModelHandler:
             await asyncio.sleep(10)
 
         with patch.object(
-            handler.read_models.catalog,
+            handler.read_core.catalog,
             "get_by_pk",
             side_effect=slow_get_by_pk,
         ):

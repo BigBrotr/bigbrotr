@@ -1,4 +1,4 @@
-"""Helpers for serving public API read-model routes."""
+"""Helpers for serving public API read-model routes through the shared read core."""
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ from fastapi.responses import JSONResponse
 
 from bigbrotr.services.common.catalog import CatalogError
 from bigbrotr.services.common.read_models import (
-    ReadModelEntry,
+    ReadableResourceEntry,
+    ReadCore,
     ReadModelQueryError,
-    ReadModelSurface,
     build_read_model_meta,
     read_model_query_from_http_params,
 )
@@ -25,12 +25,12 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class ApiReadModelHandler:
-    """Serve one public API read model through a shared read-model surface."""
+    """Serve one public API read model through the shared read core."""
 
     brotr: Brotr
-    read_models: ReadModelSurface
+    read_core: ReadCore
     read_model_id: str
-    read_model: ReadModelEntry
+    read_model: ReadableResourceEntry
     default_page_size: int
     max_page_size: int
     request_timeout: float
@@ -38,7 +38,7 @@ class ApiReadModelHandler:
     @property
     def primary_key_columns(self) -> tuple[str, ...]:
         """Return the primary-key columns for this read model."""
-        return self.read_model.schema(self.read_models.catalog).primary_key
+        return self.read_model.schema(self.read_core.catalog).primary_key
 
     async def list_rows(self, request: Request) -> JSONResponse:
         """Serve the collection route for this read model."""
@@ -53,7 +53,7 @@ class ApiReadModelHandler:
 
         try:
             result = await asyncio.wait_for(
-                self.read_models.query_entry(self.brotr, self.read_model, query),
+                self.read_core.query_resource(self.brotr, self.read_model, query),
                 timeout=self.request_timeout,
             )
         except TimeoutError:
@@ -73,7 +73,7 @@ class ApiReadModelHandler:
         pk_values = {column: request.path_params[column] for column in self.primary_key_columns}
         try:
             row = await asyncio.wait_for(
-                self.read_models.get_entry_by_pk(self.brotr, self.read_model, pk_values),
+                self.read_core.get_resource_by_pk(self.brotr, self.read_model, pk_values),
                 timeout=self.request_timeout,
             )
         except TimeoutError:

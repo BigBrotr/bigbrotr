@@ -95,7 +95,7 @@ def composite_pk_catalog() -> Catalog:
 @pytest.fixture
 def api_service(mock_brotr: Brotr, api_config: ApiConfig, sample_catalog: Catalog) -> Api:
     service = Api(brotr=mock_brotr, config=api_config)
-    service._read_models.catalog = sample_catalog
+    service._read_core.catalog = sample_catalog
     return service
 
 
@@ -222,7 +222,7 @@ class TestApiBuildApp:
             read_models={"relays": ReadModelPolicy(enabled=True)},
         )
         service = Api(brotr=mock_brotr, config=config)
-        service._read_models.catalog = sample_catalog
+        service._read_core.catalog = sample_catalog
         app = service._build_app()
         assert app.title == "LilBrotr API"
 
@@ -238,7 +238,7 @@ class TestApiBuildApp:
             read_models={"relays": ReadModelPolicy(enabled=True)},
         )
         service = Api(brotr=mock_brotr, config=config)
-        service._read_models.catalog = sample_catalog
+        service._read_core.catalog = sample_catalog
         app = service._build_app()
         middleware_classes = [type(m).__name__ for m in app.user_middleware]
         assert "Middleware" in str(middleware_classes) or len(app.user_middleware) > 0
@@ -257,7 +257,7 @@ class TestApiBuildApp:
             read_models={"relays": ReadModelPolicy(enabled=True)},
         )
         service = Api(brotr=mock_brotr, config=config)
-        service._read_models.catalog = sample_catalog
+        service._read_core.catalog = sample_catalog
         client = TestClient(service._build_app())
 
         assert client.get("/api/v2/read-models").status_code == 200
@@ -269,7 +269,7 @@ class TestApiBuildApp:
     ) -> None:
         config = ApiConfig(read_models={"relay-document-history": ReadModelPolicy(enabled=True)})
         service = Api(brotr=mock_brotr, config=config)
-        service._read_models.catalog = composite_pk_catalog
+        service._read_core.catalog = composite_pk_catalog
         app = service._build_app()
         paths = [r.path for r in app.routes]
         assert any("relay_url" in p and "document_id" in p and "role" in p for p in paths)
@@ -294,7 +294,7 @@ class TestApiBuildApp:
         assert resp.status_code in (404, 405)
 
     def test_enabled_read_model_names_follow_registry(self, api_service: Api) -> None:
-        assert api_service._read_models.enabled_names("api") == ["relay-stats", "relays"]
+        assert api_service._read_core.enabled_resource_ids("api") == ["relay-stats", "relays"]
 
 
 # ============================================================================
@@ -368,7 +368,7 @@ class TestListRowsRoute:
             next_cursor="opaque-token",
         )
         with patch.object(
-            api_service._read_models.catalog,
+            api_service._read_core.catalog,
             "query",
             new_callable=AsyncMock,
             return_value=mock_result,
@@ -390,7 +390,7 @@ class TestListRowsRoute:
     def test_include_total_param(self, test_client: TestClient, api_service: Api) -> None:
         mock_result = QueryResult(rows=[], total=5, limit=10, offset=0)
         with patch.object(
-            api_service._read_models.catalog,
+            api_service._read_core.catalog,
             "query",
             new_callable=AsyncMock,
             return_value=mock_result,
@@ -405,7 +405,7 @@ class TestListRowsRoute:
     def test_with_sort_param(self, test_client: TestClient, api_service: Api) -> None:
         mock_result = QueryResult(rows=[], total=None, limit=10, offset=0)
         with patch.object(
-            api_service._read_models.catalog,
+            api_service._read_core.catalog,
             "query",
             new_callable=AsyncMock,
             return_value=mock_result,
@@ -421,7 +421,7 @@ class TestListRowsRoute:
     def test_with_cursor_param(self, test_client: TestClient, api_service: Api) -> None:
         mock_result = QueryResult(rows=[], total=None, limit=10, offset=0)
         with patch.object(
-            api_service._read_models.catalog,
+            api_service._read_core.catalog,
             "query",
             new_callable=AsyncMock,
             return_value=mock_result,
@@ -439,7 +439,7 @@ class TestListRowsRoute:
 
     def test_catalog_error_returns_400(self, test_client: TestClient, api_service: Api) -> None:
         with patch.object(
-            api_service._read_models.catalog,
+            api_service._read_core.catalog,
             "query",
             new_callable=AsyncMock,
             side_effect=CatalogError("Unknown column: bad"),
@@ -463,7 +463,7 @@ class TestGetRowRoute:
     def test_success(self, test_client: TestClient, api_service: Api) -> None:
         mock_row = {"url": "wss://relay.example.com", "network": "clearnet"}
         with patch.object(
-            api_service._read_models.catalog,
+            api_service._read_core.catalog,
             "get_by_pk",
             new_callable=AsyncMock,
             return_value=mock_row,
@@ -475,7 +475,7 @@ class TestGetRowRoute:
 
     def test_not_found(self, test_client: TestClient, api_service: Api) -> None:
         with patch.object(
-            api_service._read_models.catalog,
+            api_service._read_core.catalog,
             "get_by_pk",
             new_callable=AsyncMock,
             return_value=None,
@@ -485,7 +485,7 @@ class TestGetRowRoute:
 
     def test_value_error_returns_400(self, test_client: TestClient, api_service: Api) -> None:
         with patch.object(
-            api_service._read_models.catalog,
+            api_service._read_core.catalog,
             "get_by_pk",
             new_callable=AsyncMock,
             side_effect=ValueError("bad pk"),
@@ -496,7 +496,7 @@ class TestGetRowRoute:
 
     def test_catalog_error_returns_400(self, test_client: TestClient, api_service: Api) -> None:
         with patch.object(
-            api_service._read_models.catalog,
+            api_service._read_core.catalog,
             "get_by_pk",
             new_callable=AsyncMock,
             side_effect=CatalogError("type cast failed"),
@@ -532,7 +532,7 @@ class TestRequestMiddleware:
         api_service: Api,
     ) -> None:
         with patch.object(
-            api_service._read_models.catalog,
+            api_service._read_core.catalog,
             "query",
             new_callable=AsyncMock,
             side_effect=RuntimeError("unexpected DB failure"),
@@ -577,7 +577,7 @@ class TestApiLifecycle:
         server.serve = AsyncMock()
 
         with (
-            patch.object(type(api_service._read_models), "discover", new_callable=AsyncMock),
+            patch.object(type(api_service._read_core), "discover", new_callable=AsyncMock),
             patch("bigbrotr.services.api.service.uvicorn.Server", return_value=server),
         ):
             async with api_service:
@@ -592,7 +592,7 @@ class TestApiLifecycle:
         server.serve = AsyncMock()
 
         with (
-            patch.object(type(api_service._read_models), "discover", new_callable=AsyncMock),
+            patch.object(type(api_service._read_core), "discover", new_callable=AsyncMock),
             patch("bigbrotr.services.api.service.uvicorn.Server", return_value=server),
         ):
             async with api_service:
@@ -606,7 +606,7 @@ class TestApiLifecycle:
         server.serve = AsyncMock()
 
         with (
-            patch.object(type(api_service._read_models), "discover", new_callable=AsyncMock),
+            patch.object(type(api_service._read_core), "discover", new_callable=AsyncMock),
             patch("bigbrotr.services.api.service.uvicorn.Server", return_value=server),
         ):
             async with api_service:
@@ -620,7 +620,7 @@ class TestApiLifecycle:
         server.serve = AsyncMock(side_effect=OSError("bind failed"))
 
         with (
-            patch.object(type(api_service._read_models), "discover", new_callable=AsyncMock),
+            patch.object(type(api_service._read_core), "discover", new_callable=AsyncMock),
             patch("bigbrotr.services.api.service.uvicorn.Server", return_value=server),
             pytest.raises(RuntimeError, match="HTTP server task has stopped unexpectedly"),
         ):
@@ -637,7 +637,7 @@ class TestApiLifecycle:
         server.serve = AsyncMock()
 
         with (
-            patch.object(type(api_service._read_models), "discover", new_callable=AsyncMock),
+            patch.object(type(api_service._read_core), "discover", new_callable=AsyncMock),
             patch("bigbrotr.services.api.service.uvicorn.Server", return_value=server),
             patch.object(api_service._logger, "info") as mock_info,
         ):
