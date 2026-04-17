@@ -24,17 +24,13 @@ Phase 3 — Finder reset:
     DELETE all finder cursors and checkpoints from service_state to force a
     full re-scan from the beginning.
 
-Phase 4 — Orphan cleanup:
-    Run orphan cleanup procedures for metadata and events detached by relay
-    deletions or renormalization.
-
-Phase 5 — Analytics rebuild:
+Phase 4 — Analytics rebuild:
     Rebuild summary tables and reset dependent checkpoints so incremental
     analytics and Assertor publications realign with the new relay set.
 
 Safety:
     - Phases 1-3 run in a single transaction (all-or-nothing).
-    - Phases 4-5 run only after a committed live migration.
+    - Phase 4 runs only after a committed live migration.
     - Use --dry-run to preview phases 1-3 without making changes.
     - Back up your database first.
 """
@@ -80,8 +76,6 @@ class MigrationResult:
     candidates: PhaseStats = field(default_factory=PhaseStats)
     finder_cursors_deleted: int = 0
     finder_checkpoints_deleted: int = 0
-    orphan_document_deleted: int = 0
-    orphan_events_deleted: int = 0
 
 
 def _normalize(raw_url: str) -> str | None:
@@ -270,22 +264,6 @@ async def migrate(  # noqa: PLR0912, PLR0913, PLR0915
     except _DryRunRollbackError:
         pass
 
-    # =============================================================
-    # Phase 4: Orphan cleanup (outside transaction, batched)
-    # =============================================================
-    if not dry_run and (result.relays.renormalized or result.relays.invalid):
-        print("\n--- Phase 4: Orphan cleanup ---\n")
-
-        print("  Cleaning orphan documents...", flush=True)
-        result.orphan_document_deleted = await conn.fetchval("SELECT orphan_document_delete(10000)")
-        print(f"    Deleted: {result.orphan_document_deleted}")
-
-        print("  Cleaning orphan events (this may take a while)...", flush=True)
-        result.orphan_events_deleted = await conn.fetchval("SELECT orphan_event_delete(10000)")
-        print(f"    Deleted: {result.orphan_events_deleted}")
-    elif dry_run:
-        print("\n--- Phase 4: Orphan cleanup (skipped in dry-run) ---")
-
     await conn.close()
     return result
 
@@ -350,7 +328,7 @@ def main() -> None:
     )
 
     if not args.dry_run and (result.relays.renormalized or result.relays.invalid):
-        print("\n--- Phase 5: Analytics rebuild ---\n")
+        print("\n--- Phase 4: Analytics rebuild ---\n")
         try:
             asyncio.run(
                 _run_rebuild(
@@ -383,11 +361,8 @@ def main() -> None:
     print("  Phase 3 — Finder reset")
     print(f"    Cursors deleted:     {result.finder_cursors_deleted}")
     print(f"    Checkpoints deleted: {result.finder_checkpoints_deleted}")
-    print("  Phase 4 — Orphan cleanup")
-    print(f"    Documents deleted:   {result.orphan_document_deleted}")
-    print(f"    Events deleted:      {result.orphan_events_deleted}")
     rebuilt = not args.dry_run and (result.relays.renormalized or result.relays.invalid)
-    print("  Phase 5 — Analytics rebuild")
+    print("  Phase 4 — Analytics rebuild")
     print(f"    Rebuilt:            {'yes' if rebuilt else 'no'}")
     print(f"{'=' * 40}")
 

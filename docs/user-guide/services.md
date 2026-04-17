@@ -44,7 +44,7 @@ flowchart LR
         ER["event_observation"]
         CT["current tables"]
         ST["analytics tables"]
-        RK["rank tables"]
+        RK["score tables"]
         MV["materialized views"]
     end
 

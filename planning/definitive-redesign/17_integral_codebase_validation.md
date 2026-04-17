@@ -329,11 +329,11 @@ The real migration is:
 Current code, SQL, and tests are deeply committed to the old shared schema:
 
 - `metadata`
-- `event_observation`
+- `event_relay`
 - `relay_metadata`
 - wide current tables
 - materialized contact graph tables
-- rich rank tables with `algorithm_id`, `raw_score`, `rank`, `computed_at`
+- rich public output tables with `algorithm_id`, `raw_score`, `rank`, `computed_at`
 
 Therefore the redesign must be treated as a **coordinated migration** across:
 

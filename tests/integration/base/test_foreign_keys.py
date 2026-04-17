@@ -198,12 +198,12 @@ class TestRelayDocumentForeignKeys:
 
 
 # =============================================================================
-# Full Orphan Lifecycle
+# Storage Retention After Junction Deletion
 # =============================================================================
 
 
-class TestOrphanLifecycle:
-    async def test_relay_delete_then_event_orphan_cleanup(self, brotr: Brotr) -> None:
+class TestStorageRetention:
+    async def test_relay_delete_keeps_event_storage_row(self, brotr: Brotr) -> None:
         er = _event_observation("c1" * 32, "wss://lifecycle-ev.example.com")
         await brotr.insert_event_observation([er], cascade=True)
 
@@ -217,11 +217,7 @@ class TestOrphanLifecycle:
         assert await brotr.fetchval("SELECT COUNT(*) FROM event_observation") == 0
         assert await brotr.fetchval("SELECT COUNT(*) FROM event") == 1
 
-        deleted = await brotr.delete_orphan_event()
-        assert deleted == 1
-        assert await brotr.fetchval("SELECT COUNT(*) FROM event") == 0
-
-    async def test_relay_delete_then_document_orphan_cleanup(self, brotr: Brotr) -> None:
+    async def test_relay_delete_keeps_document_storage_row(self, brotr: Brotr) -> None:
         rm = _relay_document("wss://lifecycle-meta.example.com", {"name": "Lifecycle"})
         await brotr.insert_relay_document([rm], cascade=True)
 
@@ -234,11 +230,7 @@ class TestOrphanLifecycle:
         assert await brotr.fetchval("SELECT COUNT(*) FROM relay_document") == 0
         assert await brotr.fetchval("SELECT COUNT(*) FROM document") == 1
 
-        deleted = await brotr.delete_orphan_document()
-        assert deleted == 1
-        assert await brotr.fetchval("SELECT COUNT(*) FROM document") == 0
-
-    async def test_full_cleanup_pipeline(self, brotr: Brotr) -> None:
+    async def test_relay_delete_removes_only_junction_rows(self, brotr: Brotr) -> None:
         er = _event_observation("c3" * 32, "wss://pipeline.example.com")
         rm = _relay_document("wss://pipeline.example.com", {"name": "Pipeline"})
 
@@ -247,12 +239,7 @@ class TestOrphanLifecycle:
 
         await brotr.execute("DELETE FROM relay WHERE url = $1", "wss://pipeline.example.com")
 
-        ev_deleted = await brotr.delete_orphan_event()
-        meta_deleted = await brotr.delete_orphan_document()
-        assert ev_deleted == 1
-        assert meta_deleted == 1
-
-        assert await brotr.fetchval("SELECT COUNT(*) FROM event") == 0
-        assert await brotr.fetchval("SELECT COUNT(*) FROM document") == 0
+        assert await brotr.fetchval("SELECT COUNT(*) FROM event") == 1
+        assert await brotr.fetchval("SELECT COUNT(*) FROM document") == 1
         assert await brotr.fetchval("SELECT COUNT(*) FROM event_observation") == 0
         assert await brotr.fetchval("SELECT COUNT(*) FROM relay_document") == 0

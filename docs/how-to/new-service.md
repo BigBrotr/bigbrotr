@@ -1,62 +1,107 @@
 # Adding a New Service
 
-Create, register, and test a custom BigBrotr service. This guide walks through the full process using a hypothetical "Pruner" service that removes stale data.
+Create, register, configure, and test a custom BigBrotr service. This guide
+uses a hypothetical `RelayReporter` service that logs the current relay count
+once per cycle.
 
 ---
 
 ## Overview
 
-Every BigBrotr service follows the same pattern:
+Every built-in BigBrotr service follows the same package-level pattern:
 
-1. A **config class** (Pydantic model extending `BaseServiceConfig`)
-2. A **service class** (extending `BaseService[ConfigT]`)
-3. A **registry entry** in `src/bigbrotr/services/registry.py`
-4. A **YAML config file** per deployment
-5. **Tests** in `tests/unit/services/`
+1. A **service package** in `src/bigbrotr/services/<service_name>/`
+2. A **config model** extending `BaseServiceConfig`
+3. A **service class** extending `BaseService[ConfigT]`
+4. A **package export** in `__init__.py`
+5. A **registry entry** in `src/bigbrotr/services/registry.py`
+6. A **YAML config file** per deployment
+7. **Unit tests** in `tests/unit/services/`
 
-## Step 1: Create the Service Module
+If the service becomes a first-class built-in, it should also get:
 
-Create `src/bigbrotr/services/pruner.py`:
+- a `ServiceName` enum member in `src/bigbrotr/models/constants.py`
+- deployment-specific docs and README updates
+- any query/config helper modules it needs
+
+---
+
+## Step 1: Create the Service Package
+
+Create a new package:
+
+```text
+src/bigbrotr/services/relay_reporter/
+├── __init__.py
+├── configs.py
+└── service.py
+```
+
+### `configs.py`
 
 ```python
-"""Pruner service -- removes orphaned events on a schedule."""
-
-from bigbrotr.core.base_service import BaseService, BaseServiceConfig
-from bigbrotr.models.constants import ServiceName
+from __future__ import annotations
 
 from pydantic import Field
 
-
-class PrunerConfig(BaseServiceConfig):
-    """Configuration for the Pruner service."""
-
-    interval: float = Field(default=86400.0, ge=60.0)
-    batch_size: int = Field(default=10000, ge=100, le=100000)
+from bigbrotr.core.base_service import BaseServiceConfig
 
 
-class Pruner(BaseService[PrunerConfig]):
-    """Removes orphaned events with no associated relays."""
+class RelayReporterConfig(BaseServiceConfig):
+    """Configuration for the RelayReporter service."""
 
-    SERVICE_NAME = ServiceName.PRUNER
-    CONFIG_CLASS = PrunerConfig
+    interval: float = Field(
+        default=3600.0,
+        ge=60.0,
+        description="Seconds between relay-count reports",
+    )
+```
+
+### `service.py`
+
+```python
+from __future__ import annotations
+
+from typing import ClassVar
+
+from bigbrotr.core.base_service import BaseService
+from bigbrotr.models.constants import ServiceName
+
+from .configs import RelayReporterConfig
+
+
+class RelayReporter(BaseService[RelayReporterConfig]):
+    """Logs the number of canonical relay rows currently stored."""
+
+    SERVICE_NAME: ClassVar[ServiceName] = ServiceName.RELAY_REPORTER
+    CONFIG_CLASS: ClassVar[type[RelayReporterConfig]] = RelayReporterConfig
 
     async def run(self) -> None:
-        """Execute one pruning cycle."""
-        self._logger.info("cycle_started", batch_size=self._config.batch_size)
+        relay_count = await self._brotr.fetchval("SELECT COUNT(*) FROM relay")
+        self._logger.info("cycle_completed", relay_count=int(relay_count or 0))
+```
 
-        deleted = await self._brotr.delete_orphan_event(
-            batch_size=self._config.batch_size,
-        )
+### `__init__.py`
 
-        self._logger.info("cycle_completed", deleted=deleted)
+```python
+"""RelayReporter service package."""
+
+from .configs import RelayReporterConfig
+from .service import RelayReporter
+
+__all__ = ["RelayReporter", "RelayReporterConfig"]
 ```
 
 !!! warning "Use `CONFIG_CLASS`, not `config_class`"
-    The class variable must be uppercase `CONFIG_CLASS` to match the `BaseService` declaration. Using lowercase `config_class` will silently fail -- the service will use default `BaseServiceConfig` values instead of your custom config.
+    The class variable must be uppercase `CONFIG_CLASS` to match the
+    `BaseService` contract. Using lowercase `config_class` will silently bypass
+    your typed config model.
+
+---
 
 ## Step 2: Add the Service Name
 
-Add the new name to `src/bigbrotr/models/constants.py`:
+Add the new member to `src/bigbrotr/models/constants.py`:
 
 ```python
 class ServiceName(StrEnum):
@@ -65,134 +110,147 @@ class ServiceName(StrEnum):
     VALIDATOR = "validator"
     MONITOR = "monitor"
     SYNCHRONIZER = "synchronizer"
-    PRUNER = "pruner"  # new
+    REFRESHER = "refresher"
+    RANKER = "ranker"
+    API = "api"
+    DVM = "dvm"
+    ASSERTOR = "assertor"
+    RELAY_REPORTER = "relay_reporter"
 ```
 
-## Step 3: Register in `services/registry.py`
+If the service is only experimental or deployment-local, you can keep
+`SERVICE_NAME` as a plain string, but built-in services should use the enum so
+logging, metrics, and service-state usage stay consistent.
 
-Add the import and built-in registry entry to `src/bigbrotr/services/registry.py`:
+---
+
+## Step 3: Register the Service
+
+Add the package to `src/bigbrotr/services/registry.py`:
 
 ```python
-from .pruner import Pruner
-
-SERVICE_REGISTRY: dict[str, ServiceEntry] = dict(
-    _service_entry(service_class)
-    for service_class in (
-        # ... existing built-ins ...
-        Pruner,
-    )
-)
+SERVICE_REGISTRY: dict[str, ServiceEntry] = {
+    # ... existing services ...
+    "relay_reporter": ServiceEntry(
+        service_module="bigbrotr.services.relay_reporter",
+        service_class_name="RelayReporter",
+        config_path=CONFIG_BASE / "services" / "relay_reporter.yaml",
+    ),
+}
 ```
 
-## Step 4: Create the YAML Config File
+This makes the service runnable through the shared CLI:
 
-Create `deployments/bigbrotr/config/services/pruner.yaml`:
+```bash
+python -m bigbrotr relay_reporter --profile bigbrotr --once
+```
+
+---
+
+## Step 4: Add Deployment Config
+
+Create a deployment config such as
+`deployments/bigbrotr/config/services/relay_reporter.yaml`:
 
 ```yaml
-interval: 86400.0          # Run once per day
-
-max_age_days: 90            # Remove metadata older than 90 days
-batch_size: 1000            # Delete in batches of 1000
-dry_run: false              # Set true to log without deleting
+interval: 3600.0
 
 metrics:
   enabled: true
-  port: 8005
+  port: 8010
 ```
 
-!!! tip
-    Copy the config to every deployment that needs the service.
+Copy or adapt the config for every deployment that should expose the service.
 
-When running the service locally, prefer the built-in deployment profiles:
+When running locally, prefer the deployment profile:
 
 ```bash
-python -m bigbrotr pruner --profile bigbrotr --once
+python -m bigbrotr relay_reporter --profile bigbrotr --once
 ```
 
-For custom deployment names, pass explicit config paths:
+For a custom deployment folder, pass explicit config paths:
 
 ```bash
-python -m bigbrotr pruner \
+python -m bigbrotr relay_reporter \
   --brotr-config deployments/myproject/config/brotr.yaml \
-  --config deployments/myproject/config/services/pruner.yaml \
+  --config deployments/myproject/config/services/relay_reporter.yaml \
   --once
 ```
 
-## Step 5: Write Tests
+---
 
-Create `tests/unit/services/test_pruner.py`:
+## Step 5: Write Unit Tests
+
+Create `tests/unit/services/test_relay_reporter.py`:
 
 ```python
-"""Tests for the Pruner service."""
+from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
-from bigbrotr.services.pruner import Pruner, PrunerConfig
-
-
-class TestPrunerConfig:
-    """Test PrunerConfig validation."""
-
-    def test_defaults(self):
-        config = PrunerConfig()
-        assert config.interval == 86400.0
-        assert config.max_age_days == 90
-        assert config.batch_size == 1000
-        assert config.dry_run is False
-
-    def test_interval_minimum(self):
-        with pytest.raises(Exception):
-            PrunerConfig(interval=10.0)
-
-    def test_max_age_days_range(self):
-        config = PrunerConfig(max_age_days=30)
-        assert config.max_age_days == 30
+from bigbrotr.models.constants import ServiceName
+from bigbrotr.services.relay_reporter import RelayReporter, RelayReporterConfig
 
 
-class TestPruner:
-    """Test Pruner service logic."""
+class TestRelayReporterConfig:
+    def test_defaults(self) -> None:
+        config = RelayReporterConfig()
+        assert config.interval == 3600.0
 
-    async def test_run_executes_delete(self, mock_brotr):
-        mock_brotr.execute = AsyncMock(return_value="DELETE 500")
-        config = PrunerConfig(max_age_days=30)
-        service = Pruner(brotr=mock_brotr, config=config)
+
+class TestRelayReporter:
+    async def test_run_logs_relay_count(self, mock_brotr) -> None:
+        mock_brotr.fetchval = AsyncMock(return_value=42)
+        service = RelayReporter(
+            brotr=mock_brotr,
+            config=RelayReporterConfig(interval=600.0),
+        )
+        service._logger.info = MagicMock()
 
         await service.run()
 
-        mock_brotr.execute.assert_called_once()
+        mock_brotr.fetchval.assert_awaited_once_with("SELECT COUNT(*) FROM relay")
+        service._logger.info.assert_called_once_with("cycle_completed", relay_count=42)
 
-    async def test_service_name(self, mock_brotr):
-        service = Pruner(brotr=mock_brotr)
-        assert service.SERVICE_NAME == "pruner"
+    async def test_service_name(self, mock_brotr) -> None:
+        service = RelayReporter(brotr=mock_brotr)
+        assert service.SERVICE_NAME is ServiceName.RELAY_REPORTER
 ```
+
+Adapt the assertions to the real side effects of your service. For services
+that write state, publish events, or call external systems, assert the
+observable boundary behavior rather than private implementation details.
+
+---
 
 ## Step 6: Run Checks
 
 ```bash
-# Lint and type-check
-ruff check src/bigbrotr/services/pruner.py
+# Lint and type-check the new package
+ruff check src/bigbrotr/services/relay_reporter/ tests/unit/services/test_relay_reporter.py
 mypy src/bigbrotr
 
-# Run your tests
-pytest tests/unit/services/test_pruner.py -v
+# Run focused tests first
+pytest tests/unit/services/test_relay_reporter.py -v
 
-# Run the full CI suite
+# Then run the full CI suite
 make ci
+uv lock --check
 ```
+
+---
 
 ## Step 7: Test the Service Locally
 
 ```bash
-cd deployments/bigbrotr
-
 # One-shot mode
-python -m bigbrotr pruner --once --log-level DEBUG
+python -m bigbrotr relay_reporter --profile bigbrotr --once --log-level DEBUG
 
 # Continuous mode
-python -m bigbrotr pruner --log-level DEBUG
+python -m bigbrotr relay_reporter --profile bigbrotr --log-level DEBUG
 ```
+
+---
 
 ## Service Lifecycle Reference
 
@@ -200,20 +258,40 @@ python -m bigbrotr pruner --log-level DEBUG
 
 | Method | Purpose |
 |--------|---------|
-| `run()` | Override this -- your main logic for one cycle |
+| `run()` | Override this with one bounded service cycle |
 | `run_forever()` | Calls `run()` in a loop with interval sleeping |
 | `request_shutdown()` | Signals the service to stop gracefully |
-| `is_running` | Property: `True` until shutdown is requested |
-| `wait(timeout)` | Interruptible sleep (use instead of `asyncio.sleep`) |
+| `is_running` | `True` until shutdown is requested |
+| `wait(timeout)` | Interruptible sleep helper |
 | `from_yaml(path, brotr)` | Factory: load config from YAML and instantiate |
 | `from_dict(data, brotr)` | Factory: load config from a dictionary |
 
-The `run_forever()` loop also tracks Prometheus metrics (cycle counts, durations, failure counters) and enforces `max_consecutive_failures`.
+The shared CLI handles:
+
+- config loading
+- pool overrides
+- metrics server startup
+- one-shot vs continuous execution
+- graceful shutdown on interruption
+
+---
+
+## Design Checklist
+
+Before considering a new service complete, verify:
+
+- the service has a clear bounded responsibility
+- all database access goes through `Brotr` or service query modules
+- batch operations remain bounded for very large datasets
+- config has strong validation and reasonable defaults
+- logs and metrics expose useful operational signals
+- tests cover success paths, validation failures, and critical boundaries
+- deployment docs and local `README.md` files are updated if the service becomes first-class
 
 ---
 
 ## Related Documentation
 
-- [Custom Deployment](custom-deployment.md) -- add the service to a new deployment
-- [Monitoring Setup](monitoring-setup.md) -- verify metrics for the new service
-- [Troubleshooting](troubleshooting.md) -- debug service startup issues
+- [Custom Deployment](custom-deployment.md) — add the service to a new deployment
+- [Monitoring Setup](monitoring-setup.md) — verify metrics for the new service
+- [Troubleshooting](troubleshooting.md) — debug service startup issues

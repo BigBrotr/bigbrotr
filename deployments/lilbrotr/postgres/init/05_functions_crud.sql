@@ -129,7 +129,7 @@ COMMENT ON FUNCTION event_insert(BYTEA [], BYTEA [], BIGINT [], INTEGER [], JSON
  *
  * Parameters:
  *   p_ids             - Array of pre-computed SHA-256 hashes (32 bytes)
- *   p_metadata_types  - Array of metadata types (nip11_info, nip66_rtt, etc.)
+ *   p_document_types  - Array of document types (nip11_info, nip66_rtt, etc.)
  *   p_data            - Array of JSON documents
  *
  * Returns: Number of newly inserted rows
@@ -139,7 +139,7 @@ DROP FUNCTION IF EXISTS document_insert(BYTEA [], JSONB []);
 DROP FUNCTION IF EXISTS document_insert(BYTEA [], JSONB [], TEXT []);
 CREATE OR REPLACE FUNCTION document_insert(
     p_ids BYTEA [],
-    p_metadata_types TEXT [],
+    p_document_types TEXT [],
     p_data JSONB []
 )
 RETURNS INTEGER
@@ -149,7 +149,7 @@ DECLARE
     v_row_count INTEGER;
 BEGIN
     INSERT INTO document (id, type, data)
-    SELECT * FROM unnest(p_ids, p_metadata_types, p_data)
+    SELECT * FROM unnest(p_ids, p_document_types, p_data)
         AS t(id, type, data)
     ON CONFLICT (id, type) DO NOTHING;
 

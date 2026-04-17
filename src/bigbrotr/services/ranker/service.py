@@ -554,7 +554,7 @@ class Ranker(BaseService[RankerConfig]):
         cycle_start: float,
         computed_at: int,
     ) -> _ExportResult:
-        """Snapshot-export all final NIP-85 rank tables into PostgreSQL."""
+        """Snapshot-export all final NIP-85 score tables into PostgreSQL."""
         async with self._brotr.transaction() as conn:
             await create_rank_stages(conn)
 

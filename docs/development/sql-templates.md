@@ -44,15 +44,15 @@ The base templates define the Brotr schema shared by all deployments:
 | `01_functions_utility.sql.j2` | Tag and event-address utility functions |
 | `02_tables_core.sql.j2` | Core tables: relay, event, event_observation, document, relay_document, service_state |
 | `03_tables_current.sql.j2` | Current-state tables |
-| `04_tables_analytics.sql.j2` | Analytics and NIP-85 rank tables |
+| `04_tables_analytics.sql.j2` | Analytics and NIP-85 score tables |
 | `05_functions_crud.sql.j2` | CRUD, cascade, and service-state functions |
-| `06_functions_cleanup.sql.j2` | Cleanup functions (orphan document + orphan event deletion) |
+| `06_functions_cleanup.sql.j2` | Cleanup contract stub (no shared orphan cleanup functions) |
 | `07_views_reporting.sql.j2` | Reporting views |
 | `08_functions_refresh_current.sql.j2` | Current-state refresh functions |
 | `09_functions_refresh_analytics.sql.j2` | Analytics, contact-graph, and periodic refresh functions |
 | `10_indexes_core.sql.j2` | Core table indexes |
 | `11_indexes_current.sql.j2` | Current-state indexes |
-| `12_indexes_analytics.sql.j2` | Analytics and rank indexes |
+| `12_indexes_analytics.sql.j2` | Analytics and score indexes |
 | `99_verify.sql.j2` | Post-init verification script (schema summary) |
 
 ---

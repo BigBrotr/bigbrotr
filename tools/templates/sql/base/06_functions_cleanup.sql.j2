@@ -1,94 +1,13 @@
 /*
  * Brotr - 06_functions_cleanup.sql
  *
- * Cleanup functions that remove orphaned records to maintain data integrity.
- * These should be run periodically or after bulk deletions from parent tables.
+ * No schema-level orphan cleanup functions are defined.
+ *
+ * The shared storage contract intentionally does not assume that an event must
+ * always have an event_observation row or that a document must always have a
+ * relay_document row. Storage rows may outlive current junction rows, and any
+ * future reclamation policy must be explicit and deployment-specific rather
+ * than encoded as a default shared invariant.
  *
  * Dependencies: 02_tables_core.sql
  */
-
-/*
- * orphan_document_delete(p_batch_size) -> INTEGER
- *
- * Removes document rows that have no references in relay_document,
- * processing in configurable batches to limit lock duration and WAL volume.
- * This happens when old relay metadata snapshots are deleted but their
- * underlying content-addressed documents remain. Safe to run at any time.
- *
- * Parameters:
- *   p_batch_size  Maximum rows to delete per iteration (default 10,000)
- *
- * Returns: Total number of deleted rows across all batches
- * Schedule: Daily, or after bulk relay_document deletions
- */
-CREATE OR REPLACE FUNCTION orphan_document_delete(p_batch_size INTEGER DEFAULT 10000)
-RETURNS INTEGER
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    v_deleted INTEGER := 0;
-    v_batch INTEGER;
-BEGIN
-    LOOP
-        DELETE FROM document m WHERE (m.id, m.type) IN (
-            SELECT m2.id, m2.type FROM document m2
-            WHERE NOT EXISTS (
-                SELECT 1 FROM relay_document rm
-                WHERE rm.document_id = m2.id AND rm.role = m2.type
-            )
-            LIMIT p_batch_size
-        );
-        GET DIAGNOSTICS v_batch = ROW_COUNT;
-        v_deleted := v_deleted + v_batch;
-        EXIT WHEN v_batch < p_batch_size;
-    END LOOP;
-    RETURN v_deleted;
-END;
-$$;
-
-COMMENT ON FUNCTION orphan_document_delete(INTEGER) IS
-'Delete unreferenced documents in batches to limit lock duration';
-
-
-/*
- * orphan_event_delete(p_batch_size) -> INTEGER
- *
- * Removes events that have no associated relay in event_observation,
- * processing in configurable batches to limit lock duration and WAL volume.
- * This enforces the invariant that every event must be associated with at
- * least one relay. Orphans can appear when a relay is deleted via CASCADE
- * on event_observation but the event itself remains.
- *
- * Parameters:
- *   p_batch_size  Maximum rows to delete per iteration (default 10,000)
- *
- * Returns: Total number of deleted rows across all batches
- * Schedule: Daily, or after relay deletions
- */
-CREATE OR REPLACE FUNCTION orphan_event_delete(p_batch_size INTEGER DEFAULT 10000)
-RETURNS INTEGER
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    v_deleted INTEGER := 0;
-    v_batch   INTEGER;
-BEGIN
-    LOOP
-        DELETE FROM event
-        WHERE id IN (
-            SELECT e.id FROM event AS e
-            WHERE NOT EXISTS (
-                SELECT 1 FROM event_observation AS er WHERE er.event_id = e.id
-            )
-            LIMIT p_batch_size
-        );
-        GET DIAGNOSTICS v_batch = ROW_COUNT;
-        v_deleted := v_deleted + v_batch;
-        EXIT WHEN v_batch < p_batch_size;
-    END LOOP;
-    RETURN v_deleted;
-END;
-$$;
-
-COMMENT ON FUNCTION orphan_event_delete(INTEGER) IS
-'Delete events without any relay association in batches to limit lock duration';

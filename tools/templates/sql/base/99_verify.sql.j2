@@ -56,7 +56,7 @@ BEGIN
     RAISE NOTICE '  event_observation_insert_cascade, relay_document_insert_cascade';
     RAISE NOTICE '';
     RAISE NOTICE 'Cleanup Functions:';
-    RAISE NOTICE '  orphan_document_delete, orphan_event_delete';
+    RAISE NOTICE '  none (shared storage keeps retention policy out of the base schema)';
     RAISE NOTICE '';
     RAISE NOTICE 'Current Refresh Functions (5):';
     RAISE NOTICE '  relay_document_current_refresh';

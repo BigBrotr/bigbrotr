@@ -12,7 +12,7 @@ BigBrotr uses PostgreSQL 18+ with a schema designed for high-throughput event ar
 - **Bulk array parameters**: All mutations use stored functions with array parameters for batch efficiency
 - **SECURITY INVOKER**: All functions execute with the caller's permissions (least privilege)
 - **ON CONFLICT DO NOTHING**: All inserts are idempotent and safe to retry
-- **Batched cleanup**: Cleanup functions process in configurable batch sizes to limit lock duration
+- **No implicit orphan cleanup**: storage retention policy is not encoded as a base-schema invariant
 
 Two schema variants exist:
 
@@ -109,7 +109,7 @@ flowchart LR
     core_stats["core analytics stats"]
     relay_meta_stats["relay software / supported NIP counts"]
     nip85_stats["NIP-85 stats tables"]
-    ranks["NIP-85 rank tables"]
+    scores["NIP-85 score tables"]
 
     relay_document --> relay_document_current
     document --> relay_document_current
@@ -126,7 +126,7 @@ flowchart LR
     replaceable --> contacts
     contacts --> edges
     edges --> nip85_stats
-    nip85_stats --> ranks
+    nip85_stats --> scores
     edges --> ranks
 ```
 
@@ -257,9 +257,10 @@ All foreign keys use `ON DELETE CASCADE`:
 | `relay_document` | `relay_url` | `relay(url)` | Deleting a relay removes all document snapshots |
 | `relay_document` | `document_id + role` | `document(id, type)` | Deleting a document removes all references |
 
-!!! warning "Invariants"
-    - Every event must have at least one relay in `event_observation` (enforced by `orphan_event_delete()`)
-    - Orphaned document rows accumulate naturally; clean up with `orphan_document_delete()`
+!!! warning "Storage Semantics"
+    - `event` rows can exist even when no `event_observation` rows currently reference them
+    - `document` rows can exist even when no `relay_document` rows currently reference them
+    - Any future reclamation policy must be explicit and deployment-specific, not assumed by the base schema
 
 ---
 
@@ -413,23 +414,9 @@ Returns the number of junction rows inserted.
 
 ## Cleanup Functions
 
-All cleanup functions use configurable batch sizes to limit lock duration and WAL volume. They loop until fewer than `p_batch_size` rows are deleted, returning the total count.
-
-### orphan_document_delete
-
-```sql
-orphan_document_delete(p_batch_size INTEGER DEFAULT 10000) -> INTEGER
-```
-
-Removes document records with no references in `relay_document`. Schedule: daily or after bulk deletions.
-
-### orphan_event_delete
-
-```sql
-orphan_event_delete(p_batch_size INTEGER DEFAULT 10000) -> INTEGER
-```
-
-Removes events with no associated relays in `event_observation`. Enforces the invariant that every event must have at least one relay. Schedule: daily or after relay deletions.
+No schema-level orphan cleanup functions are defined in the base contract.
+The shared database intentionally avoids assuming that detached storage rows are
+invalid by default.
 
 ---
 
@@ -853,7 +840,7 @@ Current-state and analytics tables use primary keys for deterministic upserts. A
 
 ### LilBrotr Table Indexes
 
-LilBrotr uses the same table, current-state, analytics, and rank indexes as BigBrotr (see above). The only schema difference is the event table column nullability.
+LilBrotr uses the same table, current-state, analytics, and score indexes as BigBrotr (see above). The only schema difference is the event table column nullability.
 
 ---
 
@@ -869,15 +856,15 @@ SQL files execute in alphabetical order via Docker's `/docker-entrypoint-initdb.
 | `01_functions_utility.sql` | Tag and event-address utility functions |
 | `02_tables_core.sql` | Core relay, event, document, junction, and service-state tables |
 | `03_tables_current.sql` | Current-state tables |
-| `04_tables_analytics.sql` | Analytics and NIP-85 rank tables |
+| `04_tables_analytics.sql` | Analytics and NIP-85 score tables |
 | `05_functions_crud.sql` | CRUD, cascade, and service-state functions |
-| `06_functions_cleanup.sql` | 2 cleanup functions |
+| `06_functions_cleanup.sql` | no shared cleanup functions |
 | `07_views_reporting.sql` | Reporting views |
 | `08_functions_refresh_current.sql` | Current-state refresh functions |
 | `09_functions_refresh_analytics.sql` | Analytics, contact-graph, and periodic refresh functions |
 | `10_indexes_core.sql` | Core table indexes |
 | `11_indexes_current.sql` | Current-state indexes |
-| `12_indexes_analytics.sql` | Analytics and rank indexes |
+| `12_indexes_analytics.sql` | Analytics and score indexes |
 | `98_grants.sh` | Role grants |
 | `99_verify.sql` | Verification queries |
 
@@ -889,15 +876,15 @@ SQL files execute in alphabetical order via Docker's `/docker-entrypoint-initdb.
 | `01_functions_utility.sql` | Tag and event-address utility functions |
 | `02_tables_core.sql` | Core relay, event, document, junction, and service-state tables |
 | `03_tables_current.sql` | Current-state tables |
-| `04_tables_analytics.sql` | Analytics and NIP-85 rank tables |
+| `04_tables_analytics.sql` | Analytics and NIP-85 score tables |
 | `05_functions_crud.sql` | CRUD, cascade, and service-state functions |
-| `06_functions_cleanup.sql` | 2 cleanup functions |
+| `06_functions_cleanup.sql` | no shared cleanup functions |
 | `07_views_reporting.sql` | Reporting views |
 | `08_functions_refresh_current.sql` | Current-state refresh functions |
 | `09_functions_refresh_analytics.sql` | Analytics, contact-graph, and periodic refresh functions |
 | `10_indexes_core.sql` | Core table indexes |
 | `11_indexes_current.sql` | Current-state indexes |
-| `12_indexes_analytics.sql` | Analytics and rank indexes |
+| `12_indexes_analytics.sql` | Analytics and score indexes |
 | `98_grants.sh` | Role grants |
 | `99_verify.sql` | Verification queries |
 
@@ -944,7 +931,7 @@ CREATE TABLE event (
 | Utility | 5 | `tags_to_tagvalues`, event address helpers, and `bolt11_amount_msats` |
 | CRUD (Level 1) | 8 | `relay_insert`, `event_insert`, `document_insert`, `event_observation_insert`, `relay_document_insert`, `service_state_upsert`, `service_state_get`, `service_state_delete` |
 | CRUD (Level 2) | 2 | `event_observation_insert_cascade`, `relay_document_insert_cascade` |
-| Cleanup | 2 | `orphan_document_delete`, `orphan_event_delete` |
+| Cleanup | 0 | none |
 | Current refresh | 5 | `relay_document_current_refresh`, `replaceable_event_current_refresh`, `addressable_event_current_refresh`, `contact_lists_current_refresh`, `contact_list_edges_current_refresh` |
 | Analytics refresh | 13 | `daily_counts_refresh`, document-backed analytics, entity stats, and NIP-85 stats refresh functions |
 | Periodic refresh | 3 | `rolling_windows_refresh`, `relay_stats_document_refresh`, `nip85_follower_count_refresh` |
@@ -958,8 +945,6 @@ CREATE TABLE event (
 |------|-----------|---------|
 | Refresh current-state and analytics tables | Hourly/Daily | Run via Refresher service (orchestrates configured targets individually) |
 | Refresh periodic reconciliation targets | Hourly/Daily | Run via Refresher service (orchestrates configured targets individually) |
-| Delete orphan events | Daily | `SELECT orphan_event_delete()` |
-| Delete orphan documents | Daily | `SELECT orphan_document_delete()` |
 | VACUUM ANALYZE | Weekly | `VACUUM ANALYZE event; VACUUM ANALYZE event_observation;` |
 
 ---

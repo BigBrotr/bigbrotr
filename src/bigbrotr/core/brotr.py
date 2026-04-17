@@ -647,52 +647,6 @@ class Brotr:
             cascade=cascade,
         )
 
-    async def delete_orphan_event(self) -> int:
-        """Delete events that have no associated relay in the junction table.
-
-        Orphaned events occur when relays are deleted or events were
-        inserted without relay associations. Removing them reclaims
-        storage and maintains referential consistency. Calls the
-        ``orphan_event_delete`` stored procedure.
-
-        Returns:
-            Number of orphaned events deleted.
-
-        Raises:
-            asyncpg.PostgresError: On database errors.
-
-        See Also:
-            [delete_orphan_document()][bigbrotr.core.brotr.Brotr.delete_orphan_document]:
-                Companion cleanup for orphaned document records.
-        """
-        return await self._call_counting_procedure(
-            "orphan_event_delete",
-            timeout=self._config.timeouts.cleanup,
-        )
-
-    async def delete_orphan_document(self) -> int:
-        """Delete document records that have no associated relay in the junction table.
-
-        Orphaned documents occur when all relay associations for a content-
-        addressed blob are removed (e.g., superseded NIP-11 or NIP-66 data).
-        Removing them reclaims storage. Calls the ``orphan_document_delete``
-        stored procedure.
-
-        Returns:
-            Number of orphaned document records deleted.
-
-        Raises:
-            asyncpg.PostgresError: On database errors.
-
-        See Also:
-            [delete_orphan_event()][bigbrotr.core.brotr.Brotr.delete_orphan_event]:
-                Companion cleanup for orphaned event records.
-        """
-        return await self._call_counting_procedure(
-            "orphan_document_delete",
-            timeout=self._config.timeouts.cleanup,
-        )
-
     async def upsert_service_state(self, records: list[ServiceState]) -> int:
         """Atomically upsert service state records using bulk array parameters.
 

@@ -67,7 +67,6 @@ CREATE INDEX IF NOT EXISTS idx_relay_document_associated_at
 ON relay_document USING btree (associated_at DESC);
 
 -- Compound FK lookups: WHERE document_id = ? AND role = ?
--- Also used by orphan_document_delete() to verify references
 CREATE INDEX IF NOT EXISTS idx_relay_document_document_id_role
 ON relay_document USING btree (document_id, role);
 

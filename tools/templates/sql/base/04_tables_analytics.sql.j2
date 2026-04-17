@@ -175,7 +175,7 @@ CREATE TABLE IF NOT EXISTS relay_stats (
 );
 
 COMMENT ON TABLE relay_stats IS
-'Rich per-relay statistics. Event counts via relay_stats_refresh(after, until). Metadata via relay_stats_document_refresh().';
+'Rich per-relay statistics. Event counts via relay_stats_refresh(after, until). Document-backed relay fields via relay_stats_document_refresh().';
 
 
 -- **************************************************************************
@@ -379,8 +379,8 @@ COMMENT ON TABLE identifier_score IS
 -- ==========================================================================
 -- relay_software_counts: NIP-11 software distribution
 -- ==========================================================================
--- Count of relays by software name and version from current NIP-11 metadata.
--- Recomputed from relay_document_current when the metadata watermark advances.
+-- Count of relays by software name and version from current NIP-11 documents.
+-- Recomputed from relay_document_current when the document watermark advances.
 --
 -- Refresh: relay_software_counts_refresh(p_after, p_until)
 
@@ -409,7 +409,7 @@ CREATE TABLE IF NOT EXISTS supported_nip_counts (
 );
 
 COMMENT ON TABLE supported_nip_counts IS
-'NIP support distribution across relays from current NIP-11 metadata. Refreshed via supported_nip_counts_refresh(after, until).';
+'NIP support distribution across relays from current NIP-11 documents. Refreshed via supported_nip_counts_refresh(after, until).';
 
 
 -- **************************************************************************

@@ -8,7 +8,6 @@ Tests:
 - Helper methods (_validate_batch_size, _transpose_to_columns, _call_procedure)
 - Insert operations (insert_event, insert_event_observation, insert_relay, insert_document, insert_relay_document)
 - Service state operations (upsert_service_state, get_service_state, delete_service_state)
-- Cleanup operations (delete_orphan_event, delete_orphan_document)
 - Refresh procedure operations (run_refresh_procedure / refresh_materialized_view alias)
 - Explicit lifecycle methods (connect, close)
 - Context manager support
@@ -723,29 +722,6 @@ class TestDeleteServiceState:
                 [ServiceStateType.CURSOR],
                 ["key1", "key2"],
             )
-
-
-# ============================================================================
-# Cleanup Operations Tests
-# ============================================================================
-
-
-class TestDeleteOrphanEvent:
-    """Tests for Brotr.delete_orphan_event() method."""
-
-    async def test_returns_deleted_count(self, mock_brotr: Brotr) -> None:
-        """Test that method returns count of deleted events."""
-        result = await mock_brotr.delete_orphan_event()
-        assert result == 1  # Mock returns 1 by default
-
-
-class TestDeleteOrphanDocument:
-    """Tests for Brotr.delete_orphan_document() method."""
-
-    async def test_returns_deleted_count(self, mock_brotr: Brotr) -> None:
-        """Test that method returns count of deleted documents."""
-        result = await mock_brotr.delete_orphan_document()
-        assert result == 1  # Mock returns 1 by default
 
 
 # ============================================================================

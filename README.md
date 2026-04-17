@@ -36,7 +36,7 @@ Ten **independent** async services share a PostgreSQL database. Each runs on its
               │                                                                   │
               │              relay ─── event_observation ─── event               │
               │              document ─── relay_document                         │
-              │              service_state   current + analytics + rank tables   │
+              │              service_state   current + analytics + score tables  │
               └──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬──────────────┘
                  │      │      │      │      │      │      │      │      │
                  ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼
@@ -279,11 +279,10 @@ PostgreSQL 18 with PGBouncer (transaction-mode pooling) and asyncpg async driver
 | `relay_document` | Time-series snapshots linking relays to stored documents |
 | `service_state` | Per-service operational data (candidates, cursors, checkpoints) |
 
-### Stored Functions (38)
+### Stored Functions (36)
 
 - **5 utility**: `tags_to_tagvalues`, event-address helpers, and `bolt11_amount_msats`
 - **10 CRUD**: `relay_insert`, `event_insert`, `document_insert`, `event_observation_insert`, `relay_document_insert`, `event_observation_insert_cascade`, `relay_document_insert_cascade`, `service_state_upsert`, `service_state_get`, `service_state_delete`
-- **2 cleanup**: `orphan_event_delete`, `orphan_document_delete` (batched)
 - **18 refresh**: 5 current-state refresh functions + 13 analytics refresh functions
 - **3 periodic**: `rolling_windows_refresh`, `relay_stats_document_refresh`, `nip85_follower_count_refresh`
 
@@ -526,7 +525,7 @@ bigbrotr/
 │   ├── Dockerfile                   # Single parametric (ARG DEPLOYMENT)
 │   ├── bigbrotr/                    # Full archive deployment
 │   │   ├── config/                  # YAML configs (brotr + 10 services)
-│   │   ├── postgres/init/           # SQL schema (10 files, 24 functions)
+│   │   ├── postgres/init/           # SQL schema (10 files, 22 functions)
 │   │   ├── monitoring/              # Prometheus + Alertmanager + Grafana
 │   │   └── docker-compose.yaml      # 16 containers, 2 networks
 │   └── lilbrotr/                    # Lightweight deployment

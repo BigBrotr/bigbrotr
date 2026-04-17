@@ -192,12 +192,10 @@ class BrotrConfig(BaseModel):
 | `get_service_state(service, type, key?)` | `service_state_get` |
 | `delete_service_state(keys)` | `service_state_delete` |
 
-**Cleanup and maintenance:**
+**Maintenance:**
 
 | Method | Stored Function Called |
 |--------|----------------------|
-| `delete_orphan_event()` | `orphan_event_delete` |
-| `delete_orphan_document()` | `orphan_document_delete` |
 | `run_refresh_procedure(name)` | `{name}_refresh` |
 
 **Generic query facade** (used by services for ad-hoc queries):
