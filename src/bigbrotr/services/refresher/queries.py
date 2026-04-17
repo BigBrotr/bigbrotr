@@ -7,7 +7,6 @@ functions declared in this module-level registry.
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -136,25 +135,29 @@ async def get_relay_document_watermark(brotr: Brotr) -> int:
 
 
 async def get_max_observed_at(brotr: Brotr, after: int) -> int:
-    """Return the wall-clock timestamp if new ``event_observation`` rows exist after checkpoint."""
-    exists = await brotr.fetchval(
-        "SELECT EXISTS(SELECT 1 FROM event_observation WHERE observed_at > $1)",
+    """Return the latest ``event_observation.observed_at`` after checkpoint."""
+    result = await brotr.fetchval(
+        """
+        SELECT COALESCE(MAX(observed_at), $1)
+        FROM event_observation
+        WHERE observed_at > $1
+        """,
         after,
     )
-    if not exists:
-        return after
-    return int(time.time())
+    return int(result) if result is not None else after
 
 
 async def get_max_associated_at(brotr: Brotr, after: int) -> int:
-    """Return wall-clock timestamp if newer ``relay_document`` rows exist."""
-    exists = await brotr.fetchval(
-        "SELECT EXISTS(SELECT 1 FROM relay_document WHERE associated_at > $1)",
+    """Return the latest ``relay_document.associated_at`` after checkpoint."""
+    result = await brotr.fetchval(
+        """
+        SELECT COALESCE(MAX(associated_at), $1)
+        FROM relay_document
+        WHERE associated_at > $1
+        """,
         after,
     )
-    if not exists:
-        return after
-    return int(time.time())
+    return int(result) if result is not None else after
 
 
 async def refresh_incremental_target(

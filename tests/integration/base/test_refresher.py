@@ -5,8 +5,9 @@ from __future__ import annotations
 import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import EventObservation, Relay
+from bigbrotr.models import EventObservation, Relay, RelayDocument
 from bigbrotr.models.constants import ServiceName
+from bigbrotr.models.document import Document, DocumentType
 from bigbrotr.models.event import Event
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.refresher import Refresher, RefresherConfig
@@ -58,6 +59,18 @@ def _config(
             },
         }
     )
+
+
+def _relay_document(
+    relay_url: str,
+    data: dict,
+    *,
+    document_type: DocumentType = DocumentType.NIP11_INFO,
+    associated_at: int = 1700000001,
+) -> RelayDocument:
+    relay = Relay(relay_url, stored_at=1700000000)
+    document = Document(type=document_type, data=data)
+    return RelayDocument(relay=relay, document=document, associated_at=associated_at)
 
 
 class TestRefresherIntegration:
@@ -263,6 +276,126 @@ class TestRefresherIntegration:
         assert new_row is not None
         assert new_row["event_count"] == 1
         assert result.rows_refreshed >= 1
+
+    async def test_incremental_checkpoints_track_consumed_source_max(self, brotr: Brotr) -> None:
+        refresher = Refresher(
+            brotr=brotr,
+            config=_config(analytics=["pubkey_kind_stats"]),
+        )
+        await brotr.insert_event_observation(
+            [
+                _event_observation(
+                    "60" * 32,
+                    "wss://refresher-source-max.example.com",
+                    kind=1,
+                    pubkey="77" * 32,
+                    observed_at=100,
+                )
+            ],
+            cascade=True,
+        )
+
+        first = await refresher.refresh()
+        state_after_first = await brotr.get_service_state(
+            ServiceName.REFRESHER,
+            ServiceStateType.CHECKPOINT,
+            "pubkey_kind_stats",
+        )
+        assert state_after_first
+        assert state_after_first[0].state_value["timestamp"] == 100
+
+        await brotr.insert_event_observation(
+            [
+                _event_observation(
+                    "61" * 32,
+                    "wss://refresher-source-max.example.com",
+                    kind=1,
+                    pubkey="88" * 32,
+                    observed_at=150,
+                )
+            ],
+            cascade=True,
+        )
+
+        second = await refresher.refresh()
+
+        first_row = await brotr.fetchrow(
+            "SELECT event_count FROM pubkey_kind_stats WHERE pubkey = $1 AND kind = $2",
+            "77" * 32,
+            1,
+        )
+        second_row = await brotr.fetchrow(
+            "SELECT event_count FROM pubkey_kind_stats WHERE pubkey = $1 AND kind = $2",
+            "88" * 32,
+            1,
+        )
+        state_after_second = await brotr.get_service_state(
+            ServiceName.REFRESHER,
+            ServiceStateType.CHECKPOINT,
+            "pubkey_kind_stats",
+        )
+
+        assert first.rows_refreshed >= 1
+        assert second.rows_refreshed >= 1
+        assert first_row is not None
+        assert first_row["event_count"] == 1
+        assert second_row is not None
+        assert second_row["event_count"] == 1
+        assert state_after_second
+        assert state_after_second[0].state_value["timestamp"] == 150
+
+    async def test_document_checkpoints_track_consumed_source_max(self, brotr: Brotr) -> None:
+        refresher = Refresher(
+            brotr=brotr,
+            config=_config(current=["relay_document_current"]),
+        )
+        first_document = _relay_document(
+            "wss://refresher-document-source-max.example.com",
+            {"name": "First"},
+            associated_at=100,
+        )
+        await brotr.insert_relay_document([first_document], cascade=True)
+
+        first = await refresher.refresh()
+        state_after_first = await brotr.get_service_state(
+            ServiceName.REFRESHER,
+            ServiceStateType.CHECKPOINT,
+            "relay_document_current",
+        )
+        assert state_after_first
+        assert state_after_first[0].state_value["timestamp"] == 100
+
+        second_document = _relay_document(
+            "wss://refresher-document-source-max.example.com",
+            {"name": "Second"},
+            associated_at=150,
+        )
+        await brotr.insert_relay_document([second_document], cascade=True)
+
+        second = await refresher.refresh()
+
+        current_row = await brotr.fetchrow(
+            """
+            SELECT document_id, associated_at
+            FROM relay_document_current
+            WHERE relay_url = $1 AND role = $2
+            """,
+            "wss://refresher-document-source-max.example.com",
+            DocumentType.NIP11_INFO.value,
+        )
+        state_after_second = await brotr.get_service_state(
+            ServiceName.REFRESHER,
+            ServiceStateType.CHECKPOINT,
+            "relay_document_current",
+        )
+
+        assert first.rows_refreshed >= 1
+        assert second.rows_refreshed >= 1
+        assert current_row is not None
+        assert current_row["document_id"] == second_document.document.content_hash
+        assert current_row["associated_at"] == 150
+        assert state_after_second
+        assert state_after_second[0].state_value["timestamp"] == 150
 
     async def test_max_targets_budget_can_stop_cycle(self, brotr: Brotr) -> None:
         refresher = Refresher(

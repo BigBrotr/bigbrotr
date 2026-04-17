@@ -238,18 +238,17 @@ class TestRefreshQueryRegistry:
 
     async def test_incremental_watermarks_hold_checkpoint_without_new_rows(self) -> None:
         brotr = MagicMock(spec=Brotr)
-        brotr.fetchval = AsyncMock(return_value=False)
+        brotr.fetchval = AsyncMock(side_effect=[100, 200])
 
         assert await get_max_observed_at(brotr, 100) == 100
         assert await get_max_associated_at(brotr, 200) == 200
 
-    async def test_incremental_watermarks_advance_to_wall_clock_when_rows_exist(self) -> None:
+    async def test_incremental_watermarks_advance_to_source_max_when_rows_exist(self) -> None:
         brotr = MagicMock(spec=Brotr)
-        brotr.fetchval = AsyncMock(return_value=True)
+        brotr.fetchval = AsyncMock(side_effect=[150, 250])
 
-        with patch("bigbrotr.services.refresher.queries.time.time", return_value=999):
-            assert await get_max_observed_at(brotr, 100) == 999
-            assert await get_max_associated_at(brotr, 200) == 999
+        assert await get_max_observed_at(brotr, 100) == 150
+        assert await get_max_associated_at(brotr, 200) == 250
 
 
 class TestRefresherInit:

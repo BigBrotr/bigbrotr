@@ -117,7 +117,7 @@ Execution baseline:
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
 | 4.1 `Refresher` ownership alignment | done | `refactor: align refresher ownership boundaries` | Reclassified `contact_lists_current` and `contact_list_edges_current` out of the narrow current winner target set and into shared analytics/operational facts, then aligned refresher target enums, dependency validation, deployment configs, SQL templates/generated init assets, rebuild tooling, repo guidance, user docs, and refresher tests to the new ownership boundary; targeted refresher + NIP-85 pipeline tests, `python3 tools/generate_sql.py --check`, full `make ci`, and `uv lock --check` all passed before closure |
-| 4.2 Current-table maintenance alignment | not started | | |
+| 4.2 Current-table maintenance alignment | done | `fix: align refresher source watermark checkpointing` | Aligned incremental refresher checkpointing with the true consumed source maxima by advancing `event_observation` and `relay_document` watermarks to `MAX(observed_at)` / `MAX(associated_at)` instead of wall-clock time, eliminating a skip window for delayed source rows between cycles; added targeted unit coverage for the new semantics plus paired integration regressions proving delayed `event_observation` and `relay_document` rows are still consumed on the next run, and revalidated the slice with targeted refresher suites (`52 passed`), `python3 tools/generate_sql.py --check`, full `make ci`, and `uv lock --check` before closure |
 | 4.3 Shared analytics and interaction maintenance alignment | not started | | |
 | 4.4 Refresh pipeline audit and boundedness pass | not started | | |
 
