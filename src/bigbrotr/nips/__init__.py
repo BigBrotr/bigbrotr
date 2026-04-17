@@ -9,7 +9,7 @@ Warning:
     NIP semantic entrypoints ([Nip11.fetch()][bigbrotr.nips.nip11.nip11.Nip11.fetch],
     [Nip66.probe()][bigbrotr.nips.nip66.nip66.Nip66.probe]) **never raise
     exceptions**. Always check ``succeeded`` and ``failure_reason`` on the
-    returned metadata to determine whether the operation succeeded.
+    returned result object to determine whether the operation succeeded.
 
 Attributes:
     Nip11: Fetches and parses NIP-11 Relay Information Documents via HTTP.
@@ -26,15 +26,21 @@ Attributes:
     BaseNip: Abstract base class for top-level NIP models with ``relay``
         and ``generated_at`` plus semantic ``fetch()`` / ``probe()``
         entrypoints on concrete subclasses.
-    BaseNipSelection: Base for selection models controlling which metadata types
-        to retrieve.
-    BaseNipOptions: Base for options models controlling how metadata is retrieved
-        (provides the common ``allow_insecure`` option).
+    BaseNipSelection: Base for selection models controlling which document
+        families to retrieve.
+    BaseNipOptions: Base for options models controlling how NIP documents are
+        retrieved (provides the common ``allow_insecure`` option).
     BaseNipDependencies: Base for dependency containers holding external objects
         (keys, database readers) required by specific NIP tests.
     NIP_REGISTRY: Static registry of built-in NIP capability bundles, including
-        the top-level models for NIP-11 and NIP-66 plus the event-builder-only
-        NIP-85 capability surface.
+        canonical document families, event kinds, service relevance, and
+        explicit capability labels for NIP-11, NIP-66, and NIP-85.
+    NipCapability: Canonical capability enum used by the static NIP registry.
+    get_nip_entry: Lookup helper for one static NIP registry entry.
+    nips_for_service: Static lookup from service name to relevant NIP numbers.
+    nips_for_document_type: Static lookup from document type to relevant NIP numbers.
+    nips_for_event_kind: Static lookup from event kind to relevant NIP numbers.
+    nips_for_capability: Static lookup from capability label to relevant NIP numbers.
 
 See Also:
     [bigbrotr.models.document.DocumentType][bigbrotr.models.document.DocumentType]:
@@ -53,14 +59,26 @@ __all__ = [
     "NIP_REGISTRY",
     "Nip11",
     "Nip66",
+    "NipCapability",
     "NipEntry",
+    "get_nip_entry",
+    "nips_for_capability",
+    "nips_for_document_type",
+    "nips_for_event_kind",
+    "nips_for_service",
 ]
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "NIP_REGISTRY": ("bigbrotr.nips.registry", "NIP_REGISTRY"),
+    "NipCapability": ("bigbrotr.nips.registry", "NipCapability"),
     "Nip11": ("bigbrotr.nips.nip11", "Nip11"),
     "Nip66": ("bigbrotr.nips.nip66", "Nip66"),
     "NipEntry": ("bigbrotr.nips.registry", "NipEntry"),
+    "get_nip_entry": ("bigbrotr.nips.registry", "get_nip_entry"),
+    "nips_for_capability": ("bigbrotr.nips.registry", "nips_for_capability"),
+    "nips_for_document_type": ("bigbrotr.nips.registry", "nips_for_document_type"),
+    "nips_for_event_kind": ("bigbrotr.nips.registry", "nips_for_event_kind"),
+    "nips_for_service": ("bigbrotr.nips.registry", "nips_for_service"),
 }
 
 

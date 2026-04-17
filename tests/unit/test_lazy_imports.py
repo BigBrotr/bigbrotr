@@ -109,6 +109,12 @@ class TestLazyImports:
         finally:
             sys.modules.update(saved)
 
+    def test_nips_package_exports_match_lazy_imports(self) -> None:
+        from bigbrotr import nips
+
+        assert set(nips.__all__) == set(nips._LAZY_IMPORTS)
+        assert dir(nips) == nips.__all__
+
     def test_services_registry_does_not_import_service_modules(self) -> None:
         saved = dict(sys.modules)
         try:

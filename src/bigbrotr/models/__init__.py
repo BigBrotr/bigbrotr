@@ -44,7 +44,8 @@ See Also:
     [bigbrotr.models.relay_document][]: Relay-to-document junction model.
     [bigbrotr.models.service_state][]: Service state persistence types.
     [bigbrotr.models.constants][]: Shared constants and enumerations.
-    [bigbrotr.nips][]: NIP-11 and NIP-66 models (separate package with I/O).
+    [bigbrotr.nips][]: NIP-aware protocol package with runtime I/O,
+        static capability registry, and builder/data helpers.
 """
 
 from .constants import EVENT_KIND_MAX, EventKind, NetworkType, ServiceName

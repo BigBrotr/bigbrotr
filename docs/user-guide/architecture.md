@@ -310,7 +310,10 @@ YAML configuration loading with environment variable interpolation.
 
 ## NIPs Layer
 
-`src/bigbrotr/nips/` -- NIP-11 and NIP-66 protocol implementations. Has I/O (HTTP, DNS, SSL, WebSocket, GeoIP). Depends on models, utils, core.
+`src/bigbrotr/nips/` -- NIP-aware protocol layer. Contains the NIP-11 and
+NIP-66 runtime implementations, the static NIP capability registry, and the
+NIP-85 builder/data surface. Has I/O (HTTP, DNS, SSL, WebSocket, GeoIP) where
+appropriate and depends on models, utils, core.
 
 ### NIP-11 (`nip11/`)
 
@@ -338,6 +341,14 @@ Relay Monitoring and Discovery (NIP-66) health check implementations.
 | `nip66.py` | `Nip66` orchestrator class |
 
 Each module produces a `RelayDocument` object with the corresponding `DocumentType`. The Monitor service calls these and persists results.
+
+### Registry + NIP-85 helpers
+
+| Module | Purpose |
+|--------|---------|
+| `registry.py` | Static capability registry for document families, event kinds, service relevance, and lookup helpers |
+| `event_builders.py` | NIP-aware builder functions for monitor and NIP-85 publication kinds |
+| `nip85/data.py` | Typed provider-declaration and assertion payload models |
 
 **NIP-66 health check data flow:**
 

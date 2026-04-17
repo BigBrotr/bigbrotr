@@ -66,7 +66,7 @@ Execution baseline:
 | 3. Python domain-model and `Brotr` alignment | done | `DocumentType` rename, service-state owner vocabulary alignment, and the domain-facing fixture/test pass are all closed |
 | 4. Shared derivation and maintenance pipeline alignment | done | `Refresher` ownership, source-watermark checkpointing, bounded incremental windows, and backlog reporting are all closed |
 | 5. Service-boundary alignment | done | `Monitor`, offline `Refresher` ownership, `Assertor` package-complete publication, and `Ranker` boundary hardening are all closed |
-| 6. Score/output and NIP capability alignment | not started | |
+| 6. Score/output and NIP capability alignment | in progress | The static capability registry is now formalized; NIP-85 publication/event-builder alignment and the deeper score-vocabulary sweep remain pending |
 | 7. Protocol-agnostic read-core implementation | not started | |
 | 8. Deployment-contract normalization | not started | |
 | 9. Repository-wide documentation rewrite | not started | |
@@ -134,7 +134,7 @@ Execution baseline:
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 6.1 Formalize the static capability registry | not started | | |
+| 6.1 Formalize the static capability registry | done | `refactor: formalize static nip capability registry` | Strengthened `NIP_REGISTRY` into a more formal static capability surface by replacing loose strings with `NipCapability`, renaming `metadata_types` to `document_types`, adding explicit `service_names`, and exposing static lookup helpers for service, document type, event kind, and capability resolution. The slice also expanded the lazy public `bigbrotr.nips` surface accordingly, added targeted registry/lazy-import coverage, and updated architecture/developer docs so `nips/` is now described as the NIP-aware layer that includes the static registry plus NIP-85 builder/data helpers rather than only the NIP-11/NIP-66 runtime implementations. Targeted NIP + lazy-import suites, full `make ci`, and `uv lock --check` passed before closure |
 | 6.2 Align NIP-85 event builders and publication paths | not started | | |
 | 6.3 Align score-output naming and usage | not started | | |
 

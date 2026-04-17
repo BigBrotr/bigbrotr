@@ -211,7 +211,7 @@ graph TD
 | **models** | stdlib only | Pure frozen dataclasses, zero I/O |
 | **core** | models | Pool, Brotr, BaseService, Logger, Metrics, YAML |
 | **utils** | models | DNS resolution, keys, transport helpers |
-| **nips** | models, utils, core | NIP-11 and NIP-66 protocol I/O |
+| **nips** | models, utils, core | NIP-aware protocol layer, static registry, and builder/data helpers |
 | **services** | core, nips, utils, models | Business logic (all 10 services) |
 
 ### Adding a New Service

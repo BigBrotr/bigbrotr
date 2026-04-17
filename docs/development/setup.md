@@ -78,7 +78,7 @@ bigbrotr/
 |   +-- core/                         # Pool, Brotr, BaseService, Logger, Metrics, YAML
 |   +-- models/                       # Frozen dataclasses (pure, zero I/O)
 |   |   +-- service_state.py          # ServiceState, ServiceStateType
-|   +-- nips/                         # NIP-11 and NIP-66 protocol I/O
+|   +-- nips/                         # NIP-aware protocol layer, registry, and builders
 |   |   +-- nip11/                    # Relay info document fetch/parse
 |   |   +-- nip66/                    # Monitoring: dns, geo, http, net, rtt, ssl
 |   +-- services/                     # Business logic (10 services)
