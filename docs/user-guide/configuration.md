@@ -589,8 +589,8 @@ profile:
 | `processing.chunk_size` | int | `100` | 10-1000 | Relays per batch |
 | `processing.max_relays` | int or null | `null` | >= 1 | Max relays per cycle |
 | `processing.nip11_info_max_size` | int | `1048576` | 1024-10485760 | Max NIP-11 response size (bytes) |
-| `processing.compute.*` | bool | `true` | - | Enable computation per metadata type |
-| `processing.store.*` | bool | `true` | - | Enable persistence per metadata type |
+| `processing.compute.*` | bool | `true` | - | Enable computation per document type |
+| `processing.store.*` | bool | `true` | - | Enable persistence per document type |
 
 ### Retry Reference
 
@@ -619,7 +619,7 @@ profile:
 | `publishing.relays` | list[string] | `[]` | - | Default relay list for all publishing |
 | `discovery.enabled` | bool | `true` | - | Publish kind 30166 relay monitoring events |
 | `discovery.interval` | int | `3600` | >= 60 | Seconds between discovery publishes |
-| `discovery.include.*` | bool | `true` | - | Metadata types to include in events |
+| `discovery.include.*` | bool | `true` | - | Document types to include in events |
 | `announcement.enabled` | bool | `true` | - | Publish kind 10166 monitor announcements |
 | `announcement.interval` | int | `86400` | >= 60 | Seconds between announcements |
 | `profile.enabled` | bool | `false` | - | Publish kind 0 monitor profile |

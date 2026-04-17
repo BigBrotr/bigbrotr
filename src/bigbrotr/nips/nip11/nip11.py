@@ -10,13 +10,13 @@ records.
 
 See Also:
     [bigbrotr.nips.nip11.info.Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:
-        The metadata container with HTTP info retrieval capabilities.
+        The document-backed result container with HTTP info retrieval capabilities.
     [bigbrotr.models.document.Document][bigbrotr.models.document.Document]:
-        Content-addressed metadata model used for database storage.
-    [bigbrotr.models.document.MetadataType][bigbrotr.models.document.MetadataType]:
-        The ``NIP11_INFO`` variant used when creating metadata records.
+        Content-addressed document model used for database storage.
+    [bigbrotr.models.document.DocumentType][bigbrotr.models.document.DocumentType]:
+        The ``NIP11_INFO`` variant used when creating document records.
     [bigbrotr.models.relay_document.RelayDocument][bigbrotr.models.relay_document.RelayDocument]:
-        Junction model linking a relay to its metadata.
+        Junction model linking a relay to its stored document.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 
-from bigbrotr.models.document import Document, MetadataType
+from bigbrotr.models.document import Document, DocumentType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.models.relay_document import RelayDocument
 from bigbrotr.nips.base import (
@@ -47,15 +47,15 @@ logger = logging.getLogger("bigbrotr.nips.nip11")
 
 
 class Nip11Selection(BaseNipSelection):
-    """Which NIP-11 metadata to retrieve.
+    """Which NIP-11 documents to retrieve.
 
     All retrieval types are enabled by default. Set individual fields to
-    ``False`` to skip specific metadata types during
+    ``False`` to skip specific document types during
     [Nip11.fetch][bigbrotr.nips.nip11.nip11.Nip11.fetch].
 
     See Also:
         [Nip11Options][bigbrotr.nips.nip11.nip11.Nip11Options]:
-            Controls *how* metadata is retrieved (e.g., allow insecure SSL).
+            Controls *how* NIP-11 documents are retrieved (e.g., allow insecure SSL).
         [Nip11Dependencies][bigbrotr.nips.nip11.nip11.Nip11Dependencies]:
             Provides optional dependencies required by specific retrievals.
     """
@@ -64,7 +64,7 @@ class Nip11Selection(BaseNipSelection):
 
 
 class Nip11Options(BaseNipOptions):
-    """How to execute NIP-11 metadata retrieval.
+    """How to execute NIP-11 document retrieval.
 
     Inherits ``allow_insecure`` from
     [BaseNipOptions][bigbrotr.nips.base.BaseNipOptions].
@@ -75,7 +75,7 @@ class Nip11Options(BaseNipOptions):
 
     See Also:
         [Nip11Selection][bigbrotr.nips.nip11.nip11.Nip11Selection]:
-            Controls *which* metadata is retrieved.
+            Controls *which document types are retrieved.
     """
 
     max_size: int = Nip11InfoMetadata._INFO_MAX_SIZE
@@ -83,7 +83,7 @@ class Nip11Options(BaseNipOptions):
 
 @dataclass(frozen=True, slots=True)
 class Nip11Dependencies(BaseNipDependencies):
-    """Optional dependencies for NIP-11 metadata retrieval.
+    """Optional dependencies for NIP-11 document retrieval.
 
     Currently empty. NIP-11 info retrieval requires no external
     resources. Provided for structural parity with
@@ -152,10 +152,10 @@ class Nip11(BaseNip):
 
         Returns:
             A [RelayNip11DocumentTuple][bigbrotr.nips.nip11.nip11.RelayNip11DocumentTuple]
-            with the info metadata wrapped in a
+            with the info document wrapped in a
             [RelayDocument][bigbrotr.models.relay_document.RelayDocument] junction
             record tagged as
-            [MetadataType.NIP11_INFO][bigbrotr.models.document.MetadataType],
+            [DocumentType.NIP11_INFO][bigbrotr.models.document.DocumentType],
             or ``None`` if no info retrieval was performed.
         """
         nip11_info: RelayDocument | None = None
@@ -163,7 +163,7 @@ class Nip11(BaseNip):
             nip11_info = RelayDocument(
                 relay=self.relay,
                 document=Document(
-                    type=MetadataType.NIP11_INFO,
+                    type=DocumentType.NIP11_INFO,
                     data=self.info.to_dict(),
                 ),
                 associated_at=self.generated_at,
@@ -200,7 +200,7 @@ class Nip11(BaseNip):
                 provided, the session is reused and the caller retains
                 ownership. When None, a per-request session is created
                 and closed automatically.
-            selection: Which metadata to retrieve (default: all enabled).
+            selection: Which document types to retrieve (default: all enabled).
             options: How to execute the retrieval (default: secure mode).
             deps: Optional dependencies for future extensibility.
 

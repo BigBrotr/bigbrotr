@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from bigbrotr.models import Relay, RelayDocument
-from bigbrotr.models.document import MetadataType
+from bigbrotr.models.document import DocumentType
 from bigbrotr.nips.nip66 import (
     Nip66,
     Nip66DnsData,
@@ -236,12 +236,12 @@ class TestNip66ToRelayDocumentTuple:
     def test_correct_roles(self, nip66_full: Nip66) -> None:
         """Each RelayDocument has correct type via metadata.type."""
         result = nip66_full.to_relay_document_tuple()
-        assert result.rtt.document.type == MetadataType.NIP66_RTT
-        assert result.ssl.document.type == MetadataType.NIP66_SSL
-        assert result.geo.document.type == MetadataType.NIP66_GEO
-        assert result.net.document.type == MetadataType.NIP66_NET
-        assert result.dns.document.type == MetadataType.NIP66_DNS
-        assert result.http.document.type == MetadataType.NIP66_HTTP
+        assert result.rtt.document.type == DocumentType.NIP66_RTT
+        assert result.ssl.document.type == DocumentType.NIP66_SSL
+        assert result.geo.document.type == DocumentType.NIP66_GEO
+        assert result.net.document.type == DocumentType.NIP66_NET
+        assert result.dns.document.type == DocumentType.NIP66_DNS
+        assert result.http.document.type == DocumentType.NIP66_HTTP
 
     def test_returns_none_for_missing_metadata(self, nip66_rtt_only: Nip66) -> None:
         """Returns None for missing metadata types."""

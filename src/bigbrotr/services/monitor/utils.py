@@ -12,7 +12,7 @@ import random
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar
 
-from bigbrotr.models import Document, MetadataType, RelayDocument
+from bigbrotr.models import Document, DocumentType, RelayDocument
 
 
 if TYPE_CHECKING:
@@ -94,7 +94,7 @@ class MonitorChunkOutcome:
 
     @property
     def succeeded_count(self) -> int:
-        """Number of relays that produced at least one metadata document."""
+        """Number of relays that produced at least one stored document."""
         return len(self.successful)
 
     @property
@@ -181,14 +181,14 @@ def collect_documents(
 ) -> list[RelayDocument]:
     """Build storable relay-document records from successful health check results.
 
-    Iterates over successful relay/result pairs and collects metadata for
+    Iterates over successful relay/result pairs and collects documents for
     each check type enabled in ``store``. Field names in ``CheckResult``,
-    ``MetadataFlags``, and ``MetadataType`` are aligned by convention
+    ``MetadataFlags``, and ``DocumentType`` are aligned by convention
     (e.g. ``nip11_info``, ``nip66_rtt``).
 
     Args:
         successful: Relays with their health check results.
-        store: Flags controlling which metadata types to include.
+        store: Flags controlling which document types to include.
 
     Returns:
         List of [RelayDocument][bigbrotr.models.relay_document.RelayDocument]
@@ -196,7 +196,7 @@ def collect_documents(
     """
     documents: list[RelayDocument] = []
     for relay, result in successful:
-        for meta_type in MetadataType:
+        for meta_type in DocumentType:
             field = meta_type.value
             nip_meta: BaseNipMetadata | None = getattr(result, field)
             if nip_meta and getattr(store, field):

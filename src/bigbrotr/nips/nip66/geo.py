@@ -153,7 +153,7 @@ class Nip66GeoMetadata(BaseNipMetadata):
     See Also:
         [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
             Top-level model that orchestrates this alongside other tests.
-        [bigbrotr.models.document.MetadataType][bigbrotr.models.document.MetadataType]:
+        [bigbrotr.models.document.DocumentType][bigbrotr.models.document.DocumentType]:
             The ``NIP66_GEO`` variant used when storing these results.
         [bigbrotr.nips.nip66.net.Nip66NetMetadata][bigbrotr.nips.nip66.net.Nip66NetMetadata]:
             Network/ASN test that shares the IP resolution step.

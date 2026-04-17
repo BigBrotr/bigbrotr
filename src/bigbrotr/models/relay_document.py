@@ -44,7 +44,7 @@ class RelayDocumentDbParams(NamedTuple):
         document_id: SHA-256 content hash (32 bytes,
             from [DocumentDbParams][bigbrotr.models.document.DocumentDbParams]).
         role: Document role identifier. Built-in callers typically
-            use [MetadataType][bigbrotr.models.document.MetadataType], but
+            use [DocumentType][bigbrotr.models.document.DocumentType], but
             arbitrary non-empty strings are accepted.
         document_data: Canonical JSON string for JSONB storage.
         associated_at: Unix timestamp when the document became associated with the relay.
@@ -86,12 +86,12 @@ class RelayDocument:
     Examples:
         ```python
         relay = Relay("wss://relay.damus.io")
-        document = Document(type=MetadataType.NIP11_INFO, data={"name": "Damus"})
+        document = Document(type=DocumentType.NIP11_INFO, data={"name": "Damus"})
         rd = RelayDocument(relay=relay, document=document)
         rd.associated_at      # Auto-set to current time
         params = rd.to_db_params()
         params.relay_url      # 'wss://relay.damus.io'
-        params.role           # MetadataType.NIP11_INFO
+        params.role           # DocumentType.NIP11_INFO
         ```
 
     Note:
@@ -106,8 +106,8 @@ class RelayDocument:
         [Relay][bigbrotr.models.relay.Relay]: The relay half of this junction.
         [Document][bigbrotr.models.document.Document]: The document half of this
             junction.
-        [MetadataType][bigbrotr.models.document.MetadataType]: Built-in catalog
-            of metadata classifications used by the current application.
+        [DocumentType][bigbrotr.models.document.DocumentType]: Built-in catalog
+            of document classifications used by the current application.
         [RelayDocumentDbParams][bigbrotr.models.relay_document.RelayDocumentDbParams]:
             Database parameter container produced by
             [to_db_params()][bigbrotr.models.relay_document.RelayDocument.to_db_params].

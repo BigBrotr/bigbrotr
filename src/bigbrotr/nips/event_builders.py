@@ -24,7 +24,7 @@ from nostr_sdk import EventBuilder, Kind, Tag
 from nostr_sdk import Metadata as NostrMetadata
 
 from bigbrotr.models.constants import EventKind, NetworkType
-from bigbrotr.models.document import Document, MetadataType
+from bigbrotr.models.document import Document, DocumentType
 
 
 if TYPE_CHECKING:
@@ -403,7 +403,7 @@ def build_relay_discovery(
     nip11_canonical_json = ""
     nip11_data = None
     if nip11 and nip11.info:
-        meta = Document(type=MetadataType.NIP11_INFO, data=nip11.info.to_dict())
+        meta = Document(type=DocumentType.NIP11_INFO, data=nip11.info.to_dict())
         nip11_canonical_json = meta.canonical_json
         nip11_data = nip11.info.data
 

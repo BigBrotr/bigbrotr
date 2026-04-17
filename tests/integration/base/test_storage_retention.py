@@ -6,7 +6,7 @@ import pytest
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import EventObservation, Relay, RelayDocument
-from bigbrotr.models.document import Document, MetadataType
+from bigbrotr.models.document import Document, DocumentType
 from bigbrotr.models.event import Event
 from tests.conftest import make_mock_event
 
@@ -23,7 +23,7 @@ def _event_observation(event_id: str, relay_url: str) -> EventObservation:
 def _relay_document(
     relay_url: str,
     data: dict[str, object],
-    doc_type: MetadataType = MetadataType.NIP11_INFO,
+    doc_type: DocumentType = DocumentType.NIP11_INFO,
     associated_at: int = 1_700_000_001,
 ) -> RelayDocument:
     relay = Relay(relay_url, stored_at=1_700_000_000)

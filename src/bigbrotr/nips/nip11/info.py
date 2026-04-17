@@ -25,7 +25,7 @@ See Also:
         Top-level model that wraps this container.
     [bigbrotr.nips.base.BaseNipMetadata][bigbrotr.nips.base.BaseNipMetadata]:
         Base class providing ``from_dict()`` / ``to_dict()`` interface.
-    [bigbrotr.models.document.MetadataType][bigbrotr.models.document.MetadataType]:
+    [bigbrotr.models.document.DocumentType][bigbrotr.models.document.DocumentType]:
         The ``NIP11_INFO`` variant used when storing these results.
 """
 

@@ -2,7 +2,7 @@
 Content-addressed documents with SHA-256 deduplication.
 
 Stores arbitrary JSON-compatible data with a type classification
-([MetadataType][bigbrotr.models.document.MetadataType]). A deterministic
+([DocumentType][bigbrotr.models.document.DocumentType]). A deterministic
 content hash is computed from the canonical JSON representation of the
 data, enabling content-addressed deduplication in PostgreSQL.
 
@@ -15,9 +15,9 @@ See Also:
     [bigbrotr.models.relay_document][]: Junction model linking a
         [Relay][bigbrotr.models.relay.Relay] to a
         [Document][bigbrotr.models.document.Document] record.
-    [bigbrotr.nips.nip11][]: Produces ``nip11_info``-typed metadata from
+    [bigbrotr.nips.nip11][]: Produces ``nip11_info``-typed documents from
         relay information documents.
-    [bigbrotr.nips.nip66][]: Produces ``nip66_*``-typed metadata from
+    [bigbrotr.nips.nip66][]: Produces ``nip66_*``-typed documents from
         health check results (RTT, SSL, DNS, Geo, Net, HTTP).
 """
 
@@ -41,7 +41,7 @@ from ._validation import (
 )
 
 
-class MetadataType(StrEnum):
+class DocumentType(StrEnum):
     """Document type identifiers stored in the ``document.type`` column.
 
     Each value corresponds to a specific data source or monitoring test
@@ -58,7 +58,7 @@ class MetadataType(StrEnum):
 
     See Also:
         [Document][bigbrotr.models.document.Document]: The content-addressed container
-            that carries a [MetadataType][bigbrotr.models.document.MetadataType] alongside
+            that carries a [DocumentType][bigbrotr.models.document.DocumentType] alongside
             its data.
         [RelayDocument][bigbrotr.models.relay_document.RelayDocument]: Junction model
             linking a relay to a stored document record.
@@ -83,7 +83,7 @@ class DocumentDbParams(NamedTuple):
         id: SHA-256 content hash (32 bytes), part of composite PK ``(id, type)``.
         type: Document type identifier, part of composite PK ``(id, type)``.
             Built-in callers typically use
-            [MetadataType][bigbrotr.models.document.MetadataType], but arbitrary
+            [DocumentType][bigbrotr.models.document.DocumentType], but arbitrary
             non-empty strings are accepted.
         data: Canonical JSON string for PostgreSQL JSONB storage.
 
@@ -111,24 +111,24 @@ class Document:
     ``(id, type)`` in the database.
 
     Attributes:
-        type: The metadata classification. Built-in callers use the
-            [MetadataType][bigbrotr.models.document.MetadataType] catalog, but
+        type: The document classification. Built-in callers use the
+            [DocumentType][bigbrotr.models.document.DocumentType] catalog, but
             arbitrary non-empty string IDs are accepted for extensibility.
         data: Deterministically normalized JSON-compatible dictionary.
 
     Examples:
         ```python
-        meta = Document(type=MetadataType.NIP11_INFO, data={"name": "My Relay"})
-        meta.content_hash    # 32-byte SHA-256 digest
-        meta.canonical_json  # '{"name":"My Relay"}'
-        meta.to_db_params()  # DocumentDbParams(...)
+        document = Document(type=DocumentType.NIP11_INFO, data={"name": "My Relay"})
+        document.content_hash    # 32-byte SHA-256 digest
+        document.canonical_json  # '{"name":"My Relay"}'
+        document.to_db_params()  # DocumentDbParams(...)
         ```
 
         Identical data always produces the same hash (content-addressed):
 
         ```python
-        m1 = Document(type=MetadataType.NIP11_INFO, data={"b": 2, "a": 1})
-        m2 = Document(type=MetadataType.NIP11_INFO, data={"a": 1, "b": 2})
+        m1 = Document(type=DocumentType.NIP11_INFO, data={"b": 2, "a": 1})
+        m2 = Document(type=DocumentType.NIP11_INFO, data={"a": 1, "b": 2})
         m1.content_hash == m2.content_hash  # True
         ```
 
@@ -149,8 +149,8 @@ class Document:
         bytes, and unsupported JSON values are rejected before hashing.
 
     See Also:
-        [MetadataType][bigbrotr.models.document.MetadataType]: Enum of supported
-            metadata classifications.
+        [DocumentType][bigbrotr.models.document.DocumentType]: Enum of supported
+            document classifications.
         [DocumentDbParams][bigbrotr.models.document.DocumentDbParams]: Database
             parameter container produced by
             [to_db_params()][bigbrotr.models.document.Document.to_db_params].
@@ -173,7 +173,7 @@ class Document:
 
     def __post_init__(self) -> None:
         """Validate, normalize deterministically, and hash the data dictionary."""
-        object.__setattr__(self, "type", _normalize_metadata_type(self.type))
+        object.__setattr__(self, "type", _normalize_document_type(self.type))
         validate_mapping(self.data, "data")
         normalized = normalize_json_data(self.data, "data")
 
@@ -229,7 +229,7 @@ class Document:
         Returns:
             [DocumentDbParams][bigbrotr.models.document.DocumentDbParams] with
             the content hash as ``id``, the canonical JSON as ``data``,
-            and the metadata type.
+            and the document type.
         """
         return DocumentDbParams(
             id=self._content_hash,
@@ -246,13 +246,13 @@ class Document:
         Returns:
             [DocumentDbParams][bigbrotr.models.document.DocumentDbParams] with
             the content hash as ``id``, the canonical JSON as ``data``,
-            and the metadata type.
+            and the document type.
         """
         return self._db_params
 
 
-def _normalize_metadata_type(value: str | StrEnum) -> str:
-    """Normalize enum-backed or plain-string metadata identifiers."""
+def _normalize_document_type(value: str | StrEnum) -> str:
+    """Normalize enum-backed or plain-string document identifiers."""
     normalized = value.value if isinstance(value, StrEnum) else value
     validate_str_not_empty(normalized, "type")
     return normalized

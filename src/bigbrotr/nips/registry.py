@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, NamedTuple
 
 from bigbrotr.models.constants import EventKind
-from bigbrotr.models.document import MetadataType
+from bigbrotr.models.document import DocumentType
 
 from .nip11 import Nip11, Nip11Dependencies, Nip11Options, Nip11Selection
 from .nip66 import Nip66, Nip66Dependencies, Nip66Options, Nip66Selection
@@ -40,7 +40,7 @@ NIP_REGISTRY: dict[int, NipEntry] = {
         selection_cls=Nip11Selection,
         options_cls=Nip11Options,
         dependencies_cls=Nip11Dependencies,
-        metadata_types=(MetadataType.NIP11_INFO,),
+        metadata_types=(DocumentType.NIP11_INFO,),
         protocol_event_kinds=(),
         capabilities=("fetch", "relay_document"),
     ),
@@ -51,12 +51,12 @@ NIP_REGISTRY: dict[int, NipEntry] = {
         options_cls=Nip66Options,
         dependencies_cls=Nip66Dependencies,
         metadata_types=(
-            MetadataType.NIP66_RTT,
-            MetadataType.NIP66_SSL,
-            MetadataType.NIP66_GEO,
-            MetadataType.NIP66_NET,
-            MetadataType.NIP66_DNS,
-            MetadataType.NIP66_HTTP,
+            DocumentType.NIP66_RTT,
+            DocumentType.NIP66_SSL,
+            DocumentType.NIP66_GEO,
+            DocumentType.NIP66_NET,
+            DocumentType.NIP66_DNS,
+            DocumentType.NIP66_HTTP,
         ),
         protocol_event_kinds=(
             int(EventKind.NIP66_TEST),

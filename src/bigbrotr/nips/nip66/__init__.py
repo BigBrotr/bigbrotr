@@ -36,7 +36,7 @@ Nip66                                        Top-level container
 Note:
     Each test produces a separate
     [RelayDocument][bigbrotr.models.relay_document.RelayDocument] record
-    with a distinct [MetadataType][bigbrotr.models.document.MetadataType]
+    with a distinct [DocumentType][bigbrotr.models.document.DocumentType]
     variant (``NIP66_RTT``, ``NIP66_SSL``, ``NIP66_GEO``, ``NIP66_NET``,
     ``NIP66_DNS``, ``NIP66_HTTP``). Tests are executed concurrently via
     ``asyncio.gather`` in [Nip66.probe][bigbrotr.nips.nip66.nip66.Nip66.probe].
@@ -44,7 +44,7 @@ Note:
 See Also:
     [bigbrotr.nips.nip11][bigbrotr.nips.nip11]: Companion NIP-11 module for
         relay information documents.
-    [bigbrotr.models.document.MetadataType][bigbrotr.models.document.MetadataType]:
+    [bigbrotr.models.document.DocumentType][bigbrotr.models.document.DocumentType]:
         Enum with ``NIP66_*`` variants for each test type.
     [bigbrotr.services.monitor.Monitor][bigbrotr.services.monitor.Monitor]:
         Service that orchestrates NIP-66 checks per relay.

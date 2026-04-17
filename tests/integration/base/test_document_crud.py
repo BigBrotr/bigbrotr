@@ -7,7 +7,7 @@ import pytest
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import Relay, RelayDocument
-from bigbrotr.models.document import Document, MetadataType
+from bigbrotr.models.document import Document, DocumentType
 
 
 pytestmark = pytest.mark.integration
@@ -16,7 +16,7 @@ pytestmark = pytest.mark.integration
 class TestDocumentInsert:
     async def test_single_document(self, brotr: Brotr) -> None:
         metadata = Document(
-            type=MetadataType.NIP11_INFO,
+            type=DocumentType.NIP11_INFO,
             data={"name": "Test Relay", "supported_nips": [1, 2, 11]},
         )
         inserted = await brotr.insert_document([metadata])
@@ -31,13 +31,13 @@ class TestDocumentInsert:
 
     async def test_multiple_types(self, brotr: Brotr) -> None:
         records = [
-            Document(type=MetadataType.NIP11_INFO, data={"name": "Relay"}),
+            Document(type=DocumentType.NIP11_INFO, data={"name": "Relay"}),
             Document(
-                type=MetadataType.NIP66_RTT,
+                type=DocumentType.NIP66_RTT,
                 data={"rtt_open": 100, "rtt_read": 50, "rtt_write": 75},
             ),
             Document(
-                type=MetadataType.NIP66_SSL,
+                type=DocumentType.NIP66_SSL,
                 data={"issuer": "Let's Encrypt", "valid": True},
             ),
         ]
@@ -52,7 +52,7 @@ class TestDocumentInsert:
         assert inserted == 0
 
     async def test_duplicate_ignored(self, brotr: Brotr) -> None:
-        metadata = Document(type=MetadataType.NIP11_INFO, data={"name": "Dup Test"})
+        metadata = Document(type=DocumentType.NIP11_INFO, data={"name": "Dup Test"})
         first = await brotr.insert_document([metadata])
         second = await brotr.insert_document([metadata])
         assert first == 1
@@ -61,8 +61,8 @@ class TestDocumentInsert:
         count = await brotr.fetchval("SELECT COUNT(*) FROM document")
         assert count == 1
 
-    @pytest.mark.parametrize("role", list(MetadataType))
-    async def test_all_document_types(self, brotr: Brotr, role: MetadataType) -> None:
+    @pytest.mark.parametrize("role", list(DocumentType))
+    async def test_all_document_types(self, brotr: Brotr, role: DocumentType) -> None:
         metadata = Document(type=role, data={"test_key": role.value})
         inserted = await brotr.insert_document([metadata])
         assert inserted == 1
@@ -76,7 +76,7 @@ class TestDocumentInsert:
 
     async def test_nested_data_preserved(self, brotr: Brotr) -> None:
         metadata = Document(
-            type=MetadataType.NIP11_INFO,
+            type=DocumentType.NIP11_INFO,
             data={"limitation": {"max_message_length": 65536, "max_subscriptions": 20}},
         )
         inserted = await brotr.insert_document([metadata])
@@ -92,7 +92,7 @@ class TestRelayDocumentInsertCascade:
     async def test_cascade_creates_all_rows(self, brotr: Brotr) -> None:
         relay = Relay("wss://meta-cascade.example.com", stored_at=1700000000)
         metadata = Document(
-            type=MetadataType.NIP11_INFO,
+            type=DocumentType.NIP11_INFO,
             data={"name": "Cascade Test"},
         )
         rm = RelayDocument(relay=relay, document=metadata, associated_at=1700000001)
@@ -122,7 +122,7 @@ class TestRelayDocumentInsertCascade:
 
     async def test_junction_columns(self, brotr: Brotr) -> None:
         relay = Relay("wss://jnc-cols.example.com", stored_at=1700000000)
-        metadata = Document(type=MetadataType.NIP66_GEO, data={"country": "JP"})
+        metadata = Document(type=DocumentType.NIP66_GEO, data={"country": "JP"})
         rm = RelayDocument(relay=relay, document=metadata, associated_at=1700000050)
 
         await brotr.insert_relay_document([rm], cascade=True)
@@ -139,7 +139,7 @@ class TestRelayDocumentInsertCascade:
     async def test_same_metadata_different_relays(self, brotr: Brotr) -> None:
         relay1 = Relay("wss://meta-r1.example.com", stored_at=1700000000)
         relay2 = Relay("wss://meta-r2.example.com", stored_at=1700000000)
-        metadata = Document(type=MetadataType.NIP66_RTT, data={"rtt_open": 100})
+        metadata = Document(type=DocumentType.NIP66_RTT, data={"rtt_open": 100})
 
         rm1 = RelayDocument(relay=relay1, document=metadata, associated_at=1700000001)
         rm2 = RelayDocument(relay=relay2, document=metadata, associated_at=1700000001)
@@ -156,7 +156,7 @@ class TestRelayDocumentInsertCascade:
 
     async def test_same_relay_different_timestamps(self, brotr: Brotr) -> None:
         relay = Relay("wss://multi-ts.example.com", stored_at=1700000000)
-        metadata = Document(type=MetadataType.NIP11_INFO, data={"name": "Multi TS"})
+        metadata = Document(type=DocumentType.NIP11_INFO, data={"name": "Multi TS"})
 
         rm1 = RelayDocument(relay=relay, document=metadata, associated_at=1700000001)
         rm2 = RelayDocument(relay=relay, document=metadata, associated_at=1700000002)
@@ -170,7 +170,7 @@ class TestRelayDocumentInsertCascade:
 
     async def test_duplicate_junction_ignored(self, brotr: Brotr) -> None:
         relay = Relay("wss://dup-jnc.example.com", stored_at=1700000000)
-        metadata = Document(type=MetadataType.NIP11_INFO, data={"name": "Dup Junction"})
+        metadata = Document(type=DocumentType.NIP11_INFO, data={"name": "Dup Junction"})
         rm = RelayDocument(relay=relay, document=metadata, associated_at=1700000001)
 
         first = await brotr.insert_relay_document([rm], cascade=True)
@@ -183,7 +183,7 @@ class TestRelayDocumentInsertCascade:
         for i in range(5):
             relay = Relay(f"wss://batch-{i}.example.com", stored_at=1700000000)
             metadata = Document(
-                type=MetadataType.NIP11_INFO,
+                type=DocumentType.NIP11_INFO,
                 data={"name": f"Relay {i}", "index": i},
             )
             records.append(
@@ -208,7 +208,7 @@ class TestRelayDocumentInsertNonCascade:
         relay = Relay("wss://meta-fk.example.com", stored_at=1700000000)
         await brotr.insert_relay([relay])
 
-        metadata = Document(type=MetadataType.NIP11_INFO, data={"name": "FK Test"})
+        metadata = Document(type=DocumentType.NIP11_INFO, data={"name": "FK Test"})
         await brotr.insert_document([metadata])
 
         rm = RelayDocument(relay=relay, document=metadata, associated_at=1700000001)
@@ -223,7 +223,7 @@ class TestRelayDocumentInsertNonCascade:
         assert junction["document_id"] == metadata.content_hash
 
     async def test_missing_relay_raises(self, brotr: Brotr) -> None:
-        metadata = Document(type=MetadataType.NIP11_INFO, data={"name": "Missing Relay"})
+        metadata = Document(type=DocumentType.NIP11_INFO, data={"name": "Missing Relay"})
         await brotr.insert_document([metadata])
 
         missing_relay = Relay("wss://no-relay.example.com", stored_at=1700000000)
@@ -240,7 +240,7 @@ class TestRelayDocumentInsertNonCascade:
         relay = Relay("wss://has-relay.example.com", stored_at=1700000000)
         await brotr.insert_relay([relay])
 
-        metadata = Document(type=MetadataType.NIP66_DNS, data={"resolver": "8.8.8.8"})
+        metadata = Document(type=DocumentType.NIP66_DNS, data={"resolver": "8.8.8.8"})
         rm = RelayDocument(relay=relay, document=metadata, associated_at=1700000001)
 
         with pytest.raises(asyncpg.exceptions.ForeignKeyViolationError):
@@ -249,8 +249,8 @@ class TestRelayDocumentInsertNonCascade:
 
 class TestContentAddressedDedup:
     async def test_same_data_same_type_deduped(self, brotr: Brotr) -> None:
-        m1 = Document(type=MetadataType.NIP11_INFO, data={"name": "Dedup"})
-        m2 = Document(type=MetadataType.NIP11_INFO, data={"name": "Dedup"})
+        m1 = Document(type=DocumentType.NIP11_INFO, data={"name": "Dedup"})
+        m2 = Document(type=DocumentType.NIP11_INFO, data={"name": "Dedup"})
         assert m1.content_hash == m2.content_hash
 
         await brotr.insert_document([m1])
@@ -261,8 +261,8 @@ class TestContentAddressedDedup:
 
     async def test_same_data_different_type_both_stored(self, brotr: Brotr) -> None:
         data = {"value": 42}
-        m1 = Document(type=MetadataType.NIP11_INFO, data=data)
-        m2 = Document(type=MetadataType.NIP66_RTT, data=data)
+        m1 = Document(type=DocumentType.NIP11_INFO, data=data)
+        m2 = Document(type=DocumentType.NIP66_RTT, data=data)
         assert m1.content_hash == m2.content_hash
 
         await brotr.insert_document([m1, m2])
@@ -275,8 +275,8 @@ class TestContentAddressedDedup:
         assert types == {"nip11_info", "nip66_rtt"}
 
     async def test_different_data_different_hash(self, brotr: Brotr) -> None:
-        m1 = Document(type=MetadataType.NIP11_INFO, data={"name": "Alpha"})
-        m2 = Document(type=MetadataType.NIP11_INFO, data={"name": "Beta"})
+        m1 = Document(type=DocumentType.NIP11_INFO, data={"name": "Alpha"})
+        m2 = Document(type=DocumentType.NIP11_INFO, data={"name": "Beta"})
         assert m1.content_hash != m2.content_hash
 
         await brotr.insert_document([m1, m2])
@@ -285,8 +285,8 @@ class TestContentAddressedDedup:
         assert count == 2
 
     async def test_key_order_irrelevant(self, brotr: Brotr) -> None:
-        m1 = Document(type=MetadataType.NIP11_INFO, data={"a": 1, "b": 2})
-        m2 = Document(type=MetadataType.NIP11_INFO, data={"b": 2, "a": 1})
+        m1 = Document(type=DocumentType.NIP11_INFO, data={"a": 1, "b": 2})
+        m2 = Document(type=DocumentType.NIP11_INFO, data={"b": 2, "a": 1})
         assert m1.content_hash == m2.content_hash
 
         await brotr.insert_document([m1])
@@ -298,10 +298,10 @@ class TestContentAddressedDedup:
 
     async def test_null_values_preserved(self, brotr: Brotr) -> None:
         m1 = Document(
-            type=MetadataType.NIP11_INFO,
+            type=DocumentType.NIP11_INFO,
             data={"name": "test", "desc": None},
         )
-        m2 = Document(type=MetadataType.NIP11_INFO, data={"name": "test"})
+        m2 = Document(type=DocumentType.NIP11_INFO, data={"name": "test"})
         assert m1.content_hash != m2.content_hash
 
         await brotr.insert_document([m1])
@@ -317,7 +317,7 @@ class TestContentAddressedDedup:
         assert rows[1]["data"] == {"name": "test"}
 
     async def test_empty_data_dict(self, brotr: Brotr) -> None:
-        metadata = Document(type=MetadataType.NIP66_HTTP, data={})
+        metadata = Document(type=DocumentType.NIP66_HTTP, data={})
         inserted = await brotr.insert_document([metadata])
         assert inserted == 1
 
@@ -327,7 +327,7 @@ class TestContentAddressedDedup:
 
     async def test_unicode_data_preserved(self, brotr: Brotr) -> None:
         metadata = Document(
-            type=MetadataType.NIP11_INFO,
+            type=DocumentType.NIP11_INFO,
             data={"name": "\u65e5\u672c\u8a9e\u30ea\u30ec\u30fc"},
         )
         inserted = await brotr.insert_document([metadata])
@@ -341,7 +341,7 @@ class TestContentAddressedDedup:
 class TestMetadataDataIntegrity:
     async def test_jsonb_operator_queryable(self, brotr: Brotr) -> None:
         metadata = Document(
-            type=MetadataType.NIP11_INFO,
+            type=DocumentType.NIP11_INFO,
             data={"name": "Queryable Relay", "version": "1.0"},
         )
         await brotr.insert_document([metadata])
@@ -353,7 +353,7 @@ class TestMetadataDataIntegrity:
         assert version == "1.0"
 
     async def test_content_hash_is_32_bytes(self, brotr: Brotr) -> None:
-        metadata = Document(type=MetadataType.NIP66_NET, data={"asn": 13335})
+        metadata = Document(type=DocumentType.NIP66_NET, data={"asn": 13335})
         await brotr.insert_document([metadata])
 
         row = await brotr.fetchrow("SELECT id FROM document")
@@ -362,8 +362,8 @@ class TestMetadataDataIntegrity:
 
     async def test_hash_deterministic_across_constructions(self, brotr: Brotr) -> None:
         data = {"contact": "admin@relay.com", "pubkey": "abc123", "supported_nips": [1, 11, 66]}
-        m1 = Document(type=MetadataType.NIP11_INFO, data=data)
-        m2 = Document(type=MetadataType.NIP11_INFO, data=data)
+        m1 = Document(type=DocumentType.NIP11_INFO, data=data)
+        m2 = Document(type=DocumentType.NIP11_INFO, data=data)
 
         assert m1.content_hash == m2.content_hash
 

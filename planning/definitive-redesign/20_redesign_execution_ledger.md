@@ -63,7 +63,7 @@ Execution baseline:
 | 0. Integral codebase validation and assumption audit | done | Planning-time validation completed; execution baseline explicitly fixed to the `nip85-hardening` line of work |
 | 1. Contract freeze and rename ledger | done | Canonical rename vocabulary and final contract-freeze companion are now both closed |
 | 2. SQL and shared-schema foundation | in progress | Relay archive-entry semantics, document storage rename, relay-document history rename, event-observation rename, the core-storage closure audit, and shared analytics/score-output alignment are now closed; tranche-2 downstream SQL-alignment audit work remains pending |
-| 3. Python domain-model and `Brotr` alignment | not started | |
+| 3. Python domain-model and `Brotr` alignment | in progress | `DocumentType` rename and public model-surface cleanup are now closed; `Brotr`/service-state contract work remains pending |
 | 4. Shared derivation and maintenance pipeline alignment | not started | |
 | 5. Service-boundary alignment | not started | |
 | 6. Score/output and NIP capability alignment | not started | |
@@ -108,7 +108,7 @@ Execution baseline:
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 3.1 Python model rename and semantic alignment | not started | | |
+| 3.1 Python model rename and semantic alignment | done | `refactor: rename metadata types to document types` | Renamed the public model enum from `MetadataType` to `DocumentType` across the package root, model exports, NIP registry wiring, monitor utilities, tests, and the touched user/developer docs; closure audit cleaned remaining metadata-centric wording in `Document`, `RelayDocument`, NIP docstrings, and monitor helper docs, fixed the top-level `bigbrotr.__all__` ordering drift caught by `test_dir_returns_all`, fixed the sorted-`__all__` drift caught by `make ci`, and revalidated the slice with targeted unit/integration coverage, full `make ci`, and `uv lock --check` before closure |
 | 3.2 `Brotr` API alignment with the new shared schema | not started | | |
 | 3.3 Domain-facing tests and fixtures alignment | not started | | |
 
@@ -201,6 +201,16 @@ Each entry should include:
 - Future tranche: revisit during the later NIP/publication alignment work if
   the public score contract is narrowed further
 - Classification: improvement / watch point, not blocker
+
+- Originating work package: `3.1 Python model rename and semantic alignment`
+- Deferred item: `ServiceState` and the `Brotr` service-state surface still use
+  the historical `service_name`-centric Python vocabulary instead of the final
+  schema-facing `owner` vocabulary
+- Why deferred: changing that contract would pull `Brotr`, every service using
+  `service_state`, and a large test surface into the slice; it belongs to the
+  next `Brotr`-alignment work package rather than the model-only rename slice
+- Future tranche: `3.2 Brotr API alignment with the new shared schema`
+- Classification: planned follow-up, not blocker
 
 ---
 

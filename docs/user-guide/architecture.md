@@ -42,7 +42,7 @@ Deployments (`deployments/{bigbrotr,lilbrotr}/`) sit outside the package and con
 | Type | File | Values |
 |------|------|--------|
 | `NetworkType` | `constants.py` | `clearnet`, `tor`, `i2p`, `loki`, `local`, `unknown` |
-| `MetadataType` | `document.py` | `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
+| `DocumentType` | `document.py` | `nip11_info`, `nip66_rtt`, `nip66_ssl`, `nip66_geo`, `nip66_net`, `nip66_dns`, `nip66_http` |
 | `ServiceStateType` | `service_state.py` | `checkpoint`, `cursor` |
 | `ServiceName` | `constants.py` | `seeder`, `finder`, `validator`, `monitor`, `synchronizer`, `refresher`, `ranker`, `api`, `dvm`, `assertor` |
 | `EventKind` | `constants.py` | `SET_METADATA=0`, `RECOMMEND_RELAY=2`, `CONTACTS=3`, `RELAY_LIST=10002`, `NIP66_TEST=22456`, `MONITOR_ANNOUNCEMENT=10166`, `RELAY_DISCOVERY=30166` |
@@ -338,7 +338,7 @@ Relay Monitoring and Discovery (NIP-66) health check implementations.
 | `http.py` | Server header, X-Powered-By header |
 | `nip66.py` | `Nip66` orchestrator class |
 
-Each module produces a `RelayDocument` object with the corresponding `MetadataType`. The Monitor service calls these and persists results.
+Each module produces a `RelayDocument` object with the corresponding `DocumentType`. The Monitor service calls these and persists results.
 
 **NIP-66 health check data flow:**
 

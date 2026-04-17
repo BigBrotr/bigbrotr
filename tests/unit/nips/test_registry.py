@@ -1,5 +1,5 @@
 from bigbrotr.models.constants import EventKind
-from bigbrotr.models.document import MetadataType
+from bigbrotr.models.document import DocumentType
 from bigbrotr.nips import NIP_REGISTRY, NipEntry
 from bigbrotr.nips.nip11 import Nip11, Nip11Dependencies, Nip11Options, Nip11Selection
 from bigbrotr.nips.nip66 import Nip66, Nip66Dependencies, Nip66Options, Nip66Selection
@@ -21,7 +21,7 @@ class TestNipRegistry:
         assert entry.selection_cls is Nip11Selection
         assert entry.options_cls is Nip11Options
         assert entry.dependencies_cls is Nip11Dependencies
-        assert entry.metadata_types == (MetadataType.NIP11_INFO,)
+        assert entry.metadata_types == (DocumentType.NIP11_INFO,)
         assert entry.protocol_event_kinds == ()
         assert entry.capabilities == ("fetch", "relay_document")
 
@@ -34,12 +34,12 @@ class TestNipRegistry:
         assert entry.options_cls is Nip66Options
         assert entry.dependencies_cls is Nip66Dependencies
         assert entry.metadata_types == (
-            MetadataType.NIP66_RTT,
-            MetadataType.NIP66_SSL,
-            MetadataType.NIP66_GEO,
-            MetadataType.NIP66_NET,
-            MetadataType.NIP66_DNS,
-            MetadataType.NIP66_HTTP,
+            DocumentType.NIP66_RTT,
+            DocumentType.NIP66_SSL,
+            DocumentType.NIP66_GEO,
+            DocumentType.NIP66_NET,
+            DocumentType.NIP66_DNS,
+            DocumentType.NIP66_HTTP,
         )
         assert entry.protocol_event_kinds == (
             int(EventKind.NIP66_TEST),

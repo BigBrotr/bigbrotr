@@ -8,7 +8,7 @@ import pytest
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import EventObservation, Relay, RelayDocument
-from bigbrotr.models.document import Document, MetadataType
+from bigbrotr.models.document import Document, DocumentType
 from bigbrotr.models.event import Event
 from tests.conftest import make_mock_event
 
@@ -19,7 +19,7 @@ pytestmark = pytest.mark.integration
 def _rm(
     relay_url: str,
     data: dict,
-    meta_type: MetadataType = MetadataType.NIP11_INFO,
+    meta_type: DocumentType = DocumentType.NIP11_INFO,
     associated_at: int = 1700000001,
 ) -> RelayDocument:
     relay = Relay(relay_url, stored_at=1700000000)
@@ -62,7 +62,7 @@ class TestRelayDocumentCurrent:
         rm_ssl = _rm(
             "wss://multi-t.example.com",
             {"ssl_valid": True},
-            MetadataType.NIP66_SSL,
+            DocumentType.NIP66_SSL,
         )
         await brotr.insert_relay_document([rm_info, rm_ssl], cascade=True)
         await _refresh_document_current(brotr)
@@ -106,12 +106,12 @@ def _event_observation(
 def _nip11_metadata(relay_url: str, data: dict, associated_at: int = 1700000001) -> RelayDocument:
     relay = Relay(relay_url, stored_at=1700000000)
     envelope = {"data": data, "logs": {"success": True}}
-    document = Document(type=MetadataType.NIP11_INFO, data=envelope)
+    document = Document(type=DocumentType.NIP11_INFO, data=envelope)
     return RelayDocument(relay=relay, document=document, associated_at=associated_at)
 
 
 def _nip66_metadata(
-    relay_url: str, meta_type: MetadataType, data: dict, associated_at: int = 1700000001
+    relay_url: str, meta_type: DocumentType, data: dict, associated_at: int = 1700000001
 ) -> RelayDocument:
     relay = Relay(relay_url, stored_at=1700000000)
     envelope = {"data": data, "logs": {"success": True}}
@@ -534,7 +534,7 @@ class TestRelayStats:
         for i, rtt in enumerate([100, 200, 300]):
             rm = _nip66_metadata(
                 "wss://rtt.example.com",
-                MetadataType.NIP66_RTT,
+                DocumentType.NIP66_RTT,
                 {"rtt_open": rtt, "rtt_read": rtt + 10, "rtt_write": rtt + 20},
                 associated_at=1700000001 + i,
             )

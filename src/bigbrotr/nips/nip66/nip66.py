@@ -20,7 +20,7 @@ See Also:
         Network/ASN test implementation.
     [bigbrotr.nips.nip66.http.Nip66HttpMetadata][bigbrotr.nips.nip66.http.Nip66HttpMetadata]:
         HTTP test implementation.
-    [bigbrotr.models.document.MetadataType][bigbrotr.models.document.MetadataType]:
+    [bigbrotr.models.document.DocumentType][bigbrotr.models.document.DocumentType]:
         Enum with ``NIP66_*`` variants for each test type.
     [bigbrotr.nips.nip11.nip11.Nip11][bigbrotr.nips.nip11.nip11.Nip11]:
         Companion NIP-11 model with the same factory/serialization pattern.
@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from nostr_sdk import EventBuilder, Filter, Keys, Kind
 
 from bigbrotr.models.constants import EventKind
-from bigbrotr.models.document import Document, MetadataType
+from bigbrotr.models.document import Document, DocumentType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.models.relay_document import RelayDocument
 from bigbrotr.nips.base import (
@@ -225,12 +225,12 @@ class Nip66(BaseNip):
             with one [RelayDocument][bigbrotr.models.relay_document.RelayDocument]
             per test that produced results, or ``None`` for tests that were
             skipped. Each record is tagged with the corresponding
-            [MetadataType][bigbrotr.models.document.MetadataType] variant
+            [DocumentType][bigbrotr.models.document.DocumentType] variant
             (``NIP66_RTT``, ``NIP66_SSL``, etc.).
         """
 
         def make(
-            metadata: BaseNipMetadata | None, metadata_type: MetadataType
+            metadata: BaseNipMetadata | None, metadata_type: DocumentType
         ) -> RelayDocument | None:
             if metadata is None:
                 return None
@@ -241,12 +241,12 @@ class Nip66(BaseNip):
             )
 
         return RelayNip66DocumentTuple(
-            rtt=make(self.rtt, MetadataType.NIP66_RTT),
-            ssl=make(self.ssl, MetadataType.NIP66_SSL),
-            geo=make(self.geo, MetadataType.NIP66_GEO),
-            net=make(self.net, MetadataType.NIP66_NET),
-            dns=make(self.dns, MetadataType.NIP66_DNS),
-            http=make(self.http, MetadataType.NIP66_HTTP),
+            rtt=make(self.rtt, DocumentType.NIP66_RTT),
+            ssl=make(self.ssl, DocumentType.NIP66_SSL),
+            geo=make(self.geo, DocumentType.NIP66_GEO),
+            net=make(self.net, DocumentType.NIP66_NET),
+            dns=make(self.dns, DocumentType.NIP66_DNS),
+            http=make(self.http, DocumentType.NIP66_HTTP),
         )
 
     @classmethod

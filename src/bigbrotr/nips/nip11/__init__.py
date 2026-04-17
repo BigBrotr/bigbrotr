@@ -28,12 +28,12 @@ Nip11                                    Top-level container
 
 Note:
     NIP-11 results are stored as
-    [MetadataType.NIP11_INFO][bigbrotr.models.document.MetadataType] records
+    [DocumentType.NIP11_INFO][bigbrotr.models.document.DocumentType] records
     in the database via
     [Nip11.to_relay_document_tuple][bigbrotr.nips.nip11.nip11.Nip11.to_relay_document_tuple].
 
 See Also:
-    [bigbrotr.models.document.MetadataType][bigbrotr.models.document.MetadataType]:
+    [bigbrotr.models.document.DocumentType][bigbrotr.models.document.DocumentType]:
         The ``NIP11_INFO`` variant that tags these records.
     [bigbrotr.models.document.Document][bigbrotr.models.document.Document]:
         Content-addressed wrapper for NIP-11 payloads.

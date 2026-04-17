@@ -20,7 +20,7 @@ Attributes:
         time), SSL (certificate chain), DNS (A/AAAA/CNAME), Geo (GeoIP location),
         Net (ASN info), HTTP (response headers). Each test produces a separate
         [RelayDocument][bigbrotr.models.relay_document.RelayDocument] record
-        with the appropriate [MetadataType][bigbrotr.models.document.MetadataType].
+        with the appropriate [DocumentType][bigbrotr.models.document.DocumentType].
     BaseData, BaseLogs, BaseNipMetadata: Shared abstract base classes inherited by
         all NIP data, log, and metadata models.
     BaseNip: Abstract base class for top-level NIP models with ``relay``
@@ -37,11 +37,11 @@ Attributes:
         NIP-85 capability surface.
 
 See Also:
-    [bigbrotr.models.document.MetadataType][bigbrotr.models.document.MetadataType]:
+    [bigbrotr.models.document.DocumentType][bigbrotr.models.document.DocumentType]:
         Enum with ``NIP11_INFO``, ``NIP66_RTT``, ``NIP66_SSL``, ``NIP66_GEO``,
         ``NIP66_NET``, ``NIP66_DNS``, ``NIP66_HTTP`` variants.
     [bigbrotr.models.document.Document][bigbrotr.models.document.Document]:
-        Content-addressed metadata model that wraps NIP results for storage.
+        Content-addressed document model that wraps NIP results for storage.
     [bigbrotr.services.monitor.Monitor][bigbrotr.services.monitor.Monitor]:
         Service that orchestrates NIP-11 and NIP-66 checks per relay.
 """

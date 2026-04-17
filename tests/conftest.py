@@ -22,7 +22,7 @@ from bigbrotr.core.brotr import Brotr
 from bigbrotr.core.pool import Pool
 from bigbrotr.core.pool_config import DatabaseConfig, PoolConfig
 from bigbrotr.models import EventObservation, Relay, RelayDocument
-from bigbrotr.models.document import Document, MetadataType
+from bigbrotr.models.document import Document, DocumentType
 from bigbrotr.models.event import Event
 
 
@@ -248,7 +248,7 @@ def sample_relay_document() -> RelayDocument:
     """Sample RelayDocument for testing."""
     relay = Relay("wss://relay.example.com", stored_at=1700000000)
     metadata = Document(
-        type=MetadataType.NIP11_INFO,
+        type=DocumentType.NIP11_INFO,
         data={"name": "Test Relay", "supported_nips": [1, 2, 9, 11]},
     )
     return RelayDocument(

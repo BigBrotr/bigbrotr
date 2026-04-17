@@ -7,7 +7,7 @@ import pytest
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import EventObservation, Relay, RelayDocument
-from bigbrotr.models.document import Document, MetadataType
+from bigbrotr.models.document import Document, DocumentType
 from bigbrotr.models.event import Event
 from tests.conftest import make_mock_event
 
@@ -26,7 +26,7 @@ def _event_observation(
 def _relay_document(
     relay_url: str,
     data: dict,
-    meta_type: MetadataType = MetadataType.NIP11_INFO,
+    meta_type: DocumentType = DocumentType.NIP11_INFO,
     associated_at: int = 1700000001,
 ) -> RelayDocument:
     relay = Relay(relay_url, stored_at=1700000000)
@@ -95,7 +95,7 @@ class TestRelayCascadeToRelayDocument:
     async def test_relay_delete_only_removes_own_metadata_junctions(self, brotr: Brotr) -> None:
         relay1 = Relay("wss://fk-rmown1.example.com", stored_at=1700000000)
         relay2 = Relay("wss://fk-rmown2.example.com", stored_at=1700000000)
-        metadata = Document(type=MetadataType.NIP11_INFO, data={"shared": True})
+        metadata = Document(type=DocumentType.NIP11_INFO, data={"shared": True})
         rm1 = RelayDocument(relay=relay1, document=metadata, associated_at=1700000001)
         rm2 = RelayDocument(relay=relay2, document=metadata, associated_at=1700000001)
         await brotr.insert_relay_document([rm1, rm2], cascade=True)
@@ -159,7 +159,7 @@ class TestEventObservationForeignKeys:
 
 class TestRelayDocumentForeignKeys:
     async def test_missing_relay_raises(self, brotr: Brotr) -> None:
-        metadata = Document(type=MetadataType.NIP11_INFO, data={"name": "No relay"})
+        metadata = Document(type=DocumentType.NIP11_INFO, data={"name": "No relay"})
         await brotr.insert_document([metadata])
 
         with pytest.raises(asyncpg.ForeignKeyViolationError):
@@ -188,7 +188,7 @@ class TestRelayDocumentForeignKeys:
 
     async def test_non_cascade_insert_with_existing_fks(self, brotr: Brotr) -> None:
         relay = Relay("wss://fk-rm-nc.example.com", stored_at=1700000000)
-        metadata = Document(type=MetadataType.NIP11_INFO, data={"name": "Pre-inserted"})
+        metadata = Document(type=DocumentType.NIP11_INFO, data={"name": "Pre-inserted"})
         await brotr.insert_relay([relay])
         await brotr.insert_document([metadata])
 

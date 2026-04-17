@@ -211,7 +211,7 @@ Content-addressed storage for NIP-11 and NIP-66 documents.
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | BYTEA | PK (partial) | SHA-256 content hash (32 bytes) |
-| `type` | TEXT | PK (partial) | Check type (see MetadataType enum) |
+| `type` | TEXT | PK (partial) | Check type (see DocumentType enum) |
 | `data` | JSONB | NOT NULL | Complete JSON document |
 
 Primary key: `(id, type)`. The SHA-256 hash is computed in the application layer. Multiple relays with identical documents reference the same row, providing significant deduplication.

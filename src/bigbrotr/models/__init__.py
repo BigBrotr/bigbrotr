@@ -1,4 +1,4 @@
-"""Pure frozen dataclasses with zero I/O for Nostr relays, events, and metadata.
+"""Pure frozen dataclasses with zero I/O for Nostr relays, events, and documents.
 
 The models layer is the foundation of the diamond DAG. It has **no dependencies**
 on any other BigBrotr package -- only the Python standard library. Every model uses
@@ -19,8 +19,8 @@ Attributes:
     EventObservation: Junction linking an [Event][bigbrotr.models.event.Event] to the
         [Relay][bigbrotr.models.relay.Relay] where it was observed, with cascade
         insert support for atomic multi-table writes.
-    Document: Content-addressed metadata with SHA-256 hashing.
-        Supports seven [MetadataType][bigbrotr.models.document.MetadataType]
+    Document: Content-addressed document with SHA-256 hashing.
+        Supports seven [DocumentType][bigbrotr.models.document.DocumentType]
         values (nip11_info, nip66_rtt, etc.).
     RelayDocument: Junction linking a [Relay][bigbrotr.models.relay.Relay] to a
         [Document][bigbrotr.models.document.Document] record via
@@ -40,7 +40,7 @@ See Also:
     [bigbrotr.models.relay][]: Relay URL validation and network detection.
     [bigbrotr.models.event][]: Nostr event wrapper with database serialization.
     [bigbrotr.models.event_observation][]: Event-to-relay junction model.
-    [bigbrotr.models.document][]: Content-addressed metadata with SHA-256 hashing.
+    [bigbrotr.models.document][]: Content-addressed documents with SHA-256 hashing.
     [bigbrotr.models.relay_document][]: Relay-to-document junction model.
     [bigbrotr.models.service_state][]: Service state persistence types.
     [bigbrotr.models.constants][]: Shared constants and enumerations.
@@ -48,7 +48,7 @@ See Also:
 """
 
 from .constants import EVENT_KIND_MAX, EventKind, NetworkType, ServiceName
-from .document import Document, MetadataType
+from .document import Document, DocumentType
 from .event import Event
 from .event_observation import EventObservation
 from .relay import Relay
@@ -59,10 +59,10 @@ from .service_state import ServiceState, ServiceStateDbParams, ServiceStateType
 __all__ = [
     "EVENT_KIND_MAX",
     "Document",
+    "DocumentType",
     "Event",
     "EventKind",
     "EventObservation",
-    "MetadataType",
     "NetworkType",
     "Relay",
     "RelayDocument",

@@ -284,8 +284,8 @@ The Monitor uses two types of `CHECKPOINT` records in `service_state`:
 |-------|------|---------|-------------|
 | `processing.chunk_size` | int | `100` | Relays per batch |
 | `processing.max_relays` | int or null | `null` | Max relays per cycle |
-| `processing.compute.*` | bool | `true` | Enable computation per metadata type |
-| `processing.store.*` | bool | `true` | Enable persistence per metadata type |
+| `processing.compute.*` | bool | `true` | Enable computation per document type |
+| `processing.store.*` | bool | `true` | Enable persistence per document type |
 | `discovery.enabled` | bool | `true` | Publish kind 30166 events |
 | `announcement.enabled` | bool | `true` | Publish kind 10166 events |
 | `networks` | NetworkConfig | -- | Per-network timeouts and concurrency |

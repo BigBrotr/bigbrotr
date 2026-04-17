@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
-from bigbrotr.models.document import Document, MetadataType
+from bigbrotr.models.document import Document, DocumentType
 from bigbrotr.models.relay import Relay
 from bigbrotr.nips.nip11 import (
     Nip11,
@@ -194,7 +194,7 @@ class TestNip11Serialization:
         """to_relay_document_tuple returns RelayDocument for nip11_info."""
         result = nip11.to_relay_document_tuple()
         assert result.nip11_info is not None
-        assert result.nip11_info.document.type == MetadataType.NIP11_INFO
+        assert result.nip11_info.document.type == DocumentType.NIP11_INFO
         assert result.nip11_info.relay is nip11.relay
         assert result.nip11_info.associated_at == nip11.generated_at
 
