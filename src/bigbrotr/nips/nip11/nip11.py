@@ -125,8 +125,9 @@ class Nip11(BaseNip):
             (inherited from [BaseNip][bigbrotr.nips.base.BaseNip]).
 
     Note:
-        The ``fetch()`` factory method **never raises exceptions**. Always
-        check ``info.succeeded`` for the operation outcome.
+        The ``fetch()`` factory method does not raise for ordinary retrieval
+        failures. Always check ``info.succeeded`` for the operation outcome.
+        Cancellation and system-exit style exceptions still propagate.
         This design allows batch processing of many relays without individual
         error handling.
 
@@ -191,8 +192,9 @@ class Nip11(BaseNip):
         tuned via the ``options`` parameter. Some retrievals may require
         additional dependencies in the future, provided via ``deps``.
 
-        This method never raises and never returns None. Check
-        ``info.succeeded`` for the outcome.
+        This method never returns ``None`` and does not raise for ordinary
+        retrieval failures. Check ``info.succeeded`` for the outcome.
+        Cancellation and system-exit style exceptions still propagate.
 
         Args:
             relay: Relay to retrieve from.

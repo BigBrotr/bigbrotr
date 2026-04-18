@@ -63,9 +63,11 @@ class Nip11InfoMetadata(BaseNipMetadata):
     check ``succeeded`` for the operation status.
 
     Warning:
-        The ``fetch()`` method **never raises exceptions**. All errors are
-        captured in the ``failure_reason`` property. Callers must always check
-        ``succeeded`` before accessing data fields.
+        The ``fetch()`` method does not raise for ordinary HTTP or parsing
+        failures. Those errors are captured in the ``failure_reason``
+        property. Callers must always check ``succeeded`` before accessing
+        data fields. Cancellation and system-exit style exceptions still
+        propagate.
 
     See Also:
         [bigbrotr.nips.nip11.nip11.Nip11.fetch][bigbrotr.nips.nip11.nip11.Nip11.fetch]:
@@ -204,8 +206,10 @@ class Nip11InfoMetadata(BaseNipMetadata):
         insecure SSL context (the overlay provides encryption). Plain HTTP
         connections use no SSL.
 
-        This method never raises and never returns None. Check
-        ``succeeded`` for the operation outcome.
+        This method never returns ``None`` and does not raise for ordinary
+        HTTP or parsing failures. Check ``succeeded`` for the operation
+        outcome. Cancellation and system-exit style exceptions still
+        propagate.
 
         Args:
             relay: Relay to fetch from.

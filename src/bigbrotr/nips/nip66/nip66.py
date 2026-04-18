@@ -189,9 +189,10 @@ class Nip66(BaseNip):
     Note:
         The ``probe()`` factory method runs all enabled tests concurrently
         via ``asyncio.gather(return_exceptions=True)``. Individual test
-        failures are recorded in each test's logs field and never raised.
-        Unexpected exceptions (bugs) are logged at ERROR level and the
-        affected test field is set to ``None``.
+        failures are recorded in each test's logs field instead of being
+        raised. Unexpected ``Exception`` results are logged at ERROR level
+        and the affected test field is set to ``None``. Cancellation and
+        system-exit style exceptions are re-raised immediately.
 
     See Also:
         [bigbrotr.nips.nip11.nip11.Nip11][bigbrotr.nips.nip11.nip11.Nip11]:

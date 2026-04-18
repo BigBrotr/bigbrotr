@@ -7,9 +7,11 @@ access and is the most Nostr-aware part of the codebase.
 
 Warning:
     NIP semantic entrypoints ([Nip11.fetch()][bigbrotr.nips.nip11.nip11.Nip11.fetch],
-    [Nip66.probe()][bigbrotr.nips.nip66.nip66.Nip66.probe]) **never raise
-    exceptions**. Always check ``succeeded`` and ``failure_reason`` on the
-    returned result object to determine whether the operation succeeded.
+    [Nip66.probe()][bigbrotr.nips.nip66.nip66.Nip66.probe]) do not raise for
+    ordinary operational failures. Always check ``succeeded`` and
+    ``failure_reason`` on the returned result object to determine whether the
+    operation succeeded. Cancellation and system-exit style exceptions still
+    propagate.
 
 Public exports:
     Nip11: Fetches and parses NIP-11 Relay Information Documents via HTTP.

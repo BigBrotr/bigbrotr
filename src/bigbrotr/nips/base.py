@@ -347,10 +347,10 @@ class BaseNip(BaseModel, ABC):
       [RelayDocument][bigbrotr.models.relay_document.RelayDocument] records.
     * A semantic async factory such as ``fetch()`` or ``probe()`` that
       performs I/O and returns a populated instance. Concrete subclasses
-      should treat that semantic entrypoint as the public contract. These
-      semantic entrypoints must **never raise exceptions** — errors are
-      captured in the ``succeeded`` / ``failure_reason`` properties of each
-      result container.
+      should treat that semantic entrypoint as the public contract. Ordinary
+      operational failures should be captured in the
+      ``succeeded`` / ``failure_reason`` properties of each result container,
+      while cancellation and system-exit style exceptions still propagate.
 
     Note:
         ``BaseNip`` cannot be instantiated directly due to the ABC constraint.

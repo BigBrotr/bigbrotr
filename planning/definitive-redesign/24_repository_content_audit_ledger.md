@@ -393,3 +393,12 @@ Use this section during execution for:
   - kept the concrete `NetworksConfig` surface where it belongs, in the
     service-common config layer and its own tests, instead of letting that
     wrapper leak back into the low-level utils contract.
+- `2.1` models/utils/NIPs leaf audit, twenty-sixth remediation slice:
+  - corrected the remaining NIP leaf contracts that still promised
+    ``fetch()`` / ``probe()`` would "never raise exceptions", even though the
+    live code intentionally propagates cancellation and system-exit style
+    exceptions;
+  - aligned `bigbrotr.nips`, `BaseNip`, `Nip11InfoMetadata`, `Nip11`,
+    `Nip66RttMetadata`, and `Nip66` so they now describe the real contract:
+    ordinary operational failures are contained in result objects, while
+    cancellation / shutdown signals still escape.

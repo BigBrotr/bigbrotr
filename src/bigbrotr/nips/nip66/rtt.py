@@ -85,11 +85,12 @@ class Nip66RttMetadata(BaseNipMetadata):
     measures open, read, and write round-trip times.
 
     Warning:
-        The ``probe()`` method **never raises exceptions** for transport
-        errors or missing dependencies. All failures are captured in the
+        The ``probe()`` method does not raise for ordinary transport errors
+        or missing dependencies. Those failures are captured in the
         [Nip66RttMultiPhaseLogs][bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs]
         fields. Overlay network relays tested without a proxy URL receive
         an immediate failure result (all phases marked as failed).
+        Cancellation and system-exit style exceptions still propagate.
 
     See Also:
         [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
