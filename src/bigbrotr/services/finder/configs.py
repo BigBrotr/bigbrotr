@@ -9,12 +9,20 @@ See Also:
 
 from __future__ import annotations
 
+from typing import Any
 from urllib.parse import urlsplit
 
 import jmespath
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
+
+
+def _reject_bool_alias(value: Any, field_name: str, expected: str) -> Any:
+    """Reject boolean aliases for numeric finder config fields."""
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected {expected}, got bool")
+    return value
 
 
 class EventsConfig(BaseModel):
@@ -51,6 +59,13 @@ class EventsConfig(BaseModel):
         le=86_400.0,
         description="Maximum seconds for the entire event scanning phase",
     )
+
+    @field_validator("parallel_relays", mode="before")
+    @classmethod
+    def reject_boolean_parallel_relays(cls, v: Any, info: ValidationInfo) -> Any:
+        """Reject boolean aliases that would otherwise coerce to 1/0 workers."""
+        field_name = info.field_name or "parallel_relays"
+        return _reject_bool_alias(v, field_name, "integer")
 
 
 class ApiSourceConfig(BaseModel):
@@ -89,6 +104,13 @@ class ApiSourceConfig(BaseModel):
         default=False,
         description="Allow insecure connections without TLS certificate verification",
     )
+
+    @field_validator("timeout", "connect_timeout", mode="before")
+    @classmethod
+    def reject_boolean_timeout_aliases(cls, v: Any, info: ValidationInfo) -> Any:
+        """Reject boolean aliases for HTTP timeout controls."""
+        field_name = info.field_name or "value"
+        return _reject_bool_alias(v, field_name, "number")
 
     @model_validator(mode="after")
     def _validate_connect_timeout(self) -> ApiSourceConfig:
@@ -153,6 +175,13 @@ class ApiConfig(BaseModel):
         le=52_428_800,
         description="Maximum API response body size in bytes (default: 5 MB)",
     )
+
+    @field_validator("cooldown", "request_delay", mode="before")
+    @classmethod
+    def reject_boolean_pacing_aliases(cls, v: Any, info: ValidationInfo) -> Any:
+        """Reject boolean aliases for API pacing controls."""
+        field_name = info.field_name or "value"
+        return _reject_bool_alias(v, field_name, "number")
 
     @model_validator(mode="after")
     def _validate_unique_sources(self) -> ApiConfig:

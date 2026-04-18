@@ -149,6 +149,10 @@ class TestEventsConfig:
         with pytest.raises(ValueError):
             EventsConfig(**{field: above_max})
 
+    def test_rejects_boolean_parallel_relays_alias(self) -> None:
+        with pytest.raises(ValueError, match="parallel_relays: expected integer, got bool"):
+            EventsConfig(parallel_relays=True)
+
 
 class TestApiSourceConfig:
     def test_default_values(self) -> None:
@@ -210,6 +214,21 @@ class TestApiSourceConfig:
             url="https://api.com", expression="[*]", timeout=10.0, connect_timeout=10.0
         )
         assert config.connect_timeout == 10.0
+
+    @pytest.mark.parametrize(
+        ("field_name", "kwargs"),
+        [
+            ("timeout", {"timeout": True, "connect_timeout": 0.5}),
+            ("connect_timeout", {"timeout": 10.0, "connect_timeout": True}),
+        ],
+    )
+    def test_rejects_boolean_timeout_aliases(
+        self,
+        field_name: str,
+        kwargs: dict[str, float | bool],
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got bool"):
+            ApiSourceConfig(url="https://api.com", expression="[*]", **kwargs)
 
     def test_allow_insecure_enabled(self) -> None:
         config = ApiSourceConfig(
@@ -295,6 +314,21 @@ class TestApiConfig:
                 ApiConfig(max_response_size=size)
         else:
             assert ApiConfig(max_response_size=size).max_response_size == size
+
+    @pytest.mark.parametrize(
+        ("field_name", "kwargs"),
+        [
+            ("cooldown", {"cooldown": True}),
+            ("request_delay", {"request_delay": False}),
+        ],
+    )
+    def test_rejects_boolean_pacing_aliases(
+        self,
+        field_name: str,
+        kwargs: dict[str, bool],
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got bool"):
+            ApiConfig(**kwargs)
 
 
 class TestFinderConfig:

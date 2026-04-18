@@ -2085,3 +2085,12 @@ Use this section during execution for:
   - added paired `synchronizer` coverage proving those boolean aliases now
     fail fast at config load instead of mutating the computed incremental
     archive range.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-seventy-fifth remediation
+  slice:
+  - tightened the public `finder` config boundary so event-scan concurrency,
+    API cooldown, request delay, and per-source HTTP timeouts no longer accept
+    boolean aliases, which previously let values like `True` coerce to `1` or
+    `1.0` and silently change relay parallelism or API pacing semantics;
+  - added paired `finder` coverage proving those boolean aliases now fail fast
+    at config load instead of mutating runtime discovery budgets or source
+    request timing.
