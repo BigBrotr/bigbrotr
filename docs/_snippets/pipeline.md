@@ -1,6 +1,7 @@
 ```mermaid
 flowchart TD
     DB[("PostgreSQL")]
+    RC["ReadCore<br/><small>Protocol-agnostic read core</small>"]
 
     SE["Seeder<br/><small>Bootstrap</small>"]
     FI["Finder<br/><small>Discovery</small>"]
@@ -10,8 +11,8 @@ flowchart TD
     RE["Refresher<br/><small>Derived facts refresh</small>"]
     RA["Ranker<br/><small>NIP-85 public scores</small>"]
     AS["Assertor<br/><small>NIP-85 provider package</small>"]
-    AP["Api<br/><small>HTTP adapter</small>"]
-    DV["Dvm<br/><small>NIP-90 adapter</small>"]
+    AP["API<br/><small>HTTP adapter</small>"]
+    DV["DVM<br/><small>NIP-90 adapter</small>"]
 
     SE --> DB
     FI --> DB
@@ -21,6 +22,7 @@ flowchart TD
     RE --> DB
     RA --> DB
     AS --> DB
-    AP --> DB
-    DV --> DB
+    AP --> RC
+    DV --> RC
+    RC --> DB
 ```

@@ -17,7 +17,6 @@ copyright: Copyright &copy; BigBrotr Contributors
 
 theme:
   name: material
-  custom_dir: docs/overrides
   logo: assets/images/logo.webp
   favicon: assets/images/favicon.png
   font:
@@ -94,6 +93,11 @@ nav:
       - Contributing: development/contributing.md
   - API Reference: reference/
   - Changelog: changelog.md
+
+exclude_docs: |
+  README.md
+  _snippets/**
+  guides/README.md
 
 plugins:
   - search

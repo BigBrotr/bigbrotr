@@ -12,3 +12,6 @@ Reusable markdown fragments shared across multiple documentation pages.
 
 - Keep snippets generic enough to be embedded in multiple pages.
 - Update every consuming page if a snippet change alters the public narrative.
+- Keep service names and architectural seams aligned with the final public
+  vocabulary (`API`, `DVM`, `ReadCore`, `document`, `event_observation`, and so
+  on).
