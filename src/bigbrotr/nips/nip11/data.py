@@ -10,8 +10,9 @@ Note:
     All data classes extend [BaseData][bigbrotr.nips.base.BaseData] and use
     declarative [FieldSpec][bigbrotr.nips.parsing.FieldSpec] parsing.
     Complex nested structures (limitation, retention, fees) override
-    ``parse()`` with custom logic while still leveraging the base mechanism
-    for flat fields.
+    ``parse_report()`` with custom logic while still leveraging the base
+    mechanism for flat fields; ``parse()`` then remains the convenience
+    wrapper that returns only the parsed payload.
 
 See Also:
     [bigbrotr.nips.nip11.info.Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:

@@ -631,3 +631,12 @@ Use this section during execution for:
     preserves the parsed subset while recording invalid and unknown fields,
     so future refactors cannot regress back to the older “silent drop only”
     mental model.
+- `2.1` models/utils/NIPs leaf audit, fifty-sixth remediation slice:
+  - aligned the `bigbrotr.nips.nip11` package surface and top-level data-model
+    prose with the real final parsing contract, so the package no longer
+    claims to be “silent drop only” now that `parse_report()` is part of the
+    live boundary;
+  - added direct unit coverage proving `Nip11InfoData.parse_report()` keeps
+    the parsed subset while recording unknown top-level fields and nested
+    invalid values, closing a real gap between the runtime behavior and the
+    package-level test surface.

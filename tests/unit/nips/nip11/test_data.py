@@ -669,6 +669,35 @@ class TestNip11InfoDataParse:
         assert model.limitation.auth_required is False
         assert model.limitation.max_message_length is None
 
+    def test_parse_report_records_nested_and_unknown_issues(self):
+        """parse_report() preserves parsed data while recording dropped fields."""
+        report = Nip11InfoData.parse_report(
+            {
+                "name": "Test Relay",
+                "invalid_field": "ignored",
+                "supported_nips": [1, True, "invalid"],
+                "limitation": {"max_message_length": "bad", "auth_required": False},
+            }
+        )
+
+        assert report.parsed == {
+            "name": "Test Relay",
+            "supported_nips": [1],
+            "limitation": {"auth_required": False},
+        }
+        assert [issue.kind for issue in report.issues] == [
+            "unknown_field",
+            "invalid_value",
+            "invalid_value",
+            "invalid_value",
+        ]
+        assert [issue.path for issue in report.issues] == [
+            "invalid_field",
+            "supported_nips[1]",
+            "supported_nips[2]",
+            "limitation.max_message_length",
+        ]
+
 
 class TestNip11InfoDataFromDict:
     """Test Nip11InfoData.from_dict() method."""

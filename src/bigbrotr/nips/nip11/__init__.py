@@ -3,8 +3,9 @@
 Implements [NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md)
 -- retrieval, parsing, and validation of relay information documents.
 Raw JSON responses are sanitized through ``parse()`` methods and validated
-into typed, frozen Pydantic models. Invalid fields or wrong types are
-silently dropped to handle non-conformant relays.
+into typed, frozen Pydantic models. The report-oriented parsing path keeps
+track of dropped or unknown fields via ``ParseReport`` while ``parse()``
+remains the convenience wrapper that returns only the parsed payload.
 
 Model hierarchy:
 
