@@ -190,6 +190,13 @@ class TestDatabaseConfig:
         config_max = DatabaseConfig(port=65535)
         assert config_max.port == 65535
 
+    def test_rejects_boolean_port_alias(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test bool aliases do not coerce into port 1."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+
+        with pytest.raises(ValidationError, match="port: expected integer, got bool"):
+            DatabaseConfig(port=True)
+
     def test_empty_host_raises_validation_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that empty host raises ValidationError."""
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
@@ -283,6 +290,20 @@ class TestLimitsConfig:
         with pytest.raises(ValidationError):
             LimitsConfig(max_queries=99)
 
+    @pytest.mark.parametrize(
+        ("field_name", "expected"),
+        [
+            ("min_size", "integer"),
+            ("max_size", "integer"),
+            ("max_queries", "integer"),
+            ("max_inactive_connection_lifetime", "number"),
+        ],
+    )
+    def test_rejects_boolean_aliases(self, field_name: str, expected: str) -> None:
+        """Test bool aliases do not coerce into pool size or idle lifetime numerics."""
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected {expected}, got bool"):
+            LimitsConfig(**{field_name: True})
+
 
 class TestTimeoutsConfig:
     """Tests for TimeoutsConfig Pydantic model."""
@@ -308,6 +329,11 @@ class TestTimeoutsConfig:
         # Invalid: below minimum
         with pytest.raises(ValidationError):
             TimeoutsConfig(acquisition=0.05)
+
+    def test_rejects_boolean_acquisition_alias(self) -> None:
+        """Test bool aliases do not coerce into a one-second acquisition timeout."""
+        with pytest.raises(ValidationError, match="acquisition: expected number, got bool"):
+            TimeoutsConfig(acquisition=True)
 
 
 class TestRetryConfig:
@@ -370,6 +396,19 @@ class TestRetryConfig:
         with pytest.raises(ValidationError):
             RetryConfig(initial_delay=0.05)
 
+    @pytest.mark.parametrize(
+        ("field_name", "expected"),
+        [
+            ("max_attempts", "integer"),
+            ("initial_delay", "number"),
+            ("max_delay", "number"),
+        ],
+    )
+    def test_rejects_boolean_aliases(self, field_name: str, expected: str) -> None:
+        """Test bool aliases do not coerce into retry numerics."""
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected {expected}, got bool"):
+            RetryConfig(**{field_name: True})
+
 
 class TestServerSettingsConfig:
     """Tests for ServerSettingsConfig Pydantic model."""
@@ -398,6 +437,11 @@ class TestServerSettingsConfig:
         """Test that statement_timeout of 0 (unlimited) is allowed."""
         config = ServerSettingsConfig(statement_timeout=0)
         assert config.statement_timeout == 0
+
+    def test_rejects_boolean_statement_timeout_alias(self) -> None:
+        """Test bool aliases do not coerce into a one-millisecond statement timeout."""
+        with pytest.raises(ValidationError, match="statement_timeout: expected integer, got bool"):
+            ServerSettingsConfig(statement_timeout=True)
 
     def test_empty_application_name_rejected(self) -> None:
         """Test that empty application_name is rejected."""

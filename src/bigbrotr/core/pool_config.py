@@ -6,6 +6,13 @@ from typing import Any
 from pydantic import BaseModel, Field, SecretStr, ValidationInfo, field_validator, model_validator
 
 
+def _reject_bool_alias(value: Any, field_name: str, expected: str) -> Any:
+    """Reject boolean values for numeric config fields before pydantic coercion."""
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected {expected}, got bool")
+    return value
+
+
 class DatabaseConfig(BaseModel):
     """PostgreSQL connection parameters."""
 
@@ -19,6 +26,11 @@ class DatabaseConfig(BaseModel):
         description="Environment variable name for database password",
     )
     password: SecretStr = Field(description="Database password (loaded from password_env)")
+
+    @field_validator("port", mode="before")
+    @classmethod
+    def reject_boolean_port(cls, value: Any) -> Any:
+        return _reject_bool_alias(value, "port", "integer")
 
     @model_validator(mode="before")
     @classmethod
@@ -43,6 +55,19 @@ class LimitsConfig(BaseModel):
         default=300.0, ge=0.0, description="Idle timeout (seconds)"
     )
 
+    @field_validator(
+        "min_size",
+        "max_size",
+        "max_queries",
+        "max_inactive_connection_lifetime",
+        mode="before",
+    )
+    @classmethod
+    def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
+        field_name = info.field_name or "value"
+        expected = "number" if field_name == "max_inactive_connection_lifetime" else "integer"
+        return _reject_bool_alias(value, field_name, expected)
+
     @field_validator("max_size")
     @classmethod
     def validate_max_size(cls, v: int, info: ValidationInfo) -> int:
@@ -58,6 +83,11 @@ class TimeoutsConfig(BaseModel):
 
     acquisition: float = Field(default=10.0, ge=0.1, description="Connection acquisition timeout")
 
+    @field_validator("acquisition", mode="before")
+    @classmethod
+    def reject_boolean_acquisition(cls, value: Any) -> Any:
+        return _reject_bool_alias(value, "acquisition", "number")
+
 
 class RetryConfig(BaseModel):
     """Retry strategy for failed connection attempts."""
@@ -66,6 +96,13 @@ class RetryConfig(BaseModel):
     initial_delay: float = Field(default=1.0, ge=0.1, description="Initial retry delay")
     max_delay: float = Field(default=10.0, ge=0.1, description="Maximum retry delay")
     exponential_backoff: bool = Field(default=True, description="Use exponential backoff")
+
+    @field_validator("max_attempts", "initial_delay", "max_delay", mode="before")
+    @classmethod
+    def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
+        field_name = info.field_name or "value"
+        expected = "integer" if field_name == "max_attempts" else "number"
+        return _reject_bool_alias(value, field_name, expected)
 
     @field_validator("max_delay")
     @classmethod
@@ -90,6 +127,11 @@ class ServerSettingsConfig(BaseModel):
             "PgBouncer in transaction mode, as it is stripped by ignore_startup_parameters."
         ),
     )
+
+    @field_validator("statement_timeout", mode="before")
+    @classmethod
+    def reject_boolean_statement_timeout(cls, value: Any) -> Any:
+        return _reject_bool_alias(value, "statement_timeout", "integer")
 
 
 class PoolConfig(BaseModel):

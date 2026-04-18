@@ -2133,3 +2133,13 @@ Use this section during execution for:
   - added paired `core` coverage proving those boolean aliases now fail fast
     at config load instead of mutating the shared database facade contract
     used by every service.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-eightieth remediation
+  slice:
+  - tightened the core `PoolConfig` numeric boundary so database port, pool
+    limits, acquisition timeout, retry numerics, and `statement_timeout` no
+    longer accept boolean aliases, which previously let values like `True`
+    coerce to `1` or `1.0` and silently alter connection counts, retry
+    pacing, idle lifetime, or server-side timeout settings;
+  - added paired `core` coverage proving those boolean aliases now fail fast
+    at config load instead of mutating the shared PostgreSQL pool contract
+    used by every service.
