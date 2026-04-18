@@ -336,6 +336,37 @@ class TestProcessRequestEvent:
         query_resource.assert_not_awaited()
         send_event.assert_awaited_once()
 
+    async def test_rejects_malformed_compact_filter_from_job_params(
+        self,
+        job_context: JobExecutionContext,
+    ) -> None:
+        event = _make_mock_event(
+            event_id="job-invalid-filter-fragment",
+            tags=[
+                ["param", "read_model", "relays"],
+                ["param", "filter", "network=clearnet,invalid"],
+            ],
+        )
+        logger = MagicMock()
+        send_event = AsyncMock(return_value=(("wss://relay.example.com",), {}))
+        query_resource = AsyncMock()
+
+        result = await process_request_event(
+            event=event,
+            pubkey_hex="service-pubkey",
+            processed_ids=set(),
+            runtime=JobRuntime(
+                logger=logger,
+                send_event=send_event,
+                query_resource=query_resource,
+            ),
+            context=job_context,
+        )
+
+        assert result == (1, 0, 1, 0)
+        query_resource.assert_not_awaited()
+        send_event.assert_awaited_once()
+
     @pytest.mark.parametrize("error_type", [CatalogError, OSError, TimeoutError])
     async def test_publishes_client_safe_error_for_known_failures(
         self,

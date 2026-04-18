@@ -786,11 +786,22 @@ class TestReadModelQueryHelpers:
     def test_parse_read_model_filter_string_empty(self) -> None:
         assert parse_read_model_filter_string("") is None
 
-    def test_parse_read_model_filter_string_trims_and_skips_invalid_parts(self) -> None:
-        assert parse_read_model_filter_string(" network = clearnet , invalid , kind = 1 ") == {
+    def test_parse_read_model_filter_string_trims_entries(self) -> None:
+        assert parse_read_model_filter_string(" network = clearnet , kind = 1 ") == {
             "network": "clearnet",
             "kind": "1",
         }
+
+    def test_parse_read_model_filter_string_skips_empty_parts(self) -> None:
+        assert parse_read_model_filter_string(" , network = clearnet , , kind = 1 , ") == {
+            "network": "clearnet",
+            "kind": "1",
+        }
+
+    @pytest.mark.parametrize("filter_str", ["invalid", "network=clearnet,invalid", "=clearnet"])
+    def test_parse_read_model_filter_string_rejects_malformed_parts(self, filter_str: str) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid filter value"):
+            parse_read_model_filter_string(filter_str)
 
     def test_read_model_query_from_http_params(self) -> None:
         query = read_model_query_from_http_params(
@@ -1007,6 +1018,14 @@ class TestReadModelQueryHelpers:
         with pytest.raises(ReadModelQueryError, match="Invalid filter value"):
             read_model_query_from_job_params(
                 {"filter": 123},
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
+    def test_read_model_query_from_job_params_invalid_filter_fragment(self) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid filter value"):
+            read_model_query_from_job_params(
+                {"filter": "network=clearnet,invalid"},
                 default_page_size=100,
                 max_page_size=1000,
             )

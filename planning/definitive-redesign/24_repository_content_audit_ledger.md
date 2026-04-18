@@ -1473,3 +1473,12 @@ Use this section during execution for:
     of being silently ignored, and added paired `services/common`, API, and
     `dvm/jobs` coverage proving both adapter surfaces now follow the same
     transport contract.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-eleventh remediation slice:
+  - tightened compact read-side filter parsing so malformed non-empty filter
+    fragments are no longer silently skipped on the DVM path, which previously
+    allowed client typos like `network=clearnet,invalid` to broaden the live
+    query instead of failing fast;
+  - kept empty comma fragments harmless for human-authored inputs, and added
+    paired `services/common` plus `dvm/jobs` coverage proving malformed
+    compact-filter payloads now become client-safe rejections rather than
+    partially applied queries.

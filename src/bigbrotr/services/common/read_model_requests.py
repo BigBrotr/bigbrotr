@@ -41,10 +41,15 @@ def parse_read_model_filter_string(filter_str: str) -> dict[str, str] | None:
     filters: dict[str, str] = {}
     for raw_part in filter_str.split(","):
         part = raw_part.strip()
-        if "=" not in part:
+        if not part:
             continue
+        if "=" not in part:
+            raise ReadModelQueryError("Invalid filter value")
         key, _, value = part.partition("=")
-        filters[key.strip()] = value.strip()
+        normalized_key = key.strip()
+        if not normalized_key:
+            raise ReadModelQueryError("Invalid filter value")
+        filters[normalized_key] = value.strip()
     return filters or None
 
 
