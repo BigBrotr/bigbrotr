@@ -155,6 +155,13 @@ def _require_score(value: Any, field_name: str = "score") -> int:
     return score
 
 
+def _require_optional_non_negative_int(value: Any, field_name: str) -> int | None:
+    """Return ``None`` or a real non-negative integer timestamp-like value."""
+    if value is None:
+        return None
+    return _require_non_negative_int(value, field_name)
+
+
 def _normalize_activity_hours(value: tuple[int, ...]) -> tuple[int, ...]:
     """Validate and normalize the 24-slot UTC activity heatmap."""
     normalized = tuple(_require_non_negative_int(hour, "activity_hours entries") for hour in value)
@@ -245,6 +252,22 @@ class UserAssertion:
             _require_text_sequence(self.top_topics, "top_topics", noun="topic strings"),
         )
         _normalize_non_negative_int_fields(self, _USER_ASSERTION_INT_FIELDS)
+        object.__setattr__(
+            self,
+            "first_created_at",
+            _require_optional_non_negative_int(self.first_created_at, "first_created_at"),
+        )
+        object.__setattr__(
+            self,
+            "last_event_at",
+            _require_optional_non_negative_int(self.last_event_at, "last_event_at"),
+        )
+        if (
+            self.first_created_at is not None
+            and self.last_event_at is not None
+            and self.last_event_at < self.first_created_at
+        ):
+            raise ValueError("last_event_at must be >= first_created_at")
         object.__setattr__(self, "activity_hours", _normalize_activity_hours(self.activity_hours))
 
     @property

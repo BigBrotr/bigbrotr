@@ -67,6 +67,26 @@ class TestUserAssertionProperties:
         a = UserAssertion(pubkey="aa" * 32)
         assert a.days_active == 0
 
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"first_created_at": True}, "first_created_at must be a non-negative integer"),
+            ({"last_event_at": 1.5}, "last_event_at must be a non-negative integer"),
+            ({"first_created_at": -1}, "first_created_at must be >= 0"),
+            (
+                {"first_created_at": 200, "last_event_at": 100},
+                "last_event_at must be >= first_created_at",
+            ),
+        ],
+    )
+    def test_constructor_rejects_invalid_timestamps(
+        self,
+        kwargs: dict[str, object],
+        message: str,
+    ) -> None:
+        with pytest.raises((TypeError, ValueError), match=message):
+            UserAssertion(pubkey="aa" * 32, **kwargs)
+
     def test_zap_avg_amt_day_recd(self) -> None:
         a = UserAssertion(
             pubkey="aa" * 32,
@@ -358,6 +378,35 @@ class TestUserAssertionFromDbRow:
         ],
     )
     def test_from_db_row_rejects_invalid_metric_fields(
+        self,
+        row: dict[str, object],
+        message: str,
+    ) -> None:
+        with pytest.raises((TypeError, ValueError), match=message):
+            UserAssertion.from_db_row(row)
+
+    @pytest.mark.parametrize(
+        ("row", "message"),
+        [
+            (
+                {"pubkey": "cc" * 32, "first_created_at": True},
+                "first_created_at must be a non-negative integer",
+            ),
+            (
+                {"pubkey": "cc" * 32, "last_event_at": 1.5},
+                "last_event_at must be a non-negative integer",
+            ),
+            (
+                {"pubkey": "cc" * 32, "first_created_at": -1},
+                "first_created_at must be >= 0",
+            ),
+            (
+                {"pubkey": "cc" * 32, "first_created_at": 200, "last_event_at": 100},
+                "last_event_at must be >= first_created_at",
+            ),
+        ],
+    )
+    def test_from_db_row_rejects_invalid_timestamps(
         self,
         row: dict[str, object],
         message: str,

@@ -538,6 +538,17 @@ Use this section during execution for:
   - paired coverage now pins the out-of-range `score=101` failure explicitly
     for `UserAssertion`, `EventAssertion`, `AddressableAssertion`, and
     `IdentifierAssertion` on both constructor and hydration paths.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirty-sixth remediation
+  slice:
+  - hardened the remaining temporal seam on `UserAssertion`: the optional
+    `first_created_at` and `last_event_at` fields now require real
+    non-negative integer timestamps instead of accepting malformed values like
+    `True`, `1.5`, or `-1`;
+  - aligned the constructor and `from_db_row()` paths on chronology as well,
+    so a reversed activity window (`last_event_at < first_created_at`) is now
+    rejected explicitly instead of being silently masked by `days_active`;
+  - paired coverage now pins invalid timestamp types, negative values, and
+    reversed activity windows on both direct construction and hydration.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package
