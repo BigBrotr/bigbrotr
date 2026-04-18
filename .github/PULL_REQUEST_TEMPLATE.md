@@ -31,8 +31,11 @@
 
 <!-- Describe how you tested your changes -->
 
-- [ ] Unit tests pass (`make test-unit`)
-- [ ] Integration tests pass (`make test-integration`)
+- [ ] Focused tests for the touched area pass
+- [ ] `make ci` passes
+- [ ] `uv lock --check` passes
+- [ ] `make docs` passes if documentation changed
+- [ ] `python tools/generate_sql.py --check` passes if SQL or deployment packages changed
 - [ ] New tests added for new functionality
 - [ ] Manual testing performed
 
@@ -41,9 +44,9 @@
 <!-- Mark completed items with an 'x' -->
 
 - [ ] My code follows the project's coding standards
-- [ ] I have run `make pre-commit` and all checks pass
+- [ ] I have run the repository quality checks appropriate for this slice
 - [ ] I have updated the documentation (if applicable)
-- [ ] I have added my changes to `CHANGELOG.md` under `[Unreleased]`
+- [ ] I have updated `CHANGELOG.md` under `[Unreleased]` if the change is user-visible
 - [ ] My changes do not introduce new warnings
 - [ ] Any dependent changes have been merged and published
 

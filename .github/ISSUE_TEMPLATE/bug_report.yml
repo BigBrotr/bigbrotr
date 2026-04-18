@@ -8,6 +8,9 @@ body:
       value: |
         Thanks for taking the time to report a bug!
 
+        If you believe you found a security vulnerability, please use the
+        private security-reporting process instead of opening a public issue.
+
   - type: textarea
     id: description
     attributes:
@@ -74,8 +77,8 @@ body:
         - Refresher
         - Ranker
         - Assertor
-        - Api
-        - Dvm
+        - API
+        - DVM
         - Core (Pool/Brotr)
         - Database
         - Docker/Deployment

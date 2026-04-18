@@ -13,3 +13,5 @@ Issue forms used for the public repository surface.
 - Keep issue forms aligned with the project's actual support and contribution
   expectations.
 - Prefer precise, structured prompts over long free-form forms.
+- Route security vulnerabilities away from public issues and toward the
+  security-reporting surface.

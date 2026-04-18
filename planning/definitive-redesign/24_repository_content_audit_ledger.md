@@ -67,7 +67,7 @@ Fill this section when the audit actually starts.
 | Wave | Status | Notes |
 |------|--------|-------|
 | 0. Inventory freeze and traversal map | done | Baseline frozen from redesign closeout commit `9dc6cc35`: full manifest in `25_repository_content_audit_manifest.txt`, touched/untouched historical-context manifest in `26_repository_content_audit_untouched_manifest.txt`, and concrete folder/wave mapping in `27_repository_content_audit_traversal_map.md`. Final-manifest counts at audit start: `542` tracked files, `315` redesign-touched final files, `227` untouched final files. All `542` remain first-class high-suspicion audit targets |
-| 1. Deepest non-Python leaves | not started | Read and classify deepest config/support leaves such as workflows, issue templates, deployment service YAML, SQL init packages, monitoring assets, snippets, and static support files against the final desired repository shape |
+| 1. Deepest non-Python leaves | in progress | `.github` leaf surfaces are now audited and corrected; deepest deployment, monitoring, and docs-support leaves remain |
 | 2. Python leaf packages | not started | Read and classify the deepest implementation packages across models, utils, NIPs, core, services, and `services/common`; touched/untouched status is recorded only as historical context, not as a weaker or stronger audit standard |
 | 3. Tools and tests leaves | not started | Read and classify SQL templates, tooling leaves, fixtures, and the deepest unit/integration test folders against the final repository contract |
 | 4. Parent package and folder surfaces | not started | Read and classify parent `README.md`, package exports, and parent-level local guidance only after children are understood |
@@ -92,7 +92,7 @@ Fill this section when the audit actually starts.
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 1.1 `.github` leaf audit | not started | — | Issue templates, workflows, and other deepest maintained GitHub automation surfaces |
+| 1.1 `.github` leaf audit | done | `chore: align github automation surfaces` | Audited all tracked `.github` leaf surfaces and corrected real drift: added `.github/AGENTS.md` and `.github/workflows/AGENTS.md` as maintained local guidance, removed stale local `CLAUDE.md` leftovers from the live tree, aligned issue-template contact paths with the public docs/security surfaces, tightened the PR template to the actual contributor contract, and strengthened `release.yml` so the validation gate now runs pre-commit plus the repository contract gate (`make ci`, `uv lock --check`, and docs build) instead of only narrating a stronger standard. Targeted YAML/markdown/spelling checks, full `make ci`, and `uv lock --check` all passed before closure |
 | 1.2 Deployment service-config leaf audit | not started | — | `deployments/*/config/services/` plus paired local guidance and service-config truthfulness |
 | 1.3 Deployment SQL/monitoring/support leaf audit | not started | — | `postgres/init`, monitoring assets, pgbouncer, static/support scripts, and paired docs. This work package must explicitly judge whether the current monitoring stack is merely aligned or whether it still needs a substantial professional redesign across Grafana, Prometheus, alerts, exporter queries, and operator-facing observability shape |
 | 1.4 Docs asset/snippet/override leaf audit | not started | — | `_snippets`, assets, overrides, and other deepest docs-support surfaces |
@@ -153,4 +153,15 @@ Use this section during execution for:
   redesign path;
 - consciously deferred items with explicit justification.
 
-No entries yet.
+- `1.1` `.github` slice, resolved in `chore: align github automation surfaces`:
+  - added maintained `.github/AGENTS.md` / `.github/workflows/AGENTS.md`
+    guidance;
+  - removed stale local `.github/**/CLAUDE.md` leftovers from the live tree;
+  - aligned issue-template docs/security contact links with the final public
+    support surfaces;
+  - tightened the PR template and release validation workflow to the actual
+    contributor/repository contract.
+- Deferred to later waves:
+  - many other `CLAUDE.md` local-guidance files still exist outside `.github`;
+    they must be judged folder by folder against the final repository shape
+    rather than removed mechanically in the `.github` slice.
