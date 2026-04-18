@@ -218,8 +218,8 @@ audit.
 Exact list of final tracked files that were untouched during the redesign
 execution range.
 
-This is the high-suspicion drift baseline for the whole-repository content
-audit.
+This is historical-context data for the whole-repository content audit, not a
+trust model. All tracked files remain high-suspicion audit targets.
 
 ### `27_repository_content_audit_traversal_map.md`
 

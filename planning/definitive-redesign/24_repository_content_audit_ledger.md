@@ -17,12 +17,16 @@ It exists so that the audit never depends on:
 Every audit wave should update this ledger with the real state of progress,
 findings, remediation, and remaining work.
 
-This ledger is also where the audit must keep explicit track of one especially
-important distinction:
+This ledger is also where the audit must keep explicit track of one important
+historical distinction:
 
 - files already touched by the redesign execution program;
 - files never touched by that program and therefore still potentially carrying
   old assumptions by inertia.
+
+That distinction is informative only.
+It must never be used as a shortcut for trust.
+All tracked files are high-suspicion audit targets.
 
 ---
 
@@ -62,9 +66,9 @@ Fill this section when the audit actually starts.
 
 | Wave | Status | Notes |
 |------|--------|-------|
-| 0. Inventory freeze and traversal map | done | Baseline frozen from redesign closeout commit `9dc6cc35`: full manifest in `25_repository_content_audit_manifest.txt`, untouched manifest in `26_repository_content_audit_untouched_manifest.txt`, and concrete folder/wave mapping in `27_repository_content_audit_traversal_map.md`. Final-manifest counts at audit start: `542` tracked files, `315` redesign-touched final files, `227` untouched final files |
+| 0. Inventory freeze and traversal map | done | Baseline frozen from redesign closeout commit `9dc6cc35`: full manifest in `25_repository_content_audit_manifest.txt`, touched/untouched historical-context manifest in `26_repository_content_audit_untouched_manifest.txt`, and concrete folder/wave mapping in `27_repository_content_audit_traversal_map.md`. Final-manifest counts at audit start: `542` tracked files, `315` redesign-touched final files, `227` untouched final files. All `542` remain first-class high-suspicion audit targets |
 | 1. Deepest non-Python leaves | not started | Read and classify deepest config/support leaves such as workflows, issue templates, deployment service YAML, SQL init packages, monitoring assets, snippets, and static support files against the final desired repository shape |
-| 2. Python leaf packages | not started | Read and classify the deepest implementation packages across models, utils, NIPs, core, services, and `services/common`, paying special attention to untouched live code surfaces |
+| 2. Python leaf packages | not started | Read and classify the deepest implementation packages across models, utils, NIPs, core, services, and `services/common`; touched/untouched status is recorded only as historical context, not as a weaker or stronger audit standard |
 | 3. Tools and tests leaves | not started | Read and classify SQL templates, tooling leaves, fixtures, and the deepest unit/integration test folders against the final repository contract |
 | 4. Parent package and folder surfaces | not started | Read and classify parent `README.md`, package exports, and parent-level local guidance only after children are understood |
 | 5. Narrative docs and planning surfaces | not started | Re-read MkDocs pages, root guides, and planning/reference documents against the final repository state and identify missing/additional surfaces |
@@ -81,7 +85,7 @@ Fill this section when the audit actually starts.
 |--------------|--------|--------|-------|
 | 0.1 Freeze tracked manifest | done | `docs: bootstrap repository content audit baseline` | Baseline manifest frozen from redesign closeout commit `9dc6cc35` into `25_repository_content_audit_manifest.txt`; exact final closeout repository count is `542` tracked files |
 | 0.2 Build leaf-to-root traversal map | done | `docs: bootstrap repository content audit baseline` | Concrete wave/folder sequencing, top-level counts, and paired-surface watch points recorded in `27_repository_content_audit_traversal_map.md` |
-| 0.3 Mark untouched tracked files | done | `docs: bootstrap repository content audit baseline` | Untouched final-manifest files identified in `26_repository_content_audit_untouched_manifest.txt`; count at audit start is `227`, using intersection with the final closeout manifest rather than raw diff-path counts |
+| 0.3 Mark untouched tracked files | done | `docs: bootstrap repository content audit baseline` | Historical touched/untouched context captured via `26_repository_content_audit_untouched_manifest.txt`; untouched final-manifest count at audit start is `227`, using intersection with the final closeout manifest rather than raw diff-path counts. This classification is contextual only; it does not lower suspicion on redesign-touched files |
 | 0.4 Initialize decision ledger | done | `docs: bootstrap repository content audit baseline` | This ledger now contains the frozen baseline metadata, Wave 0 completion state, and the execution checklist for the remaining audit waves |
 
 ### Wave 1 — Deepest Non-Python Leaves
@@ -144,6 +148,7 @@ Use this section during execution for:
 - concrete residual drift findings;
 - files to remove or add;
 - contradictions against the settled contract;
+- touched files that still need real change despite prior redesign work;
 - untouched files that turn out to need real change despite never being in the
   redesign path;
 - consciously deferred items with explicit justification.

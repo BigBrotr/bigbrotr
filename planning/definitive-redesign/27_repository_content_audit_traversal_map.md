@@ -11,7 +11,7 @@ the post-redesign repository state.
   `c016ec08^..9dc6cc35`
 - Frozen full manifest:
   [25_repository_content_audit_manifest.txt](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/25_repository_content_audit_manifest.txt)
-- Frozen untouched manifest:
+- Frozen touched/untouched historical-context manifest:
   [26_repository_content_audit_untouched_manifest.txt](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/26_repository_content_audit_untouched_manifest.txt)
 
 ## Counts
@@ -43,10 +43,12 @@ Important note:
 | `.github/` | `16` | `3` | `13` |
 | repo-root and singleton support files | `24` | `9` | `15` |
 
-## High-Suspicion Drift Bands
+## Historical-Context Distribution
 
-Because untouched files are more likely to carry residual historical
-assumptions, these bands deserve special scrutiny:
+All tracked files are high-suspicion audit targets.
+
+The untouched counts below are retained only as historical context about where
+the redesign program did not actively rewrite the final repository surface:
 
 - `src/`: `63` untouched files
 - `tests/`: `62` untouched files
@@ -57,7 +59,8 @@ assumptions, these bands deserve special scrutiny:
 - `tools/`: `5` untouched files
 
 `planning/` has `0` untouched files because the redesign program already
-worked there exhaustively.
+worked there exhaustively, but that does not grant planning files any free
+pass in the content audit.
 
 ## Traversal Order
 

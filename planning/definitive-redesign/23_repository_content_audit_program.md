@@ -83,8 +83,9 @@ This program therefore assumes:
 
 - the redesign contract is mostly right;
 - the repository may still contain residual content drift;
-- untouched files are **especially likely** to contain drift because most of
-  the previous work necessarily concentrated on the critical slices;
+- all tracked files should be treated as high-suspicion audit targets until
+  they are actually read and judged against the final repository shape;
+- touched vs untouched status is useful historical context, not a trust signal;
 - only a literal content read of the tracked files can answer that honestly.
 
 ---
@@ -158,10 +159,15 @@ No file should be marked “fine” because:
 
 Every tracked file in scope must be read as content.
 
-This rule is especially important for files that were not modified by the
-redesign execution program.
-“Untouched” is not evidence of correctness.
-It is often the opposite: a reason to look harder.
+This rule applies equally to:
+
+- files already touched during redesign execution;
+- files untouched during redesign execution;
+- files created late in the redesign;
+- and long-lived repository surfaces that nobody reconsidered recently.
+
+Neither “touched” nor “untouched” is evidence of correctness.
+Both are only historical context.
 
 ### 2. Leaves first, then parents
 
@@ -407,7 +413,7 @@ Each wave closes only when:
 4. mark which files are generated companions, narrative docs, runtime config,
    code, tests, or support assets;
 5. mark which tracked files were untouched by the redesign execution program,
-   because they should be treated as high-suspicion drift candidates;
+   as historical context only, not as a higher-priority trust model;
 6. initialize the audit ledger with actual scope;
 7. write the concrete Wave 0 artifacts:
    - `25_repository_content_audit_manifest.txt`
@@ -569,7 +575,8 @@ The ledger should record:
 - wave status;
 - folder scope;
 - file decisions;
-- whether a file was previously untouched by the redesign execution program;
+- whether a file was previously touched or untouched by the redesign execution
+  program;
 - remediation commits;
 - findings and how they were closed;
 - deferred items and their justification.
@@ -622,8 +629,8 @@ The repository-wide content audit is complete only when:
 
 - every tracked file in the frozen manifest was read as content;
 - every file has an explicit keep/update/remove/add-class decision;
-- every untouched tracked file was explicitly judged against the final desired
-  repository shape rather than implicitly trusted;
+- touched and untouched tracked files were judged by the same standard against
+  the final desired repository shape;
 - all required remediation slices are implemented and committed;
 - paired surfaces have been revalidated together;
 - the repository is clean and fully green;
