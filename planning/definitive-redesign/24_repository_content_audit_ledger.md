@@ -545,3 +545,11 @@ Use this section during execution for:
   - added paired unit coverage proving that `KeyboardInterrupt` and
     `SystemExit` still propagate through the fan-in path just like the already
     covered `CancelledError`.
+- `2.1` models/utils/NIPs leaf audit, forty-sixth remediation slice:
+  - tightened `bigbrotr.utils.transport.InsecureWebSocketAdapter.close_connection()`
+    so the best-effort close path now suppresses only realistic close-time
+    failures (`aiohttp`/runtime/OS/timeout), instead of the broader
+    `Exception`;
+  - aligned the paired unit coverage to those realistic runtime failures while
+    preserving the intended guarantee that a failed WebSocket close does not
+    block session cleanup.

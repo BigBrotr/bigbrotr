@@ -241,11 +241,11 @@ class InsecureWebSocketAdapter(WebSocketAdapter):
         """Close the WebSocket and session with timeouts to prevent hanging."""
         try:
             await asyncio.wait_for(self._ws.close(), timeout=self._close_timeout)
-        except Exception as e:
+        except (aiohttp.ClientError, OSError, RuntimeError, TimeoutError) as e:
             logger.debug("ws_close_error error=%s", e)
         try:
             await asyncio.wait_for(self._session.close(), timeout=self._close_timeout)
-        except Exception as e:
+        except (aiohttp.ClientError, OSError, RuntimeError, TimeoutError) as e:
             logger.debug("session_close_error error=%s", e)
 
 

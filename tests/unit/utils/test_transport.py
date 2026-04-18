@@ -386,7 +386,7 @@ class TestInsecureWebSocketAdapterClose:
     async def test_close_handles_ws_exception(self) -> None:
         """Test handling exception during WebSocket close."""
         mock_ws = AsyncMock()
-        mock_ws.close = AsyncMock(side_effect=Exception("close failed"))
+        mock_ws.close = AsyncMock(side_effect=RuntimeError("close failed"))
         mock_session = AsyncMock()
         adapter = InsecureWebSocketAdapter(mock_ws, mock_session)
 
@@ -398,7 +398,7 @@ class TestInsecureWebSocketAdapterClose:
         """Test handling exception during session close."""
         mock_ws = AsyncMock()
         mock_session = AsyncMock()
-        mock_session.close = AsyncMock(side_effect=Exception("session close failed"))
+        mock_session.close = AsyncMock(side_effect=RuntimeError("session close failed"))
         adapter = InsecureWebSocketAdapter(mock_ws, mock_session)
 
         await adapter.close_connection()
