@@ -1677,3 +1677,13 @@ Use this section during execution for:
   - added paired `refresher` coverage proving corrupted persisted checkpoints
     resume from `0` instead of being silently reshaped into non-canonical
     watermarks during incremental target planning.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirty-fourth remediation
+  slice:
+  - tightened the shared catalog filter boundary so malformed typed public
+    filters for numeric, boolean, and temporal columns no longer rely on SQL
+    cast failures for validation, and now fail immediately at planner build
+    time with client-safe column-specific errors before any query executes;
+  - added paired `services/common` coverage proving non-string and invalid
+    typed filter values are rejected before touching the database, while the
+    catalog still converts unexpected asyncpg data errors into the same safe
+    public error contract during execution.

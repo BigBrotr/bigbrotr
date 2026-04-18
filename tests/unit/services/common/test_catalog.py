@@ -1050,13 +1050,13 @@ class TestByteaFilter:
 class TestDataErrorConversion:
     """Tests that asyncpg.DataError is converted to CatalogError."""
 
-    async def test_query_data_error_becomes_value_error(
+    async def test_query_count_data_error_becomes_value_error(
         self,
         populated_catalog: Catalog,
         catalog_brotr: Brotr,
     ) -> None:
         catalog_brotr.fetchval = AsyncMock(  # type: ignore[method-assign]
-            side_effect=asyncpg.DataError("invalid input syntax for type bigint"),
+            side_effect=asyncpg.DataError("driver-side count failure"),
         )
 
         with pytest.raises(CatalogError, match="Invalid filter value"):
@@ -1065,7 +1065,7 @@ class TestDataErrorConversion:
                 "relay",
                 limit=10,
                 offset=0,
-                filters={"stored_at": ">=:not_a_number"},
+                filters={"network": "clearnet"},
             )
 
     async def test_query_data_error_on_data_fetch(
@@ -1102,6 +1102,79 @@ class TestDataErrorConversion:
                 "relay",
                 {"url": "wss://example.com"},
             )
+
+
+# ============================================================================
+# Typed Filter Validation Tests
+# ============================================================================
+
+
+class TestTypedFilterValidation:
+    """Tests that typed public filters fail at the planner boundary."""
+
+    async def test_query_rejects_non_string_filter_value_before_execution(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+    ) -> None:
+        catalog_brotr.fetchval = AsyncMock(return_value=0)  # type: ignore[method-assign]
+        catalog_brotr.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+        with pytest.raises(CatalogError, match="Invalid filter value for column network"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay",
+                limit=10,
+                offset=0,
+                filters={"network": 123},  # type: ignore[dict-item]
+            )
+
+        catalog_brotr.fetchval.assert_not_called()  # type: ignore[attr-defined]
+        catalog_brotr.fetch.assert_not_called()  # type: ignore[attr-defined]
+
+    async def test_query_rejects_invalid_bigint_filter_before_execution(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+    ) -> None:
+        catalog_brotr.fetchval = AsyncMock(return_value=0)  # type: ignore[method-assign]
+        catalog_brotr.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+        with pytest.raises(CatalogError, match="Invalid filter value for column stored_at"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay",
+                limit=10,
+                offset=0,
+                filters={"stored_at": ">=:not_a_number"},
+            )
+
+        catalog_brotr.fetchval.assert_not_called()  # type: ignore[attr-defined]
+        catalog_brotr.fetch.assert_not_called()  # type: ignore[attr-defined]
+
+    @pytest.mark.parametrize(
+        ("column", "pg_type", "value"),
+        [
+            ("enabled", "boolean", "maybe"),
+            ("day", "timestamp with time zone", "not-a-timestamp"),
+            ("score", "numeric", "not-a-decimal"),
+            ("score", "numeric", "NaN"),
+        ],
+        ids=[
+            "boolean",
+            "timestamp",
+            "numeric",
+            "numeric_non_finite",
+        ],
+    )
+    def test_direct_filter_coercion_rejects_invalid_typed_scalars(
+        self,
+        column: str,
+        pg_type: str,
+        value: str,
+    ) -> None:
+        with pytest.raises(CatalogError, match=f"Invalid filter value for column {column}"):
+            Catalog._coerce_parameter_value(column, pg_type, value, source="filter")
 
 
 # ============================================================================

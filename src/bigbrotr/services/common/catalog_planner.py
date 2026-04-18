@@ -5,8 +5,10 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from .catalog import CatalogError
@@ -56,6 +58,11 @@ class PaginationPlan:
     use_keyset: bool
 
 
+_INTEGER_FILTER_RE = re.compile(r"^[+-]?[0-9]+$")
+_BOOLEAN_FILTER_TRUE = frozenset({"1", "t", "true", "y", "yes", "on"})
+_BOOLEAN_FILTER_FALSE = frozenset({"0", "f", "false", "n", "no", "off"})
+
+
 def build_query_context(
     schema: TableSchema,
     filters: dict[str, str] | None,
@@ -73,6 +80,8 @@ def build_query_context(
         for column, raw_value in filters.items():
             if column not in col_names:
                 raise CatalogError(f"Unknown column: {column}")
+            if not isinstance(raw_value, str):
+                raise CatalogError(f"Invalid filter value for column {column}")
             operator, value = parse_filter(raw_value)
             if operator == "ILIKE" and col_types[column] not in _TEXT_TYPES:
                 raise CatalogError(
@@ -372,6 +381,57 @@ def _validate_cursor_temporal_value(column: str, pg_type: str, value: Any) -> No
         raise CatalogError(f"Invalid cursor value for column {column}") from error
 
 
+def _validate_filter_temporal_value(column: str, pg_type: str, value: str) -> None:
+    """Validate one public filter temporal scalar against the expected PG type."""
+    normalized = value.strip()
+    if not normalized:
+        raise CatalogError(f"Invalid filter value for column {column}")
+
+    try:
+        if pg_type == "date":
+            date.fromisoformat(normalized)
+        else:
+            datetime.fromisoformat(normalized)
+    except ValueError as error:
+        raise CatalogError(f"Invalid filter value for column {column}") from error
+
+
+def _validate_filter_scalar_type(column: str, pg_type: str, value: Any) -> None:
+    """Validate one public filter scalar against the expected column type."""
+    if not isinstance(value, str):
+        raise CatalogError(f"Invalid filter value for column {column}")
+
+    if pg_type in _TEXT_TYPES:
+        return
+
+    if pg_type in _DATE_TYPES:
+        _validate_filter_temporal_value(column, pg_type, value)
+        return
+
+    normalized = value.strip()
+    if not normalized:
+        raise CatalogError(f"Invalid filter value for column {column}")
+
+    if pg_type in {"bigint", "integer", "smallint"}:
+        if _INTEGER_FILTER_RE.fullmatch(normalized) is None:
+            raise CatalogError(f"Invalid filter value for column {column}")
+        return
+
+    if pg_type == "boolean":
+        lowered = normalized.lower()
+        if lowered not in _BOOLEAN_FILTER_TRUE | _BOOLEAN_FILTER_FALSE:
+            raise CatalogError(f"Invalid filter value for column {column}")
+        return
+
+    if pg_type in _NUMERIC_TYPES:
+        try:
+            parsed = Decimal(normalized)
+        except InvalidOperation as error:
+            raise CatalogError(f"Invalid filter value for column {column}") from error
+        if not parsed.is_finite():
+            raise CatalogError(f"Invalid filter value for column {column}")
+
+
 def _validate_cursor_scalar_type(column: str, pg_type: str, value: Any) -> None:
     """Validate one decoded cursor scalar against the expected column type."""
     if pg_type in _TEXT_TYPES:
@@ -420,4 +480,6 @@ def coerce_parameter_value(
             raise CatalogError(f"Invalid {source} value for column {column}") from error
     if source == "cursor":
         _validate_cursor_scalar_type(column, pg_type, value)
+    elif source == "filter":
+        _validate_filter_scalar_type(column, pg_type, value)
     return value
