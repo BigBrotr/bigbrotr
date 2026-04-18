@@ -1667,3 +1667,13 @@ Use this section during execution for:
     sanitize malformed persisted timestamps before scheduling instead of
     surfacing generic query failures or skewing least-recently-monitored
     ordering.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirty-third remediation
+  slice:
+  - tightened the Refresher incremental checkpoint boundary so malformed
+    persisted `timestamp` payloads no longer flow through permissive
+    `int(...)` coercion and distort the refresh resume watermark, and now
+    degrade cleanly to the typed default checkpoint expected by the shared
+    `service_state` seam;
+  - added paired `refresher` coverage proving corrupted persisted checkpoints
+    resume from `0` instead of being silently reshaped into non-canonical
+    watermarks during incremental target planning.

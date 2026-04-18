@@ -8,6 +8,7 @@ in [queries.py][bigbrotr.services.refresher.queries].
 
 from __future__ import annotations
 
+import contextlib
 import time
 from typing import TYPE_CHECKING, ClassVar
 
@@ -235,7 +236,14 @@ class Refresher(BaseService[RefresherConfig]):
             ServiceStateType.CHECKPOINT,
             target.value,
         )
-        checkpoint = int(states[0].state_value["timestamp"]) if states else 0
+        checkpoint = 0
+        if states:
+            with contextlib.suppress(KeyError, TypeError, ValueError):
+                checkpoint = ServiceStateStore.decode_checkpoint(
+                    target.value,
+                    states[0].state_value,
+                    Checkpoint,
+                ).timestamp
         until = checkpoint
 
         try:

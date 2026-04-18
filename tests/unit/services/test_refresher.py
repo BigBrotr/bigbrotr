@@ -460,6 +460,48 @@ class TestRefresherRun:
 
         mock_seen.assert_awaited_once_with(mock_refresher_brotr, 0, 25)
 
+    async def test_invalid_persisted_incremental_checkpoint_defaults_to_zero(
+        self,
+        mock_refresher_brotr: Brotr,
+    ) -> None:
+        mock_refresher_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
+            return_value=[
+                ServiceState(
+                    owner=ServiceName.REFRESHER,
+                    state_type=ServiceStateType.CHECKPOINT,
+                    state_key=AnalyticsRefreshTarget.PUBKEY_KIND_STATS.value,
+                    state_value={"timestamp": True},
+                )
+            ]
+        )
+        refresher = Refresher(
+            brotr=mock_refresher_brotr,
+            config=_refresher_config(analytics=["pubkey_kind_stats"]),
+        )
+
+        with (
+            patch(
+                "bigbrotr.services.refresher.service.get_max_observed_at",
+                AsyncMock(return_value=25),
+            ),
+            patch(
+                "bigbrotr.services.refresher.service.refresh_incremental_target",
+                AsyncMock(return_value=7),
+            ) as mock_refresh,
+            patch(
+                "bigbrotr.services.refresher.service.get_event_observation_watermark",
+                AsyncMock(return_value=25),
+            ),
+        ):
+            await refresher.refresh()
+
+        mock_refresh.assert_awaited_once_with(
+            mock_refresher_brotr,
+            AnalyticsRefreshTarget.PUBKEY_KIND_STATS,
+            0,
+            25,
+        )
+
     async def test_run_incremental_cycle_targets_updates_source_checkpoints(
         self,
         mock_refresher_brotr: Brotr,
