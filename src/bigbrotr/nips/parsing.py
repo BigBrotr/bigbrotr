@@ -3,9 +3,12 @@ Declarative field parsing for NIP data models.
 
 Centralizes the type-coercion logic shared by all NIP-11 and NIP-66 data
 classes. Each model declares a [FieldSpec][bigbrotr.nips.parsing.FieldSpec]
-describing which fields should be parsed as which types;
-[parse_fields][bigbrotr.nips.parsing.parse_fields] then applies the spec
-to raw dictionaries from external sources, silently dropping invalid values.
+describing which fields should be parsed as which types.
+[parse_fields_report][bigbrotr.nips.parsing.parse_fields_report] applies that
+spec to raw dictionaries from external sources, returning both the parsed
+payload and a structured list of dropped or unknown fields. The
+[parse_fields][bigbrotr.nips.parsing.parse_fields] helper remains available as
+the convenience wrapper for callers that only want the parsed payload.
 For typed list fields, invalid elements are filtered and fully empty results
 are dropped.
 
@@ -14,13 +17,16 @@ Supported field types: ``int``, ``bool``, ``str``, ``float``,
 
 Note:
     This module is intentionally defensive: no exceptions are raised for
-    invalid data. Values that fail type checks are silently excluded from
-    the result dictionary. This design is critical for handling untrusted
-    relay responses that may contain arbitrary or malformed JSON.
+    invalid data. Invalid values are excluded from the parsed payload, but
+    the report-oriented entrypoints preserve that information as
+    [ParseIssue][bigbrotr.nips.parsing.ParseIssue] records. This design is
+    critical for handling untrusted relay responses that may contain
+    arbitrary or malformed JSON.
 
 See Also:
     [bigbrotr.nips.base.BaseData][bigbrotr.nips.base.BaseData]: Base class
-        that uses ``FieldSpec`` and ``parse_fields`` for declarative parsing.
+        that uses ``FieldSpec`` plus the parse/report helpers for
+        declarative parsing.
     [bigbrotr.nips.nip11.data][bigbrotr.nips.nip11.data]: NIP-11 data models
         that declare their own ``_FIELD_SPEC``.
     [bigbrotr.nips.nip66.data][bigbrotr.nips.nip66.data]: NIP-66 data models
@@ -162,8 +168,9 @@ class FieldSpec:
         from being accepted as integers.
 
     See Also:
-        [parse_fields][bigbrotr.nips.parsing.parse_fields]: The function that
-            applies this spec to raw data dictionaries.
+        [parse_fields_report][bigbrotr.nips.parsing.parse_fields_report]:
+            The report-oriented entrypoint that applies this spec to raw
+            data dictionaries.
     """
 
     int_fields: frozenset[str] = field(default_factory=frozenset)

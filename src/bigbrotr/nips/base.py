@@ -56,9 +56,10 @@ class BaseData(BaseModel):
 
     Subclasses declare a ``_FIELD_SPEC`` class variable (a
     [FieldSpec][bigbrotr.nips.parsing.FieldSpec]) that maps field names to
-    their expected types. The ``parse()`` class method uses this spec to
-    coerce raw data into valid constructor arguments, silently dropping
-    values that fail type checks.
+    their expected types. The ``parse_report()`` class method uses this spec
+    to coerce raw data into valid constructor arguments while recording which
+    values were dropped or ignored. ``parse()`` remains the convenience
+    wrapper for callers that only want the parsed payload.
 
     Subclasses may override ``parse()`` for custom logic (e.g., nested objects).
 
@@ -70,8 +71,8 @@ class BaseData(BaseModel):
     See Also:
         [FieldSpec][bigbrotr.nips.parsing.FieldSpec]: Declarative type
             specification consumed by ``parse()``.
-        [parse_fields][bigbrotr.nips.parsing.parse_fields]: The underlying
-            parsing engine.
+        [parse_fields_report][bigbrotr.nips.parsing.parse_fields_report]:
+            The underlying report-oriented parsing engine.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -82,8 +83,10 @@ class BaseData(BaseModel):
     def parse(cls, data: Any) -> dict[str, Any]:
         """Parse arbitrary data into validated constructor arguments.
 
-        Invalid or unrecognized values are silently dropped rather than
-        raising errors, making this safe for untrusted relay responses.
+        Invalid or unrecognized values are omitted from the returned payload
+        rather than raising errors, making this safe for untrusted relay
+        responses. Callers that need visibility into dropped fields should
+        use ``parse_report()`` instead.
 
         Args:
             data: Raw dictionary from an external source.

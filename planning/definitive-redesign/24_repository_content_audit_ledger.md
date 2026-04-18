@@ -622,3 +622,12 @@ Use this section during execution for:
   - the model contract now talks plainly about built-in enum values and
     vocabularies, which matches the final repository language without
     pretending those tokens form a separate schema browser or catalog layer.
+- `2.1` models/utils/NIPs leaf audit, fifty-fifth remediation slice:
+  - realigned the shared NIP parsing boundary so `bigbrotr.nips.base` and
+    `bigbrotr.nips.parsing` now describe the actual final contract:
+    report-oriented parsing via `ParseReport`/`ParseIssue`, with `parse()`
+    kept as the convenience wrapper that returns only the parsed payload;
+  - added paired base-layer coverage proving `BaseData.parse_report()`
+    preserves the parsed subset while recording invalid and unknown fields,
+    so future refactors cannot regress back to the older “silent drop only”
+    mental model.

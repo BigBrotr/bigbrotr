@@ -143,6 +143,14 @@ class TestBaseDataSubclass:
         result = data_subclass.parse(data)
         assert result == {"count": 10}
 
+    def test_parse_report_collects_unknown_and_invalid_fields(self, data_subclass):
+        """parse_report() keeps the parsed payload and records what was dropped."""
+        report = data_subclass.parse_report({"count": 10, "limit": "bad", "extra": "value"})
+
+        assert report.parsed == {"count": 10}
+        assert [issue.kind for issue in report.issues] == ["invalid_value", "unknown_field"]
+        assert [issue.path for issue in report.issues] == ["limit", "extra"]
+
     def test_log_parse_issues_emits_warning(self, data_subclass, caplog):
         """log_parse_issues() emits a single warning for dropped fields."""
         report = data_subclass.parse_report({"count": "bad", "unknown_field": "value"})
