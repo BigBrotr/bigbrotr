@@ -18,7 +18,8 @@ Note:
     [connect_relay][bigbrotr.utils.protocol.connect_relay]: clearnet relays
     try verified SSL first, then fall back to ``CERT_NONE`` if
     ``allow_insecure=True``. Overlay networks always use an insecure SSL
-    context because the overlay provides its own encryption layer.
+    context because the overlay transport already provides its own
+    privacy/security layer.
 
 See Also:
     [bigbrotr.nips.nip11.nip11.Nip11][bigbrotr.nips.nip11.nip11.Nip11]:

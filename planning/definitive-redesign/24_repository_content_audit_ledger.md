@@ -445,3 +445,10 @@ Use this section during execution for:
     `test_net.py` coverage already enforce;
   - kept this slice documentation-only because the implementation and tests
     were already aligned with the final repository behavior.
+- `2.1` models/utils/NIPs leaf audit, thirty-third remediation slice:
+  - corrected the remaining module-level note in
+    `bigbrotr.nips.nip11.info`, which still lagged behind the already-fixed
+    fetch-path wording and talked about overlay relays as if they simply
+    "provided encryption";
+  - kept this slice documentation-only because the runtime behavior and the
+    previously-audited fetch contract were already correct.
