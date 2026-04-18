@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import ssl
 from datetime import timedelta
 from typing import TYPE_CHECKING, NamedTuple
+
+from nostr_sdk import NostrSdkError
 
 from bigbrotr.models.constants import NetworkType
 
@@ -59,22 +62,31 @@ async def _connect_overlay_relay(
     context: RelayConnectContext,
     options: RelayConnectOptions,
 ) -> Client:
-    """Connect one overlay relay through a configured proxy."""
+    """Connect one overlay relay through a configured proxy.
+
+    If the client fails after construction but before a connected relay handle
+    is confirmed, the partially initialized client is released best-effort
+    before the original connection error is re-raised.
+    """
     proxy_url = options.proxy_url
     if proxy_url is None:
         raise ValueError(f"proxy_url required for {relay.network.display_name} relay: {relay.url}")
 
     client = await context.create_client(options.keys, proxy_url)
-    await client.add_relay(relay_url)
-    await client.connect()
-    await client.wait_for_connection(timedelta(seconds=options.timeout))
+    try:
+        await client.add_relay(relay_url)
+        await client.connect()
+        await client.wait_for_connection(timedelta(seconds=options.timeout))
 
-    relay_obj = await client.relay(relay_url)
-    if not relay_obj.is_connected():
-        await context.shutdown_client(client)
-        raise TimeoutError(f"Connection timeout: {relay.url}")
+        relay_obj = await client.relay(relay_url)
+        if not relay_obj.is_connected():
+            raise TimeoutError(f"Connection timeout: {relay.url}")
 
-    return client
+        return client
+    except Exception:
+        with contextlib.suppress(OSError, RuntimeError, TimeoutError, NostrSdkError):
+            await context.shutdown_client(client)
+        raise
 
 
 async def connect_relay(

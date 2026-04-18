@@ -65,6 +65,63 @@ class TestProtocolConnections:
         client.connect.assert_awaited_once()
         client.wait_for_connection.assert_awaited_once()
 
+    async def test_overlay_connect_failure_shuts_down_partial_client(self) -> None:
+        relay = Relay(f"ws://{'a' * 56}.onion")
+        relay_url = MagicMock()
+        client = AsyncMock()
+        client.connect.side_effect = OSError("proxy connect failed")
+        shutdown_client = AsyncMock()
+        context = _context(
+            create_client=AsyncMock(return_value=client),
+            shutdown_client=shutdown_client,
+            parse_relay_url=MagicMock(return_value=relay_url),
+        )
+
+        with pytest.raises(OSError, match="proxy connect failed"):
+            await connect_relay(
+                relay,
+                context,
+                RelayConnectOptions(
+                    keys=None,
+                    proxy_url="socks5://127.0.0.1:9050",
+                    timeout=12.0,
+                    allow_insecure=False,
+                ),
+            )
+
+        client.add_relay.assert_awaited_once_with(relay_url)
+        client.connect.assert_awaited_once()
+        shutdown_client.assert_awaited_once_with(client)
+
+    async def test_overlay_wait_timeout_shuts_down_partial_client(self) -> None:
+        relay = Relay(f"ws://{'a' * 56}.onion")
+        relay_url = MagicMock()
+        client = AsyncMock()
+        client.wait_for_connection.side_effect = TimeoutError("handshake timed out")
+        shutdown_client = AsyncMock()
+        context = _context(
+            create_client=AsyncMock(return_value=client),
+            shutdown_client=shutdown_client,
+            parse_relay_url=MagicMock(return_value=relay_url),
+        )
+
+        with pytest.raises(TimeoutError, match="handshake timed out"):
+            await connect_relay(
+                relay,
+                context,
+                RelayConnectOptions(
+                    keys=None,
+                    proxy_url="socks5://127.0.0.1:9050",
+                    timeout=12.0,
+                    allow_insecure=False,
+                ),
+            )
+
+        client.add_relay.assert_awaited_once_with(relay_url)
+        client.connect.assert_awaited_once()
+        client.wait_for_connection.assert_awaited_once()
+        shutdown_client.assert_awaited_once_with(client)
+
     async def test_ssl_failure_falls_back_to_insecure_client(self) -> None:
         relay = Relay("wss://relay.example.com")
         relay_url = MagicMock()

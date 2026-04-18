@@ -674,3 +674,12 @@ Use this section during execution for:
     are still cleared even when the injected shutdown helper raises expected
     SDK teardown errors, while keeping truly unexpected exceptions outside the
     suppression set.
+- `2.1` models/utils/NIPs leaf audit, sixty-first remediation slice:
+  - hardened the overlay connection path in
+    `bigbrotr.utils.protocol_connections` so a client created for Tor/I2P/
+    Lokinet relays is now released best-effort if `add_relay()`, `connect()`,
+    `wait_for_connection()`, or relay-handle validation fails before the
+    connection is confirmed;
+  - added paired unit coverage proving that mid-handshake overlay failures now
+    call the injected shutdown helper and still re-raise the original
+    connection error instead of leaking a partially initialized client.
