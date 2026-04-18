@@ -508,3 +508,10 @@ Use this section during execution for:
     clients, and failure maps preserve per-relay error state;
   - kept this slice documentation-only because the runtime semantics were
     already pinned by the existing publish/session test coverage.
+- `2.1` models/utils/NIPs leaf audit, forty-first remediation slice:
+  - corrected the `bigbrotr.utils` package boundary narrative so it no longer
+    claims overlay relay flows always force the custom insecure transport;
+    that was conflating the protocol facade's proxy-based WebSocket path with
+    separate HTTP fetchers that make their own TLS-context decisions;
+  - kept this slice documentation-only because the runtime distinction was
+    already covered by existing overlay/proxy test surfaces.

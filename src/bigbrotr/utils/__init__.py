@@ -22,8 +22,10 @@ Attributes:
     streaming: Bounded event-stream traversal helpers used by archive flows.
     transport: WebSocket transport primitives with SSL fallback strategy.
         Clearnet tries verified SSL first, falls back to insecure if cert errors
-        and ``allow_insecure=True``. Overlay networks (Tor/I2P/Lokinet) require
-        ``proxy_url`` and always use insecure SSL context.
+        and ``allow_insecure=True``. Overlay networks (Tor/I2P/Lokinet) still
+        require ``proxy_url``, but their TLS policy depends on the higher-level
+        helper using these transport primitives rather than always forcing the
+        custom insecure transport.
 
 Note:
     The utils layer has **zero** imports from ``bigbrotr.core`` or
