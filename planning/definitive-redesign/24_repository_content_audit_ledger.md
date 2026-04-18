@@ -537,3 +537,11 @@ Use this section during execution for:
     overlay flows are proxy-aware, while any relaxed TLS decision belongs to
     the specific helper surface (`nip11.info`, `nip66.http`, etc.), not to the
     package summary itself.
+- `2.1` models/utils/NIPs leaf audit, forty-fifth remediation slice:
+  - tightened `bigbrotr.nips.nip66.Nip66.probe()` so the post-`gather()`
+    isolation boundary now swallows only ordinary `Exception` results after
+    re-raising cancellation and shutdown signals, instead of the broader
+    `BaseException`;
+  - added paired unit coverage proving that `KeyboardInterrupt` and
+    `SystemExit` still propagate through the fan-in path just like the already
+    covered `CancelledError`.

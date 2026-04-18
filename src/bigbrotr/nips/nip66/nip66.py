@@ -341,7 +341,7 @@ class Nip66(BaseNip):
         for name, result in zip(task_names, results, strict=True):
             if isinstance(result, (asyncio.CancelledError, KeyboardInterrupt, SystemExit)):
                 raise result
-            if isinstance(result, BaseException):
+            if isinstance(result, Exception):
                 logger.error("probe_task_failed test=%s error=%r", name, result)
                 field_map[name] = None
             else:

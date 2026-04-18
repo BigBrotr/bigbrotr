@@ -617,6 +617,33 @@ class TestNip66Probe:
         ):
             await Nip66.probe(relay, selection=selection, deps=deps)
 
+    @pytest.mark.parametrize("signal", [KeyboardInterrupt, SystemExit])
+    async def test_system_exit_style_signals_propagate(
+        self,
+        relay: Relay,
+        mock_keys: MagicMock,
+        mock_event_builder: MagicMock,
+        mock_read_filter: MagicMock,
+        signal: type[BaseException],
+    ) -> None:
+        deps = Nip66Dependencies(
+            keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
+        )
+        selection = Nip66Selection(rtt=False, ssl=False, geo=False, net=False, http=False)
+
+        async def fake_gather(*tasks, **kwargs):
+            assert kwargs == {"return_exceptions": True}
+            for task in tasks:
+                task.close()
+            return [signal()]
+
+        with (
+            patch.object(Nip66DnsMetadata, "probe", new_callable=AsyncMock, return_value=None),
+            patch("bigbrotr.nips.nip66.nip66.asyncio.gather", side_effect=fake_gather),
+            pytest.raises(signal),
+        ):
+            await Nip66.probe(relay, selection=selection, deps=deps)
+
 
 class TestRelayNip66DocumentTuple:
     """Test RelayNip66DocumentTuple named tuple."""
