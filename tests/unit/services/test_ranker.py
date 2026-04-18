@@ -209,6 +209,30 @@ class TestRankerQueries:
         ]
 
     @pytest.mark.asyncio
+    async def test_fetch_identifier_stats_normalizes_k_tags(self) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetch = AsyncMock(
+            return_value=[
+                {
+                    "identifier": "isbn:9780140328721",
+                    "comment_count": 3,
+                    "reaction_count": 4,
+                    "k_tags": ["isbn", "book", "isbn"],
+                }
+            ]
+        )
+
+        assert await fetch_identifier_stats(brotr, "", 10) == [
+            IdentifierStatFact("isbn:9780140328721", 3, 4, ("book", "isbn"))
+        ]
+
+    def test_identifier_stat_fact_normalizes_k_tags(self) -> None:
+        assert IdentifierStatFact("isbn:9780140328721", 3, 4, ("isbn", "book", "isbn")).k_tags == (
+            "book",
+            "isbn",
+        )
+
+    @pytest.mark.asyncio
     async def test_get_contact_list_source_watermark(self) -> None:
         brotr = MagicMock(spec=Brotr)
         brotr.fetchval = AsyncMock(return_value=1234)

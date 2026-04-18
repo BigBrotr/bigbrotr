@@ -875,3 +875,10 @@ Use this section during execution for:
   - added paired unit coverage proving direct construction accepts 24-slot
     list input but rejects malformed heatmaps from both constructor and DB-row
     paths.
+- `2.1` models/utils/NIPs leaf audit, eighty-seventh remediation slice:
+  - tightened `bigbrotr.services.ranker.queries.IdentifierStatFact` so
+    internal identifier fact rows normalize ``k_tags`` as a deduplicated
+    lexical set instead of trusting raw PostgreSQL array order;
+  - added paired service-layer coverage proving both direct fact
+    construction and ``fetch_identifier_stats()`` now emit canonical
+    ``k_tags`` when the source row is repeated or unsorted.

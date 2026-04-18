@@ -12,6 +12,11 @@ if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
 
 
+def _normalize_k_tags(value: tuple[str, ...]) -> tuple[str, ...]:
+    """Return a stable deduplicated lexical ordering for identifier ``k`` tags."""
+    return tuple(sorted(set(value)))
+
+
 @dataclass(frozen=True, slots=True)
 class GraphSyncCheckpoint:
     """Lexicographic checkpoint for canonical follow-graph sync."""
@@ -78,6 +83,9 @@ class IdentifierStatFact:
     comment_count: int
     reaction_count: int
     k_tags: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "k_tags", _normalize_k_tags(self.k_tags))
 
 
 @dataclass(frozen=True, slots=True)
