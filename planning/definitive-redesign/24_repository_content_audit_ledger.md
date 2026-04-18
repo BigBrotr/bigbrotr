@@ -406,6 +406,16 @@ Use this section during execution for:
     wrong-length payload instead of being silently rewritten to all-zeroes;
   - paired coverage now pins the distinction between the missing-field default
     path and the explicit-empty-list invalid-data path.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twenty-fourth remediation
+  slice:
+  - `IdentifierAssertion` no longer accepts scalar strings on the public
+    `k_tags` boundary, so `"isbn"` is no longer normalized accidentally into
+    character tags `("b", "i", "n", "s")`;
+  - `IdentifierAssertion.from_db_row()` now preserves the same fail-fast rule
+    instead of masking malformed stored `k_tags` values through permissive
+    iteration/defaulting logic;
+  - paired coverage now pins both surfaces: direct construction and row
+    hydration both reject scalar-string `k_tags` inputs explicitly.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

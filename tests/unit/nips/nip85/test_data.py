@@ -312,6 +312,19 @@ class TestIdentifierAssertionProperties:
 
         assert a.k_tags == ("book", "isbn")
 
+    def test_constructor_rejects_scalar_string_k_tags(self) -> None:
+        with pytest.raises(TypeError, match="k_tags must be a sequence of tag strings"):
+            IdentifierAssertion(identifier="isbn:9780140328721", k_tags="isbn")  # type: ignore[arg-type]
+
+    def test_from_db_row_rejects_scalar_string_k_tags(self) -> None:
+        row = {
+            "identifier": "isbn:9780140328721",
+            "k_tags": "isbn",
+        }
+
+        with pytest.raises(TypeError, match="k_tags must be a sequence of tag strings"):
+            IdentifierAssertion.from_db_row(row)
+
 
 @pytest.mark.parametrize(
     ("factory", "row"),

@@ -32,7 +32,18 @@ def _topic_count_sort_key(item: tuple[str, Any]) -> tuple[int, str]:
 
 def _normalize_tag_set(value: tuple[str, ...]) -> tuple[str, ...]:
     """Return a stable deduplicated lexical ordering for set-like tag tuples."""
+    if isinstance(value, (str, bytes)):
+        raise TypeError("k_tags must be a sequence of tag strings, not a scalar string")
     return tuple(sorted(set(value)))
+
+
+def _coerce_tag_sequence(value: Any) -> tuple[str, ...]:
+    """Return a tuple of tag strings, preserving ``None`` as an empty sequence."""
+    if value is None:
+        return ()
+    if isinstance(value, (str, bytes)):
+        raise TypeError("k_tags must be a sequence of tag strings, not a scalar string")
+    return tuple(str(tag) for tag in value)
 
 
 def _normalize_activity_hours(value: tuple[int, ...]) -> tuple[int, ...]:
@@ -330,13 +341,12 @@ class IdentifierAssertion:
     @classmethod
     def from_db_row(cls, row: dict[str, Any]) -> IdentifierAssertion:
         """Construct from a joined nip85_identifier_stats + score row."""
-        raw_k_tags = row.get("k_tags") or []
         return cls(
             identifier=row["identifier"],
             score=int(row.get("score", 0)),
             comment_count=int(row.get("comment_count", 0)),
             reaction_count=int(row.get("reaction_count", 0)),
-            k_tags=tuple(str(tag) for tag in raw_k_tags),
+            k_tags=_coerce_tag_sequence(row.get("k_tags")),
         )
 
 
