@@ -6,8 +6,8 @@ cryptographic utilities used by [bigbrotr.nips][bigbrotr.nips] and
 [bigbrotr.services][bigbrotr.services].
 
 Attributes:
-    dns: Async DNS resolution of A, AAAA, and CNAME records via the system
-        resolver. Used by NIP-66 DNS tests.
+    dns: Async A/AAAA hostname resolution via the system resolver. Used by
+        NIP-66 geo/net flows and other low-level IP-discovery helpers.
     http: Bounded HTTP read/download helpers used by NIP fetchers and support
         tooling.
     keys: Low-level Nostr key loading from environment variables (nsec1 bech32

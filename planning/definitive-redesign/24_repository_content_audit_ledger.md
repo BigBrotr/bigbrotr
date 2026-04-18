@@ -452,3 +452,11 @@ Use this section during execution for:
     "provided encryption";
   - kept this slice documentation-only because the runtime behavior and the
     previously-audited fetch contract were already correct.
+- `2.1` models/utils/NIPs leaf audit, thirty-fourth remediation slice:
+  - corrected the `bigbrotr.utils` package surface, which still described
+    `utils.dns` as if it performed CNAME-aware DNS collection for NIP-66 DNS
+    tests; the live leaf contract is narrower and cleaner: `utils.dns`
+    provides only system-resolver A/AAAA hostname resolution, while the full
+    DNS record collector lives in `bigbrotr.nips.nip66.dns`;
+  - deferred the matching narrative drift in `docs/user-guide/architecture.md`
+    to the later narrative-docs wave instead of broadening this leaf slice.
