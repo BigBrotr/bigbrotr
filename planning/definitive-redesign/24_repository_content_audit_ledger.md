@@ -426,6 +426,17 @@ Use this section during execution for:
     visible instead of silently treating it as “no topics”;
   - paired coverage now pins the distinction between `topic_counts=None` as the
     empty default path and non-mapping payloads as explicit invalid input.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twenty-sixth remediation
+  slice:
+  - `EventAssertion` and `AddressableAssertion` now reject non-string
+    `author_pubkey` values at the frozen dataclass boundary instead of letting
+    `None` survive until `tags_hash()` crashes later;
+  - the same fail-fast rule now holds on row hydration, so malformed stored
+    `author_pubkey` values are surfaced immediately instead of becoming latent
+    runtime failures in builder or hashing paths;
+  - paired coverage now pins both surfaces for both assertion families:
+    direct construction and `from_db_row()` reject non-string
+    `author_pubkey` explicitly.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

@@ -225,6 +225,10 @@ class TestEventAssertionProperties:
         a = EventAssertion(event_id="ee" * 32, zap_amount_msats=42000)
         assert a.zap_amount_sats == 42
 
+    def test_constructor_rejects_non_string_author_pubkey(self) -> None:
+        with pytest.raises(TypeError, match="author_pubkey must be a string"):
+            EventAssertion(event_id="ee" * 32, author_pubkey=None)  # type: ignore[arg-type]
+
     def test_tags_hash_stability(self) -> None:
         a = EventAssertion(event_id="ee" * 32, comment_count=5, reaction_count=10)
         h1 = a.tags_hash()
@@ -255,6 +259,14 @@ class TestEventAssertionFromDbRow:
         assert a.zap_amount_msats == 100000
         assert a.zap_amount_sats == 100
 
+    def test_from_db_row_rejects_non_string_author_pubkey(self) -> None:
+        row = {
+            "event_id": "ff" * 32,
+            "author_pubkey": None,
+        }
+        with pytest.raises(TypeError, match="author_pubkey must be a string"):
+            EventAssertion.from_db_row(row)
+
 
 class TestAddressableAssertionProperties:
     def test_from_db_row_and_zap_amount_sats(self) -> None:
@@ -277,6 +289,13 @@ class TestAddressableAssertionProperties:
         assert a.score == 84
         assert a.zap_amount_sats == 100
 
+    def test_constructor_rejects_non_string_author_pubkey(self) -> None:
+        with pytest.raises(TypeError, match="author_pubkey must be a string"):
+            AddressableAssertion(
+                event_address="30023:" + ("aa" * 32) + ":article",
+                author_pubkey=None,  # type: ignore[arg-type]
+            )
+
     def test_tags_hash_tracks_author_pubkey(self) -> None:
         a1 = AddressableAssertion(
             event_address="30023:" + ("aa" * 32) + ":article",
@@ -287,6 +306,14 @@ class TestAddressableAssertionProperties:
             author_pubkey="cc" * 32,
         )
         assert a1.tags_hash() != a2.tags_hash()
+
+    def test_from_db_row_rejects_non_string_author_pubkey(self) -> None:
+        row = {
+            "event_address": "30023:" + ("aa" * 32) + ":article",
+            "author_pubkey": None,
+        }
+        with pytest.raises(TypeError, match="author_pubkey must be a string"):
+            AddressableAssertion.from_db_row(row)
 
 
 class TestIdentifierAssertionProperties:

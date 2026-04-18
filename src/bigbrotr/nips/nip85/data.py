@@ -55,6 +55,13 @@ def _coerce_tag_sequence(value: Any) -> tuple[str, ...]:
     return tuple(str(tag) for tag in value)
 
 
+def _require_text(value: Any, field_name: str) -> str:
+    """Return ``value`` when it is a string, otherwise raise a typed boundary error."""
+    if not isinstance(value, str):
+        raise TypeError(f"{field_name} must be a string")
+    return value
+
+
 def _normalize_activity_hours(value: tuple[int, ...]) -> tuple[int, ...]:
     """Validate and normalize the 24-slot UTC activity heatmap."""
     normalized = tuple(int(hour) for hour in value)
@@ -242,6 +249,13 @@ class EventAssertion:
     zap_count: int = 0
     zap_amount_msats: int = 0
 
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "author_pubkey",
+            _require_text(self.author_pubkey, "author_pubkey"),
+        )
+
     @property
     def zap_amount_sats(self) -> int:
         return self.zap_amount_msats // _MSATS_PER_SAT
@@ -289,6 +303,13 @@ class AddressableAssertion:
     reaction_count: int = 0
     zap_count: int = 0
     zap_amount_msats: int = 0
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "author_pubkey",
+            _require_text(self.author_pubkey, "author_pubkey"),
+        )
 
     @property
     def zap_amount_sats(self) -> int:
