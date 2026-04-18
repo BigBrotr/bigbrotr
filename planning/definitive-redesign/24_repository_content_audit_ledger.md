@@ -447,6 +447,16 @@ Use this section during execution for:
     missing-field default of `5`;
   - paired coverage now pins both invalid paths explicitly, so bad stored
     limits surface at hydration time instead of silently altering output shape.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twenty-eighth remediation
+  slice:
+  - `TrustedProviderDeclaration` now validates its typed boundary eagerly, so
+    malformed provider declarations no longer survive with values like
+    `tag_name=None`, `service_pubkey=None`, or `relay_hint=None` until the
+    NIP-85 event builders emit invalid tag vectors;
+  - `result_kind` is now required to be a real non-negative integer as well,
+    instead of quietly accepting stringly-typed input;
+  - paired coverage now pins these declaration-boundary failures directly on
+    the dataclass constructor.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

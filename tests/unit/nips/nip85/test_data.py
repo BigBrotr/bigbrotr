@@ -420,6 +420,51 @@ class TestTrustedProviderDeclaration:
             "wss://nip85.nostr.band",
         ]
 
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            (
+                {
+                    "result_kind": "30382",
+                    "tag_name": "rank",
+                    "service_pubkey": "4f" * 32,
+                    "relay_hint": "wss://nip85.nostr.band",
+                },
+                "result_kind must be a non-negative integer",
+            ),
+            (
+                {
+                    "result_kind": 30382,
+                    "tag_name": None,
+                    "service_pubkey": "4f" * 32,
+                    "relay_hint": "wss://nip85.nostr.band",
+                },
+                "tag_name must be a string",
+            ),
+            (
+                {
+                    "result_kind": 30382,
+                    "tag_name": "rank",
+                    "service_pubkey": None,
+                    "relay_hint": "wss://nip85.nostr.band",
+                },
+                "service_pubkey must be a string",
+            ),
+            (
+                {
+                    "result_kind": 30382,
+                    "tag_name": "rank",
+                    "service_pubkey": "4f" * 32,
+                    "relay_hint": None,
+                },
+                "relay_hint must be a string",
+            ),
+        ],
+    )
+    def test_rejects_invalid_field_types(self, kwargs: dict[str, object], message: str) -> None:
+        with pytest.raises(TypeError, match=message):
+            TrustedProviderDeclaration(**kwargs)  # type: ignore[arg-type]
+
 
 class TestHeatmapHelpers:
     def test_empty_heatmap(self) -> None:
