@@ -56,8 +56,8 @@ class TestNip66HttpMetadataHttpAsync:
 class TestNip66HttpMetadataHttp:
     """Test Nip66HttpMetadata.probe() async class method."""
 
-    async def test_clearnet_returns_http_metadata(self, relay: Relay) -> None:
-        """Returns Nip66HttpMetadata for clearnet relay."""
+    async def test_clearnet_returns_http_result_container(self, relay: Relay) -> None:
+        """Returns the HTTP result container for a clearnet relay."""
         http_result = {
             "http_server": "nginx/1.24.0",
             "http_powered_by": "Strfry",

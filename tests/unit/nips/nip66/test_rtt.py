@@ -390,7 +390,7 @@ class TestNip66RttMetadataCleanup:
 class TestNip66RttMetadataRtt:
     """Test Nip66RttMetadata.probe() main entry point."""
 
-    async def test_clearnet_returns_rtt_metadata(
+    async def test_clearnet_returns_rtt_result_container(
         self,
         relay: Relay,
         mock_keys: MagicMock,
@@ -398,7 +398,7 @@ class TestNip66RttMetadataRtt:
         mock_read_filter: MagicMock,
         mock_nostr_client: MagicMock,
     ) -> None:
-        """Returns Nip66RttMetadata for clearnet relay."""
+        """Returns the RTT result container for a clearnet relay."""
         deps = Nip66RttDependencies(
             keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
         )

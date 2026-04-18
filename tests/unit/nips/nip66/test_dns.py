@@ -304,8 +304,8 @@ class TestNip66DnsMetadataDnsSync:
 class TestNip66DnsMetadataDnsAsync:
     """Test Nip66DnsMetadata.probe() async class method."""
 
-    async def test_clearnet_returns_dns_metadata(self, relay: Relay) -> None:
-        """Returns Nip66DnsMetadata for clearnet relay."""
+    async def test_clearnet_returns_dns_result_container(self, relay: Relay) -> None:
+        """Returns the DNS result container for a clearnet relay."""
         dns_result = {
             "dns_ips": ["8.8.8.8"],
             "dns_ttl": 300,

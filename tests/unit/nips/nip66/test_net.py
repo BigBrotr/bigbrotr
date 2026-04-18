@@ -221,12 +221,12 @@ class TestNip66NetMetadataNetSync:
 class TestNip66NetMetadataNetAsync:
     """Test Nip66NetMetadata.probe() async class method."""
 
-    async def test_clearnet_returns_net_metadata(
+    async def test_clearnet_returns_net_result_container(
         self,
         relay: Relay,
         mock_asn_reader: MagicMock,
     ) -> None:
-        """Returns Nip66NetMetadata for clearnet relay."""
+        """Returns the net result container for a clearnet relay."""
         net_result = {
             "net_ip": "8.8.8.8",
             "net_asn": 15169,

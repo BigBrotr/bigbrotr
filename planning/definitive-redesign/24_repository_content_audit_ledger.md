@@ -227,3 +227,7 @@ Use this section during execution for:
     paired tests, keeping the historical `Nip11InfoMetadata` class name for
     compatibility while describing it honestly as a result container whose
     persisted shape is a stored `document` plus `relay_document` association.
+- `2.1` models/utils/NIPs leaf audit, fifth remediation slice:
+  - cleaned up the remaining single-probe `nip66` test names and docstrings
+    that still implied `metadata` was the canonical output shape, so the leaf
+    test surface now talks consistently about result containers.

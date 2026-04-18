@@ -388,12 +388,12 @@ class TestNip66GeoMetadataGeoSync:
 class TestNip66GeoMetadataGeoAsync:
     """Test Nip66GeoMetadata.probe() async class method."""
 
-    async def test_clearnet_with_reader_returns_geo_metadata(
+    async def test_clearnet_with_reader_returns_geo_result_container(
         self,
         relay: Relay,
         mock_geoip_response: MagicMock,
     ) -> None:
-        """Returns Nip66GeoMetadata for clearnet relay with city reader."""
+        """Returns the geo result container for a clearnet relay with a city reader."""
         mock_city_reader = MagicMock()
 
         mock_resolved = MagicMock()

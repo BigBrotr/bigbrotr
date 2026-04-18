@@ -158,8 +158,8 @@ class TestNip66SslMetadataSslSync:
 class TestNip66SslMetadataSslAsync:
     """Test Nip66SslMetadata.probe() async class method."""
 
-    async def test_clearnet_wss_returns_ssl_metadata(self, relay: Relay) -> None:
-        """Returns Nip66SslMetadata for clearnet wss:// relay."""
+    async def test_clearnet_wss_returns_ssl_result_container(self, relay: Relay) -> None:
+        """Returns the SSL result container for a clearnet wss:// relay."""
         ssl_result = {
             "ssl_valid": True,
             "ssl_issuer": "Test CA",
@@ -174,8 +174,8 @@ class TestNip66SslMetadataSslAsync:
         assert result.data.ssl_protocol == "TLSv1.3"
         assert result.logs.success is True
 
-    async def test_ssl_failure_returns_metadata_with_failure(self, relay: Relay) -> None:
-        """SSL check failure returns Nip66SslMetadata with success=False."""
+    async def test_ssl_failure_returns_result_container_with_failure(self, relay: Relay) -> None:
+        """SSL check failure returns a result container with success=False."""
         with patch.object(Nip66SslMetadata, "_ssl", return_value={}):
             result = await Nip66SslMetadata.probe(relay, 10.0)
 
