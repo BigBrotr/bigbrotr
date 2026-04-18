@@ -1708,3 +1708,13 @@ Use this section during execution for:
   - added paired `services/common` coverage proving the helper now deduplicates
     repeated new relays deterministically even when the database returns the
     allowed URL set in a different order than the caller-provided batch.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirty-seventh remediation
+  slice:
+  - tightened the shared catalog keyset boundary so tampered `numeric` cursor
+    payloads with non-finite values like `NaN` or `Infinity` no longer pass
+    type checks merely because they are Python floats, and now fail
+    immediately as invalid cursor values before query execution;
+  - added paired `services/common` coverage proving both direct cursor
+    coercion and full query planning reject non-finite numeric cursor values
+    at the shared typed boundary instead of deferring them to runtime or
+    database behavior.

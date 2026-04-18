@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import math
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -504,10 +505,11 @@ def _validate_cursor_scalar_type(column: str, pg_type: str, value: Any) -> None:
             raise CatalogError(f"Invalid cursor value for column {column}")
         return
 
-    if pg_type in _NUMERIC_TYPES and (
-        isinstance(value, bool) or not isinstance(value, int | float)
-    ):
-        raise CatalogError(f"Invalid cursor value for column {column}")
+    if pg_type in _NUMERIC_TYPES:
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise CatalogError(f"Invalid cursor value for column {column}")
+        if isinstance(value, float) and not math.isfinite(value):
+            raise CatalogError(f"Invalid cursor value for column {column}")
 
 
 def coerce_parameter_value(

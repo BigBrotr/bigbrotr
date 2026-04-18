@@ -751,6 +751,62 @@ class TestCatalogQuery:
 
         catalog_brotr.fetch.assert_not_called()  # type: ignore[attr-defined]
 
+    @pytest.mark.parametrize(
+        "value",
+        [
+            float("nan"),
+            float("inf"),
+        ],
+        ids=[
+            "numeric_nan",
+            "numeric_infinity",
+        ],
+    )
+    async def test_query_rejects_cursor_with_non_finite_numeric_value(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+        value: float,
+    ) -> None:
+        populated_catalog._tables["relay_scores"] = TableSchema(
+            name="relay_scores",
+            columns=(
+                ColumnSchema(name="score", pg_type="numeric", nullable=False),
+                ColumnSchema(name="url", pg_type="text", nullable=False),
+            ),
+            primary_key=("score",),
+            is_view=True,
+        )
+        catalog_brotr.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        cursor = (
+            base64.urlsafe_b64encode(
+                json.dumps(
+                    {
+                        "v": 1,
+                        "sort": "",
+                        "values": {"score": value},
+                    },
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode()
+            )
+            .decode()
+            .rstrip("=")
+        )
+
+        with pytest.raises(CatalogError, match="Invalid cursor value for column score"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay_scores",
+                limit=10,
+                offset=0,
+                cursor=cursor,
+                prefer_keyset=True,
+                include_total=False,
+            )
+
+        catalog_brotr.fetch.assert_not_called()  # type: ignore[attr-defined]
+
     async def test_query_skips_total_when_not_requested(
         self, populated_catalog: Catalog, catalog_brotr: Brotr
     ) -> None:
@@ -1232,6 +1288,32 @@ class TestTypedParameterValidation:
     ) -> None:
         with pytest.raises(CatalogError, match=f"Invalid parameter value for column {column}"):
             Catalog._coerce_parameter_value(column, pg_type, value, source="parameter")
+
+
+class TestTypedCursorValidation:
+    """Tests that typed cursor values fail at the shared keyset boundary."""
+
+    @pytest.mark.parametrize(
+        ("column", "pg_type", "value"),
+        [
+            ("kind", "integer", True),
+            ("enabled", "boolean", "true"),
+            ("score", "numeric", float("nan")),
+        ],
+        ids=[
+            "integer_bool_alias",
+            "boolean_string_alias",
+            "numeric_non_finite",
+        ],
+    )
+    def test_direct_cursor_coercion_rejects_invalid_typed_scalars(
+        self,
+        column: str,
+        pg_type: str,
+        value: object,
+    ) -> None:
+        with pytest.raises(CatalogError, match=f"Invalid cursor value for column {column}"):
+            Catalog._coerce_parameter_value(column, pg_type, value, source="cursor")
 
 
 # ============================================================================
