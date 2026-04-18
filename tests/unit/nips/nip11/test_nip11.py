@@ -631,7 +631,7 @@ class TestNip11FetchParameters:
 
         call_args = session.get.call_args
         timeout = call_args[1]["timeout"]
-        assert timeout.total == 30.0
+        assert timeout.total == pytest.approx(30.0, abs=0.02)
 
     async def test_fetch_custom_max_size_via_options(self, relay: Relay, mock_session_factory):
         """Create with Nip11Options max_size applies limit."""
@@ -666,7 +666,7 @@ class TestNip11FetchParameters:
 
         call_args = session.get.call_args
         timeout = call_args[1]["timeout"]
-        assert timeout.total == 10.0
+        assert timeout.total == pytest.approx(10.0, abs=0.02)
 
 
 # =============================================================================

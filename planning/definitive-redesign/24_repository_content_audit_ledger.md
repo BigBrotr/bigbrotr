@@ -255,6 +255,12 @@ Use this section during execution for:
   - paired `protocol_sessions` and `protocol` tests now pin the fail-fast
     behavior for both the low-level helper and the `NostrClientManager`
     facade.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-sixth remediation slice:
+  - `Nip11InfoMetadata.fetch()` now spends one shared timeout budget across
+    the verified HTTPS attempt and any insecure SSL fallback instead of
+    accidentally giving each attempt the full caller timeout;
+  - paired `nip11/test_info.py` coverage now pins the reduced remaining-time
+    behavior on the fallback path directly.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

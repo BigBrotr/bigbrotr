@@ -864,7 +864,7 @@ class TestNip11InfoMetadataTimeout:
 
         call_args = session.get.call_args
         timeout = call_args[1]["timeout"]
-        assert timeout.total == 10.0
+        assert timeout.total == pytest.approx(10.0, abs=0.02)
 
     async def test_info_custom_timeout(self, relay: Relay, mock_session_factory):
         """Retrieval uses custom timeout when specified."""
@@ -882,7 +882,7 @@ class TestNip11InfoMetadataTimeout:
 
         call_args = session.get.call_args
         timeout = call_args[1]["timeout"]
-        assert timeout.total == 30.0
+        assert timeout.total == pytest.approx(30.0, abs=0.02)
 
 
 # =============================================================================
@@ -1226,6 +1226,28 @@ class TestNip11InfoMetadataSslFallback:
         assert result.logs.success is True
         assert result.data.name == "Fallback"
         assert call_count == 2
+
+    async def test_ssl_fallback_uses_remaining_timeout_budget(self, relay: Relay) -> None:
+        """Insecure fallback receives only the timeout budget left after the first attempt."""
+        captured_timeouts: list[float] = []
+
+        async def mock_info(
+            http_url, headers, timeout, max_size, ssl_context, proxy_url=None, session=None
+        ):
+            captured_timeouts.append(timeout)
+            if len(captured_timeouts) == 1:
+                await asyncio.sleep(0.05)
+                raise aiohttp.ClientConnectorCertificateError(MagicMock(), MagicMock())
+            return {"name": "Fallback"}
+
+        with patch.object(Nip11InfoMetadata, "_info", side_effect=mock_info):
+            result = await Nip11InfoMetadata.fetch(relay, timeout=0.1, allow_insecure=True)
+
+        assert result.logs.success is True
+        assert result.data.name == "Fallback"
+        assert len(captured_timeouts) == 2
+        assert captured_timeouts[0] == pytest.approx(0.1, abs=0.02)
+        assert 0 < captured_timeouts[1] < captured_timeouts[0]
 
     async def test_ssl_error_without_allow_insecure_fails(self, relay: Relay):
         """Certificate error without allow_insecure=True is not caught (becomes failure)."""

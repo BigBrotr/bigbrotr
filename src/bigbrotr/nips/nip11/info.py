@@ -17,7 +17,8 @@ Note:
     The SSL fallback strategy mirrors
     [connect_relay][bigbrotr.utils.protocol.connect_relay]: clearnet relays
     try verified SSL first, then fall back to ``CERT_NONE`` if
-    ``allow_insecure=True``. Overlay relays are canonicalized to ``ws://`` by
+    ``allow_insecure=True`` while still sharing one timeout budget across both
+    attempts. Overlay relays are canonicalized to ``ws://`` by
     [Relay][bigbrotr.models.relay.Relay], so their NIP-11 fetches stay on
     plain ``http://`` with no SSL context at all.
 
@@ -35,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import ssl
+import time
 from http import HTTPStatus
 from typing import Any, ClassVar, Self
 
@@ -202,9 +204,11 @@ class Nip11InfoMetadata(BaseNipMetadata):
         header per the NIP-11 specification.
 
         For clearnet HTTPS, verifies the certificate first and falls back to
-        insecure if *allow_insecure* is True. Overlay relays are stored
-        canonically as ``ws://`` URLs, so their NIP-11 fetches stay on plain
-        HTTP with no SSL context. Plain HTTP connections use no SSL.
+        insecure if *allow_insecure* is True. The public ``timeout`` budget is
+        shared across the verified attempt and any insecure fallback. Overlay
+        relays are stored canonically as ``ws://`` URLs, so their NIP-11
+        fetches stay on plain HTTP with no SSL context. Plain HTTP
+        connections use no SSL.
 
         This method never returns ``None`` and does not raise for ordinary
         HTTP or parsing failures. Check ``succeeded`` for the operation
@@ -240,13 +244,20 @@ class Nip11InfoMetadata(BaseNipMetadata):
         data: dict[str, Any] = {}
         logs: dict[str, Any] = {"success": False, "reason": None}
         ssl_fallback = False
+        deadline = time.monotonic() + timeout
+
+        def _remaining_timeout(error_message: str) -> float:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(error_message)
+            return remaining
 
         try:
             if protocol == "http":
                 data = await cls._info(
                     http_url,
                     headers,
-                    timeout,
+                    _remaining_timeout("timeout fetching NIP-11 info"),
                     max_size,
                     ssl_context=False,
                     proxy_url=proxy_url,
@@ -259,7 +270,7 @@ class Nip11InfoMetadata(BaseNipMetadata):
                     data = await cls._info(
                         http_url,
                         headers,
-                        timeout,
+                        _remaining_timeout("timeout fetching NIP-11 info"),
                         max_size,
                         ssl_context=True,
                         proxy_url=proxy_url,
@@ -275,7 +286,7 @@ class Nip11InfoMetadata(BaseNipMetadata):
                     data = await cls._info(
                         http_url,
                         headers,
-                        timeout,
+                        _remaining_timeout("timeout fetching NIP-11 info"),
                         max_size,
                         ctx,
                         proxy_url,
