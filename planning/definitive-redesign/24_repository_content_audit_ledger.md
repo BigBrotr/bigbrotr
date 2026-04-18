@@ -1554,3 +1554,12 @@ Use this section during execution for:
   - added paired `dvm/utils` and `dvm/jobs` coverage proving pre-parsed bid
     values now follow the same payment-required vs executable-query contract as
     the live tag-based request path.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twenty-first remediation
+  slice:
+  - aligned the shared `read_model_query_from_job_params()` helper with the
+    already-normalized DVM adapter boundary so whitespace-padded pre-parsed
+    `NIP-90` keys like `" limit "`, `" sort "`, or `" filter "` no longer
+    bypass the helper's own public normalization contract when called directly;
+  - added paired `services/common` coverage proving the shared job-query helper
+    now resolves canonical reserved/filter keys exactly like the live DVM
+    transport path instead of silently dropping them.

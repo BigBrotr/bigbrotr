@@ -103,6 +103,17 @@ def _parse_job_filter_string(raw_value: Any) -> dict[str, str] | None:
     return parse_read_model_filter_string(raw_value)
 
 
+def _normalize_job_param_keys(raw_params: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize pre-parsed NIP-90 parameter keys before shared parsing."""
+    params: dict[str, Any] = {}
+    for raw_key, value in raw_params.items():
+        key = raw_key.strip()
+        if not key:
+            continue
+        params[key] = value
+    return params
+
+
 def _normalize_http_filters(raw_filters: Mapping[str, str]) -> dict[str, str] | None:
     """Normalize direct HTTP query filters before shared validation."""
     if not raw_filters:
@@ -195,6 +206,7 @@ def read_model_query_from_job_params(
     max_page_size: int,
 ) -> ReadModelQuery:
     """Normalize one NIP-90 job request into the shared query contract."""
+    params = _normalize_job_param_keys(params)
     limit = _parse_int_param(
         params.get("limit", default_page_size),
         error_message="Invalid limit or offset value",

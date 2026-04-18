@@ -965,6 +965,31 @@ class TestReadModelQueryHelpers:
             cursor=None,
         )
 
+    def test_read_model_query_from_job_params_trims_reserved_keys(self) -> None:
+        query = read_model_query_from_job_params(
+            {
+                " limit ": "25",
+                " sort ": " url:asc ",
+                " include_total ": True,
+            },
+            default_page_size=100,
+            max_page_size=1000,
+        )
+
+        assert query.limit == 25
+        assert query.sort == "url:asc"
+        assert query.include_total is True
+        assert query.filters is None
+
+    def test_read_model_query_from_job_params_trims_filter_key(self) -> None:
+        query = read_model_query_from_job_params(
+            {" filter ": " network = clearnet "},
+            default_page_size=100,
+            max_page_size=1000,
+        )
+
+        assert query.filters == {"network": "clearnet"}
+
     def test_read_model_query_from_job_params_invalid_offset(self) -> None:
         with pytest.raises(ReadModelQueryError, match="Invalid limit or offset value"):
             read_model_query_from_job_params(
