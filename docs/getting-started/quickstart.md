@@ -227,4 +227,4 @@ stack with monitoring, Grafana dashboards, and automatic restarts:
 - [Installation](installation.md) -- Install paths and system requirements
 - [First Deployment](first-deployment.md) -- Full stack Docker deployment
 - [Configuration Reference](../user-guide/configuration.md) -- YAML configuration for all services
-- [Database](../user-guide/database.md) -- Schema, stored functions, derived tables, and reporting views
+- [Database](../user-guide/database.md) -- Schema, stored functions, derived tables, and the reserved reporting-view slot

@@ -299,7 +299,7 @@ Prometheus metrics served on `/metrics` (port 8000).
 |--------|------|--------|-------------|
 | `service_info` | Info | service | Static service metadata |
 | `service_gauge` | Gauge | service, name | Point-in-time state (consecutive_failures, progress, last_cycle_timestamp) |
-| `service_counter` | Counter | service, name | Cumulative totals (cycles_success, cycles_failed, errors) |
+| `service_counter_total` | Counter | service, name | Cumulative totals (cycles_success, cycles_failed, errors) |
 | `cycle_duration_seconds` | Histogram | service | Cycle latency, 10 buckets (1s to 1h) |
 
 !!! note

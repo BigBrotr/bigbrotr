@@ -1,6 +1,6 @@
 # Database Reference
 
-Complete reference for BigBrotr's PostgreSQL schema, stored functions, derived tables, reporting views, and indexes.
+Complete reference for BigBrotr's PostgreSQL schema, stored functions, derived tables, the reserved reporting-view slot, and indexes.
 
 ---
 
@@ -863,7 +863,7 @@ SQL files execute in alphabetical order via Docker's `/docker-entrypoint-initdb.
 | `04_tables_analytics.sql` | Analytics and NIP-85 score tables |
 | `05_functions_crud.sql` | CRUD, cascade, and service-state functions |
 | `06_functions_cleanup.sql` | no shared cleanup functions |
-| `07_views_reporting.sql` | Reporting views |
+| `07_views_reporting.sql` | Reserved reporting-view slot (empty in built-in deployments) |
 | `08_functions_refresh_current.sql` | Current-state refresh functions |
 | `09_functions_refresh_analytics.sql` | Analytics, contact-graph, and periodic refresh functions |
 | `10_indexes_core.sql` | Core table indexes |
@@ -883,7 +883,7 @@ SQL files execute in alphabetical order via Docker's `/docker-entrypoint-initdb.
 | `04_tables_analytics.sql` | Analytics and NIP-85 score tables |
 | `05_functions_crud.sql` | CRUD, cascade, and service-state functions |
 | `06_functions_cleanup.sql` | no shared cleanup functions |
-| `07_views_reporting.sql` | Reporting views |
+| `07_views_reporting.sql` | Reserved reporting-view slot (empty in built-in deployments) |
 | `08_functions_refresh_current.sql` | Current-state refresh functions |
 | `09_functions_refresh_analytics.sql` | Analytics, contact-graph, and periodic refresh functions |
 | `10_indexes_core.sql` | Core table indexes |
@@ -891,6 +891,13 @@ SQL files execute in alphabetical order via Docker's `/docker-entrypoint-initdb.
 | `12_indexes_analytics.sql` | Analytics and score indexes |
 | `98_grants.sh` | Role grants |
 | `99_verify.sql` | Verification queries |
+
+!!! note
+    The built-in deployments intentionally define no regular reporting views in
+    `07_views_reporting.sql`. Narrow current tables, analytics tables, and the
+    protocol-agnostic read core carry the default query surface; this file is
+    reserved for future deployment-specific views that truly earn a live
+    relation.
 
 ---
 

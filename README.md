@@ -315,7 +315,7 @@ Every service exposes `/metrics` on its configured port with four metric types:
 |--------|------|-------------|
 | `service_info` | Info | Static service metadata |
 | `service_gauge` | Gauge | Point-in-time state (consecutive_failures, last_cycle_timestamp, progress) |
-| `service_counter` | Counter | Cumulative totals (cycles_success, cycles_failed, errors by type) |
+| `service_counter_total` | Counter | Cumulative totals (cycles_success, cycles_failed, errors by type) |
 | `cycle_duration_seconds` | Histogram | Cycle latency with 10 buckets (1s to 1h) |
 
 ### Alert Rules (7)

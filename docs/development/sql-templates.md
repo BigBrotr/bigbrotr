@@ -47,7 +47,7 @@ The base templates define the Brotr schema shared by all deployments:
 | `04_tables_analytics.sql.j2` | Analytics and NIP-85 score tables |
 | `05_functions_crud.sql.j2` | CRUD, cascade, and service-state functions |
 | `06_functions_cleanup.sql.j2` | Cleanup contract stub (no shared orphan cleanup functions) |
-| `07_views_reporting.sql.j2` | Reporting views |
+| `07_views_reporting.sql.j2` | Reserved reporting-view slot (empty in built-in deployments by default) |
 | `08_functions_refresh_current.sql.j2` | Current-state refresh functions |
 | `09_functions_refresh_analytics.sql.j2` | Analytics, contact-graph, and periodic refresh functions |
 | `10_indexes_core.sql.j2` | Core table indexes |

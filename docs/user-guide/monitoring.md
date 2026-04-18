@@ -54,7 +54,7 @@ Each service exposes four metric types via the `/metrics` endpoint, implemented 
 |-------------|----------------|--------|-------------|
 | `service_info` | Info | `service` | Static service metadata (version, name) |
 | `service_gauge` | Gauge | `service`, `name` | Point-in-time operational state |
-| `service_counter` | Counter | `service`, `name` | Cumulative totals since startup |
+| `service_counter_total` | Counter | `service`, `name` | Cumulative totals since startup |
 | `cycle_duration_seconds` | Histogram | `service` | Cycle execution latency distribution |
 
 ### Gauge Names
@@ -316,7 +316,7 @@ Fires when the Refresher service has failing current-state, analytics, or period
 | RankerNoSuccessfulCycle | No successful ranker cycle for > 2h | 15 min | critical |
 | RankerCheckpointLagHigh | Ranker checkpoint lag > 24h | 30 min | warning |
 | RankerCycleBudgetHit | Ranker cycle cut by a configured budget | 30 min | warning |
-| RankerFailedRunsIncreasing | Ranker failed run count increased | 15 min | warning |
+| RankerFailedRunsIncreasing | Ranker DuckDB-local failed-run count increased | 15 min | warning |
 | AssertorNoSuccessfulCycle | No successful assertor cycle for > 2h | 15 min | critical |
 | AssertorPublishFailures | NIP-85 assertion publish failures > 0 | 15 min | warning |
 | AssertorProviderProfileFailures | Provider profile publish failures > 0 | 15 min | warning |
@@ -340,8 +340,10 @@ dashboard, and dedicated per-service dashboards for:
 - DVM
 - Assertor
 
-The overview dashboard provides summary rows. Dedicated dashboards provide the
-operational detail for each service.
+The overview dashboard provides summary rows for every continuous service
+(`finder`, `validator`, `monitor`, `synchronizer`, `refresher`, `ranker`,
+`api`, `dvm`, and `assertor`) plus database-health and data-overview sections.
+Dedicated dashboards provide the operational detail for each service.
 
 ### Dashboard Panels
 
@@ -363,9 +365,9 @@ Service-specific dashboards add focused panels:
 | Monitor | relay check progress and failed relay checks |
 | Synchronizer | relay sync progress and event/relay processing rate |
 | Refresher | targets by class, target outcomes, watermark lag, per-target durations, rows refreshed |
-| Ranker | graph and sync volume, staged fact rows, exported score rows, phase durations, checkpoint lag, DuckDB health, cycle cutoffs |
-| API | tables exposed, request counters, request failure rate |
-| DVM | tables exposed, request counters, request failure rate |
+| Ranker | graph and sync volume, staged fact rows, exported score rows, phase durations, checkpoint lag, cycle budgets, and DuckDB-local store hygiene |
+| API | readable resources exposed, request counters, request failure rate |
+| DVM | readable resources exposed, request counters, request failure rate |
 | Assertor | assertion outcomes, provider package status, per-kind assertion counts, publish phase durations |
 
 ### Thresholds

@@ -94,7 +94,7 @@ Fill this section when the audit actually starts.
 |--------------|--------|--------|-------|
 | 1.1 `.github` leaf audit | done | `chore: align github automation surfaces` | Audited all tracked `.github` leaf surfaces and corrected real drift: added `.github/AGENTS.md` and `.github/workflows/AGENTS.md` as maintained local guidance, removed stale local `CLAUDE.md` leftovers from the live tree, aligned issue-template contact paths with the public docs/security surfaces, tightened the PR template to the actual contributor contract, and strengthened `release.yml` so the validation gate now runs pre-commit plus the repository contract gate (`make ci`, `uv lock --check`, and docs build) instead of only narrating a stronger standard. Targeted YAML/markdown/spelling checks, full `make ci`, and `uv lock --check` all passed before closure |
 | 1.2 Deployment service-config leaf audit | done | `chore: align deployment service-config guidance` | Audited the per-service deployment YAML leaves and their paired `config/services/README.md` files against the live service config models. Corrected the misleading leaf contract that claimed every file only contained non-default overrides, removed dead references to nonexistent `brotr/config/services/*.yaml` paths, and rewrote the local guidance so these files are described honestly as deployment-local overlays that may also restate important defaults for operator clarity. The slice intentionally leaves broader parent-level deployment guidance, including the missing `deployments/AGENTS.md` surface, to the later parent-folder audit. Targeted YAML/markdown/spelling checks, full `make ci`, and `uv lock --check` must pass before closure |
-| 1.3 Deployment SQL/monitoring/support leaf audit | not started | — | `postgres/init`, monitoring assets, pgbouncer, static/support scripts, and paired docs. This work package must explicitly judge whether the current monitoring stack is merely aligned or whether it still needs a substantial professional redesign across Grafana, Prometheus, alerts, exporter queries, and operator-facing observability shape |
+| 1.3 Deployment SQL/monitoring/support leaf audit | done | `chore: align deployment sql and monitoring leaf surfaces` | Audited the deployment SQL-init leaves, monitoring assets, pgbouncer configs, static leaves, and paired docs against the final repository contract. The slice found real drift even after the redesign execution program: built-in `07_views_reporting.sql` was still described too generically even though the built-in deployments intentionally ship no regular reporting views; built-in PgBouncer configs still claimed `auth_query`-based auth even though the containers generate a SCRAM userlist at startup; API/DVM dashboards still labeled `readable_resources_exposed` as “Tables Exposed”; the overview dashboards still omitted `ranker` and `assertor` summary rows; and monitoring/docs surfaces still mixed old metric naming (`service_counter`) with the actual Prometheus counter family name (`service_counter_total`). The slice corrected the SQL template plus generated init files, tightened Prometheus alert wording for DuckDB-local failed-run tracking, expanded both overview dashboards to include ranker/assertor summary rows, renamed read-side dashboard cards to “Readable Resources Exposed”, and aligned the paired monitoring/database docs and root references. Targeted pre-commit checks, `uv run python tools/generate_sql.py --check`, `uv run mkdocs build --strict`, full `make ci`, and `uv lock --check` all passed before closure |
 | 1.4 Docs asset/snippet/override leaf audit | not started | — | `_snippets`, assets, overrides, and other deepest docs-support surfaces |
 
 ### Wave 2 — Python Leaf Packages
@@ -169,3 +169,16 @@ Use this section during execution for:
     even though the root repository contract points to it; handle that in the
     parent-folder guidance wave rather than mixing it into the service-config
     leaf slice.
+- `1.3` deployment leaf slice, resolved in `chore: align deployment sql and monitoring leaf surfaces`:
+  - clarified that the built-in SQL package intentionally ships no regular
+    reporting views, and regenerated the built-in `07_views_reporting.sql`
+    files from the corrected template;
+  - fixed dishonest built-in PgBouncer comments that still described
+    `auth_query` even though container startup generates a SCRAM userlist;
+  - expanded the built-in overview dashboards so `ranker` and `assertor` are
+    represented alongside the other continuous services instead of existing
+    only as dedicated dashboards;
+  - renamed API/DVM cards from “Tables Exposed” to “Readable Resources
+    Exposed” so the monitoring surface matches the final read-core contract;
+  - aligned monitoring/database docs with the actual Prometheus counter name
+    (`service_counter_total`) and the empty built-in reporting-view slot.

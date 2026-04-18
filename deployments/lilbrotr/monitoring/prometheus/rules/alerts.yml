@@ -366,7 +366,7 @@ groups:
             limits before increasing load.
 
       # --------------------------------------------------------------------
-      # RankerFailedRunsIncreasing: persisted rank run failures are increasing
+      # RankerFailedRunsIncreasing: DuckDB-local failed-run count is increasing
       # --------------------------------------------------------------------
       - alert: RankerFailedRunsIncreasing
         expr: >-
@@ -375,10 +375,11 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "Ranker failed run count is increasing"
+          summary: "Ranker DuckDB-local failed-run count is increasing"
           description: >-
-            Ranker has recorded new failed rank runs in the last 15 minutes.
-            Inspect ranker logs and DuckDB run history.
+            Ranker has recorded new failed runs in its DuckDB-local run history
+            in the last 15 minutes. Inspect ranker logs, cycle cutoffs, and
+            local store state.
 
       # --------------------------------------------------------------------
       # AssertorNoSuccessfulCycle: NIP-85 publishing has stalled

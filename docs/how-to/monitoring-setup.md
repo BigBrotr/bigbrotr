@@ -121,7 +121,7 @@ To verify targets are being scraped:
 The built-in deployments auto-provision Grafana with:
 
 - A Prometheus datasource pointing to `http://prometheus:9090`
-- A dashboard directory at `monitoring/grafana/dashboards/`
+- A dashboard directory at `monitoring/grafana/provisioning/dashboards/`
 
 To add a custom dashboard:
 
@@ -131,9 +131,9 @@ To add a custom dashboard:
 4. Select the **Prometheus** datasource
 
 !!! tip
-    The built-in deployment also ships per-service dashboards for finder,
-    validator, monitor, synchronizer, refresher, ranker, api, dvm, and
-    assertor.
+    The built-in deployment ships one overview dashboard plus dedicated
+    per-service dashboards for finder, validator, monitor, synchronizer,
+    refresher, ranker, api, dvm, and assertor.
 
 ## 5. Set Up Alerting Rules
 
@@ -206,7 +206,9 @@ rate(service_counter_total{name=~"errors_.*"}[5m])
 ```
 
 !!! tip
-    Use Grafana variables to create a single dashboard with a service selector dropdown. Set a `$service` variable from the `job` label values.
+    If you build custom dashboards on top of the provisioned set, Grafana
+    variables are still useful for cross-service summary panels. For example,
+    define a `$service` variable from the `job` label values.
 
 ---
 
