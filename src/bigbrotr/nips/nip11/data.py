@@ -450,11 +450,6 @@ class Nip11InfoDataRetentionEntry(BaseData):
         issues.extend(int_issues)
         return ParseReport(parsed=result, issues=tuple(issues))
 
-    @classmethod
-    def parse(cls, data: Any) -> dict[str, Any]:
-        """Parse a retention entry, handling mixed int/range kinds lists."""
-        return cls.parse_report(data).parsed
-
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary, converting tuples to lists for JSON."""
         return self.model_dump(exclude_none=True, mode="json")
@@ -594,18 +589,13 @@ class Nip11InfoDataFees(BaseData):
 
         return ParseReport(parsed=result, issues=tuple(issues))
 
-    @classmethod
-    def parse(cls, data: Any) -> dict[str, Any]:
-        """Parse fee schedule data with nested fee entry objects."""
-        return cls.parse_report(data).parsed
-
 
 class Nip11InfoData(BaseData):
     """Complete NIP-11 relay information document.
 
-    Overrides ``parse()`` to handle nested objects (limitation, retention,
-    fees) and ``to_dict()`` to use ``by_alias=True`` for the ``self``
-    field, which maps to ``self_pubkey`` internally.
+    Overrides ``parse_report()`` to handle nested objects (limitation,
+    retention, fees) and ``to_dict()`` to use ``by_alias=True`` for the
+    external ``self`` field, which maps to ``self_pubkey`` internally.
 
     Note:
         The NIP-11 ``self`` field is a reserved Python keyword, so it is
@@ -625,6 +615,9 @@ class Nip11InfoData(BaseData):
             Nested limitation sub-model.
         [Nip11InfoDataFees][bigbrotr.nips.nip11.data.Nip11InfoDataFees]:
             Nested fee schedule sub-model.
+        [BaseData.parse][bigbrotr.nips.base.BaseData.parse]:
+            Shared constructor-ready canonical parsing contract used after the
+            custom ``parse_report()`` step here.
     """
 
     model_config = ConfigDict(frozen=True, populate_by_name=True)
@@ -719,21 +712,6 @@ class Nip11InfoData(BaseData):
             }
         ),
     )
-
-    @classmethod
-    def parse(cls, data: Any) -> dict[str, Any]:
-        """Parse a complete NIP-11 document with nested sub-objects.
-
-        Handles string fields, supported_nips list, and nested limitation,
-        retention, and fees objects.
-
-        Args:
-            data: Raw dictionary from the relay HTTP response.
-
-        Returns:
-            Validated dictionary suitable for model construction.
-        """
-        return cls.parse_report(data).parsed
 
     @classmethod
     def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:

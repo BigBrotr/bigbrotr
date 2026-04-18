@@ -90,6 +90,11 @@ class BaseData(BaseModel):
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec()
 
     @classmethod
+    def _canonicalize_parsed_payload(cls, parsed: dict[str, Any]) -> dict[str, Any]:
+        """Return parsed payload in canonical constructor-ready form when valid."""
+        return cls.model_validate(parsed).model_dump(exclude_none=True)
+
+    @classmethod
     def parse(cls, data: Any) -> dict[str, Any]:
         """Parse arbitrary data into validated constructor arguments.
 
@@ -111,7 +116,7 @@ class BaseData(BaseModel):
         if not report.parsed:
             return {}
         try:
-            return cls.model_validate(report.parsed).model_dump(exclude_none=True)
+            return cls._canonicalize_parsed_payload(report.parsed)
         except ValidationError:
             return report.parsed
 

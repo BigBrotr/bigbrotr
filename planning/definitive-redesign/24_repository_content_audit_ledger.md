@@ -932,3 +932,10 @@ Use this section during execution for:
     are now emitted in stable deduplicated order;
   - added paired event-builder coverage proving these public tag sets no
     longer drift when the caller passes duplicates or reordered inputs.
+- `2.1` models/utils/NIPs leaf audit, ninety-fifth remediation slice:
+  - removed the remaining custom `parse()` overrides in
+    `bigbrotr.nips.nip11.data` that were bypassing the shared
+    constructor-ready canonical parsing contract;
+  - tightened the `Nip11InfoData.parse()` boundary so canonical payloads now
+    expose internal field names such as `self_pubkey`, while `to_dict()`
+    remains the explicit JSON-facing alias surface for external NIP-11 output.

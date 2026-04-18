@@ -739,10 +739,11 @@ class TestNip11InfoDataParse:
         assert result["tags"] == ["also valid", "valid"]
 
     def test_parse_self_field(self):
-        """'self' field is parsed as string."""
+        """parse() returns the constructor-ready internal field name for ``self``."""
         data = {"self": "abc123def456"}
         result = Nip11InfoData.parse(data)
-        assert result["self"] == "abc123def456"
+        assert result["self_pubkey"] == "abc123def456"
+        assert "self" not in result
 
     def test_parse_non_dict_returns_empty(self):
         """Non-dict input returns empty dict."""
