@@ -731,7 +731,7 @@ async def fetch_identifier_stats(
             identifier=row["identifier"],
             comment_count=row["comment_count"],
             reaction_count=row["reaction_count"],
-            k_tags=row["k_tags"] or (),
+            k_tags=() if row["k_tags"] is None else row["k_tags"],
         )
         for row in rows
     ]

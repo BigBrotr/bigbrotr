@@ -2012,3 +2012,12 @@ Use this section during execution for:
     malformed local count values into bogus graph-size or baseline-score state;
   - added paired `ranker` coverage proving invalid graph counts now fail fast
     both at the typed dataclass boundary and on the DuckDB query/export paths.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-sixty-seventh remediation
+  slice:
+  - tightened the `ranker` identifier-fact fetch boundary so
+    `fetch_identifier_stats()` no longer collapses falsey malformed `k_tags`
+    payloads like `""` into an empty tuple via broad truthiness, which
+    previously let bad read-model rows pass as “no tags” instead of failing at
+    the typed `IdentifierStatFact` boundary;
+  - added paired `ranker` coverage proving `None` still degrades to the
+    canonical empty tag set while falsey non-array payloads now fail fast.

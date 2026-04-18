@@ -465,6 +465,41 @@ class TestRankerQueries:
         )
 
     @pytest.mark.asyncio
+    async def test_fetch_identifier_stats_only_normalizes_none_k_tags(self) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetch = AsyncMock(
+            return_value=[
+                {
+                    "identifier": "isbn:9780140328721",
+                    "comment_count": 3,
+                    "reaction_count": 4,
+                    "k_tags": None,
+                }
+            ]
+        )
+
+        assert await fetch_identifier_stats(brotr, "", 10) == [
+            IdentifierStatFact("isbn:9780140328721", 3, 4, ())
+        ]
+
+    @pytest.mark.asyncio
+    async def test_fetch_identifier_stats_rejects_falsey_non_array_k_tags(self) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetch = AsyncMock(
+            return_value=[
+                {
+                    "identifier": "isbn:9780140328721",
+                    "comment_count": 3,
+                    "reaction_count": 4,
+                    "k_tags": "",
+                }
+            ]
+        )
+
+        with pytest.raises(TypeError):
+            await fetch_identifier_stats(brotr, "", 10)
+
+    @pytest.mark.asyncio
     async def test_get_contact_list_source_watermark(self) -> None:
         brotr = MagicMock(spec=Brotr)
         brotr.fetchval = AsyncMock(return_value=1234)
