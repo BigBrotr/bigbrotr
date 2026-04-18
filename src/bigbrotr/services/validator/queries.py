@@ -102,6 +102,12 @@ _CANDIDATES_WHERE = """
       )
 """
 
+_CANDIDATES_ORDER = """
+    ORDER BY failures_count ASC,
+             attempted_at ASC,
+             state_key ASC
+"""
+
 _CANDIDATES_CTE = """
     WITH candidates AS (
         SELECT state_key,
@@ -161,6 +167,9 @@ async def fetch_candidates(
 
     Returns candidates that either have zero failures (never attempted)
     or whose last attempt ``timestamp`` is before ``attempted_before``.
+    The query may read multiple raw pages to compensate for malformed
+    persisted rows that are rejected during typed decode, so a leading
+    corrupted candidate cannot make a non-empty workset appear empty.
 
     Rows whose ``state_key`` is not a valid relay URL are skipped
     with a warning.
@@ -177,29 +186,41 @@ async def fetch_candidates(
         List of [CandidateCheckpoint][bigbrotr.services.common.types.CandidateCheckpoint]
         instances.
     """
-    rows = await brotr.fetch(
-        f"""
-        {_CANDIDATES_CTE}
-        SELECT state_key, state_value
-        {_CANDIDATES_WHERE}
-        ORDER BY failures_count ASC,
-                 attempted_at ASC
-        LIMIT $5
-        """,
-        ServiceName.VALIDATOR,
-        ServiceStateType.CHECKPOINT,
-        networks,
-        attempted_before,
-        limit,
-    )
     candidates: list[CandidateCheckpoint] = []
-    for row in rows:
-        try:
-            candidates.append(
-                ServiceStateStore.decode_candidate(row["state_key"], row["state_value"])
-            )
-        except (ValueError, TypeError) as e:
-            logger.warning("invalid_candidate_skipped: %s (%s)", row["state_key"], e)
+    offset = 0
+
+    while len(candidates) < limit:
+        raw_limit = limit - len(candidates)
+        rows = await brotr.fetch(
+            f"""
+            {_CANDIDATES_CTE}
+            SELECT state_key, state_value
+            {_CANDIDATES_WHERE}
+            {_CANDIDATES_ORDER}
+            LIMIT $5
+            OFFSET $6
+            """,
+            ServiceName.VALIDATOR,
+            ServiceStateType.CHECKPOINT,
+            networks,
+            attempted_before,
+            raw_limit,
+            offset,
+        )
+        if not rows:
+            break
+        offset += len(rows)
+
+        for row in rows:
+            try:
+                candidates.append(
+                    ServiceStateStore.decode_candidate(row["state_key"], row["state_value"])
+                )
+            except (ValueError, TypeError) as e:
+                logger.warning("invalid_candidate_skipped: %s (%s)", row["state_key"], e)
+
+        if len(rows) < raw_limit:
+            break
     return candidates
 
 

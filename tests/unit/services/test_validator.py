@@ -282,8 +282,11 @@ class TestFetchCandidates:
         assert "failures_count IS NOT NULL" in sql
         assert "attempted_at IS NOT NULL" in sql
         assert "LIMIT $5" in sql
+        assert "OFFSET $6" in sql
+        assert "state_key ASC" in sql
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][5] == 50
+        assert args[0][6] == 0
 
     async def test_returns_checkpoint_objects(self, query_brotr: MagicMock) -> None:
         query_brotr.fetch = AsyncMock(
@@ -561,6 +564,56 @@ class TestFetchCandidates:
                 failures=1,
             )
         ]
+
+    async def test_scans_past_invalid_leading_rows_to_fill_limit(
+        self, query_brotr: MagicMock
+    ) -> None:
+        query_brotr.fetch = AsyncMock(
+            side_effect=[
+                [
+                    _row(
+                        {
+                            "state_key": "not-a-relay",
+                            "state_value": {
+                                "failures": 0,
+                                "network": "clearnet",
+                                "timestamp": 0,
+                            },
+                        }
+                    )
+                ],
+                [
+                    _row(
+                        {
+                            "state_key": "wss://good.com",
+                            "state_value": {
+                                "failures": 0,
+                                "network": "clearnet",
+                                "timestamp": 0,
+                            },
+                        }
+                    )
+                ],
+            ]
+        )
+
+        result = await fetch_candidates(query_brotr, [NetworkType.CLEARNET], 0, 1)
+
+        assert result == [
+            CandidateCheckpoint(
+                key="wss://good.com",
+                timestamp=0,
+                network=NetworkType.CLEARNET,
+                failures=0,
+            )
+        ]
+        assert query_brotr.fetch.await_count == 2
+        first_call = query_brotr.fetch.await_args_list[0].args
+        second_call = query_brotr.fetch.await_args_list[1].args
+        assert first_call[5] == 1
+        assert first_call[6] == 0
+        assert second_call[5] == 1
+        assert second_call[6] == 1
 
     async def test_empty_result(self, query_brotr: MagicMock) -> None:
         assert await fetch_candidates(query_brotr, [NetworkType.CLEARNET], 0, 50) == []

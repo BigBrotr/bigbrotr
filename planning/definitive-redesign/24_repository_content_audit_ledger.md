@@ -1872,3 +1872,14 @@ Use this section during execution for:
     shared fetch/decode boundary, refresher incremental runs restart from
     zero on malformed persisted state, and monitor query SQL only treats
     non-negative persisted timestamps as valid.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fifty-third remediation
+  slice:
+  - tightened the `validator` candidate fetch boundary so malformed persisted
+    candidate rows can no longer consume the whole SQL `LIMIT` window and make
+    a non-empty workset appear empty after typed decode, which previously could
+    stop a validation cycle before reaching valid candidates ordered later in
+    the same queue;
+  - added paired `validator` coverage proving candidate fetch now continues
+    scanning past invalid leading rows with stable ordering and offset
+    progression until it fills the requested logical page or exhausts the raw
+    workset.
