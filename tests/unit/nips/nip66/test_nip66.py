@@ -1,5 +1,5 @@
 """
-Unit tests for models.nips.nip66.nip66 module.
+Unit tests for the top-level NIP-66 probe orchestration module.
 
 Tests:
 - Nip66 construction and validation
@@ -42,7 +42,7 @@ from bigbrotr.nips.nip66.nip66 import Nip66Dependencies, Nip66Selection
 class TestNip66Construction:
     """Test Nip66 construction and validation."""
 
-    def test_with_all_metadata(
+    def test_with_all_result_containers(
         self,
         relay: Relay,
         complete_rtt_metadata: Nip66RttMetadata,
@@ -52,7 +52,7 @@ class TestNip66Construction:
         complete_dns_metadata: Nip66DnsMetadata,
         complete_http_metadata: Nip66HttpMetadata,
     ) -> None:
-        """Construct with all six result families."""
+        """Construct with all six result containers populated."""
         nip66 = Nip66(
             relay=relay,
             rtt=complete_rtt_metadata,
@@ -75,7 +75,7 @@ class TestNip66Construction:
         relay: Relay,
         complete_rtt_metadata: Nip66RttMetadata,
     ) -> None:
-        """Construct with RTT metadata only, others are None."""
+        """Construct with only the RTT result container; others are None."""
         nip66 = Nip66(relay=relay, rtt=complete_rtt_metadata)
         assert nip66.rtt.data.rtt_open == 100
         assert nip66.rtt.logs.open_success is True
@@ -90,7 +90,7 @@ class TestNip66Construction:
         relay: Relay,
         complete_ssl_metadata: Nip66SslMetadata,
     ) -> None:
-        """Construct with SSL metadata only."""
+        """Construct with only the SSL result container."""
         nip66 = Nip66(relay=relay, ssl=complete_ssl_metadata)
         assert nip66.rtt is None
         assert nip66.ssl.data.ssl_valid is True
@@ -101,7 +101,7 @@ class TestNip66Construction:
         relay: Relay,
         complete_geo_metadata: Nip66GeoMetadata,
     ) -> None:
-        """Construct with geo metadata only."""
+        """Construct with only the geo result container."""
         nip66 = Nip66(relay=relay, geo=complete_geo_metadata)
         assert nip66.rtt is None
         assert nip66.ssl is None
@@ -112,7 +112,7 @@ class TestNip66Construction:
         relay: Relay,
         complete_net_metadata: Nip66NetMetadata,
     ) -> None:
-        """Construct with net metadata only."""
+        """Construct with only the net result container."""
         nip66 = Nip66(relay=relay, net=complete_net_metadata)
         assert nip66.net.data.net_ip == "8.8.8.8"
         assert nip66.net.data.net_asn == 15169
@@ -123,7 +123,7 @@ class TestNip66Construction:
         relay: Relay,
         complete_dns_metadata: Nip66DnsMetadata,
     ) -> None:
-        """Construct with DNS metadata only."""
+        """Construct with only the DNS result container."""
         nip66 = Nip66(relay=relay, dns=complete_dns_metadata)
         assert nip66.dns.data.dns_ips == ["8.8.8.8", "8.8.4.4"]
         assert nip66.rtt is None
@@ -133,7 +133,7 @@ class TestNip66Construction:
         relay: Relay,
         complete_http_metadata: Nip66HttpMetadata,
     ) -> None:
-        """Construct with HTTP metadata only."""
+        """Construct with only the HTTP result container."""
         nip66 = Nip66(relay=relay, http=complete_http_metadata)
         assert nip66.http.data.http_server == "nginx/1.24.0"
         assert nip66.rtt is None
@@ -159,7 +159,7 @@ class TestNip66Construction:
         assert nip66.generated_at == 1000
 
     def test_empty_nip66(self, relay: Relay) -> None:
-        """Construct with no metadata (all None)."""
+        """Construct with no result containers (all None)."""
         nip66 = Nip66(relay=relay)
         assert nip66.relay is relay
         assert nip66.rtt is None
@@ -170,8 +170,8 @@ class TestNip66Construction:
         assert nip66.http is None
 
 
-class TestNip66MetadataAccess:
-    """Test metadata access via attributes."""
+class TestNip66ResultAccess:
+    """Test result-container access via attributes."""
 
     def test_rtt_data_access(self, nip66_full: Nip66) -> None:
         """Access RTT values via data attributes."""
@@ -186,35 +186,35 @@ class TestNip66MetadataAccess:
         assert nip66_full.rtt.logs.write_success is False
         assert nip66_full.rtt.logs.write_reason == "auth-required: please authenticate"
 
-    def test_ssl_metadata_access(self, nip66_full: Nip66) -> None:
-        """Access SSL values via data attributes."""
+    def test_ssl_result_access(self, nip66_full: Nip66) -> None:
+        """Access SSL values via the result container."""
         assert nip66_full.ssl.data.ssl_valid is True
         assert nip66_full.ssl.data.ssl_issuer == "Let's Encrypt"
         assert nip66_full.ssl.data.ssl_protocol == "TLSv1.3"
         assert nip66_full.ssl.data.ssl_cipher_bits == 256
 
-    def test_geo_metadata_access(self, nip66_full: Nip66) -> None:
-        """Access geo values via data attributes."""
+    def test_geo_result_access(self, nip66_full: Nip66) -> None:
+        """Access geo values via the result container."""
         assert nip66_full.geo.data.geo_country == "US"
         assert nip66_full.geo.data.geo_country_name == "United States"
         assert nip66_full.geo.data.geo_is_eu is False
         assert nip66_full.geo.data.geo_hash == "9q9hvu7wp"
 
-    def test_net_metadata_access(self, nip66_full: Nip66) -> None:
-        """Access net values via data attributes."""
+    def test_net_result_access(self, nip66_full: Nip66) -> None:
+        """Access net values via the result container."""
         assert nip66_full.net.data.net_ip == "8.8.8.8"
         assert nip66_full.net.data.net_ipv6 == "2001:4860:4860::8888"
         assert nip66_full.net.data.net_asn == 15169
         assert nip66_full.net.data.net_asn_org == "GOOGLE"
 
-    def test_dns_metadata_access(self, nip66_full: Nip66) -> None:
-        """Access DNS values via data attributes."""
+    def test_dns_result_access(self, nip66_full: Nip66) -> None:
+        """Access DNS values via the result container."""
         assert nip66_full.dns.data.dns_ips == ["8.8.8.8", "8.8.4.4"]
         assert nip66_full.dns.data.dns_ips_v6 == ["2001:4860:4860::8888"]
         assert nip66_full.dns.data.dns_ttl == 300
 
-    def test_http_metadata_access(self, nip66_full: Nip66) -> None:
-        """Access HTTP values via data attributes."""
+    def test_http_result_access(self, nip66_full: Nip66) -> None:
+        """Access HTTP values via the result container."""
         assert nip66_full.http.data.http_server == "nginx/1.24.0"
         assert nip66_full.http.data.http_powered_by == "Strfry"
 
@@ -234,7 +234,7 @@ class TestNip66ToRelayDocumentTuple:
         assert isinstance(result.http, RelayDocument)
 
     def test_correct_roles(self, nip66_full: Nip66) -> None:
-        """Each RelayDocument has correct type via metadata.type."""
+        """Each RelayDocument uses the correct document family."""
         result = nip66_full.to_relay_document_tuple()
         assert result.rtt.document.type == DocumentType.NIP66_RTT
         assert result.ssl.document.type == DocumentType.NIP66_SSL
@@ -243,7 +243,7 @@ class TestNip66ToRelayDocumentTuple:
         assert result.dns.document.type == DocumentType.NIP66_DNS
         assert result.http.document.type == DocumentType.NIP66_HTTP
 
-    def test_returns_none_for_missing_metadata(self, nip66_rtt_only: Nip66) -> None:
+    def test_returns_none_for_missing_results(self, nip66_rtt_only: Nip66) -> None:
         """Returns None for missing result families."""
         result = nip66_rtt_only.to_relay_document_tuple()
         assert isinstance(result.rtt, RelayDocument)
@@ -327,14 +327,14 @@ class TestNip66Probe:
         assert result.rtt.data.rtt_open == 100
         assert result.dns.data.dns_ips == ["8.8.8.8"]
 
-    async def test_all_tests_fail_returns_nip66_with_none_metadata(
+    async def test_all_tests_fail_returns_nip66_with_none_results(
         self,
         relay: Relay,
         mock_keys: MagicMock,
         mock_event_builder: MagicMock,
         mock_read_filter: MagicMock,
     ) -> None:
-        """All tests returning None leave Nip66 with no metadata."""
+        """All failed tests returning None leave Nip66 with no results."""
         deps = Nip66Dependencies(
             keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
         )
@@ -491,7 +491,7 @@ class TestNip66Probe:
         assert call_args[0][3] == "socks5://localhost:9050"
 
     async def test_all_disabled_returns_empty_nip66(self, relay: Relay) -> None:
-        """All tests disabled returns Nip66 with all None metadata."""
+        """All tests disabled returns Nip66 with all None result fields."""
         selection = Nip66Selection(
             rtt=False,
             ssl=False,
@@ -663,12 +663,12 @@ class TestNip66Immutability:
         with pytest.raises((ValidationError, TypeError, AttributeError)):
             nip66_full.relay = new_relay  # type: ignore[misc]
 
-    def test_cannot_modify_metadata(
+    def test_cannot_modify_result_container(
         self,
         nip66_full: Nip66,
         complete_ssl_metadata: Nip66SslMetadata,
     ) -> None:
-        """Cannot modify metadata after creation."""
+        """Cannot modify a populated result container after creation."""
         from pydantic import ValidationError
 
         with pytest.raises((ValidationError, TypeError, AttributeError)):

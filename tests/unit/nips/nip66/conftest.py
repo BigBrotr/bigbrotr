@@ -103,7 +103,7 @@ def complete_rtt_metadata(
     complete_rtt_data: Nip66RttData,
     complete_rtt_logs: Nip66RttMultiPhaseLogs,
 ) -> Nip66RttMetadata:
-    """Complete RTT metadata with data and logs."""
+    """Complete RTT result container with data and logs."""
     return Nip66RttMetadata(data=complete_rtt_data, logs=complete_rtt_logs)
 
 
@@ -166,7 +166,7 @@ def complete_ssl_metadata(
     complete_ssl_data: Nip66SslData,
     complete_ssl_logs: Nip66SslLogs,
 ) -> Nip66SslMetadata:
-    """Complete SSL metadata with data and logs."""
+    """Complete SSL result container with data and logs."""
     return Nip66SslMetadata(data=complete_ssl_data, logs=complete_ssl_logs)
 
 
@@ -207,7 +207,7 @@ def complete_geo_metadata(
     complete_geo_data: Nip66GeoData,
     complete_geo_logs: Nip66GeoLogs,
 ) -> Nip66GeoMetadata:
-    """Complete geo metadata with data and logs."""
+    """Complete geo result container with data and logs."""
     return Nip66GeoMetadata(data=complete_geo_data, logs=complete_geo_logs)
 
 
@@ -240,7 +240,7 @@ def complete_net_metadata(
     complete_net_data: Nip66NetData,
     complete_net_logs: Nip66NetLogs,
 ) -> Nip66NetMetadata:
-    """Complete net metadata with data and logs."""
+    """Complete net result container with data and logs."""
     return Nip66NetMetadata(data=complete_net_data, logs=complete_net_logs)
 
 
@@ -273,7 +273,7 @@ def complete_dns_metadata(
     complete_dns_data: Nip66DnsData,
     complete_dns_logs: Nip66DnsLogs,
 ) -> Nip66DnsMetadata:
-    """Complete DNS metadata with data and logs."""
+    """Complete DNS result container with data and logs."""
     return Nip66DnsMetadata(data=complete_dns_data, logs=complete_dns_logs)
 
 
@@ -302,7 +302,7 @@ def complete_http_metadata(
     complete_http_data: Nip66HttpData,
     complete_http_logs: Nip66HttpLogs,
 ) -> Nip66HttpMetadata:
-    """Complete HTTP metadata with data and logs."""
+    """Complete HTTP result container with data and logs."""
     return Nip66HttpMetadata(data=complete_http_data, logs=complete_http_logs)
 
 

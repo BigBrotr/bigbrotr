@@ -214,3 +214,11 @@ Use this section during execution for:
   - aligned the top-level NIP package/module docs and paired NIP-66 test
     fixture prose with that final-repository contract, without reopening
     compatibility-heavy class renames.
+- `2.1` models/utils/NIPs leaf audit, third remediation slice:
+  - aligned the top-level `nip66` orchestration surface and paired tests with
+    the final contract, so the module now describes short fields as probe
+    result containers that later serialize into `document` /
+    `relay_document` records instead of implying that `metadata` is still the
+    canonical repository-level storage concept;
+  - tightened helper names, comments, and registry-test wording to match that
+    result-family framing.

@@ -38,7 +38,7 @@ class TestNipRegistry:
         assert entry.supports_capability("fetch")
         assert entry.supports_service(ServiceName.MONITOR)
 
-    def test_nip66_entry_tracks_metadata_and_protocol_kinds(self) -> None:
+    def test_nip66_entry_tracks_document_families_and_protocol_kinds(self) -> None:
         entry = NIP_REGISTRY[66]
 
         assert entry.slug == "nip66"

@@ -161,16 +161,18 @@ class RelayNip66DocumentTuple(NamedTuple):
 
 
 class Nip66(BaseNip):
-    """NIP-66 relay monitoring data.
+    """NIP-66 relay monitoring result bundle.
 
     Collects relay capability metrics including round-trip times, SSL
     certificate details, DNS records, HTTP headers, network/ASN info,
     and geolocation. Created via the ``probe()`` async factory method.
 
-    Each metadata field is ``None`` when the corresponding test was
-    skipped (disabled via selection, missing dependency, or inapplicable
-    network type). No ``_metadata`` suffix because this is a NIP-66-only
-    container where the field names are unambiguous.
+    Each field holds one historical-name ``*Metadata`` result container or
+    ``None`` when the corresponding test was skipped (disabled via selection,
+    missing dependency, or inapplicable network type). The short field names
+    stay intentional because this is a NIP-66-only bundle whose probe families
+    are already unambiguous; persistence later happens via
+    ``document``/``relay_document`` records.
 
     Attributes:
         relay: The [Relay][bigbrotr.models.relay.Relay] being monitored
@@ -230,13 +232,13 @@ class Nip66(BaseNip):
         """
 
         def make(
-            metadata: BaseNipMetadata | None, metadata_type: DocumentType
+            result_container: BaseNipMetadata | None, document_type: DocumentType
         ) -> RelayDocument | None:
-            if metadata is None:
+            if result_container is None:
                 return None
             return RelayDocument(
                 relay=self.relay,
-                document=Document(type=metadata_type, data=metadata.to_dict()),
+                document=Document(type=document_type, data=result_container.to_dict()),
                 associated_at=self.generated_at,
             )
 
@@ -333,19 +335,19 @@ class Nip66(BaseNip):
         logger.debug("probe_running tests=%s", task_names)
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Map each result to its corresponding metadata field
-        metadata_map: dict[str, Any] = {}
+        # Map each probe result to the corresponding Nip66 field.
+        field_map: dict[str, Any] = {}
         for name, result in zip(task_names, results, strict=True):
             if isinstance(result, (asyncio.CancelledError, KeyboardInterrupt, SystemExit)):
                 raise result
             if isinstance(result, BaseException):
                 logger.error("probe_task_failed test=%s error=%r", name, result)
-                metadata_map[name] = None
+                field_map[name] = None
             else:
                 logger.debug("probe_task_succeeded test=%s", name)
-                metadata_map[name] = result
+                field_map[name] = result
 
-        nip66 = cls(relay=relay, **metadata_map)
+        nip66 = cls(relay=relay, **field_map)
         logger.debug(
             "probe_completed relay=%s rtt=%s ssl=%s geo=%s net=%s dns=%s http=%s",
             relay.url,
