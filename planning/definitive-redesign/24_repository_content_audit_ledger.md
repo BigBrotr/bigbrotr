@@ -744,3 +744,12 @@ Use this section during execution for:
   - added paired unit coverage on the public manager facade proving
     `NostrSdkError` now degrades to `None` plus failed-relay caching rather
     than aborting relay-scoped client acquisition.
+- `2.1` models/utils/NIPs leaf audit, seventieth remediation slice:
+  - aligned `bigbrotr.utils.protocol_validation.validate_relay_protocol()`
+    with the rest of the relay-validation boundary so ordinary SDK connect and
+    fetch failures degrade to an invalid-relay outcome instead of leaking
+    through the helper and the public `is_nostr_relay()` facade;
+  - added paired unit coverage on both `protocol_validation` and
+    `bigbrotr.utils.protocol.is_nostr_relay()` proving `NostrSdkError` now
+    maps to `False` while still preserving the existing auth-required success
+    contract and best-effort shutdown behavior.

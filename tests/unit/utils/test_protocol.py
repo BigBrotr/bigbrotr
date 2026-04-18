@@ -740,6 +740,18 @@ class TestIsNostrRelayMocked:
             result = await is_nostr_relay(relay)
             assert result is False
 
+    async def test_sdk_error_is_invalid(self) -> None:
+        """Test relay that fails with an SDK error is invalid."""
+        relay = Relay("wss://relay.example.com")
+
+        with patch("bigbrotr.utils.protocol.connect_relay") as mock_connect:
+            mock_connect.side_effect = NostrSdkError("sdk connect failed")
+
+            from bigbrotr.utils.protocol import is_nostr_relay
+
+            result = await is_nostr_relay(relay)
+            assert result is False
+
     async def test_passes_proxy_url(self) -> None:
         """Test proxy URL is passed to connect_relay."""
         relay = Relay(f"ws://{'a' * 56}.onion")

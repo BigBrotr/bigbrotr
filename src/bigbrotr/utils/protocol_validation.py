@@ -83,7 +83,7 @@ async def validate_relay_protocol(
             context.logger.debug("validation_timeout relay=%s", relay.url)
             return False
 
-        except OSError as exc:
+        except (OSError, NostrSdkError) as exc:
             error_msg = str(exc).lower()
             if "auth-required" in error_msg:
                 context.logger.debug(

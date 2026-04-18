@@ -67,6 +67,24 @@ class TestValidateRelayProtocol:
         connect_relay.assert_awaited_once()
         shutdown_client.assert_not_awaited()
 
+    async def test_sdk_connect_error_returns_false(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        connect_relay = AsyncMock(side_effect=NostrSdkError("sdk connect failed"))
+        shutdown_client = AsyncMock()
+
+        result = await validate_relay_protocol(
+            relay,
+            _context(
+                connect_relay=connect_relay,
+                shutdown_client=shutdown_client,
+            ),
+            RelayValidationOptions(connect_timeout=5.0),
+        )
+
+        assert result is False
+        connect_relay.assert_awaited_once()
+        shutdown_client.assert_not_awaited()
+
     async def test_shutdown_timeout_is_suppressed_after_success(self) -> None:
         relay = Relay("wss://relay.example.com")
         client = AsyncMock()
@@ -109,6 +127,24 @@ class TestValidateRelayProtocol:
         relay = Relay("wss://relay.example.com")
         client = MagicMock()
         client.fetch_events = AsyncMock(side_effect=TimeoutError("fetch timed out"))
+        shutdown_client = AsyncMock()
+
+        result = await validate_relay_protocol(
+            relay,
+            _context(
+                connect_relay=AsyncMock(return_value=client),
+                shutdown_client=shutdown_client,
+            ),
+            RelayValidationOptions(connect_timeout=5.0),
+        )
+
+        assert result is False
+        shutdown_client.assert_awaited_once_with(client)
+
+    async def test_fetch_sdk_error_returns_false(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        client = MagicMock()
+        client.fetch_events = AsyncMock(side_effect=NostrSdkError("sdk fetch failed"))
         shutdown_client = AsyncMock()
 
         result = await validate_relay_protocol(
