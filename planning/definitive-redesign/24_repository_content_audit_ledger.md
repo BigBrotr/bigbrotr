@@ -2047,3 +2047,13 @@ Use this section during execution for:
     result objects;
   - added paired `ranker` runtime coverage proving invalid model payloads and
     invalid housekeeping totals now fail fast before metrics emission.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-seventy-first remediation
+  slice:
+  - tightened the internal `ranker` phase-result boundary so `_GraphSyncResult`,
+    `_StageResult`, `_ExportSubjectResult`, `_ExportResult`, `_CycleBuildInput`,
+    and `_ComputeExportResult` now reject negative counters, non-positive
+    `rank_run_id` values, and non-canonical cutoff reasons instead of letting
+    impossible intermediate state drift forward until later cycle assembly;
+  - added paired `ranker` runtime coverage proving invalid internal result
+    payloads now fail fast before they can reach cycle-result construction or
+    metrics emission.

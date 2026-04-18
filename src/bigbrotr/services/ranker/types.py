@@ -13,11 +13,24 @@ from .queries import (
     RankSubjectType,
     ScoreExportRow,
 )
-from .runtime import RankPhaseDurations, RankRowCounts
+from .runtime import (
+    RankPhaseDurations,
+    RankRowCounts,
+    _normalize_cycle_cutoff_reason,
+    _require_runtime_non_negative_int,
+)
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+
+def _require_internal_positive_int(value: object, *, field_name: str) -> int:
+    """Return one canonical positive integer for internal ranker types."""
+    normalized = _require_runtime_non_negative_int(value, field_name=field_name)
+    if normalized == 0:
+        raise ValueError(f"{field_name} must be positive")
+    return normalized
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +42,29 @@ class _GraphSyncResult:
     batches_processed: int = 0
     cutoff_reason: str | None = None
 
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "changed_followers_synced",
+            _require_runtime_non_negative_int(
+                self.changed_followers_synced,
+                field_name="changed_followers_synced",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "batches_processed",
+            _require_runtime_non_negative_int(
+                self.batches_processed,
+                field_name="batches_processed",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "cutoff_reason",
+            _normalize_cycle_cutoff_reason(self.cutoff_reason),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class _StageResult:
@@ -36,6 +72,13 @@ class _StageResult:
 
     counts: RankRowCounts
     cutoff_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "cutoff_reason",
+            _normalize_cycle_cutoff_reason(self.cutoff_reason),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +88,18 @@ class _ExportSubjectResult:
     rows: int = 0
     cutoff_reason: str | None = None
 
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "rows",
+            _require_runtime_non_negative_int(self.rows, field_name="rows"),
+        )
+        object.__setattr__(
+            self,
+            "cutoff_reason",
+            _normalize_cycle_cutoff_reason(self.cutoff_reason),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class _ExportResult:
@@ -52,6 +107,13 @@ class _ExportResult:
 
     counts: RankRowCounts
     cutoff_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "cutoff_reason",
+            _normalize_cycle_cutoff_reason(self.cutoff_reason),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +136,27 @@ class _CycleBuildInput:
     phase_durations: RankPhaseDurations = field(default_factory=RankPhaseDurations)
     cutoff_reason: str | None = None
 
+    def __post_init__(self) -> None:
+        if self.rank_run_id is not None:
+            object.__setattr__(
+                self,
+                "rank_run_id",
+                _require_internal_positive_int(self.rank_run_id, field_name="rank_run_id"),
+            )
+        object.__setattr__(
+            self,
+            "cleanup_removed",
+            _require_runtime_non_negative_int(
+                self.cleanup_removed,
+                field_name="cleanup_removed",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "cutoff_reason",
+            _normalize_cycle_cutoff_reason(self.cutoff_reason),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class _ComputeExportResult:
@@ -83,6 +166,18 @@ class _ComputeExportResult:
     score_counts: RankRowCounts = field(default_factory=RankRowCounts)
     phase_durations: RankPhaseDurations = field(default_factory=RankPhaseDurations)
     cutoff_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "rank_run_id",
+            _require_internal_positive_int(self.rank_run_id, field_name="rank_run_id"),
+        )
+        object.__setattr__(
+            self,
+            "cutoff_reason",
+            _normalize_cycle_cutoff_reason(self.cutoff_reason),
+        )
 
 
 _StageFactRow = TypeVar("_StageFactRow", EventStatFact, AddressableStatFact, IdentifierStatFact)

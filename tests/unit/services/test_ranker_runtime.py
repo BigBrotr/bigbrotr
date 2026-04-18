@@ -19,6 +19,14 @@ from bigbrotr.services.ranker.runtime import (
     reset_cycle_metrics,
     sync_cutoff_reason,
 )
+from bigbrotr.services.ranker.types import (
+    _ComputeExportResult,
+    _CycleBuildInput,
+    _ExportResult,
+    _ExportSubjectResult,
+    _GraphSyncResult,
+    _StageResult,
+)
 
 
 if TYPE_CHECKING:
@@ -38,6 +46,44 @@ def _ranker_config(tmp_path: Path) -> RankerConfig:
 
 
 class TestRankerRuntimeHelpers:
+    def test_internal_result_models_reject_invalid_values(self) -> None:
+        with pytest.raises(TypeError):
+            _GraphSyncResult(
+                checkpoint=GraphSyncCheckpoint(),
+                changed_followers_synced=True,  # type: ignore[arg-type]
+            )
+
+        with pytest.raises(ValueError):
+            _GraphSyncResult(
+                checkpoint=GraphSyncCheckpoint(),
+                cutoff_reason="bogus",
+            )
+
+        with pytest.raises(ValueError):
+            _ExportSubjectResult(rows=-1)
+
+        with pytest.raises(ValueError):
+            _StageResult(counts=RankRowCounts(), cutoff_reason="bogus")
+
+        with pytest.raises(ValueError):
+            _ExportResult(counts=RankRowCounts(), cutoff_reason="bogus")
+
+        with pytest.raises(ValueError):
+            _CycleBuildInput(
+                rank_run_id=0,
+                sync_result=_GraphSyncResult(checkpoint=GraphSyncCheckpoint()),
+            )
+
+        with pytest.raises(ValueError):
+            _CycleBuildInput(
+                rank_run_id=None,
+                sync_result=_GraphSyncResult(checkpoint=GraphSyncCheckpoint()),
+                cleanup_removed=-1,
+            )
+
+        with pytest.raises(ValueError):
+            _ComputeExportResult(rank_run_id=0)
+
     def test_runtime_models_reject_invalid_values(self) -> None:
         with pytest.raises(TypeError):
             RankRowCounts(pubkey=True)
