@@ -27,6 +27,10 @@ cd deployments/myproject
 If you want the lightweight storage profile instead, start from
 `deployments/lilbrotr`.
 
+The copied reference deployment already includes local `README.md` files at the
+deployment root and in the config folders. Keep those files honest as you make
+the new deployment diverge from the reference shape.
+
 ## Step 2: Configure Docker Compose
 
 Edit `docker-compose.yaml`:
@@ -192,7 +196,8 @@ docker compose ps
 
 ## Step 10: Add Local Operator Notes
 
-Add a deployment-local `README.md` that explains:
+Keep the copied local `README.md` files accurate. At minimum, the
+deployment-local `README.md` should explain:
 
 - what this deployment is for;
 - which reference deployment it started from;
@@ -200,8 +205,9 @@ Add a deployment-local `README.md` that explains:
 - any custom SQL-template overrides, protocol-exposure limits, or operational
   differences.
 
-That local `README.md` is the fastest way to keep the deployment self-explanatory
-for future operators.
+If the copied `config/README.md` or `config/services/README.md` files stop being
+true after your changes, update them too. Those local docs are the fastest way
+to keep a deployment self-explanatory for future operators.
 
 ---
 
