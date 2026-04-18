@@ -47,8 +47,8 @@ def _to_domain_events(
 
     Sorts by ascending ``(created_at, id)`` then wraps each ``NostrEvent``
     in an ``Event`` domain model. Events that fail model validation (null
-    bytes, overflow) or exceed ``max_event_size`` are silently dropped
-    with a debug log.
+    bytes, overflow) or exceed ``max_event_size`` are dropped with a
+    debug log.
     """
     raw_events.sort(key=lambda e: (e.created_at().as_secs(), e.id().to_hex()))
     result: list[Event] = []

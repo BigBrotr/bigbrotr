@@ -12,6 +12,7 @@ Tests:
 """
 
 import asyncio
+import logging
 from dataclasses import FrozenInstanceError
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -126,6 +127,23 @@ class TestToDomainEvents:
             MockEvent.side_effect = lambda e: e
             result = _to_domain_events([evt], max_event_size=1000)
         assert result == []
+
+    def test_logs_when_dropping_event_exceeding_max_size(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        evt = _make_raw_event(event_id="b" * 64)
+        evt.as_json.return_value = "x" * 1001
+
+        with (
+            patch("bigbrotr.utils.streaming.Event") as MockEvent,
+            caplog.at_level(logging.DEBUG, logger="bigbrotr.utils.streaming"),
+        ):
+            MockEvent.side_effect = lambda e: e
+            result = _to_domain_events([evt], max_event_size=1000)
+
+        assert result == []
+        assert "event_too_large" in caplog.text
+        assert "b" * 16 in caplog.text
 
     def test_accepts_event_within_max_size(self) -> None:
         evt = _make_raw_event()

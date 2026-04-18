@@ -648,3 +648,11 @@ Use this section during execution for:
     parsed subset while recording invalid and unknown fields, so the shared
     NIP-66 data layer now has an explicit package-local test for the same
     report contract enforced elsewhere in the runtime.
+- `2.1` models/utils/NIPs leaf audit, fifty-eighth remediation slice:
+  - tightened the `bigbrotr.utils.streaming` boundary wording so
+    `_to_domain_events()` no longer claims a contradictory “silently dropped
+    with a debug log” contract; the helper now states plainly that invalid or
+    oversized events are dropped and debug-logged;
+  - added direct unit coverage for the oversize-event debug path, so the
+    operator-facing signal around dropped oversized events is now pinned by a
+    package-local test instead of being left implicit.
