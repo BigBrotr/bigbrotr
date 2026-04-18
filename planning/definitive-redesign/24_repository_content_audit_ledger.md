@@ -561,3 +561,10 @@ Use this section during execution for:
   - aligned the module/fetch contract wording and paired unit coverage so the
     leaf surface now says plainly that overlay relays are canonical `ws://`
     entries and therefore do not use an SSL context for NIP-11 fetches.
+- `2.1` models/utils/NIPs leaf audit, forty-eighth remediation slice:
+  - tightened `bigbrotr.utils.protocol_lifecycle` so the optional client-local
+    database wipe is resolved structurally through a dedicated helper instead
+    of relying on a `type: ignore[attr-defined]` call site;
+  - added paired unit coverage that locks in the final contract: if the SDK
+    exposes a callable `wipe()` it is used, and if no wipe handle is exposed
+    the shutdown helper still completes the rest of the best-effort teardown.

@@ -11,18 +11,31 @@ from __future__ import annotations
 
 import contextlib
 import inspect
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar, cast
 
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from nostr_sdk import Client
 
 
-async def _await_if_needed(value: object) -> object:
+T = TypeVar("T")
+
+
+async def _await_if_needed(value: T | Awaitable[T]) -> T:
     """Await ``value`` when it is awaitable, otherwise return it as-is."""
     if inspect.isawaitable(value):
-        return await value
+        return await cast("Awaitable[T]", value)
     return value
+
+
+def _database_wipe_call(database: object) -> Callable[[], object] | None:
+    """Return the optional wipe callable exposed by a client-local database handle."""
+    wipe = getattr(database, "wipe", None)
+    if callable(wipe):
+        return cast("Callable[[], object]", wipe)
+    return None
 
 
 async def shutdown_client(client: Client) -> None:
@@ -33,6 +46,8 @@ async def shutdown_client(client: Client) -> None:
         await _await_if_needed(client.force_remove_all_relays())
     with contextlib.suppress(Exception):
         database = await _await_if_needed(client.database())
-        await _await_if_needed(database.wipe())  # type: ignore[attr-defined]
+        wipe = _database_wipe_call(database)
+        if wipe is not None:
+            await _await_if_needed(wipe())
     with contextlib.suppress(Exception):
         await _await_if_needed(client.shutdown())
