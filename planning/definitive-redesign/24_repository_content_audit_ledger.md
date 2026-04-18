@@ -292,3 +292,11 @@ Use this section during execution for:
     `.loki` network identifier and `loki_*` helper names unchanged;
   - kept this slice strictly documentation/test-data hygiene: no runtime
     behavior or persisted naming contract changed.
+- `2.1` models/utils/NIPs leaf audit, fourteenth remediation slice:
+  - introduced a central human-facing network label on
+    `bigbrotr.models.constants.NetworkType` and used it for overlay/clearnet
+    failure reasons in the tracked `utils` and `nip66` leaves, so runtime
+    messages now say `Tor`, `I2P`, and `Lokinet` while preserving the stable
+    persisted identifiers like `tor`, `i2p`, and `loki`;
+  - strengthened the paired unit tests to lock that distinction in place
+    instead of only asserting generic failure substrings.

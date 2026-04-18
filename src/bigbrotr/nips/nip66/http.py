@@ -167,7 +167,7 @@ class Nip66HttpMetadata(BaseNipMetadata):
                 data=Nip66HttpData(),
                 logs=Nip66HttpLogs(
                     success=False,
-                    reason=f"overlay network {relay.network.value} requires proxy",
+                    reason=f"overlay network {relay.network.display_name} requires proxy",
                 ),
             )
 

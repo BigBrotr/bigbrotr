@@ -188,18 +188,21 @@ class TestNip66SslMetadataSslAsync:
         result = await Nip66SslMetadata.probe(tor_relay, 10.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "Tor" in result.logs.reason
 
     async def test_i2p_returns_failure(self, i2p_relay: Relay) -> None:
         """Returns failure for I2P relay (SSL not applicable)."""
         result = await Nip66SslMetadata.probe(i2p_relay, 10.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "I2P" in result.logs.reason
 
     async def test_loki_returns_failure(self, loki_relay: Relay) -> None:
         """Returns failure for Lokinet relay (SSL not applicable)."""
         result = await Nip66SslMetadata.probe(loki_relay, 10.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "Lokinet" in result.logs.reason
 
     async def test_uses_default_port_443(self, relay: Relay) -> None:
         """Uses port 443 when relay has no explicit port."""

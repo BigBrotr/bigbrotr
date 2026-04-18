@@ -175,7 +175,8 @@ class Nip66DnsMetadata(BaseNipMetadata):
             return cls(
                 data=Nip66DnsData(),
                 logs=Nip66DnsLogs(
-                    success=False, reason=f"requires clearnet, got {relay.network.value}"
+                    success=False,
+                    reason=f"requires clearnet, got {relay.network.display_name}",
                 ),
             )
 

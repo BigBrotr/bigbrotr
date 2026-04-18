@@ -258,7 +258,8 @@ class Nip66SslMetadata(BaseNipMetadata):
             return cls(
                 data=Nip66SslData(),
                 logs=Nip66SslLogs(
-                    success=False, reason=f"requires clearnet, got {relay.network.value}"
+                    success=False,
+                    reason=f"requires clearnet, got {relay.network.display_name}",
                 ),
             )
 

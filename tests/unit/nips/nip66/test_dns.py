@@ -324,18 +324,21 @@ class TestNip66DnsMetadataDnsAsync:
         result = await Nip66DnsMetadata.probe(tor_relay, 5.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "Tor" in result.logs.reason
 
     async def test_i2p_returns_failure(self, i2p_relay: Relay) -> None:
         """Returns failure for I2P relay (DNS not applicable)."""
         result = await Nip66DnsMetadata.probe(i2p_relay, 5.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "I2P" in result.logs.reason
 
     async def test_loki_returns_failure(self, loki_relay: Relay) -> None:
         """Returns failure for Lokinet relay (DNS not applicable)."""
         result = await Nip66DnsMetadata.probe(loki_relay, 5.0)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "Lokinet" in result.logs.reason
 
     async def test_no_records_returns_failure(self, relay: Relay) -> None:
         """No DNS records returns failure logs."""

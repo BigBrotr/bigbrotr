@@ -41,6 +41,14 @@ class TestNetworkType:
 
         assert ReexportedNetworkType is NetworkType
 
+    def test_display_name(self) -> None:
+        assert NetworkType.CLEARNET.display_name == "clearnet"
+        assert NetworkType.TOR.display_name == "Tor"
+        assert NetworkType.I2P.display_name == "I2P"
+        assert NetworkType.LOKI.display_name == "Lokinet"
+        assert NetworkType.LOCAL.display_name == "local"
+        assert NetworkType.UNKNOWN.display_name == "unknown"
+
 
 class TestServiceName:
     """Tests for ServiceName StrEnum."""

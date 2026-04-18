@@ -131,7 +131,7 @@ class Nip66RttMetadata(BaseNipMetadata):
 
         overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
         if proxy_url is None and relay.network in overlay_networks:
-            reason = f"overlay network {relay.network.value} requires proxy"
+            reason = f"overlay network {relay.network.display_name} requires proxy"
             return cls(
                 data=Nip66RttData(),
                 logs=Nip66RttMultiPhaseLogs(

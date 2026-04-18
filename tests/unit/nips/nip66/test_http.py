@@ -75,19 +75,19 @@ class TestNip66HttpMetadataHttp:
         """Returns failure for Tor relay without proxy."""
         result = await Nip66HttpMetadata.probe(tor_relay, 10.0)
         assert result.logs.success is False
-        assert "overlay network tor requires proxy" in result.logs.reason
+        assert "overlay network Tor requires proxy" in result.logs.reason
 
     async def test_i2p_without_proxy_returns_failure(self, i2p_relay: Relay) -> None:
         """Returns failure for I2P relay without proxy."""
         result = await Nip66HttpMetadata.probe(i2p_relay, 10.0)
         assert result.logs.success is False
-        assert "overlay network i2p requires proxy" in result.logs.reason
+        assert "overlay network I2P requires proxy" in result.logs.reason
 
     async def test_loki_without_proxy_returns_failure(self, loki_relay: Relay) -> None:
         """Returns failure for Lokinet relay without proxy."""
         result = await Nip66HttpMetadata.probe(loki_relay, 10.0)
         assert result.logs.success is False
-        assert "overlay network loki requires proxy" in result.logs.reason
+        assert "overlay network Lokinet requires proxy" in result.logs.reason
 
     async def test_tor_with_proxy_works(self, tor_relay: Relay) -> None:
         """Tor relay with proxy succeeds."""

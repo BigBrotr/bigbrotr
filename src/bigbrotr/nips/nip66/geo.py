@@ -212,7 +212,8 @@ class Nip66GeoMetadata(BaseNipMetadata):
             return cls(
                 data=Nip66GeoData(),
                 logs=Nip66GeoLogs(
-                    success=False, reason=f"requires clearnet, got {relay.network.value}"
+                    success=False,
+                    reason=f"requires clearnet, got {relay.network.display_name}",
                 ),
             )
 

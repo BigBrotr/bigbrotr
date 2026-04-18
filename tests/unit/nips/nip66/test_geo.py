@@ -430,6 +430,7 @@ class TestNip66GeoMetadataGeoAsync:
         result = await Nip66GeoMetadata.probe(tor_relay, mock_city_reader)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "Tor" in result.logs.reason
 
     async def test_i2p_returns_failure(
         self,
@@ -440,6 +441,7 @@ class TestNip66GeoMetadataGeoAsync:
         result = await Nip66GeoMetadata.probe(i2p_relay, mock_city_reader)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "I2P" in result.logs.reason
 
     async def test_loki_returns_failure(
         self,
@@ -450,6 +452,7 @@ class TestNip66GeoMetadataGeoAsync:
         result = await Nip66GeoMetadata.probe(loki_relay, mock_city_reader)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "Lokinet" in result.logs.reason
 
     async def test_no_ip_resolved_returns_failure(
         self,

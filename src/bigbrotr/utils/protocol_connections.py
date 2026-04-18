@@ -62,7 +62,7 @@ async def _connect_overlay_relay(
     """Connect one overlay relay through a configured proxy."""
     proxy_url = options.proxy_url
     if proxy_url is None:
-        raise ValueError(f"proxy_url required for {relay.network} relay: {relay.url}")
+        raise ValueError(f"proxy_url required for {relay.network.display_name} relay: {relay.url}")
 
     client = await context.create_client(options.keys, proxy_url)
     await client.add_relay(relay_url)

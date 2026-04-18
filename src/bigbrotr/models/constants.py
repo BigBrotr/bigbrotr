@@ -62,6 +62,18 @@ class NetworkType(StrEnum):
     LOCAL = "local"
     UNKNOWN = "unknown"
 
+    @property
+    def display_name(self) -> str:
+        """Return the human-facing name for this network type."""
+        return {
+            NetworkType.CLEARNET: "clearnet",
+            NetworkType.TOR: "Tor",
+            NetworkType.I2P: "I2P",
+            NetworkType.LOKI: "Lokinet",
+            NetworkType.LOCAL: "local",
+            NetworkType.UNKNOWN: "unknown",
+        }[self]
+
 
 class ServiceName(StrEnum):
     """Canonical service identifiers used in logging, metrics, and persistence.

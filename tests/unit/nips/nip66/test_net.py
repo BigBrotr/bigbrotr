@@ -263,6 +263,7 @@ class TestNip66NetMetadataNetAsync:
         result = await Nip66NetMetadata.probe(tor_relay, mock_asn_reader)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "Tor" in result.logs.reason
 
     async def test_i2p_returns_failure(
         self,
@@ -273,6 +274,7 @@ class TestNip66NetMetadataNetAsync:
         result = await Nip66NetMetadata.probe(i2p_relay, mock_asn_reader)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "I2P" in result.logs.reason
 
     async def test_loki_returns_failure(
         self,
@@ -283,6 +285,7 @@ class TestNip66NetMetadataNetAsync:
         result = await Nip66NetMetadata.probe(loki_relay, mock_asn_reader)
         assert result.logs.success is False
         assert "requires clearnet" in result.logs.reason
+        assert "Lokinet" in result.logs.reason
 
     async def test_no_ip_resolved_returns_failure(
         self,

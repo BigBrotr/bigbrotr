@@ -449,7 +449,7 @@ class TestNip66RttMetadataRtt:
         )
         result = await Nip66RttMetadata.probe(tor_relay, deps, timeout=10.0, proxy_url=None)
         assert result.logs.open_success is False
-        assert "overlay network tor requires proxy" in result.logs.open_reason
+        assert "overlay network Tor requires proxy" in result.logs.open_reason
         assert result.logs.read_success is False
         assert result.logs.write_success is False
 

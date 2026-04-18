@@ -417,6 +417,7 @@ class TestConnectRelayOverlayNetworks:
             await connect_relay(relay, proxy_url=None)
 
         assert "proxy_url required" in str(exc_info.value)
+        assert "I2P" in str(exc_info.value)
 
     async def test_loki_requires_proxy(self) -> None:
         """Test Lokinet relay requires proxy_url."""
@@ -428,6 +429,7 @@ class TestConnectRelayOverlayNetworks:
             await connect_relay(relay, proxy_url=None)
 
         assert "proxy_url required" in str(exc_info.value)
+        assert "Lokinet" in str(exc_info.value)
 
 
 # =============================================================================
