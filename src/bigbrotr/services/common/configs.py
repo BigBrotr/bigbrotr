@@ -1,26 +1,34 @@
 """Shared configuration models for BigBrotr services.
 
-Provides Pydantic models for managing per-network settings (clearnet, Tor, I2P,
-Lokinet). Each network type has its own config class with sensible defaults,
-allowing partial YAML overrides (e.g., setting only ``tor.enabled: true``
-inherits the default ``proxy_url``).
+Provides:
+
+- per-network runtime settings (clearnet, Tor, I2P, Lokinet);
+- shared Nostr signing-key config;
+- public-adapter exposure policy models for API/DVM-style read surfaces.
+
+Each network type has its own config class with sensible defaults, allowing
+partial YAML overrides (e.g., setting only ``tor.enabled: true`` inherits the
+default ``proxy_url``).
 
 The network type is determined by the
 [NetworkType][bigbrotr.models.constants.NetworkType] enum, and the relay's
 network is auto-detected from its URL scheme and hostname by the
 [Relay][bigbrotr.models.relay.Relay] model.
 
-Attributes:
-    enabled: Whether to process relays on this network.
-    proxy_url: SOCKS5 proxy URL for overlay networks.
-    max_tasks: Maximum concurrent connections.
-    timeout: Connection timeout in seconds.
+The module also centralizes the shared public-adapter contract for:
+
+- default/max page-size validation;
+- legacy `tables` rejection;
+- normalization of adapter-local protocol exposure policy over canonical
+  public read-model IDs.
 
 See Also:
     [NetworkType][bigbrotr.models.constants.NetworkType]: Enum that
         identifies each overlay network.
     [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin]:
         Uses ``max_tasks`` to create per-network concurrency semaphores.
+    [PublicReadAdapterConfig][bigbrotr.services.common.configs.PublicReadAdapterConfig]:
+        Shared API/DVM config base for public readable-resource exposure.
     [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig],
     [MonitorConfig][bigbrotr.services.monitor.MonitorConfig],
     [SynchronizerConfig][bigbrotr.services.synchronizer.SynchronizerConfig]:
@@ -40,18 +48,23 @@ Examples:
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from nostr_sdk import Keys
 from pydantic import BaseModel, Field, model_validator
 
+from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.utils.keys import load_keys_from_env
 
 
 logger = logging.getLogger(__name__)
+
+
+if TYPE_CHECKING:
+    from bigbrotr.services.common.read_models import ReadSurface
 
 
 def parse_relay_list_fail_soft(raw: object) -> list[Relay] | None:
@@ -128,20 +141,94 @@ class NostrKeysConfig(BaseModel):
 
 
 class ReadModelPolicy(BaseModel):
-    """Per-read-model access and pricing policy for API and DVM services.
+    """Per-readable-resource access and pricing policy for public adapters.
 
-    Read models default to disabled (not exposed). Only read models explicitly
+    This model is the unit of one adapter-local protocol exposure policy.
+    Public adapters still accept the historical ``read_models`` YAML key, but
+    the underlying concept is broader: a per-protocol decision about which
+    readable resources are exposed and, where relevant, how they are priced.
+
+    Resources default to disabled (not exposed). Only resources explicitly
     listed with ``enabled: true`` in the service YAML config are served.
 
     Attributes:
-        enabled: Whether this read model is exposed. Disabled read models return
-            404 in the API and error feedback in the DVM.
+        enabled: Whether this readable resource is exposed on the adapter.
+            Disabled resources return 404 in the API and error feedback in the DVM.
         price: Price in millisats.  ``0`` means free (no payment required).
             Used by the DVM service for NIP-90 bid/payment-required.
     """
 
-    enabled: bool = Field(default=False, description="Whether this read model is exposed")
+    enabled: bool = Field(default=False, description="Whether this readable resource is exposed")
     price: int = Field(default=0, ge=0, description="Price in millisats (0 = free)")
+
+
+def normalize_protocol_exposure_policy(
+    policies: Mapping[str, ReadModelPolicy],
+    *,
+    surface: str,
+) -> dict[str, ReadModelPolicy]:
+    """Validate one adapter-local exposure policy against canonical resource IDs."""
+    from bigbrotr.services.common.read_models import normalize_read_model_policies  # noqa: PLC0415
+
+    return normalize_read_model_policies(policies, surface=cast("ReadSurface", surface))
+
+
+class PublicReadAdapterConfig(BaseServiceConfig):
+    """Shared config contract for protocol adapters exposing readable resources.
+
+    The public YAML contract still uses ``read_models`` for compatibility, but
+    this base model treats that field explicitly as the adapter's protocol
+    exposure policy over canonical readable-resource IDs.
+    """
+
+    READ_SURFACE: ClassVar[str]
+
+    default_page_size: int = Field(
+        default=100,
+        ge=1,
+        le=10000,
+        description="Default query limit when not specified",
+    )
+    max_page_size: int = Field(
+        default=1000,
+        ge=1,
+        le=10000,
+        description="Hard ceiling on query limit",
+    )
+    read_models: dict[str, ReadModelPolicy] = Field(
+        default_factory=dict,
+        description="Adapter-local protocol exposure policy keyed by public read-model ID",
+    )
+
+    @property
+    def exposure_policy(self) -> dict[str, ReadModelPolicy]:
+        """Return the adapter-local protocol exposure policy."""
+        return self.read_models
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_legacy_tables_key(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "tables" in data:
+            raise ValueError("Use read_models instead of tables")
+        return data
+
+    @model_validator(mode="after")
+    def _validate_page_sizes(self) -> PublicReadAdapterConfig:
+        if self.default_page_size > self.max_page_size:
+            msg = (
+                f"default_page_size ({self.default_page_size}) "
+                f"must not exceed max_page_size ({self.max_page_size})"
+            )
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _validate_protocol_exposure_policy(self) -> PublicReadAdapterConfig:
+        self.read_models = normalize_protocol_exposure_policy(
+            self.read_models,
+            surface=type(self).READ_SURFACE,
+        )
+        return self
 
 
 class ClearnetConfig(BaseModel):

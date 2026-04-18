@@ -12,6 +12,8 @@ pool:
 
 interval: 60.0
 
+# Adapter-local protocol exposure policy over public readable resources.
+# The DVM also uses this policy for per-resource pricing when `price > 0`.
 read_models:
   relays:
     enabled: true

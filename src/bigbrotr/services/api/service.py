@@ -2,7 +2,7 @@
 
 Registers paginated endpoints for all enabled public read models.
 [ReadModelPolicy][bigbrotr.services.common.configs.ReadModelPolicy] remains the
-shared access-policy model, but the adapter now executes directly through the
+shared exposure-policy model, but the adapter now executes directly through the
 shared
 [ReadCore][bigbrotr.services.common.read_models.ReadCore] while preserving the
 historical public HTTP contract in terms of named read models rather than raw
@@ -95,7 +95,7 @@ class Api(BaseService[ApiConfig]):
     def __init__(self, brotr: Brotr, config: ApiConfig | None = None) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: ApiConfig
-        self._read_core = ReadCore(policy_source=lambda: self._config.read_models)
+        self._read_core = ReadCore(policy_source=lambda: self._config.exposure_policy)
         self._server: uvicorn.Server | None = None
         self._server_task: asyncio.Task[None] | None = None
         self._requests_total = 0

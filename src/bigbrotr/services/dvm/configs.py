@@ -12,21 +12,19 @@ See Also:
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, ClassVar
 
-from pydantic import BeforeValidator, Field, model_validator
+from pydantic import BeforeValidator, Field
 
-from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
 from bigbrotr.services.common.configs import (
     NostrKeysConfig,
-    ReadModelPolicy,
+    PublicReadAdapterConfig,
     parse_relay_list_fail_soft,
 )
-from bigbrotr.services.common.read_models import normalize_read_model_policies
 
 
-class DvmConfig(BaseServiceConfig):
+class DvmConfig(PublicReadAdapterConfig):
     """Configuration for the DVM service.
 
     Embeds key management via
@@ -37,10 +35,13 @@ class DvmConfig(BaseServiceConfig):
         kind: NIP-90 request event kind (result = kind + 1000).
         default_page_size: Default ``limit`` when not specified.
         max_page_size: Hard ceiling on query limit.
-        read_models: Per-read-model policies (enable/disable, pricing).
+        read_models: Adapter-local protocol exposure policy with enable/price
+            controls per public read model.
         announce: Whether to publish a NIP-89 handler announcement at startup.
         fetch_timeout: Timeout in seconds for relay subscription setup and replay startup.
     """
+
+    READ_SURFACE: ClassVar[str] = "dvm"
 
     keys: NostrKeysConfig = Field(
         default_factory=lambda: NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_DVM"),
@@ -82,22 +83,6 @@ class DvmConfig(BaseServiceConfig):
         description="NIP-90 request event kind (result = kind + 1000)",
     )
 
-    default_page_size: int = Field(
-        default=100,
-        ge=1,
-        le=10000,
-        description="Default query limit when not specified",
-    )
-    max_page_size: int = Field(
-        default=1000,
-        ge=1,
-        le=10000,
-        description="Hard ceiling on query limit",
-    )
-    read_models: dict[str, ReadModelPolicy] = Field(
-        default_factory=dict,
-        description="Per-read-model access and pricing policies",
-    )
     announce: bool = Field(
         default=True,
         description="Publish NIP-89 handler announcement at startup",
@@ -112,26 +97,3 @@ class DvmConfig(BaseServiceConfig):
         default=False,
         description="Fall back to insecure transport on SSL certificate failure",
     )
-
-    @model_validator(mode="after")
-    def _validate_page_sizes(self) -> DvmConfig:
-        """Ensure default_page_size does not exceed max_page_size."""
-        if self.default_page_size > self.max_page_size:
-            msg = (
-                f"default_page_size ({self.default_page_size}) "
-                f"must not exceed max_page_size ({self.max_page_size})"
-            )
-            raise ValueError(msg)
-        return self
-
-    @model_validator(mode="before")
-    @classmethod
-    def _reject_legacy_tables_key(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "tables" in data:
-            raise ValueError("Use read_models instead of tables")
-        return data
-
-    @model_validator(mode="after")
-    def _validate_public_read_models(self) -> DvmConfig:
-        self.read_models = normalize_read_model_policies(self.read_models, surface="dvm")
-        return self

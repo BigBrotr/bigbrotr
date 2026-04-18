@@ -111,9 +111,9 @@ def dvm_service(mock_brotr: Brotr, dvm_config: DvmConfig, sample_dvm_catalog: Ca
 
 def _build_dvm_read_core(
     sample_dvm_catalog: Catalog,
-    policies: dict[str, ReadModelPolicy],
+    exposure_policy: dict[str, ReadModelPolicy],
 ) -> ReadCore:
-    read_core = ReadCore(policy_source=lambda: policies)
+    read_core = ReadCore(policy_source=lambda: exposure_policy)
     read_core.catalog = sample_dvm_catalog
     return read_core
 
@@ -230,6 +230,13 @@ class TestDvmConfig:
         )
         assert config.read_models["relays"].price == 1000
         assert config.read_models["relays"].enabled is True
+
+    def test_exposure_policy_aliases_read_models(self) -> None:
+        config = DvmConfig(
+            relays=["wss://relay.example.com"],
+            read_models={"relays": ReadModelPolicy(enabled=True, price=1000)},
+        )
+        assert config.exposure_policy == config.read_models
 
     def test_read_models_require_canonical_names(self) -> None:
         with pytest.raises(
@@ -357,8 +364,8 @@ class TestPrepareJobRequest:
             "relays",
             {"limit": "5"},
             context=JobPreparationContext(
-                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.read_models),
-                policies=dvm_config.read_models,
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
                 default_page_size=dvm_config.default_page_size,
                 max_page_size=dvm_config.max_page_size,
             ),
@@ -377,8 +384,8 @@ class TestPrepareJobRequest:
             "service_state",
             {},
             context=JobPreparationContext(
-                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.read_models),
-                policies=dvm_config.read_models,
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
                 default_page_size=dvm_config.default_page_size,
                 max_page_size=dvm_config.max_page_size,
             ),
@@ -395,8 +402,8 @@ class TestPrepareJobRequest:
             "events",
             {"bid": 1000},
             context=JobPreparationContext(
-                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.read_models),
-                policies=dvm_config.read_models,
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
                 default_page_size=dvm_config.default_page_size,
                 max_page_size=dvm_config.max_page_size,
             ),
@@ -414,8 +421,8 @@ class TestPrepareJobRequest:
             "relays",
             {"limit": "not-a-number"},
             context=JobPreparationContext(
-                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.read_models),
-                policies=dvm_config.read_models,
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
                 default_page_size=dvm_config.default_page_size,
                 max_page_size=dvm_config.max_page_size,
             ),

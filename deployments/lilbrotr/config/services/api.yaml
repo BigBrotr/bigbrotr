@@ -14,6 +14,8 @@ pool:
 
 interval: 60.0
 
+# Adapter-local protocol exposure policy over public readable resources.
+# Resources not listed here remain unavailable on this protocol surface.
 read_models:
   relays:
     enabled: true

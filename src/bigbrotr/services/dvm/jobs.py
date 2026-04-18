@@ -61,7 +61,7 @@ class JobExecutionContext:
     """Pure configuration and dependencies needed to execute one DVM job."""
 
     read_core: ReadCore
-    policies: Mapping[str, ReadModelPolicy]
+    exposure_policy: Mapping[str, ReadModelPolicy]
     default_page_size: int
     max_page_size: int
     request_kind: int
@@ -156,7 +156,7 @@ async def handle_job_request(
         request.params,
         context=JobPreparationContext(
             read_core=context.read_core,
-            policies=context.policies,
+            exposure_policy=context.exposure_policy,
             default_page_size=context.default_page_size,
             max_page_size=context.max_page_size,
         ),

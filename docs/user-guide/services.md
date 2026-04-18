@@ -555,7 +555,7 @@ For read models without a stable primary key, the API falls back to offset pagin
 | `port` | int | `8080` | HTTP listen port |
 | `max_page_size` | int | `1000` | Hard ceiling on the `limit` query parameter |
 | `default_page_size` | int | `100` | Default `limit` when not specified |
-| `read_models` | dict | `{}` | Per-read-model access policies (`enabled`) |
+| `read_models` | dict | `{}` | Protocol exposure policy keyed by public read-model ID (`enabled`) |
 | `cors_origins` | list | `[]` | Allowed CORS origins (empty disables CORS) |
 | `request_timeout` | float | `30.0` | Timeout in seconds for each database query |
 
@@ -584,7 +584,9 @@ For read models without a stable primary key, the API falls back to offset pagin
 6. Execute the query via the shared Catalog (same engine as the Api service)
 7. Publish the result as a kind 6050 event, or publish error/payment-required feedback (kind 7000)
 
-The Dvm supports per-read-model pricing via `ReadModelPolicy.price`. When a job's bid is below the required price, a payment-required feedback event is published instead of the query result.
+The Dvm supports protocol-specific pricing via `ReadModelPolicy.price`. When a
+job's bid is below the configured price for the requested public read model, a
+payment-required feedback event is published instead of the query result.
 
 As with the HTTP API, DVM announcements and deployment config should use the canonical
 read-model IDs (`relays`, `relay-stats`, `relay-document-current`, ...). Legacy
@@ -604,7 +606,7 @@ cursor-based contract as the API:
 | `relays` | list[string] | -- (required) | Relay URLs to listen on and publish to |
 | `kind` | int | `5050` | NIP-90 request event kind (result = kind + 1000) |
 | `max_page_size` | int | `1000` | Hard ceiling on query limit |
-| `read_models` | dict | `{}` | Per-read-model policies: `enabled` (bool), `price` (int, millisats) |
+| `read_models` | dict | `{}` | Protocol exposure policy: `enabled` (bool), `price` (int, millisats) |
 | `announce` | bool | `true` | Publish NIP-89 handler announcement at startup |
 | `fetch_timeout` | float | `30.0` | Timeout for relay subscription setup and initial request replay |
 
@@ -679,8 +681,8 @@ For complete configuration details including all fields, defaults, constraints, 
 | Refresher | `current.targets`, `analytics.targets`, `periodic.*`, `interval` | Which shared derivations run incrementally or periodically and how often |
 | Ranker | `algorithm_id`, `graph.*`, `export.batch_size` | PageRank namespace, graph behavior, and snapshot export throughput |
 | Assertor | `algorithm_id`, `selection.kinds`, `provider_profile.enabled`, `trusted_provider_list.enabled` | Assertion namespace, publish scope, and provider package identity |
-| Api | `read_models`, `max_page_size`, `cors_origins` | Which read models to expose and pagination limits |
-| Dvm | `relays`, `read_models`, `kind` | Which relays to listen on and read models to serve |
+| Api | `read_models`, `max_page_size`, `cors_origins` | Adapter-local exposure policy and pagination limits |
+| Dvm | `relays`, `read_models`, `kind` | Relay set plus adapter-local exposure policy and pricing |
 
 ---
 

@@ -80,7 +80,7 @@ class JobPreparationContext:
     """Pure inputs needed to validate one job request."""
 
     read_core: ReadCore
-    policies: Mapping[str, ReadModelPolicy]
+    exposure_policy: Mapping[str, ReadModelPolicy]
     default_page_size: int
     max_page_size: int
 
@@ -115,7 +115,7 @@ def prepare_job_request(
     *,
     context: JobPreparationContext,
 ) -> PreparedJobRequest | RejectedJobRequest:
-    """Resolve access, pricing, and query parsing for one NIP-90 job request."""
+    """Resolve exposure, pricing, and query parsing for one NIP-90 job request."""
     resolved_read_model = context.read_core.resolve_resource("dvm", requested_read_model_id)
     if resolved_read_model is None:
         return RejectedJobRequest(
@@ -124,7 +124,7 @@ def prepare_job_request(
 
     read_model = resolved_read_model
     read_model_id = read_model.read_model_id
-    price = context.policies.get(read_model_id, ReadModelPolicy()).price
+    price = context.exposure_policy.get(read_model_id, ReadModelPolicy()).price
     raw_bid = params.get("bid", 0)
     bid = raw_bid if isinstance(raw_bid, int) else 0
     if price > 0 and bid < price:

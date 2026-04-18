@@ -10,16 +10,14 @@ See Also:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import ClassVar
 
 from pydantic import Field, field_validator, model_validator
 
-from bigbrotr.core.base_service import BaseServiceConfig
-from bigbrotr.services.common.configs import ReadModelPolicy  # noqa: TC001 (Pydantic runtime)
-from bigbrotr.services.common.read_models import normalize_read_model_policies
+from bigbrotr.services.common.configs import PublicReadAdapterConfig
 
 
-class ApiConfig(BaseServiceConfig):
+class ApiConfig(PublicReadAdapterConfig):
     """Configuration for the API service.
 
     Attributes:
@@ -28,11 +26,13 @@ class ApiConfig(BaseServiceConfig):
         route_prefix: URL prefix for all API routes (e.g. ``/v1``, ``/api/v1``).
         max_page_size: Hard ceiling on the ``limit`` query parameter.
         default_page_size: Default ``limit`` when not specified.
-        read_models: Per-read-model access policies. Read models not listed
-            here default to disabled.
+        read_models: Adapter-local protocol exposure policy. Read models not
+            listed here default to disabled.
         cors_origins: Allowed CORS origins.  Empty list disables CORS.
         request_timeout: HTTP request timeout in seconds.
     """
+
+    READ_SURFACE: ClassVar[str] = "api"
 
     title: str = Field(
         default="BigBrotr API",
@@ -55,22 +55,6 @@ class ApiConfig(BaseServiceConfig):
         min_length=1,
         description="URL prefix for all API routes",
     )
-    max_page_size: int = Field(
-        default=1000,
-        ge=1,
-        le=10000,
-        description="Hard ceiling on the limit query parameter",
-    )
-    default_page_size: int = Field(
-        default=100,
-        ge=1,
-        le=10000,
-        description="Default limit when not specified",
-    )
-    read_models: dict[str, ReadModelPolicy] = Field(
-        default_factory=dict,
-        description="Per-read-model access policies",
-    )
     cors_origins: list[str] = Field(
         default_factory=list,
         description="Allowed CORS origins (empty = disabled)",
@@ -92,31 +76,9 @@ class ApiConfig(BaseServiceConfig):
         return f"/{v}"
 
     @model_validator(mode="after")
-    def _validate_page_sizes(self) -> ApiConfig:
-        if self.default_page_size > self.max_page_size:
-            msg = (
-                f"default_page_size ({self.default_page_size}) "
-                f"must not exceed max_page_size ({self.max_page_size})"
-            )
-            raise ValueError(msg)
-        return self
-
-    @model_validator(mode="after")
     def _validate_port_conflict(self) -> ApiConfig:
         if self.metrics.enabled and self.metrics.port == self.port:
             raise ValueError(
                 f"metrics.port ({self.metrics.port}) must differ from HTTP port ({self.port})"
             )
-        return self
-
-    @model_validator(mode="before")
-    @classmethod
-    def _reject_legacy_tables_key(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "tables" in data:
-            raise ValueError("Use read_models instead of tables")
-        return data
-
-    @model_validator(mode="after")
-    def _validate_public_read_models(self) -> ApiConfig:
-        self.read_models = normalize_read_model_policies(self.read_models, surface="api")
         return self

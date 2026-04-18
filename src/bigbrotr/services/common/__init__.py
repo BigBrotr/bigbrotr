@@ -4,12 +4,15 @@ Provides the foundational building blocks used across all eight
 services: configuration models, mixins, and centralized SQL query functions.
 
 Attributes:
-    configs: Per-network Pydantic configuration models
+    configs: Per-network Pydantic configuration models plus shared
+        public-adapter config contracts
         ([ClearnetConfig][bigbrotr.services.common.configs.ClearnetConfig],
         [TorConfig][bigbrotr.services.common.configs.TorConfig],
         [I2pConfig][bigbrotr.services.common.configs.I2pConfig],
-        [LokiConfig][bigbrotr.services.common.configs.LokiConfig]) with
-        sensible defaults for timeouts, proxy URLs, and max concurrent tasks.
+        [LokiConfig][bigbrotr.services.common.configs.LokiConfig],
+        [PublicReadAdapterConfig][bigbrotr.services.common.configs.PublicReadAdapterConfig])
+        with sensible defaults for timeouts, proxy URLs, max concurrent tasks,
+        and public-surface exposure policy validation.
     mixins: [NetworkSemaphoresMixin][bigbrotr.services.common.mixins.NetworkSemaphoresMixin]
         for per-network concurrency control.
     paging: Keyset-pagination helpers for bounded page scans in service

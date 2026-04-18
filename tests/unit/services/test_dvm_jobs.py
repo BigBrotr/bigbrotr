@@ -52,7 +52,7 @@ def job_context() -> JobExecutionContext:
     read_core.catalog._tables = {"relay": MagicMock(), "event": MagicMock()}
     return JobExecutionContext(
         read_core=read_core,
-        policies={
+        exposure_policy={
             "relays": ReadModelPolicy(enabled=True),
             "events": ReadModelPolicy(enabled=True, price=5000),
         },

@@ -3,7 +3,7 @@
 Listens for NIP-90 job requests on configured relays, executes
 read-only queries via the shared
 [ReadCore][bigbrotr.services.common.read_models.ReadCore], and publishes
-results as job-result events (request kind + 1000). Read-model pricing via
+results as job-result events (request kind + 1000). Exposure-policy pricing via
 [ReadModelPolicy][bigbrotr.services.common.configs.ReadModelPolicy]
 enables the NIP-90 bid/payment-required mechanism.
 
@@ -78,7 +78,8 @@ class Dvm(BaseService[DvmConfig]):
 
     Processes NIP-90 job requests (default Kind 5050) by executing
     read-only read-model queries and publishing results (Kind 6050).
-    Supports per-read-model pricing with bid/payment-required negotiation.
+    Supports per-resource pricing through the adapter exposure policy, with
+    bid/payment-required negotiation.
 
     Lifecycle:
         1. ``__aenter__``: discover schema, create Nostr client, connect
@@ -99,7 +100,7 @@ class Dvm(BaseService[DvmConfig]):
     def __init__(self, brotr: Brotr, config: DvmConfig | None = None) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: DvmConfig
-        self._read_core = ReadCore(policy_source=lambda: self._config.read_models)
+        self._read_core = ReadCore(policy_source=lambda: self._config.exposure_policy)
         self._client: Client | None = None
         self._client_manager = NostrClientManager(
             keys=self._config.keys.keys,
@@ -291,7 +292,7 @@ class Dvm(BaseService[DvmConfig]):
             ),
             context=JobExecutionContext(
                 read_core=self._read_core,
-                policies=self._config.read_models,
+                exposure_policy=self._config.exposure_policy,
                 default_page_size=self._config.default_page_size,
                 max_page_size=self._config.max_page_size,
                 request_kind=self._config.kind,

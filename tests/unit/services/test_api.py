@@ -137,6 +137,10 @@ class TestApiConfig:
         assert config.request_timeout == 60.0
         assert config.read_models["events"].enabled is True
 
+    def test_exposure_policy_aliases_read_models(self) -> None:
+        config = ApiConfig(read_models={"relays": ReadModelPolicy(enabled=True)})
+        assert config.exposure_policy == config.read_models
+
     def test_read_models_require_canonical_names(self) -> None:
         with pytest.raises(
             ValueError,
