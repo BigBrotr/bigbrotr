@@ -45,7 +45,12 @@ async def validate_relay_protocol(
     context: RelayValidationContext,
     options: RelayValidationOptions,
 ) -> bool:
-    """Check whether one relay speaks Nostr by completing a basic fetch flow."""
+    """Check whether one relay speaks Nostr via a basic connect/fetch attempt.
+
+    A relay counts as valid when the flow either completes a bounded
+    ``fetch_events()`` call or reports ``auth-required`` during connection,
+    because that still proves the endpoint speaks the Nostr protocol.
+    """
     effective_overall = (
         options.overall_timeout
         if options.overall_timeout is not None

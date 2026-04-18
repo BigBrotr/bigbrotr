@@ -491,3 +491,12 @@ Use this section during execution for:
     and caches a session when the normalized connect outcome contains only
     failures, because higher layers are responsible for deciding whether that
     session is usable.
+- `2.1` models/utils/NIPs leaf audit, thirty-ninth remediation slice:
+  - corrected the `protocol_validation` leaf contract so it now says plainly
+    that `auth-required` during connect still counts as successful relay
+    validation, instead of implying that only a fully completed fetch path can
+    prove protocol support;
+  - added a dedicated leaf test surface for `validate_relay_protocol()`,
+    covering the success path, `auth-required` success, timeout failure, and
+    best-effort shutdown semantics that were previously only exercised through
+    the higher-level facade tests.
