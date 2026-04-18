@@ -14,6 +14,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import dns.resolver
+import pytest
 
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.dns import Nip66DnsMetadata
@@ -152,6 +153,7 @@ class TestNip66DnsMetadataDnsSync:
         mock_ext = MagicMock()
         mock_ext.domain = "example"
         mock_ext.suffix = "com"
+        mock_ext.top_domain_under_public_suffix = "example.com"
 
         with (
             patch("dns.resolver.Resolver", return_value=mock_resolver),
@@ -160,6 +162,7 @@ class TestNip66DnsMetadataDnsSync:
             result = Nip66DnsMetadata._dns("www.example.com", 5.0)
 
         assert result.get("dns_ns") == ["ns1.google.com", "ns2.google.com"]
+        mock_resolver.resolve.assert_any_call("example.com", "NS")
 
     def test_resolves_ptr_record(self) -> None:
         """Resolve PTR record (reverse DNS)."""
@@ -258,8 +261,8 @@ class TestNip66DnsMetadataDnsSync:
         assert result.get("dns_ips") == ["1.2.3.4"]
         assert "dns_ttl" not in result
 
-    def test_tldextract_failure_skips_ns(self) -> None:
-        """NS resolution is skipped when tldextract raises."""
+    def test_registered_domain_parse_failure_skips_ns(self) -> None:
+        """NS resolution is skipped when registered-domain parsing fails."""
         mock_rdata = MagicMock()
         mock_rdata.address = "8.8.8.8"
         mock_response = MagicMock()
@@ -281,12 +284,30 @@ class TestNip66DnsMetadataDnsSync:
 
         with (
             patch("dns.resolver.Resolver", return_value=mock_resolver),
-            patch("tldextract.extract", side_effect=RuntimeError("parse fail")),
+            patch("tldextract.extract", side_effect=ValueError("no tlds set")),
         ):
             result = Nip66DnsMetadata._dns("example.com", 5.0)
 
         assert result.get("dns_ips") == ["8.8.8.8"]
         assert "dns_ns" not in result
+
+    def test_registered_domain_helper_returns_none_for_empty_suffix(self) -> None:
+        """Registered-domain helper returns None when no public suffix exists."""
+        mock_ext = MagicMock()
+        mock_ext.top_domain_under_public_suffix = ""
+
+        with patch("tldextract.extract", return_value=mock_ext):
+            result = Nip66DnsMetadata._registered_domain("localhost")
+
+        assert result is None
+
+    def test_registered_domain_helper_propagates_unexpected_failure(self) -> None:
+        """Unexpected extractor failures are not hidden by the helper."""
+        with (
+            patch("tldextract.extract", side_effect=RuntimeError("boom")),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            Nip66DnsMetadata._registered_domain("example.com")
 
     def test_sets_timeout_and_lifetime(self) -> None:
         """Sets resolver timeout and lifetime."""

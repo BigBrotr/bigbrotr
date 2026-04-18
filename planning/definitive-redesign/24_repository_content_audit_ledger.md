@@ -576,3 +576,12 @@ Use this section during execution for:
     pinned only to clearnet `wss://` flows with `allow_insecure=True`, while
     overlay proxy handshakes stay on plain WebSocket transport with no SSL
     context.
+- `2.1` models/utils/NIPs leaf audit, fiftieth remediation slice:
+  - replaced the broad `except Exception` around registered-domain extraction
+    in `bigbrotr.nips.nip66.dns` with an explicit `_registered_domain()` seam
+    that degrades only for plausible `tldextract` parser/configuration
+    failures (`LookupError`, `UnicodeError`, `ValueError`);
+  - aligned the paired unit coverage so NS resolution is still skipped on
+    realistic parser failure, empty-suffix hosts still return no registered
+    domain, and unexpected extractor failures are now proven to propagate
+    instead of being silently hidden.

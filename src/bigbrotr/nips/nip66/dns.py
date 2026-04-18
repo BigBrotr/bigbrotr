@@ -81,6 +81,22 @@ class Nip66DnsMetadata(BaseNipMetadata):
     logs: Nip66DnsLogs
 
     @staticmethod
+    def _registered_domain(host: str) -> str | None:
+        """Return the registered domain used for NS lookups, if extractable.
+
+        The DNS probe intentionally degrades when registered-domain extraction
+        fails because NS collection is auxiliary to the primary A/AAAA probe
+        path. Only the expected parser/configuration failures from
+        ``tldextract`` are suppressed here; unexpected exceptions should still
+        surface during the audit/test cycle.
+        """
+        with contextlib.suppress(LookupError, UnicodeError, ValueError):
+            ext = tldextract.extract(host)
+            if registered_domain := ext.top_domain_under_public_suffix:
+                return registered_domain
+        return None
+
+    @staticmethod
     def _dns(host: str, timeout: float) -> dict[str, Any]:
         """Perform synchronous DNS resolution across multiple record types.
 
@@ -127,13 +143,8 @@ class Nip66DnsMetadata(BaseNipMetadata):
 
         # NS records (resolved against the registered domain)
         with contextlib.suppress(*_dns_errors):
-            try:
-                ext = tldextract.extract(host)
-            except Exception:
-                ext = None
-            if ext and ext.domain and ext.suffix:
-                domain = f"{ext.domain}.{ext.suffix}"
-                answers = resolver.resolve(domain, "NS")
+            if registered_domain := Nip66DnsMetadata._registered_domain(host):
+                answers = resolver.resolve(registered_domain, "NS")
                 ns_list = [str(cast("NS", rdata).target).rstrip(".") for rdata in answers]
                 if ns_list:
                     result["dns_ns"] = ns_list
