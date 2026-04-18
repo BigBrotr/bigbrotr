@@ -588,6 +588,44 @@ class TestAddressableAssertionProperties:
         with pytest.raises(ValueError, match="event_address must not be empty"):
             AddressableAssertion(event_address="")
 
+    def test_constructor_normalizes_event_address_pubkey(self) -> None:
+        assertion = AddressableAssertion(event_address="30023:" + ("AA" * 32) + ":article")
+        assert assertion.event_address == "30023:" + ("aa" * 32) + ":article"
+
+    @pytest.mark.parametrize(
+        ("event_address", "message"),
+        [
+            ("abc", "event_address must be a canonical kind:pubkey:d coordinate"),
+            (
+                "30023:" + ("aa" * 32) + ":",
+                "event_address d value must not be empty",
+            ),
+            (
+                "abc:" + ("aa" * 32) + ":article",
+                "event_address kind must be a non-negative integer",
+            ),
+            (
+                "030023:" + ("aa" * 32) + ":article",
+                "event_address kind must be canonical",
+            ),
+            (
+                "70000:" + ("aa" * 32) + ":article",
+                "event_address kind must be <= 65535",
+            ),
+            (
+                "30023:abc:article",
+                "event_address pubkey must be a 64-character hex string",
+            ),
+        ],
+    )
+    def test_constructor_rejects_malformed_event_address(
+        self,
+        event_address: str,
+        message: str,
+    ) -> None:
+        with pytest.raises(ValueError, match=message):
+            AddressableAssertion(event_address=event_address)
+
     def test_constructor_rejects_non_string_author_pubkey(self) -> None:
         with pytest.raises(TypeError, match="author_pubkey must be a string"):
             AddressableAssertion(
@@ -661,6 +699,39 @@ class TestAddressableAssertionProperties:
     def test_from_db_row_rejects_empty_event_address(self) -> None:
         with pytest.raises(ValueError, match="event_address must not be empty"):
             AddressableAssertion.from_db_row({"event_address": ""})
+
+    @pytest.mark.parametrize(
+        ("row", "message"),
+        [
+            (
+                {"event_address": "abc"},
+                "event_address must be a canonical kind:pubkey:d coordinate",
+            ),
+            (
+                {"event_address": "30023:" + ("aa" * 32) + ":"},
+                "event_address d value must not be empty",
+            ),
+            (
+                {"event_address": "abc:" + ("aa" * 32) + ":article"},
+                "event_address kind must be a non-negative integer",
+            ),
+            (
+                {"event_address": "030023:" + ("aa" * 32) + ":article"},
+                "event_address kind must be canonical",
+            ),
+            (
+                {"event_address": "30023:" + ("zz" * 32) + ":article"},
+                "event_address pubkey must be a 64-character hex string",
+            ),
+        ],
+    )
+    def test_from_db_row_rejects_malformed_event_address(
+        self,
+        row: dict[str, object],
+        message: str,
+    ) -> None:
+        with pytest.raises(ValueError, match=message):
+            AddressableAssertion.from_db_row(row)
 
     @pytest.mark.parametrize(
         ("row", "message"),

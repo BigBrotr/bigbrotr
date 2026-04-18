@@ -599,6 +599,19 @@ Use this section during execution for:
   - paired coverage now pins malformed constructor and `from_db_row()`
     hydration payloads for all affected subject surfaces, plus the lowercase
     normalization path for required hex identifiers.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-forty-first remediation
+  slice:
+  - tightened the `AddressableAssertion.event_address` seam so kind `30384`
+    subjects are now real canonical `kind:pubkey:d` coordinates instead of
+    arbitrary non-empty strings; the model now rejects malformed arity,
+    non-canonical kinds, out-of-range kinds, malformed pubkeys, and empty
+    `d` values;
+  - canonicalized the embedded pubkey to lowercase at the frozen model
+    boundary so equivalent uppercase input no longer creates distinct
+    addressable subject identities;
+  - paired coverage now pins malformed constructor and `from_db_row()`
+    hydration payloads for all of those failure modes, plus the successful
+    lowercase normalization path.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

@@ -19,12 +19,13 @@ import hashlib
 from dataclasses import dataclass, field
 from typing import Any
 
-from bigbrotr.models.constants import EventKind
+from bigbrotr.models.constants import EVENT_KIND_MAX, EventKind
 from bigbrotr.models.relay import Relay
 
 
 _MSATS_PER_SAT = 1000
 _ACTIVITY_HOURS_BUCKETS = 24
+_ADDRESSABLE_COORD_PARTS = 3
 _MAX_NIP85_SCORE = 100
 _HEX_32_TEXT_LENGTH = 64
 _MISSING = object()
@@ -191,6 +192,30 @@ def _require_supported_trusted_provider_kind(value: Any) -> int:
     if result_kind not in _SUPPORTED_TRUSTED_PROVIDER_RESULT_KINDS:
         raise ValueError("result_kind must be a supported NIP-85 assertion kind")
     return result_kind
+
+
+def _normalize_event_address(value: Any) -> str:
+    """Return a canonical ``kind:pubkey:d`` addressable-event coordinate."""
+    event_address = _require_non_empty_text(value, "event_address")
+    parts = event_address.split(":", 2)
+    if len(parts) != _ADDRESSABLE_COORD_PARTS:
+        raise ValueError("event_address must be a canonical kind:pubkey:d coordinate")
+
+    kind_text, pubkey_text, d_value = parts
+    try:
+        kind = _require_non_negative_int(int(kind_text), "event_address kind")
+    except ValueError as exc:
+        raise ValueError("event_address kind must be a non-negative integer") from exc
+    if str(kind) != kind_text:
+        raise ValueError("event_address kind must be canonical")
+    if kind > EVENT_KIND_MAX:
+        raise ValueError(f"event_address kind must be <= {EVENT_KIND_MAX}")
+
+    pubkey = _require_hex32_text(pubkey_text, "event_address pubkey")
+    if not d_value:
+        raise ValueError("event_address d value must not be empty")
+
+    return f"{kind}:{pubkey}:{d_value}"
 
 
 def _require_text_sequence(value: Any, field_name: str, *, noun: str) -> tuple[str, ...]:
@@ -529,7 +554,7 @@ class AddressableAssertion:
         object.__setattr__(
             self,
             "event_address",
-            _require_non_empty_text(self.event_address, "event_address"),
+            _normalize_event_address(self.event_address),
         )
         object.__setattr__(
             self,
