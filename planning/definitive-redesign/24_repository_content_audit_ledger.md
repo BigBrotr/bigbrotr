@@ -1727,3 +1727,12 @@ Use this section during execution for:
   - added paired `services/common` coverage proving both direct sort
     canonicalization and full cursor-pagination follow-ups accept equivalent
     sort casing without breaking the keyset boundary.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirty-ninth remediation
+  slice:
+  - tightened the shared catalog keyset numeric boundary so follow-up cursors
+    no longer reuse the already rounded public `float` rendering of `numeric`
+    columns, and now carry an exact hidden numeric representation for cursor
+    comparison while keeping the public row payload unchanged;
+  - added paired `services/common` coverage proving numeric keyset follow-up
+    pages now bind exact cursor values and reject malformed non-finite numeric
+    cursor payloads at the same shared typed boundary.

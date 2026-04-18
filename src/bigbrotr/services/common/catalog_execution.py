@@ -18,6 +18,22 @@ if TYPE_CHECKING:
     from .catalog_types import ColumnSchema
 
 
+def _normalize_catalog_row(
+    row: dict[str, Any],
+    *,
+    plan: PaginationPlan,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split one fetched row into public data and exact cursor payloads."""
+    public_row = dict(row)
+    cursor_row = dict(row)
+    for term in plan.order_terms:
+        hidden_key = f"__cursor_{term.column}"
+        if hidden_key in public_row:
+            public_row.pop(hidden_key)
+            cursor_row[term.column] = cursor_row.pop(hidden_key)
+    return public_row, cursor_row
+
+
 async def execute_catalog_query(  # noqa: PLR0913
     brotr: Brotr,
     *,
@@ -39,12 +55,15 @@ async def execute_catalog_query(  # noqa: PLR0913
     except asyncpg.PostgresError as e:
         raise error_factory("Query execution failed") from e
 
-    result_rows = [dict(row) for row in rows]
+    normalized_rows = [_normalize_catalog_row(dict(row), plan=plan) for row in rows]
+    result_rows = [public_row for public_row, _cursor_row in normalized_rows]
+    cursor_rows = [cursor_row for _public_row, cursor_row in normalized_rows]
     next_cursor: str | None = None
     if plan.use_keyset and len(result_rows) > limit:
         result_rows = result_rows[:limit]
+        cursor_rows = cursor_rows[:limit]
         next_cursor = encode_cursor(
-            result_rows[-1],
+            cursor_rows[-1],
             sort=sort,
             order_terms=plan.order_terms,
         )

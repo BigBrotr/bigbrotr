@@ -161,24 +161,31 @@ def build_pagination_plan(  # noqa: PLR0913
         next_param_idx = len(params) + 1
 
     data_where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+    use_keyset = bool(order_terms) and offset == 0
+    data_select_cols = context.select_cols
+    if use_keyset:
+        data_select_cols = build_cursor_select_columns(
+            context.select_cols,
+            order_terms=order_terms,
+            col_types=context.col_types,
+        )
     order_sql = build_order_sql(
         order_terms,
         sort=sort,
         schema=schema,
         prefer_keyset=prefer_keyset,
     )
-    use_keyset = bool(order_terms) and offset == 0
 
     data_params = list(params)
     if use_keyset:
         data_query = (
-            f"SELECT {context.select_cols} FROM {table}{data_where_sql}{order_sql}"  # noqa: S608
+            f"SELECT {data_select_cols} FROM {table}{data_where_sql}{order_sql}"  # noqa: S608
             f" LIMIT ${next_param_idx}"
         )
         data_params.append(limit + 1)
     else:
         data_query = (
-            f"SELECT {context.select_cols} FROM {table}{data_where_sql}{order_sql}"  # noqa: S608
+            f"SELECT {data_select_cols} FROM {table}{data_where_sql}{order_sql}"  # noqa: S608
             f" LIMIT ${next_param_idx} OFFSET ${next_param_idx + 1}"
         )
         data_params.extend([limit, offset])
@@ -210,6 +217,23 @@ def build_select_columns(columns: tuple[ColumnSchema, ...]) -> str:
         else:
             parts.append(column.name)
     return ", ".join(parts)
+
+
+def build_cursor_select_columns(
+    select_cols: str,
+    *,
+    order_terms: tuple[OrderTerm, ...],
+    col_types: dict[str, str],
+) -> str:
+    """Append exact hidden cursor scalars for keyset-ordered numeric columns."""
+    extra_parts = [
+        f"{term.column}::text AS __cursor_{term.column}"
+        for term in order_terms
+        if col_types[term.column] in _NUMERIC_TYPES
+    ]
+    if not extra_parts:
+        return select_cols
+    return ", ".join((select_cols, *extra_parts))
 
 
 def parse_filter(raw: str) -> tuple[str, str]:
@@ -494,6 +518,31 @@ def _validate_parameter_scalar_type(column: str, pg_type: str, value: Any) -> No
             raise CatalogError(f"Invalid parameter value for column {column}")
 
 
+def _validate_cursor_numeric_value(column: str, value: Any) -> None:
+    """Validate one decoded numeric cursor scalar."""
+    if isinstance(value, bool):
+        raise CatalogError(f"Invalid cursor value for column {column}")
+    if isinstance(value, int):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise CatalogError(f"Invalid cursor value for column {column}")
+        return
+    if not isinstance(value, str):
+        raise CatalogError(f"Invalid cursor value for column {column}")
+
+    normalized = value.strip()
+    if not normalized:
+        raise CatalogError(f"Invalid cursor value for column {column}")
+
+    try:
+        parsed = Decimal(normalized)
+    except InvalidOperation as error:
+        raise CatalogError(f"Invalid cursor value for column {column}") from error
+    if not parsed.is_finite():
+        raise CatalogError(f"Invalid cursor value for column {column}")
+
+
 def _validate_cursor_scalar_type(column: str, pg_type: str, value: Any) -> None:
     """Validate one decoded cursor scalar against the expected column type."""
     if pg_type in _TEXT_TYPES:
@@ -516,10 +565,7 @@ def _validate_cursor_scalar_type(column: str, pg_type: str, value: Any) -> None:
         return
 
     if pg_type in _NUMERIC_TYPES:
-        if isinstance(value, bool) or not isinstance(value, int | float):
-            raise CatalogError(f"Invalid cursor value for column {column}")
-        if isinstance(value, float) and not math.isfinite(value):
-            raise CatalogError(f"Invalid cursor value for column {column}")
+        _validate_cursor_numeric_value(column, value)
 
 
 def coerce_parameter_value(
@@ -543,6 +589,12 @@ def coerce_parameter_value(
             raise CatalogError(f"Invalid {source} value for column {column}") from error
     if source == "cursor":
         _validate_cursor_scalar_type(column, pg_type, value)
+        if pg_type in _NUMERIC_TYPES:
+            if isinstance(value, int):
+                return value
+            if isinstance(value, float):
+                return Decimal(str(value))
+            return Decimal(value.strip())
     elif source == "filter":
         _validate_filter_scalar_type(column, pg_type, value)
     elif source == "parameter":

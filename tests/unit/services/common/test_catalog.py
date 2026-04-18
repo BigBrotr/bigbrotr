@@ -10,6 +10,7 @@ Tests:
 
 import base64
 import json
+from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
 import asyncpg
@@ -552,6 +553,92 @@ class TestCatalogQuery:
         call_args = catalog_brotr.fetch.call_args
         assert "(stored_at, url) < ($1::bigint, $2)" in call_args[0][0]
         assert call_args[0][1:] == (300, "wss://relay-3.example.com", 2)
+
+    async def test_query_uses_exact_numeric_cursor_values_for_follow_up_keyset_page(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        populated_catalog._tables["relay_scores"] = TableSchema(
+            name="relay_scores",
+            columns=(
+                ColumnSchema(name="score", pg_type="numeric", nullable=False),
+                ColumnSchema(name="url", pg_type="text", nullable=False),
+            ),
+            primary_key=("score", "url"),
+            is_view=True,
+        )
+
+        first = MagicMock()
+        first.items.return_value = [
+            ("score", 0.12345678912345678),
+            ("url", "wss://relay-3.example.com"),
+            ("__cursor_score", "0.123456789123456789"),
+        ]
+        first.__iter__ = lambda self: iter(self.items())
+        first.keys.return_value = ["score", "url", "__cursor_score"]
+        first.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        second = MagicMock()
+        second.items.return_value = [
+            ("score", 0.02345678912345678),
+            ("url", "wss://relay-2.example.com"),
+            ("__cursor_score", "0.023456789123456789"),
+        ]
+        second.__iter__ = lambda self: iter(self.items())
+        second.keys.return_value = ["score", "url", "__cursor_score"]
+        second.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        catalog_brotr.fetch = AsyncMock(return_value=[first, second])  # type: ignore[method-assign]
+        first_page = await populated_catalog.query(
+            catalog_brotr,
+            "relay_scores",
+            limit=1,
+            offset=0,
+            sort="score:desc",
+            prefer_keyset=True,
+            include_total=False,
+        )
+
+        assert first_page.rows == [
+            {
+                "score": 0.12345678912345678,
+                "url": "wss://relay-3.example.com",
+            }
+        ]
+        assert "__cursor_score" not in first_page.rows[0]
+
+        next_row = MagicMock()
+        next_row.items.return_value = [
+            ("score", 0.02345678912345678),
+            ("url", "wss://relay-2.example.com"),
+            ("__cursor_score", "0.023456789123456789"),
+        ]
+        next_row.__iter__ = lambda self: iter(self.items())
+        next_row.keys.return_value = ["score", "url", "__cursor_score"]
+        next_row.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        catalog_brotr.fetch = AsyncMock(return_value=[next_row])  # type: ignore[method-assign]
+
+        result = await populated_catalog.query(
+            catalog_brotr,
+            "relay_scores",
+            limit=1,
+            offset=0,
+            sort="score:desc",
+            cursor=first_page.next_cursor,
+            prefer_keyset=True,
+            include_total=False,
+        )
+
+        assert result.rows == [
+            {
+                "score": 0.02345678912345678,
+                "url": "wss://relay-2.example.com",
+            }
+        ]
+        call_args = catalog_brotr.fetch.call_args
+        assert "(score, url) < ($1::numeric, $2)" in call_args[0][0]
+        assert call_args[0][1] == Decimal("0.123456789123456789")
+        assert call_args[0][2:] == ("wss://relay-3.example.com", 2)
 
     async def test_query_prefers_primary_key_keyset_when_requested(
         self, populated_catalog: Catalog, catalog_brotr: Brotr
@@ -1394,6 +1481,14 @@ class TestTypedCursorValidation:
     ) -> None:
         with pytest.raises(CatalogError, match=f"Invalid cursor value for column {column}"):
             Catalog._coerce_parameter_value(column, pg_type, value, source="cursor")
+
+    def test_direct_cursor_coercion_accepts_exact_numeric_strings(self) -> None:
+        assert Catalog._coerce_parameter_value(
+            "score",
+            "numeric",
+            "0.123456789123456789",
+            source="cursor",
+        ) == Decimal("0.123456789123456789")
 
 
 # ============================================================================
