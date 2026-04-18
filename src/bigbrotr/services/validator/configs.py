@@ -10,10 +10,19 @@ See Also:
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Any
+
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.services.common.configs import NetworksConfig
+
+
+def _reject_bool_alias(value: Any, field_name: str, expected: str) -> Any:
+    """Reject boolean aliases for numeric validator config fields."""
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected {expected}, got bool")
+    return value
 
 
 class ProcessingConfig(BaseModel):
@@ -50,6 +59,22 @@ class ProcessingConfig(BaseModel):
         description="Fall back to insecure transport on SSL certificate failure",
     )
 
+    @field_validator("max_candidates", mode="before")
+    @classmethod
+    def reject_boolean_max_candidates(cls, v: Any, info: ValidationInfo) -> Any:
+        """Reject boolean aliases that would otherwise coerce to a one-item cycle budget."""
+        if v is None:
+            return v
+        field_name = info.field_name or "max_candidates"
+        return _reject_bool_alias(v, field_name, "integer")
+
+    @field_validator("interval", mode="before")
+    @classmethod
+    def reject_boolean_interval(cls, v: Any, info: ValidationInfo) -> Any:
+        """Reject boolean aliases that would otherwise coerce to retry windows."""
+        field_name = info.field_name or "interval"
+        return _reject_bool_alias(v, field_name, "number")
+
 
 class CleanupConfig(BaseModel):
     """Exhausted candidate cleanup settings.
@@ -72,6 +97,13 @@ class CleanupConfig(BaseModel):
     max_failures: int = Field(
         default=720, ge=1, description="Failure threshold for candidate removal"
     )
+
+    @field_validator("max_failures", mode="before")
+    @classmethod
+    def reject_boolean_max_failures(cls, v: Any, info: ValidationInfo) -> Any:
+        """Reject boolean aliases that would otherwise coerce to a failure threshold of 1/0."""
+        field_name = info.field_name or "max_failures"
+        return _reject_bool_alias(v, field_name, "integer")
 
 
 class ValidatorConfig(BaseServiceConfig):

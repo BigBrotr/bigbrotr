@@ -2104,3 +2104,13 @@ Use this section during execution for:
   - added paired `monitor` coverage proving those boolean aliases now fail
     fast at config load instead of mutating retry semantics or relay-budget
     planning.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-seventy-seventh remediation
+  slice:
+  - tightened the public `validator` config boundary so
+    `processing.max_candidates`, `processing.interval`, and
+    `cleanup.max_failures` no longer accept boolean aliases, which previously
+    let values like `True` coerce to `1` or `1.0` and silently alter
+    validation cycle budget, retry cadence, or cleanup thresholds;
+  - added paired `validator` coverage proving those boolean aliases now fail
+    fast at config load instead of mutating validation scheduling or candidate
+    cleanup behavior.

@@ -114,6 +114,10 @@ class TestProcessingConfig:
         with pytest.raises(ValueError):
             ProcessingConfig(max_candidates=0)
 
+    def test_rejects_boolean_max_candidates_alias(self) -> None:
+        with pytest.raises(ValueError, match="max_candidates: expected integer, got bool"):
+            ProcessingConfig(max_candidates=True)
+
     def test_interval_bounds(self) -> None:
         assert ProcessingConfig(interval=0.0).interval == 0.0
         assert ProcessingConfig(interval=604_800.0).interval == 604_800.0
@@ -121,6 +125,10 @@ class TestProcessingConfig:
     def test_interval_above_max_rejected(self) -> None:
         with pytest.raises(ValueError):
             ProcessingConfig(interval=604_801.0)
+
+    def test_rejects_boolean_interval_alias(self) -> None:
+        with pytest.raises(ValueError, match="interval: expected number, got bool"):
+            ProcessingConfig(interval=True)
 
 
 # ============================================================================
@@ -145,6 +153,10 @@ class TestCleanupConfig:
     def test_max_failures_zero_rejected(self) -> None:
         with pytest.raises(ValueError):
             CleanupConfig(max_failures=0)
+
+    def test_rejects_boolean_max_failures_alias(self) -> None:
+        with pytest.raises(ValueError, match="max_failures: expected integer, got bool"):
+            CleanupConfig(max_failures=True)
 
 
 # ============================================================================
