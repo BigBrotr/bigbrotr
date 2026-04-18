@@ -335,3 +335,10 @@ Use this section during execution for:
   - mirrored that in the root `tests/unit/nips` package narrative so the
     tracked NIP test surface now names result containers, parse/report helpers,
     builders, and registry seams explicitly.
+- `2.1` models/utils/NIPs leaf audit, twentieth remediation slice:
+  - tightened the tracked `utils` key-loading package narrative so the public
+    low-level surface no longer presents higher-level service config wrappers as
+    part of the local package contract;
+  - kept the practical context about key consumers, but described wrapper
+    policy generically so the `utils` package remains documented as a reusable
+    low-level library seam.

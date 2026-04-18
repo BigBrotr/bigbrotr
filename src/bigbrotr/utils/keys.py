@@ -13,9 +13,6 @@ Warning:
 See Also:
     [bigbrotr.services.monitor.Monitor][bigbrotr.services.monitor.Monitor]:
         Primary consumer that signs NIP-66 kind 10166/30166 events.
-    [bigbrotr.services.common.configs.NostrKeysConfig][bigbrotr.services.common.configs.NostrKeysConfig]:
-        Shared service-key config that wraps this loader and adds the
-        ephemeral-key fallback policy.
     [bigbrotr.utils.protocol_publish.broadcast_events][bigbrotr.utils.protocol_publish.broadcast_events]:
         Uses keys for Nostr event broadcasting.
     [bigbrotr.nips.nip66.rtt.Nip66RttDependencies][bigbrotr.nips.nip66.rtt.Nip66RttDependencies]:

@@ -11,8 +11,8 @@ Attributes:
     http: Bounded HTTP read/download helpers used by NIP fetchers and support
         tooling.
     keys: Low-level Nostr key loading from environment variables (nsec1 bech32
-        or hex format). Shared service-key policy now lives in
-        ``bigbrotr.services.common.configs.NostrKeysConfig``.
+        or hex format). Higher layers may wrap this loader with deployment- or
+        service-specific key policy.
     protocol: High-level public facade for relay connection, event
         broadcasting, relay validation, and client-session management.
     protocol_*: Internal seams that split client construction, connection
