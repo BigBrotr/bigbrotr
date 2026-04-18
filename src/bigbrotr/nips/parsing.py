@@ -230,13 +230,26 @@ def _build_dispatch(spec: FieldSpec) -> dict[str, _FieldParser]:
 
 
 def parse_fields_report(
-    data: dict[str, Any],
+    data: Any,
     spec: FieldSpec,
     *,
     path: str = "",
     extra_known_fields: frozenset[str] = frozenset(),
 ) -> ParseReport:
     """Parse a dictionary according to a ``FieldSpec`` and record dropped data."""
+    if not isinstance(data, dict):
+        target = path or "payload"
+        return ParseReport(
+            parsed={},
+            issues=(
+                ParseIssue(
+                    kind="invalid_input",
+                    path=target,
+                    detail="expected dict",
+                ),
+            ),
+        )
+
     dispatch = _build_dispatch(spec)
 
     result: dict[str, Any] = {}
@@ -289,7 +302,7 @@ def parse_fields_report(
     return ParseReport(parsed=result, issues=tuple(issues))
 
 
-def parse_fields(data: dict[str, Any], spec: FieldSpec) -> dict[str, Any]:
+def parse_fields(data: Any, spec: FieldSpec) -> dict[str, Any]:
     """Parse a dictionary according to a ``FieldSpec``, dropping invalid values.
 
     Each key-value pair is checked against the field sets in *spec*.

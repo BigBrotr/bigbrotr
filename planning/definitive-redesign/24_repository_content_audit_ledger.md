@@ -367,6 +367,13 @@ Use this section during execution for:
   - paired parsing coverage now pins that ambiguous specs fail fast at
     construction time, keeping shared NIP parsing contracts explicit and
     deterministic.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twentieth remediation slice:
+  - `bigbrotr.nips.parsing.parse_fields_report()` now keeps the shared
+    defensive parsing contract even for non-dict top-level input instead of
+    crashing on `.items()` before it can emit a parse report;
+  - paired parsing coverage now pins both entrypoints: `parse_fields()` degrades
+    invalid top-level input to `{}`, while `parse_fields_report()` records the
+    explicit `invalid_input` issue at the root payload boundary.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

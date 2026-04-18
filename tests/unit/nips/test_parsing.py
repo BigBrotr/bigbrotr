@@ -144,6 +144,11 @@ class TestParseFieldsEmpty:
         assert result == {"count": 10}
         assert "unknown" not in result
 
+    def test_non_dict_input_returns_empty(self):
+        """Non-dict input degrades to an empty payload instead of raising."""
+        spec = FieldSpec(int_fields=frozenset({"count"}))
+        assert parse_fields("not a dict", spec) == {}
+
 
 # =============================================================================
 # parse_fields: int_fields Tests
@@ -699,6 +704,18 @@ class TestParseFieldsRealWorld:
 
 class TestParseFieldsReport:
     """Test parse_fields_report issue collection."""
+
+    def test_report_marks_non_dict_input_as_invalid(self):
+        """Report-oriented parsing records invalid top-level input explicitly."""
+        spec = FieldSpec(int_fields=frozenset({"count"}))
+
+        report = parse_fields_report("not a dict", spec)
+
+        assert report.parsed == {}
+        assert report.has_issues is True
+        assert [issue.kind for issue in report.issues] == ["invalid_input"]
+        assert [issue.path for issue in report.issues] == ["payload"]
+        assert [issue.detail for issue in report.issues] == ["expected dict"]
 
     def test_report_collects_unknown_and_invalid_fields(self):
         """Report records unknown keys and invalid field values."""
