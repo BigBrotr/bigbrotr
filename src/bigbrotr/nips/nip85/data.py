@@ -126,6 +126,14 @@ def _require_text(value: Any, field_name: str) -> str:
     return value
 
 
+def _require_non_empty_text(value: Any, field_name: str) -> str:
+    """Return ``value`` as a non-empty string."""
+    text = _require_text(value, field_name)
+    if not text:
+        raise ValueError(f"{field_name} must not be empty")
+    return text
+
+
 def _require_text_sequence(value: Any, field_name: str, *, noun: str) -> tuple[str, ...]:
     """Return ``value`` as a tuple of strings, rejecting scalar or mixed-type inputs."""
     if value is None:
@@ -245,7 +253,7 @@ class UserAssertion:
     following_count: int = 0
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "pubkey", _require_text(self.pubkey, "pubkey"))
+        object.__setattr__(self, "pubkey", _require_non_empty_text(self.pubkey, "pubkey"))
         object.__setattr__(
             self,
             "top_topics",
@@ -402,7 +410,7 @@ class EventAssertion:
     zap_amount_msats: int = 0
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "event_id", _require_text(self.event_id, "event_id"))
+        object.__setattr__(self, "event_id", _require_non_empty_text(self.event_id, "event_id"))
         object.__setattr__(
             self,
             "author_pubkey",
@@ -462,7 +470,7 @@ class AddressableAssertion:
         object.__setattr__(
             self,
             "event_address",
-            _require_text(self.event_address, "event_address"),
+            _require_non_empty_text(self.event_address, "event_address"),
         )
         object.__setattr__(
             self,
@@ -516,7 +524,11 @@ class IdentifierAssertion:
     k_tags: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "identifier", _require_text(self.identifier, "identifier"))
+        object.__setattr__(
+            self,
+            "identifier",
+            _require_non_empty_text(self.identifier, "identifier"),
+        )
         _normalize_non_negative_int_fields(self, _IDENTIFIER_ASSERTION_INT_FIELDS)
         object.__setattr__(self, "k_tags", _normalize_tag_set(self.k_tags))
 

@@ -549,6 +549,18 @@ Use this section during execution for:
     rejected explicitly instead of being silently masked by `days_active`;
   - paired coverage now pins invalid timestamp types, negative values, and
     reversed activity windows on both direct construction and hydration.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirty-seventh
+  remediation slice:
+  - hardened the mandatory NIP-85 subject identifiers so `UserAssertion.pubkey`,
+    `EventAssertion.event_id`, `AddressableAssertion.event_address`, and
+    `IdentifierAssertion.identifier` now reject empty strings instead of
+    letting obviously invalid subjects reach tag hashing and public event
+    builders;
+  - kept optional surfaces such as `author_pubkey` untouched in this slice,
+    but aligned both direct construction and `from_db_row()` hydration for the
+    required subject identifiers;
+  - paired coverage now pins the empty-string failure explicitly for all four
+    subject families on both constructor and hydration paths.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

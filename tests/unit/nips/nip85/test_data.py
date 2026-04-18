@@ -108,6 +108,10 @@ class TestUserAssertionProperties:
         with pytest.raises(TypeError, match="pubkey must be a string"):
             UserAssertion(pubkey=None)  # type: ignore[arg-type]
 
+    def test_constructor_rejects_empty_pubkey(self) -> None:
+        with pytest.raises(ValueError, match="pubkey must not be empty"):
+            UserAssertion(pubkey="")
+
     def test_constructor_rejects_scalar_string_top_topics(self) -> None:
         with pytest.raises(
             TypeError,
@@ -204,6 +208,10 @@ class TestUserAssertionFromDbRow:
         row = {"pubkey": None}
         with pytest.raises(TypeError, match="pubkey must be a string"):
             UserAssertion.from_db_row(row)
+
+    def test_from_db_row_rejects_empty_pubkey(self) -> None:
+        with pytest.raises(ValueError, match="pubkey must not be empty"):
+            UserAssertion.from_db_row({"pubkey": ""})
 
     def test_full_row(self) -> None:
         row = {
@@ -424,6 +432,10 @@ class TestEventAssertionProperties:
         with pytest.raises(TypeError, match="event_id must be a string"):
             EventAssertion(event_id=None)  # type: ignore[arg-type]
 
+    def test_constructor_rejects_empty_event_id(self) -> None:
+        with pytest.raises(ValueError, match="event_id must not be empty"):
+            EventAssertion(event_id="")
+
     def test_constructor_rejects_non_string_author_pubkey(self) -> None:
         with pytest.raises(TypeError, match="author_pubkey must be a string"):
             EventAssertion(event_id="ee" * 32, author_pubkey=None)  # type: ignore[arg-type]
@@ -483,6 +495,10 @@ class TestEventAssertionFromDbRow:
         with pytest.raises(TypeError, match="event_id must be a string"):
             EventAssertion.from_db_row(row)
 
+    def test_from_db_row_rejects_empty_event_id(self) -> None:
+        with pytest.raises(ValueError, match="event_id must not be empty"):
+            EventAssertion.from_db_row({"event_id": ""})
+
     def test_from_db_row_rejects_non_string_author_pubkey(self) -> None:
         row = {
             "event_id": "ff" * 32,
@@ -537,6 +553,10 @@ class TestAddressableAssertionProperties:
         with pytest.raises(TypeError, match="event_address must be a string"):
             AddressableAssertion(event_address=None)  # type: ignore[arg-type]
 
+    def test_constructor_rejects_empty_event_address(self) -> None:
+        with pytest.raises(ValueError, match="event_address must not be empty"):
+            AddressableAssertion(event_address="")
+
     def test_constructor_rejects_non_string_author_pubkey(self) -> None:
         with pytest.raises(TypeError, match="author_pubkey must be a string"):
             AddressableAssertion(
@@ -590,6 +610,10 @@ class TestAddressableAssertionProperties:
         }
         with pytest.raises(TypeError, match="event_address must be a string"):
             AddressableAssertion.from_db_row(row)
+
+    def test_from_db_row_rejects_empty_event_address(self) -> None:
+        with pytest.raises(ValueError, match="event_address must not be empty"):
+            AddressableAssertion.from_db_row({"event_address": ""})
 
     @pytest.mark.parametrize(
         ("row", "message"),
@@ -647,6 +671,10 @@ class TestIdentifierAssertionProperties:
     def test_constructor_rejects_non_string_identifier(self) -> None:
         with pytest.raises(TypeError, match="identifier must be a string"):
             IdentifierAssertion(identifier=None)  # type: ignore[arg-type]
+
+    def test_constructor_rejects_empty_identifier(self) -> None:
+        with pytest.raises(ValueError, match="identifier must not be empty"):
+            IdentifierAssertion(identifier="")
 
     def test_from_db_row_normalizes_k_tags(self) -> None:
         row = {
@@ -711,6 +739,10 @@ class TestIdentifierAssertionProperties:
 
         with pytest.raises(TypeError, match="identifier must be a string"):
             IdentifierAssertion.from_db_row(row)
+
+    def test_from_db_row_rejects_empty_identifier(self) -> None:
+        with pytest.raises(ValueError, match="identifier must not be empty"):
+            IdentifierAssertion.from_db_row({"identifier": ""})
 
     @pytest.mark.parametrize(
         ("row", "message"),
