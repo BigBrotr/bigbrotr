@@ -24,7 +24,7 @@ from bigbrotr.services.common.catalog import (
 )
 from bigbrotr.services.common.catalog_types import _MAX_OFFSET
 from bigbrotr.services.common.configs import ReadModelPolicy
-from bigbrotr.services.common.read_models import ReadCore
+from bigbrotr.services.common.read_models import ReadCore, ReadModelQueryError
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import DvmRequestCursor
 from bigbrotr.services.dvm.configs import DvmConfig
@@ -569,6 +569,24 @@ class TestPrepareJobRequest:
         assert isinstance(prepared, PreparedJobRequest)
         assert prepared.query.limit == 5
         assert prepared.query.include_total is True
+
+    def test_rejects_duplicate_normalized_preparsed_param_keys(
+        self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
+    ) -> None:
+        rejected = prepare_job_request(
+            "events",
+            {" bid ": "1000", "bid": "5000"},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(rejected, RejectedJobRequest)
+        assert rejected.error_message == "Invalid query parameter"
+        assert rejected.required_price is None
 
 
 # ============================================================================
@@ -1542,6 +1560,28 @@ class TestParseJobParams:
     def test_blank_param_keys_are_ignored(self) -> None:
         event = _make_utils_mock_event(tags=[["param", "   ", "relays"]])
         assert parse_job_params(event) == {}
+
+    def test_rejects_duplicate_normalized_param_keys(self) -> None:
+        event = _make_utils_mock_event(
+            tags=[
+                ["param", " read_model ", "relays"],
+                ["param", "read_model", "events"],
+            ]
+        )
+
+        with pytest.raises(ReadModelQueryError, match="Invalid query parameter"):
+            parse_job_params(event)
+
+    def test_rejects_duplicate_bid_tags(self) -> None:
+        event = _make_utils_mock_event(
+            tags=[
+                ["bid", "1000"],
+                ["bid", "5000"],
+            ]
+        )
+
+        with pytest.raises(ReadModelQueryError, match="Invalid query parameter"):
+            parse_job_params(event)
 
 
 # ============================================================================

@@ -1754,3 +1754,14 @@ Use this section during execution for:
   - added paired `services/common` coverage proving duplicate normalized
     reserved keys and duplicate normalized HTTP filter keys are rejected
     before pagination, filter validation, or read-model execution proceeds.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-forty-second remediation
+  slice:
+  - tightened the DVM `NIP-90` request-parameter boundary so duplicate `param`
+    keys or duplicate `bid` tags that collapse to the same normalized key no
+    longer overwrite each other via silent last-write-wins parsing, and now
+    fail immediately as ambiguous client input on both live-tag and pre-parsed
+    job paths;
+  - added paired `dvm` coverage proving duplicate normalized request keys are
+    rejected by `parse_job_params()`, surfaced as client-safe rejections by
+    `prepare_job_request()`, and converted into ordinary DVM error responses
+    by `process_request_event()` before query execution begins.

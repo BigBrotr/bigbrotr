@@ -7,7 +7,6 @@ stateless and do not touch the network or the database directly.
 
 from __future__ import annotations
 
-import contextlib
 import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -104,10 +103,17 @@ def parse_job_params(event: Any) -> dict[str, Any]:
             key = values[1].strip()
             if not key:
                 continue
+            if key in params:
+                raise ReadModelQueryError("Invalid query parameter")
             params[key] = values[2]
         elif len(values) >= _MIN_TAG_LEN and values[0] == "bid":
-            with contextlib.suppress(ValueError):
-                params["bid"] = int(values[1])
+            try:
+                bid = int(values[1])
+            except ValueError:
+                continue
+            if "bid" in params:
+                raise ReadModelQueryError("Invalid query parameter")
+            params["bid"] = bid
     return normalize_job_params(params)
 
 
@@ -120,6 +126,8 @@ def normalize_job_params(params: Mapping[Any, Any]) -> dict[str, Any]:
         key = raw_key.strip()
         if not key:
             continue
+        if key in normalized:
+            raise ReadModelQueryError("Invalid query parameter")
         normalized[key] = value
     return normalized
 
@@ -146,7 +154,10 @@ def prepare_job_request(
     context: JobPreparationContext,
 ) -> PreparedJobRequest | RejectedJobRequest:
     """Resolve exposure, pricing, and query parsing for one NIP-90 job request."""
-    params = normalize_job_params(params)
+    try:
+        params = normalize_job_params(params)
+    except ReadModelQueryError as e:
+        return RejectedJobRequest(error_message=e.client_message)
     requested_resource_id = (
         requested_resource_id.strip()
         if isinstance(requested_resource_id, str)

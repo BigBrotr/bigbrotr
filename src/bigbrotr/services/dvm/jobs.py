@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 import asyncpg
 
 from bigbrotr.services.common.catalog import CatalogError
+from bigbrotr.services.common.read_models import ReadModelQueryError
 
 from .utils import (
     JobPreparationContext,
@@ -110,34 +111,41 @@ async def process_request_event(
         return 0, 0, 0, 0
 
     processed_ids.add(event_id)
-    params = normalize_job_params(parse_job_params(event))
-    raw_requested_resource_id = params.get("read_model", "")
-    requested_resource_id = (
-        raw_requested_resource_id.strip()
-        if isinstance(raw_requested_resource_id, str)
-        else str(raw_requested_resource_id).strip()
-    )
-
-    request = JobRequest(
-        event_id=event_id,
-        customer_pubkey=event.author().to_hex(),
-        params=params,
-        requested_resource_id=requested_resource_id,
-    )
-
-    runtime.logger.info(
-        "job_received",
-        event_id=request.event_id,
-        requested_read_model_id=requested_resource_id,
-        customer=request.customer_pubkey,
-    )
-
     try:
+        params = normalize_job_params(parse_job_params(event))
+        raw_requested_resource_id = params.get("read_model", "")
+        requested_resource_id = (
+            raw_requested_resource_id.strip()
+            if isinstance(raw_requested_resource_id, str)
+            else str(raw_requested_resource_id).strip()
+        )
+
+        request = JobRequest(
+            event_id=event_id,
+            customer_pubkey=event.author().to_hex(),
+            params=params,
+            requested_resource_id=requested_resource_id,
+        )
+
+        runtime.logger.info(
+            "job_received",
+            event_id=request.event_id,
+            requested_read_model_id=requested_resource_id,
+            customer=request.customer_pubkey,
+        )
+
         return await handle_job_request(
             request=request,
             runtime=runtime,
             context=context,
         )
+    except ReadModelQueryError as exc:
+        with contextlib.suppress(OSError, TimeoutError):
+            await runtime.send_event(
+                build_error_event(event_id, event.author().to_hex(), exc.client_message),
+                require_success=True,
+            )
+        return 1, 0, 1, 0
     except (CatalogError, OSError, TimeoutError, asyncpg.PostgresError) as exc:
         with contextlib.suppress(OSError, TimeoutError):
             await runtime.send_event(
