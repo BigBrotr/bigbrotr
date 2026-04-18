@@ -60,6 +60,11 @@ class TestBatchConfig:
         with pytest.raises(ValidationError):
             BatchConfig(max_size=100001)
 
+    def test_rejects_boolean_alias(self) -> None:
+        """Test bool aliases do not coerce into a one-item batch size."""
+        with pytest.raises(ValidationError, match="max_size: expected integer, got bool"):
+            BatchConfig(max_size=True)
+
 
 class TestTimeoutsConfig:
     """Tests for TimeoutsConfig Pydantic model."""
@@ -129,6 +134,12 @@ class TestTimeoutsConfig:
         """Test that refresh timeout has no upper bound for long-running procedures."""
         config = TimeoutsConfig(refresh=7200.0)
         assert config.refresh == 7200.0
+
+    @pytest.mark.parametrize("field_name", ["query", "batch", "cleanup", "refresh"])
+    def test_rejects_boolean_aliases(self, field_name: str) -> None:
+        """Test bool aliases do not coerce into one-second Brotr timeouts."""
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected number, got bool"):
+            TimeoutsConfig(**{field_name: True})
 
 
 class TestBrotrConfig:

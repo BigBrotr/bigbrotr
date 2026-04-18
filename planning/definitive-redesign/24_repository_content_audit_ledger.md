@@ -2124,3 +2124,12 @@ Use this section during execution for:
   - added paired `services/common` coverage proving those boolean aliases now
     fail fast for clearnet, Tor, I2P, and Lokinet instead of narrowing
     runtime network semaphores or transport deadlines.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-seventy-ninth remediation
+  slice:
+  - tightened the core `Brotr` config boundary so `batch.max_size` and all
+    per-category database timeouts no longer accept boolean aliases, which
+    previously let values like `True` coerce to `1` or `1.0` and silently
+    shrink bulk insert capacity or database timeout ceilings;
+  - added paired `core` coverage proving those boolean aliases now fail fast
+    at config load instead of mutating the shared database facade contract
+    used by every service.

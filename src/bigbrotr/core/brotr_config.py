@@ -1,9 +1,18 @@
 """Configuration models for the Brotr database facade."""
 
+from typing import Any
+
 from pydantic import BaseModel, Field, field_validator
 
 
 _MIN_TIMEOUT_SECONDS = 0.1
+
+
+def _reject_bool_alias(value: Any, field_name: str, expected: str) -> Any:
+    """Reject boolean values for numeric config fields before pydantic coercion."""
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected {expected}, got bool")
+    return value
 
 
 class BatchConfig(BaseModel):
@@ -12,6 +21,11 @@ class BatchConfig(BaseModel):
     max_size: int = Field(
         default=1000, ge=1, le=100_000, description="Maximum items per batch operation"
     )
+
+    @field_validator("max_size", mode="before")
+    @classmethod
+    def reject_boolean_max_size(cls, value: Any) -> Any:
+        return _reject_bool_alias(value, "max_size", "integer")
 
 
 class TimeoutsConfig(BaseModel):
@@ -30,6 +44,12 @@ class TimeoutsConfig(BaseModel):
         default=None,
         description="Long-running refresh procedure timeout (seconds, None=infinite)",
     )
+
+    @field_validator("query", "batch", "cleanup", "refresh", mode="before")
+    @classmethod
+    def reject_boolean_timeouts(cls, value: Any, info: Any) -> Any:
+        field_name = getattr(info, "field_name", None) or "timeout"
+        return _reject_bool_alias(value, field_name, "number")
 
     @field_validator("query", "batch", "cleanup", "refresh", mode="after")
     @classmethod
