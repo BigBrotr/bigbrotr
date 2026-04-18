@@ -276,6 +276,15 @@ Use this section during execution for:
     post-connect failure, such as relay-handle lookup exploding after the
     handshake, still releases the partial client and preserves the original
     error.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-ninth remediation slice:
+  - `NostrClientManager.connect_session()` no longer relies on a broad
+    `except Exception` boundary just to tear down a partial shared-session
+    client; the cleanup now lives in `finally`, so the manager preserves the
+    same release guarantee without a catch-all seam;
+  - paired `protocol` coverage now pins that even an unexpected failure after
+    `connect_client_relays()` succeeds, such as session materialization
+    exploding, still releases the partial client and preserves the original
+    error.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

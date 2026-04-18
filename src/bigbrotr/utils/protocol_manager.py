@@ -165,24 +165,26 @@ class NostrClientManager:
             keys=self._keys,
             allow_insecure=self._allow_insecure,
         )
+        session_ready = False
         try:
             result = await self._dependencies.connect_client_relays(
                 client,
                 normalized_relays,
                 timeout=timeout,
             )
-        except Exception:
-            with contextlib.suppress(OSError, RuntimeError, TimeoutError, NostrSdkError):
-                await self._dependencies.shutdown_client(client)
-            raise
-        session = ClientSession(
-            session_id=session_id,
-            client=client,
-            relay_urls=relay_urls,
-            connect_result=result,
-        )
-        self._sessions[session_id] = session
-        return session
+            session = ClientSession(
+                session_id=session_id,
+                client=client,
+                relay_urls=relay_urls,
+                connect_result=result,
+            )
+            self._sessions[session_id] = session
+            session_ready = True
+            return session
+        finally:
+            if not session_ready:
+                with contextlib.suppress(OSError, RuntimeError, TimeoutError, NostrSdkError):
+                    await self._dependencies.shutdown_client(client)
 
     async def disconnect(self) -> None:
         """Disconnect all managed clients and clear cached state."""
