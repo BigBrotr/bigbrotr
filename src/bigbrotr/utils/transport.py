@@ -152,11 +152,13 @@ class _ScopedStderrSuppressor:
                 saved_fd = os.dup(stderr_fd)
                 try:
                     os.dup2(devnull.fileno(), stderr_fd)
-                except Exception:
-                    os.close(saved_fd)
+                except OSError:
+                    with contextlib.suppress(OSError):
+                        os.close(saved_fd)
                     raise
-            except Exception:
-                devnull.close()
+            except OSError:
+                with contextlib.suppress(OSError):
+                    devnull.close()
                 self._saved_stderr = None
                 raise
             self._devnull = devnull

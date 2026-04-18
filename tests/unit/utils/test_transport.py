@@ -205,6 +205,37 @@ class TestScopedStderrSuppressor:
         suppressor = _ScopedStderrSuppressor()
         assert suppressor._refcount == 0
 
+    def test_setup_failure_preserves_dup2_error_and_resets_state(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        suppressor = _ScopedStderrSuppressor()
+        original = MagicMock()
+        original.fileno.return_value = 2
+        devnull = MagicMock()
+        devnull.fileno.return_value = 99
+        monkeypatch.setattr("bigbrotr.utils.transport.sys.stderr", original)
+
+        with (
+            patch("bigbrotr.utils.transport.open", return_value=devnull, create=True),
+            patch("bigbrotr.utils.transport.os.dup", return_value=55),
+            patch("bigbrotr.utils.transport.os.dup2", side_effect=OSError("dup2 boom")),
+            patch(
+                "bigbrotr.utils.transport.os.close", side_effect=OSError("close noise")
+            ) as mock_close,
+            pytest.raises(OSError, match="dup2 boom"),
+            suppressor(),
+        ):
+            pass
+
+        assert sys.stderr is original
+        assert suppressor._refcount == 0
+        assert suppressor._saved_stderr is None
+        assert suppressor._saved_fd is None
+        assert suppressor._devnull is None
+        mock_close.assert_called_once_with(55)
+        devnull.close.assert_called_once()
+
 
 class TestSuppressNostrSdkStderr:
     def test_context_restores_filtered_stderr(self, monkeypatch: pytest.MonkeyPatch) -> None:
