@@ -568,3 +568,11 @@ Use this section during execution for:
   - added paired unit coverage that locks in the final contract: if the SDK
     exposes a callable `wipe()` it is used, and if no wipe handle is exposed
     the shutdown helper still completes the rest of the best-effort teardown.
+- `2.1` models/utils/NIPs leaf audit, forty-ninth remediation slice:
+  - corrected `bigbrotr.nips.nip66.http.Nip66HttpMetadata._http()` so overlay
+    relays follow the canonical `ws://` + `ssl=False` path instead of being
+    lumped into a dead `CERT_NONE` branch;
+  - aligned the module note and paired unit coverage so `CERT_NONE` is now
+    pinned only to clearnet `wss://` flows with `allow_insecure=True`, while
+    overlay proxy handshakes stay on plain WebSocket transport with no SSL
+    context.

@@ -13,12 +13,13 @@ Note:
     ensures the captured headers reflect the actual relay WebSocket endpoint
     rather than a potentially different HTTP endpoint.
 
-    For clearnet relays, SSL verification is enabled by default. When
-    ``allow_insecure=True``, a non-validating SSL context (``CERT_NONE``)
-    is used instead. Overlay networks always use ``CERT_NONE`` because
-    the overlay transport already provides its own privacy/security layer.
-    Like the RTT probe, this check supports both clearnet and overlay
-    relays when the required proxy settings are supplied.
+    For clearnet ``wss://`` relays, SSL verification is enabled by default.
+    When ``allow_insecure=True``, a non-validating SSL context
+    (``CERT_NONE``) is used instead. Overlay relays are canonicalized to
+    ``ws://`` by [Relay][bigbrotr.models.relay.Relay], so their HTTP header
+    probes stay on plain WebSocket transport with no SSL context. Like the
+    RTT probe, this check supports both clearnet and overlay relays when the
+    required proxy settings are supplied.
 
 See Also:
     [bigbrotr.nips.nip66.data.Nip66HttpData][bigbrotr.nips.nip66.data.Nip66HttpData]:
@@ -105,11 +106,13 @@ class Nip66HttpMetadata(BaseNipMetadata):
         trace_config = aiohttp.TraceConfig()
         trace_config.on_request_end.append(on_request_end)
 
-        is_overlay = relay.network in (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
-        ssl_context = ssl.create_default_context()
-        if is_overlay or allow_insecure:
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
+        if relay.scheme == "ws":
+            ssl_context: ssl.SSLContext | bool = False
+        else:
+            ssl_context = ssl.create_default_context()
+            if allow_insecure:
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
 
         connector: aiohttp.BaseConnector
         if proxy_url:

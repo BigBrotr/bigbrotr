@@ -195,7 +195,7 @@ class TestNip66HttpMetadataHttp:
         assert "unknown_field" in caplog.text
 
     async def test_overlay_relay_with_proxy(self, tor_relay: Relay) -> None:
-        """ws:// overlay relay works for HTTP check with proxy."""
+        """ws:// overlay relay works for HTTP check with proxy and no SSL context."""
         http_result = {"http_server": "nginx/1.24.0"}
 
         with patch.object(Nip66HttpMetadata, "_http", return_value=http_result):
@@ -296,8 +296,8 @@ class TestNip66HttpMetadataInternalHttp:
         assert ssl_ctx.check_hostname is True
         assert ssl_ctx.verify_mode == ssl.CERT_REQUIRED
 
-    async def test_overlay_uses_insecure_ssl(self, tor_relay: Relay) -> None:
-        """Overlay relay sets CERT_NONE on ssl context."""
+    async def test_overlay_ws_uses_no_ssl_context(self, tor_relay: Relay) -> None:
+        """Overlay ws:// relay uses no SSL context on the proxy connector."""
         _, factory = self._make_session_mock({"Server": "nginx"})
 
         with (
@@ -308,7 +308,21 @@ class TestNip66HttpMetadataInternalHttp:
             await Nip66HttpMetadata.probe(tor_relay, 10.0, proxy_url="socks5://localhost:9050")
 
         mock_proxy.assert_called_once()
-        ssl_ctx = mock_proxy.call_args[1]["ssl"]
+        assert mock_proxy.call_args[1]["ssl"] is False
+
+    async def test_clearnet_allow_insecure_uses_cert_none(self, relay: Relay) -> None:
+        """Clearnet wss:// relay uses CERT_NONE only when allow_insecure=True."""
+        _, factory = self._make_session_mock({"Server": "nginx"})
+
+        with (
+            patch("bigbrotr.nips.nip66.http.aiohttp.ClientSession", side_effect=factory),
+            patch("bigbrotr.nips.nip66.http.aiohttp.TCPConnector") as mock_tcp,
+        ):
+            await Nip66HttpMetadata.probe(relay, 10.0, allow_insecure=True)
+
+        mock_tcp.assert_called_once()
+        ssl_ctx = mock_tcp.call_args[1]["ssl"]
+        assert isinstance(ssl_ctx, ssl.SSLContext)
         assert ssl_ctx.check_hostname is False
         assert ssl_ctx.verify_mode == ssl.CERT_NONE
 
