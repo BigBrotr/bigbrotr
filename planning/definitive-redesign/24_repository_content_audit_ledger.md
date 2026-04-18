@@ -1405,3 +1405,11 @@ Use this section during execution for:
   - kept that retry path bounded by the original timeout budget and aligned the
     paired geo coverage so both failure-fallback and empty-data fallback are
     locked down explicitly.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-third remediation slice:
+  - aligned the Assertor Kind 10040 checkpoint hash with the actual public
+    provider-package contract by canonicalizing trusted-provider declarations
+    before both change detection and event building, instead of hashing the raw
+    helper output while the builder silently normalized it later;
+  - added paired Assertor coverage proving duplicate or reordered declaration
+    helper output no longer triggers a spurious trusted-provider-list publish
+    when the emitted public event would be unchanged.

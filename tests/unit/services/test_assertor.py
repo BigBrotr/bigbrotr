@@ -1320,6 +1320,59 @@ class TestAssertorTrustedProviderList:
         mock_broadcast.assert_not_awaited()
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    async def test_skips_unchanged_trusted_provider_list_with_duplicate_unsorted_declarations(
+        self,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        service = self._make_service(mock_brotr)
+        from bigbrotr.nips.event_builders import canonicalize_trusted_provider_declarations
+        from bigbrotr.nips.nip85.data import TrustedProviderDeclaration
+        from bigbrotr.services.assertor.utils import content_hash
+
+        duplicate_user = TrustedProviderDeclaration(
+            result_kind=EventKind.NIP85_USER_ASSERTION,
+            tag_name="rank",
+            service_pubkey=service._keys.public_key().to_hex(),
+            relay_hint="wss://relay.example.com",
+        )
+        identifier = TrustedProviderDeclaration(
+            result_kind=EventKind.NIP85_IDENTIFIER_ASSERTION,
+            tag_name="rank",
+            service_pubkey=service._keys.public_key().to_hex(),
+            relay_hint="wss://relay.example.com",
+        )
+        declarations = (identifier, duplicate_user, identifier)
+
+        state = MagicMock()
+        state.state_value = {
+            "hash": content_hash(
+                {
+                    "content": service._config.trusted_provider_list.content,
+                    "declarations": [
+                        {
+                            "result_kind": declaration.result_kind,
+                            "tag_name": declaration.tag_name,
+                            "service_pubkey": declaration.service_pubkey,
+                            "relay_hint": declaration.relay_hint,
+                        }
+                        for declaration in canonicalize_trusted_provider_declarations(declarations)
+                    ],
+                }
+            )
+        }
+        mock_brotr.get_service_state = AsyncMock(return_value=[state])
+
+        with patch(
+            "bigbrotr.services.assertor.service.trusted_provider_declarations",
+            return_value=declarations,
+        ):
+            published, skipped, failed = await service._publish_trusted_provider_list()
+
+        assert (published, skipped, failed) == (0, 1, 0)
+        mock_broadcast.assert_not_awaited()
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     async def test_trusted_provider_list_publish_failure_when_no_relays_accept(
         self,
         mock_broadcast: AsyncMock,

@@ -85,7 +85,7 @@ def _provider_declaration_sort_key(
     )
 
 
-def _normalize_provider_declarations(
+def canonicalize_trusted_provider_declarations(
     declarations: Sequence[TrustedProviderDeclaration],
 ) -> tuple[TrustedProviderDeclaration, ...]:
     """Return a stable deduplicated ordering for trusted provider declarations."""
@@ -156,7 +156,7 @@ def build_trusted_provider_list(
     """
     tags = [
         Tag.parse(declaration.as_tag())
-        for declaration in _normalize_provider_declarations(declarations)
+        for declaration in canonicalize_trusted_provider_declarations(declarations)
     ]
     return EventBuilder(Kind(EventKind.NIP85_TRUSTED_PROVIDER_LIST), content).tags(tags)
 

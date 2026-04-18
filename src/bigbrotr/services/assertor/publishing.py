@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 import asyncpg
 
 from bigbrotr.models.constants import EventKind
+from bigbrotr.nips.event_builders import canonicalize_trusted_provider_declarations
 from bigbrotr.services.assertor.utils import (
     PROVIDER_PROFILE_SUBJECT_ID,
     TRUSTED_PROVIDER_LIST_SUBJECT_ID,
@@ -106,6 +107,21 @@ class TrustedProviderListRuntime:
     build_trusted_provider_list: Callable[..., EventBuilder]
     trusted_provider_declarations: Callable[..., tuple[TrustedProviderDeclaration, ...]]
     content_hash: Callable[[Any], str]
+
+
+def _trusted_provider_declarations_payload(
+    declarations: tuple[TrustedProviderDeclaration, ...],
+) -> tuple[dict[str, int | str], ...]:
+    """Return the canonical JSON payload for Kind 10040 change detection."""
+    return tuple(
+        {
+            "result_kind": int(declaration.result_kind),
+            "tag_name": declaration.tag_name,
+            "service_pubkey": declaration.service_pubkey,
+            "relay_hint": declaration.relay_hint,
+        }
+        for declaration in declarations
+    )
 
 
 async def publish_assertion_rows(
@@ -255,23 +271,17 @@ async def publish_trusted_provider_list(
     )
     runtime.mark_seen_state_key(state_key)
 
-    declarations = runtime.trusted_provider_declarations(
-        config=runtime.config,
-        service_pubkey=runtime.service_pubkey,
+    declarations = canonicalize_trusted_provider_declarations(
+        runtime.trusted_provider_declarations(
+            config=runtime.config,
+            service_pubkey=runtime.service_pubkey,
+        )
     )
     content = runtime.config.trusted_provider_list.content
     current_hash = runtime.content_hash(
         {
             "content": content,
-            "declarations": [
-                {
-                    "result_kind": declaration.result_kind,
-                    "tag_name": declaration.tag_name,
-                    "service_pubkey": declaration.service_pubkey,
-                    "relay_hint": declaration.relay_hint,
-                }
-                for declaration in declarations
-            ],
+            "declarations": _trusted_provider_declarations_payload(declarations),
         }
     )
     if await runtime.is_unchanged(state_key, current_hash):
