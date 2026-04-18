@@ -204,6 +204,32 @@ class TestNip11InfoMetadataSuccess:
         assert result.logs.success is True
         assert result.data.supported_nips == [1, 11, 42, 65]
 
+    async def test_info_normalizes_fee_entry_kinds_order(
+        self, relay: Relay, complete_nip11_data: dict[str, Any], mock_session_factory
+    ) -> None:
+        """Retrieval normalizes fee-entry kinds before building nested models."""
+        import json
+
+        payload = dict(complete_nip11_data)
+        payload["fees"] = dict(complete_nip11_data["fees"])
+        payload["fees"]["publication"] = [{"kinds": [42, 4, 42], "amount": 100, "unit": "msats"}]
+
+        response = AsyncMock()
+        response.status = 200
+        response.headers = {"Content-Type": "application/nostr+json"}
+        response.content.read = AsyncMock(side_effect=[json.dumps(payload).encode(), b""])
+        response.__aenter__ = AsyncMock(return_value=response)
+        response.__aexit__ = AsyncMock(return_value=None)
+
+        session = mock_session_factory(response)
+
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
+            result = await Nip11InfoMetadata.fetch(relay)
+
+        assert result.logs.success is True
+        assert result.data.fees.publication is not None
+        assert result.data.fees.publication[0].kinds == [4, 42]
+
     async def test_info_empty_json_object(self, relay: Relay, mock_session_factory):
         """Retrieval handles empty JSON object."""
         response = AsyncMock()

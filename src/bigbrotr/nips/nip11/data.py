@@ -366,6 +366,10 @@ class Nip11InfoDataRetentionEntry(BaseData):
 class Nip11InfoDataFeeEntry(BaseData):
     """Single fee entry (admission, subscription, or publication).
 
+    Note:
+        ``kinds`` is normalized to a deduplicated ascending order so
+        equivalent fee scopes do not drift when source order changes.
+
     See Also:
         [Nip11InfoDataFees][bigbrotr.nips.nip11.data.Nip11InfoDataFees]:
             Parent model that groups fee entries by category.
@@ -383,6 +387,23 @@ class Nip11InfoDataFeeEntry(BaseData):
         str_fields=frozenset({"unit"}),
         int_list_fields=frozenset({"kinds"}),
     )
+
+    @field_validator("kinds")
+    @classmethod
+    def _normalize_kinds(cls, value: list[int] | None) -> list[int] | None:
+        if value is None:
+            return None
+        return sorted(set(value))
+
+    @classmethod
+    def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
+        """Parse a fee entry and normalize its kind scope."""
+        report = super().parse_report(data, path=path)
+        if "kinds" not in report.parsed:
+            return report
+        parsed = dict(report.parsed)
+        parsed["kinds"] = sorted(set(parsed["kinds"]))
+        return ParseReport(parsed=parsed, issues=report.issues)
 
 
 class Nip11InfoDataFees(BaseData):

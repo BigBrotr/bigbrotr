@@ -812,3 +812,11 @@ Use this section during execution for:
   - added paired unit coverage proving both direct model construction and the
     public SSL probe path now emit stable SAN lists even when the extracted
     certificate names arrive out of order or with duplicates.
+- `2.1` models/utils/NIPs leaf audit, seventy-ninth remediation slice:
+  - tightened `bigbrotr.nips.nip11.data.Nip11InfoDataFeeEntry` so fee-entry
+    `kinds` are normalized to a deduplicated ascending order in both the
+    parse helper and the model boundary instead of inheriting document order
+    directly;
+  - added paired unit coverage proving both direct fee-entry parsing and the
+    public NIP-11 fetch path now emit stable fee-kind scopes even when the
+    source document lists them out of order or with duplicates.

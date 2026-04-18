@@ -362,6 +362,15 @@ class TestNip11InfoDataFeeEntryConstructor:
         assert entry.period == 2628003
         assert entry.kinds == [4]
 
+    def test_constructor_normalizes_kinds(self):
+        """Constructor deduplicates and sorts fee kinds."""
+        entry = Nip11InfoDataFeeEntry(
+            amount=100,
+            unit="sats",
+            kinds=[42, 4, 42],
+        )
+        assert entry.kinds == [4, 42]
+
     def test_constructor_rejects_non_int_amount(self):
         """Constructor raises ValidationError for non-int amount."""
         with pytest.raises(ValidationError):
@@ -393,7 +402,7 @@ class TestNip11InfoDataFeeEntryParse:
 
     def test_parse_valid_data(self):
         """Valid data is parsed correctly."""
-        data = {"amount": 1000, "unit": "msats", "period": 30, "kinds": [1, 2]}
+        data = {"amount": 1000, "unit": "msats", "period": 30, "kinds": [2, 1, 2]}
         result = Nip11InfoDataFeeEntry.parse(data)
         assert result == {"amount": 1000, "unit": "msats", "period": 30, "kinds": [1, 2]}
 
@@ -405,7 +414,7 @@ class TestNip11InfoDataFeeEntryParse:
 
     def test_parse_filters_invalid_kinds(self):
         """Invalid kinds elements are filtered out."""
-        data = {"amount": 100, "unit": "sats", "kinds": [1, True, "two", 3]}
+        data = {"amount": 100, "unit": "sats", "kinds": [3, 1, True, "two", 3]}
         result = Nip11InfoDataFeeEntry.parse(data)
         assert result == {"amount": 100, "unit": "sats", "kinds": [1, 3]}
 
