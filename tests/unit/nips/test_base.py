@@ -3,7 +3,7 @@
 import logging
 
 import pytest
-from pydantic import ValidationError
+from pydantic import ValidationError, field_validator, model_validator
 
 from bigbrotr.models.relay import Relay
 from bigbrotr.nips.base import (
@@ -202,6 +202,41 @@ class TestBaseDataSubclass:
         assert model.limit == 100
         assert model.enabled is True
         assert model.name is None  # 123 was filtered
+
+    def test_parse_canonicalizes_payload_through_model_boundary(self):
+        """parse() returns canonicalized payload when model validators normalize it."""
+
+        class CanonicalData(BaseData):
+            _FIELD_SPEC = FieldSpec(str_list_fields=frozenset({"tags"}))
+
+            tags: list[str] | None = None
+
+            @field_validator("tags")
+            @classmethod
+            def _normalize_tags(cls, value: list[str] | None) -> list[str] | None:
+                if value is None:
+                    return None
+                return sorted(set(value))
+
+        parsed = CanonicalData.parse({"tags": ["beta", "alpha", "beta"]})
+
+        assert parsed == {"tags": ["alpha", "beta"]}
+
+    def test_parse_falls_back_to_report_payload_on_validation_error(self):
+        """parse() stays permissive when post-parse model validation rejects the payload."""
+
+        class RestrictedData(BaseData):
+            _FIELD_SPEC = FieldSpec(int_fields=frozenset({"count"}))
+
+            count: int | None = None
+
+            @model_validator(mode="after")
+            def _reject_zero(self):
+                if self.count == 0:
+                    raise ValueError("count cannot be zero")
+                return self
+
+        assert RestrictedData.parse({"count": 0}) == {"count": 0}
 
 
 class TestBaseDataFrozen:

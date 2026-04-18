@@ -909,3 +909,11 @@ Use this section during execution for:
   - added paired leaf and facade coverage proving shared-session connect
     helpers no longer inherit failure-map insertion order from nostr-sdk
     outputs.
+- `2.1` models/utils/NIPs leaf audit, ninety-second remediation slice:
+  - tightened `bigbrotr.nips.base.BaseData.parse()` so successful permissive
+    parse results are canonicalized through the frozen model boundary instead
+    of leaving field-validator normalization to a later constructor step;
+  - kept `parse()` non-raising by falling back to the raw parsed payload when
+    model validation rejects post-parse semantics, and added paired base/NIP-66
+    coverage proving the contract now emits canonical list payloads without
+    breaking permissive parse behavior.

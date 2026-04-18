@@ -171,8 +171,7 @@ class TestNip66SslData:
         """parse() normalizes valid SAN lists."""
         raw = {"ssl_san": ["relay.example.com", "*.example.com", "relay.example.com"]}
         parsed = Nip66SslData.parse(raw)
-        data = Nip66SslData(**parsed)
-        assert data.ssl_san == ["*.example.com", "relay.example.com"]
+        assert parsed == {"ssl_san": ["*.example.com", "relay.example.com"]}
 
     def test_parse_filters_empty_san_list(self) -> None:
         """parse() filters empty SAN list."""
@@ -185,8 +184,7 @@ class TestNip66SslData:
         """parse() filters invalid elements in SAN list."""
         raw = {"ssl_san": ["relay.example.com", 123, None, "*.example.com", "relay.example.com"]}
         parsed = Nip66SslData.parse(raw)
-        data = Nip66SslData(**parsed)
-        assert data.ssl_san == ["*.example.com", "relay.example.com"]
+        assert parsed == {"ssl_san": ["*.example.com", "relay.example.com"]}
 
 
 class TestNip66GeoData:
@@ -336,9 +334,10 @@ class TestNip66DnsData:
             "dns_ns": ["ns2.google.com", 456, "ns1.google.com", "ns2.google.com"],
         }
         parsed = Nip66DnsData.parse(raw)
-        data = Nip66DnsData(**parsed)
-        assert data.dns_ips == ["8.8.4.4", "8.8.8.8"]
-        assert data.dns_ns == ["ns1.google.com", "ns2.google.com"]
+        assert parsed == {
+            "dns_ips": ["8.8.4.4", "8.8.8.8"],
+            "dns_ns": ["ns1.google.com", "ns2.google.com"],
+        }
 
     def test_parse_list_all_invalid_becomes_none(self) -> None:
         """parse() returns None when list has only invalid elements."""

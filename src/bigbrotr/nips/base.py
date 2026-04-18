@@ -40,7 +40,15 @@ from dataclasses import dataclass
 from time import time
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    ValidationError,
+    model_validator,
+)
 
 from bigbrotr.models.relay import Relay  # noqa: TC001
 
@@ -86,7 +94,10 @@ class BaseData(BaseModel):
         Invalid or unrecognized values are omitted from the returned payload
         rather than raising errors, making this safe for untrusted relay
         responses. Callers that need visibility into dropped fields should
-        use ``parse_report()`` instead.
+        use ``parse_report()`` instead. When the parsed payload is valid for
+        model construction, the return value is also canonicalized through the
+        model boundary so field validators can normalize set-like or sorted
+        data before the caller sees it.
 
         Args:
             data: Raw dictionary from an external source.
@@ -94,7 +105,13 @@ class BaseData(BaseModel):
         Returns:
             A cleaned dictionary containing only valid fields.
         """
-        return cls.parse_report(data).parsed
+        report = cls.parse_report(data)
+        if not report.parsed:
+            return {}
+        try:
+            return cls.model_validate(report.parsed).model_dump(exclude_none=True)
+        except ValidationError:
+            return report.parsed
 
     @classmethod
     def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
