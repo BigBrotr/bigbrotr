@@ -18,6 +18,8 @@ from .queries import (
     GraphSyncCheckpoint,
     IdentifierStatFact,
     ScoreExportRow,
+    _require_ranker_non_negative_int,
+    _require_ranker_text,
 )
 
 
@@ -26,6 +28,24 @@ if TYPE_CHECKING:
 
 
 GraphStats = store_graph.GraphStats
+_RANK_RUN_STATUSES: Final[frozenset[str]] = frozenset({"running", "success", "failed", "cutoff"})
+
+
+def _require_positive_rank_run_int(value: object, *, field_name: str) -> int:
+    """Return one canonical positive integer for rank-run bookkeeping."""
+    normalized = _require_ranker_non_negative_int(value, field_name=field_name)
+    if normalized == 0:
+        raise ValueError(f"{field_name} must be positive")
+    return normalized
+
+
+def _normalize_rank_run_status(value: object) -> str:
+    """Return one canonical local rank-run status value."""
+    normalized = _require_ranker_text(value, field_name="status")
+    if normalized not in _RANK_RUN_STATUSES:
+        allowed = ", ".join(sorted(_RANK_RUN_STATUSES))
+        raise ValueError(f"status must be one of: {allowed}")
+    return normalized
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +57,33 @@ class RankRun:
     started_at: int
     node_count: int
     edge_count: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "run_id",
+            _require_positive_rank_run_int(self.run_id, field_name="run_id"),
+        )
+        object.__setattr__(
+            self,
+            "algorithm_id",
+            _require_ranker_text(self.algorithm_id, field_name="algorithm_id"),
+        )
+        object.__setattr__(
+            self,
+            "started_at",
+            _require_ranker_non_negative_int(self.started_at, field_name="started_at"),
+        )
+        object.__setattr__(
+            self,
+            "node_count",
+            _require_ranker_non_negative_int(self.node_count, field_name="node_count"),
+        )
+        object.__setattr__(
+            self,
+            "edge_count",
+            _require_ranker_non_negative_int(self.edge_count, field_name="edge_count"),
+        )
 
 
 class RankerStore:
@@ -124,7 +171,17 @@ class RankerStore:
 
         conn = self._connection()
         next_run_row = conn.execute("SELECT COALESCE(MAX(run_id), 0) + 1 FROM rank_runs").fetchone()
-        run_id = int(next_run_row[0]) if next_run_row is not None else 1
+        run_id = _require_positive_rank_run_int(
+            next_run_row[0] if next_run_row is not None else 1,
+            field_name="run_id",
+        )
+        rank_run = RankRun(
+            run_id=run_id,
+            algorithm_id=algorithm_id,
+            started_at=started_at,
+            node_count=node_count,
+            edge_count=edge_count,
+        )
         conn.execute(
             """
             INSERT INTO rank_runs (
@@ -136,16 +193,17 @@ class RankerStore:
                 edge_count
             ) VALUES (?, ?, ?, ?, ?, ?)
             """,
-            [run_id, algorithm_id, started_at, "running", node_count, edge_count],
+            [
+                rank_run.run_id,
+                rank_run.algorithm_id,
+                rank_run.started_at,
+                "running",
+                rank_run.node_count,
+                rank_run.edge_count,
+            ],
         )
 
-        return RankRun(
-            run_id=run_id,
-            algorithm_id=algorithm_id,
-            started_at=started_at,
-            node_count=node_count,
-            edge_count=edge_count,
-        )
+        return rank_run
 
     def finish_rank_run(self, run_id: int, *, status: str) -> None:
         """Mark a tracked run as ``success`` or ``failed`` after export finishes."""
@@ -158,7 +216,11 @@ class RankerStore:
             SET finished_at = ?, status = ?
             WHERE run_id = ?
             """,
-            [int(time.time()), status, run_id],
+            [
+                int(time.time()),
+                _normalize_rank_run_status(status),
+                _require_positive_rank_run_int(run_id, field_name="run_id"),
+            ],
         )
 
     def count_rank_runs(self, *, status: str | None = None) -> int:
@@ -171,21 +233,31 @@ class RankerStore:
         else:
             row = conn.execute(
                 "SELECT COUNT(*) FROM rank_runs WHERE status = ?",
-                [status],
+                [_normalize_rank_run_status(status)],
             ).fetchone()
 
-        return int(row[0]) if row is not None else 0
+        return _require_ranker_non_negative_int(
+            row[0] if row is not None else 0,
+            field_name="rank_run_count",
+        )
 
     def delete_rank_runs_older_than_retention(self, retention: int | None) -> int:
         """Delete old local rank-run records beyond the configured retention."""
         if retention is None:
             return 0
+        normalized_retention = _require_positive_rank_run_int(
+            retention,
+            field_name="retention",
+        )
 
         self.ensure_initialized()
 
         conn = self._connection()
         before_row = conn.execute("SELECT COUNT(*) FROM rank_runs").fetchone()
-        before = int(before_row[0]) if before_row is not None else 0
+        before = _require_ranker_non_negative_int(
+            before_row[0] if before_row is not None else 0,
+            field_name="rank_run_count",
+        )
         conn.execute(
             """
             DELETE FROM rank_runs
@@ -200,10 +272,13 @@ class RankerStore:
                 WHERE row_num > ?
             )
             """,
-            [retention],
+            [normalized_retention],
         )
         after_row = conn.execute("SELECT COUNT(*) FROM rank_runs").fetchone()
-        after = int(after_row[0]) if after_row is not None else 0
+        after = _require_ranker_non_negative_int(
+            after_row[0] if after_row is not None else 0,
+            field_name="rank_run_count",
+        )
 
         return before - after
 

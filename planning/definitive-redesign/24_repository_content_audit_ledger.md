@@ -1977,3 +1977,12 @@ Use this section during execution for:
   - added paired `ranker` export coverage proving uppercase hex subjects are
     normalized to lowercase while malformed hex identifiers now fail fast
     before score batches can be staged into PostgreSQL.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-sixty-third remediation
+  slice:
+  - tightened the local `ranker` run-record contract so `RankRun` plus the
+    store helpers for start/finish/count/retention no longer accept impossible
+    ids, empty algorithm ids, negative graph counts, invalid statuses, or
+    zero/boolean retention values, which previously could skew DuckDB-local
+    cleanup and failed-run metrics with semantically bogus bookkeeping rows;
+  - added paired `ranker` store coverage proving invalid lifecycle inputs now
+    fail fast before they can persist or query malformed `rank_runs` state.

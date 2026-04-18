@@ -40,7 +40,7 @@ from bigbrotr.services.ranker.queries import (
     merge_score_stage,
 )
 from bigbrotr.services.ranker.service import RankPhaseDurations
-from bigbrotr.services.ranker.utils import RankerStore
+from bigbrotr.services.ranker.utils import RankerStore, RankRun
 
 
 def _reference_pagerank(
@@ -643,6 +643,43 @@ class TestRankerConfig:
 
 
 class TestRankerStore:
+    @pytest.mark.parametrize(
+        ("kwargs"),
+        [
+            {
+                "run_id": 0,
+                "algorithm_id": "global-pagerank",
+                "started_at": 1,
+                "node_count": 1,
+                "edge_count": 1,
+            },
+            {
+                "run_id": 1,
+                "algorithm_id": "",
+                "started_at": 1,
+                "node_count": 1,
+                "edge_count": 1,
+            },
+            {
+                "run_id": 1,
+                "algorithm_id": "global-pagerank",
+                "started_at": True,
+                "node_count": 1,
+                "edge_count": 1,
+            },
+            {
+                "run_id": 1,
+                "algorithm_id": "global-pagerank",
+                "started_at": 1,
+                "node_count": -1,
+                "edge_count": 1,
+            },
+        ],
+    )
+    def test_rank_run_rejects_invalid_values(self, kwargs: dict[str, object]) -> None:
+        with pytest.raises((TypeError, ValueError)):
+            RankRun(**kwargs)  # type: ignore[arg-type]
+
     def test_ensure_initialized_creates_schema_and_duckdb_checkpoint(self, tmp_path: Path) -> None:
         store = RankerStore(
             db_path=tmp_path / "ranker.duckdb",
@@ -945,6 +982,49 @@ class TestRankerStore:
         assert row[2] == 4
         assert row[3] == 3
         assert row[4] is not None
+
+    @pytest.mark.parametrize(
+        ("method_name", "kwargs"),
+        [
+            (
+                "start_rank_run",
+                {"algorithm_id": "", "node_count": 1, "edge_count": 1},
+            ),
+            (
+                "start_rank_run",
+                {"algorithm_id": "global-pagerank", "node_count": True, "edge_count": 1},
+            ),
+            (
+                "finish_rank_run",
+                {"run_id": 0, "status": "success"},
+            ),
+            (
+                "finish_rank_run",
+                {"run_id": 1, "status": "bogus"},
+            ),
+            (
+                "count_rank_runs",
+                {"status": "bogus"},
+            ),
+            (
+                "delete_rank_runs_older_than_retention",
+                {"retention": 0},
+            ),
+        ],
+    )
+    def test_rank_run_helpers_reject_invalid_inputs(
+        self,
+        tmp_path: Path,
+        method_name: str,
+        kwargs: dict[str, object],
+    ) -> None:
+        store = RankerStore(
+            db_path=tmp_path / "ranker.duckdb",
+            checkpoint_path=tmp_path / "ranker.checkpoint.json",
+        )
+
+        with pytest.raises((TypeError, ValueError)):
+            getattr(store, method_name)(**kwargs)
 
     def test_rank_run_retention_cleanup(self, tmp_path: Path) -> None:
         store = RankerStore(
