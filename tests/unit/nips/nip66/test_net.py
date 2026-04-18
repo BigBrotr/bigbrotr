@@ -217,6 +217,50 @@ class TestNip66NetMetadataNetSync:
         assert "net_network_v6" not in result
         assert result["net_asn"] == 15169
 
+    def test_ipv6_backfills_org_when_ipv4_asn_matches(self) -> None:
+        """IPv6 may backfill the org name when it confirms the IPv4 ASN."""
+        mock_asn_response_v4 = MagicMock()
+        mock_asn_response_v4.autonomous_system_number = 15169
+        mock_asn_response_v4.autonomous_system_organization = None
+        mock_asn_response_v4.network = "8.8.8.0/24"
+
+        mock_asn_response_v6 = MagicMock()
+        mock_asn_response_v6.autonomous_system_number = 15169
+        mock_asn_response_v6.autonomous_system_organization = "GOOGLE"
+        mock_asn_response_v6.network = "2001:4860::/32"
+
+        mock_asn_reader = MagicMock()
+        mock_asn_reader.asn.side_effect = [mock_asn_response_v4, mock_asn_response_v6]
+
+        result = Nip66NetMetadata._net("8.8.8.8", "2001:4860:4860::8888", mock_asn_reader)
+
+        assert result["net_asn"] == 15169
+        assert result["net_asn_org"] == "GOOGLE"
+        assert result["net_network"] == "8.8.8.0/24"
+        assert result["net_network_v6"] == "2001:4860::/32"
+
+    def test_ipv6_org_does_not_backfill_when_asn_differs(self) -> None:
+        """IPv6 org data is ignored when it does not confirm the IPv4 ASN."""
+        mock_asn_response_v4 = MagicMock()
+        mock_asn_response_v4.autonomous_system_number = 15169
+        mock_asn_response_v4.autonomous_system_organization = None
+        mock_asn_response_v4.network = "8.8.8.0/24"
+
+        mock_asn_response_v6 = MagicMock()
+        mock_asn_response_v6.autonomous_system_number = 99999
+        mock_asn_response_v6.autonomous_system_organization = "OTHER"
+        mock_asn_response_v6.network = "2001:4860::/32"
+
+        mock_asn_reader = MagicMock()
+        mock_asn_reader.asn.side_effect = [mock_asn_response_v4, mock_asn_response_v6]
+
+        result = Nip66NetMetadata._net("8.8.8.8", "2001:4860:4860::8888", mock_asn_reader)
+
+        assert result["net_asn"] == 15169
+        assert "net_asn_org" not in result
+        assert result["net_network"] == "8.8.8.0/24"
+        assert result["net_network_v6"] == "2001:4860::/32"
+
 
 class TestNip66NetMetadataNetAsync:
     """Test Nip66NetMetadata.probe() async class method."""

@@ -13,9 +13,10 @@ Note:
     (GeoLite2-ASN) must be provided as an open ``geoip2.database.Reader``
     -- the caller is responsible for database lifecycle management.
 
-    IPv4 ASN data takes priority; IPv6 ASN data is used only as a fallback
-    when no IPv4 address is available. IPv6-specific network ranges are
-    recorded separately when the IPv6 lookup returns one.
+    IPv4 ASN identity takes priority. IPv6 ASN data is used as a fallback when
+    the IPv4 lookup does not identify an ASN, and may backfill the organization
+    name only when the IPv6 lookup confirms that same ASN. IPv6-specific
+    network ranges are recorded separately when the IPv6 lookup returns one.
 
 See Also:
     [bigbrotr.nips.nip66.data.Nip66NetData][bigbrotr.nips.nip66.data.Nip66NetData]:
@@ -77,9 +78,11 @@ class Nip66NetMetadata(BaseNipMetadata):
     ) -> dict[str, Any]:
         """Perform synchronous ASN lookups for IPv4 and/or IPv6 addresses.
 
-        IPv4 ASN data takes priority; IPv6 ASN data is used as a fallback
-        when IPv4 is not available. IPv6-specific network range data is
-        recorded separately when the IPv6 lookup yields it.
+        IPv4 ASN identity takes priority; IPv6 ASN data is used as a fallback
+        when the IPv4 lookup does not identify an ASN, and may backfill the
+        organization name only when it confirms the same ASN. IPv6-specific
+        network range data is recorded separately when the IPv6 lookup yields
+        it.
 
         Args:
             ipv4: Resolved IPv4 address, or None.
@@ -110,12 +113,18 @@ class Nip66NetMetadata(BaseNipMetadata):
                 asn_response = asn_reader.asn(ipv6)
                 if asn_response.network:
                     result["net_network_v6"] = str(asn_response.network)
-                # Use IPv6 ASN data only if IPv4 lookup did not provide it
-                if "net_asn" not in result:
-                    if asn_response.autonomous_system_number:
-                        result["net_asn"] = asn_response.autonomous_system_number
-                    if asn_response.autonomous_system_organization:
-                        result["net_asn_org"] = asn_response.autonomous_system_organization
+                ipv6_asn = asn_response.autonomous_system_number
+                ipv6_org = asn_response.autonomous_system_organization
+                ipv4_asn = result.get("net_asn")
+
+                # Use IPv6 ASN identity only when IPv4 did not identify one.
+                if ipv4_asn is None:
+                    if ipv6_asn:
+                        result["net_asn"] = ipv6_asn
+                    if ipv6_org:
+                        result["net_asn_org"] = ipv6_org
+                elif "net_asn_org" not in result and ipv6_asn == ipv4_asn and ipv6_org:
+                    result["net_asn_org"] = ipv6_org
             except (geoip2.errors.GeoIP2Error, ValueError) as e:
                 logger.debug("net_asn_ipv6_lookup_error ip=%s error=%s", ipv6, str(e))
 

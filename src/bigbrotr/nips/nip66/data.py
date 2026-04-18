@@ -206,10 +206,12 @@ class Nip66NetData(BaseData):
     organization, and CIDR network ranges.
 
     Note:
-        IPv4 ASN data takes priority; IPv6 ASN data is used as a fallback
-        when IPv4 is not available. IPv6-specific network ranges are recorded
-        separately in ``net_network_v6`` only when the IPv6 ASN lookup
-        actually returns a network.
+        IPv4 ASN identity takes priority; IPv6 ASN data is used as a fallback
+        when the IPv4 lookup does not identify an ASN, and may backfill
+        ``net_asn_org`` only when it confirms the same ASN number.
+        IPv6-specific network ranges are recorded separately in
+        ``net_network_v6`` only when the IPv6 ASN lookup actually returns a
+        network.
 
     See Also:
         [bigbrotr.nips.nip66.net.Nip66NetMetadata][bigbrotr.nips.nip66.net.Nip66NetMetadata]:

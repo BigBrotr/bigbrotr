@@ -231,6 +231,13 @@ Use this section during execution for:
   - cleaned up the remaining single-probe `nip66` test names and docstrings
     that still implied `metadata` was the canonical output shape, so the leaf
     test surface now talks consistently about result containers.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-third remediation slice:
+  - `Nip66NetMetadata._net()` now lets dual-stack IPv6 data backfill
+    `net_asn_org` only when IPv4 already identified the same ASN number but
+    left the organization blank, preserving IPv4 ASN priority without
+    needlessly dropping confirmed organization data;
+  - paired `nip66/net` tests now pin both sides of that contract: matching
+    IPv6 ASN may fill the org name, mismatched IPv6 ASN must not.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package
