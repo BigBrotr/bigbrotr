@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class ClientConnectResult:
-    """Normalized outcome of connecting one client to multiple relays."""
+    """Normalized outcome of attempting to connect one client to multiple relays."""
 
     connected: tuple[str, ...]
     failed: dict[str, str]
@@ -29,7 +29,7 @@ class ClientConnectResult:
 
 @dataclass(frozen=True, slots=True)
 class ClientSession:
-    """Connected multi-relay client session managed by the protocol facade."""
+    """Named multi-relay client session plus its normalized connect outcome."""
 
     session_id: str
     client: Client

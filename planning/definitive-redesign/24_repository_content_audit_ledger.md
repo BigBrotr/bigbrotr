@@ -481,3 +481,13 @@ Use this section during execution for:
     broader A/AAAA resolution discipline;
   - added explicit unit coverage proving that IPv6-only proxy hostnames still
     produce a working numeric proxy target instead of failing spuriously.
+- `2.1` models/utils/NIPs leaf audit, thirty-eighth remediation slice:
+  - corrected the `protocol_sessions` / `protocol_manager` contract language so
+    `ClientSession` is no longer described as if every named session were
+    fully connected; the live repository already uses session objects whose
+    `connect_result.connected` set may be empty while failures are preserved
+    for callers;
+  - added direct unit coverage pinning that `connect_session()` still returns
+    and caches a session when the normalized connect outcome contains only
+    failures, because higher layers are responsible for deciding whether that
+    session is usable.

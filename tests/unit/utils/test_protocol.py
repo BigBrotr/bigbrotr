@@ -383,6 +383,36 @@ class TestNostrClientManagerSessions:
                 [Relay("wss://relay2.example.com")],
             )
 
+    async def test_connect_session_preserves_zero_connected_result(self) -> None:
+        relays = [Relay("wss://relay1.example.com")]
+        mock_client = MagicMock()
+        result = ClientConnectResult(
+            connected=(),
+            failed={"wss://relay1.example.com": "timeout"},
+        )
+        manager = NostrClientManager(keys=MagicMock())
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol.create_client",
+                new=AsyncMock(return_value=mock_client),
+            ) as mock_create,
+            patch(
+                "bigbrotr.utils.protocol._connect_client_relays",
+                new=AsyncMock(return_value=result),
+            ) as mock_connect,
+        ):
+            session = await manager.connect_session("read-session", relays, timeout=15.0)
+
+        assert session == ClientSession(
+            session_id="read-session",
+            client=mock_client,
+            relay_urls=("wss://relay1.example.com",),
+            connect_result=result,
+        )
+        mock_create.assert_awaited_once_with(keys=manager._keys, allow_insecure=False)
+        mock_connect.assert_awaited_once_with(mock_client, relays, timeout=15.0)
+
     async def test_disconnect_shuts_down_sessions_and_cached_relays_once(self) -> None:
         shared_client = MagicMock()
         cached_client = MagicMock()
