@@ -650,7 +650,7 @@ class TestNip11InfoMetadataNetworkBehavior:
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
-        response.content.read = AsyncMock(side_effect=[b'{"name": "Loki Relay"}', b""])
+        response.content.read = AsyncMock(side_effect=[b'{"name": "Lokinet Relay"}', b""])
         response.__aenter__ = AsyncMock(return_value=response)
         response.__aexit__ = AsyncMock(return_value=None)
 

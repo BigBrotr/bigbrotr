@@ -285,3 +285,10 @@ Use this section during execution for:
     document families;
   - kept all runtime exports and lazy-import behavior unchanged: this slice
     tightened public/package narrative only.
+- `2.1` models/utils/NIPs leaf audit, thirteenth remediation slice:
+  - aligned the remaining tracked NIP test wording around Lokinet and
+    NIP-66 fixture sections, so the human-facing fixture narrative now says
+    `Lokinet` and `result/probe fixtures` while keeping the stable technical
+    `.loki` network identifier and `loki_*` helper names unchanged;
+  - kept this slice strictly documentation/test-data hygiene: no runtime
+    behavior or persisted naming contract changed.

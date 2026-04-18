@@ -2,7 +2,7 @@
 Shared fixtures for NIP-66 module tests.
 
 Provides:
-- Relay fixtures (clearnet, tor, i2p, loki)
+- Relay fixtures (clearnet, Tor, I2P, Lokinet)
 - Complete result-container fixtures for all NIP-66 probe families
 - Mock fixtures for nostr-sdk, GeoIP, and ASN readers
 - Helper fixtures for building test data
@@ -75,7 +75,7 @@ def loki_relay() -> Relay:
 
 
 # =============================================================================
-# RTT Document Fixtures
+# RTT Result Fixtures
 # =============================================================================
 
 
@@ -131,7 +131,7 @@ def rtt_open_failed_logs() -> Nip66RttMultiPhaseLogs:
 
 
 # =============================================================================
-# SSL Document Fixtures
+# SSL Result Fixtures
 # =============================================================================
 
 
@@ -171,7 +171,7 @@ def complete_ssl_metadata(
 
 
 # =============================================================================
-# Geo Document Fixtures
+# Geo Result Fixtures
 # =============================================================================
 
 
@@ -212,7 +212,7 @@ def complete_geo_metadata(
 
 
 # =============================================================================
-# Net Document Fixtures
+# Net Result Fixtures
 # =============================================================================
 
 
@@ -245,7 +245,7 @@ def complete_net_metadata(
 
 
 # =============================================================================
-# DNS Document Fixtures
+# DNS Result Fixtures
 # =============================================================================
 
 
@@ -278,7 +278,7 @@ def complete_dns_metadata(
 
 
 # =============================================================================
-# HTTP Document Fixtures
+# HTTP Result Fixtures
 # =============================================================================
 
 
