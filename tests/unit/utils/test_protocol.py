@@ -361,6 +361,23 @@ class TestNostrClientManagerRelayClients:
         assert second is None
         mock_connect.assert_awaited_once()
 
+    async def test_get_relay_client_caches_sdk_failures(self) -> None:
+        networks = _StubNetworkPolicy(timeout=9.0)
+        relay = Relay("wss://relay.example.com")
+        manager = NostrClientManager(keys=MagicMock(), networks=networks)
+
+        with patch(
+            "bigbrotr.utils.protocol.connect_relay",
+            new_callable=AsyncMock,
+            side_effect=NostrSdkError("sdk connect failed"),
+        ) as mock_connect:
+            first = await manager.get_relay_client(relay)
+            second = await manager.get_relay_client(relay)
+
+        assert first is None
+        assert second is None
+        mock_connect.assert_awaited_once()
+
     async def test_get_relay_client_requires_networks(self) -> None:
         manager = NostrClientManager(keys=MagicMock())
 

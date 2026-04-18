@@ -107,7 +107,7 @@ class NostrClientManager:
 
         try:
             client = await self._connect_relay_with_networks(relay)
-        except (OSError, TimeoutError) as e:
+        except (OSError, TimeoutError, NostrSdkError) as e:
             self._dependencies.logger.warning(
                 "connect_client_failed relay=%s error=%s",
                 relay.url,

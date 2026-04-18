@@ -736,3 +736,11 @@ Use this section during execution for:
     `bigbrotr.utils.protocol.create_connected_client()` facade so the shared
     session helper now preserves the original connect error when cleanup
     reports only expected SDK shutdown noise.
+- `2.1` models/utils/NIPs leaf audit, sixty-ninth remediation slice:
+  - aligned `bigbrotr.utils.protocol_manager.NostrClientManager.get_relay_client()`
+    with the ordinary transport-failure contract of the rest of the relay
+    connection layer so SDK connect failures are cached as failed relays
+    instead of leaking through the manager boundary;
+  - added paired unit coverage on the public manager facade proving
+    `NostrSdkError` now degrades to `None` plus failed-relay caching rather
+    than aborting relay-scoped client acquisition.
