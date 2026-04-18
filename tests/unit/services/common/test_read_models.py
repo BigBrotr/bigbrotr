@@ -862,6 +862,16 @@ class TestReadModelQueryHelpers:
         assert query.include_total is True
         assert query.filters is None
 
+    def test_read_model_query_from_http_params_rejects_duplicate_normalized_param_keys(
+        self,
+    ) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid query parameter"):
+            read_model_query_from_http_params(
+                {" limit ": "25", "limit": "50"},
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
     def test_read_model_query_from_http_params_invalid_limit(self) -> None:
         with pytest.raises(ReadModelQueryError, match="Invalid limit or offset"):
             read_model_query_from_http_params(
@@ -900,6 +910,16 @@ class TestReadModelQueryHelpers:
         with pytest.raises(ReadModelQueryError, match="Invalid filter value"):
             read_model_query_from_http_params(
                 {"network": 123},  # type: ignore[dict-item]
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
+    def test_read_model_query_from_http_params_rejects_duplicate_normalized_filter_keys(
+        self,
+    ) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid query parameter"):
+            read_model_query_from_http_params(
+                {"network": "clearnet", " network ": "tor"},
                 default_page_size=100,
                 max_page_size=1000,
             )
@@ -1010,6 +1030,16 @@ class TestReadModelQueryHelpers:
         assert query.sort == "url:asc"
         assert query.include_total is True
         assert query.filters is None
+
+    def test_read_model_query_from_job_params_rejects_duplicate_normalized_param_keys(
+        self,
+    ) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid query parameter"):
+            read_model_query_from_job_params(
+                {" limit ": "25", "limit": "50"},
+                default_page_size=100,
+                max_page_size=1000,
+            )
 
     def test_read_model_query_from_job_params_trims_filter_key(self) -> None:
         query = read_model_query_from_job_params(

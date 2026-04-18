@@ -1745,3 +1745,12 @@ Use this section during execution for:
     keys are rejected both by the low-level parser and by the normalized
     `read_model_query_from_job_params()` DVM/job path before query validation
     continues.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-forty-first remediation
+  slice:
+  - tightened the shared public query-key normalization boundary so HTTP and
+    DVM/job inputs whose raw keys collapse to the same normalized field name
+    after trimming no longer overwrite each other via silent last-write-wins
+    parsing, and now fail immediately as invalid query input;
+  - added paired `services/common` coverage proving duplicate normalized
+    reserved keys and duplicate normalized HTTP filter keys are rejected
+    before pagination, filter validation, or read-model execution proceeds.

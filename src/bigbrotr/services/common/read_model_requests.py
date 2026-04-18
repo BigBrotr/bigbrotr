@@ -114,6 +114,8 @@ def _normalize_job_param_keys(raw_params: Mapping[str, Any]) -> dict[str, Any]:
         key = raw_key.strip()
         if not key:
             continue
+        if key in params:
+            raise ReadModelQueryError("Invalid query parameter")
         params[key] = value
     return params
 
@@ -132,6 +134,8 @@ def _normalize_http_filters(raw_filters: Mapping[str, str]) -> dict[str, str] | 
             raise ReadModelQueryError("Invalid filter field")
         if not isinstance(value, str):
             raise ReadModelQueryError("Invalid filter value")
+        if key in filters:
+            raise ReadModelQueryError("Invalid filter field")
         filters[key] = value.strip()
     return filters or None
 
@@ -145,6 +149,8 @@ def _normalize_http_param_keys(raw_params: Mapping[str, str]) -> dict[str, str]:
         key = raw_key.strip()
         if not key:
             raise ReadModelQueryError("Invalid filter field")
+        if key in params:
+            raise ReadModelQueryError("Invalid query parameter")
         params[key] = value
     return params
 
