@@ -306,3 +306,10 @@ Use this section during execution for:
     helpers;
   - kept this slice documentation-only while pairing it with the existing
     NIP-85 builder/data tests to guard the live public package contract.
+- `2.1` models/utils/NIPs leaf audit, sixteenth remediation slice:
+  - added intentional package markers to the tracked `tests/unit/nips`
+    subpackages and aligned the `nip85` test README with the final
+    provider-package wording, so the local test-package surfaces no longer rely
+    on empty `__init__.py` files plus stale helper-oriented narrative;
+  - paired the slice with NIP package import and builder/data tests to keep the
+    tracked test-package contract honest.
