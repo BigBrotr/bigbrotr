@@ -9,6 +9,7 @@ import pytest
 from bigbrotr.models.relay import Relay
 from bigbrotr.utils.protocol_sessions import (
     ClientConnectResult,
+    SharedSessionDependencies,
     connect_client_relays,
     create_connected_client,
 )
@@ -35,7 +36,10 @@ class TestCreateConnectedClient:
         with pytest.raises(ValueError, match="unsupported overlay networks: Tor"):
             await create_connected_client(
                 [Relay(f"ws://{'a' * 56}.onion")],
-                create_client_func=create_client_func,
+                dependencies=SharedSessionDependencies(
+                    create_client=create_client_func,
+                    shutdown_client=AsyncMock(),
+                ),
                 timeout=15.0,
             )
 
@@ -55,7 +59,10 @@ class TestCreateConnectedClient:
 
         result_client, result = await create_connected_client(
             [Relay("wss://relay.example.com")],
-            create_client_func=create_client_func,
+            dependencies=SharedSessionDependencies(
+                create_client=create_client_func,
+                shutdown_client=AsyncMock(),
+            ),
             timeout=15.0,
         )
 
@@ -64,3 +71,23 @@ class TestCreateConnectedClient:
             connected=(str(relay_url),),
             failed={},
         )
+
+    async def test_cleans_up_failed_client_before_reraising_cleanup_bug(self) -> None:
+        """Shared-session helper releases the allocated client if connect setup fails."""
+        client = AsyncMock()
+        create_client_func = AsyncMock(return_value=client)
+        shutdown_client_func = AsyncMock(side_effect=RuntimeError("shutdown noise"))
+        client.add_relay = AsyncMock(side_effect=OSError("connect boom"))
+
+        with pytest.raises(RuntimeError, match="shutdown noise"):
+            await create_connected_client(
+                [Relay("wss://relay.example.com")],
+                dependencies=SharedSessionDependencies(
+                    create_client=create_client_func,
+                    shutdown_client=shutdown_client_func,
+                ),
+                timeout=15.0,
+            )
+
+        create_client_func.assert_awaited_once_with(keys=None, allow_insecure=False)
+        shutdown_client_func.assert_awaited_once_with(client)

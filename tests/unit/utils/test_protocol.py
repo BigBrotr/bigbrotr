@@ -280,6 +280,27 @@ class TestCreateConnectedClient:
         assert mock_client.add_relay.await_count == 2
         mock_client.try_connect.assert_awaited_once()
 
+    async def test_cleans_up_failed_shared_client_before_reraising_cleanup_bug(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        mock_client = MagicMock()
+        mock_client.add_relay = AsyncMock(side_effect=OSError("connect boom"))
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol.create_client",
+                new=AsyncMock(return_value=mock_client),
+            ) as mock_create_client,
+            patch(
+                "bigbrotr.utils.protocol.shutdown_client",
+                new=AsyncMock(side_effect=RuntimeError("shutdown noise")),
+            ) as mock_shutdown_client,
+            pytest.raises(RuntimeError, match="shutdown noise"),
+        ):
+            await create_connected_client([relay], timeout=12.0)
+
+        mock_create_client.assert_awaited_once_with(keys=None, allow_insecure=False)
+        mock_shutdown_client.assert_awaited_once_with(mock_client)
+
 
 @dataclass(frozen=True, slots=True)
 class _StubNetworkConfig:

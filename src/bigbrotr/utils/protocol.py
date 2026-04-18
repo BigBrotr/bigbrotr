@@ -100,6 +100,7 @@ normalize_send_output = _protocol_publish.normalize_send_output
 shutdown_client = _protocol_lifecycle.shutdown_client
 ClientConnectResult = _protocol_sessions.ClientConnectResult
 ClientSession = _protocol_sessions.ClientSession
+SharedSessionDependencies = _protocol_sessions.SharedSessionDependencies
 _connect_client_relays = _protocol_sessions.connect_client_relays
 _create_connected_client = _protocol_sessions.create_connected_client
 
@@ -235,7 +236,10 @@ async def create_connected_client(
     """
     return await _create_connected_client(
         relays,
-        create_client_func=create_client,
+        dependencies=SharedSessionDependencies(
+            create_client=create_client,
+            shutdown_client=shutdown_client,
+        ),
         keys=keys,
         timeout=timeout,
         allow_insecure=allow_insecure,

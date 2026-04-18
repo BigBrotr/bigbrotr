@@ -712,3 +712,10 @@ Use this section during execution for:
     shared connect step raises before any session is cached;
   - added paired coverage proving the original connect failure still wins when
     shutdown reports only expected SDK teardown noise.
+- `2.1` models/utils/NIPs leaf audit, sixty-sixth remediation slice:
+  - hardened `bigbrotr.utils.protocol_sessions.create_connected_client()` so
+    the leaf shared-session helper releases an allocated client when
+    `connect_client_relays()` fails before returning a normalized result;
+  - added paired coverage on both the leaf helper and the public
+    `bigbrotr.utils.protocol.create_connected_client()` facade to lock the
+    cleanup contract in place.

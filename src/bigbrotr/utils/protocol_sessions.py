@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from nostr_sdk import RelayUrl
 
@@ -37,6 +37,13 @@ class ClientSession:
     client: Client
     relay_urls: tuple[str, ...]
     connect_result: ClientConnectResult
+
+
+class SharedSessionDependencies(NamedTuple):
+    """Dependencies required by the shared-session client helper."""
+
+    create_client: Callable[..., Awaitable[Client]]
+    shutdown_client: Callable[[Client], Awaitable[None]]
 
 
 def _validate_session_relays(relays: list[Relay]) -> None:
@@ -83,7 +90,7 @@ async def connect_client_relays(
 async def create_connected_client(
     relays: list[Relay],
     *,
-    create_client_func: Callable[..., Awaitable[Client]],
+    dependencies: SharedSessionDependencies,
     keys: Keys | None = None,
     timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
     allow_insecure: bool = False,
@@ -95,5 +102,9 @@ async def create_connected_client(
     allocate client resources for an unsupported contract.
     """
     _validate_session_relays(relays)
-    client = await create_client_func(keys=keys, allow_insecure=allow_insecure)
-    return client, await connect_client_relays(client, relays, timeout=timeout)
+    client = await dependencies.create_client(keys=keys, allow_insecure=allow_insecure)
+    try:
+        return client, await connect_client_relays(client, relays, timeout=timeout)
+    except Exception:
+        await dependencies.shutdown_client(client)
+        raise
