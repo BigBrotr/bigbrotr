@@ -2094,3 +2094,13 @@ Use this section during execution for:
   - added paired `finder` coverage proving those boolean aliases now fail fast
     at config load instead of mutating runtime discovery budgets or source
     request timing.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-seventy-sixth remediation
+  slice:
+  - tightened the public `monitor` config boundary so retry-policy numerics
+    and `processing.max_relays` no longer accept boolean aliases, which
+    previously let values like `True` silently enable one retry, tighten
+    backoff caps, amplify jitter, or truncate a monitoring cycle budget to a
+    single relay;
+  - added paired `monitor` coverage proving those boolean aliases now fail
+    fast at config load instead of mutating retry semantics or relay-budget
+    planning.

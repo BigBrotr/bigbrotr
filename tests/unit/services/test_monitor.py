@@ -413,6 +413,10 @@ class TestProcessingConfig:
         config = ProcessingConfig(nip11_info_max_size=2097152)  # 2MB
         assert config.nip11_info_max_size == 2097152
 
+    def test_rejects_boolean_max_relays_alias(self) -> None:
+        with pytest.raises(ValueError, match="max_relays: expected integer, got bool"):
+            ProcessingConfig(max_relays=True)
+
 
 class TestRetryConfig:
     def test_defaults(self) -> None:
@@ -444,6 +448,24 @@ class TestRetryConfig:
     def test_max_delay_equals_initial_accepted(self) -> None:
         config = RetryConfig(initial_delay=5.0, max_delay=5.0)
         assert config.max_delay == 5.0
+
+    @pytest.mark.parametrize(
+        ("field_name", "kwargs", "expected"),
+        [
+            ("max_attempts", {"max_attempts": True}, "integer"),
+            ("initial_delay", {"initial_delay": True}, "number"),
+            ("max_delay", {"max_delay": True}, "number"),
+            ("jitter", {"jitter": True}, "number"),
+        ],
+    )
+    def test_rejects_boolean_retry_aliases(
+        self,
+        field_name: str,
+        kwargs: dict[str, bool],
+        expected: str,
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected {expected}, got bool"):
+            RetryConfig(**kwargs)
 
 
 class TestRetriesConfig:

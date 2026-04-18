@@ -10,7 +10,7 @@ See Also:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Final
+from typing import Annotated, Any, Final
 
 from pydantic import (
     BaseModel,
@@ -37,6 +37,13 @@ _CLEARNET_ONLY_FLAGS: Final[tuple[str, ...]] = (
     "nip66_net",
     "nip66_dns",
 )
+
+
+def _reject_bool_alias(value: Any, field_name: str, expected: str) -> Any:
+    """Reject boolean aliases for numeric monitor config fields."""
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected {expected}, got bool")
+    return value
 
 
 class MetadataFlags(BaseModel):
@@ -95,6 +102,20 @@ class RetryConfig(BaseModel):
     jitter: float = Field(
         default=0.5, ge=0.0, le=2.0, description="Random jitter factor for retry delay"
     )
+
+    @field_validator("max_attempts", mode="before")
+    @classmethod
+    def reject_boolean_max_attempts(cls, v: Any, info: ValidationInfo) -> Any:
+        """Reject boolean aliases that would otherwise coerce to retry counts."""
+        field_name = info.field_name or "max_attempts"
+        return _reject_bool_alias(v, field_name, "integer")
+
+    @field_validator("initial_delay", "max_delay", "jitter", mode="before")
+    @classmethod
+    def reject_boolean_retry_timings(cls, v: Any, info: ValidationInfo) -> Any:
+        """Reject boolean aliases for retry timing controls."""
+        field_name = info.field_name or "value"
+        return _reject_bool_alias(v, field_name, "number")
 
     @field_validator("max_delay")
     @classmethod
@@ -176,6 +197,15 @@ class ProcessingConfig(BaseModel):
     store: MetadataFlags = Field(
         default_factory=MetadataFlags, description="Which metadata types to persist"
     )
+
+    @field_validator("max_relays", mode="before")
+    @classmethod
+    def reject_boolean_max_relays(cls, v: Any, info: ValidationInfo) -> Any:
+        """Reject boolean aliases that would otherwise cap the cycle budget to 1/0."""
+        if v is None:
+            return v
+        field_name = info.field_name or "max_relays"
+        return _reject_bool_alias(v, field_name, "integer")
 
 
 class GeoConfig(BaseModel):
