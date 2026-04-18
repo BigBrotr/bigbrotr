@@ -48,10 +48,14 @@ def parse_read_model_filter_string(filter_str: str) -> dict[str, str] | None:
     return filters or None
 
 
-def _parse_include_total(raw_value: str | None) -> bool:
+def _parse_include_total(raw_value: Any) -> bool:
     """Normalize public include-total flags from HTTP or NIP-90 inputs."""
     if raw_value is None:
         return False
+    if isinstance(raw_value, bool):
+        return raw_value
+    if not isinstance(raw_value, str):
+        raise ReadModelQueryError("Invalid include_total value")
 
     normalized = raw_value.strip().lower()
     if normalized in {"1", "true", "yes", "on"}:
@@ -61,10 +65,12 @@ def _parse_include_total(raw_value: str | None) -> bool:
     raise ReadModelQueryError("Invalid include_total value")
 
 
-def _parse_cursor(raw_value: str | None) -> str | None:
+def _parse_cursor(raw_value: Any) -> str | None:
     """Normalize optional opaque keyset cursors from public inputs."""
     if raw_value is None:
         return None
+    if not isinstance(raw_value, str):
+        raise ReadModelQueryError("Invalid cursor value")
 
     normalized = raw_value.strip()
     return normalized or None

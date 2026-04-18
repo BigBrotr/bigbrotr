@@ -831,6 +831,14 @@ class TestReadModelQueryHelpers:
                 max_page_size=1000,
             )
 
+    def test_read_model_query_from_http_params_invalid_cursor_type(self) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid cursor value"):
+            read_model_query_from_http_params(  # type: ignore[arg-type]
+                {"cursor": 123},
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
     def test_read_model_query_from_http_params_with_cursor(self) -> None:
         query = read_model_query_from_http_params(
             {"cursor": "opaque-token", "limit": "20"},
@@ -894,6 +902,23 @@ class TestReadModelQueryHelpers:
         with pytest.raises(ReadModelQueryError, match="Invalid include_total value"):
             read_model_query_from_job_params(
                 {"include_total": "maybe"},
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
+    def test_read_model_query_from_job_params_accepts_boolean_include_total(self) -> None:
+        query = read_model_query_from_job_params(
+            {"include_total": True},
+            default_page_size=100,
+            max_page_size=1000,
+        )
+
+        assert query.include_total is True
+
+    def test_read_model_query_from_job_params_invalid_cursor_type(self) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid cursor value"):
+            read_model_query_from_job_params(
+                {"cursor": 123},
                 default_page_size=100,
                 max_page_size=1000,
             )

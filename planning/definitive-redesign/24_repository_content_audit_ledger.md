@@ -1437,3 +1437,12 @@ Use this section during execution for:
   - added paired `NIP-85` model and Assertor coverage proving delimiter-rich
     topic or `k`-tag changes no longer get skipped by checkpoint reuse when
     the emitted public tags would actually differ.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-seventh remediation slice:
+  - hardened `bigbrotr.services.common.read_model_requests` so the shared
+    public query parser now rejects non-string cursor values with a normalized
+    `ReadModelQueryError` and handles boolean `include_total` values
+    intentionally instead of risking an internal `AttributeError` on the DVM
+    pre-parsed job path;
+  - added paired `services/common` and `dvm/jobs` coverage proving malformed
+    pre-parsed job params now become client-safe rejections while explicit
+    boolean `include_total=True` survives into the executed read query.
