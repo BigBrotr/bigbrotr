@@ -829,3 +829,12 @@ Use this section during execution for:
   - added paired unit coverage proving both direct NIP-11 parsing and the
     public fetch path now emit stable string-list surfaces even when the
     source document lists them out of order or with duplicates.
+- `2.1` models/utils/NIPs leaf audit, eighty-first remediation slice:
+  - tightened `bigbrotr.nips.nip11.data.Nip11InfoDataRetentionEntry` so
+    mixed `kinds` scopes are normalized to a deduplicated stable order in
+    both the custom parse helper and the model boundary instead of
+    inheriting document order directly;
+  - added paired unit coverage proving both direct retention-entry parsing
+    and the public NIP-11 fetch path now emit stable retention scopes even
+    when the source document lists ints and ranges out of order or with
+    duplicates.

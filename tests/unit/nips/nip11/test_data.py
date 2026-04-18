@@ -234,7 +234,12 @@ class TestNip11InfoDataRetentionEntryConstructor:
     def test_constructor_valid_kind_ranges(self):
         """Constructor accepts tuples for kind ranges."""
         entry = Nip11InfoDataRetentionEntry(kinds=[1, (10000, 19999), 3])
-        assert entry.kinds == [1, (10000, 19999), 3]
+        assert entry.kinds == [1, 3, (10000, 19999)]
+
+    def test_constructor_normalizes_kinds(self):
+        """Constructor deduplicates and stably sorts retention kinds."""
+        entry = Nip11InfoDataRetentionEntry(kinds=[(10000, 19999), 3, 1, (10000, 19999), 3])
+        assert entry.kinds == [1, 3, (10000, 19999)]
 
     def test_constructor_rejects_non_int_time(self):
         """Constructor raises ValidationError for non-int time."""
@@ -272,19 +277,19 @@ class TestNip11InfoDataRetentionEntryParse:
 
     def test_parse_valid_data(self):
         """Valid data is parsed correctly."""
-        data = {"kinds": [1, 2, 3], "time": 3600, "count": 1000}
+        data = {"kinds": [3, 1, 2, 3], "time": 3600, "count": 1000}
         result = Nip11InfoDataRetentionEntry.parse(data)
         assert result == {"kinds": [1, 2, 3], "time": 3600, "count": 1000}
 
     def test_parse_kind_ranges(self):
-        """Kind ranges are parsed correctly (list to tuple conversion)."""
-        data = {"kinds": [1, [10, 20], 3]}
+        """Kind ranges are parsed correctly with stable normalization."""
+        data = {"kinds": [[10, 20], 3, 1, [10, 20]]}
         result = Nip11InfoDataRetentionEntry.parse(data)
-        assert result == {"kinds": [1, (10, 20), 3]}
+        assert result == {"kinds": [1, 3, (10, 20)]}
 
     def test_parse_invalid_kinds_filtered(self):
         """Invalid kinds are filtered out."""
-        data = {"kinds": [1, "invalid", True, [10, 20], [1, 2, 3]]}
+        data = {"kinds": [[10, 20], 1, "invalid", True, [10, 20], [1, 2, 3]]}
         result = Nip11InfoDataRetentionEntry.parse(data)
         assert result == {"kinds": [1, (10, 20)]}
 

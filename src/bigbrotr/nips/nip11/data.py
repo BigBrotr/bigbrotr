@@ -176,7 +176,7 @@ def _parse_retention_kinds(
         )
 
     if kinds:
-        return kinds, issues
+        return _normalize_retention_kinds(kinds), issues
     if not raw_kinds:
         issues.append(
             ParseIssue(
@@ -224,6 +224,20 @@ def _parse_retention_entries(
             )
         )
     return None, issues
+
+
+def _retention_kind_sort_key(value: int | tuple[int, int]) -> tuple[int, int, int]:
+    if isinstance(value, int):
+        return (0, value, value)
+    return (1, value[0], value[1])
+
+
+def _normalize_retention_kinds(
+    value: list[int | tuple[int, int]] | None,
+) -> list[int | tuple[int, int]] | None:
+    if value is None:
+        return None
+    return sorted(set(value), key=_retention_kind_sort_key)
 
 
 class Nip11InfoDataLimitation(BaseData):
@@ -311,7 +325,9 @@ class Nip11InfoDataRetentionEntry(BaseData):
         The ``parse()`` override handles the mixed ``int | [int, int]``
         format specified by NIP-11. Lists are converted to tuples for
         immutability, and ``to_dict()`` uses ``mode="json"`` to convert
-        tuples back to lists for JSON serialization.
+        tuples back to lists for JSON serialization. ``kinds`` is normalized
+        to a deduplicated stable order so equivalent retention scopes do not
+        drift when source order changes.
 
     See Also:
         [Nip11InfoData][bigbrotr.nips.nip11.data.Nip11InfoData]: Parent
@@ -323,6 +339,13 @@ class Nip11InfoDataRetentionEntry(BaseData):
     )
     time: StrictInt | None = Field(default=None, description="Retention time in seconds")
     count: StrictInt | None = Field(default=None, description="Maximum events to retain")
+
+    @field_validator("kinds")
+    @classmethod
+    def _normalize_kinds(
+        cls, value: list[int | tuple[int, int]] | None
+    ) -> list[int | tuple[int, int]] | None:
+        return _normalize_retention_kinds(value)
 
     @classmethod
     def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:

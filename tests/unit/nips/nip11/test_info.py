@@ -260,6 +260,31 @@ class TestNip11InfoMetadataSuccess:
         assert result.data.tags == ["bitcoin-only", "sfw-only"]
         assert result.data.attributes == ["Community", "Search"]
 
+    async def test_info_normalizes_retention_kind_order(
+        self, relay: Relay, complete_nip11_data: dict[str, Any], mock_session_factory
+    ) -> None:
+        """Retrieval normalizes retention kinds before building nested models."""
+        import json
+
+        payload = dict(complete_nip11_data)
+        payload["retention"] = [{"kinds": [[10000, 19999], 3, 1, [10000, 19999]], "time": 86400}]
+
+        response = AsyncMock()
+        response.status = 200
+        response.headers = {"Content-Type": "application/nostr+json"}
+        response.content.read = AsyncMock(side_effect=[json.dumps(payload).encode(), b""])
+        response.__aenter__ = AsyncMock(return_value=response)
+        response.__aexit__ = AsyncMock(return_value=None)
+
+        session = mock_session_factory(response)
+
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
+            result = await Nip11InfoMetadata.fetch(relay)
+
+        assert result.logs.success is True
+        assert result.data.retention is not None
+        assert result.data.retention[0].kinds == [1, 3, (10000, 19999)]
+
     async def test_info_empty_json_object(self, relay: Relay, mock_session_factory):
         """Retrieval handles empty JSON object."""
         response = AsyncMock()
