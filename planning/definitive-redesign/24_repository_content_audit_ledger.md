@@ -762,3 +762,10 @@ Use this section during execution for:
     `broadcast_events_detailed()` now skip the failed client, drop any partial
     relay-level state for that client, and log the SDK send failure as the
     expected publish-boundary warning.
+- `2.1` models/utils/NIPs leaf audit, seventy-second remediation slice:
+  - tightened `bigbrotr.utils.protocol_publish.normalize_send_output()` so the
+    public relay-success tuple is now genuinely normalized: deduplicated and
+    sorted instead of inheriting arbitrary SDK iteration order;
+  - added paired unit coverage proving the helper now returns a stable
+    success tuple even when the SDK output arrives out of order or with
+    duplicate relay entries.

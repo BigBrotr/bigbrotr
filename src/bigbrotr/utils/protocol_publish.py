@@ -132,8 +132,15 @@ def summarize_broadcast_results(
 
 
 def normalize_send_output(output: object) -> tuple[tuple[str, ...], dict[str, str]]:
-    """Normalize one nostr-sdk send/subscribe output into relay-level outcomes."""
-    successful_relays = tuple(str(relay_url) for relay_url in getattr(output, "success", ()))
+    """Normalize one nostr-sdk send/subscribe output into relay-level outcomes.
+
+    Successful relay URLs are deduplicated and sorted so callers that cache,
+    compare, or log the result get a stable normalized order independent of
+    the SDK's iteration order.
+    """
+    successful_relays = tuple(
+        sorted({str(relay_url) for relay_url in getattr(output, "success", ())})
+    )
     failed_relays = {
         str(relay_url): str(error) for relay_url, error in getattr(output, "failed", {}).items()
     }

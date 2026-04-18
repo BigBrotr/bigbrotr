@@ -1057,6 +1057,16 @@ class TestNormalizeSendOutput:
         assert successful_relays == ("wss://relay.a", "wss://relay.b")
         assert failed_relays == {"wss://relay.c": "boom"}
 
+    def test_sorts_and_deduplicates_successful_relays(self) -> None:
+        output = MagicMock()
+        output.success = ["wss://relay.b", "wss://relay.a", "wss://relay.b"]
+        output.failed = {}
+
+        successful_relays, failed_relays = normalize_send_output(output)
+
+        assert successful_relays == ("wss://relay.a", "wss://relay.b")
+        assert failed_relays == {}
+
 
 # =============================================================================
 # connect_relay() Tests - Additional Branches
