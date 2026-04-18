@@ -320,3 +320,11 @@ Use this section during execution for:
     provider/probe builders rather than a vague bag of helper utilities;
   - mirrored that boundary in the local `models` README so the tracked package
     surface stays consistent for library readers and maintainers.
+- `2.1` models/utils/NIPs leaf audit, eighteenth remediation slice:
+  - aligned the tracked `bigbrotr.utils` package surface with the final
+    split public facade/internal-seam structure, so the public docs now name
+    `protocol.py` as the facade, `protocol_*` modules as implementation seams,
+    and avoid upward-layer examples in the package docstring;
+  - mirrored that boundary in the local utils README and unit-test package
+    surfaces so the tracked low-level utility contract stays consistent for
+    library readers and maintainers.

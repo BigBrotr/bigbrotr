@@ -1,4 +1,4 @@
-"""DNS resolution, Nostr key management, and WebSocket/HTTP transport.
+"""Low-level DNS, HTTP, streaming, and Nostr transport helpers.
 
 The utils layer sits in the middle of the diamond DAG, depending only on
 [bigbrotr.models][bigbrotr.models]. It provides low-level network and
@@ -8,12 +8,17 @@ cryptographic utilities used by [bigbrotr.nips][bigbrotr.nips] and
 Attributes:
     dns: Async DNS resolution of A, AAAA, and CNAME records via the system
         resolver. Used by NIP-66 DNS tests.
+    http: Bounded HTTP read/download helpers used by NIP fetchers and support
+        tooling.
     keys: Low-level Nostr key loading from environment variables (nsec1 bech32
         or hex format). Shared service-key policy now lives in
         ``bigbrotr.services.common.configs.NostrKeysConfig``.
-    protocol: High-level Nostr client operations -- relay connection, event
-        broadcasting, relay validation, and event fetching. Built on top of
-        WebSocket transport primitives.
+    protocol: High-level public facade for relay connection, event
+        broadcasting, relay validation, and client-session management.
+    protocol_*: Internal seams that split client construction, connection
+        fallback, publication, sessions, validation, and manager logic behind
+        the public ``protocol`` facade.
+    streaming: Bounded event-stream traversal helpers used by archive flows.
     transport: WebSocket transport primitives with SSL fallback strategy.
         Clearnet tries verified SSL first, falls back to insecure if cert errors
         and ``allow_insecure=True``. Overlay networks (Tor/I2P/Lokinet) require
@@ -35,6 +40,9 @@ See Also:
 Examples:
     ```python
     from bigbrotr.utils.protocol import create_client
-    from bigbrotr.services.common.configs import NostrKeysConfig
+    from nostr_sdk import Keys
+
+    keys = Keys.generate()
+    client = await create_client(keys=keys)
     ```
 """
