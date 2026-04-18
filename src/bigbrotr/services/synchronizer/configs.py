@@ -14,7 +14,7 @@ import time
 from typing import Any
 
 from nostr_sdk import Filter
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.services.common.configs import NetworksConfig, NostrKeysConfig
@@ -41,6 +41,13 @@ def _parse_filter(raw: Any, index: int) -> Filter:
         return Filter.from_json(json.dumps(raw))
     except Exception as e:
         raise ValueError(f"filters[{index}]: {e}") from e
+
+
+def _reject_bool_alias(value: Any, field_name: str) -> Any:
+    """Reject boolean aliases for integer synchronizer config fields."""
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected integer, got bool")
+    return value
 
 
 class TimeoutsConfig(BaseModel):
@@ -136,6 +143,15 @@ class ProcessingConfig(BaseModel):
         if not isinstance(v, list):
             raise TypeError(f"filters: expected list, got {type(v).__name__}")
         return [_parse_filter(raw, i) for i, raw in enumerate(v)]
+
+    @field_validator("since", "until", "end_lag", mode="before")
+    @classmethod
+    def reject_boolean_temporal_aliases(cls, v: Any, info: ValidationInfo) -> Any:
+        """Reject boolean aliases that would otherwise coerce to temporal integers."""
+        if v is None:
+            return v
+        field_name = info.field_name or "value"
+        return _reject_bool_alias(v, field_name)
 
     def get_end_time(self) -> int:
         """Compute the sync end timestamp: ``(until or now()) - end_lag``."""

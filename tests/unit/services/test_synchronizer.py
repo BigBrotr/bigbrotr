@@ -221,6 +221,22 @@ class TestSynchronizerConfig:
         assert config.networks.tor.enabled is True
         assert config.interval == 1800.0
 
+    @pytest.mark.parametrize(
+        ("field_name", "kwargs"),
+        [
+            ("since", {"since": True}),
+            ("until", {"until": True, "end_lag": 0}),
+            ("end_lag", {"end_lag": True}),
+        ],
+    )
+    def test_rejects_boolean_temporal_aliases(
+        self,
+        field_name: str,
+        kwargs: dict[str, bool | int],
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected integer, got bool"):
+            ProcessingConfig(**kwargs)
+
 
 # ============================================================================
 # Queries

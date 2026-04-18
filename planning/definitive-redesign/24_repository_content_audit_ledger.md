@@ -2076,3 +2076,12 @@ Use this section during execution for:
   - added paired `refresher` coverage proving invalid watermark scalars,
     impossible source ranges, and malformed SQL refresh counts now fail fast
     before they can influence incremental slicing or refresh bookkeeping.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-seventy-fourth remediation
+  slice:
+  - tightened the public `synchronizer` config boundary so `ProcessingConfig`
+    no longer accepts boolean aliases for `since`, `until`, or `end_lag`,
+    which previously let values like `True` coerce to `1` and silently alter
+    the sync cutoff window as if they were canonical timestamps or lag values;
+  - added paired `synchronizer` coverage proving those boolean aliases now
+    fail fast at config load instead of mutating the computed incremental
+    archive range.
