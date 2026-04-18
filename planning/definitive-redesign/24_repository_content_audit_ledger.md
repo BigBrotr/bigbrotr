@@ -975,3 +975,10 @@ Use this section during execution for:
     canonical primary IPv4 address rather than whichever A record the resolver
     happened to yield first, and added paired DNS coverage that locks this
     behavior down.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-first remediation slice:
+  - fixed `bigbrotr.nips.nip66.geo.GeoExtractor.extract_country()` so
+    `geo_is_eu` falls back to `registered_country` together with country code
+    and name, instead of silently dropping EU-membership information on the
+    registered-country fallback path;
+  - aligned the paired geo extractor coverage so the fallback contract is
+    locked down explicitly.

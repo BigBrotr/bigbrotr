@@ -67,7 +67,8 @@ class GeoExtractor:
         """Extract country code, name, and EU membership status."""
         result: dict[str, Any] = {}
 
-        # Prefer the physical country; fall back to registered country
+        # Prefer physical-country fields; fall back to registered-country fields
+        # when the primary record omits them.
         if response.country.iso_code:
             result["geo_country"] = response.country.iso_code
         elif response.registered_country.iso_code:
@@ -79,7 +80,9 @@ class GeoExtractor:
             result["geo_country_name"] = response.registered_country.name
 
         is_eu = response.country.is_in_european_union
-        if is_eu is not None:
+        if not isinstance(is_eu, bool):
+            is_eu = response.registered_country.is_in_european_union
+        if isinstance(is_eu, bool):
             result["geo_is_eu"] = is_eu
 
         return result

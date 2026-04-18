@@ -47,11 +47,13 @@ class TestGeoExtractorExtractCountry:
         response.country.is_in_european_union = None
         response.registered_country.iso_code = "DE"
         response.registered_country.name = "Germany"
+        response.registered_country.is_in_european_union = True
 
         result = GeoExtractor.extract_country(response)
 
         assert result["geo_country"] == "DE"
         assert result["geo_country_name"] == "Germany"
+        assert result["geo_is_eu"] is True
 
     def test_eu_membership_true(self) -> None:
         """Extract EU membership when True."""
