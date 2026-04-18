@@ -444,7 +444,7 @@ class TestNip11FetchUrlScheme:
         assert url.startswith("https://")
 
     async def test_fetch_ws_uses_http(self, tor_relay: Relay, mock_session_factory):
-        """ws:// relay (Tor) uses http://."""
+        """ws:// relay (Tor) uses http:// with no SSL context."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
@@ -460,6 +460,7 @@ class TestNip11FetchUrlScheme:
         call_args = session.get.call_args
         url = call_args[0][0]
         assert url.startswith("http://")
+        assert call_args[1]["ssl"] is False
 
 
 # =============================================================================

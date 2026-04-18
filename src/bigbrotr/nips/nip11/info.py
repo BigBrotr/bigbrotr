@@ -17,9 +17,9 @@ Note:
     The SSL fallback strategy mirrors
     [connect_relay][bigbrotr.utils.protocol.connect_relay]: clearnet relays
     try verified SSL first, then fall back to ``CERT_NONE`` if
-    ``allow_insecure=True``. Overlay networks always use an insecure SSL
-    context because the overlay transport already provides its own
-    privacy/security layer.
+    ``allow_insecure=True``. Overlay relays are canonicalized to ``ws://`` by
+    [Relay][bigbrotr.models.relay.Relay], so their NIP-11 fetches stay on
+    plain ``http://`` with no SSL context at all.
 
 See Also:
     [bigbrotr.nips.nip11.nip11.Nip11][bigbrotr.nips.nip11.nip11.Nip11]:
@@ -41,7 +41,6 @@ from typing import Any, ClassVar, Self
 import aiohttp
 from aiohttp_socks import ProxyConnector
 
-from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.nips.base import BaseNipMetadata
 from bigbrotr.utils.http import read_bounded_json
@@ -203,9 +202,9 @@ class Nip11InfoMetadata(BaseNipMetadata):
         header per the NIP-11 specification.
 
         For clearnet HTTPS, verifies the certificate first and falls back to
-        insecure if *allow_insecure* is True. Overlay networks always use an
-        insecure SSL context because the overlay transport already provides
-        its own privacy/security layer. Plain HTTP connections use no SSL.
+        insecure if *allow_insecure* is True. Overlay relays are stored
+        canonically as ``ws://`` URLs, so their NIP-11 fetches stay on plain
+        HTTP with no SSL context. Plain HTTP connections use no SSL.
 
         This method never returns ``None`` and does not raise for ordinary
         HTTP or parsing failures. Check ``succeeded`` for the operation
@@ -238,28 +237,12 @@ class Nip11InfoMetadata(BaseNipMetadata):
         http_url = f"{protocol}://{formatted_host}{port_suffix}{relay.path or ''}"
 
         headers = {"Accept": "application/nostr+json"}
-        is_overlay = relay.network in (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)
-
         data: dict[str, Any] = {}
         logs: dict[str, Any] = {"success": False, "reason": None}
         ssl_fallback = False
 
         try:
-            if is_overlay:
-                ctx = ssl.create_default_context()
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
-                data = await cls._info(
-                    http_url,
-                    headers,
-                    timeout,
-                    max_size,
-                    ctx,
-                    proxy_url,
-                    session=session,
-                )
-
-            elif protocol == "http":
+            if protocol == "http":
                 data = await cls._info(
                     http_url,
                     headers,

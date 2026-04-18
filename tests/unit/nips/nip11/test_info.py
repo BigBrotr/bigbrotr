@@ -498,7 +498,7 @@ class TestNip11InfoMetadataUrlConstruction:
         assert url.startswith("https://")
 
     async def test_info_ws_uses_http(self, tor_relay: Relay, mock_session_factory):
-        """ws:// relay uses http://."""
+        """ws:// relay uses http:// with no SSL context."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
@@ -514,6 +514,7 @@ class TestNip11InfoMetadataUrlConstruction:
         call_args = session.get.call_args
         url = call_args[0][0]
         assert url.startswith("http://")
+        assert call_args[1]["ssl"] is False
 
     async def test_info_includes_port(self, relay_with_port: Relay, mock_session_factory):
         """Non-default port is included in URL."""
@@ -606,7 +607,7 @@ class TestNip11InfoMetadataNetworkBehavior:
     """Test network-specific behavior in fetch()."""
 
     async def test_info_tor_relay(self, tor_relay: Relay, mock_session_factory):
-        """Tor relay retrieval uses http:// (overlay handles encryption)."""
+        """Tor relay retrieval uses http:// without an unnecessary SSL context."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
@@ -624,6 +625,7 @@ class TestNip11InfoMetadataNetworkBehavior:
         url = call_args[0][0]
         assert url.startswith("http://")
         assert ".onion" in url
+        assert call_args[1]["ssl"] is False
 
     async def test_info_i2p_relay(self, i2p_relay: Relay, mock_session_factory):
         """I2P relay retrieval uses http://."""
@@ -951,7 +953,7 @@ class TestNip11InfoMetadataProxyConnector:
     async def test_fetch_tor_relay_with_proxy_uses_proxy_connector(
         self, tor_relay: Relay, mock_session_factory
     ):
-        """fetch() for tor relay with proxy_url passes proxy to _info."""
+        """fetch() for tor relay with proxy_url uses a proxy connector and no SSL."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/json"}
@@ -970,7 +972,7 @@ class TestNip11InfoMetadataProxyConnector:
             result = await Nip11InfoMetadata.fetch(tor_relay, proxy_url="socks5://127.0.0.1:9050")
 
         assert result.logs.success is True
-        mock_from_url.assert_called_once()
+        mock_from_url.assert_called_once_with("socks5://127.0.0.1:9050", ssl=False)
 
 
 # =============================================================================

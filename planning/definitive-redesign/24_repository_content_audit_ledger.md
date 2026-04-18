@@ -553,3 +553,11 @@ Use this section during execution for:
   - aligned the paired unit coverage to those realistic runtime failures while
     preserving the intended guarantee that a failed WebSocket close does not
     block session cleanup.
+- `2.1` models/utils/NIPs leaf audit, forty-seventh remediation slice:
+  - corrected `bigbrotr.nips.nip11.info.Nip11InfoMetadata.fetch()` so overlay
+    relays now follow the honest `http://` + `ssl=False` path that matches the
+    canonical `Relay` contract, instead of being lumped into a dead overlay
+    TLS branch;
+  - aligned the module/fetch contract wording and paired unit coverage so the
+    leaf surface now says plainly that overlay relays are canonical `ws://`
+    entries and therefore do not use an SSL context for NIP-11 fetches.
