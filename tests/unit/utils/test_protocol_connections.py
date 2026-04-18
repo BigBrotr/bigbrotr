@@ -123,6 +123,36 @@ class TestProtocolConnections:
         client.wait_for_connection.assert_awaited_once()
         shutdown_client.assert_awaited_once_with(client)
 
+    async def test_overlay_unexpected_error_shuts_down_partial_client(self) -> None:
+        relay = Relay(f"ws://{'a' * 56}.onion")
+        relay_url = MagicMock()
+        client = AsyncMock()
+        client.relay.side_effect = RuntimeError("relay lookup failed")
+        shutdown_client = AsyncMock()
+        context = _context(
+            create_client=AsyncMock(return_value=client),
+            shutdown_client=shutdown_client,
+            parse_relay_url=MagicMock(return_value=relay_url),
+        )
+
+        with pytest.raises(RuntimeError, match="relay lookup failed"):
+            await connect_relay(
+                relay,
+                context,
+                RelayConnectOptions(
+                    keys=None,
+                    proxy_url="socks5://127.0.0.1:9050",
+                    timeout=12.0,
+                    allow_insecure=False,
+                ),
+            )
+
+        client.add_relay.assert_awaited_once_with(relay_url)
+        client.connect.assert_awaited_once()
+        client.wait_for_connection.assert_awaited_once()
+        client.relay.assert_awaited_once_with(relay_url)
+        shutdown_client.assert_awaited_once_with(client)
+
     async def test_ssl_failure_falls_back_to_insecure_client(self) -> None:
         relay = Relay("wss://relay.example.com")
         relay_url = MagicMock()

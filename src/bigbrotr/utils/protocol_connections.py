@@ -73,6 +73,7 @@ async def _connect_overlay_relay(
         raise ValueError(f"proxy_url required for {relay.network.display_name} relay: {relay.url}")
 
     client = await context.create_client(options.keys, proxy_url)
+    connected = False
     try:
         await client.add_relay(relay_url)
         await client.connect()
@@ -82,10 +83,11 @@ async def _connect_overlay_relay(
         if not relay_obj.is_connected():
             raise TimeoutError(f"Connection timeout: {relay.url}")
 
+        connected = True
         return client
-    except Exception:
-        await _best_effort_shutdown_client(context, client)
-        raise
+    finally:
+        if not connected:
+            await _best_effort_shutdown_client(context, client)
 
 
 async def _best_effort_shutdown_client(
