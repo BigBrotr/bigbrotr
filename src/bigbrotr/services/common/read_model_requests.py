@@ -107,6 +107,8 @@ def _normalize_job_param_keys(raw_params: Mapping[str, Any]) -> dict[str, Any]:
     """Normalize pre-parsed NIP-90 parameter keys before shared parsing."""
     params: dict[str, Any] = {}
     for raw_key, value in raw_params.items():
+        if not isinstance(raw_key, str):
+            continue
         key = raw_key.strip()
         if not key:
             continue
@@ -150,10 +152,15 @@ def _parse_int_param(
     if isinstance(raw_value, bool):
         raise ReadModelQueryError(error_message)
 
-    try:
-        value = int(raw_value)
-    except (TypeError, ValueError) as error:
-        raise ReadModelQueryError(error_message) from error
+    if isinstance(raw_value, int):
+        value = raw_value
+    elif isinstance(raw_value, str):
+        try:
+            value = int(raw_value)
+        except ValueError as error:
+            raise ReadModelQueryError(error_message) from error
+    else:
+        raise ReadModelQueryError(error_message)
     if value < minimum:
         raise ReadModelQueryError(error_message)
     if maximum is not None and value > maximum:

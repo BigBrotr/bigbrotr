@@ -467,6 +467,37 @@ class TestProcessRequestEvent:
         send_event.assert_awaited_once()
 
     @patch("bigbrotr.services.dvm.jobs.parse_job_params")
+    async def test_rejects_float_limit_from_preparsed_job_params(
+        self,
+        mock_parse_job_params: MagicMock,
+        job_context: JobExecutionContext,
+    ) -> None:
+        event = _make_mock_event(event_id="job-float-limit")
+        logger = MagicMock()
+        send_event = AsyncMock(return_value=(("wss://relay.example.com",), {}))
+        query_resource = AsyncMock()
+        mock_parse_job_params.return_value = {
+            "read_model": "relays",
+            "limit": 1.5,
+        }
+
+        result = await process_request_event(
+            event=event,
+            pubkey_hex="service-pubkey",
+            processed_ids=set(),
+            runtime=JobRuntime(
+                logger=logger,
+                send_event=send_event,
+                query_resource=query_resource,
+            ),
+            context=job_context,
+        )
+
+        assert result == (1, 0, 1, 0)
+        query_resource.assert_not_awaited()
+        send_event.assert_awaited_once()
+
+    @patch("bigbrotr.services.dvm.jobs.parse_job_params")
     async def test_rejects_invalid_sort_type_from_preparsed_job_params(
         self,
         mock_parse_job_params: MagicMock,

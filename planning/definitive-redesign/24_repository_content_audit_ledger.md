@@ -1563,3 +1563,21 @@ Use this section during execution for:
   - added paired `services/common` coverage proving the shared job-query helper
     now resolves canonical reserved/filter keys exactly like the live DVM
     transport path instead of silently dropping them.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twenty-second remediation
+  slice:
+  - hardened the shared `read_model_query_from_job_params()` key-normalization
+    seam so malformed non-string pre-parsed keys no longer raise accidental
+    attribute errors when callers use the exported helper directly, and are now
+    ignored like they already are on the DVM wrapper path;
+  - added paired `services/common` coverage proving the shared helper now keeps
+    canonical reserved keys while dropping non-string or blank key noise
+    instead of crashing before query validation.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twenty-third remediation
+  slice:
+  - tightened the shared public integer parsing boundary so pre-parsed `NIP-90`
+    numerics like `limit=1.5` or `offset=1.5` are no longer truncated through
+    `int(...)`, and now fail the same client-safe validation contract expected
+    by the live transport-facing adapters;
+  - added paired `services/common` and `dvm/jobs` coverage proving malformed
+    float numerics are rejected before query execution instead of silently
+    widening or reshaping the requested page.

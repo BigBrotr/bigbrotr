@@ -990,6 +990,20 @@ class TestReadModelQueryHelpers:
 
         assert query.filters == {"network": "clearnet"}
 
+    def test_read_model_query_from_job_params_ignores_non_string_keys(self) -> None:
+        query = read_model_query_from_job_params(
+            {
+                " limit ": "25",
+                123: "ignored",  # type: ignore[dict-item]
+                "   ": "ignored",  # blank after normalization
+            },
+            default_page_size=100,
+            max_page_size=1000,
+        )
+
+        assert query.limit == 25
+        assert query.filters is None
+
     def test_read_model_query_from_job_params_invalid_offset(self) -> None:
         with pytest.raises(ReadModelQueryError, match="Invalid limit or offset value"):
             read_model_query_from_job_params(
@@ -1021,6 +1035,18 @@ class TestReadModelQueryHelpers:
         with pytest.raises(ReadModelQueryError, match="Invalid limit or offset value"):
             read_model_query_from_job_params(
                 {field_name: True},
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
+    @pytest.mark.parametrize("field_name", ["limit", "offset"])
+    def test_read_model_query_from_job_params_rejects_float_numeric_fields(
+        self,
+        field_name: str,
+    ) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid limit or offset value"):
+            read_model_query_from_job_params(
+                {field_name: 1.5},
                 default_page_size=100,
                 max_page_size=1000,
             )
