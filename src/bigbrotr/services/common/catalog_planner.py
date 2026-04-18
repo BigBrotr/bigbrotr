@@ -6,6 +6,7 @@ import base64
 import binascii
 import json
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Any
 
 from .catalog import CatalogError
@@ -357,11 +358,29 @@ def decode_cursor(
     return values
 
 
+def _validate_cursor_temporal_value(column: str, pg_type: str, value: Any) -> None:
+    """Validate one decoded cursor temporal scalar against the expected PG type."""
+    if not isinstance(value, str):
+        raise CatalogError(f"Invalid cursor value for column {column}")
+
+    try:
+        if pg_type == "date":
+            date.fromisoformat(value)
+        else:
+            datetime.fromisoformat(value)
+    except ValueError as error:
+        raise CatalogError(f"Invalid cursor value for column {column}") from error
+
+
 def _validate_cursor_scalar_type(column: str, pg_type: str, value: Any) -> None:
     """Validate one decoded cursor scalar against the expected column type."""
-    if pg_type in _TEXT_TYPES | _DATE_TYPES:
+    if pg_type in _TEXT_TYPES:
         if not isinstance(value, str):
             raise CatalogError(f"Invalid cursor value for column {column}")
+        return
+
+    if pg_type in _DATE_TYPES:
+        _validate_cursor_temporal_value(column, pg_type, value)
         return
 
     if pg_type in {"bigint", "integer", "smallint"}:

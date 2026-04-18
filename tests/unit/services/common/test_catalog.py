@@ -705,6 +705,52 @@ class TestCatalogQuery:
                 include_total=False,
             )
 
+    async def test_query_rejects_cursor_with_invalid_timestamp_string(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        populated_catalog._tables["daily_counts"] = TableSchema(
+            name="daily_counts",
+            columns=(
+                ColumnSchema(
+                    name="day",
+                    pg_type="timestamp with time zone",
+                    nullable=False,
+                ),
+                ColumnSchema(name="event_count", pg_type="bigint", nullable=False),
+            ),
+            primary_key=("day",),
+            is_view=True,
+        )
+        catalog_brotr.fetch = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        cursor = (
+            base64.urlsafe_b64encode(
+                json.dumps(
+                    {
+                        "v": 1,
+                        "sort": "",
+                        "values": {"day": "not-a-timestamp"},
+                    },
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode()
+            )
+            .decode()
+            .rstrip("=")
+        )
+
+        with pytest.raises(CatalogError, match="Invalid cursor value for column day"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "daily_counts",
+                limit=10,
+                offset=0,
+                cursor=cursor,
+                prefer_keyset=True,
+                include_total=False,
+            )
+
+        catalog_brotr.fetch.assert_not_called()  # type: ignore[attr-defined]
+
     async def test_query_skips_total_when_not_requested(
         self, populated_catalog: Catalog, catalog_brotr: Brotr
     ) -> None:

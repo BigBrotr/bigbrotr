@@ -1626,3 +1626,12 @@ Use this section during execution for:
   - added paired `services/common`, `api`, and `dvm` coverage proving
     oversized public limits are rejected at the parser boundary instead of
     being transparently reshaped during query execution.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twenty-ninth remediation
+  slice:
+  - tightened the shared keyset cursor boundary so tampered `date` and
+    `timestamp` cursor payloads are no longer treated as merely string-shaped
+    and allowed to drift down to the SQL cast layer, and now fail immediately
+    as invalid cursor values before query execution;
+  - added paired `services/common` coverage proving malformed temporal cursor
+    scalars are rejected at decode/build time instead of surfacing later as
+    generic query execution failures.
