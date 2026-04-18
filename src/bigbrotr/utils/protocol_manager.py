@@ -30,8 +30,8 @@ class RelayNetworkPolicy(Protocol):
     """Minimal network-policy contract required by relay-scoped clients.
 
     This keeps the utils-layer manager generic: higher layers may pass
-    ``NetworksConfig`` or any other object that can answer per-network timeout
-    and proxy lookups.
+    any object that can answer per-network timeout and proxy lookups through
+    this structural interface.
     """
 
     def get(self, network: NetworkType) -> RelayNetworkConfig: ...

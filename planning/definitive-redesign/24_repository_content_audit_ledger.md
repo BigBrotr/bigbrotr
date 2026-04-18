@@ -385,3 +385,11 @@ Use this section during execution for:
   - deferred the paired drift in `docs/user-guide/architecture.md` to the
     later narrative-docs wave, because it sits outside the leaf-package scope
     of `2.1`.
+- `2.1` models/utils/NIPs leaf audit, twenty-fifth remediation slice:
+  - removed the last concrete `NetworksConfig` reference from the tracked
+    `bigbrotr.utils.protocol_manager` public narrative, so the relay-client
+    manager now describes only the structural `RelayNetworkPolicy` contract it
+    actually depends on;
+  - kept the concrete `NetworksConfig` surface where it belongs, in the
+    service-common config layer and its own tests, instead of letting that
+    wrapper leak back into the low-level utils contract.
