@@ -4,7 +4,8 @@ Everything you need to go from zero to a running BigBrotr instance.
 
 ---
 
-This section walks you through the complete setup process in three stages:
+This section gets you from zero to a real BigBrotr deployment path. It is
+organized around three goals:
 
 <div class="grid cards" markdown>
 
@@ -12,19 +13,22 @@ This section walks you through the complete setup process in three stages:
 
     ---
 
-    System requirements, dependency installation, and three install paths: Docker-only, hybrid, and full manual.
+    System requirements, dependency installation, and the supported setup
+    paths.
 
 -   :material-rocket-launch:{ .lg .middle } **[Quick Start](quickstart.md)**
 
     ---
 
-    Step-by-step tutorial running each service locally, from seeding the database to validating relays.
+    Step-by-step local run-through from initial relay seeding to the first
+    validated relay archive state.
 
 -   :material-server:{ .lg .middle } **[First Deployment](first-deployment.md)**
 
     ---
 
-    Full Docker Compose deployment with monitoring, Grafana dashboards, and production secrets.
+    First serious deployment path using the built-in reference deployment and
+    monitoring stack.
 
 </div>
 
@@ -38,5 +42,7 @@ This section walks you through the complete setup process in three stages:
 | Git | Any | To clone the repository |
 
 !!! tip "Which path should I choose?"
-    **Just want to run it?** Start with [First Deployment](first-deployment.md) -- Docker handles everything.
-    **Want to develop?** Follow [Installation](installation.md) (hybrid path), then [Quick Start](quickstart.md).
+    **Just want to run a real deployment?** Start with
+    [First Deployment](first-deployment.md).
+    **Want to understand the runtime locally first?** Follow
+    [Installation](installation.md), then [Quick Start](quickstart.md).

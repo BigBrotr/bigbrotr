@@ -10,7 +10,7 @@
 
 site_name: BigBrotr
 site_url: https://bigbrotr.github.io/bigbrotr/
-site_description: Modular Nostr network observatory — relay discovery, health monitoring, event archiving, analytics, and data access
+site_description: Storage-first Nostr relay observatory with independent services, a shared read core, and deployment profiles
 repo_url: https://github.com/BigBrotr/bigbrotr
 repo_name: BigBrotr/bigbrotr
 copyright: Copyright &copy; BigBrotr Contributors
@@ -69,8 +69,10 @@ nav:
       - user-guide/index.md
       - Architecture: user-guide/architecture.md
       - Services: user-guide/services.md
-      - Configuration: user-guide/configuration.md
       - Database: user-guide/database.md
+      - Read Side: user-guide/read-side.md
+      - Deployments: user-guide/deployments.md
+      - Configuration: user-guide/configuration.md
       - Monitoring: user-guide/monitoring.md
   - How-to Guides:
       - how-to/index.md

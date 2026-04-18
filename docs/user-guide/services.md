@@ -1,6 +1,9 @@
 # Services
 
-Deep dive into BigBrotr's ten independent services: how relays are discovered, validated, monitored, how events are archived, how derived facts are refreshed, how NIP-85 public scores are computed, and how data is exposed via REST API and Nostr.
+Deep dive into BigBrotr's ten independent services: how relays are discovered,
+validated, and monitored; how events and documents are archived; how shared
+facts and public scores are produced; and how the public read adapters expose
+data over HTTP and Nostr.
 
 ---
 
@@ -509,28 +512,28 @@ the shared score contract.
 
 ## Api
 
-**Purpose**: Expose BigBrotr public read models as a read-only REST API via FastAPI.
+**Purpose**: Expose BigBrotr public readable resources as a read-only HTTP API via FastAPI.
 
 **Mode**: Continuous (HTTP server runs alongside the `run_forever` cycle)
 
-**Reads**: Public read models backed by Catalog-managed tables, views, and materialized views
+**Reads**: Enabled public readable resources resolved through `ReadCore` over catalog-backed relations
 **Writes**: -- (read-only; emits Prometheus metrics)
 
 ### How It Works
 
-1. On startup (`__aenter__`), discover the backing catalog via the shared Catalog
-2. Build a FastAPI application with discovery endpoints for enabled public read models
-3. Register list endpoints (`GET /api/v1/{read_model}`) with read-model query params:
+1. On startup (`__aenter__`), discover the backing catalog and initialize the shared `ReadCore`
+2. Build a FastAPI application with discovery endpoints for enabled public readable resources
+3. Register list endpoints (`GET /api/v1/{read_model}`) with the stable transport query params:
    `limit`, `sort`, column filters, optional `cursor`, optional `include_total`,
    and `offset` only as a compatibility fallback
-4. Register detail endpoints (`GET /api/v1/{read_model}/{pk}`) for read models with a primary key
+4. Register detail endpoints (`GET /api/v1/{read_model}/{pk}`) for resources with a primary key
 5. Start uvicorn as a background asyncio task
 6. Each `run()` cycle logs request statistics (total, failed) and updates Prometheus gauges
 
 Endpoints also include `/health` (readiness check), `GET /api/v1/read-models`, and
 `GET /api/v1/read-models/{read_model}` for public surface discovery.
 
-The discovery surface now exposes canonical, product-level read-model IDs such as
+The discovery surface exposes canonical, product-level read-model IDs such as
 `relays`, `relay-stats`, and `relay-document-current`. Legacy table-shaped aliases
 remain accepted for compatibility, but discovery and deployment configs should prefer
 the canonical IDs.
@@ -539,13 +542,13 @@ the canonical IDs.
 terms: `fields`, `identity_fields`, and pagination capabilities, rather than exposing
 raw catalog internals as the primary vocabulary.
 
-For read models with a primary key, list responses default to cursor pagination:
+For resources with a primary key, list responses default to cursor pagination:
 
 - the request can pass `cursor=<opaque-token>` for the next page
 - the response `meta` can include `next_cursor`
 - `include_total=true` opt-in enables the extra `COUNT(*)` query only when needed
 
-For read models without a stable primary key, the API falls back to offset pagination.
+For resources without a stable primary key, the API falls back to offset pagination.
 
 ### Configuration
 
@@ -566,22 +569,22 @@ For read models without a stable primary key, the API falls back to offset pagin
 
 ## Dvm
 
-**Purpose**: Serve public BigBrotr read-model queries over the Nostr protocol as a NIP-90 Data Vending Machine.
+**Purpose**: Serve public BigBrotr readable-resource queries over the Nostr protocol as a NIP-90 Data Vending Machine.
 
 **Mode**: Continuous (`run_forever`, default interval 60 seconds)
 
-**Reads**: Public read models backed by Catalog-managed tables, views, and materialized views
+**Reads**: Enabled public readable resources resolved through `ReadCore` over catalog-backed relations
 **Writes**: -- (publishes Nostr events: kind 6050 results, kind 7000 feedback)
 
 ### How It Works
 
-1. On startup (`__aenter__`), connect to configured relays and discover the backing catalog
+1. On startup (`__aenter__`), connect to configured relays and initialize the shared read core
 2. Optionally publish a NIP-89 handler announcement (kind 31990) advertising available read models
 3. Restore a persisted `(timestamp, event_id)` request cursor and open a long-lived kind 5050 subscription on the connected relays
 4. Each `run()` cycle drains buffered subscription notifications in cursor order
 5. Parse job parameters from event tags: `read_model`, `limit`, `sort`, `filter`,
    optional `cursor`, optional `include_total`, and `offset` only as a compatibility fallback
-6. Execute the query via the shared Catalog (same engine as the Api service)
+6. Execute the query via the shared `ReadCore` (the same shared read engine used by the Api service)
 7. Publish the result as a kind 6050 event, or publish error/payment-required feedback (kind 7000)
 
 The Dvm supports protocol-specific pricing via `ReadModelPolicy.price`. When a
@@ -592,7 +595,7 @@ As with the HTTP API, DVM announcements and deployment config should use the can
 read-model IDs (`relays`, `relay-stats`, `relay-document-current`, ...). Legacy
 table-shaped aliases are still accepted on inbound jobs for compatibility.
 
-When the target read model has a primary key, DVM list jobs default to the same
+When the target resource has a primary key, DVM list jobs default to the same
 cursor-based contract as the API:
 
 - pass `cursor=<opaque-token>` in a `param` tag to continue a prior page

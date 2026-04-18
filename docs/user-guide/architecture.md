@@ -20,6 +20,9 @@ BigBrotr uses a **Diamond DAG** architecture. Four tiers with strict top-to-bott
 
 Deployments (`deployments/{bigbrotr,lilbrotr}/`) sit outside the package and configure behavior through YAML, SQL schemas, and Docker Compose.
 
+For the public read side and deployment composition model, see
+[Read Side](read-side.md) and [Deployments](deployments.md).
+
 ---
 
 ## Models Layer
@@ -446,9 +449,9 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 | `discovery_queries.py` | Shared Seeder/Finder candidate-registration helpers |
 | `utils.py` | Relay parsing helpers and batch insert helper |
 | `mixins.py` | `ConcurrentStreamMixin`, `NetworkSemaphoresMixin` — shared concurrency helpers |
-| `catalog.py` | Schema-driven `Catalog` for table discovery (Api, Dvm) and `CatalogError` |
-| `configs.py` | Per-network and per-table Pydantic config models |
-| `read_models.py` | Public read-model registry and `ReadModelSurface` helpers |
+| `catalog.py` | Schema discovery and safe query engine used by the shared read core |
+| `configs.py` | Per-network and adapter exposure-policy Pydantic config models |
+| `read_models.py` | `ReadCore`, readable-resource registry, and compatibility wrappers for API/DVM |
 
 **Common Query Utilities** (`common/discovery_queries.py`, `common/utils.py`):
 
@@ -652,7 +655,8 @@ Services use mixins from `services/common/mixins.py` to compose shared behavior:
 - `NetworkSemaphoresMixin` -- per-network concurrency (Validator, Monitor, Synchronizer)
 - `GeoReaders` -- GeoIP database lifecycle helper owned by Monitor
 - `RelayClients` -- managed pool of Nostr clients for Monitor event broadcasting
-- `ReadModelSurface` -- read-model resolution and execution boundary (Api, Dvm)
+- `ReadCore` -- protocol-agnostic readable-resource execution boundary
+- `ReadModelSurface` -- compatibility wrapper that preserves the historical transport seam for Api and Dvm
 
 ### Content-Addressed Deduplication
 

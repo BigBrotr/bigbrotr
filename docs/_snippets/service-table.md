@@ -8,5 +8,5 @@
 | **Refresher** | Refreshes narrow current winner tables, shared analytics facts, operational contact-graph facts, and periodic reconciliation targets | Continuous |
 | **Ranker** | Computes deterministic NIP-85 public scores in private DuckDB and exports them | Continuous |
 | **Assertor** | Publishes the NIP-85 provider package from facts and public scores | Continuous |
-| **Api** | Exposes the database as a read-only REST API with paginated endpoints | Continuous |
-| **Dvm** | NIP-90 Data Vending Machine for Nostr read-model queries | Continuous |
+| **Api** | HTTP adapter exposing enabled public readable resources | Continuous |
+| **Dvm** | NIP-90 adapter exposing the same public readable resources | Continuous |

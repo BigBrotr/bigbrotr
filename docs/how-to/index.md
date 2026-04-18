@@ -1,6 +1,7 @@
 # How-to Guides
 
-Step-by-step procedures for deploying, operating, and extending BigBrotr.
+Step-by-step procedures for deploying, operating, troubleshooting, and
+extending BigBrotr.
 
 ---
 
@@ -22,7 +23,7 @@ Step-by-step procedures for deploying, operating, and extending BigBrotr.
 
     ---
 
-    Create a new deployment from the template.
+    Create a new deployment from a built-in reference deployment.
 
 -   :material-chart-bar:{ .lg .middle } **[Monitoring Setup](monitoring-setup.md)**
 
@@ -46,12 +47,13 @@ Step-by-step procedures for deploying, operating, and extending BigBrotr.
 
     ---
 
-    Build and register a custom service.
+    Build and register a custom service without violating the project
+    architecture.
 
 -   :material-wrench:{ .lg .middle } **[Troubleshooting](troubleshooting.md)**
 
     ---
 
-    Common issues, solutions, and frequently asked questions.
+    Common operator and contributor issues, solutions, and recovery steps.
 
 </div>

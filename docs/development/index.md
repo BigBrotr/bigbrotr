@@ -1,6 +1,7 @@
 # Development
 
-Resources for setting up, testing, and contributing to the BigBrotr project.
+Resources for setting up, testing, extending, and reviewing the BigBrotr
+codebase and repository.
 
 ---
 
@@ -10,7 +11,8 @@ Resources for setting up, testing, and contributing to the BigBrotr project.
 
     ---
 
-    Prerequisites, installation, IDE configuration, project structure, and Makefile targets.
+    Prerequisites, installation, IDE configuration, project structure, and
+    core verification commands.
 
 -   :material-test-tube:{ .lg .middle } **[Testing](testing.md)**
 
@@ -22,7 +24,8 @@ Resources for setting up, testing, and contributing to the BigBrotr project.
 
     ---
 
-    Ruff linting, mypy strict mode, pre-commit hooks, import conventions, and documentation standards.
+    Ruff linting, mypy strict mode, pre-commit hooks, import conventions, and
+    documentation standards.
 
 -   :material-database-cog:{ .lg .middle } **[SQL Templates](sql-templates.md)**
 
@@ -34,7 +37,8 @@ Resources for setting up, testing, and contributing to the BigBrotr project.
 
     ---
 
-    Code of conduct, branch and commit conventions, and pull request process.
+    Branching, commit discipline, review expectations, and pull request
+    process.
 
 </div>
 

@@ -1,6 +1,6 @@
 # User Guide
 
-In-depth reference documentation for BigBrotr's architecture, services, configuration, database, and monitoring.
+Core concepts and runtime reference for the final BigBrotr architecture.
 
 ---
 
@@ -10,25 +10,40 @@ In-depth reference documentation for BigBrotr's architecture, services, configur
 
     ---
 
-    Diamond DAG layer structure, design patterns, concurrency model, and testing architecture.
+    Diamond DAG layering, shared runtime shape, and the main system contracts.
 
 -   :material-cogs:{ .lg .middle } **[Services](services.md)**
 
     ---
 
-    Deep dive into the ten independent services: Seeder, Finder, Validator, Monitor, Synchronizer, Refresher, Ranker, Assertor, Api, Dvm.
-
--   :material-file-cog:{ .lg .middle } **[Configuration](configuration.md)**
-
-    ---
-
-    Complete YAML configuration reference with Pydantic validation and examples.
+    Service ownership model for discovery, monitoring, refresh, ranking,
+    assertion, and public read adapters.
 
 -   :material-database:{ .lg .middle } **[Database](database.md)**
 
     ---
 
-    PostgreSQL schema, stored functions, materialized views, and indexes.
+    Shared storage-first schema, derived tables, and public score outputs.
+
+-   :material-eye-outline:{ .lg .middle } **[Read Side](read-side.md)**
+
+    ---
+
+    `ReadCore`, readable resources, transport compatibility, and bounded
+    public queries.
+
+-   :material-folder-cog-outline:{ .lg .middle } **[Deployments](deployments.md)**
+
+    ---
+
+    Deployment folder contract, storage profiles, and adapter exposure policy.
+
+-   :material-file-cog:{ .lg .middle } **[Configuration](configuration.md)**
+
+    ---
+
+    Complete YAML configuration reference with Pydantic validation and
+    examples.
 
 -   :material-chart-line:{ .lg .middle } **[Monitoring](monitoring.md)**
 
@@ -39,4 +54,6 @@ In-depth reference documentation for BigBrotr's architecture, services, configur
 </div>
 
 !!! tip "Where to start"
-    New to BigBrotr? Start with [Architecture](architecture.md) for the system overview, then [Services](services.md) to understand what each service does.
+    New to the final architecture? Start with [Architecture](architecture.md),
+    then read [Services](services.md), [Database](database.md), and
+    [Read Side](read-side.md) in that order.

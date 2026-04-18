@@ -46,9 +46,9 @@ You should see both `postgres` and `pgbouncer` with status `healthy`.
 
 !!! note
     The PostgreSQL init scripts in `deployments/bigbrotr/postgres/init/` run
-    automatically on first start. They create all tables, stored functions,
-    indexes, narrow current winner tables, analytics and operational-fact
-    tables, and reporting views.
+    automatically on first start. They create the shared archive tables,
+    derived/current tables, public score tables, stored functions, and
+    indexes for the selected deployment.
 
 ## Step 3: Set Environment Variables
 
@@ -148,7 +148,9 @@ SELECT count(*) FROM relay;
 SELECT network, count(*) FROM relay GROUP BY network ORDER BY count DESC;
 
 -- Check service state entries
-SELECT key, state_type, count(*) FROM service_state GROUP BY key, state_type;
+SELECT state_key, state_type, count(*)
+FROM service_state
+GROUP BY state_key, state_type;
 ```
 
 ## What Just Happened?
@@ -173,8 +175,10 @@ The remaining seven services handle monitoring, event archiving, analytics, rank
 - **Ranker** keeps a private DuckDB graph store, computes NIP-85 ranks, and snapshot-exports them back to PostgreSQL
 - **Assertor** publishes the NIP-85 provider package for users, events, addressables, and
   identifiers with its own service signing key
-- **Api** exposes the database as a read-only REST API with paginated endpoints
-- **Dvm** serves public read-model queries over the Nostr protocol as a NIP-90 Data Vending Machine using its own service signing key
+- **Api** exposes enabled public readable resources over HTTP while preserving
+  the stable `/read-models` transport contract
+- **Dvm** serves the same public readable resources over Nostr as a NIP-90 Data
+  Vending Machine using its own service signing key
 
 ## Running All Services
 
