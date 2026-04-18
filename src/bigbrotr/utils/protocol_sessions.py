@@ -127,9 +127,12 @@ async def create_connected_client(
     """
     _validate_session_relays(relays)
     client = await dependencies.create_client(keys=keys, allow_insecure=allow_insecure)
+    connect_result_ready = False
     try:
-        return client, await connect_client_relays(client, relays, timeout=timeout)
-    except Exception:
-        with contextlib.suppress(OSError, RuntimeError, TimeoutError, NostrSdkError):
-            await dependencies.shutdown_client(client)
-        raise
+        result = await connect_client_relays(client, relays, timeout=timeout)
+        connect_result_ready = True
+        return client, result
+    finally:
+        if not connect_result_ready:
+            with contextlib.suppress(OSError, RuntimeError, TimeoutError, NostrSdkError):
+                await dependencies.shutdown_client(client)

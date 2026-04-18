@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from nostr_sdk import NostrSdkError
@@ -162,4 +162,31 @@ class TestCreateConnectedClient:
             )
 
         create_client_func.assert_awaited_once_with(keys=None, allow_insecure=False)
+        shutdown_client_func.assert_awaited_once_with(client)
+
+    async def test_releases_client_on_unexpected_connect_helper_failure(self) -> None:
+        """Unexpected helper failures still release the partial shared client."""
+        client = AsyncMock()
+        create_client_func = AsyncMock(return_value=client)
+        shutdown_client_func = AsyncMock(side_effect=NostrSdkError("shutdown noise"))
+        relays = [Relay("wss://relay.example.com")]
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol_sessions.connect_client_relays",
+                new=AsyncMock(side_effect=RuntimeError("helper boom")),
+            ) as mock_connect,
+            pytest.raises(RuntimeError, match="helper boom"),
+        ):
+            await create_connected_client(
+                relays,
+                dependencies=SharedSessionDependencies(
+                    create_client=create_client_func,
+                    shutdown_client=shutdown_client_func,
+                ),
+                timeout=15.0,
+            )
+
+        create_client_func.assert_awaited_once_with(keys=None, allow_insecure=False)
+        mock_connect.assert_awaited_once_with(client, relays, timeout=15.0)
         shutdown_client_func.assert_awaited_once_with(client)
