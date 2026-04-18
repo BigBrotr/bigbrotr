@@ -76,6 +76,17 @@ def _parse_cursor(raw_value: Any) -> str | None:
     return normalized or None
 
 
+def _parse_int_param(raw_value: Any, *, error_message: str) -> int:
+    """Normalize one public integer parameter without accepting bool aliases."""
+    if isinstance(raw_value, bool):
+        raise ReadModelQueryError(error_message)
+
+    try:
+        return int(raw_value)
+    except (TypeError, ValueError) as error:
+        raise ReadModelQueryError(error_message) from error
+
+
 def read_model_query_from_http_params(
     params: Mapping[str, str],
     *,
@@ -85,11 +96,14 @@ def read_model_query_from_http_params(
     """Normalize one HTTP readable-resource request into the shared query contract."""
     raw_params = dict(params)
     raw_cursor = raw_params.pop("cursor", None)
-    try:
-        limit = int(raw_params.pop("limit", default_page_size))
-        offset = int(raw_params.pop("offset", 0))
-    except (TypeError, ValueError) as error:
-        raise ReadModelQueryError("Invalid limit or offset") from error
+    limit = _parse_int_param(
+        raw_params.pop("limit", default_page_size),
+        error_message="Invalid limit or offset",
+    )
+    offset = _parse_int_param(
+        raw_params.pop("offset", 0),
+        error_message="Invalid limit or offset",
+    )
 
     sort = raw_params.pop("sort", None)
     include_total = _parse_include_total(raw_params.pop("include_total", None))
@@ -115,11 +129,14 @@ def read_model_query_from_job_params(
     max_page_size: int,
 ) -> ReadModelQuery:
     """Normalize one NIP-90 job request into the shared query contract."""
-    try:
-        limit = int(params.get("limit", default_page_size))
-        offset = int(params.get("offset", 0))
-    except (TypeError, ValueError) as error:
-        raise ReadModelQueryError("Invalid limit or offset value") from error
+    limit = _parse_int_param(
+        params.get("limit", default_page_size),
+        error_message="Invalid limit or offset value",
+    )
+    offset = _parse_int_param(
+        params.get("offset", 0),
+        error_message="Invalid limit or offset value",
+    )
 
     raw_sort = params.get("sort")
     sort = raw_sort if isinstance(raw_sort, str) and raw_sort else None

@@ -898,6 +898,18 @@ class TestReadModelQueryHelpers:
                 max_page_size=1000,
             )
 
+    @pytest.mark.parametrize("field_name", ["limit", "offset"])
+    def test_read_model_query_from_job_params_rejects_boolean_numeric_fields(
+        self,
+        field_name: str,
+    ) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid limit or offset value"):
+            read_model_query_from_job_params(
+                {field_name: True},
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
     def test_read_model_query_from_job_params_invalid_include_total(self) -> None:
         with pytest.raises(ReadModelQueryError, match="Invalid include_total value"):
             read_model_query_from_job_params(

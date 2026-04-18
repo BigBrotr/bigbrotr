@@ -414,6 +414,27 @@ class TestPrepareJobRequest:
         assert rejected.bid == 1000
         assert rejected.error_message is None
 
+    def test_boolean_bid_is_ignored_instead_of_becoming_one_millisat(
+        self,
+        dvm_config: DvmConfig,
+        sample_dvm_catalog: Catalog,
+    ) -> None:
+        rejected = prepare_job_request(
+            "events",
+            {"bid": True},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(rejected, RejectedJobRequest)
+        assert rejected.required_price == 5000
+        assert rejected.bid == 0
+        assert rejected.error_message is None
+
     def test_returns_client_error_for_invalid_query(
         self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
     ) -> None:

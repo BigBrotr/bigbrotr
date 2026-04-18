@@ -1446,3 +1446,12 @@ Use this section during execution for:
   - added paired `services/common` and `dvm/jobs` coverage proving malformed
     pre-parsed job params now become client-safe rejections while explicit
     boolean `include_total=True` survives into the executed read query.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-eighth remediation slice:
+  - hardened the shared public numeric parsing path so boolean `limit` and
+    `offset` values on pre-parsed read requests no longer slip through Python's
+    `bool`-is-`int` coercion as silent `1`/`0` aliases, and are now rejected
+    as normalized client input errors instead;
+  - aligned the DVM pricing gate with that stricter contract so boolean `bid`
+    inputs are treated like invalid/missing bids rather than accidental
+    one-millisat offers, and added paired `services/common`, `dvm/utils`, and
+    `dvm/jobs` coverage proving malformed boolean numerics now fail safely.

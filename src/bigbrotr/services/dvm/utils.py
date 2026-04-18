@@ -125,7 +125,7 @@ def prepare_job_request(
     resource_id = resource.resource_id
     price = context.exposure_policy.get(resource_id, ReadModelPolicy()).price
     raw_bid = params.get("bid", 0)
-    bid = raw_bid if isinstance(raw_bid, int) else 0
+    bid = raw_bid if isinstance(raw_bid, int) and not isinstance(raw_bid, bool) else 0
     if price > 0 and bid < price:
         return RejectedJobRequest(required_price=price, bid=bid)
 
