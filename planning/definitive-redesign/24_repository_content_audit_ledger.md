@@ -698,3 +698,10 @@ Use this section during execution for:
   - added paired unit coverage on both the leaf helper and the public
     `bigbrotr.utils.protocol.create_connected_client()` facade to lock that
     contract in place.
+- `2.1` models/utils/NIPs leaf audit, sixty-fourth remediation slice:
+  - moved overlay-session validation ahead of client creation in
+    `bigbrotr.utils.protocol_manager.NostrClientManager.connect_session()` so
+    named shared sessions follow the same fail-fast contract as the leaf
+    shared-session helper;
+  - tightened paired manager coverage so rejected overlay session requests no
+    longer instantiate an unusable shared client.

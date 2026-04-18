@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 from nostr_sdk import NostrSdkError
 
-from .protocol_sessions import ClientSession
+from .protocol_sessions import ClientSession, _validate_session_relays
 from .transport import DEFAULT_TIMEOUT
 
 
@@ -147,6 +147,7 @@ class NostrClientManager:
                 raise ValueError(f"session {session_id!r} already exists with different relays")
             return existing
 
+        _validate_session_relays(relays)
         client = await self._dependencies.create_client(
             keys=self._keys,
             allow_insecure=self._allow_insecure,

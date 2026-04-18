@@ -443,7 +443,7 @@ class TestNostrClientManagerSessions:
                 timeout=15.0,
             )
 
-        mock_create.assert_awaited_once_with(keys=manager._keys, allow_insecure=False)
+        mock_create.assert_not_awaited()
         mock_client.add_relay.assert_not_awaited()
         mock_client.try_connect.assert_not_awaited()
         assert manager._sessions == {}
