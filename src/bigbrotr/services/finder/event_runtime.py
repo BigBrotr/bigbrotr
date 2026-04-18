@@ -20,6 +20,9 @@ if TYPE_CHECKING:
     from .configs import FinderConfig
 
 
+_EVENT_ID_BYTE_LENGTH = 32
+
+
 class _IterConcurrent(Protocol):
     """Typed protocol for the concurrent finder page iterator."""
 
@@ -88,6 +91,31 @@ class EventScanPersistenceContext:
     insert_relays_fn: Callable[[Brotr, list[Relay]], Awaitable[int]]
     upsert_cursors_fn: Callable[[Brotr, tuple[FinderCursor, ...]], Awaitable[None]]
     inc_gauge: _IncGauge
+
+
+def _normalize_event_scan_cursor_id(value: object) -> str:
+    """Return one canonical hex event id for event-scan cursor updates."""
+    if isinstance(value, bytes):
+        event_id = value
+    elif isinstance(value, (bytearray, memoryview)):
+        event_id = bytes(value)
+    else:
+        raise TypeError("event_id must be bytes-like")
+    if len(event_id) != _EVENT_ID_BYTE_LENGTH:
+        raise ValueError(f"event_id must be {_EVENT_ID_BYTE_LENGTH} bytes")
+    return event_id.hex()
+
+
+def _build_updated_finder_cursor(cursor: FinderCursor, row: dict[str, Any]) -> FinderCursor:
+    """Return the next finder cursor from one scanned event row."""
+    observed_at = row["observed_at"]
+    if isinstance(observed_at, bool) or not isinstance(observed_at, int):
+        raise TypeError("observed_at must be an int")
+    return FinderCursor(
+        key=cursor.key,
+        timestamp=observed_at,
+        id=_normalize_event_scan_cursor_id(row["event_id"]),
+    )
 
 
 async def build_event_scan_plan(
@@ -177,11 +205,7 @@ async def stream_event_discovery_worker(
                 context.scan_size,
             ):
                 relays = context.extract_relays_from_tagvalues([row])
-                updated = FinderCursor(
-                    key=cursor.key,
-                    timestamp=int(row["observed_at"]),
-                    id=bytes(row["event_id"]).hex(),
-                )
+                updated = _build_updated_finder_cursor(cursor, row)
                 yield relays, updated
                 if context.monotonic() > deadline:
                     return

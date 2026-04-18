@@ -2286,6 +2286,49 @@ class TestFinderEventScanConcurrency:
             result = await finder.find_from_events()
 
             assert result == 0
+
+    async def test_malformed_event_scan_row_does_not_persist_cursor_progress(
+        self, mock_brotr: Brotr
+    ) -> None:
+        bad_event = {
+            "tagvalues": ["r:wss://found.relay.com"],
+            "observed_at": True,
+            "event_id": b"\xab" * 32,
+        }
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.count_relays_to_find",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+            patch(
+                "bigbrotr.services.finder.service.iter_cursors_to_find_pages",
+                return_value=_mock_pages([FinderCursor(key="wss://source.relay.com")]),
+            ),
+            patch(
+                "bigbrotr.services.finder.service.stream_event_observations",
+                return_value=_mock_stream(bad_event),
+            ),
+            patch(
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
+            ) as mock_insert,
+        ):
+            mock_brotr.upsert_service_state = AsyncMock(return_value=1)  # type: ignore[method-assign]
+
+            finder = Finder(brotr=mock_brotr)
+            finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+            finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
+
+            with patch.object(finder._logger, "error") as mock_error:
+                result = await finder.find_from_events()
+
+            assert result == 0
+            mock_insert.assert_not_awaited()
+            mock_brotr.upsert_service_state.assert_not_awaited()  # type: ignore[attr-defined]
+            mock_error.assert_called_once()
+            assert mock_error.call_args.kwargs["relay"] == "wss://source.relay.com"
             finder.set_gauge.assert_any_call("relays_seen", 0)
 
 

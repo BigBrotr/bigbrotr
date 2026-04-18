@@ -2057,3 +2057,12 @@ Use this section during execution for:
   - added paired `ranker` runtime coverage proving invalid internal result
     payloads now fail fast before they can reach cycle-result construction or
     metrics emission.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-seventy-second remediation
+  slice:
+  - tightened the `finder` event-scan worker boundary so scanned row payloads
+    no longer pass through broad `int(...)` and `bytes(...).hex()` coercions
+    when deriving the next `FinderCursor`, which previously let malformed
+    `observed_at` or `event_id` values advance local scan progress instead of
+    failing the worker before persistence;
+  - added paired `finder` coverage proving malformed event-scan rows now log a
+    worker failure without inserting candidates or persisting cursor progress.
