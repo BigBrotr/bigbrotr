@@ -21,7 +21,6 @@ See Also:
 from __future__ import annotations
 
 import json
-import logging
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -36,8 +35,6 @@ from ._validation import (
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-
-logger = logging.getLogger(__name__)
 
 
 class ServiceStateType(StrEnum):

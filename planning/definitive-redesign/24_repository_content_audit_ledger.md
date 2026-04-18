@@ -246,3 +246,11 @@ Use this section during execution for:
   - added the missing `tests/unit/models/__init__.py` package marker docstring
     so both leaf unit-test packages now have an intentional local surface
     instead of one empty package file and one under-described one.
+- `2.1` models/utils/NIPs leaf audit, eighth remediation slice:
+  - removed the unused module-level logger scaffolding from
+    `src/bigbrotr/models/service_state.py`, so the leaf models surface no
+    longer carries dead code that serves no runtime or debugging purpose;
+  - confirmed that the local `README.md` / `CLAUDE.md` duplication in the
+    audited `models` / `utils` leaf folders is a broader repository policy
+    question, not a safe one-folder cleanup, and therefore remains deferred
+    for the later parent/root guidance waves.
