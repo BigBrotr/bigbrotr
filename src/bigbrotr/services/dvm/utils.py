@@ -109,13 +109,17 @@ def parse_job_params(event: Any) -> dict[str, Any]:
 
 
 def prepare_job_request(
-    requested_resource_id: str,
+    requested_resource_id: Any,
     params: Mapping[str, Any],
     *,
     context: JobPreparationContext,
 ) -> PreparedJobRequest | RejectedJobRequest:
     """Resolve exposure, pricing, and query parsing for one NIP-90 job request."""
-    requested_resource_id = requested_resource_id.strip()
+    requested_resource_id = (
+        requested_resource_id.strip()
+        if isinstance(requested_resource_id, str)
+        else str(requested_resource_id).strip()
+    )
     resolved_resource = context.read_core.resolve_resource("dvm", requested_resource_id)
     if resolved_resource is None:
         return RejectedJobRequest(

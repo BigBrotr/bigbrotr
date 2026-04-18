@@ -114,7 +114,7 @@ async def process_request_event(
     requested_resource_id = (
         raw_requested_resource_id.strip()
         if isinstance(raw_requested_resource_id, str)
-        else raw_requested_resource_id
+        else str(raw_requested_resource_id).strip()
     )
 
     request = JobRequest(

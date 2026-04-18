@@ -1490,3 +1490,11 @@ Use this section during execution for:
   - added paired `dvm/utils` and `dvm/jobs` coverage proving human-authored
     requests like `"  relays  "` now resolve to the canonical resource rather
     than failing as a spurious disabled-read-model error.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirteenth remediation slice:
+  - hardened the `NIP-90` request boundary so non-string `read_model` values
+    from pre-parsed or patched job inputs are normalized into client-safe
+    disabled-read-model rejections instead of risking internal attribute
+    errors during DVM preparation;
+  - added paired `dvm/utils` and `dvm/jobs` coverage proving malformed
+    non-string resource selectors now fail safely and are logged through the
+    same normalized request path as ordinary invalid read-model requests.

@@ -417,6 +417,26 @@ class TestPrepareJobRequest:
         assert rejected.error_message == "Invalid or disabled read model: service_state"
         assert rejected.required_price is None
 
+    def test_rejects_non_string_read_model_with_client_safe_error(
+        self,
+        dvm_config: DvmConfig,
+        sample_dvm_catalog: Catalog,
+    ) -> None:
+        rejected = prepare_job_request(
+            123,
+            {},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(rejected, RejectedJobRequest)
+        assert rejected.error_message == "Invalid or disabled read model: 123"
+        assert rejected.required_price is None
+
     def test_requires_payment_when_bid_too_low(
         self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
     ) -> None:
