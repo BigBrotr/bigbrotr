@@ -1,9 +1,8 @@
-"""DVM service utility functions.
+"""Pure helpers for the NIP-90 adapter.
 
-Pure helpers for NIP-90 event parsing, request preparation, and event
-builder construction. All functions are stateless — they only normalize
-inputs or build ``EventBuilder`` instances without touching the network
-or database.
+This module parses request events, validates them against the shared read-core
+contract, and builds NIP-90 result or feedback events. The helpers are
+stateless and do not touch the network or the database directly.
 """
 
 from __future__ import annotations
@@ -77,7 +76,7 @@ class RejectedJobRequest:
 
 @dataclass(frozen=True, slots=True)
 class JobPreparationContext:
-    """Pure inputs needed to validate one job request."""
+    """Pure inputs needed to validate one NIP-90 job request."""
 
     read_core: ReadCore
     exposure_policy: Mapping[str, ReadModelPolicy]

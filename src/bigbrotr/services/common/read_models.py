@@ -1,4 +1,4 @@
-"""Shared read-core plus read-model compatibility wrappers."""
+"""Shared read core plus compatibility wrappers for legacy adapter seams."""
 
 from __future__ import annotations
 
@@ -79,7 +79,13 @@ class ReadableResourceNotFoundError(ReadCoreError):
 
 
 class ReadCore:
-    """Protocol-agnostic read core over readable-resource descriptors."""
+    """Protocol-agnostic read core over readable-resource descriptors.
+
+    ``ReadCore`` owns discovery, enabled-resource resolution, normalized
+    read-side validation, and execution through the shared catalog contract.
+    HTTP, DVM, and future adapters should depend on this core rather than
+    reimplementing public-read behavior independently.
+    """
 
     __slots__ = ("_catalog", "_policy_source")
 
@@ -91,16 +97,16 @@ class ReadCore:
 
     @property
     def catalog(self) -> Catalog:
-        """Return the discovered catalog backing this public read surface."""
+        """Return the discovered catalog backing this read core."""
         return self._catalog
 
     @catalog.setter
     def catalog(self, catalog: Catalog) -> None:
-        """Replace the backing catalog, mainly for tests or prebuilt surfaces."""
+        """Replace the backing catalog, mainly for tests or injected setups."""
         self._catalog = catalog
 
     def _policies(self) -> dict[str, ReadModelPolicy]:
-        """Return the current resource policies as a concrete mapping."""
+        """Return the current adapter exposure policy as a concrete mapping."""
         return dict(self._policy_source())
 
     async def discover(self, brotr: Brotr, *, logger: Logger | None = None) -> None:
@@ -193,9 +199,9 @@ class ReadCore:
 class ReadModelSurface:
     """Compatibility wrapper over the shared read core.
 
-    The current API and DVM stacks still speak in terms of `read models`. This
-    wrapper preserves that seam while delegating all shared behavior into
-    `ReadCore`.
+    The current public transports still use ``read model`` vocabulary in URLs,
+    request parameters, and configuration keys. This wrapper keeps that seam
+    available while delegating the real work into :class:`ReadCore`.
     """
 
     __slots__ = ("_core",)
@@ -210,7 +216,7 @@ class ReadModelSurface:
 
     @property
     def catalog(self) -> Catalog:
-        """Return the discovered catalog backing this public read surface."""
+        """Return the discovered catalog backing this compatibility surface."""
         return self._core.catalog
 
     @catalog.setter

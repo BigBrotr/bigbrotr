@@ -1,4 +1,4 @@
-"""Readable-resource registry with read-model compatibility helpers."""
+"""Readable-resource registry with compatibility helpers for public adapters."""
 
 from __future__ import annotations
 
@@ -84,12 +84,11 @@ def _default_semantic_name(resource_id: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class ReadableResourceEntry:
-    """One readable resource exposed by one or more public surfaces.
+    """One readable resource exposed by one or more public adapter surfaces.
 
-    The current runtime still uses the historical `read model` vocabulary in
-    adapter config and transport contracts. This descriptor is the canonical
-    internal contract; compatibility accessors preserve the old names until the
-    later read-core migration slices.
+    This descriptor is the canonical internal contract for the read side. The
+    public HTTP and NIP-90 transports still expose historical ``read model``
+    identifiers, so compatibility aliases remain part of the API for now.
     """
 
     read_model_id: str

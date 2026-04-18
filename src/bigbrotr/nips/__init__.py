@@ -1,9 +1,9 @@
-"""Nostr Implementation Possibilities -- protocol-specific fetch and parse logic.
+"""Protocol-aware NIP helpers, fetchers, builders, and capability metadata.
 
 The NIPs layer sits in the middle of the diamond DAG, depending on
 [bigbrotr.models][bigbrotr.models] and [bigbrotr.utils][bigbrotr.utils].
-It performs I/O (HTTP, DNS, SSL, WebSocket, GeoIP) and is the most
-protocol-aware part of the codebase.
+It performs protocol-facing work such as HTTP, DNS, SSL, WebSocket, and GeoIP
+access and is the most Nostr-aware part of the codebase.
 
 Warning:
     NIP semantic entrypoints ([Nip11.fetch()][bigbrotr.nips.nip11.nip11.Nip11.fetch],
@@ -11,7 +11,7 @@ Warning:
     exceptions**. Always check ``succeeded`` and ``failure_reason`` on the
     returned result object to determine whether the operation succeeded.
 
-Attributes:
+Public exports:
     Nip11: Fetches and parses NIP-11 Relay Information Documents via HTTP.
         Converts wss/ws URL to https/http, sends ``Accept: application/nostr+json``.
         SSL fallback: clearnet tries verified first, falls back to insecure if
@@ -21,8 +21,8 @@ Attributes:
         Net (ASN info), HTTP (response headers). Each test produces a separate
         [RelayDocument][bigbrotr.models.relay_document.RelayDocument] record
         with the appropriate [DocumentType][bigbrotr.models.document.DocumentType].
-    BaseData, BaseLogs, BaseNipMetadata: Shared abstract base classes inherited by
-        all NIP data, log, and metadata models.
+    BaseData, BaseLogs, BaseNipMetadata: Shared abstract bases inherited by
+        all NIP data, log, and document-family models.
     BaseNip: Abstract base class for top-level NIP models with ``relay``
         and ``generated_at`` plus semantic ``fetch()`` / ``probe()``
         entrypoints on concrete subclasses.
@@ -44,8 +44,8 @@ Attributes:
 
 See Also:
     [bigbrotr.models.document.DocumentType][bigbrotr.models.document.DocumentType]:
-        Enum with ``NIP11_INFO``, ``NIP66_RTT``, ``NIP66_SSL``, ``NIP66_GEO``,
-        ``NIP66_NET``, ``NIP66_DNS``, ``NIP66_HTTP`` variants.
+        Enum with the canonical stored-document families exposed by the shared
+        database.
     [bigbrotr.models.document.Document][bigbrotr.models.document.Document]:
         Content-addressed document model that wraps NIP results for storage.
     [bigbrotr.services.monitor.Monitor][bigbrotr.services.monitor.Monitor]:

@@ -1,11 +1,11 @@
-"""NIP-90 Data Vending Machine service for Nostr read-model queries.
+"""NIP-90 Data Vending Machine service for public readable-resource queries.
 
-Listens for NIP-90 job requests on configured relays, executes
-read-only queries via the shared
-[ReadCore][bigbrotr.services.common.read_models.ReadCore], and publishes
-results as job-result events (request kind + 1000). Exposure-policy pricing via
-[ReadModelPolicy][bigbrotr.services.common.configs.ReadModelPolicy]
-enables the NIP-90 bid/payment-required mechanism.
+The adapter listens for NIP-90 job requests on configured relays, executes
+read-only queries through the shared
+[ReadCore][bigbrotr.services.common.read_models.ReadCore], and publishes job
+results as NIP-90 result events. The external transport still uses the
+historical ``read_model`` request parameter and adapter-local
+[ReadModelPolicy][bigbrotr.services.common.configs.ReadModelPolicy] pricing.
 
 Each ``run()`` cycle drains job requests buffered by a long-lived NIP-90
 subscription, processes them in cursor order, and publishes results or
@@ -74,12 +74,12 @@ _REQUEST_CURSOR_DEFAULT_ID = "0" * 64
 
 
 class Dvm(BaseService[DvmConfig]):
-    """NIP-90 Data Vending Machine for BigBrotr read-model queries.
+    """NIP-90 adapter for BigBrotr public readable resources.
 
-    Processes NIP-90 job requests (default Kind 5050) by executing
-    read-only read-model queries and publishing results (Kind 6050).
-    Supports per-resource pricing through the adapter exposure policy, with
-    bid/payment-required negotiation.
+    Processes NIP-90 job requests (default Kind 5050) by executing read-only
+    resource queries and publishing result events (Kind 6050 by default). The
+    adapter keeps the stable historical ``read_model`` parameter while pricing
+    and enablement come from the per-adapter exposure policy.
 
     Lifecycle:
         1. ``__aenter__``: discover schema, create Nostr client, connect
@@ -88,8 +88,8 @@ class Dvm(BaseService[DvmConfig]):
         3. ``__aexit__``: disconnect client.
 
     See Also:
-        [DvmConfig][bigbrotr.services.dvm.DvmConfig]: Configuration
-            model for this service.
+        [DvmConfig][bigbrotr.services.dvm.DvmConfig]: Configuration model for
+            this adapter.
         [Api][bigbrotr.services.api.Api]: Sibling service that exposes
             the same readable-resource data via HTTP REST.
     """

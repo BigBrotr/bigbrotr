@@ -1,7 +1,8 @@
-"""Shared infrastructure for all BigBrotr services.
+"""Shared infrastructure for the BigBrotr service layer.
 
-Provides the foundational building blocks used across all eight
-services: configuration models, mixins, and centralized SQL query functions.
+Provides the common building blocks used across the runtime services:
+configuration models, mixins, paging helpers, read-core infrastructure, and
+shared state/query utilities.
 
 Attributes:
     configs: Per-network Pydantic configuration models plus shared
@@ -17,8 +18,8 @@ Attributes:
         for per-network concurrency control.
     paging: Keyset-pagination helpers for bounded page scans in service
         query modules.
-    read_models: Shared read core, readable-resource registry, and read-model
-        compatibility helpers for the current API and DVM surfaces.
+    read_models: Shared read core, readable-resource registry, and
+        compatibility helpers for the current API and DVM adapter contracts.
     discovery_queries: Seeder/Finder candidate-registration helpers.
 
 See Also:

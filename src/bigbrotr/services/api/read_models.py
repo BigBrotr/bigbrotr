@@ -1,4 +1,9 @@
-"""Helpers for serving public API read-model routes through the shared read core."""
+"""HTTP handlers for public readable-resource routes.
+
+The module keeps the historical ``read_model`` naming at the transport seam,
+but every handler now delegates into the shared
+[ReadCore][bigbrotr.services.common.read_models.ReadCore].
+"""
 
 from __future__ import annotations
 
@@ -25,7 +30,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class ApiReadModelHandler:
-    """Serve one public API read model through the shared read core."""
+    """Serve one public API resource through the shared read core."""
 
     brotr: Brotr
     read_core: ReadCore
@@ -37,11 +42,11 @@ class ApiReadModelHandler:
 
     @property
     def primary_key_columns(self) -> tuple[str, ...]:
-        """Return the primary-key columns for this read model."""
+        """Return the primary-key columns for this resource."""
         return self.read_model.schema(self.read_core.catalog).primary_key
 
     async def list_rows(self, request: Request) -> JSONResponse:
-        """Serve the collection route for this read model."""
+        """Serve the collection route for this resource."""
         try:
             query = read_model_query_from_http_params(
                 request.query_params,
@@ -69,7 +74,7 @@ class ApiReadModelHandler:
         )
 
     async def get_row(self, request: Request) -> JSONResponse:
-        """Serve the identity lookup route for this read model."""
+        """Serve the identity lookup route for this resource."""
         pk_values = {column: request.path_params[column] for column in self.primary_key_columns}
         try:
             row = await asyncio.wait_for(

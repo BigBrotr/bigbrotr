@@ -1,4 +1,4 @@
-"""Public route registration helpers for API read models."""
+"""Route registration helpers for the HTTP readable-resource adapter."""
 
 from __future__ import annotations
 
@@ -22,7 +22,12 @@ def register_read_model_routes(
     read_core: ReadCore,
     route_prefix: str,
 ) -> None:
-    """Register discovery endpoints for the public API read-model surface."""
+    """Register discovery endpoints for the public API resource surface.
+
+    The path stays under ``/read-models`` because that is the stable external
+    transport contract, even though the internal contract is now
+    readable-resource based.
+    """
 
     @app.get(f"{route_prefix}/read-models")
     async def list_read_models() -> JSONResponse:
@@ -51,7 +56,7 @@ def register_read_model_data_routes(  # noqa: PLR0913
     max_page_size: int,
     request_timeout: float,
 ) -> None:
-    """Register collection and detail routes for enabled public read models."""
+    """Register collection and detail routes for enabled public resources."""
     for read_model_id, read_model in read_core.enabled_resources("api").items():
         _register_read_model_data_routes(
             app,
@@ -78,7 +83,7 @@ def _register_read_model_data_routes(  # noqa: PLR0913
     max_page_size: int,
     request_timeout: float,
 ) -> None:
-    """Register collection and optional primary-key detail routes for one read model."""
+    """Register collection and optional detail routes for one resource entry."""
     handler = ApiReadModelHandler(
         brotr=brotr,
         read_core=read_core,

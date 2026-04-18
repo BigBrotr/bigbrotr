@@ -1,4 +1,4 @@
-"""Ten independent services plus shared utilities.
+"""Independent services plus shared service-layer utilities.
 
 Services are the top layer of the diamond DAG, depending on
 [bigbrotr.core][bigbrotr.core], [bigbrotr.nips][bigbrotr.nips],
@@ -7,7 +7,7 @@ Each service extends [BaseService][bigbrotr.core.base_service.BaseService]
 and implements ``async def run()`` for one cycle of work. All services
 communicate exclusively through the shared PostgreSQL database.
 
-Attributes:
+Public exports:
     Seeder: One-shot bootstrapping of initial relay URLs from a seed file.
     Finder: Continuous relay URL discovery from events (kind 2, 3, 10002)
         and external HTTP APIs.
@@ -17,17 +17,16 @@ Attributes:
         semaphore concurrency. Publishes kind 10166/30166 Nostr events.
     Synchronizer: Continuous event collection from relays using cursor-based
         pagination with per-relay state tracking.
-    Refresher: Periodic current-state and analytics refresh in dependency order.
-        Provides per-target logging, timing, and error isolation.
-    Ranker: Private DuckDB-backed NIP-85 ranking service. Syncs canonical
-        follow-graph facts and later computes/export ranks.
-    Api: REST API for read-only database access via FastAPI with
-        auto-generated paginated endpoints.
-    Dvm: NIP-90 Data Vending Machine exposing public read-model queries
-        via the Nostr protocol with per-read-model pricing.
-    Assertor: NIP-85 provider-package publisher. Reads facts and rank
-        snapshots and publishes trusted assertions, provider profile, and
-        trusted-provider list events.
+    Refresher: Periodic owner of shared current tables, analytics tables, and
+        other canonical derived facts.
+    Ranker: Private DuckDB-backed ranking service that consumes shared facts
+        and exports public score tables.
+    Api: HTTP adapter exposing public readable resources while preserving the
+        stable ``/read-models`` transport contract.
+    Dvm: NIP-90 adapter exposing the same public readable resources through the
+        historical ``read_model`` request parameter plus adapter-local pricing.
+    Assertor: NIP-85 provider-package publisher for assertions, provider
+        profile, and trusted-provider list events.
 
 Note:
     All services follow the same lifecycle pattern: instantiate with a
@@ -36,12 +35,12 @@ Note:
     that need setup/teardown should be used as async context managers.
 
 See Also:
-    [BaseService][bigbrotr.core.base_service.BaseService]: Abstract base
-        class all services extend.
-    [Brotr][bigbrotr.core.brotr.Brotr]: High-level database facade passed
-        to every service.
-    [common][bigbrotr.services.common]: Shared constants, configs, mixins,
-        and query functions used across all services.
+    [BaseService][bigbrotr.core.base_service.BaseService]: Abstract base class
+        all services extend.
+    [Brotr][bigbrotr.core.brotr.Brotr]: Shared database facade passed to every
+        service.
+    [common][bigbrotr.services.common]: Shared read-core, config, paging,
+        query, and state helpers used across the service layer.
 
 Examples:
     ```python

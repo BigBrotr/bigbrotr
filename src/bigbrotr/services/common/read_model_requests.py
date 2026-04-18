@@ -1,4 +1,4 @@
-"""Shared request parsing and response metadata for public read models."""
+"""Shared request parsing and metadata envelopes for public read adapters."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class ReadModelQueryError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class ReadModelQuery:
-    """Normalized query request for one public read model."""
+    """Normalized query request for one public readable-resource query."""
 
     limit: int
     offset: int
@@ -76,7 +76,7 @@ def read_model_query_from_http_params(
     default_page_size: int,
     max_page_size: int,
 ) -> ReadModelQuery:
-    """Normalize one HTTP read-model request into the shared query contract."""
+    """Normalize one HTTP readable-resource request into the shared query contract."""
     raw_params = dict(params)
     raw_cursor = raw_params.pop("cursor", None)
     try:
@@ -135,7 +135,12 @@ def read_model_query_from_job_params(
 
 
 def build_read_model_meta(result: QueryResult, *, read_model_id: str) -> dict[str, Any]:
-    """Build the shared metadata envelope for HTTP and DVM list responses."""
+    """Build the shared metadata envelope for HTTP and DVM list responses.
+
+    The meta payload intentionally keeps the historical ``read_model`` field so
+    public transport contracts remain stable while the internal read core is
+    resource-oriented.
+    """
     meta: dict[str, Any] = {
         "limit": result.limit,
         "offset": result.offset,

@@ -161,7 +161,7 @@ Execution baseline:
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 9.1 In-code documentation and public API docs rewrite | not started | | |
+| 9.1 In-code documentation and public API docs rewrite | done | `docs: align public package documentation with final architecture` | Rewrote the in-code documentation for the main public Python surfaces so package and module docstrings now describe the final architecture honestly: the top-level package, `core`, `models`, `nips`, and `services` packages now frame BigBrotr as a library-first codebase plus independent services; the API/DVM/common read-side modules now explain the real `ReadCore`-plus-compatibility design instead of narrating the old `Catalog`/raw-read-model mental model; and the DVM/API adapter docs now make the stable transport compatibility layer explicit instead of letting it masquerade as the core architecture. The slice also fixed a real drift in `services.common.__init__`, which still claimed the common layer served “all eight services”. Targeted lazy-import/read-core/API/DVM suites (`255 passed`), targeted `ruff` and full-tree `mypy`, then full `make ci` (`3319 passed`) and `uv lock --check` all passed before closure |
 | 9.2 MkDocs information architecture and narrative rewrite | not started | | |
 | 9.3 Folder-level `README.md` and local guidance rewrite | not started | | |
 | 9.4 Deployment/operator/contributor docs rewrite | not started | | |

@@ -1,4 +1,4 @@
-"""Pure frozen dataclasses with zero I/O for Nostr relays, events, and documents.
+"""Pure frozen dataclasses with zero I/O for the shared BigBrotr data model.
 
 The models layer is the foundation of the diamond DAG. It has **no dependencies**
 on any other BigBrotr package -- only the Python standard library. Every model uses
@@ -10,24 +10,18 @@ invalid instances never escape the constructor.
 
 NIP models (``Nip11``, ``Nip66``) are in the separate ``bigbrotr.nips`` package.
 
-Attributes:
-    Relay: Validated Nostr relay URL with RFC 3986 parsing and automatic
-        [NetworkType][bigbrotr.models.constants.NetworkType] detection
-        (clearnet, Tor, I2P, Lokinet). Rejects local IPs.
-    Event: Immutable wrapper around ``nostr_sdk.Event`` with BYTEA encoding for
-        binary fields (ID, pubkey, sig) and fail-fast DB conversion.
-    EventObservation: Junction linking an [Event][bigbrotr.models.event.Event] to the
-        [Relay][bigbrotr.models.relay.Relay] where it was observed, with cascade
-        insert support for atomic multi-table writes.
-    Document: Content-addressed document with SHA-256 hashing.
-        Supports seven [DocumentType][bigbrotr.models.document.DocumentType]
-        values (nip11_info, nip66_rtt, etc.).
-    RelayDocument: Junction linking a [Relay][bigbrotr.models.relay.Relay] to a
-        [Document][bigbrotr.models.document.Document] record via
-        content-addressed hashing, with cascade insert support.
-    ServiceState: Cursor-based processing state for services,
-        enabling resume after restart.
-    NetworkType: Enum classifying relay URLs into clearnet, tor, i2p, loki,
+Public model families:
+    Relay: Validated relay URL plus derived network classification.
+    Event: Immutable archived event payload and identity.
+    EventObservation: Observation history linking an event to the relay where
+        it was seen.
+    Document: Content-addressed stored document for NIP-11, NIP-66, and other
+        shared document families.
+    RelayDocument: History table model linking a relay to a stored document and
+        role.
+    ServiceState: Shared service-owned state records used for cursors,
+        checkpoints, and resumable background work.
+    NetworkType: Enum classifying relay URLs into clearnet, Tor, I2P, Lokinet,
         local, or unknown.
 
 Note:
@@ -38,11 +32,11 @@ Note:
 
 See Also:
     [bigbrotr.models.relay][]: Relay URL validation and network detection.
-    [bigbrotr.models.event][]: Nostr event wrapper with database serialization.
-    [bigbrotr.models.event_observation][]: Event-to-relay junction model.
-    [bigbrotr.models.document][]: Content-addressed documents with SHA-256 hashing.
-    [bigbrotr.models.relay_document][]: Relay-to-document junction model.
-    [bigbrotr.models.service_state][]: Service state persistence types.
+    [bigbrotr.models.event][]: Archived Nostr event model.
+    [bigbrotr.models.event_observation][]: Event-to-relay observation history.
+    [bigbrotr.models.document][]: Content-addressed document storage.
+    [bigbrotr.models.relay_document][]: Relay-to-document history model.
+    [bigbrotr.models.service_state][]: Shared service-state types.
     [bigbrotr.models.constants][]: Shared constants and enumerations.
     [bigbrotr.nips][]: NIP-aware protocol package with runtime I/O,
         static capability registry, and builder/data helpers.

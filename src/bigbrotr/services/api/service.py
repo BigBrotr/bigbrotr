@@ -1,12 +1,9 @@
-"""REST API service for read-only readable-resource exposure via FastAPI.
+"""REST API service for public readable-resource exposure via FastAPI.
 
-Registers paginated endpoints for all enabled public read models.
-[ReadModelPolicy][bigbrotr.services.common.configs.ReadModelPolicy] remains the
-shared exposure-policy model, but the adapter now executes directly through the
-shared
-[ReadCore][bigbrotr.services.common.read_models.ReadCore] while preserving the
-historical public HTTP contract in terms of named read models rather than raw
-database tables.
+The API adapter is built on the shared
+[ReadCore][bigbrotr.services.common.read_models.ReadCore]. It exposes enabled
+readable resources over HTTP while preserving the stable historical transport
+contract based on named ``read models`` under ``/read-models``.
 
 The HTTP server runs as a background ``asyncio.Task`` alongside the
 standard ``run_forever()`` cycle.  Each ``run()`` cycle logs request
@@ -16,15 +13,14 @@ Note:
     Rate limiting is not enforced at the application level — it is
     expected to be handled by the reverse proxy (e.g., Cloudflare,
     Nginx).  The API is strictly read-only: only GET methods are
-    registered, and all queries are executed through the
-    [Catalog][bigbrotr.services.common.catalog.Catalog] safe query
-    builder.
+        registered, and all queries are executed through the shared read core
+        and its catalog-backed validation layer.
 
 See Also:
     [ApiConfig][bigbrotr.services.api.ApiConfig]: Configuration model
-        for HTTP settings, pagination, and CORS.
-    [Catalog][bigbrotr.services.common.catalog.Catalog]: Schema
-        introspection and query builder shared with the DVM service.
+        for HTTP settings, pagination, CORS, and exposure policy.
+    [ReadCore][bigbrotr.services.common.read_models.ReadCore]: Shared
+        protocol-agnostic read core used by the API and DVM adapters.
     [BaseService][bigbrotr.core.base_service.BaseService]: Abstract
         base class providing lifecycle and metrics.
 
@@ -71,11 +67,11 @@ _HTTP_ERROR_THRESHOLD = 400
 
 
 class Api(BaseService[ApiConfig]):
-    """REST API service exposing BigBrotr read models over HTTP.
+    """HTTP adapter exposing BigBrotr public readable resources.
 
-    Registers paginated GET endpoints for each enabled public read
-    model discovered through the shared
-    [Catalog][bigbrotr.services.common.catalog.Catalog].
+    The public transport still speaks in terms of ``read models`` for backward
+    compatibility, but the runtime contract is now the shared read core plus
+    per-adapter exposure policy.
 
     Lifecycle:
         1. ``__aenter__``: discover schema, build FastAPI app, start uvicorn.
@@ -83,10 +79,10 @@ class Api(BaseService[ApiConfig]):
         3. ``__aexit__``: cancel the HTTP server task.
 
     See Also:
-        [ApiConfig][bigbrotr.services.api.ApiConfig]: Configuration
-            model for this service.
+        [ApiConfig][bigbrotr.services.api.ApiConfig]: Configuration model for
+            this adapter.
         [Dvm][bigbrotr.services.dvm.Dvm]: Sibling service that exposes
-            the same Catalog data via Nostr NIP-90.
+            the same readable-resource data via Nostr NIP-90.
     """
 
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.API
@@ -179,10 +175,10 @@ class Api(BaseService[ApiConfig]):
     # ── App construction ──────────────────────────────────────────
 
     def _build_app(self) -> FastAPI:
-        """Construct the FastAPI application with auto-generated routes.
+        """Construct the FastAPI application with auto-generated public routes.
 
         Delegates to sub-methods for each route group:
-        middleware, health, read-model discovery, and read-model data routes.
+        middleware, health, discovery, and readable-resource data routes.
         """
         app = FastAPI(title=self._config.title)
 
@@ -253,7 +249,7 @@ class Api(BaseService[ApiConfig]):
             return {"status": "ok"}
 
     def _add_read_model_routes(self, app: FastAPI) -> None:
-        """Register read-model discovery endpoints."""
+        """Register discovery endpoints for the public readable-resource surface."""
         register_read_model_routes(
             app,
             read_core=self._read_core,
@@ -261,7 +257,7 @@ class Api(BaseService[ApiConfig]):
         )
 
     def _add_read_model_data_routes(self, app: FastAPI) -> None:
-        """Register list and detail data routes for enabled read models."""
+        """Register list and detail routes for enabled public readable resources."""
         register_read_model_data_routes(
             app,
             brotr=self._brotr,

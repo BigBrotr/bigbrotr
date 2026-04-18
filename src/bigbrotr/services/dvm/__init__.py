@@ -1,4 +1,4 @@
-"""NIP-90 Data Vending Machine service for Nostr-based read-model queries.
+"""NIP-90 adapter for public readable-resource queries over Nostr.
 
 Re-exports the public package symbols::
 
@@ -6,7 +6,8 @@ Re-exports the public package symbols::
 
 See Also:
     [Dvm][bigbrotr.services.dvm.service.Dvm]: The service class.
-    [DvmConfig][bigbrotr.services.dvm.configs.DvmConfig]: Service configuration.
+    [DvmConfig][bigbrotr.services.dvm.configs.DvmConfig]: Adapter configuration,
+        including relay settings and exposure policy.
 """
 
 from .configs import DvmConfig
