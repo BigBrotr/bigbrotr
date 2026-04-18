@@ -306,10 +306,30 @@ class TestFetchCursorsToSync:
 
         args = query_brotr.fetch.call_args[0]
         assert "LEFT JOIN" in args[0]
+        assert "jsonb_typeof(state_value->'timestamp') = 'number'" in args[0]
+        assert "lower(state_value->>'id') ~ '^[0-9a-f]{64}$'" in args[0]
         assert args[1] == ServiceName.SYNCHRONIZER
         assert args[2] == ServiceStateType.CURSOR
         assert args[3] == 5000
         assert args[4] == ["clearnet", "tor"]
+
+    async def test_returns_default_cursor_for_invalid_persisted_state(
+        self, query_brotr: MagicMock
+    ) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                {
+                    "url": "wss://relay1.example.com",
+                    "state_value": {"timestamp": "oops", "id": "bad"},
+                    "ts": 0,
+                    "cursor_id": "0" * 64,
+                },
+            ]
+        )
+
+        result = await fetch_cursors_to_sync(query_brotr, 1000, [NetworkType.CLEARNET])
+
+        assert result == [SyncCursor(key="wss://relay1.example.com")]
 
 
 class TestSyncCursorPages:
@@ -321,6 +341,7 @@ class TestSyncCursorPages:
         assert result == 4
         args = query_brotr.fetchval.call_args[0]
         assert "count(*)::int" in args[0]
+        assert "jsonb_typeof(state_value->'timestamp') = 'number'" in args[0]
         assert args[1] == ServiceName.SYNCHRONIZER
         assert args[2] == ServiceStateType.CURSOR
         assert args[3] == 1000

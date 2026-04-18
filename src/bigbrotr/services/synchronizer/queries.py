@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING, Any
 
 from bigbrotr.models.constants import NetworkType, ServiceName
@@ -22,10 +23,22 @@ if TYPE_CHECKING:
 _CURSOR_SENTINEL_ID = "0" * 64
 
 
+def _row_value(row: Any, key: str, default: Any) -> Any:
+    """Read one optional row field with a fallback for lightweight test doubles."""
+    with contextlib.suppress(KeyError, IndexError, TypeError):
+        return row[key]
+    return default
+
+
 def _sync_cursor_from_row(row: Any) -> SyncCursor:
     if row["state_value"]:
-        return ServiceStateStore.decode_cursor(row["url"], row["state_value"], SyncCursor)
-    return SyncCursor(key=row["url"])
+        with contextlib.suppress(KeyError, TypeError, ValueError):
+            return ServiceStateStore.decode_cursor(row["url"], row["state_value"], SyncCursor)
+    return SyncCursor(
+        key=row["url"],
+        timestamp=_row_value(row, "ts", 0),
+        id=_row_value(row, "cursor_id", _CURSOR_SENTINEL_ID),
+    )
 
 
 async def count_cursors_to_sync(brotr: Brotr, end: int, networks: Sequence[NetworkType]) -> int:
@@ -34,7 +47,12 @@ async def count_cursors_to_sync(brotr: Brotr, end: int, networks: Sequence[Netwo
         """
         WITH cursors AS (
             SELECT state_key,
-                   (state_value->>'timestamp')::bigint AS ts
+                   CASE
+                       WHEN jsonb_typeof(state_value->'timestamp') = 'number'
+                            AND (state_value->>'timestamp') ~ '^-?[0-9]+$'
+                       THEN (state_value->>'timestamp')::bigint
+                       ELSE 0
+                   END AS ts
             FROM service_state
             WHERE owner = $1
               AND state_type = $2
@@ -77,13 +95,23 @@ async def fetch_cursors_to_sync(
         WITH cursors AS (
             SELECT state_key,
                    state_value,
-                   (state_value->>'timestamp')::bigint AS ts,
-                   state_value->>'id' AS cursor_id
+                   CASE
+                       WHEN jsonb_typeof(state_value->'timestamp') = 'number'
+                            AND (state_value->>'timestamp') ~ '^-?[0-9]+$'
+                       THEN (state_value->>'timestamp')::bigint
+                       ELSE 0
+                   END AS ts,
+                   CASE
+                       WHEN jsonb_typeof(state_value->'id') = 'string'
+                            AND lower(state_value->>'id') ~ '^[0-9a-f]{64}$'
+                       THEN lower(state_value->>'id')
+                       ELSE repeat('0', 64)
+                   END AS cursor_id
             FROM service_state
             WHERE owner = $1
               AND state_type = $2
         )
-        SELECT r.url, c.state_value
+        SELECT r.url, c.state_value, c.ts, c.cursor_id
         FROM relay r
         LEFT JOIN cursors c ON c.state_key = r.url
         WHERE r.network = ANY($4)
@@ -112,13 +140,23 @@ async def fetch_cursors_to_sync_page(
         WITH cursors AS (
             SELECT state_key,
                    state_value,
-                   (state_value->>'timestamp')::bigint AS ts,
-                   state_value->>'id' AS cursor_id
+                   CASE
+                       WHEN jsonb_typeof(state_value->'timestamp') = 'number'
+                            AND (state_value->>'timestamp') ~ '^-?[0-9]+$'
+                       THEN (state_value->>'timestamp')::bigint
+                       ELSE 0
+                   END AS ts,
+                   CASE
+                       WHEN jsonb_typeof(state_value->'id') = 'string'
+                            AND lower(state_value->>'id') ~ '^[0-9a-f]{64}$'
+                       THEN lower(state_value->>'id')
+                       ELSE repeat('0', 64)
+                   END AS cursor_id
             FROM service_state
             WHERE owner = $1
               AND state_type = $2
         )
-        SELECT r.url, c.state_value
+        SELECT r.url, c.state_value, c.ts, c.cursor_id
         FROM relay r
         LEFT JOIN cursors c ON c.state_key = r.url
         WHERE r.network = ANY($4)

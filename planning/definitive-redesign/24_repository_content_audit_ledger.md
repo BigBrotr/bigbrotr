@@ -1635,3 +1635,14 @@ Use this section during execution for:
   - added paired `services/common` coverage proving malformed temporal cursor
     scalars are rejected at decode/build time instead of surfacing later as
     generic query execution failures.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirtieth remediation
+  slice:
+  - tightened the Finder and Synchronizer persisted-cursor scheduling boundary
+    so malformed stored `timestamp` and `id` values no longer rely on raw SQL
+    casts or leak corrupted ordering semantics into worker selection, and now
+    degrade cleanly to the canonical sentinel cursor at the query and
+    hydration seam;
+  - added paired `finder` and `synchronizer` coverage proving corrupted
+    persisted cursor payloads are sanitized before ordering and default
+    cleanly during row hydration instead of crashing or skewing least-progress
+    scheduling.

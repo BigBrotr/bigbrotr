@@ -624,11 +624,32 @@ class TestFetchFinderCursors:
         sql = query_brotr.fetch.call_args[0][0]
         assert "LEFT JOIN cursors" in sql
         assert "FROM relay" in sql
+        assert "jsonb_typeof(state_value->'timestamp') = 'number'" in sql
+        assert "lower(state_value->>'id') ~ '^[0-9a-f]{64}$'" in sql
 
     async def test_empty_database(self, query_brotr: MagicMock) -> None:
         result = await fetch_cursors_to_find(query_brotr)
 
         assert result == []
+
+    async def test_invalid_persisted_cursor_defaults_to_sentinel(
+        self, query_brotr: MagicMock
+    ) -> None:
+        rows = [
+            _make_dict_row(
+                {
+                    "url": "wss://relay.com",
+                    "state_value": {"timestamp": "oops", "id": "bad"},
+                    "ts": 0,
+                    "cursor_id": "0" * 64,
+                }
+            ),
+        ]
+        query_brotr.fetch = AsyncMock(return_value=rows)
+
+        result = await fetch_cursors_to_find(query_brotr)
+
+        assert result == [FinderCursor(key="wss://relay.com")]
 
 
 class TestFinderCursorPages:
