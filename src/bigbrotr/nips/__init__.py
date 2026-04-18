@@ -1,4 +1,4 @@
-"""Protocol-aware NIP helpers, fetchers, builders, and capability metadata.
+"""Protocol-aware NIP helpers, fetchers, builders, and the static capability registry.
 
 The NIPs layer sits in the middle of the diamond DAG, depending on
 [bigbrotr.models][bigbrotr.models] and [bigbrotr.utils][bigbrotr.utils].

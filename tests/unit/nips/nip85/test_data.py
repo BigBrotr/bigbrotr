@@ -256,6 +256,29 @@ class TestIdentifierAssertionProperties:
         assert a.k_tags == ("book", "isbn")
 
 
+@pytest.mark.parametrize(
+    ("factory", "row"),
+    [
+        (UserAssertion.from_db_row, {"pubkey": "aa" * 32, "rank": 77}),
+        (EventAssertion.from_db_row, {"event_id": "bb" * 32, "rank": 77}),
+        (
+            AddressableAssertion.from_db_row,
+            {"event_address": "30023:" + ("cc" * 32) + ":article", "rank": 77},
+        ),
+        (
+            IdentifierAssertion.from_db_row,
+            {"identifier": "isbn:9780140328721", "rank": 77},
+        ),
+    ],
+)
+def test_legacy_rank_alias_is_not_used_by_nip85_rows(
+    factory: object,
+    row: dict[str, object],
+) -> None:
+    assertion = factory(row)  # type: ignore[misc]
+    assert assertion.score == 0
+
+
 class TestTrustedProviderDeclaration:
     def test_tag_shape_matches_kind_10040_spec(self) -> None:
         declaration = TrustedProviderDeclaration(

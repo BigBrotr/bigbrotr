@@ -1,6 +1,6 @@
 # nips
 
-Protocol-aware NIP helpers, builders, and capability metadata.
+Protocol-aware NIP helpers, builders, and the static capability registry.
 
 ## Main Areas
 

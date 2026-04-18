@@ -145,7 +145,7 @@ class UserAssertion:
 
         return cls(
             pubkey=row["pubkey"],
-            score=int(row.get("score", row.get("rank", 0))),
+            score=int(row.get("score", 0)),
             post_count=int(row.get("post_count", 0)),
             reply_count=int(row.get("reply_count", 0)),
             reaction_count_recd=int(row.get("reaction_count_recd", 0)),
@@ -220,7 +220,7 @@ class EventAssertion:
         return cls(
             event_id=row["event_id"],
             author_pubkey=row.get("author_pubkey", ""),
-            score=int(row.get("score", row.get("rank", 0))),
+            score=int(row.get("score", 0)),
             comment_count=int(row.get("comment_count", 0)),
             quote_count=int(row.get("quote_count", 0)),
             repost_count=int(row.get("repost_count", 0)),
@@ -268,7 +268,7 @@ class AddressableAssertion:
         return cls(
             event_address=row["event_address"],
             author_pubkey=row.get("author_pubkey", ""),
-            score=int(row.get("score", row.get("rank", 0))),
+            score=int(row.get("score", 0)),
             comment_count=int(row.get("comment_count", 0)),
             quote_count=int(row.get("quote_count", 0)),
             repost_count=int(row.get("repost_count", 0)),
@@ -304,7 +304,7 @@ class IdentifierAssertion:
         raw_k_tags = row.get("k_tags") or []
         return cls(
             identifier=row["identifier"],
-            score=int(row.get("score", row.get("rank", 0))),
+            score=int(row.get("score", 0)),
             comment_count=int(row.get("comment_count", 0)),
             reaction_count=int(row.get("reaction_count", 0)),
             k_tags=tuple(str(tag) for tag in raw_k_tags),

@@ -85,10 +85,10 @@ class ServiceName(StrEnum):
             ([Refresher][bigbrotr.services.refresher.Refresher]).
         RANKER: Private DuckDB-backed ranking service for NIP-85 pipelines
             ([Ranker][bigbrotr.services.ranker.Ranker]).
-        API: REST API for read-only database access
-            ([Api][bigbrotr.services.api.Api]).
-        DVM: NIP-90 Data Vending Machine service
-            ([Dvm][bigbrotr.services.dvm.Dvm]).
+        API: HTTP read adapter for public readable resources
+            ([API adapter][bigbrotr.services.api.Api]).
+        DVM: NIP-90 read adapter exposing the same public readable resources
+            ([DVM adapter][bigbrotr.services.dvm.Dvm]).
         ASSERTOR: NIP-85 provider-package publisher
             ([Assertor][bigbrotr.services.assertor.Assertor]).
 

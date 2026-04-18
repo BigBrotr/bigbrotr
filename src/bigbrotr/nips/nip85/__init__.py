@@ -1,8 +1,9 @@
-"""NIP-85 provider-package surface.
+"""NIP-85 public-score and provider-package surface.
 
-Provides the trusted-provider declaration and assertion data models together
-with the NIP-85 event builders consumed by the
-[Assertor][bigbrotr.services.assertor.Assertor] service.
+Provides the trusted-provider declaration and assertion data models consumed
+by the [Ranker][bigbrotr.services.ranker.Ranker] and
+[Assertor][bigbrotr.services.assertor.Assertor] services, together with the
+NIP-85 event builders used to publish the provider package.
 
 See Also:
     [bigbrotr.nips.nip85.data][]: Data models for provider declarations and
