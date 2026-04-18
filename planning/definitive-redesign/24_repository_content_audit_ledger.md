@@ -457,6 +457,19 @@ Use this section during execution for:
     instead of quietly accepting stringly-typed input;
   - paired coverage now pins these declaration-boundary failures directly on
     the dataclass constructor.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twenty-ninth remediation
+  slice:
+  - the four NIP-85 assertion subject identifiers now fail fast at the frozen
+    dataclass boundary: `UserAssertion.pubkey`, `EventAssertion.event_id`,
+    `AddressableAssertion.event_address`, and `IdentifierAssertion.identifier`
+    must all be strings instead of allowing `None` or other non-text values to
+    leak toward the public event builders;
+  - the same rule now holds on row hydration, so malformed stored assertion
+    subjects surface immediately instead of becoming latent runtime failures in
+    tag-building paths;
+  - paired coverage now pins both surfaces for all four assertion families:
+    direct construction and `from_db_row()` reject non-string subject
+    identifiers explicitly.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

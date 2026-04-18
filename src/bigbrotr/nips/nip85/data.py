@@ -137,6 +137,7 @@ class UserAssertion:
     following_count: int = 0
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "pubkey", _require_text(self.pubkey, "pubkey"))
         object.__setattr__(self, "activity_hours", _normalize_activity_hours(self.activity_hours))
 
     @property
@@ -263,6 +264,7 @@ class EventAssertion:
     zap_amount_msats: int = 0
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "event_id", _require_text(self.event_id, "event_id"))
         object.__setattr__(
             self,
             "author_pubkey",
@@ -320,6 +322,11 @@ class AddressableAssertion:
     def __post_init__(self) -> None:
         object.__setattr__(
             self,
+            "event_address",
+            _require_text(self.event_address, "event_address"),
+        )
+        object.__setattr__(
+            self,
             "author_pubkey",
             _require_text(self.author_pubkey, "author_pubkey"),
         )
@@ -369,6 +376,7 @@ class IdentifierAssertion:
     k_tags: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "identifier", _require_text(self.identifier, "identifier"))
         object.__setattr__(self, "k_tags", _normalize_tag_set(self.k_tags))
 
     def tags_hash(self) -> str:

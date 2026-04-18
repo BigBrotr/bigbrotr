@@ -84,6 +84,10 @@ class TestUserAssertionProperties:
         a = UserAssertion(pubkey="aa" * 32, activity_hours=[0] * 24)
         assert a.activity_hours == tuple(0 for _ in range(24))
 
+    def test_constructor_rejects_non_string_pubkey(self) -> None:
+        with pytest.raises(TypeError, match="pubkey must be a string"):
+            UserAssertion(pubkey=None)  # type: ignore[arg-type]
+
     def test_constructor_rejects_invalid_activity_hours_length(self) -> None:
         with pytest.raises(
             ValueError, match="activity_hours must contain exactly 24 hourly buckets"
@@ -128,6 +132,11 @@ class TestUserAssertionFromDbRow:
         a = UserAssertion.from_db_row(row)
         assert a.pubkey == "aa" * 32
         assert a.post_count == 0
+
+    def test_from_db_row_rejects_non_string_pubkey(self) -> None:
+        row = {"pubkey": None}
+        with pytest.raises(TypeError, match="pubkey must be a string"):
+            UserAssertion.from_db_row(row)
 
     def test_full_row(self) -> None:
         row = {
@@ -243,6 +252,10 @@ class TestEventAssertionProperties:
         a = EventAssertion(event_id="ee" * 32, zap_amount_msats=42000)
         assert a.zap_amount_sats == 42
 
+    def test_constructor_rejects_non_string_event_id(self) -> None:
+        with pytest.raises(TypeError, match="event_id must be a string"):
+            EventAssertion(event_id=None)  # type: ignore[arg-type]
+
     def test_constructor_rejects_non_string_author_pubkey(self) -> None:
         with pytest.raises(TypeError, match="author_pubkey must be a string"):
             EventAssertion(event_id="ee" * 32, author_pubkey=None)  # type: ignore[arg-type]
@@ -277,6 +290,14 @@ class TestEventAssertionFromDbRow:
         assert a.zap_amount_msats == 100000
         assert a.zap_amount_sats == 100
 
+    def test_from_db_row_rejects_non_string_event_id(self) -> None:
+        row = {
+            "event_id": None,
+            "author_pubkey": "aa" * 32,
+        }
+        with pytest.raises(TypeError, match="event_id must be a string"):
+            EventAssertion.from_db_row(row)
+
     def test_from_db_row_rejects_non_string_author_pubkey(self) -> None:
         row = {
             "event_id": "ff" * 32,
@@ -307,6 +328,10 @@ class TestAddressableAssertionProperties:
         assert a.score == 84
         assert a.zap_amount_sats == 100
 
+    def test_constructor_rejects_non_string_event_address(self) -> None:
+        with pytest.raises(TypeError, match="event_address must be a string"):
+            AddressableAssertion(event_address=None)  # type: ignore[arg-type]
+
     def test_constructor_rejects_non_string_author_pubkey(self) -> None:
         with pytest.raises(TypeError, match="author_pubkey must be a string"):
             AddressableAssertion(
@@ -333,6 +358,14 @@ class TestAddressableAssertionProperties:
         with pytest.raises(TypeError, match="author_pubkey must be a string"):
             AddressableAssertion.from_db_row(row)
 
+    def test_from_db_row_rejects_non_string_event_address(self) -> None:
+        row = {
+            "event_address": None,
+            "author_pubkey": "bb" * 32,
+        }
+        with pytest.raises(TypeError, match="event_address must be a string"):
+            AddressableAssertion.from_db_row(row)
+
 
 class TestIdentifierAssertionProperties:
     def test_from_db_row_preserves_k_tags(self) -> None:
@@ -357,6 +390,10 @@ class TestIdentifierAssertionProperties:
         )
         assert a.k_tags == ("book", "isbn")
 
+    def test_constructor_rejects_non_string_identifier(self) -> None:
+        with pytest.raises(TypeError, match="identifier must be a string"):
+            IdentifierAssertion(identifier=None)  # type: ignore[arg-type]
+
     def test_from_db_row_normalizes_k_tags(self) -> None:
         row = {
             "identifier": "isbn:9780140328721",
@@ -378,6 +415,14 @@ class TestIdentifierAssertionProperties:
         }
 
         with pytest.raises(TypeError, match="k_tags must be a sequence of tag strings"):
+            IdentifierAssertion.from_db_row(row)
+
+    def test_from_db_row_rejects_non_string_identifier(self) -> None:
+        row = {
+            "identifier": None,
+        }
+
+        with pytest.raises(TypeError, match="identifier must be a string"):
             IdentifierAssertion.from_db_row(row)
 
 
