@@ -176,7 +176,7 @@ class TestProcessRequestEvent:
         logger.info.assert_any_call(
             "job_completed",
             event_id="job-1",
-            read_model="relays",
+            resource_id="relays",
             rows=1,
             duration_ms=pytest.approx(0.0, abs=1000.0),
         )

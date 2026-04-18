@@ -36,7 +36,7 @@ class DvmConfig(PublicReadAdapterConfig):
         default_page_size: Default ``limit`` when not specified.
         max_page_size: Hard ceiling on query limit.
         read_models: Adapter-local protocol exposure policy with enable/price
-            controls per public read model.
+            controls per public readable resource.
         announce: Whether to publish a NIP-89 handler announcement at startup.
         fetch_timeout: Timeout in seconds for relay subscription setup and replay startup.
     """

@@ -20,7 +20,7 @@ The module also centralizes the shared public-adapter contract for:
 - default/max page-size validation;
 - legacy `tables` rejection;
 - normalization of adapter-local protocol exposure policy over canonical
-  public read-model IDs.
+  public readable-resource IDs.
 
 See Also:
     [NetworkType][bigbrotr.models.constants.NetworkType]: Enum that
@@ -197,7 +197,7 @@ class PublicReadAdapterConfig(BaseServiceConfig):
     )
     read_models: dict[str, ReadModelPolicy] = Field(
         default_factory=dict,
-        description="Adapter-local protocol exposure policy keyed by public read-model ID",
+        description="Adapter-local protocol exposure policy keyed by public readable-resource ID",
     )
 
     @property

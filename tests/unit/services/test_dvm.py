@@ -372,8 +372,8 @@ class TestPrepareJobRequest:
         )
 
         assert isinstance(prepared, PreparedJobRequest)
-        assert prepared.read_model_id == "relays"
-        assert prepared.read_model.read_model_id == "relays"
+        assert prepared.resource_id == "relays"
+        assert prepared.resource.resource_id == "relays"
         assert prepared.query.limit == 5
         assert prepared.price == 0
 
@@ -707,7 +707,7 @@ class TestDvmRun:
             await dvm_service.run()
 
         mock_gauge.assert_any_call(
-            "read_models_exposed",
+            "readable_resources_exposed",
             len(dvm_service._read_core.enabled_resource_ids("dvm")),
         )
 

@@ -1,4 +1,4 @@
-"""Unit tests for API read-model route handlers."""
+"""Unit tests for API readable-resource route handlers."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pytest
 from fastapi import Request
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.services.api.read_models import ApiReadModelHandler
+from bigbrotr.services.api.readable_resources import ApiReadableResourceHandler
 from bigbrotr.services.common.catalog import (
     Catalog,
     CatalogError,
@@ -47,13 +47,13 @@ def read_core(sample_catalog: Catalog) -> ReadCore:
 
 
 @pytest.fixture
-def handler(mock_brotr: Brotr, read_core: ReadCore) -> ApiReadModelHandler:
-    read_model = read_core.enabled_resources("api")["relays"]
-    return ApiReadModelHandler(
+def handler(mock_brotr: Brotr, read_core: ReadCore) -> ApiReadableResourceHandler:
+    resource = read_core.enabled_resources("api")["relays"]
+    return ApiReadableResourceHandler(
         brotr=mock_brotr,
         read_core=read_core,
-        read_model_id="relays",
-        read_model=read_model,
+        resource_id="relays",
+        resource=resource,
         default_page_size=10,
         max_page_size=100,
         request_timeout=1.0,
@@ -77,8 +77,8 @@ def _build_request(
     return Request(scope)
 
 
-class TestApiReadModelHandler:
-    async def test_list_rows_success(self, handler: ApiReadModelHandler) -> None:
+class TestApiReadableResourceHandler:
+    async def test_list_rows_success(self, handler: ApiReadableResourceHandler) -> None:
         mock_result = QueryResult(
             rows=[{"url": "wss://relay.example.com", "network": "clearnet"}],
             total=None,
@@ -105,7 +105,9 @@ class TestApiReadModelHandler:
         assert kwargs["limit"] == 10
         assert kwargs["prefer_keyset"] is True
 
-    async def test_list_rows_invalid_query_returns_400(self, handler: ApiReadModelHandler) -> None:
+    async def test_list_rows_invalid_query_returns_400(
+        self, handler: ApiReadableResourceHandler
+    ) -> None:
         request = _build_request("/v1/relays", query_string="limit=bad")
 
         response = await handler.list_rows(request)
@@ -113,7 +115,9 @@ class TestApiReadModelHandler:
         assert response.status_code == 400
         assert b"Invalid limit or offset" in response.body
 
-    async def test_list_rows_catalog_error_returns_400(self, handler: ApiReadModelHandler) -> None:
+    async def test_list_rows_catalog_error_returns_400(
+        self, handler: ApiReadableResourceHandler
+    ) -> None:
         request = _build_request("/v1/relays", query_string="network=clearnet")
 
         with patch.object(
@@ -140,11 +144,11 @@ class TestApiReadModelHandler:
         policies = {"relay-stats": ReadModelPolicy(enabled=True)}
         read_core = ReadCore(policy_source=lambda: policies)
         read_core.catalog = catalog
-        handler = ApiReadModelHandler(
+        handler = ApiReadableResourceHandler(
             brotr=MagicMock(),
             read_core=read_core,
-            read_model_id="relay-stats",
-            read_model=read_core.enabled_resources("api")["relay-stats"],
+            resource_id="relay-stats",
+            resource=read_core.enabled_resources("api")["relay-stats"],
             default_page_size=10,
             max_page_size=100,
             request_timeout=1.0,
@@ -167,12 +171,12 @@ class TestApiReadModelHandler:
         mock_brotr: Brotr,
         read_core: ReadCore,
     ) -> None:
-        read_model = read_core.enabled_resources("api")["relays"]
-        handler = ApiReadModelHandler(
+        resource = read_core.enabled_resources("api")["relays"]
+        handler = ApiReadableResourceHandler(
             brotr=mock_brotr,
             read_core=read_core,
-            read_model_id="relays",
-            read_model=read_model,
+            resource_id="relays",
+            resource=resource,
             default_page_size=10,
             max_page_size=100,
             request_timeout=0.01,
@@ -188,7 +192,7 @@ class TestApiReadModelHandler:
         assert response.status_code == 504
         assert b"Query timeout" in response.body
 
-    async def test_get_row_success(self, handler: ApiReadModelHandler) -> None:
+    async def test_get_row_success(self, handler: ApiReadableResourceHandler) -> None:
         request = _build_request(
             "/v1/relays/wss://relay.example.com",
             path_params={"url": "wss://relay.example.com"},
@@ -215,12 +219,12 @@ class TestApiReadModelHandler:
         mock_brotr: Brotr,
         read_core: ReadCore,
     ) -> None:
-        read_model = read_core.enabled_resources("api")["relays"]
-        handler = ApiReadModelHandler(
+        resource = read_core.enabled_resources("api")["relays"]
+        handler = ApiReadableResourceHandler(
             brotr=mock_brotr,
             read_core=read_core,
-            read_model_id="relays",
-            read_model=read_model,
+            resource_id="relays",
+            resource=resource,
             default_page_size=10,
             max_page_size=100,
             request_timeout=0.01,

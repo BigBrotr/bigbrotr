@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from fastapi.responses import JSONResponse
 
-from .read_models import ApiReadModelHandler
+from .readable_resources import ApiReadableResourceHandler
 
 
 if TYPE_CHECKING:
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from bigbrotr.services.common.read_models import ReadableResourceEntry, ReadCore
 
 
-def register_read_model_routes(
+def register_readable_resource_routes(
     app: FastAPI,
     *,
     read_core: ReadCore,
@@ -46,7 +46,7 @@ def register_read_model_routes(
         return JSONResponse({"data": detail})
 
 
-def register_read_model_data_routes(  # noqa: PLR0913
+def register_readable_resource_data_routes(  # noqa: PLR0913
     app: FastAPI,
     *,
     brotr: Brotr,
@@ -57,49 +57,49 @@ def register_read_model_data_routes(  # noqa: PLR0913
     request_timeout: float,
 ) -> None:
     """Register collection and detail routes for enabled public resources."""
-    for read_model_id, read_model in read_core.enabled_resources("api").items():
-        _register_read_model_data_routes(
+    for resource_id, resource in read_core.enabled_resources("api").items():
+        _register_readable_resource_data_routes(
             app,
             brotr=brotr,
             read_core=read_core,
             route_prefix=route_prefix,
-            read_model_id=read_model_id,
-            read_model=read_model,
+            resource_id=resource_id,
+            resource=resource,
             default_page_size=default_page_size,
             max_page_size=max_page_size,
             request_timeout=request_timeout,
         )
 
 
-def _register_read_model_data_routes(  # noqa: PLR0913
+def _register_readable_resource_data_routes(  # noqa: PLR0913
     app: FastAPI,
     *,
     brotr: Brotr,
     read_core: ReadCore,
     route_prefix: str,
-    read_model_id: str,
-    read_model: ReadableResourceEntry,
+    resource_id: str,
+    resource: ReadableResourceEntry,
     default_page_size: int,
     max_page_size: int,
     request_timeout: float,
 ) -> None:
     """Register collection and optional detail routes for one resource entry."""
-    handler = ApiReadModelHandler(
+    handler = ApiReadableResourceHandler(
         brotr=brotr,
         read_core=read_core,
-        read_model_id=read_model_id,
-        read_model=read_model,
+        resource_id=resource_id,
+        resource=resource,
         default_page_size=default_page_size,
         max_page_size=max_page_size,
         request_timeout=request_timeout,
     )
-    app.get(f"{route_prefix}/{read_model_id}")(handler.list_rows)
+    app.get(f"{route_prefix}/{resource_id}")(handler.list_rows)
 
     pk_cols = handler.primary_key_columns
     if not pk_cols:
         return
 
-    app.get(f"{route_prefix}/{read_model_id}/{_primary_key_path(pk_cols)}")(handler.get_row)
+    app.get(f"{route_prefix}/{resource_id}/{_primary_key_path(pk_cols)}")(handler.get_row)
 
 
 def _primary_key_path(pk_columns: tuple[str, ...]) -> str:

@@ -6,7 +6,7 @@ HTTP adapter for public readable-resource exposure.
 
 - `service.py`: FastAPI service lifecycle and adapter wiring.
 - `routes.py`: route registration for discovery and data endpoints.
-- `read_models.py`: HTTP handlers that delegate into the shared read core.
+- `readable_resources.py`: HTTP handlers that delegate into the shared read core.
 - `configs.py`: adapter configuration and exposure-policy surface.
 
 ## Rules

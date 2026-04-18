@@ -173,7 +173,10 @@ class Dvm(BaseService[DvmConfig]):
             self._client = None
             raise
 
-        self.set_gauge("read_models_exposed", len(self._read_core.enabled_resource_ids("dvm")))
+        self.set_gauge(
+            "readable_resources_exposed",
+            len(self._read_core.enabled_resource_ids("dvm")),
+        )
 
         return self
 
@@ -222,17 +225,17 @@ class Dvm(BaseService[DvmConfig]):
                     break
             events.sort(key=lambda event: (event.created_at().as_secs(), event.id().to_hex()))
         if not events:
-            read_models_exposed = len(self._read_core.enabled_resource_ids("dvm"))
+            readable_resources_exposed = len(self._read_core.enabled_resource_ids("dvm"))
             self.inc_counter("requests_total", 0)
             self.inc_counter("requests_failed", 0)
-            self.set_gauge("read_models_exposed", read_models_exposed)
+            self.set_gauge("readable_resources_exposed", readable_resources_exposed)
             self._logger.info(
                 "cycle_stats",
                 jobs_received=0,
                 processed=0,
                 failed=0,
                 payment_required=0,
-                read_models_exposed=read_models_exposed,
+                readable_resources_exposed=readable_resources_exposed,
             )
             return
 
@@ -260,17 +263,17 @@ class Dvm(BaseService[DvmConfig]):
             self._processed_ids.clear()
         if (latest_ts, latest_id) != (self._last_fetch_ts, self._last_fetch_id):
             await self._store_request_cursor(latest_ts, latest_id)
-        read_models_exposed = len(self._read_core.enabled_resource_ids("dvm"))
+        readable_resources_exposed = len(self._read_core.enabled_resource_ids("dvm"))
         self.inc_counter("requests_total", received)
         self.inc_counter("requests_failed", failed)
-        self.set_gauge("read_models_exposed", read_models_exposed)
+        self.set_gauge("readable_resources_exposed", readable_resources_exposed)
         self._logger.info(
             "cycle_stats",
             jobs_received=received,
             processed=processed,
             failed=failed,
             payment_required=payment_required,
-            read_models_exposed=read_models_exposed,
+            readable_resources_exposed=readable_resources_exposed,
         )
 
     # ── Event processing ──────────────────────────────────────────
@@ -343,9 +346,9 @@ class Dvm(BaseService[DvmConfig]):
 
     # ── Event publishing ──────────────────────────────────────────
 
-    async def _query_resource(self, read_model: Any, query: Any) -> Any:
+    async def _query_resource(self, resource: Any, query: Any) -> Any:
         """Execute one resolved readable-resource query through the shared read core."""
-        return await self._read_core.query_resource(self._brotr, read_model, query)
+        return await self._read_core.query_resource(self._brotr, resource, query)
 
     async def _send_event(
         self,

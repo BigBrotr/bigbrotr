@@ -42,15 +42,15 @@ class ResultEventRequest:
     request_kind: int
     request_event_id: str
     customer_pubkey: str
-    read_model_id: str
+    resource_id: str
 
 
 @dataclass(frozen=True, slots=True)
 class PreparedJobRequest:
     """Validated NIP-90 job request ready for execution."""
 
-    read_model_id: str
-    read_model: ReadableResourceEntry
+    resource_id: str
+    resource: ReadableResourceEntry
     query: ReadModelQuery
     price: int
 
@@ -109,21 +109,21 @@ def parse_job_params(event: Any) -> dict[str, Any]:
 
 
 def prepare_job_request(
-    requested_read_model_id: str,
+    requested_resource_id: str,
     params: Mapping[str, Any],
     *,
     context: JobPreparationContext,
 ) -> PreparedJobRequest | RejectedJobRequest:
     """Resolve exposure, pricing, and query parsing for one NIP-90 job request."""
-    resolved_read_model = context.read_core.resolve_resource("dvm", requested_read_model_id)
-    if resolved_read_model is None:
+    resolved_resource = context.read_core.resolve_resource("dvm", requested_resource_id)
+    if resolved_resource is None:
         return RejectedJobRequest(
-            error_message=f"Invalid or disabled read model: {requested_read_model_id}"
+            error_message=f"Invalid or disabled read model: {requested_resource_id}"
         )
 
-    read_model = resolved_read_model
-    read_model_id = read_model.read_model_id
-    price = context.exposure_policy.get(read_model_id, ReadModelPolicy()).price
+    resource = resolved_resource
+    resource_id = resource.resource_id
+    price = context.exposure_policy.get(resource_id, ReadModelPolicy()).price
     raw_bid = params.get("bid", 0)
     bid = raw_bid if isinstance(raw_bid, int) else 0
     if price > 0 and bid < price:
@@ -139,8 +139,8 @@ def prepare_job_request(
         return RejectedJobRequest(error_message=e.client_message)
 
     return PreparedJobRequest(
-        read_model_id=read_model_id,
-        read_model=read_model,
+        resource_id=resource_id,
+        resource=resource,
         query=query,
         price=price,
     )
@@ -165,7 +165,7 @@ def build_result_event(
     content = json.dumps(
         {
             "data": result.rows,
-            "meta": build_read_model_meta(result, read_model_id=request.read_model_id),
+            "meta": build_read_model_meta(result, read_model_id=request.resource_id),
         },
         default=str,
     )
@@ -247,7 +247,8 @@ def build_announcement_event(
         kind: NIP-90 request kind this handler supports.
         name: Human-readable handler name.
         about: Handler description.
-        read_models: List of enabled public read-model IDs.
+        read_models: List of enabled public readable-resource IDs serialized
+            under the stable ``read_models`` announcement key.
 
     Returns:
         Unsigned ``EventBuilder`` ready for signing and sending.

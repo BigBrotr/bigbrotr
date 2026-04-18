@@ -558,7 +558,7 @@ For resources without a stable primary key, the API falls back to offset paginat
 | `port` | int | `8080` | HTTP listen port |
 | `max_page_size` | int | `1000` | Hard ceiling on the `limit` query parameter |
 | `default_page_size` | int | `100` | Default `limit` when not specified |
-| `read_models` | dict | `{}` | Protocol exposure policy keyed by public read-model ID (`enabled`) |
+| `read_models` | dict | `{}` | Protocol exposure policy keyed by public readable-resource ID (`enabled`) |
 | `cors_origins` | list | `[]` | Allowed CORS origins (empty disables CORS) |
 | `request_timeout` | float | `30.0` | Timeout in seconds for each database query |
 
@@ -579,7 +579,7 @@ For resources without a stable primary key, the API falls back to offset paginat
 ### How It Works
 
 1. On startup (`__aenter__`), connect to configured relays and initialize the shared read core
-2. Optionally publish a NIP-89 handler announcement (kind 31990) advertising available read models
+2. Optionally publish a NIP-89 handler announcement (kind 31990) advertising available readable resources
 3. Restore a persisted `(timestamp, event_id)` request cursor and open a long-lived kind 5050 subscription on the connected relays
 4. Each `run()` cycle drains buffered subscription notifications in cursor order
 5. Parse job parameters from event tags: `read_model`, `limit`, `sort`, `filter`,
@@ -588,11 +588,11 @@ For resources without a stable primary key, the API falls back to offset paginat
 7. Publish the result as a kind 6050 event, or publish error/payment-required feedback (kind 7000)
 
 The Dvm supports protocol-specific pricing via `ReadModelPolicy.price`. When a
-job's bid is below the configured price for the requested public read model, a
+job's bid is below the configured price for the requested public readable resource, a
 payment-required feedback event is published instead of the query result.
 
 As with the HTTP API, DVM announcements and deployment config should use the canonical
-read-model IDs (`relays`, `relay-stats`, `relay-document-current`, ...). Legacy
+readable-resource IDs (`relays`, `relay-stats`, `relay-document-current`, ...). Legacy
 table-shaped aliases are still accepted on inbound jobs for compatibility.
 
 When the target resource has a primary key, DVM list jobs default to the same

@@ -2,8 +2,8 @@
 
 The API adapter is built on the shared
 [ReadCore][bigbrotr.services.common.read_models.ReadCore]. It exposes enabled
-readable resources over HTTP while preserving the stable historical transport
-contract based on named ``read models`` under ``/read-models``.
+readable resources over HTTP while preserving the stable historical
+``read_model`` transport contract under ``/read-models``.
 
 The HTTP server runs as a background ``asyncio.Task`` alongside the
 standard ``run_forever()`` cycle.  Each ``run()`` cycle logs request
@@ -55,7 +55,10 @@ from bigbrotr.models.constants import ServiceName
 from bigbrotr.services.common.read_models import ReadCore
 
 from .configs import ApiConfig
-from .routes import register_read_model_data_routes, register_read_model_routes
+from .routes import (
+    register_readable_resource_data_routes,
+    register_readable_resource_routes,
+)
 
 
 if TYPE_CHECKING:
@@ -102,9 +105,9 @@ class Api(BaseService[ApiConfig]):
         await self._read_core.discover(self._brotr, logger=self._logger)
 
         app = self._build_app()
-        read_model_count = len(self._read_core.enabled_resource_ids("api"))
-        self._logger.info("endpoints_registered", count=read_model_count)
-        self.set_gauge("read_models_exposed", read_model_count)
+        resource_count = len(self._read_core.enabled_resource_ids("api"))
+        self._logger.info("endpoints_registered", count=resource_count)
+        self.set_gauge("readable_resources_exposed", resource_count)
 
         config = uvicorn.Config(
             app,
@@ -161,16 +164,16 @@ class Api(BaseService[ApiConfig]):
         self._requests_total = 0
         self._requests_failed = 0
 
-        read_models_exposed = len(self._read_core.enabled_resource_ids("api"))
+        readable_resources_exposed = len(self._read_core.enabled_resource_ids("api"))
         self._logger.info(
             "cycle_stats",
             requests_total=total,
             requests_failed=failed,
-            read_models_exposed=read_models_exposed,
+            readable_resources_exposed=readable_resources_exposed,
         )
         self.inc_counter("requests_total", total)
         self.inc_counter("requests_failed", failed)
-        self.set_gauge("read_models_exposed", read_models_exposed)
+        self.set_gauge("readable_resources_exposed", readable_resources_exposed)
 
     # ── App construction ──────────────────────────────────────────
 
@@ -184,8 +187,8 @@ class Api(BaseService[ApiConfig]):
 
         self._add_middleware(app)
         self._add_health_route(app)
-        self._add_read_model_routes(app)
-        self._add_read_model_data_routes(app)
+        self._add_resource_discovery_routes(app)
+        self._add_resource_data_routes(app)
 
         return app
 
@@ -248,17 +251,17 @@ class Api(BaseService[ApiConfig]):
         async def health() -> dict[str, str]:
             return {"status": "ok"}
 
-    def _add_read_model_routes(self, app: FastAPI) -> None:
+    def _add_resource_discovery_routes(self, app: FastAPI) -> None:
         """Register discovery endpoints for the public readable-resource surface."""
-        register_read_model_routes(
+        register_readable_resource_routes(
             app,
             read_core=self._read_core,
             route_prefix=self._config.route_prefix,
         )
 
-    def _add_read_model_data_routes(self, app: FastAPI) -> None:
+    def _add_resource_data_routes(self, app: FastAPI) -> None:
         """Register list and detail routes for enabled public readable resources."""
-        register_read_model_data_routes(
+        register_readable_resource_data_routes(
             app,
             brotr=self._brotr,
             read_core=self._read_core,

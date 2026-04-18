@@ -86,7 +86,7 @@ Service files to customize:
 - `monitor.yaml` -- health check settings, publishing relays
 - `synchronizer.yaml` -- sync interval, concurrency, event filters
 - `refresher.yaml` -- current-state, analytics, periodic refresh targets, and cycle budgets
-- `api.yaml` -- REST API host, port, and protocol exposure policy for public read models
+- `api.yaml` -- REST API host, port, and protocol exposure policy for public readable resources
 - `dvm.yaml` -- Nostr relays, protocol exposure policy with pricing, and NIP-90 kind
 
 !!! tip

@@ -46,12 +46,12 @@ class EventSender(Protocol):
     ) -> tuple[tuple[str, ...], dict[str, str]]: ...
 
 
-class ReadModelQueryExecutor(Protocol):
+class ReadableResourceQueryExecutor(Protocol):
     """Callable that executes one resolved readable-resource query."""
 
     async def __call__(
         self,
-        read_model: ReadableResourceEntry,
+        resource: ReadableResourceEntry,
         query: ReadModelQuery,
     ) -> QueryResult: ...
 
@@ -73,7 +73,7 @@ class JobRuntime:
 
     logger: Logger
     send_event: EventSender
-    query_resource: ReadModelQueryExecutor
+    query_resource: ReadableResourceQueryExecutor
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,7 +83,7 @@ class JobRequest:
     event_id: str
     customer_pubkey: str
     params: dict[str, Any]
-    read_model_id: str
+    requested_resource_id: str
 
 
 async def process_request_event(
@@ -110,21 +110,19 @@ async def process_request_event(
 
     processed_ids.add(event_id)
     params = parse_job_params(event)
-    raw_read_model_id = params.get("read_model", "")
-    read_model_id = raw_read_model_id
+    raw_requested_resource_id = params.get("read_model", "")
 
     request = JobRequest(
         event_id=event_id,
         customer_pubkey=event.author().to_hex(),
         params=params,
-        read_model_id=raw_read_model_id,
+        requested_resource_id=raw_requested_resource_id,
     )
 
     runtime.logger.info(
         "job_received",
         event_id=request.event_id,
-        read_model=read_model_id,
-        raw_read_model=raw_read_model_id,
+        requested_read_model_id=raw_requested_resource_id,
         customer=request.customer_pubkey,
     )
 
@@ -152,7 +150,7 @@ async def handle_job_request(
 ) -> tuple[int, int, int, int]:
     """Execute one validated DVM job request end to end."""
     prepared_job = prepare_job_request(
-        request.read_model_id,
+        request.requested_resource_id,
         request.params,
         context=JobPreparationContext(
             read_core=context.read_core,
@@ -168,9 +166,9 @@ async def handle_job_request(
             runtime=runtime,
         )
 
-    resolved_read_model_id = prepared_job.read_model_id
+    resolved_resource_id = prepared_job.resource_id
     start = time.monotonic()
-    result = await runtime.query_resource(prepared_job.read_model, prepared_job.query)
+    result = await runtime.query_resource(prepared_job.resource, prepared_job.query)
     duration_ms = (time.monotonic() - start) * 1000
 
     await runtime.send_event(
@@ -179,7 +177,7 @@ async def handle_job_request(
                 request_kind=context.request_kind,
                 request_event_id=request.event_id,
                 customer_pubkey=request.customer_pubkey,
-                read_model_id=resolved_read_model_id,
+                resource_id=resolved_resource_id,
             ),
             result,
             prepared_job.price,
@@ -189,7 +187,7 @@ async def handle_job_request(
     runtime.logger.info(
         "job_completed",
         event_id=request.event_id,
-        read_model=resolved_read_model_id,
+        resource_id=resolved_resource_id,
         rows=len(result.rows),
         duration_ms=round(duration_ms, 1),
     )

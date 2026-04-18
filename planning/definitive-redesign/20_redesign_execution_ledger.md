@@ -70,7 +70,7 @@ Execution baseline:
 | 7. Protocol-agnostic read-core implementation | done | The readable-resource contract layer and shared `ReadCore` are now fully in place above the historical read-model seam: both API and DVM target `ReadCore` directly, resource-level pagination/filter/sort capabilities are now enforced by the core itself, and the remaining `ReadModelSurface` wrapper is an explicit thin compatibility layer rather than a parallel execution path |
 | 8. Deployment-contract normalization | done | The built-in deployment-folder contract, storage-profile contract, per-protocol exposure-policy contract, and reference-deployment local operator guidance are now all normalized in code/docs |
 | 9. Repository-wide documentation rewrite | done | In-code/public API docs, MkDocs IA rewrite, folder-level local README coverage, deployment/operator/contributor guides, and the final reference-alignment pass are all closed |
-| 10. Final cleanup, rename sweep, and closeout audit | not started | |
+| 10. Final cleanup, rename sweep, and closeout audit | in progress | The residual-name sweep is closed; compatibility-shim removal, final architecture audit, and release-readiness verification remain |
 
 ---
 
@@ -171,8 +171,8 @@ Execution baseline:
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 10.1 Final compatibility-layer removal | not started | | |
-| 10.2 Dead-code and stale-shape sweep | not started | | |
+| 10.1 Residual-name sweep | done | `refactor: sweep residual read-resource naming` | Removed the remaining legacy read-model vocabulary from internal live code paths without breaking the stable public transport seam: the API handler module moved from `read_models.py` to `readable_resources.py`, internal adapter helpers and route-registration functions now speak in terms of resources, DVM job/result carrier objects and logs now use `resource` / `resource_id` naming internally while preserving the public `read_model` request/result fields, and the adapter observability surface now reports `readable_resources_exposed` instead of `read_models_exposed`, with Grafana dashboards and touched docs/tests aligned to match. Closure audit also fixed the tranche-name drift in this ledger itself so Tranche 10 now matches the operational plan (`10.1 Residual-name sweep`, `10.2 Compatibility-cruft removal`). Targeted `ruff` plus API/DVM unit suites (`172 passed`), targeted `markdownlint`/`codespell`, `mkdocs build --strict`, full `make ci` (`3319 passed`), and `uv lock --check` all passed before closure |
+| 10.2 Compatibility-cruft removal | not started | | |
 | 10.3 Final repository-wide design-hygiene audit | not started | | |
 | 10.4 Final verification and release-readiness gate | not started | | |
 
@@ -244,6 +244,18 @@ Each entry should include:
 - Future tranche: absorb during `8.4 Reference-deployment cleanup` or `10.2
   Dead-code and stale-shape sweep`
 - Classification: improvement / watch point, not blocker
+
+- Originating work package: `10.1 Residual-name sweep`
+- Deferred item: the shared read-side compatibility wrappers and aliases
+  (`ReadModelSurface`, `READ_MODEL_REGISTRY`, `ReadModelEntry`, and the
+  `resolve_surface_read_model*` / `read_models_for_surface` helpers) remain in
+  `services/common` even though API and DVM are already fully on `ReadCore`
+- Why deferred: this slice intentionally limited itself to residual naming
+  drift in live code paths, adapter internals, and operator-facing metrics so
+  the true compatibility-shim removal could stay isolated in the next work
+  package
+- Future tranche: absorb in `10.2 Compatibility-cruft removal`
+- Classification: planned follow-up / not blocker
 
 ---
 
