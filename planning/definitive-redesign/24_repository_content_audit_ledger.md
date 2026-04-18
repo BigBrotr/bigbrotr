@@ -882,3 +882,10 @@ Use this section during execution for:
   - added paired service-layer coverage proving both direct fact
     construction and ``fetch_identifier_stats()`` now emit canonical
     ``k_tags`` when the source row is repeated or unsorted.
+- `2.1` models/utils/NIPs leaf audit, eighty-eighth remediation slice:
+  - tightened `bigbrotr.nips.nip85.data.IdentifierAssertion.from_db_row()`
+    so DB-row hydration stops duplicating ``k_tags`` canonicalization that
+    already belongs to the frozen model boundary itself;
+  - kept the existing paired NIP-85 coverage green to prove the public
+    constructor and DB-row path still emit the same canonical ``k_tags``
+    without needing a second normalization site.

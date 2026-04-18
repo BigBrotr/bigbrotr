@@ -336,7 +336,7 @@ class IdentifierAssertion:
             score=int(row.get("score", 0)),
             comment_count=int(row.get("comment_count", 0)),
             reaction_count=int(row.get("reaction_count", 0)),
-            k_tags=_normalize_tag_set(tuple(str(tag) for tag in raw_k_tags)),
+            k_tags=tuple(str(tag) for tag in raw_k_tags),
         )
 
 
