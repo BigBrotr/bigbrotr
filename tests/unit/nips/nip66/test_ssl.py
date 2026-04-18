@@ -174,6 +174,19 @@ class TestNip66SslMetadataSslAsync:
         assert result.data.ssl_protocol == "TLSv1.3"
         assert result.logs.success is True
 
+    async def test_probe_normalizes_san_values(self, relay: Relay) -> None:
+        """Probe output normalizes SAN values before building the model."""
+        ssl_result = {
+            "ssl_valid": True,
+            "ssl_san": ["relay.example.com", "*.example.com", "relay.example.com"],
+        }
+
+        with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result):
+            result = await Nip66SslMetadata.probe(relay, 10.0)
+
+        assert result.data.ssl_san == ["*.example.com", "relay.example.com"]
+        assert result.logs.success is True
+
     async def test_ssl_failure_returns_result_container_with_failure(self, relay: Relay) -> None:
         """SSL check failure returns a result container with success=False."""
         with patch.object(Nip66SslMetadata, "_ssl", return_value={}):

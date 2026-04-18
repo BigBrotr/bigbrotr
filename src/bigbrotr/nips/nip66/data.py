@@ -72,6 +72,9 @@ class Nip66SslData(BaseData):
         (``CERT_NONE``) to read the certificate regardless of chain validity.
         Chain validation is performed separately and recorded in ``ssl_valid``.
         The fingerprint is a SHA-256 hash of the DER-encoded certificate.
+        ``ssl_san`` is normalized to a deduplicated, sorted order so
+        equivalent certificate identities do not drift when extraction order
+        varies.
 
     See Also:
         [bigbrotr.nips.nip66.ssl.Nip66SslMetadata][bigbrotr.nips.nip66.ssl.Nip66SslMetadata]:
@@ -123,6 +126,13 @@ class Nip66SslData(BaseData):
         ),
         str_list_fields=frozenset({"ssl_san"}),
     )
+
+    @field_validator("ssl_san")
+    @classmethod
+    def _normalize_san_list(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        return sorted(set(value))
 
 
 class Nip66GeoData(BaseData):

@@ -805,3 +805,10 @@ Use this section during execution for:
   - added paired unit coverage proving both direct model construction and the
     public NIP-11 fetch path now emit stable `supported_nips` values even
     when the source document lists them out of order or with duplicates.
+- `2.1` models/utils/NIPs leaf audit, seventy-eighth remediation slice:
+  - tightened `bigbrotr.nips.nip66.data.Nip66SslData` so `ssl_san` is
+    normalized to a deduplicated, sorted order at the model boundary instead
+    of inheriting certificate extraction order directly;
+  - added paired unit coverage proving both direct model construction and the
+    public SSL probe path now emit stable SAN lists even when the extracted
+    certificate names arrive out of order or with duplicates.

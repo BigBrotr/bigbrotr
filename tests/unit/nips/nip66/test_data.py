@@ -125,6 +125,13 @@ class TestNip66SslData:
         assert data.ssl_issuer == "Let's Encrypt"
         assert data.ssl_cipher_bits == 256
 
+    def test_construction_normalizes_san_list(self) -> None:
+        """Constructor deduplicates and sorts SAN values."""
+        data = Nip66SslData(
+            ssl_san=["relay.example.com", "*.example.com", "relay.example.com"],
+        )
+        assert data.ssl_san == ["*.example.com", "relay.example.com"]
+
     def test_parse_filters_invalid_bool(self) -> None:
         """parse() filters invalid boolean values."""
         raw = {
@@ -161,11 +168,11 @@ class TestNip66SslData:
         assert data.ssl_protocol == "TLSv1.3"
 
     def test_parse_handles_san_list(self) -> None:
-        """parse() preserves valid SAN list."""
-        raw = {"ssl_san": ["relay.example.com", "*.example.com"]}
+        """parse() normalizes valid SAN lists."""
+        raw = {"ssl_san": ["relay.example.com", "*.example.com", "relay.example.com"]}
         parsed = Nip66SslData.parse(raw)
         data = Nip66SslData(**parsed)
-        assert data.ssl_san == ["relay.example.com", "*.example.com"]
+        assert data.ssl_san == ["*.example.com", "relay.example.com"]
 
     def test_parse_filters_empty_san_list(self) -> None:
         """parse() filters empty SAN list."""
@@ -176,10 +183,10 @@ class TestNip66SslData:
 
     def test_parse_filters_invalid_san_elements(self) -> None:
         """parse() filters invalid elements in SAN list."""
-        raw = {"ssl_san": ["relay.example.com", 123, None, "*.example.com"]}
+        raw = {"ssl_san": ["relay.example.com", 123, None, "*.example.com", "relay.example.com"]}
         parsed = Nip66SslData.parse(raw)
         data = Nip66SslData(**parsed)
-        assert data.ssl_san == ["relay.example.com", "*.example.com"]
+        assert data.ssl_san == ["*.example.com", "relay.example.com"]
 
 
 class TestNip66GeoData:
