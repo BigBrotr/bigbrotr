@@ -615,3 +615,10 @@ Use this section during execution for:
     remaining teardown steps, but now re-raising the first unexpected
     exception after the cleanup attempt so logic errors are surfaced instead
     of being silently buried.
+- `2.1` models/utils/NIPs leaf audit, fifty-fourth remediation slice:
+  - cleaned the residual `catalog` wording from the shared model surface
+    (`Document`, `RelayDocument`, `ServiceState`), which was still carrying
+    pre-final mental models into the docstrings of the live boundary;
+  - the model contract now talks plainly about built-in enum values and
+    vocabularies, which matches the final repository language without
+    pretending those tokens form a separate schema browser or catalog layer.

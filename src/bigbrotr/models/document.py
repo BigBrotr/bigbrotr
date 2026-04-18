@@ -112,7 +112,7 @@ class Document:
 
     Attributes:
         type: The document classification. Built-in callers use the
-            [DocumentType][bigbrotr.models.document.DocumentType] catalog, but
+            [DocumentType][bigbrotr.models.document.DocumentType] enum values, but
             arbitrary non-empty string IDs are accepted for extensibility.
         data: Deterministically normalized JSON-compatible dictionary.
 

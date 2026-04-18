@@ -93,11 +93,11 @@ class ServiceState:
 
     Attributes:
         owner: State owner identifier. Built-in services use the
-            [ServiceName][bigbrotr.models.constants.ServiceName] catalog, but
+            [ServiceName][bigbrotr.models.constants.ServiceName] enum values, but
             arbitrary non-empty string IDs are accepted for extensibility.
         state_type: Discriminator. Built-in records use the
             [ServiceStateType][bigbrotr.models.service_state.ServiceStateType]
-            catalog, but arbitrary non-empty string IDs are accepted.
+            enum values, but arbitrary non-empty string IDs are accepted.
         state_key: Application-defined key within the service and type
             (e.g., a relay URL for cursor state).
         state_value: Arbitrary JSON-compatible dictionary normalized for

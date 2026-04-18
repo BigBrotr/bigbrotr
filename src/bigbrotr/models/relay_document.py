@@ -106,8 +106,8 @@ class RelayDocument:
         [Relay][bigbrotr.models.relay.Relay]: The relay half of this junction.
         [Document][bigbrotr.models.document.Document]: The document half of this
             junction.
-        [DocumentType][bigbrotr.models.document.DocumentType]: Built-in catalog
-            of document classifications used by the current application.
+        [DocumentType][bigbrotr.models.document.DocumentType]: Built-in
+            document-type vocabulary used by the current application.
         [RelayDocumentDbParams][bigbrotr.models.relay_document.RelayDocumentDbParams]:
             Database parameter container produced by
             [to_db_params()][bigbrotr.models.relay_document.RelayDocument.to_db_params].
