@@ -142,6 +142,25 @@ class TestBuildRelayListEvent:
         builder = build_relay_list_event([Relay("wss://solo.relay.com")])
         assert builder is not None
 
+    def test_normalizes_relay_tag_order_and_duplicates(self) -> None:
+        """Relay list tags are emitted in stable deduplicated URL order."""
+        keys = Keys.generate()
+        builder = build_relay_list_event(
+            [
+                Relay("wss://relay-b.example.com"),
+                Relay("wss://relay-a.example.com"),
+                Relay("wss://relay-b.example.com"),
+            ]
+        )
+
+        event = builder.sign_with_keys(keys)
+        tag_vecs = [tag.as_vec() for tag in event.tags().to_vec()]
+
+        assert tag_vecs == [
+            ["r", "wss://relay-a.example.com", "write"],
+            ["r", "wss://relay-b.example.com", "write"],
+        ]
+
 
 # ============================================================================
 # build_monitor_announcement (Kind 10166)
@@ -249,6 +268,33 @@ class TestBuildMonitorAnnouncement:
         event = builder.sign_with_keys(keys)
         tag_vecs = [tag.as_vec() for tag in event.tags().to_vec()]
         assert not any(t[0] == "g" for t in tag_vecs)
+
+    def test_network_tags_are_stable_and_deduplicated(self) -> None:
+        """Network capability tags do not inherit caller ordering or duplicates."""
+        keys = Keys.generate()
+        builder = build_monitor_announcement(
+            interval=3600,
+            timeout_ms=10000,
+            enabled_networks=[
+                NetworkType.TOR,
+                NetworkType.CLEARNET,
+                NetworkType.TOR,
+                NetworkType.I2P,
+            ],
+            nip11_selection=Nip11Selection(info=False),
+            nip66_selection=Nip66Selection(
+                rtt=False, ssl=False, geo=False, net=False, dns=False, http=False
+            ),
+        )
+
+        event = builder.sign_with_keys(keys)
+        tag_vecs = [tag.as_vec() for tag in event.tags().to_vec()]
+
+        assert [vec for vec in tag_vecs if vec[0] == "n"] == [
+            ["n", "clearnet"],
+            ["n", "i2p"],
+            ["n", "tor"],
+        ]
 
 
 # ============================================================================

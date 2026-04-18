@@ -68,6 +68,35 @@ class AccessFlags(NamedTuple):
     read_auth: bool
 
 
+def _normalize_relay_list_urls(relays: Sequence[Relay]) -> tuple[str, ...]:
+    """Return a stable deduplicated relay-url ordering for set-like relay lists."""
+    return tuple(sorted({relay.url for relay in relays}))
+
+
+def _provider_declaration_sort_key(
+    declaration: TrustedProviderDeclaration,
+) -> tuple[int, str, str, str]:
+    """Return the canonical ordering key for trusted provider declarations."""
+    return (
+        int(declaration.result_kind),
+        declaration.tag_name,
+        declaration.service_pubkey,
+        declaration.relay_hint,
+    )
+
+
+def _normalize_provider_declarations(
+    declarations: Sequence[TrustedProviderDeclaration],
+) -> tuple[TrustedProviderDeclaration, ...]:
+    """Return a stable deduplicated ordering for trusted provider declarations."""
+    return tuple(sorted(set(declarations), key=_provider_declaration_sort_key))
+
+
+def _normalize_networks(enabled_networks: Sequence[NetworkType]) -> tuple[NetworkType, ...]:
+    """Return a stable deduplicated ordering for network capability tags."""
+    return tuple(sorted(set(enabled_networks), key=lambda network: network.value))
+
+
 def build_profile_event(  # noqa: PLR0913
     *,
     name: str | None = None,
@@ -103,8 +132,14 @@ def build_profile_event(  # noqa: PLR0913
 
 
 def build_relay_list_event(relays: list[Relay]) -> EventBuilder:
-    """Build a Kind 10002 relay list metadata event per NIP-65."""
-    tags = [Tag.parse(["r", relay.url, "write"]) for relay in relays]
+    """Build a Kind 10002 relay list metadata event per NIP-65.
+
+    Relay URLs are emitted in stable deduplicated order because the list is a
+    set-like public declaration, not an order-sensitive payload.
+    """
+    tags = [
+        Tag.parse(["r", relay_url, "write"]) for relay_url in _normalize_relay_list_urls(relays)
+    ]
     return EventBuilder(Kind(EventKind.RELAY_LIST), "").tags(tags)
 
 
@@ -117,9 +152,12 @@ def build_trusted_provider_list(
 
     ``content`` may carry a caller-provided NIP-44 encrypted JSON tag list for
     private declarations. Public declarations are emitted as ``<kind:tag>``,
-    service pubkey, and relay hint tag vectors.
+    service pubkey, and relay hint tag vectors in stable deduplicated order.
     """
-    tags = [Tag.parse(declaration.as_tag()) for declaration in declarations]
+    tags = [
+        Tag.parse(declaration.as_tag())
+        for declaration in _normalize_provider_declarations(declarations)
+    ]
     return EventBuilder(Kind(EventKind.NIP85_TRUSTED_PROVIDER_LIST), content).tags(tags)
 
 
@@ -136,7 +174,9 @@ def build_monitor_announcement(  # noqa: PLR0913
     tags = [Tag.parse(["frequency", str(interval)])]
     if geohash:
         tags.append(Tag.parse(["g", geohash]))
-    tags.extend(Tag.parse(["n", network.value]) for network in enabled_networks)
+    tags.extend(
+        Tag.parse(["n", network.value]) for network in _normalize_networks(enabled_networks)
+    )
 
     ms = str(timeout_ms)
 

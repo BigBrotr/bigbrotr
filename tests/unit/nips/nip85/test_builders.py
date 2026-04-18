@@ -302,3 +302,29 @@ class TestBuildTrustedProviderList:
         builder = build_trusted_provider_list([], content="nip44-ciphertext")
 
         assert _extract_tag_vectors(builder) == []
+
+    def test_normalizes_public_declaration_order_and_duplicates(self) -> None:
+        declaration_b = TrustedProviderDeclaration(
+            result_kind=EventKind.NIP85_EVENT_ASSERTION,
+            tag_name="rank",
+            service_pubkey="5f" * 32,
+            relay_hint="wss://b.example.com",
+        )
+        declaration_a = TrustedProviderDeclaration(
+            result_kind=EventKind.NIP85_USER_ASSERTION,
+            tag_name="rank",
+            service_pubkey="4f" * 32,
+            relay_hint="wss://a.example.com",
+        )
+
+        tag_vecs = _extract_tag_vectors(
+            build_trusted_provider_list(
+                [declaration_b, declaration_a, declaration_b],
+                content="encrypted-private-tags",
+            )
+        )
+
+        assert tag_vecs == [
+            [f"{EventKind.NIP85_USER_ASSERTION}:rank", "4f" * 32, "wss://a.example.com"],
+            [f"{EventKind.NIP85_EVENT_ASSERTION}:rank", "5f" * 32, "wss://b.example.com"],
+        ]

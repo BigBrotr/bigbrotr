@@ -925,3 +925,10 @@ Use this section during execution for:
   - documented explicitly that `parse()` now returns constructor-ready
     canonical payloads when model validation can normalize them safely,
     while `parse_report()` remains the issue-preserving permissive path.
+- `2.1` models/utils/NIPs leaf audit, ninety-fourth remediation slice:
+  - tightened `bigbrotr.nips.event_builders` so set-like public declaration
+    builders no longer inherit caller ordering for equivalent inputs:
+    relay-list tags, trusted-provider declarations, and monitor network tags
+    are now emitted in stable deduplicated order;
+  - added paired event-builder coverage proving these public tag sets no
+    longer drift when the caller passes duplicates or reordered inputs.
