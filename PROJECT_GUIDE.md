@@ -169,7 +169,7 @@ So when reading the code:
 
 - `src/bigbrotr/services/common/read_model_registry.py` is the readable-resource registry;
 - `src/bigbrotr/services/common/read_models.py` contains `ReadCore` plus the
-  compatibility wrapper `ReadModelSurface`;
+  stable transport-query helpers that preserve the public `read_model` seam;
 - `src/bigbrotr/services/api/` and `src/bigbrotr/services/dvm/` are adapter
   layers, not the read-side core.
 

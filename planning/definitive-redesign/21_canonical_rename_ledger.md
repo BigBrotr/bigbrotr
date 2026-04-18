@@ -88,8 +88,10 @@ Important note:
 
 Important note:
 
-- existing code names such as `ReadModelSurface`, `READ_MODEL_REGISTRY`, and
-  request helpers are part of the migration path;
+- migration-only code names such as `ReadModelSurface` and
+  `READ_MODEL_REGISTRY` were temporary and have now been removed;
+- request helpers that still use `read_model` remain only where they preserve
+  the deliberate stable public transport seam;
 - but the target mental model is centered on `readable resources` and the
   shared `read core`.
 
