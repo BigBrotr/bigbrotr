@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from bigbrotr.models.constants import EventKind
 from bigbrotr.nips.event_builders import (
     build_addressable_assertion,
     build_event_assertion,
@@ -800,13 +801,14 @@ def test_legacy_rank_alias_is_not_used_by_nip85_rows(
 class TestTrustedProviderDeclaration:
     def test_tag_shape_matches_kind_10040_spec(self) -> None:
         declaration = TrustedProviderDeclaration(
-            result_kind=30382,
-            tag_name="rank",
-            service_pubkey="4f" * 32,
-            relay_hint="wss://nip85.nostr.band",
+            result_kind=EventKind.NIP85_USER_ASSERTION,
+            tag_name=" rank ",
+            service_pubkey="4F" * 32,
+            relay_hint="wss://nip85.nostr.band:443",
         )
 
         assert declaration.kind_tag == "30382:rank"
+        assert declaration.tag_name == "rank"
         assert declaration.as_tag() == [
             "30382:rank",
             "4f" * 32,
@@ -824,6 +826,24 @@ class TestTrustedProviderDeclaration:
                     "relay_hint": "wss://nip85.nostr.band",
                 },
                 "result_kind must be a non-negative integer",
+            ),
+            (
+                {
+                    "result_kind": 30382,
+                    "tag_name": "30382:rank",
+                    "service_pubkey": "4f" * 32,
+                    "relay_hint": "wss://nip85.nostr.band",
+                },
+                "tag_name must not contain ':'",
+            ),
+            (
+                {
+                    "result_kind": 1,
+                    "tag_name": "rank",
+                    "service_pubkey": "4f" * 32,
+                    "relay_hint": "wss://nip85.nostr.band",
+                },
+                "result_kind must be a supported NIP-85 assertion kind",
             ),
             (
                 {
@@ -847,6 +867,15 @@ class TestTrustedProviderDeclaration:
                 {
                     "result_kind": 30382,
                     "tag_name": "rank",
+                    "service_pubkey": "xyz",
+                    "relay_hint": "wss://nip85.nostr.band",
+                },
+                "service_pubkey must be a 64-character hex string",
+            ),
+            (
+                {
+                    "result_kind": 30382,
+                    "tag_name": "rank",
                     "service_pubkey": "",
                     "relay_hint": "wss://nip85.nostr.band",
                 },
@@ -860,6 +889,15 @@ class TestTrustedProviderDeclaration:
                     "relay_hint": "wss://nip85.nostr.band",
                 },
                 "service_pubkey must be a string",
+            ),
+            (
+                {
+                    "result_kind": 30382,
+                    "tag_name": "rank",
+                    "service_pubkey": "4f" * 32,
+                    "relay_hint": "not-a-relay",
+                },
+                "relay_hint must be a valid relay URL",
             ),
             (
                 {

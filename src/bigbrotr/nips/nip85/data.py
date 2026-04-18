@@ -19,11 +19,23 @@ import hashlib
 from dataclasses import dataclass, field
 from typing import Any
 
+from bigbrotr.models.constants import EventKind
+from bigbrotr.models.relay import Relay
+
 
 _MSATS_PER_SAT = 1000
 _ACTIVITY_HOURS_BUCKETS = 24
 _MAX_NIP85_SCORE = 100
+_HEX_32_TEXT_LENGTH = 64
 _MISSING = object()
+_SUPPORTED_TRUSTED_PROVIDER_RESULT_KINDS = frozenset(
+    {
+        int(EventKind.NIP85_USER_ASSERTION),
+        int(EventKind.NIP85_EVENT_ASSERTION),
+        int(EventKind.NIP85_ADDRESSABLE_ASSERTION),
+        int(EventKind.NIP85_IDENTIFIER_ASSERTION),
+    }
+)
 _USER_ASSERTION_INT_FIELDS = (
     "score",
     "post_count",
@@ -132,6 +144,45 @@ def _require_non_empty_text(value: Any, field_name: str) -> str:
     if not text:
         raise ValueError(f"{field_name} must not be empty")
     return text
+
+
+def _require_hex32_text(value: Any, field_name: str) -> str:
+    """Return ``value`` as a canonical 32-byte hex string."""
+    text = _require_non_empty_text(value, field_name)
+    if len(text) != _HEX_32_TEXT_LENGTH:
+        raise ValueError(f"{field_name} must be a 64-character hex string")
+    try:
+        bytes.fromhex(text)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be a 64-character hex string") from exc
+    return text.lower()
+
+
+def _normalize_tag_name(value: Any) -> str:
+    """Return the canonical declaration tag name."""
+    tag_name = _require_text(value, "tag_name").strip()
+    if not tag_name:
+        raise ValueError("tag_name must not be empty")
+    if ":" in tag_name:
+        raise ValueError("tag_name must not contain ':'")
+    return tag_name
+
+
+def _normalize_relay_hint(value: Any) -> str:
+    """Return a canonical relay URL for Kind 10040 provider declarations."""
+    relay_hint = _require_non_empty_text(value, "relay_hint")
+    try:
+        return Relay.parse(relay_hint).url
+    except ValueError as exc:
+        raise ValueError("relay_hint must be a valid relay URL") from exc
+
+
+def _require_supported_trusted_provider_kind(value: Any) -> int:
+    """Return one of the supported NIP-85 assertion kinds for Kind 10040 tags."""
+    result_kind = _require_non_negative_int(value, "result_kind")
+    if result_kind not in _SUPPORTED_TRUSTED_PROVIDER_RESULT_KINDS:
+        raise ValueError("result_kind must be a supported NIP-85 assertion kind")
+    return result_kind
 
 
 def _require_text_sequence(value: Any, field_name: str, *, noun: str) -> tuple[str, ...]:
@@ -567,18 +618,18 @@ class TrustedProviderDeclaration:
         object.__setattr__(
             self,
             "result_kind",
-            _require_non_negative_int(self.result_kind, "result_kind"),
+            _require_supported_trusted_provider_kind(self.result_kind),
         )
-        object.__setattr__(self, "tag_name", _require_non_empty_text(self.tag_name, "tag_name"))
+        object.__setattr__(self, "tag_name", _normalize_tag_name(self.tag_name))
         object.__setattr__(
             self,
             "service_pubkey",
-            _require_non_empty_text(self.service_pubkey, "service_pubkey"),
+            _require_hex32_text(self.service_pubkey, "service_pubkey"),
         )
         object.__setattr__(
             self,
             "relay_hint",
-            _require_non_empty_text(self.relay_hint, "relay_hint"),
+            _normalize_relay_hint(self.relay_hint),
         )
 
     @property

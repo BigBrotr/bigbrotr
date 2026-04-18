@@ -573,6 +573,19 @@ Use this section during execution for:
     provider pubkey, and relay hint triple;
   - paired coverage now pins the empty-string failures explicitly on all three
     declaration fields.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirty-ninth remediation
+  slice:
+  - tightened `TrustedProviderDeclaration` from a merely non-empty tuple
+    carrier into a semantic kind `10040` boundary: `result_kind` must now be
+    one of the supported NIP-85 assertion kinds, `tag_name` no longer accepts
+    embedded `:`, and `service_pubkey` must be a real 32-byte hex key;
+  - aligned the relay surface with the rest of the repository by parsing
+    `relay_hint` through the shared `Relay` model, so provider declarations
+    now emit canonical relay URLs instead of preserving arbitrary caller
+    strings;
+  - paired coverage now pins the new malformed-kind, malformed-tag,
+    malformed-pubkey, and malformed-relay-hint failures, plus the canonical
+    normalization of a valid declaration.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package
