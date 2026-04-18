@@ -409,6 +409,15 @@ class TestMaxTasksValidation:
         with pytest.raises(ValidationError):
             config_class(max_tasks=201)
 
+    @pytest.mark.parametrize(
+        "config_class",
+        [ClearnetConfig, TorConfig, I2pConfig, LokiConfig],
+    )
+    def test_rejects_boolean_aliases(self, config_class: type) -> None:
+        """Test bool aliases do not coerce into a one-task concurrency budget."""
+        with pytest.raises(ValidationError, match="max_tasks: expected integer, got bool"):
+            config_class(max_tasks=True)
+
 
 class TestTimeoutValidation:
     """Tests for timeout validation constraints across all network configs."""
@@ -455,6 +464,15 @@ class TestTimeoutValidation:
             config_class(timeout=0.5)
         with pytest.raises(ValidationError):
             config_class(timeout=121.0)
+
+    @pytest.mark.parametrize(
+        "config_class",
+        [ClearnetConfig, TorConfig, I2pConfig, LokiConfig],
+    )
+    def test_rejects_boolean_aliases(self, config_class: type) -> None:
+        """Test bool aliases do not coerce into a one-second timeout."""
+        with pytest.raises(ValidationError, match="timeout: expected number, got bool"):
+            config_class(timeout=True)
 
 
 # =============================================================================

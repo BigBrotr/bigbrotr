@@ -2114,3 +2114,13 @@ Use this section during execution for:
   - added paired `validator` coverage proving those boolean aliases now fail
     fast at config load instead of mutating validation scheduling or candidate
     cleanup behavior.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-seventy-eighth remediation
+  slice:
+  - tightened the shared `networks` config boundary so per-network
+    `max_tasks` and `timeout` no longer accept boolean aliases, which
+    previously let values like `True` coerce to `1` or `1.0` and silently
+    mutate concurrency budgets or connection timeouts across every service
+    that embeds `NetworksConfig`;
+  - added paired `services/common` coverage proving those boolean aliases now
+    fail fast for clearnet, Tor, I2P, and Lokinet instead of narrowing
+    runtime network semaphores or transport deadlines.

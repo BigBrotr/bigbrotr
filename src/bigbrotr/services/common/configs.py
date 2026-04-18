@@ -52,7 +52,7 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from nostr_sdk import Keys
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
@@ -65,6 +65,13 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from bigbrotr.services.common.read_models import ReadSurface
+
+
+def _reject_bool_alias(value: Any, field_name: str, expected: str) -> Any:
+    """Reject boolean values for numeric config fields before pydantic coercion."""
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected {expected}, got bool")
+    return value
 
 
 def parse_relay_list_fail_soft(raw: object) -> list[Relay] | None:
@@ -253,6 +260,13 @@ class ClearnetConfig(BaseModel):
         default=10.0, ge=1.0, le=120.0, description="Connection timeout in seconds"
     )
 
+    @field_validator("max_tasks", "timeout", mode="before")
+    @classmethod
+    def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
+        field_name = info.field_name or "value"
+        expected = "integer" if field_name == "max_tasks" else "number"
+        return _reject_bool_alias(value, field_name, expected)
+
 
 class TorConfig(BaseModel):
     """Configuration for Tor (.onion) relays.
@@ -274,6 +288,13 @@ class TorConfig(BaseModel):
         default=30.0, ge=1.0, le=120.0, description="Connection timeout in seconds"
     )
 
+    @field_validator("max_tasks", "timeout", mode="before")
+    @classmethod
+    def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
+        field_name = info.field_name or "value"
+        expected = "integer" if field_name == "max_tasks" else "number"
+        return _reject_bool_alias(value, field_name, expected)
+
 
 class I2pConfig(BaseModel):
     """Configuration for I2P (.i2p) relays.
@@ -294,6 +315,13 @@ class I2pConfig(BaseModel):
     timeout: float = Field(
         default=45.0, ge=1.0, le=120.0, description="Connection timeout in seconds"
     )
+
+    @field_validator("max_tasks", "timeout", mode="before")
+    @classmethod
+    def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
+        field_name = info.field_name or "value"
+        expected = "integer" if field_name == "max_tasks" else "number"
+        return _reject_bool_alias(value, field_name, expected)
 
 
 class LokiConfig(BaseModel):
@@ -318,6 +346,13 @@ class LokiConfig(BaseModel):
     timeout: float = Field(
         default=30.0, ge=1.0, le=120.0, description="Connection timeout in seconds"
     )
+
+    @field_validator("max_tasks", "timeout", mode="before")
+    @classmethod
+    def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
+        field_name = info.field_name or "value"
+        expected = "integer" if field_name == "max_tasks" else "number"
+        return _reject_bool_alias(value, field_name, expected)
 
 
 # Union type for any network-specific configuration
