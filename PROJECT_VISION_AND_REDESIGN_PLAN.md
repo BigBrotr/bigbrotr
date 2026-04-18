@@ -86,16 +86,17 @@ The intended service flow is:
 3. `Validator` validates candidate relays through WebSocket/Nostr behavior and
    promotes the valid ones into the canonical relay registry.
 4. `Monitor` performs NIP-11 and NIP-66 health checks and stores relay
-   metadata snapshots.
+   document snapshots.
 5. `Synchronizer` streams and archives events from validated relays.
 6. `Refresher` maintains current-state and derived analytics facts from the
    append-only core data.
-7. `Ranker` computes algorithm-specific rank snapshots from derived canonical
+7. `Ranker` computes algorithm-specific public scores from derived canonical
    facts in a private compute store.
 8. `Assertor` publishes NIP-85 trusted assertions derived from those facts and
-   snapshots.
-9. `Api` and `Dvm` expose read-only query surfaces over selected public read
-   models.
+   public scores.
+9. `Api` and `Dvm` expose read-only query surfaces over selected public
+   readable resources, while preserving the historical `read_model` seam at
+   the transport boundary.
 
 ## Architectural Style
 
@@ -130,7 +131,7 @@ This layer holds immutable validated domain structures:
 
 - relay identities
 - events
-- metadata documents
+- documents
 - service state records
 - constants and enum-like built-ins
 
@@ -212,8 +213,8 @@ This is the "candidate -> relay" boundary.
 
 ### `Monitor`
 
-Health and metadata service. It runs NIP-11 and NIP-66 checks and persists
-current and historical relay metadata. It may also publish monitoring-related
+Health and document service. It runs NIP-11 and NIP-66 checks and persists
+current and historical relay documents. It may also publish monitoring-related
 Nostr events.
 
 ### `Synchronizer`
@@ -250,8 +251,9 @@ and ranking snapshots.
 
 ### `Api` and `Dvm`
 
-Public query surfaces. They should expose stable product-level read models,
-not raw internal database tables.
+Public query surfaces. They should expose stable product-level readable
+resources, not raw internal database tables. The historical public
+`read_model` vocabulary may remain at the adapter seam for compatibility.
 
 ## Project-Wide Design Goals
 
@@ -283,7 +285,7 @@ This must hold for:
 - new services
 - new NIPs
 - new deployments
-- new public read models
+- new public readable resources
 
 ### 4. Shared reusable primitives
 
@@ -366,7 +368,7 @@ Adding a new NIP should ideally require:
 1. one new protocol package or module
 2. its parsing/data/building logic
 3. one capability-oriented registration point
-4. optional read-model or publishing integration where needed
+4. optional readable-resource or publishing integration where needed
 
 It should not require scattered changes across unrelated runtime layers.
 
@@ -404,8 +406,8 @@ This is the append-only or conceptually primary domain:
 - relays
 - events
 - event observations
-- metadata documents
-- relay metadata observations
+- documents
+- relay-document associations
 
 #### B. Operational shared state
 
@@ -425,7 +427,7 @@ This is current-state and analytics material:
 
 - current winners
 - fact tables
-- rank snapshots
+- public scores
 - reporting-oriented aggregates
 
 ### Desired DB naming style
@@ -547,11 +549,12 @@ in runtime or maintenance should either:
 - become real and central
 - or be removed
 
-### Public read models are a good direction, but internal storage coupling still matters
+### Public readable resources are the right direction, but internal storage coupling still matters
 
-Exposing read models instead of raw tables is a real improvement. But if the
-internal implementation is still too tightly catalog/schema-shaped, further
-refinement may still be warranted.
+Exposing stable public readable resources instead of raw tables is a real
+improvement. The historical public `read_model` naming can remain at the
+adapter seam, but if the internal implementation is still too tightly
+catalog/schema-shaped, further refinement may still be warranted.
 
 ## Current Improvement Lenses
 

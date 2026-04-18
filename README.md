@@ -15,18 +15,19 @@
 </p>
 
 <p align="center">
-  Discovers relays across clearnet, Tor, I2P, and Lokinet. Validates connectivity, runs NIP-11 and NIP-66 health checks, archives events, materializes analytics views, and exposes data through a REST API and a NIP-90 Data Vending Machine.
+  Discovers relays across clearnet, Tor, I2P, and Lokinet. Validates connectivity, stores relay documents and archived events, refreshes shared facts, computes public NIP-85 scores, and exposes approved public data through HTTP and NIP-90.
 </p>
 
 ---
 
 ## What It Does
 
-BigBrotr answers three questions about the Nostr network:
+BigBrotr answers four questions about the Nostr network:
 
 1. **What relays exist?** — Seeder bootstraps from a seed file, Finder discovers new relays from event tag values and external APIs.
-2. **How healthy are they?** — Validator confirms WebSocket connectivity, Monitor runs 7 health checks (RTT, SSL, DNS, Geo, Net, HTTP, NIP-11) and publishes NIP-66 events.
+2. **How healthy are they?** — Validator confirms WebSocket connectivity, Monitor runs NIP-11 plus six NIP-66 checks and publishes monitoring events.
 3. **What events are they publishing?** — Synchronizer connects to relays, streams events, and archives them with cursor-based resumption.
+4. **What shared facts and public NIP-85 outputs can be built from those observations?** — Refresher derives canonical facts, Ranker exports public score tables, and Assertor publishes the provider package.
 
 Ten **independent** async services share a PostgreSQL database. Each runs on its own schedule, can be started or stopped individually, and has no direct dependency on any other service.
 
@@ -40,15 +41,15 @@ Ten **independent** async services share a PostgreSQL database. Each runs on its
               └──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬──────────────┘
                  │      │      │      │      │      │      │      │      │
                  ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼
-              Seeder Finder Valid. Monitor Sync. Refresh. Assert. Api    Dvm
-                 │      │      │      │      │      │      │      │      │
-                 ▼      ▼      ▼      ▼      ▼      │      ▼      ▼      ▼
-              seed   HTTP   Relays Relays  Relays (no I/O) Nostr  HTTP  Nostr
-              file   APIs   (WS)  (NIP-11, (fetch          Network      clients
-                                   NIP-66)  events)       (NIP-85)       │
-                                     │                                    ▼
-                                     ▼                              Nostr Network
-                                Nostr Network                      (kind 5050/6050)
+              Seeder Finder Valid. Monitor Sync. Refresh. Ranker Assert. Api Dvm
+                 │      │      │      │      │      │       │      │   │   │
+                 ▼      ▼      ▼      ▼      ▼      ▼       ▼      ▼   ▼   ▼
+              seed   HTTP   Relays Relays  Relays shared  DuckDB Nostr HTTP Nostr
+              file   APIs   (WS)  (NIP-11, (fetch facts) scores  Network      clients
+                                   NIP-66)  events)     export  (NIP-85)      │
+                                     │                                          ▼
+                                     ▼                                    Nostr Network
+                                Nostr Network                            (kind 5050/6050)
                               (kind 10166/30166)
 ```
 
@@ -64,12 +65,12 @@ Ten **independent** async services share a PostgreSQL database. Each runs on its
 | **Refresher** | Refreshes narrow current winner tables, shared analytics facts, operational contact-graph facts, and periodic reconciliations | None |
 | **Ranker** | Computes deterministic NIP-85 public scores in private DuckDB and exports them | PostgreSQL + DuckDB |
 | **Assertor** | Publishes NIP-85 trusted assertion events for users, events, addressables, and identifiers | WebSocket (Nostr) |
-| **Api** | Read-only REST API exposing registered read models over HTTP | HTTP (FastAPI) |
-| **Dvm** | NIP-90 Data Vending Machine serving registered read models over Nostr | WebSocket (Nostr) |
+| **Api** | Read-only REST API exposing enabled public readable resources over HTTP | HTTP (FastAPI) |
+| **Dvm** | NIP-90 Data Vending Machine serving the same public readable resources over Nostr | WebSocket (Nostr) |
 
 Cycle intervals are service-specific and configurable per deployment. Discovery and ingestion services default to short cadences, while `refresher`, `ranker`, and `assertor` default to longer intervals.
 
-Services are **loosely coupled through the database**: Seeder and Finder populate candidates, Validator promotes them to relays, Monitor and Synchronizer operate on validated relays, Refresher derives canonical facts, Ranker exports snapshots, and Assertor publishes from those snapshots. Stopping one does not break the others.
+Services are **loosely coupled through the database**: Seeder and Finder populate candidates, Validator promotes them to relays, Monitor and Synchronizer operate on validated relays, Refresher derives canonical facts, Ranker exports public scores, and Assertor publishes from those shared facts and scores. Stopping one does not break the others.
 
 ---
 
@@ -91,7 +92,7 @@ Imports flow strictly downward:
 - **core** — Pool (asyncpg with retry), Brotr (DB facade), BaseService (lifecycle), Logger (structured kv/JSON), Metrics (Prometheus), YAML loader.
 - **nips** — NIP-11 relay info fetch/parse, NIP-66 health checks (RTT, SSL, DNS, Geo, Net, HTTP). Never raises — errors captured in structured logs.
 - **utils** — DNS resolution, Nostr key management, WebSocket/HTTP transport, SSL fallback, SOCKS5 proxy support, event streaming with binary-split windowing.
-- **services** — 10 independent services + shared queries, configs, mixins (ConcurrentStream, NetworkSemaphores, GeoReader, Clients, CatalogAccess).
+- **services** — 10 independent services plus shared queries, configs, concurrency mixins, and the protocol-agnostic read core.
 
 ### Database Schema
 
@@ -140,7 +141,7 @@ Imports flow strictly downward:
                ┌───────────────────────┐
                │    service_state      │
                │───────────────────────│
-               │ service_name PK (TEXT)│
+               │ owner        PK (TEXT)│
                │ state_type   PK (TEXT)│
                │ state_key    PK (TEXT)│
                │ state_value  JSONB    │
@@ -156,8 +157,8 @@ Imports flow strictly downward:
 ### Service-Database Interaction Map
 
 ```text
-                 relay    event   event_   document relay_    service_  derived tables
-                                  observe           document  state     + ranks
+                 relay    event   event_   document relay_    service_  derived facts
+                                  observe           document  state     + scores
   ─────────────┬────────┬───────┬────────┬───────┬─────────┬─────────┬────────────
   Seeder       │  W(1)  │       │        │       │         │  W      │
   Finder       │  R     │       │  R     │       │         │  R/W    │
@@ -165,8 +166,10 @@ Imports flow strictly downward:
   Monitor      │  R     │       │        │  W     │  W      │  R/W    │
   Synchronizer │  R     │  W    │  W     │       │         │  R/W    │
   Refresher    │        │       │        │       │         │         │  W
-  Api          │  R     │  R    │  R     │  R    │  R      │  R      │  R
-  Dvm          │  R     │  R    │  R     │  R    │  R      │  R      │  R
+  Ranker       │        │       │        │       │         │         │  R/W
+  Assertor     │        │       │        │       │         │  R/W    │  R
+  Api          │  R     │  R    │  R     │  R    │  R      │         │  R
+  Dvm          │  R     │  R    │  R     │  R    │  R      │         │  R
   ─────────────┴────────┴───────┴────────┴───────┴─────────┴─────────┴────────────
 
   R = reads    W = writes    (1) = only when to_validate=False

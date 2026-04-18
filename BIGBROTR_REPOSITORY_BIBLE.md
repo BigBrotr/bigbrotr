@@ -124,8 +124,8 @@ The intended operational flow is:
 7. `Ranker` imports derived canonical facts into DuckDB, computes NIP-85 rank
    snapshots, and exports them back to PostgreSQL.
 8. `Assertor` publishes NIP-85 assertions using those facts and snapshots.
-9. `Api` exposes selected read models over HTTP.
-10. `Dvm` exposes the same public read-model surface over NIP-90.
+9. `Api` exposes selected public readable resources over HTTP.
+10. `Dvm` exposes the same public readable resources over NIP-90.
 
 ### 2.3 Why the pipeline is split this way
 
@@ -392,8 +392,8 @@ This is the shared service-layer foundation.
 Files and responsibilities:
 
 - `configs.py`
-  Shared Pydantic models for network config, Nostr key config, public read-model
-  policies, and common knobs reused across services.
+  Shared Pydantic models for network config, Nostr key config, adapter-local
+  exposure policy, and common knobs reused across services.
 - `mixins.py`
   Shared concurrency and network helpers, including bounded concurrent
   iteration.
@@ -408,11 +408,12 @@ Files and responsibilities:
 - `discovery_queries.py`
   Shared candidate insertion and discovery-oriented query helpers.
 - `read_model_registry.py`
-  Canonical registry of built-in public read models.
+  Canonical registry of built-in public readable resources.
 - `read_model_requests.py`
   Request parsing and response metadata helpers for API and DVM.
 - `read_models.py`
-  Runtime wrapper that resolves enabled public read models against the catalog.
+  Shared `ReadCore` plus the compatibility wrapper that preserves the
+  historical `read_model` seam for API and DVM.
 - `catalog.py`
   Safe read-only query surface.
 - `catalog_types.py`
@@ -420,7 +421,8 @@ Files and responsibilities:
 - `catalog_discovery.py`
   Introspection over tables, views, columns, and keys.
 - `catalog_planner.py`
-  Filter parsing, sort planning, cursor encoding, and read-model SQL planning.
+  Filter parsing, sort planning, cursor encoding, and readable-resource SQL
+  planning.
 - `catalog_execution.py`
   Query execution helpers.
 
@@ -428,7 +430,7 @@ This folder is one of the most strategic folders in the repository because it
 defines:
 
 - how services persist operational state
-- how public read models are declared and exposed
+- how public readable resources are declared and exposed
 - how query surfaces discover schema and run safe read-only queries
 - how several services reuse the same pagination and insertion patterns
 
@@ -626,8 +628,8 @@ facts.
 Purpose:
 
 - maintain a private compute store for ranking
-- compute NIP-85 rank snapshots
-- export those snapshots back to PostgreSQL
+- compute NIP-85 public scores
+- export those scores back to PostgreSQL
 
 Files:
 
@@ -655,7 +657,7 @@ Ranker is more than “compute rank”. It is a private ranking pipeline:
 1. import canonical facts from PostgreSQL
 2. maintain compute-friendly local structures in DuckDB
 3. run ranking algorithms
-4. export rank snapshots back into PostgreSQL
+4. export public scores back into PostgreSQL
 
 This is intentionally separate from `Synchronizer` and `Refresher` because the
 DuckDB working set and ranking logic are algorithm-specific, not canonical.
@@ -683,7 +685,7 @@ Files:
 
 Core behavior:
 
-- reads derived NIP-85 facts and rank snapshots
+- reads derived NIP-85 facts and public scores
 - builds NIP-85 assertion events
 - publishes them to relays
 - persists publish progress/state
@@ -694,14 +696,14 @@ Assertor is the publishing endpoint of the NIP-85 pipeline.
 
 Purpose:
 
-- expose the public read-model surface over HTTP
+- expose the public readable-resource surface over HTTP
 
 Files:
 
 - `configs.py`
-  Host, port, route prefix, CORS, timeouts, read-model policy.
+  Host, port, route prefix, CORS, timeouts, and adapter-local exposure policy.
 - `read_models.py`
-  Per-read-model HTTP handlers.
+  HTTP handlers built on top of the shared `ReadCore`.
 - `routes.py`
   API route registration.
 - `service.py`
@@ -709,7 +711,7 @@ Files:
 
 Core behavior:
 
-- resolves enabled read models through `services/common`
+- resolves enabled readable resources through `services/common`
 - registers discovery and data routes
 - keeps the surface read-only
 
@@ -719,16 +721,18 @@ The API is a product surface, not a schema browser.
 
 Purpose:
 
-- expose the same public read-model surface over Nostr using NIP-90
+- expose the same public readable-resource surface over Nostr using NIP-90
 
 Files:
 
 - `configs.py`
-  Relay, key, request kind, announcement, pricing, read-model policy.
+  Relay, key, request kind, announcement, pricing, and adapter-local exposure
+  policy.
 - `utils.py`
   Request parsing and event builder helpers.
 - `jobs.py`
-  Job preparation, validation, pricing checks, read-model execution.
+  Job preparation, validation, pricing checks, and readable-resource
+  execution.
 - `subscriptions.py`
   Long-lived request subscription state and buffering.
 - `publishing.py`
@@ -739,7 +743,7 @@ Files:
 Core behavior:
 
 - subscribes for NIP-90 requests
-- validates and executes jobs against read models
+- validates and executes jobs against readable resources
 - publishes results or errors
 - publishes announcements
 
@@ -758,7 +762,7 @@ A read model is a named public query surface exposed by:
 
 It is defined centrally in `services/common/read_model_registry.py`.
 
-Each read model entry declares:
+Each readable-resource entry declares:
 
 - `read_model_id`
 - `catalog_name`
@@ -767,9 +771,9 @@ Each read model entry declares:
 - query handler
 - primary-key lookup handler
 
-### 6.2 Built-in public read models
+### 6.2 Built-in public readable resources
 
-Current built-in read models:
+Current built-in readable resources:
 
 - `relays`
 - `events`
@@ -796,19 +800,25 @@ Current built-in read models:
 Important design point:
 
 - internal tables exist in the schema
-- public read models are the named product surface
+- public readable resources are the named product surface
 - not every internal table is automatically public
 
-### 6.3 Catalog relationship
+The current public transports still expose these resources through historical
+`read_model` identifiers. That compatibility seam is intentional, but the
+architectural center is now the readable-resource contract.
 
-Today the read-model surface is catalog-backed:
+### 6.3 Read-core and catalog relationship
 
-- the catalog discovers schema
-- the planner builds safe read-only queries
-- the registry maps public names to catalog-backed sources
+Today the public read side is layered like this:
+
+- the readable-resource registry declares the public surface
+- `ReadCore` resolves enabled resources and enforces the query contract
+- the catalog discovers schema and executes safe read-only queries
+- the planner builds bounded filter/sort/pagination plans for relation-backed
+  resources
 
 This keeps public exposure controlled while still reusing a generic read-only
-query engine.
+query engine below the actual public contract.
 
 ---
 
@@ -824,7 +834,7 @@ The core domain revolves around these concepts:
   A canonical Nostr event persisted in PostgreSQL.
 - `EventObservation`
   An observation that a given relay served a given event at a specific time.
-- `Metadata`
+- `Document`
   A content-addressed document.
 - `RelayDocument`
   A time-series reference from relay to document snapshot.
@@ -879,7 +889,7 @@ It is not only a place where rows are stored. It is:
 - the coordination boundary between services
 - the canonical history store
 - the place where derived canonical tables are maintained
-- the backing store for public read models
+- the backing store for public readable resources
 
 ### 8.2 Schema layers
 
@@ -1001,9 +1011,9 @@ The data lifecycle looks like this:
 
 1. services write canonical append-only facts
 2. refresher builds current-state and analytics facts
-3. ranker imports facts into DuckDB and exports rank snapshots
-4. assertor publishes from facts plus ranks
-5. API and DVM expose selected read models
+3. ranker imports facts into DuckDB and exports public scores
+4. assertor publishes from facts plus public scores
+5. API and DVM expose selected public readable resources
 
 ### 8.6 Storage variants
 
@@ -1609,15 +1619,15 @@ Input:
 Flow:
 
 - `Ranker` imports them into DuckDB
-- computes graph-based and non-user rank snapshots
-- exports rank tables back into PostgreSQL
+- computes graph-based and non-user public scores
+- exports score tables back into PostgreSQL
 
 ### 19.6 Assertion publishing
 
 Input:
 
 - NIP-85 facts
-- NIP-85 ranks
+- NIP-85 public scores
 - publish state
 
 Flow:
@@ -1630,8 +1640,8 @@ Flow:
 
 Input:
 
-- public read-model registry
-- enabled read-model policies
+- public readable-resource registry
+- enabled adapter exposure policies
 - catalog-discovered schema
 
 Flow:
@@ -1677,9 +1687,9 @@ A new deployment should require mostly:
 
 It should not require cloning or forking the core codebase.
 
-### 20.4 Public read-model extension
+### 20.4 Public readable-resource extension
 
-A new public read model should primarily involve:
+A new public readable resource should primarily involve:
 
 - registry entry in `read_model_registry.py`
 - policy/config enabling
@@ -1712,7 +1722,7 @@ Cross-service coordination belongs in persisted state and canonical tables.
 
 ### 21.5 Public query surfaces are named products, not raw schema dumps
 
-API and DVM should expose read models intentionally.
+API and DVM should expose readable resources intentionally.
 
 ### 21.6 Deployments compose the system, they do not redefine it
 

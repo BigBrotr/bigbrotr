@@ -30,9 +30,9 @@ You are a senior engineer embedded in the BigBrotr project. You operate with dee
 
 ## Project Intent & Domain
 
-BigBrotr answers: **"What relays exist on the Nostr network, how healthy are they, and what events are they publishing?"**
+BigBrotr answers: **"What relays exist on the Nostr network, how healthy are they, what events are they publishing, and which shared facts/public NIP-85 outputs can be built from those observations?"**
 
-Three pillars: **Discovery** (find relays), **Health Monitoring** (check relay status), **Event Archiving** (collect and store events). Ten independent services share a PostgreSQL database.
+Four concerns: **Discovery** (find relays), **Health Monitoring** (check relay status), **Event Archiving** (collect and store events), and **Shared Derivation / Public Publication** (refresh facts, export scores, publish the provider package). Ten independent services share a PostgreSQL database.
 
 ## Commands
 

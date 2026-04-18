@@ -127,7 +127,7 @@ Implements:
 - fetch of relay info documents;
 - permissive parsing of untrusted NIP-11 JSON;
 - normalization into typed models;
-- conversion into content-addressed metadata rows.
+- conversion into content-addressed document rows.
 
 ### `/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/src/bigbrotr/nips/nip66`
 
@@ -254,8 +254,8 @@ BigBrotr implications:
   winner semantics directly;
 - if schema is redesigned, winner-index tables should remain faithful to the
   NIP-01 rules even if they become much slimmer;
-- read models should never re-interpret replaceability in ways that diverge
-  from this NIP.
+- public readable resources should never re-interpret replaceability in ways
+  that diverge from this NIP.
 
 ## NIP-02 — Follow List
 
@@ -297,7 +297,8 @@ Why it still matters:
 
 - relay search and analytics ecosystems often expose NIP-05;
 - `NIP-50` search extensions reference valid NIP-05 domains;
-- future identity-oriented read models may need to respect these semantics.
+- future identity-oriented readable resources may need to respect these
+  semantics.
 
 Key protocol constraints:
 
@@ -458,8 +459,8 @@ Why it matters:
   know how to render;
 - `NIP-89` is explicitly mentioned as the way to make unknown kinds more
   usable;
-- this strengthens the design decision that DVM/API/public read models should
-  be product-shaped, not raw-table shaped.
+- this strengthens the design decision that DVM/API/public readable resources
+  should be product-shaped, not raw-table shaped.
 
 ## NIP-32 — Labeling
 
@@ -687,7 +688,7 @@ Why it matters:
 
 Design consequence:
 
-- the read-model surface exposed through the DVM should be stable and
+- the readable-resource surface exposed through the DVM should be stable and
   product-oriented, not a shadow of internal table names.
 
 ## NIP-98 — HTTP Auth
@@ -735,7 +736,7 @@ These are the most important cross-NIP rules to keep present during redesign:
 - internal DB table names;
 - how current winners are stored physically;
 - whether current-state tables are wide or pointer-based;
-- whether read models are catalog-backed or handler-backed;
+- whether readable resources are catalog-backed or handler-backed;
 - the internal compute engine behind NIP-85 ranks;
 - service names and package boundaries.
 
@@ -745,7 +746,8 @@ These are the most important cross-NIP rules to keep present during redesign:
   ranking.
 - `Refresher` should own canonical derived facts.
 - `Ranker` should own private algorithmic compute.
-- API and DVM should expose stable read models, not raw storage internals.
+- API and DVM should expose stable readable resources, not raw storage
+  internals.
 - deployment differences should mostly be about surface and storage profile,
   not protocol drift.
 
