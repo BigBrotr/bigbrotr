@@ -300,3 +300,9 @@ Use this section during execution for:
     persisted identifiers like `tor`, `i2p`, and `loki`;
   - strengthened the paired unit tests to lock that distinction in place
     instead of only asserting generic failure substrings.
+- `2.1` models/utils/NIPs leaf audit, fifteenth remediation slice:
+  - aligned the tracked NIP package README surfaces so `nip85` is described as
+    the full public provider-package surface, not just a bag of score/data
+    helpers;
+  - kept this slice documentation-only while pairing it with the existing
+    NIP-85 builder/data tests to guard the live public package contract.
