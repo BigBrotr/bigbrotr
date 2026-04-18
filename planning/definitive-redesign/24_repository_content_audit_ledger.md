@@ -1506,3 +1506,11 @@ Use this section during execution for:
   - added paired `dvm/utils` and `dvm/jobs` coverage proving whitespace-padded
     param keys now resolve to the canonical request fields while blank keys are
     ignored rather than creating unusable payload entries.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fifteenth remediation slice:
+  - tightened the shared HTTP read parser so direct filter field names are
+    normalized before validation, instead of letting whitespace-padded keys
+    become spurious unsupported-field errors or blank keys leak through as
+    opaque malformed requests;
+  - added paired `services/common` and API coverage proving whitespace-padded
+    HTTP filter keys now resolve to the canonical field names while blank keys
+    fail fast as explicit client-safe filter-field errors.

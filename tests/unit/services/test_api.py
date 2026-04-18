@@ -471,6 +471,29 @@ class TestListRowsRoute:
         assert resp.json()["error"] == "Unsupported filter fields for relays: bad"
         mock_query.assert_not_awaited()
 
+    def test_whitespace_padded_filter_key_is_normalized(
+        self,
+        test_client: TestClient,
+        api_service: Api,
+    ) -> None:
+        mock_result = QueryResult(rows=[], total=None, limit=10, offset=0)
+        with patch.object(
+            api_service._read_core.catalog,
+            "query",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_query:
+            resp = test_client.get("/v1/relays?%20network%20=clearnet")
+
+        assert resp.status_code == 200
+        _, kwargs = mock_query.call_args
+        assert kwargs["filters"] == {"network": "clearnet"}
+
+    def test_blank_filter_key_returns_400(self, test_client: TestClient) -> None:
+        resp = test_client.get("/v1/relays?%20%20=clearnet")
+        assert resp.status_code == 400
+        assert resp.json()["error"] == "Invalid filter field"
+
     @pytest.mark.parametrize(
         "params",
         ["limit=not_a_number", "offset=abc", "limit=0", "limit=-1", "offset=-1"],

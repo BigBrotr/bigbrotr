@@ -101,6 +101,20 @@ def _parse_job_filter_string(raw_value: Any) -> dict[str, str] | None:
     return parse_read_model_filter_string(raw_value)
 
 
+def _normalize_http_filters(raw_filters: Mapping[str, str]) -> dict[str, str] | None:
+    """Normalize direct HTTP query filters before shared validation."""
+    if not raw_filters:
+        return None
+
+    filters: dict[str, str] = {}
+    for raw_key, value in raw_filters.items():
+        key = raw_key.strip()
+        if not key:
+            raise ReadModelQueryError("Invalid filter field")
+        filters[key] = value
+    return filters or None
+
+
 def _parse_int_param(raw_value: Any, *, error_message: str, minimum: int) -> int:
     """Normalize one public integer parameter without accepting bool aliases."""
     if isinstance(raw_value, bool):
@@ -145,7 +159,7 @@ def read_model_query_from_http_params(
         limit=limit,
         offset=offset,
         max_page_size=max_page_size,
-        filters=raw_params or None,
+        filters=_normalize_http_filters(raw_params),
         sort=sort,
         include_total=include_total,
         cursor=cursor,
