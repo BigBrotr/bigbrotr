@@ -841,6 +841,22 @@ class TestReadModelQueryHelpers:
             "kind": "1",
         }
 
+    def test_read_model_query_from_http_params_trims_reserved_keys(self) -> None:
+        query = read_model_query_from_http_params(
+            {
+                " limit ": "25",
+                " sort ": " url:asc ",
+                " include_total ": " true ",
+            },
+            default_page_size=100,
+            max_page_size=1000,
+        )
+
+        assert query.limit == 25
+        assert query.sort == "url:asc"
+        assert query.include_total is True
+        assert query.filters is None
+
     def test_read_model_query_from_http_params_invalid_limit(self) -> None:
         with pytest.raises(ReadModelQueryError, match="Invalid limit or offset"):
             read_model_query_from_http_params(

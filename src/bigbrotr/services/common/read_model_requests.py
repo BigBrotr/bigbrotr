@@ -115,6 +115,17 @@ def _normalize_http_filters(raw_filters: Mapping[str, str]) -> dict[str, str] | 
     return filters or None
 
 
+def _normalize_http_param_keys(raw_params: Mapping[str, str]) -> dict[str, str]:
+    """Normalize direct HTTP query parameter keys before dispatch."""
+    params: dict[str, str] = {}
+    for raw_key, value in raw_params.items():
+        key = raw_key.strip()
+        if not key:
+            raise ReadModelQueryError("Invalid filter field")
+        params[key] = value
+    return params
+
+
 def _parse_int_param(raw_value: Any, *, error_message: str, minimum: int) -> int:
     """Normalize one public integer parameter without accepting bool aliases."""
     if isinstance(raw_value, bool):
@@ -136,7 +147,7 @@ def read_model_query_from_http_params(
     max_page_size: int,
 ) -> ReadModelQuery:
     """Normalize one HTTP readable-resource request into the shared query contract."""
-    raw_params = dict(params)
+    raw_params = _normalize_http_param_keys(params)
     raw_cursor = raw_params.pop("cursor", None)
     limit = _parse_int_param(
         raw_params.pop("limit", default_page_size),

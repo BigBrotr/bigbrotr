@@ -489,6 +489,29 @@ class TestListRowsRoute:
         _, kwargs = mock_query.call_args
         assert kwargs["filters"] == {"network": "clearnet"}
 
+    def test_whitespace_padded_reserved_keys_are_normalized(
+        self,
+        test_client: TestClient,
+        api_service: Api,
+    ) -> None:
+        mock_result = QueryResult(rows=[], total=1, limit=5, offset=0)
+        with patch.object(
+            api_service._read_core.catalog,
+            "query",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_query:
+            resp = test_client.get(
+                "/v1/relays?%20limit%20=5&%20sort%20=%20url:asc%20&%20include_total%20=%20true%20"
+            )
+
+        assert resp.status_code == 200
+        _, kwargs = mock_query.call_args
+        assert kwargs["limit"] == 5
+        assert kwargs["sort"] == "url:asc"
+        assert kwargs["include_total"] is True
+        assert kwargs["filters"] is None
+
     def test_blank_filter_key_returns_400(self, test_client: TestClient) -> None:
         resp = test_client.get("/v1/relays?%20%20=clearnet")
         assert resp.status_code == 400

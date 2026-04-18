@@ -1522,3 +1522,11 @@ Use this section during execution for:
   - added paired `services/common` and API coverage proving whitespace-padded
     HTTP filter values now resolve to the canonical catalog filter payload
     rather than diverging from the equivalent compact-filter request.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-seventeenth remediation slice:
+  - tightened the shared HTTP read parser so reserved public query keys are
+    normalized before dispatch too, instead of letting human-authored keys like
+    `" limit "` or `" include_total "` fall through into the filter path and
+    behave worse than the already-normalized `NIP-90` request surface;
+  - added paired `services/common` and API coverage proving whitespace-padded
+    reserved HTTP query keys now resolve to the canonical pagination/sort/total
+    contract instead of degrading into spurious filter-field behavior.
