@@ -1,8 +1,9 @@
 """Data-driven event streaming algorithm with binary-split fallback.
 
 Provides ``stream_events`` — the core windowing algorithm that streams
-Nostr events in ascending ``(created_at, id)`` order, ensuring
-completeness even when a relay truncates responses.
+Nostr events in ascending ``(created_at, id)`` order, using a
+data-driven verification pass plus binary-split fallback to recover from
+relay-side truncation.
 
 ``_fetch_validated`` is the single source of truth for event validation.
 ``stream_events`` orchestrates windowing, sorting, and domain conversion.
@@ -195,9 +196,11 @@ async def stream_events(  # noqa: PLR0913
     boundary via ``_to_domain_events``.
 
     The ``idle_timeout`` is progress-based: the timer resets every time an
-    event is yielded.  A relay that produces events slowly but steadily will
-    never be killed by it.  A relay that connects but stops producing events
-    is abandoned after ``idle_timeout`` seconds.
+    event is yielded and is checked between window fetch iterations. It is
+    not a hard deadline on an in-flight fetch/verify step. A relay that
+    yields steadily across iterations will keep the stream alive, while a
+    relay that stops making progress will be abandoned on a later loop once
+    the elapsed idle window is observed.
 
     Args:
         client: Connected nostr-sdk ``Client`` with the target relay added.
@@ -209,8 +212,9 @@ async def stream_events(  # noqa: PLR0913
         limit: Max events per relay request (REQ limit).
         request_timeout: Seconds to wait for each ``stream_events`` call.
         idle_timeout: Seconds without yielding an event before the stream
-            is abandoned.  The timer starts when the function enters its
-            main loop and resets on every yield.
+            is abandoned on a later loop iteration. The timer starts when
+            the function enters its main loop, resets on every yield, and
+            does not interrupt an already-running fetch/verify step.
 
     Yields:
         Domain ``Event`` objects in ascending ``(created_at, id)`` order.

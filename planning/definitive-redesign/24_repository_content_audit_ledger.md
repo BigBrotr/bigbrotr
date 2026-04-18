@@ -408,3 +408,11 @@ Use this section during execution for:
     filtered, and fully empty list results are dropped rather than preserved;
   - kept the change scoped to the parser contract narrative because the live
     semantics and paired unit coverage were already correct.
+- `2.1` models/utils/NIPs leaf audit, twenty-eighth remediation slice:
+  - corrected the tracked `bigbrotr.utils.streaming` contract around
+    `idle_timeout`: the live algorithm checks for lack of progress between
+    fetch/verify iterations, but it does not cancel an already-running
+    fetch/verify step mid-flight;
+  - added paired unit coverage that locks this behavior in place, so future
+    refactors cannot silently reintroduce a harder timeout contract in the
+    docs without either changing the runtime or updating the tests.

@@ -7,6 +7,7 @@ Tests:
 - _try_verify_completeness() data-driven verification
 - stream_events() windowing algorithm
 - stream_events() idle timeout
+- stream_events() idle timeout check between fetch cycles
 - _fetch_validated() recv timeout on stream.next()
 """
 
@@ -562,6 +563,43 @@ class TestStreamEvents:
 
         # Both events yielded — idle timer reset after first yield
         assert len(events) == 2
+
+    async def test_idle_timeout_does_not_cancel_inflight_fetch(self) -> None:
+        """Idle timeout is checked between loop iterations, not mid-fetch."""
+        raw = _make_raw_event(event_id="a" * 64, created_at=100)
+        domain_event = MagicMock()
+
+        with (
+            patch(
+                "bigbrotr.utils.streaming._fetch_validated", new_callable=AsyncMock
+            ) as mock_fetch,
+            patch(
+                "bigbrotr.utils.streaming._try_verify_completeness", new_callable=AsyncMock
+            ) as mock_verify,
+            patch("bigbrotr.utils.streaming._to_domain_events") as mock_convert,
+            patch(
+                "bigbrotr.utils.streaming.time.monotonic",
+                side_effect=[0.0, 0.0, 1.0],
+            ),
+        ):
+            mock_fetch.return_value = [raw]
+            mock_verify.return_value = [raw]
+            mock_convert.return_value = [domain_event]
+
+            events = [
+                evt
+                async for evt in stream_events(
+                    client=MagicMock(),
+                    filters=[MagicMock()],
+                    start_time=50,
+                    end_time=200,
+                    limit=10,
+                    request_timeout=5.0,
+                    idle_timeout=0.1,
+                )
+            ]
+
+        assert events == [domain_event]
 
 
 # ============================================================================
