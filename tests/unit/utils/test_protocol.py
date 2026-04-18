@@ -1,5 +1,5 @@
 """
-Unit tests for utils.protocol module.
+Unit tests for the ``bigbrotr.utils.protocol`` module.
 
 Tests:
 - _is_ssl_error() - SSL error detection from error messages

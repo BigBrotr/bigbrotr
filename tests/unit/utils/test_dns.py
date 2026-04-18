@@ -1,5 +1,5 @@
 """
-Unit tests for utils.dns module.
+Unit tests for the ``bigbrotr.utils.dns`` module.
 
 Tests:
 - ResolvedHost dataclass

@@ -239,3 +239,10 @@ Use this section during execution for:
   - corrected `src/bigbrotr/nips/nip11/README.md` so the top-level NIP-11
     seam is described as fetch orchestration plus document serialization,
     rather than the older ambiguous `fetch/probe` wording.
+- `2.1` models/utils/NIPs leaf audit, seventh remediation slice:
+  - aligned the remaining `tests/unit/utils` package and module docstrings to
+    the live `bigbrotr.utils.*` package paths instead of the older shortened
+    `utils.*` phrasing;
+  - added the missing `tests/unit/models/__init__.py` package marker docstring
+    so both leaf unit-test packages now have an intentional local surface
+    instead of one empty package file and one under-described one.

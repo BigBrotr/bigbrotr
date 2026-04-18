@@ -1,4 +1,4 @@
-"""Unit tests for protocol connection helpers."""
+"""Unit tests for the ``bigbrotr.utils.protocol_connections`` module."""
 
 from __future__ import annotations
 

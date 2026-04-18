@@ -1,4 +1,4 @@
-"""Unit tests for utils.http module.
+"""Unit tests for the ``bigbrotr.utils.http`` module.
 
 Tests:
 - _read_bounded() internal helper

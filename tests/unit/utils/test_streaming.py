@@ -1,4 +1,4 @@
-"""Unit tests for utils.streaming module.
+"""Unit tests for the ``bigbrotr.utils.streaming`` module.
 
 Tests:
 - _to_domain_events() sorting and conversion

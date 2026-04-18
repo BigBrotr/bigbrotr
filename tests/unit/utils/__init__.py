@@ -1,1 +1,1 @@
-"""Unit tests for utils module."""
+"""Unit tests for the ``bigbrotr.utils`` package."""

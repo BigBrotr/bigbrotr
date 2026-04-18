@@ -1,5 +1,5 @@
 """
-Unit tests for utils.transport module.
+Unit tests for the ``bigbrotr.utils.transport`` module.
 
 Tests:
 - DEFAULT_TIMEOUT constant
