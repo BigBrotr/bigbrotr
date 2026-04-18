@@ -690,3 +690,11 @@ Use this section during execution for:
   - added paired unit coverage proving that a successful validation result is
     preserved even when the injected shutdown helper reports an SDK-level
     teardown failure after the fetch path completes.
+- `2.1` models/utils/NIPs leaf audit, sixty-third remediation slice:
+  - moved shared-session relay validation ahead of client creation in
+    `bigbrotr.utils.protocol_sessions.create_connected_client()` so
+    unsupported overlay relay sets fail before allocating a client they cannot
+    safely use;
+  - added paired unit coverage on both the leaf helper and the public
+    `bigbrotr.utils.protocol.create_connected_client()` facade to lock that
+    contract in place.

@@ -241,6 +241,17 @@ class TestCreateClientInsecure:
 
 
 class TestCreateConnectedClient:
+    async def test_rejects_overlay_relays_before_client_creation(self) -> None:
+        relay = Relay(f"ws://{'a' * 56}.onion")
+
+        with (
+            patch("bigbrotr.utils.protocol.create_client", new=AsyncMock()) as mock_create_client,
+            pytest.raises(ValueError, match="unsupported overlay networks: Tor"),
+        ):
+            await create_connected_client([relay], timeout=12.0)
+
+        mock_create_client.assert_not_awaited()
+
     async def test_registers_relays_and_normalizes_connect_result(self) -> None:
         relays = [Relay("wss://relay1.example.com"), Relay("wss://relay2.example.com")]
         mock_client = MagicMock()

@@ -88,6 +88,12 @@ async def create_connected_client(
     timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
     allow_insecure: bool = False,
 ) -> tuple[Client, ClientConnectResult]:
-    """Create a shared client, register clearnet relays, and normalize the result."""
+    """Create a shared client, register clearnet relays, and normalize the result.
+
+    Overlay relay sets are rejected before client creation because a shared
+    multi-relay session cannot express per-network proxy policy and should not
+    allocate client resources for an unsupported contract.
+    """
+    _validate_session_relays(relays)
     client = await create_client_func(keys=keys, allow_insecure=allow_insecure)
     return client, await connect_client_relays(client, relays, timeout=timeout)

@@ -27,8 +27,8 @@ class TestConnectClientRelays:
 
 
 class TestCreateConnectedClient:
-    async def test_rejects_overlay_relays_before_connect_attempt(self) -> None:
-        """Factory helper refuses overlay sessions instead of failing cryptically later."""
+    async def test_rejects_overlay_relays_before_client_creation(self) -> None:
+        """Factory helper rejects unsupported overlay sessions before allocating a client."""
         client = AsyncMock()
         create_client_func = AsyncMock(return_value=client)
 
@@ -39,7 +39,7 @@ class TestCreateConnectedClient:
                 timeout=15.0,
             )
 
-        create_client_func.assert_awaited_once_with(keys=None, allow_insecure=False)
+        create_client_func.assert_not_awaited()
         client.add_relay.assert_not_awaited()
         client.try_connect.assert_not_awaited()
 
