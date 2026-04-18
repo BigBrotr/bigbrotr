@@ -22,6 +22,7 @@ from typing import Any
 
 _MSATS_PER_SAT = 1000
 _ACTIVITY_HOURS_BUCKETS = 24
+_MISSING = object()
 
 
 def _topic_count_sort_key(item: tuple[str, Any]) -> tuple[int, str]:
@@ -60,6 +61,15 @@ def _require_text(value: Any, field_name: str) -> str:
     if not isinstance(value, str):
         raise TypeError(f"{field_name} must be a string")
     return value
+
+
+def _require_non_negative_int(value: Any, field_name: str) -> int:
+    """Return ``value`` when it is a non-negative int, otherwise raise a typed error."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{field_name} must be a non-negative integer")
+    if value < 0:
+        raise ValueError(f"{field_name} must be >= 0")
+    return int(value)
 
 
 def _normalize_activity_hours(value: tuple[int, ...]) -> tuple[int, ...]:
@@ -191,7 +201,10 @@ class UserAssertion:
         """Construct from a joined nip85_pubkey_stats + pubkey_stats row."""
         raw_topics = _coerce_topic_count_mapping(row.get("topic_counts"))
         sorted_topics = sorted(raw_topics.items(), key=_topic_count_sort_key)
-        top_n = row.get("top_topics_limit", 5)
+        raw_top_n = row.get("top_topics_limit", _MISSING)
+        top_n = (
+            5 if raw_top_n is _MISSING else _require_non_negative_int(raw_top_n, "top_topics_limit")
+        )
 
         hours_raw = row.get("activity_hours")
         hours = tuple(int(h) for h in hours_raw) if hours_raw is not None else (0,) * 24

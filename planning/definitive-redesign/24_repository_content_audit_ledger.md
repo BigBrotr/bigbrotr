@@ -437,6 +437,16 @@ Use this section during execution for:
   - paired coverage now pins both surfaces for both assertion families:
     direct construction and `from_db_row()` reject non-string
     `author_pubkey` explicitly.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twenty-seventh
+  remediation slice:
+  - `UserAssertion.from_db_row()` no longer treats malformed
+    `top_topics_limit` values such as `None` or negative integers as an
+    implicit “take all topics” slice;
+  - the NIP-85 hydration path now requires `top_topics_limit` to be a real
+    non-negative integer when the field is present, while still keeping the
+    missing-field default of `5`;
+  - paired coverage now pins both invalid paths explicitly, so bad stored
+    limits surface at hydration time instead of silently altering output shape.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

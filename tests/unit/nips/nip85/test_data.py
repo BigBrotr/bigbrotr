@@ -199,6 +199,24 @@ class TestUserAssertionFromDbRow:
         ):
             UserAssertion.from_db_row(row)
 
+    def test_from_db_row_rejects_non_integer_top_topics_limit(self) -> None:
+        row = {
+            "pubkey": "cc" * 32,
+            "topic_counts": {"nostr": 7},
+            "top_topics_limit": None,
+        }
+        with pytest.raises(TypeError, match="top_topics_limit must be a non-negative integer"):
+            UserAssertion.from_db_row(row)
+
+    def test_from_db_row_rejects_negative_top_topics_limit(self) -> None:
+        row = {
+            "pubkey": "cc" * 32,
+            "topic_counts": {"nostr": 7},
+            "top_topics_limit": -1,
+        }
+        with pytest.raises(ValueError, match="top_topics_limit must be >= 0"):
+            UserAssertion.from_db_row(row)
+
     def test_from_db_row_rejects_invalid_activity_hours_length(self) -> None:
         row = {
             "pubkey": "cc" * 32,
