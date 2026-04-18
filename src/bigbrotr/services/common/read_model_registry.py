@@ -45,17 +45,21 @@ async def _catalog_query_handler(
     request: ReadModelQuery,
 ) -> QueryResult:
     """Execute one relation-backed resource query through the shared catalog."""
+    pagination = resource.pagination(catalog)
+    effective_max_page_size = request.max_page_size
+    if resource.max_page_size is not None:
+        effective_max_page_size = min(effective_max_page_size, resource.max_page_size)
     return await catalog.query(
         brotr,
         resource.catalog_name,
         limit=request.limit,
         offset=request.offset,
-        max_page_size=request.max_page_size,
+        max_page_size=effective_max_page_size,
         filters=request.filters,
         sort=request.sort,
         include_total=request.include_total,
         cursor=request.cursor,
-        prefer_keyset=True,
+        prefer_keyset=pagination["supports_cursor"],
     )
 
 
@@ -97,6 +101,10 @@ class ReadableResourceEntry:
     cursor_key_fields: tuple[str, ...] = ()
     allowed_filters: tuple[str, ...] = ()
     allowed_sorts: tuple[str, ...] = ()
+    supports_cursor_pagination: bool | None = None
+    supports_offset_pagination: bool = True
+    supports_total_opt_in: bool = True
+    max_page_size: int | None = None
     schema_handler: ReadableResourceSchemaHandler = _catalog_schema_handler
     query_handler: ReadableResourceQueryHandler = _catalog_query_handler
     get_by_pk_handler: ReadableResourceGetByPkHandler = _catalog_get_by_pk_handler
@@ -115,16 +123,53 @@ class ReadableResourceEntry:
         """Resolve the discovered schema backing this readable resource."""
         return self.schema_handler(catalog, self)
 
+    def _supports_cursor_pagination(self, schema: TableSchema) -> bool:
+        """Return whether cursor pagination is supported for this resource."""
+        if self.supports_cursor_pagination is not None:
+            return self.supports_cursor_pagination
+        return bool(schema.primary_key)
+
+    def _default_traversal_terms(self, schema: TableSchema) -> list[str] | None:
+        """Return the declared stable traversal order, if one exists."""
+        if self.default_traversal_order:
+            return list(self.default_traversal_order)
+        if self._supports_cursor_pagination(schema) and schema.primary_key:
+            return [f"{field}:asc" for field in schema.primary_key]
+        return None
+
+    def _cursor_fields(self, schema: TableSchema) -> list[str] | None:
+        """Return the cursor key fields, if cursor pagination is supported."""
+        if not self._supports_cursor_pagination(schema):
+            return None
+        if self.cursor_key_fields:
+            return list(self.cursor_key_fields)
+        if schema.primary_key:
+            return list(schema.primary_key)
+        return None
+
+    def _allowed_filter_fields(self, schema: TableSchema) -> list[str]:
+        """Return the allowed filter field names for this resource."""
+        if self.allowed_filters:
+            return list(self.allowed_filters)
+        return [column.name for column in schema.columns]
+
+    def _allowed_sort_fields(self, schema: TableSchema) -> list[str]:
+        """Return the allowed sort field names for this resource."""
+        if self.allowed_sorts:
+            return list(self.allowed_sorts)
+        return [column.name for column in schema.columns]
+
     def pagination(self, catalog: Catalog) -> dict[str, Any]:
         """Build the discovery-time pagination contract for this resource."""
-        supports_identity_lookup = bool(self.schema(catalog).primary_key)
+        schema = self.schema(catalog)
+        supports_cursor = self._supports_cursor_pagination(schema)
         return {
-            "default_mode": "cursor" if supports_identity_lookup else "offset",
-            "supports_cursor": supports_identity_lookup,
-            "supports_offset": True,
-            "supports_total_opt_in": True,
-            "cursor_param": "cursor" if supports_identity_lookup else None,
-            "meta_cursor_field": "next_cursor" if supports_identity_lookup else None,
+            "default_mode": "cursor" if supports_cursor else "offset",
+            "supports_cursor": supports_cursor,
+            "supports_offset": self.supports_offset_pagination,
+            "supports_total_opt_in": self.supports_total_opt_in,
+            "cursor_param": "cursor" if supports_cursor else None,
+            "meta_cursor_field": "next_cursor" if supports_cursor else None,
         }
 
     def contract(self, catalog: Catalog) -> dict[str, Any]:
@@ -137,12 +182,10 @@ class ReadableResourceEntry:
             "backing_kind": self.backing_kind,
             "relation_name": self.relation_name if self.backing_kind == "relation" else None,
             "identity_fields": identity_fields,
-            "default_traversal_order": list(self.default_traversal_order)
-            or [f"{field}:asc" for field in identity_fields],
-            "cursor_key_fields": list(self.cursor_key_fields) or identity_fields,
-            "allowed_filters": list(self.allowed_filters)
-            or [column.name for column in schema.columns],
-            "allowed_sorts": list(self.allowed_sorts) or [column.name for column in schema.columns],
+            "default_traversal_order": self._default_traversal_terms(schema),
+            "cursor_key_fields": self._cursor_fields(schema),
+            "allowed_filters": self._allowed_filter_fields(schema),
+            "allowed_sorts": self._allowed_sort_fields(schema),
             "pagination": self.pagination(catalog),
         }
 
@@ -185,6 +228,37 @@ class ReadableResourceEntry:
     ) -> QueryResult:
         """Execute one paginated query through the shared catalog context."""
         return await self.query_handler(brotr, catalog, self, request)
+
+    def validate_query(self, catalog: Catalog, request: ReadModelQuery) -> None:
+        """Validate one public query against the resource contract."""
+        from .catalog import CatalogError  # noqa: PLC0415
+        from .catalog_planner import parse_sort  # noqa: PLC0415
+
+        schema = self.schema(catalog)
+        pagination = self.pagination(catalog)
+
+        if request.cursor is not None and not pagination["supports_cursor"]:
+            raise CatalogError("Cursor pagination is not supported for this readable resource")
+        if request.offset > 0 and not pagination["supports_offset"]:
+            raise CatalogError("Offset pagination is not supported for this readable resource")
+        if request.include_total and not pagination["supports_total_opt_in"]:
+            raise CatalogError("include_total is not supported for this readable resource")
+
+        allowed_filters = set(self._allowed_filter_fields(schema))
+        if request.filters:
+            invalid_filters = sorted(set(request.filters) - allowed_filters)
+            if invalid_filters:
+                invalid_list = ", ".join(invalid_filters)
+                raise CatalogError(
+                    f"Unsupported filter fields for {self.resource_id}: {invalid_list}"
+                )
+
+        if request.sort is None:
+            return
+
+        sort_field, _ = parse_sort(request.sort)
+        if sort_field not in set(self._allowed_sort_fields(schema)):
+            raise CatalogError(f"Unsupported sort field for {self.resource_id}: {sort_field}")
 
     async def get_by_pk(
         self,

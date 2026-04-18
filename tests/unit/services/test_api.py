@@ -443,10 +443,11 @@ class TestListRowsRoute:
             "query",
             new_callable=AsyncMock,
             side_effect=CatalogError("Unknown column: bad"),
-        ):
+        ) as mock_query:
             resp = test_client.get("/v1/relays?bad=value")
         assert resp.status_code == 400
-        assert "Unknown column" in resp.json()["error"]
+        assert resp.json()["error"] == "Unsupported filter fields for relays: bad"
+        mock_query.assert_not_awaited()
 
     @pytest.mark.parametrize(
         "params",

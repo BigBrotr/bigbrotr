@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import Request
@@ -126,6 +126,41 @@ class TestApiReadModelHandler:
 
         assert response.status_code == 400
         assert b"Unknown column: network" in response.body
+
+    async def test_list_rows_read_core_contract_error_returns_400(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {
+            "relay_stats": TableSchema(
+                name="relay_stats",
+                columns=(ColumnSchema(name="url", pg_type="text", nullable=False),),
+                primary_key=(),
+                is_view=True,
+            )
+        }
+        policies = {"relay-stats": ReadModelPolicy(enabled=True)}
+        read_core = ReadCore(policy_source=lambda: policies)
+        read_core.catalog = catalog
+        handler = ApiReadModelHandler(
+            brotr=MagicMock(),
+            read_core=read_core,
+            read_model_id="relay-stats",
+            read_model=read_core.enabled_resources("api")["relay-stats"],
+            default_page_size=10,
+            max_page_size=100,
+            request_timeout=1.0,
+        )
+        request = _build_request("/v1/relay-stats", query_string="cursor=opaque-token")
+
+        with patch.object(
+            handler.read_core.catalog,
+            "query",
+            new_callable=AsyncMock,
+        ) as mock_query:
+            response = await handler.list_rows(request)
+
+        assert response.status_code == 400
+        assert b"Cursor pagination is not supported for this readable resource" in response.body
+        mock_query.assert_not_awaited()
 
     async def test_list_rows_timeout_returns_504(
         self,

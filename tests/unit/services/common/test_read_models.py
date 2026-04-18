@@ -4,7 +4,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from bigbrotr.core.yaml import load_yaml
-from bigbrotr.services.common.catalog import Catalog, ColumnSchema, QueryResult, TableSchema
+from bigbrotr.services.common.catalog import (
+    Catalog,
+    CatalogError,
+    ColumnSchema,
+    QueryResult,
+    TableSchema,
+)
 from bigbrotr.services.common.configs import ReadModelPolicy
 from bigbrotr.services.common.read_models import (
     READ_MODEL_REGISTRY,
@@ -201,6 +207,14 @@ class TestReadModelRegistry:
 
     async def test_entry_query_delegates_to_catalog(self) -> None:
         catalog = Catalog()
+        catalog._tables = {
+            "relay": TableSchema(
+                name="relay",
+                columns=(ColumnSchema(name="url", pg_type="text", nullable=False),),
+                primary_key=("url",),
+                is_view=False,
+            )
+        }
         expected = QueryResult(
             rows=[{"url": "wss://relay.example.com"}], total=1, limit=5, offset=0
         )
@@ -337,6 +351,42 @@ class TestReadModelRegistry:
             },
         }
 
+    def test_entry_contract_omits_traversal_fields_without_cursor_contract(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {
+            "relay_stats": TableSchema(
+                name="relay_stats",
+                columns=(
+                    ColumnSchema(name="url", pg_type="text", nullable=False),
+                    ColumnSchema(name="event_count", pg_type="bigint", nullable=False),
+                ),
+                primary_key=(),
+                is_view=True,
+            )
+        }
+
+        contract = READABLE_RESOURCE_REGISTRY["relay-stats"].contract(catalog)
+
+        assert contract == {
+            "id": "relay-stats",
+            "name": "Relay stats",
+            "backing_kind": "relation",
+            "relation_name": "relay_stats",
+            "identity_fields": [],
+            "default_traversal_order": None,
+            "cursor_key_fields": None,
+            "allowed_filters": ["url", "event_count"],
+            "allowed_sorts": ["url", "event_count"],
+            "pagination": {
+                "default_mode": "offset",
+                "supports_cursor": False,
+                "supports_offset": True,
+                "supports_total_opt_in": True,
+                "cursor_param": None,
+                "meta_cursor_field": None,
+            },
+        }
+
     def test_entry_detail_uses_registered_backend_schema(self) -> None:
         catalog = Catalog()
         catalog._tables = {
@@ -431,6 +481,14 @@ class TestReadModelSurface:
 
     async def test_query_entry_uses_catalog_context(self) -> None:
         catalog = Catalog()
+        catalog._tables = {
+            "relay": TableSchema(
+                name="relay",
+                columns=(ColumnSchema(name="url", pg_type="text", nullable=False),),
+                primary_key=("url",),
+                is_view=False,
+            )
+        }
         request = ReadModelQuery(limit=10, offset=0)
         result = MagicMock()
         catalog.query = AsyncMock(return_value=result)  # type: ignore[method-assign]
@@ -660,6 +718,14 @@ class TestReadCore:
 
     async def test_query_resource_uses_catalog_context(self) -> None:
         catalog = Catalog()
+        catalog._tables = {
+            "relay": TableSchema(
+                name="relay",
+                columns=(ColumnSchema(name="url", pg_type="text", nullable=False),),
+                primary_key=("url",),
+                is_view=False,
+            )
+        }
         request = ReadModelQuery(limit=10, offset=0)
         result = MagicMock()
         catalog.query = AsyncMock(return_value=result)  # type: ignore[method-assign]
@@ -679,6 +745,227 @@ class TestReadCore:
             limit=10,
             offset=0,
             max_page_size=1000,
+            filters=None,
+            sort=None,
+            include_total=False,
+            cursor=None,
+            prefer_keyset=True,
+        )
+
+    async def test_query_resource_uses_offset_only_contract_when_cursor_is_not_supported(
+        self,
+    ) -> None:
+        catalog = Catalog()
+        catalog._tables = {
+            "relay_stats": TableSchema(
+                name="relay_stats",
+                columns=(
+                    ColumnSchema(name="url", pg_type="text", nullable=False),
+                    ColumnSchema(name="event_count", pg_type="bigint", nullable=False),
+                ),
+                primary_key=(),
+                is_view=True,
+            )
+        }
+        result = MagicMock()
+        catalog.query = AsyncMock(return_value=result)  # type: ignore[method-assign]
+        brotr = MagicMock()
+        core = self._core(catalog=catalog)
+        resource = ReadModelEntry(
+            read_model_id="relay-stats",
+            catalog_name="relay_stats",
+        )
+
+        resolved = await core.query_resource(
+            brotr,
+            resource,
+            ReadModelQuery(limit=10, offset=5, include_total=True),
+        )
+
+        assert resolved is result
+        catalog.query.assert_awaited_once_with(  # type: ignore[attr-defined]
+            brotr,
+            "relay_stats",
+            limit=10,
+            offset=5,
+            max_page_size=1000,
+            filters=None,
+            sort=None,
+            include_total=True,
+            cursor=None,
+            prefer_keyset=False,
+        )
+
+    async def test_query_resource_rejects_cursor_when_resource_is_offset_only(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {
+            "relay_stats": TableSchema(
+                name="relay_stats",
+                columns=(ColumnSchema(name="url", pg_type="text", nullable=False),),
+                primary_key=(),
+                is_view=True,
+            )
+        }
+        catalog.query = AsyncMock()  # type: ignore[method-assign]
+        core = self._core(catalog=catalog)
+        resource = ReadModelEntry(
+            read_model_id="relay-stats",
+            catalog_name="relay_stats",
+        )
+
+        with pytest.raises(CatalogError, match="Cursor pagination is not supported"):
+            await core.query_resource(
+                MagicMock(),
+                resource,
+                ReadModelQuery(limit=10, offset=0, cursor="opaque-token"),
+            )
+
+        catalog.query.assert_not_awaited()  # type: ignore[attr-defined]
+
+    async def test_query_resource_rejects_offset_when_resource_disables_it(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {
+            "relay": TableSchema(
+                name="relay",
+                columns=(ColumnSchema(name="url", pg_type="text", nullable=False),),
+                primary_key=("url",),
+                is_view=False,
+            )
+        }
+        catalog.query = AsyncMock()  # type: ignore[method-assign]
+        core = self._core(catalog=catalog)
+        resource = ReadModelEntry(
+            read_model_id="relays",
+            catalog_name="relay",
+            supports_offset_pagination=False,
+        )
+
+        with pytest.raises(CatalogError, match="Offset pagination is not supported"):
+            await core.query_resource(
+                MagicMock(),
+                resource,
+                ReadModelQuery(limit=10, offset=1),
+            )
+
+        catalog.query.assert_not_awaited()  # type: ignore[attr-defined]
+
+    async def test_query_resource_rejects_include_total_when_resource_disables_it(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {
+            "relay": TableSchema(
+                name="relay",
+                columns=(ColumnSchema(name="url", pg_type="text", nullable=False),),
+                primary_key=("url",),
+                is_view=False,
+            )
+        }
+        catalog.query = AsyncMock()  # type: ignore[method-assign]
+        core = self._core(catalog=catalog)
+        resource = ReadModelEntry(
+            read_model_id="relays",
+            catalog_name="relay",
+            supports_total_opt_in=False,
+        )
+
+        with pytest.raises(CatalogError, match="include_total is not supported"):
+            await core.query_resource(
+                MagicMock(),
+                resource,
+                ReadModelQuery(limit=10, offset=0, include_total=True),
+            )
+
+        catalog.query.assert_not_awaited()  # type: ignore[attr-defined]
+
+    async def test_query_resource_rejects_unsupported_filter_fields(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {
+            "relay": TableSchema(
+                name="relay",
+                columns=(
+                    ColumnSchema(name="url", pg_type="text", nullable=False),
+                    ColumnSchema(name="network", pg_type="text", nullable=False),
+                ),
+                primary_key=("url",),
+                is_view=False,
+            )
+        }
+        catalog.query = AsyncMock()  # type: ignore[method-assign]
+        core = self._core(catalog=catalog)
+        resource = ReadModelEntry(
+            read_model_id="relays",
+            catalog_name="relay",
+            allowed_filters=("network",),
+        )
+
+        with pytest.raises(CatalogError, match="Unsupported filter fields for relays: url"):
+            await core.query_resource(
+                MagicMock(),
+                resource,
+                ReadModelQuery(limit=10, offset=0, filters={"url": "wss://relay.example.com"}),
+            )
+
+        catalog.query.assert_not_awaited()  # type: ignore[attr-defined]
+
+    async def test_query_resource_rejects_unsupported_sort_fields(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {
+            "relay": TableSchema(
+                name="relay",
+                columns=(
+                    ColumnSchema(name="url", pg_type="text", nullable=False),
+                    ColumnSchema(name="network", pg_type="text", nullable=False),
+                ),
+                primary_key=("url",),
+                is_view=False,
+            )
+        }
+        catalog.query = AsyncMock()  # type: ignore[method-assign]
+        core = self._core(catalog=catalog)
+        resource = ReadModelEntry(
+            read_model_id="relays",
+            catalog_name="relay",
+            allowed_sorts=("network",),
+        )
+
+        with pytest.raises(CatalogError, match="Unsupported sort field for relays: url"):
+            await core.query_resource(
+                MagicMock(),
+                resource,
+                ReadModelQuery(limit=10, offset=0, sort="url:desc"),
+            )
+
+        catalog.query.assert_not_awaited()  # type: ignore[attr-defined]
+
+    async def test_query_resource_applies_resource_max_page_size(self) -> None:
+        catalog = Catalog()
+        catalog._tables = {
+            "relay": TableSchema(
+                name="relay",
+                columns=(ColumnSchema(name="url", pg_type="text", nullable=False),),
+                primary_key=("url",),
+                is_view=False,
+            )
+        }
+        request = ReadModelQuery(limit=50, offset=0, max_page_size=1000)
+        result = MagicMock()
+        catalog.query = AsyncMock(return_value=result)  # type: ignore[method-assign]
+        brotr = MagicMock()
+        core = self._core(catalog=catalog)
+        resource = ReadModelEntry(
+            read_model_id="relays",
+            catalog_name="relay",
+            max_page_size=25,
+        )
+
+        resolved = await core.query_resource(brotr, resource, request)
+
+        assert resolved is result
+        catalog.query.assert_awaited_once_with(  # type: ignore[attr-defined]
+            brotr,
+            "relay",
+            limit=50,
+            offset=0,
+            max_page_size=25,
             filters=None,
             sort=None,
             include_total=False,

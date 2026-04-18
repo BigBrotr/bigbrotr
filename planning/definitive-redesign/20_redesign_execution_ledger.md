@@ -67,7 +67,7 @@ Execution baseline:
 | 4. Shared derivation and maintenance pipeline alignment | done | `Refresher` ownership, source-watermark checkpointing, bounded incremental windows, and backlog reporting are all closed |
 | 5. Service-boundary alignment | done | `Monitor`, offline `Refresher` ownership, `Assertor` package-complete publication, and `Ranker` boundary hardening are all closed |
 | 6. Score/output and NIP capability alignment | done | The static capability registry, NIP-85 builder/publication alignment, and score-vocabulary sweep are all closed |
-| 7. Protocol-agnostic read-core implementation | in progress | The readable-resource contract layer and shared `ReadCore` are now in place above the historical read-model seam; both API and DVM now target `ReadCore` directly, and only the tranche-wide boundedness/contract audit remains in `7.5` |
+| 7. Protocol-agnostic read-core implementation | done | The readable-resource contract layer and shared `ReadCore` are now fully in place above the historical read-model seam: both API and DVM target `ReadCore` directly, resource-level pagination/filter/sort capabilities are now enforced by the core itself, and the remaining `ReadModelSurface` wrapper is an explicit thin compatibility layer rather than a parallel execution path |
 | 8. Deployment-contract normalization | not started | |
 | 9. Repository-wide documentation rewrite | not started | |
 | 10. Final cleanup, rename sweep, and closeout audit | not started | |
@@ -146,7 +146,7 @@ Execution baseline:
 | 7.2 Shared read-core evolution from current read-model stack | done | `refactor: introduce shared read core` | Introduced a real protocol-agnostic `ReadCore` above the readable-resource registry and moved the shared read-side behavior there: catalog discovery, deployment-aware enabled-resource resolution, normalized missing-resource errors, relation-backed query/get-by-pk execution, and discovery summaries/details now live in the core. `ReadModelSurface` was reduced to a compatibility wrapper that delegates into `ReadCore`, preserving the current API/DVM/config seam while giving the later adapter migrations a concrete nucleus to target. The slice also expanded unit coverage to exercise the core directly alongside the wrapper and revalidated the affected API/DVM suites. Targeted read-core/API/DVM unit suites (`220 passed`), targeted lint/mypy, full `make ci`, and `uv lock --check` passed before closure |
 | 7.3 `API` adapter alignment | done | `refactor: align api with shared read core` | Migrated the HTTP adapter off `ReadModelSurface` and onto `ReadCore` directly while preserving the public `/read-models` contract, pagination semantics, discovery payloads, and config-facing `read_models` policy shape. The API service now owns `_read_core` as its local seam, route registration resolves enabled readable resources through `ReadCore`, the per-route handler executes `query_resource()` / `get_resource_by_pk()` directly, and the touched API docs/tests were realigned to the new adapter boundary. Targeted API handler/service suites (`70 passed`), targeted lint/mypy, full `make ci`, and `uv lock --check` passed before closure |
 | 7.4 `DVM` adapter alignment | done | `refactor: align dvm with shared read core` | Migrated the NIP-90 adapter off `ReadModelSurface` and onto `ReadCore` directly while preserving the public `read_model` request/result contract, pricing behavior, announcement payload shape, and DVM-specific error semantics. The DVM service now owns `_read_core` as its local seam, job preparation resolves enabled resources through the shared core instead of duplicating registry resolution from raw policy/catalog inputs, runtime job execution now calls `query_resource()` directly, and the touched service/job tests were realigned to the new adapter boundary. Targeted DVM unit suites (`111 passed`), targeted lint/mypy, full `make ci`, and `uv lock --check` passed before closure |
-| 7.5 Read-core boundedness and contract audit | not started | | |
+| 7.5 Read-core boundedness and contract audit | done | `refactor: harden read core boundedness contract` | Hardened the shared read core so readable-resource contracts are now enforced instead of merely described: `ReadableResourceEntry` gained explicit pagination capability fields (`supports_cursor_pagination`, `supports_offset_pagination`, `supports_total_opt_in`, optional `max_page_size`), offset-only resources now advertise the absence of traversal/cursor semantics as `None` instead of empty lists, and `ReadCore.query_resource()` now validates cursor/offset/include-total usage plus filter/sort allowlists before any catalog query runs. Relation-backed execution now uses the resource contract to decide whether keyset pagination is allowed and to clamp per-resource page-size ceilings. The slice also tightened unit coverage for the registry/core contracts, added an API-level assertion that read-core contract violations surface as HTTP 400 without touching SQL execution, and revalidated the work with targeted read-core/API/DVM suites (`237 passed`), full `make ci` (`3304 passed`), and `uv lock --check` before closure |
 
 ### Tranche 8 — Deployment-Contract Normalization
 
@@ -218,21 +218,20 @@ Each entry should include:
 - Classification: closed follow-up
 
 - Originating work package: `7.1 Readable-resource contract introduction`
-- Deferred item: resources without identity fields still expose an empty
-  `default_traversal_order` / `cursor_key_fields` contract until the shared
-  read-core starts enforcing explicit bounded traversal policy
-- Why deferred: this slice introduced the registry contract honestly without
-  changing public adapter behavior or inventing fake stable ordering for
-  relation-backed resources that still depend on the current `Catalog`
-  execution defaults
-- Future tranche: `7.5 Read-core boundedness and contract audit`
-- Classification: improvement / watch point, not blocker
+- Follow-up status: resolved in `7.5 Read-core boundedness and contract audit`
+- Outcome: resources without identity fields no longer expose fake or empty
+  traversal semantics as if they were actionable contracts; the registry now
+  reports `default_traversal_order` / `cursor_key_fields` as `None` when no
+  stable cursor contract exists, and the shared read core now enforces the
+  corresponding bounded pagination policy before any catalog query runs
+- Classification: closed follow-up
 
 - Originating work package: `7.2 Shared read-core evolution from current read-model stack`
-- Follow-up status: resolved in `7.4 DVM adapter alignment`
+- Follow-up status: resolved in `7.5 Read-core boundedness and contract audit`
 - Outcome: both protocol adapters now target `ReadCore` as their primary local
-  abstraction; the historical `ReadModelSurface` remains only as a
-  compatibility seam pending the tranche-wide cleanup/audit pass in `7.5`
+  abstraction; the historical `ReadModelSurface` remains only as an
+  intentional thin compatibility wrapper, and `7.5` closed the remaining
+  tranche-wide audit by moving boundedness enforcement into `ReadCore` itself
 - Classification: closed follow-up
 
 ---

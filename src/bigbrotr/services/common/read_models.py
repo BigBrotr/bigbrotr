@@ -152,6 +152,7 @@ class ReadCore:
         request: ReadModelQuery,
     ) -> QueryResult:
         """Execute one resolved readable-resource query through the shared catalog."""
+        resource.validate_query(self._catalog, request)
         return await resource.query(brotr, self._catalog, request)
 
     async def get_resource_by_pk(
