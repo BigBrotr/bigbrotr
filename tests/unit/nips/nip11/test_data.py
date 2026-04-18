@@ -599,6 +599,22 @@ class TestNip11InfoDataConstructor:
         data = Nip11InfoData(retention=[{"kinds": [1]}])
         assert data.retention[0].kinds == [1]
 
+    def test_constructor_normalizes_retention_entry_order(self):
+        """Constructor sorts retention entries to a stable canonical order."""
+        data = Nip11InfoData(
+            retention=[
+                {"kinds": [[30000, 39999]], "count": 100},
+                {"kinds": [0, 3]},
+                {"kinds": [[10000, 19999]], "time": 86400},
+            ]
+        )
+        assert data.retention is not None
+        assert [entry.to_dict() for entry in data.retention] == [
+            {"kinds": [0, 3]},
+            {"kinds": [[10000, 19999]], "time": 86400},
+            {"kinds": [[30000, 39999]], "count": 100},
+        ]
+
 
 class TestNip11InfoDataSelfProperty:
     """Test Nip11InfoData.self property and alias handling."""
@@ -661,11 +677,19 @@ class TestNip11InfoDataParse:
     def test_parse_nested_objects(self):
         """Nested objects are parsed correctly."""
         data = {
-            "retention": [{"kinds": [1, 2], "time": 3600}],
+            "retention": [
+                {"kinds": [[30000, 39999]], "count": 100},
+                {"kinds": [1, 2], "time": 3600},
+                {"kinds": [[10000, 19999]], "time": 86400},
+            ],
             "fees": {"admission": [{"amount": 1000, "unit": "msats"}]},
         }
         result = Nip11InfoData.parse(data)
-        assert result["retention"] == [{"kinds": [1, 2], "time": 3600}]
+        assert result["retention"] == [
+            {"kinds": [1, 2], "time": 3600},
+            {"kinds": [(10000, 19999)], "time": 86400},
+            {"kinds": [(30000, 39999)], "count": 100},
+        ]
         assert result["fees"] == {"admission": [{"amount": 1000, "unit": "msats"}]}
 
     def test_parse_filters_bools_from_supported_nips(self):

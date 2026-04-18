@@ -25,7 +25,7 @@ See Also:
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any, ClassVar, TypeVar
 
 from pydantic import ConfigDict, Field, StrictBool, StrictInt, field_validator
 
@@ -40,6 +40,7 @@ from bigbrotr.nips.parsing import (
 
 
 KindRange = tuple[StrictInt, StrictInt]
+_RetentionEntryT = TypeVar("_RetentionEntryT")
 
 
 def _invalid_input_report(path: str, fallback: str) -> ParseReport:
@@ -214,7 +215,7 @@ def _parse_retention_entries(
             entries.append(entry_report.parsed)
 
     if entries:
-        return entries, issues
+        return _normalize_retention_entries_order(entries), issues
     if not raw_entries:
         issues.append(
             ParseIssue(
@@ -238,6 +239,40 @@ def _normalize_retention_kinds(
     if value is None:
         return None
     return sorted(set(value), key=_retention_kind_sort_key)
+
+
+def _optional_int_sort_key(value: int | None) -> tuple[int, int]:
+    if value is None:
+        return (1, 0)
+    return (0, value)
+
+
+def _retention_entry_sort_key(
+    entry: Any,
+) -> tuple[tuple[tuple[int, int, int], ...], tuple[int, int], tuple[int, int]]:
+    if isinstance(entry, dict):
+        kinds = entry.get("kinds")
+        time = entry.get("time")
+        count = entry.get("count")
+    else:
+        kinds = getattr(entry, "kinds", None)
+        time = getattr(entry, "time", None)
+        count = getattr(entry, "count", None)
+
+    normalized_kinds = _normalize_retention_kinds(kinds) or []
+    return (
+        tuple(_retention_kind_sort_key(value) for value in normalized_kinds),
+        _optional_int_sort_key(time),
+        _optional_int_sort_key(count),
+    )
+
+
+def _normalize_retention_entries_order(
+    entries: list[_RetentionEntryT] | None,
+) -> list[_RetentionEntryT] | None:
+    if entries is None:
+        return None
+    return sorted(entries, key=_retention_entry_sort_key)
 
 
 class Nip11InfoDataLimitation(BaseData):
@@ -529,7 +564,8 @@ class Nip11InfoData(BaseData):
         correct ``self`` key name as specified by the NIP. ``supported_nips``
         plus the set-like string lists ``relay_countries``,
         ``language_tags``, ``tags``, and ``attributes`` are normalized to
-        deduplicated ascending order so equivalent relay descriptions do not
+        deduplicated ascending order, and the ``retention`` entry list is
+        normalized to a stable order, so equivalent relay descriptions do not
         drift when source order changes.
 
     See Also:
@@ -598,6 +634,13 @@ class Nip11InfoData(BaseData):
         if value is None:
             return None
         return sorted(set(value))
+
+    @field_validator("retention")
+    @classmethod
+    def _normalize_retention(
+        cls, value: list[Nip11InfoDataRetentionEntry] | None
+    ) -> list[Nip11InfoDataRetentionEntry] | None:
+        return _normalize_retention_entries_order(value)
 
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         str_fields=frozenset(
