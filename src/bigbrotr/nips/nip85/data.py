@@ -419,7 +419,7 @@ class UserAssertion:
         values = [
             str(self.score),
             str(self.follower_count),
-            str(self.first_created_at or 0),
+            "" if self.first_created_at is None else str(self.first_created_at),
             str(self.post_count),
             str(self.reply_count),
             str(self.reaction_count_recd),

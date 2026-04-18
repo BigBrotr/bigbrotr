@@ -1421,3 +1421,11 @@ Use this section during execution for:
   - aligned paired data-model and Assertor fixtures with the stricter boundary
     so the `30382` publication surface now reflects only the metrics the
     provider package actually emits.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fifth remediation slice:
+  - fixed `UserAssertion.tags_hash()` so the `first_created_at` component now
+    distinguishes `None` from the Unix epoch `0`, instead of collapsing both
+    states into the same checkpoint hash even though the public `30382` builder
+    emits the timestamp tag only when the value is actually present;
+  - added paired `NIP-85` model and Assertor coverage proving a persisted
+    no-timestamp checkpoint no longer suppresses publication when the live row
+    changes to `first_created_at=0`.

@@ -212,6 +212,12 @@ class TestUserAssertionTagsHash:
         a2 = UserAssertion(pubkey="aa" * 32, post_count=11)
         assert a1.tags_hash() != a2.tags_hash()
 
+    def test_first_created_at_none_and_zero_produce_different_hashes(self) -> None:
+        without_timestamp = UserAssertion(pubkey="aa" * 32)
+        unix_epoch = UserAssertion(pubkey="aa" * 32, first_created_at=0)
+
+        assert without_timestamp.tags_hash() != unix_epoch.tags_hash()
+
 
 class TestUserAssertionFromDbRow:
     def test_minimal_row(self) -> None:

@@ -586,6 +586,35 @@ class TestAssertorPublishUserFlow:
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_user_rows", new_callable=AsyncMock)
+    async def test_first_created_at_zero_is_not_skipped_by_none_hash(
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        persisted_row = self._make_row()
+        persisted_row["first_created_at"] = None
+        current_row = self._make_row()
+        current_row["first_created_at"] = 0
+        mock_fetch.return_value = [current_row]
+        mock_broadcast.return_value = _broadcast_results()
+        service = self._make_service(mock_brotr)
+
+        from bigbrotr.nips.nip85.data import UserAssertion
+
+        persisted_row["top_topics_limit"] = 5
+        persisted_assertion = UserAssertion.from_db_row(persisted_row)
+        state = MagicMock()
+        state.state_value = {"hash": persisted_assertion.tags_hash()}
+        mock_brotr.get_service_state = AsyncMock(return_value=[state])
+
+        published, skipped, failed = await service._publish_user_assertions()
+
+        assert (published, skipped, failed) == (1, 0, 0)
+        mock_broadcast.assert_awaited_once()
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_user_rows", new_callable=AsyncMock)
     async def test_broadcast_failure_counts_as_failed(
         self,
         mock_fetch: AsyncMock,
