@@ -73,7 +73,14 @@ _RELAYS_TO_MONITOR_WHERE = """
     WHERE
         r.network = ANY($1)
         AND (ss.state_key IS NULL
-             OR (ss.state_value->>'timestamp')::BIGINT < $2)
+             OR (
+                 CASE
+                     WHEN jsonb_typeof(ss.state_value->'timestamp') = 'number'
+                          AND (ss.state_value->>'timestamp') ~ '^-?[0-9]+$'
+                     THEN (ss.state_value->>'timestamp')::bigint
+                     ELSE 0
+                 END
+             ) < $2)
 """
 
 
@@ -119,7 +126,12 @@ async def fetch_relays_to_monitor(
         SELECT r.url, r.network, r.stored_at
         {_RELAYS_TO_MONITOR_WHERE}
         ORDER BY
-            COALESCE((ss.state_value->>'timestamp')::BIGINT, 0) ASC,
+            CASE
+                WHEN jsonb_typeof(ss.state_value->'timestamp') = 'number'
+                     AND (ss.state_value->>'timestamp') ~ '^-?[0-9]+$'
+                THEN (ss.state_value->>'timestamp')::bigint
+                ELSE 0
+            END ASC,
             r.stored_at ASC
         """,
         networks,
@@ -148,18 +160,33 @@ async def fetch_relays_to_monitor_page(
         SELECT r.url,
                r.network,
                r.stored_at,
-               COALESCE((ss.state_value->>'timestamp')::BIGINT, 0) AS last_monitored
+               CASE
+                   WHEN jsonb_typeof(ss.state_value->'timestamp') = 'number'
+                        AND (ss.state_value->>'timestamp') ~ '^-?[0-9]+$'
+                   THEN (ss.state_value->>'timestamp')::bigint
+                   ELSE 0
+               END AS last_monitored
         {_RELAYS_TO_MONITOR_WHERE}
           AND (
                 $5::bigint IS NULL
                 OR (
-                    COALESCE((ss.state_value->>'timestamp')::BIGINT, 0),
+                    CASE
+                        WHEN jsonb_typeof(ss.state_value->'timestamp') = 'number'
+                             AND (ss.state_value->>'timestamp') ~ '^-?[0-9]+$'
+                        THEN (ss.state_value->>'timestamp')::bigint
+                        ELSE 0
+                    END,
                     r.stored_at,
                     r.url
                 ) > ($5::bigint, $6::bigint, $7::text)
           )
         ORDER BY
-            COALESCE((ss.state_value->>'timestamp')::BIGINT, 0) ASC,
+            CASE
+                WHEN jsonb_typeof(ss.state_value->'timestamp') = 'number'
+                     AND (ss.state_value->>'timestamp') ~ '^-?[0-9]+$'
+                THEN (ss.state_value->>'timestamp')::bigint
+                ELSE 0
+            END ASC,
             r.stored_at ASC,
             r.url ASC
         LIMIT $8

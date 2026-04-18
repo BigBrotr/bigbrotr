@@ -1656,3 +1656,14 @@ Use this section during execution for:
     queries sanitize malformed numeric payloads before scheduling, while
     typed hydration still skips invalid persisted candidate rows instead of
     crashing the validation planner.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirty-second remediation
+  slice:
+  - tightened the Monitor persisted-checkpoint scheduling boundary so malformed
+    stored `timestamp` values no longer rely on raw SQL casts during due-relay
+    filtering, ordering, and keyset paging, and now degrade cleanly to the
+    canonical `0` checkpoint semantics already used for never-monitored
+    relays;
+  - added paired `monitor` coverage proving monitor count/fetch/page queries
+    sanitize malformed persisted timestamps before scheduling instead of
+    surfacing generic query failures or skewing least-recently-monitored
+    ordering.
