@@ -138,9 +138,11 @@ class NostrClientManager:
         """Create or reuse a named clearnet multi-relay session.
 
         Session helpers intentionally reject overlay relays because one shared
-        client cannot encode the per-network proxy policy they require.
+        client cannot encode the per-network proxy policy they require. Named
+        session identity is keyed by the normalized relay set, not by caller
+        input order.
         """
-        relay_urls = tuple(relay.url for relay in relays)
+        relay_urls = tuple(sorted({relay.url for relay in relays}))
         existing = self._sessions.get(session_id)
         if existing is not None:
             if existing.relay_urls != relay_urls:

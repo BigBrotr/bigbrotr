@@ -783,3 +783,10 @@ Use this section during execution for:
   - added paired unit coverage on both the leaf shared-session helper and the
     public `bigbrotr.utils.protocol.create_connected_client()` facade to lock
     the stable connected-relay ordering contract in place.
+- `2.1` models/utils/NIPs leaf audit, seventy-fifth remediation slice:
+  - tightened `bigbrotr.utils.protocol_manager.NostrClientManager.connect_session()`
+    so named shared-session identity is keyed by the normalized relay set
+    rather than the caller's input order;
+  - added paired unit coverage proving the manager now reuses an existing
+    named session when the same relay set is requested in a different order
+    while still rejecting genuinely different relay sets.

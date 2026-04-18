@@ -423,6 +423,45 @@ class TestNostrClientManagerSessions:
         mock_connect.assert_awaited_once_with(mock_client, relays, timeout=15.0)
         assert manager._sessions["read-session"] is first
 
+    async def test_connect_session_reuses_named_session_for_same_relays_in_different_order(
+        self,
+    ) -> None:
+        relays = [Relay("wss://relay2.example.com"), Relay("wss://relay1.example.com")]
+        reordered_relays = [Relay("wss://relay1.example.com"), Relay("wss://relay2.example.com")]
+        mock_client = MagicMock()
+        result = ClientConnectResult(
+            connected=("wss://relay1.example.com", "wss://relay2.example.com"),
+            failed={},
+        )
+        manager = NostrClientManager(keys=MagicMock())
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol.create_client",
+                new=AsyncMock(return_value=mock_client),
+            ) as mock_create,
+            patch(
+                "bigbrotr.utils.protocol._connect_client_relays",
+                new=AsyncMock(return_value=result),
+            ) as mock_connect,
+        ):
+            first = await manager.connect_session("read-session", relays, timeout=15.0)
+            second = await manager.connect_session(
+                "read-session",
+                reordered_relays,
+                timeout=1.0,
+            )
+
+        assert first == ClientSession(
+            session_id="read-session",
+            client=mock_client,
+            relay_urls=("wss://relay1.example.com", "wss://relay2.example.com"),
+            connect_result=result,
+        )
+        assert second is first
+        mock_create.assert_awaited_once_with(keys=manager._keys, allow_insecure=False)
+        mock_connect.assert_awaited_once_with(mock_client, relays, timeout=15.0)
+
     async def test_connect_session_rejects_same_name_with_different_relays(self) -> None:
         manager = NostrClientManager(keys=MagicMock())
         manager._sessions["read-session"] = ClientSession(
