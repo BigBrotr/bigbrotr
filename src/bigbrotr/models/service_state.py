@@ -67,10 +67,11 @@ class ServiceStateDbParams(NamedTuple):
     signature: ``(owners TEXT[], state_types TEXT[], state_keys TEXT[],
     state_values JSONB[])``.
 
-    The ``state_value`` field is pre-serialized to a JSON string, consistent
-    with how ``EventDbParams.tags`` and ``DocumentDbParams.data`` handle
-    JSONB columns. This allows asyncpg's registered JSONB codec to pass
-    the value through without needing explicit ``::jsonb[]`` casts.
+    The ``state_value`` field is pre-serialized to a deterministic compact
+    JSON string, consistent with how ``EventDbParams.tags`` and
+    ``DocumentDbParams.data`` handle JSONB columns. This allows asyncpg's
+    registered JSONB codec to pass the value through without needing
+    explicit ``::jsonb[]`` casts.
 
     See Also:
         [ServiceState.to_db_params][bigbrotr.models.service_state.ServiceState.to_db_params]:
@@ -99,10 +100,10 @@ class ServiceState:
             catalog, but arbitrary non-empty string IDs are accepted.
         state_key: Application-defined key within the service and type
             (e.g., a relay URL for cursor state).
-        state_value: Arbitrary JSON-compatible dictionary normalized only
-            for deterministic ordering, with
-            service-specific data. Each state type stores its own business timestamp inside
-            this dict (e.g. ``{"timestamp": 1700000000}`` for checkpoints).
+        state_value: Arbitrary JSON-compatible dictionary normalized for
+            deterministic serialization, with service-specific data. Each
+            state type stores its own business timestamp inside this dict
+            (e.g. ``{"timestamp": 1700000000}`` for checkpoints).
 
     Examples:
         ```python
@@ -151,7 +152,16 @@ class ServiceState:
         validate_mapping(self.state_value, "state_value")
 
         normalized = normalize_json_data(self.state_value, "state_value")
-        object.__setattr__(self, "_json_value", json.dumps(normalized))
+        object.__setattr__(
+            self,
+            "_json_value",
+            json.dumps(
+                normalized,
+                sort_keys=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+        )
         object.__setattr__(self, "state_value", deep_freeze(normalized))
         object.__setattr__(self, "_db_params", self._compute_db_params())
 

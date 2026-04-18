@@ -109,7 +109,7 @@ class ServiceName(StrEnum):
             base class that uses ``SERVICE_NAME`` for logging context.
         [query modules][bigbrotr.services.common.discovery_queries]:
             Shared and service-specific SQL helpers that filter
-            ``service_state`` rows by service name.
+            ``service_state`` rows by owner identifier.
     """
 
     SEEDER = "seeder"

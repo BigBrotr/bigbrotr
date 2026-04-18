@@ -359,3 +359,15 @@ Use this section during execution for:
   - strengthened the paired protocol tests to use a small structural policy
     stub rather than an unbounded mock, proving the manager now depends only on
     the generic timeout/proxy contract it actually needs.
+- `2.1` models/utils/NIPs leaf audit, twenty-third remediation slice:
+  - tightened `bigbrotr.models.service_state` so the shared `state_value`
+    payload is serialized as deterministic compact JSON instead of inheriting
+    incidental whitespace and formatting from the default `json.dumps()`
+    behavior;
+  - strengthened the paired model tests to lock that compact deterministic
+    contract explicitly and removed the stale type-ignore that still pretended
+    plain-string `owner` / `state_type` values were outside the supported
+    constructor contract;
+  - corrected the remaining `ServiceName` doc wording that still referred to
+    `service_state` filtering by “service name” instead of the final `owner`
+    vocabulary.

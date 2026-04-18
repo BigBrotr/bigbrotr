@@ -60,8 +60,8 @@ class TestConstruction:
 
     def test_string_coercion(self):
         state = ServiceState(
-            owner="finder",  # type: ignore[arg-type]
-            state_type="cursor",  # type: ignore[arg-type]
+            owner="finder",
+            state_type="cursor",
             state_key="wss://relay.damus.io",
             state_value={},
         )
@@ -135,7 +135,7 @@ class TestToDbParams:
         assert params.owner == "finder"
         assert params.state_type == "checkpoint"
         assert params.state_key == "wss://nos.lol"
-        assert params.state_value == '{"source": "nip65"}'
+        assert params.state_value == '{"source":"nip65"}'
 
     def test_state_value_valid_json(self):
         state = ServiceState(
@@ -166,6 +166,15 @@ class TestToDbParams:
             state_value={},
         )
         assert state.to_db_params().state_value == "{}"
+
+    def test_state_value_serialization_is_deterministic_and_compact(self):
+        state = ServiceState(
+            owner=ServiceName.MONITOR,
+            state_type=ServiceStateType.CURSOR,
+            state_key="key",
+            state_value={"z": 1, "nested": {"b": 2, "a": 1}},
+        )
+        assert state.to_db_params().state_value == '{"nested":{"a":1,"b":2},"z":1}'
 
 
 # =============================================================================
