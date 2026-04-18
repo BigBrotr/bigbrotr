@@ -519,12 +519,21 @@ class TestListRowsRoute:
 
     @pytest.mark.parametrize(
         "params",
-        ["limit=not_a_number", "offset=abc", "limit=0", "limit=-1", "offset=-1", "offset=100001"],
+        [
+            "limit=not_a_number",
+            "offset=abc",
+            "limit=0",
+            "limit=-1",
+            "limit=1001",
+            "offset=-1",
+            "offset=100001",
+        ],
         ids=[
             "invalid_limit",
             "invalid_offset",
             "zero_limit",
             "negative_limit",
+            "limit_above_max_page_size",
             "negative_offset",
             "offset_above_max",
         ],

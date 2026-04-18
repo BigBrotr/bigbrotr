@@ -534,6 +534,24 @@ class TestPrepareJobRequest:
         assert rejected.error_message == "Invalid limit or offset value"
         assert rejected.required_price is None
 
+    def test_rejects_limit_above_public_max_page_size(
+        self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
+    ) -> None:
+        rejected = prepare_job_request(
+            "relays",
+            {"limit": str(dvm_config.max_page_size + 1)},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(rejected, RejectedJobRequest)
+        assert rejected.error_message == "Invalid limit or offset value"
+        assert rejected.required_price is None
+
     def test_normalizes_whitespace_padded_preparsed_query_keys(
         self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
     ) -> None:

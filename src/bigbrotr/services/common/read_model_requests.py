@@ -187,6 +187,7 @@ def read_model_query_from_http_params(
         raw_params.pop("limit", default_page_size),
         error_message="Invalid limit or offset",
         minimum=1,
+        maximum=max_page_size,
     )
     offset = _parse_int_param(
         raw_params.pop("offset", 0),
@@ -224,6 +225,7 @@ def read_model_query_from_job_params(
         params.get("limit", default_page_size),
         error_message="Invalid limit or offset value",
         minimum=1,
+        maximum=max_page_size,
     )
     offset = _parse_int_param(
         params.get("offset", 0),

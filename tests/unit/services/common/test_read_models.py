@@ -866,6 +866,16 @@ class TestReadModelQueryHelpers:
                 max_page_size=1000,
             )
 
+    def test_read_model_query_from_http_params_rejects_limit_above_public_max_page_size(
+        self,
+    ) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid limit or offset"):
+            read_model_query_from_http_params(
+                {"limit": "26"},
+                default_page_size=10,
+                max_page_size=25,
+            )
+
     def test_read_model_query_from_http_params_rejects_blank_filter_key(self) -> None:
         with pytest.raises(ReadModelQueryError, match="Invalid filter field"):
             read_model_query_from_http_params(
@@ -1026,6 +1036,16 @@ class TestReadModelQueryHelpers:
                 {"offset": "oops"},
                 default_page_size=100,
                 max_page_size=1000,
+            )
+
+    def test_read_model_query_from_job_params_rejects_limit_above_public_max_page_size(
+        self,
+    ) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid limit or offset value"):
+            read_model_query_from_job_params(
+                {"limit": "26"},
+                default_page_size=10,
+                max_page_size=25,
             )
 
     @pytest.mark.parametrize(

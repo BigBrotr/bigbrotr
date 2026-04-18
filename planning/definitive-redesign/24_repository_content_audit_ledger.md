@@ -1617,3 +1617,12 @@ Use this section during execution for:
   - added paired `services/common` coverage proving tampered keyset cursors
     must carry the exact typed version marker instead of merely a truthy
     surrogate.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twenty-eighth remediation
+  slice:
+  - tightened the shared public pagination boundary so `limit` values above the
+    configured `max_page_size` are no longer accepted and silently clamped by
+    the catalog layer, and now fail immediately with the same client-safe
+    validation contract already used for invalid offsets;
+  - added paired `services/common`, `api`, and `dvm` coverage proving
+    oversized public limits are rejected at the parser boundary instead of
+    being transparently reshaped during query execution.
