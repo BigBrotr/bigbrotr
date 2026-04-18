@@ -37,6 +37,7 @@ from bigbrotr.services.refresher.queries import (
     get_max_observed_at,
     get_periodic_target_spec,
     get_relay_document_watermark,
+    refresh_incremental_target,
 )
 from bigbrotr.services.refresher.service import RefreshCycleTotals, RefreshTargetResult
 
@@ -237,6 +238,27 @@ class TestRefreshQueryRegistry:
         assert await get_event_observation_watermark(brotr) == 123
         assert await get_relay_document_watermark(brotr) == 456
 
+    @pytest.mark.parametrize(
+        ("value", "expected_exception"),
+        [
+            (True, TypeError),
+            (-1, ValueError),
+        ],
+    )
+    async def test_watermark_queries_reject_invalid_scalar_results(
+        self,
+        value: object,
+        expected_exception: type[Exception],
+    ) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetchval = AsyncMock(return_value=value)
+
+        with pytest.raises(expected_exception):
+            await get_event_observation_watermark(brotr)
+
+        with pytest.raises(expected_exception):
+            await get_relay_document_watermark(brotr)
+
     async def test_incremental_watermarks_hold_checkpoint_without_new_rows(self) -> None:
         brotr = MagicMock(spec=Brotr)
         brotr.fetchrow = AsyncMock(
@@ -272,6 +294,75 @@ class TestRefreshQueryRegistry:
 
         assert await get_max_observed_at(brotr, 0, 25) == 125
         assert await get_max_associated_at(brotr, 0, 50) == 250
+
+    @pytest.mark.parametrize(
+        ("row", "expected_exception"),
+        [
+            (
+                {
+                    "min_observed_at": True,
+                    "max_observed_at": 10,
+                    "min_associated_at": True,
+                    "max_associated_at": 10,
+                },
+                TypeError,
+            ),
+            (
+                {
+                    "min_observed_at": 20,
+                    "max_observed_at": 10,
+                    "min_associated_at": 20,
+                    "max_associated_at": 10,
+                },
+                ValueError,
+            ),
+            (
+                {
+                    "min_observed_at": -1,
+                    "max_observed_at": 10,
+                    "min_associated_at": -1,
+                    "max_associated_at": 10,
+                },
+                ValueError,
+            ),
+        ],
+    )
+    async def test_incremental_watermarks_reject_invalid_source_bounds(
+        self,
+        row: dict[str, object],
+        expected_exception: type[Exception],
+    ) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetchrow = AsyncMock(side_effect=[row, row])
+
+        with pytest.raises(expected_exception):
+            await get_max_observed_at(brotr, 0)
+
+        with pytest.raises(expected_exception):
+            await get_max_associated_at(brotr, 0)
+
+    @pytest.mark.parametrize(
+        ("value", "expected_exception"),
+        [
+            (True, TypeError),
+            (-1, ValueError),
+        ],
+    )
+    async def test_refresh_incremental_target_rejects_invalid_function_result(
+        self,
+        value: object,
+        expected_exception: type[Exception],
+    ) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetchval = AsyncMock(return_value=value)
+
+        with pytest.raises(expected_exception):
+            await refresh_incremental_target(
+                brotr,
+                CurrentRefreshTarget.REPLACEABLE_EVENT_CURRENT,
+                after=0,
+                until=10,
+            )
 
 
 class TestRefresherInit:

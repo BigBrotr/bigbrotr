@@ -2066,3 +2066,13 @@ Use this section during execution for:
     failing the worker before persistence;
   - added paired `finder` coverage proving malformed event-scan rows now log a
     worker failure without inserting candidates or persisting cursor progress.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-seventy-third remediation
+  slice:
+  - tightened the shared `refresher` watermark boundary so source watermarks,
+    bounded incremental source ranges, and incremental refresh row counts no
+    longer pass through broad `int(...)` coercions or unvalidated min/max
+    bounds, which previously let malformed scalar results advance incremental
+    refresh state as if they were canonical non-negative timestamps/counts;
+  - added paired `refresher` coverage proving invalid watermark scalars,
+    impossible source ranges, and malformed SQL refresh counts now fail fast
+    before they can influence incremental slicing or refresh bookkeeping.

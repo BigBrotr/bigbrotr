@@ -110,6 +110,26 @@ PERIODIC_REFRESH_TARGET_SPECS: dict[PeriodicRefreshTarget, PeriodicRefreshTarget
 }
 
 
+def _require_refresh_non_negative_int(value: object, *, field_name: str) -> int:
+    """Return one canonical non-negative integer from refresher query results."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{field_name} must be an int")
+    if value < 0:
+        raise ValueError(f"{field_name} must be non-negative")
+    return value
+
+
+def _normalize_optional_refresh_non_negative_int(
+    value: object,
+    *,
+    field_name: str,
+) -> int | None:
+    """Return one optional non-negative refresher integer result."""
+    if value is None:
+        return None
+    return _require_refresh_non_negative_int(value, field_name=field_name)
+
+
 def get_incremental_target_spec(
     target: IncrementalRefreshTarget,
 ) -> IncrementalRefreshTargetSpec:
@@ -125,13 +145,17 @@ def get_periodic_target_spec(target: PeriodicRefreshTarget) -> PeriodicRefreshTa
 async def get_event_observation_watermark(brotr: Brotr) -> int:
     """Return the latest visible ``event_observation.observed_at`` watermark."""
     result = await brotr.fetchval("SELECT COALESCE(MAX(observed_at), 0) FROM event_observation")
-    return int(result) if result else 0
+    if result is None:
+        return 0
+    return _require_refresh_non_negative_int(result, field_name="observed_at")
 
 
 async def get_relay_document_watermark(brotr: Brotr) -> int:
     """Return the latest visible ``relay_document.associated_at`` watermark."""
     result = await brotr.fetchval("SELECT COALESCE(MAX(associated_at), 0) FROM relay_document")
-    return int(result) if result else 0
+    if result is None:
+        return 0
+    return _require_refresh_non_negative_int(result, field_name="associated_at")
 
 
 def _bounded_source_until(
@@ -142,11 +166,21 @@ def _bounded_source_until(
     max_source_window: int | None,
 ) -> int:
     """Return the bounded upper watermark for one incremental source slice."""
-    if min_pending is None or max_pending is None:
+    normalized_min_pending = _normalize_optional_refresh_non_negative_int(
+        min_pending,
+        field_name="min_pending",
+    )
+    normalized_max_pending = _normalize_optional_refresh_non_negative_int(
+        max_pending,
+        field_name="max_pending",
+    )
+    if normalized_min_pending is None or normalized_max_pending is None:
         return after
+    if normalized_min_pending > normalized_max_pending:
+        raise ValueError("min_pending cannot exceed max_pending")
     if max_source_window is None:
-        return max_pending
-    return min(max_pending, min_pending + max_source_window)
+        return normalized_max_pending
+    return min(normalized_max_pending, normalized_min_pending + max_source_window)
 
 
 async def get_max_observed_at(
@@ -210,7 +244,9 @@ async def refresh_incremental_target(
         after,
         until,
     )
-    return int(result) if result else 0
+    if result is None:
+        return 0
+    return _require_refresh_non_negative_int(result, field_name="refreshed_rows")
 
 
 async def refresh_periodic_target(brotr: Brotr, target: PeriodicRefreshTarget) -> None:
