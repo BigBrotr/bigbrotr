@@ -268,9 +268,10 @@ class Nip66HttpData(BaseData):
 
     Note:
         Headers are captured using aiohttp trace hooks during the WebSocket
-        upgrade handshake, not from a separate HTTP request. A non-validating
-        SSL context is used to ensure headers can be captured regardless of
-        certificate validity.
+        upgrade handshake, not from a separate HTTP request. Clearnet
+        ``wss://`` probes keep certificate validation enabled by default and
+        only switch to a non-validating SSL context when the caller explicitly
+        enables insecure fallback.
 
     See Also:
         [bigbrotr.nips.nip66.http.Nip66HttpMetadata][bigbrotr.nips.nip66.http.Nip66HttpMetadata]:
