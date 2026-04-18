@@ -222,3 +222,8 @@ Use this section during execution for:
     canonical repository-level storage concept;
   - tightened helper names, comments, and registry-test wording to match that
     result-family framing.
+- `2.1` models/utils/NIPs leaf audit, fourth remediation slice:
+  - applied the same contract hardening to the top-level `nip11` surface and
+    paired tests, keeping the historical `Nip11InfoMetadata` class name for
+    compatibility while describing it honestly as a result container whose
+    persisted shape is a stored `document` plus `relay_document` association.

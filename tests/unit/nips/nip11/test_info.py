@@ -31,7 +31,7 @@ class TestNip11InfoMetadataConstruction:
         info_data: Nip11InfoData,
         info_logs_success: Nip11InfoLogs,
     ):
-        """Constructor creates container with data and logs."""
+        """Constructor creates the result container with data and logs."""
         metadata = Nip11InfoMetadata(data=info_data, logs=info_logs_success)
         assert metadata.data == info_data
         assert metadata.logs == info_logs_success
@@ -109,13 +109,13 @@ class TestNip11InfoMetadataRoundtrip:
     """Test to_dict -> from_dict roundtrip."""
 
     def test_roundtrip_success(self, info_metadata: Nip11InfoMetadata):
-        """Roundtrip preserves success metadata."""
+        """Roundtrip preserves a successful result container."""
         reconstructed = Nip11InfoMetadata.from_dict(info_metadata.to_dict())
         assert reconstructed.data.name == info_metadata.data.name
         assert reconstructed.logs.success == info_metadata.logs.success
 
     def test_roundtrip_failure(self, info_metadata_failed: Nip11InfoMetadata):
-        """Roundtrip preserves failure metadata."""
+        """Roundtrip preserves a failed result container."""
         reconstructed = Nip11InfoMetadata.from_dict(info_metadata_failed.to_dict())
         assert reconstructed.logs.success is False
         assert reconstructed.logs.reason == info_metadata_failed.logs.reason
@@ -139,7 +139,7 @@ class TestNip11InfoMetadataSuccess:
     """Test Nip11InfoMetadata.fetch() success scenarios."""
 
     async def test_info_success(self, relay: Relay, mock_session_factory):
-        """Successful retrieval returns metadata with data."""
+        """Successful retrieval returns a result container with data."""
         response = AsyncMock()
         response.status = 200
         response.headers = {"Content-Type": "application/nostr+json"}

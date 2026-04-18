@@ -198,13 +198,13 @@ class TestNip11Serialization:
         assert result.nip11_info.relay is nip11.relay
         assert result.nip11_info.associated_at == nip11.generated_at
 
-    def test_to_relay_document_tuple_contains_metadata(self, nip11: Nip11):
-        """RelayDocument contains Document with info data."""
+    def test_to_relay_document_tuple_contains_document(self, nip11: Nip11):
+        """RelayDocument contains the stored info document payload."""
         result = nip11.to_relay_document_tuple()
-        metadata = result.nip11_info.document
-        assert isinstance(metadata, Document)
-        assert metadata.data["data"]["name"] == "Test Relay"
-        assert metadata.data["logs"]["success"] is True
+        document = result.nip11_info.document
+        assert isinstance(document, Document)
+        assert document.data["data"]["name"] == "Test Relay"
+        assert document.data["logs"]["success"] is True
 
     def test_to_relay_document_tuple_none_info(self, nip11_no_info: Nip11):
         """to_relay_document_tuple returns None for nip11_info when info is None."""
@@ -708,7 +708,7 @@ class TestNip11Integration:
         assert result.nip11_info is not None
         assert result.nip11_info.document.data["logs"]["success"] is False
 
-    def test_roundtrip_through_metadata(
+    def test_roundtrip_through_document(
         self,
         relay: Relay,
         complete_nip11_data: dict[str, Any],
@@ -720,8 +720,8 @@ class TestNip11Integration:
         nip11 = Nip11(relay=relay, info=info_metadata)
 
         result = nip11.to_relay_document_tuple()
-        metadata_dict = result.nip11_info.document.data
-        reconstructed = Nip11InfoMetadata.from_dict(metadata_dict)
+        document_data = result.nip11_info.document.data
+        reconstructed = Nip11InfoMetadata.from_dict(document_data)
 
         assert reconstructed.data.name == info_data.name
         assert reconstructed.data.supported_nips == info_data.supported_nips

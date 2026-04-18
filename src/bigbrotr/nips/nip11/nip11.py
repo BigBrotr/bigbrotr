@@ -1,7 +1,8 @@
 """
 Top-level NIP-11 model with semantic fetch entrypoint and database serialization.
 
-Wraps the [Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]
+Wraps the historical-name
+[Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata] result
 container and provides ``fetch()`` for retrieving a relay's
 [NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md) information
 document, and ``to_relay_document_tuple()`` for converting the result into
@@ -118,7 +119,8 @@ class Nip11(BaseNip):
     Attributes:
         relay: The [Relay][bigbrotr.models.relay.Relay] this document belongs to
             (inherited from [BaseNip][bigbrotr.nips.base.BaseNip]).
-        info: Info data and logs (``None`` if retrieval was not attempted).
+        info: Historical-name result container holding the parsed info document
+            and its logs (``None`` if retrieval was not attempted).
         generated_at: Unix timestamp of when the document was retrieved
             (inherited from [BaseNip][bigbrotr.nips.base.BaseNip]).
 
