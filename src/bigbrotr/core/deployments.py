@@ -1,4 +1,4 @@
-"""Helpers for built-in deployment-folder contracts and path resolution."""
+"""Helpers for built-in deployment contracts, storage profiles, and path resolution."""
 
 from __future__ import annotations
 
@@ -12,8 +12,11 @@ if TYPE_CHECKING:
 
 
 DeploymentProfile = Literal["bigbrotr", "lilbrotr"]
+StorageProfile = Literal["full_archive", "lightweight_archive"]
+EventPayloadMode = Literal["full", "lightweight"]
 DEFAULT_DEPLOYMENT_PROFILE: DeploymentProfile = "bigbrotr"
 BUILTIN_DEPLOYMENT_PROFILES: tuple[DeploymentProfile, ...] = ("bigbrotr", "lilbrotr")
+BUILTIN_STORAGE_PROFILES: tuple[StorageProfile, ...] = ("full_archive", "lightweight_archive")
 
 CONFIG_DIR = Path("config")
 BROTR_CONFIG = CONFIG_DIR / "brotr.yaml"
@@ -30,8 +33,80 @@ _REQUIRED_DEPLOYMENT_PATHS: tuple[Path, ...] = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class StorageProfileSpec:
+    """Contract metadata for one storage profile."""
+
+    name: StorageProfile
+    description: str
+    event_payload_mode: EventPayloadMode
+    sql_template_namespace: str | None
+    stores_event_tags: bool
+    stores_event_content: bool
+    stores_event_signature: bool
+
+    @property
+    def stores_full_event_payload(self) -> bool:
+        """Return whether this profile stores the full Nostr event payload."""
+        return self.event_payload_mode == "full"
+
+
+@dataclass(frozen=True, slots=True)
+class BuiltinDeploymentSpec:
+    """Contract metadata for one built-in deployment profile."""
+
+    name: DeploymentProfile
+    description: str
+    database_name: str
+    storage_profile: StorageProfile
+
+
+_STORAGE_PROFILE_SPECS: dict[StorageProfile, StorageProfileSpec] = {
+    "full_archive": StorageProfileSpec(
+        name="full_archive",
+        description="Complete event archive with tags, content, and signatures stored.",
+        event_payload_mode="full",
+        sql_template_namespace=None,
+        stores_event_tags=True,
+        stores_event_content=True,
+        stores_event_signature=True,
+    ),
+    "lightweight_archive": StorageProfileSpec(
+        name="lightweight_archive",
+        description=(
+            "Compact event archive that keeps event identity, metadata, and tagvalues while "
+            "leaving tags/content/signature nullable and unpopulated."
+        ),
+        event_payload_mode="lightweight",
+        sql_template_namespace="lilbrotr",
+        stores_event_tags=False,
+        stores_event_content=False,
+        stores_event_signature=False,
+    ),
+}
+
+_BUILTIN_DEPLOYMENT_SPECS: dict[DeploymentProfile, BuiltinDeploymentSpec] = {
+    "bigbrotr": BuiltinDeploymentSpec(
+        name="bigbrotr",
+        description="Reference deployment for the full archive storage profile.",
+        database_name="bigbrotr",
+        storage_profile="full_archive",
+    ),
+    "lilbrotr": BuiltinDeploymentSpec(
+        name="lilbrotr",
+        description="Reference deployment for the lightweight archive storage profile.",
+        database_name="lilbrotr",
+        storage_profile="lightweight_archive",
+    ),
+}
+
+
 def _is_builtin_profile(profile: str) -> TypeGuard[DeploymentProfile]:
     return profile in BUILTIN_DEPLOYMENT_PROFILES
+
+
+def _is_storage_profile(profile: str) -> TypeGuard[StorageProfile]:
+    return profile in BUILTIN_STORAGE_PROFILES
 
 
 def _normalize_builtin_profile(profile: str) -> DeploymentProfile:
@@ -42,6 +117,28 @@ def _normalize_builtin_profile(profile: str) -> DeploymentProfile:
             f"Unsupported built-in deployment profile: {profile!r} (expected one of {choices})"
         )
     return profile
+
+
+def _normalize_storage_profile(profile: str) -> StorageProfile:
+    """Validate and normalize one built-in storage profile name."""
+    if not _is_storage_profile(profile):
+        choices = ", ".join(BUILTIN_STORAGE_PROFILES)
+        raise ValueError(
+            f"Unsupported built-in storage profile: {profile!r} (expected one of {choices})"
+        )
+    return profile
+
+
+def builtin_deployment_spec(profile: str) -> BuiltinDeploymentSpec:
+    """Return the canonical contract metadata for one built-in deployment."""
+    normalized_profile = _normalize_builtin_profile(profile)
+    return _BUILTIN_DEPLOYMENT_SPECS[normalized_profile]
+
+
+def storage_profile_spec(profile: str) -> StorageProfileSpec:
+    """Return the canonical contract metadata for one built-in storage profile."""
+    normalized_profile = _normalize_storage_profile(profile)
+    return _STORAGE_PROFILE_SPECS[normalized_profile]
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +152,21 @@ class DeploymentLayout:
     def brotr_config_path(self) -> Path:
         """Return the shared brotr config path for this deployment."""
         return self.root / BROTR_CONFIG
+
+    @property
+    def spec(self) -> BuiltinDeploymentSpec:
+        """Return the canonical built-in deployment metadata."""
+        return builtin_deployment_spec(self.name)
+
+    @property
+    def storage_profile(self) -> StorageProfile:
+        """Return the storage profile used by this deployment."""
+        return self.spec.storage_profile
+
+    @property
+    def storage_profile_contract(self) -> StorageProfileSpec:
+        """Return the storage-profile contract metadata for this deployment."""
+        return storage_profile_spec(self.storage_profile)
 
     @property
     def service_config_dir(self) -> Path:

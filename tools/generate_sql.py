@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate SQL init files from Jinja2 templates.
+"""Generate deployment SQL init files from storage-profile-backed templates.
 
 Usage:
     python generate_sql.py              # Generate SQL files
@@ -15,6 +15,15 @@ from jinja2 import Environment, FileSystemLoader
 
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+
+from bigbrotr.core.deployments import (  # noqa: E402
+    BUILTIN_DEPLOYMENT_PROFILES,
+    builtin_deployment_spec,
+    storage_profile_spec,
+)
+
+
 TEMPLATE_DIR = ROOT / "tools" / "templates" / "sql"
 
 # Base templates rendered by every implementation unless overridden.
@@ -36,17 +45,21 @@ BASE_TEMPLATES: list[str] = [
     "99_verify",
 ]
 
-# Implementations to generate. Each key maps to a deployments/{name}/ directory.
-# Values may contain overrides: None = skip template, str = rename output file.
-OVERRIDES: dict[str, dict[str, str | None]] = {
-    "bigbrotr": {},
-    "lilbrotr": {},
+# Deployment init packages to generate. Each entry maps to one built-in
+# deployment folder under ``deployments/<name>/``.
+GENERATED_DEPLOYMENTS: tuple[str, ...] = BUILTIN_DEPLOYMENT_PROFILES
+
+# Optional deployment-local output overrides: None = skip template,
+# str = rename output file. Keep this deployment-scoped so new deployments can
+# still vary output shape even when they share the same storage profile.
+OUTPUT_OVERRIDES: dict[str, dict[str, str | None]] = {
+    deployment_name: {} for deployment_name in GENERATED_DEPLOYMENTS
 }
 
 
-def _resolve_file_map(impl_name: str) -> dict[str, str]:
+def _resolve_file_map(deployment_name: str) -> dict[str, str]:
     """Resolve effective {base_template: output_filename} mapping."""
-    overrides = OVERRIDES[impl_name]
+    overrides = OUTPUT_OVERRIDES[deployment_name]
     result: dict[str, str] = {}
     for stem in BASE_TEMPLATES:
         if stem in overrides:
@@ -59,6 +72,17 @@ def _resolve_file_map(impl_name: str) -> dict[str, str]:
     return result
 
 
+def _resolve_template_path(deployment_name: str, base_name: str, out_name: str) -> str:
+    """Resolve the Jinja template path for one generated SQL output file."""
+    profile = storage_profile_spec(builtin_deployment_spec(deployment_name).storage_profile)
+    if profile.sql_template_namespace is not None:
+        profile_template = f"{profile.sql_template_namespace}/{out_name}.j2"
+        profile_template_path = TEMPLATE_DIR / profile.sql_template_namespace / f"{out_name}.j2"
+        if profile_template_path.exists():
+            return profile_template
+    return f"base/{base_name}"
+
+
 def generate() -> dict[str, str]:
     """Generate all SQL files, return {relative_path: content} dict."""
     env = Environment(  # noqa: S701 -- SQL templates, not HTML; autoescape N/A
@@ -69,18 +93,13 @@ def generate() -> dict[str, str]:
     )
     output: dict[str, str] = {}
 
-    for impl_name in OVERRIDES:
-        file_map = _resolve_file_map(impl_name)
+    for deployment_name in GENERATED_DEPLOYMENTS:
+        file_map = _resolve_file_map(deployment_name)
         for base_name, out_name in file_map.items():
-            # Check for implementation-specific override template
-            impl_template = f"{impl_name}/{out_name}.j2"
-            impl_template_path = TEMPLATE_DIR / impl_name / f"{out_name}.j2"
-
-            template_path = impl_template if impl_template_path.exists() else f"base/{base_name}"
-
+            template_path = _resolve_template_path(deployment_name, base_name, out_name)
             rendered = env.get_template(template_path).render()
 
-            rel_path = f"deployments/{impl_name}/postgres/init/{out_name}"
+            rel_path = f"deployments/{deployment_name}/postgres/init/{out_name}"
             output[rel_path] = rendered
 
     return output
@@ -116,12 +135,12 @@ def _check(generated: dict[str, str]) -> None:
             _print_first_diff(existing_content, content)
 
     # Detect orphaned SQL files not produced by templates
-    for impl_name in OVERRIDES:
-        init_dir = ROOT / "deployments" / impl_name / "postgres" / "init"
+    for deployment_name in GENERATED_DEPLOYMENTS:
+        init_dir = ROOT / "deployments" / deployment_name / "postgres" / "init"
         if not init_dir.exists():
             continue
         for sql_file in sorted(init_dir.glob("*.sql")):
-            rel = f"deployments/{impl_name}/postgres/init/{sql_file.name}"
+            rel = f"deployments/{deployment_name}/postgres/init/{sql_file.name}"
             if rel not in generated:
                 mismatches.append(f"ORPHAN: {rel}")
 

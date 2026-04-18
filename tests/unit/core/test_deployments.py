@@ -4,10 +4,13 @@ import pytest
 
 from bigbrotr.core.deployments import (
     BUILTIN_DEPLOYMENT_PROFILES,
+    BUILTIN_STORAGE_PROFILES,
     DEFAULT_DEPLOYMENT_PROFILE,
     DeploymentLayout,
+    builtin_deployment_spec,
     deployment_layout,
     resolve_builtin_deployment_root,
+    storage_profile_spec,
 )
 
 
@@ -34,6 +37,8 @@ class TestDeploymentProfiles:
 
         assert isinstance(layout, DeploymentLayout)
         assert layout.name == "bigbrotr"
+        assert layout.storage_profile == "full_archive"
+        assert layout.storage_profile_contract.stores_full_event_payload is True
         assert layout.root == Path.cwd().resolve() / "deployments" / "bigbrotr"
         assert layout.brotr_config_path == layout.root / "config" / "brotr.yaml"
         assert (
@@ -72,3 +77,38 @@ class TestDeploymentProfiles:
             deployment_root / "config" / "services" / "finder.yaml",
             deployment_root / "config" / "services" / "monitor.yaml",
         )
+
+
+class TestStorageProfiles:
+    def test_builtin_storage_profiles_have_explicit_contracts(self) -> None:
+        assert BUILTIN_STORAGE_PROFILES == ("full_archive", "lightweight_archive")
+
+    def test_bigbrotr_uses_full_archive_profile(self) -> None:
+        spec = builtin_deployment_spec("bigbrotr")
+        profile = storage_profile_spec(spec.storage_profile)
+
+        assert spec.database_name == "bigbrotr"
+        assert spec.storage_profile == "full_archive"
+        assert profile.event_payload_mode == "full"
+        assert profile.sql_template_namespace is None
+        assert profile.stores_full_event_payload is True
+        assert profile.stores_event_tags is True
+        assert profile.stores_event_content is True
+        assert profile.stores_event_signature is True
+
+    def test_lilbrotr_uses_lightweight_archive_profile(self) -> None:
+        spec = builtin_deployment_spec("lilbrotr")
+        profile = storage_profile_spec(spec.storage_profile)
+
+        assert spec.database_name == "lilbrotr"
+        assert spec.storage_profile == "lightweight_archive"
+        assert profile.event_payload_mode == "lightweight"
+        assert profile.sql_template_namespace == "lilbrotr"
+        assert profile.stores_full_event_payload is False
+        assert profile.stores_event_tags is False
+        assert profile.stores_event_content is False
+        assert profile.stores_event_signature is False
+
+    def test_invalid_storage_profile_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported built-in storage profile"):
+            storage_profile_spec("custom_archive")
