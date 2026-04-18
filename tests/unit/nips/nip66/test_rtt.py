@@ -13,6 +13,7 @@ Tests:
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -209,6 +210,43 @@ class TestNip66RttMetadataTestWrite:
         assert result["rtt_write"] is not None
         assert isinstance(result["rtt_write"], int)
         assert result["write_reason"] is None
+
+    async def test_write_verification_uses_remaining_timeout_budget(
+        self,
+        mock_nostr_client: MagicMock,
+        mock_event_builder: MagicMock,
+    ) -> None:
+        """Verification receives only the timeout budget left after publish."""
+        from nostr_sdk import RelayUrl
+
+        relay_url = RelayUrl.parse("wss://relay.example.com")
+        mock_output = MagicMock()
+        mock_output.success = [relay_url]
+        mock_output.failed = {}
+        mock_output.id = MagicMock()
+
+        async def slow_send(*args: Any, **kwargs: Any) -> MagicMock:
+            await asyncio.sleep(0.05)
+            return mock_output
+
+        mock_nostr_client.send_event_builder = AsyncMock(side_effect=slow_send)
+
+        with patch.object(
+            Nip66RttMetadata,
+            "_verify_write",
+            new_callable=AsyncMock,
+            return_value={"verified": True, "reason": None},
+        ) as mock_verify:
+            result = await Nip66RttMetadata._test_write(
+                mock_nostr_client,
+                mock_event_builder,
+                relay_url,
+                0.1,
+                "wss://relay.example.com",
+            )
+
+        assert result["write_success"] is True
+        assert 0 < mock_verify.await_args.args[2] < 0.1
 
     async def test_write_rejected_by_relay(
         self,

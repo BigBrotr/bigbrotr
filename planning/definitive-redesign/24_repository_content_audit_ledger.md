@@ -261,6 +261,12 @@ Use this section during execution for:
     accidentally giving each attempt the full caller timeout;
   - paired `nip11/test_info.py` coverage now pins the reduced remaining-time
     behavior on the fallback path directly.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-seventh remediation slice:
+  - the RTT write phase now spends one shared timeout budget across publish
+    and verification instead of accidentally allowing the verification fetch
+    to spend the full caller timeout a second time;
+  - paired `nip66/test_rtt.py` coverage now pins the reduced remaining-time
+    budget passed into `_verify_write()`.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

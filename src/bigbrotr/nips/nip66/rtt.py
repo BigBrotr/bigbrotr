@@ -39,7 +39,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import timedelta
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import TYPE_CHECKING, Any, NamedTuple, Self
 
 from nostr_sdk import Filter, NostrSdkError, RelayUrl
@@ -301,15 +301,24 @@ class Nip66RttMetadata(BaseNipMetadata):
         """Test the write capability by publishing an event and verifying storage.
 
         Returns a result dict with ``write_success``, ``write_reason``, and
-        ``rtt_write`` (milliseconds, only set on verified success).
+        ``rtt_write`` (milliseconds, only set on verified success). The
+        timeout budget is shared across the publish and verification steps.
         """
         result: dict[str, Any] = {"write_success": False, "write_reason": None, "rtt_write": None}
+        deadline = monotonic() + timeout
+
+        def _remaining_timeout(error_message: str) -> float:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError(error_message)
+            return remaining
 
         try:
             logger.debug("rtt_writing relay=%s", relay_url_str)
             start = perf_counter()
             output = await asyncio.wait_for(
-                client.send_event_builder(event_builder), timeout=timeout
+                client.send_event_builder(event_builder),
+                timeout=_remaining_timeout("write timeout during publish"),
             )
             rtt_write = int((perf_counter() - start) * 1000)
 
@@ -323,7 +332,10 @@ class Nip66RttMetadata(BaseNipMetadata):
                 )
                 # Verify the event can be retrieved back from the relay
                 verify_result = await Nip66RttMetadata._verify_write(
-                    client, output.id, timeout, relay_url_str
+                    client,
+                    output.id,
+                    _remaining_timeout("write timeout during verification"),
+                    relay_url_str,
                 )
                 if verify_result["verified"]:
                     result["rtt_write"] = rtt_write
