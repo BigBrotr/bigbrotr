@@ -6,7 +6,13 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
-from .queries import ContactListFact, FollowEdgeFact, GraphSyncCheckpoint, ScoreExportRow
+from .queries import (
+    ContactListFact,
+    FollowEdgeFact,
+    GraphSyncCheckpoint,
+    ScoreExportRow,
+    _normalize_ranker_pubkey,
+)
 
 
 if TYPE_CHECKING:
@@ -343,7 +349,7 @@ def fetch_pubkey_score_batch(
 
     return [
         ScoreExportRow(
-            subject_id=subject_id,
+            subject_id=_normalize_ranker_pubkey(subject_id, allow_empty=False),
             score=score,
         )
         for subject_id, score in rows

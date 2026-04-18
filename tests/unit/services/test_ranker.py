@@ -508,9 +508,54 @@ class TestRankerQueries:
                 limit=10,
             )
 
+    def test_pubkey_score_fetch_normalizes_hex_subject_ids(self) -> None:
+        count_result = MagicMock()
+        count_result.fetchone.return_value = (1,)
+        row_result = MagicMock()
+        row_result.fetchall.return_value = [("AB" * 32, 50.0)]
+        conn = MagicMock()
+        conn.execute.side_effect = [count_result, row_result]
+
+        rows = store_graph.fetch_pubkey_score_batch(
+            conn,
+            after_subject_id="",
+            limit=10,
+        )
+
+        assert rows == [ScoreExportRow("ab" * 32, 50.0)]
+
     def test_non_user_score_fetch_rejects_invalid_export_rows(self) -> None:
         row_result = MagicMock()
         row_result.fetchall.return_value = [("", 50.0)]
+        conn = MagicMock()
+        conn.execute.return_value = row_result
+
+        with pytest.raises(ValueError):
+            store_non_user.fetch_score_batch(
+                conn,
+                table_name="nip85_event_ranks_curr",
+                after_subject_id="",
+                limit=10,
+            )
+
+    def test_event_score_fetch_normalizes_hex_subject_ids(self) -> None:
+        row_result = MagicMock()
+        row_result.fetchall.return_value = [("AB" * 32, 50.0)]
+        conn = MagicMock()
+        conn.execute.return_value = row_result
+
+        rows = store_non_user.fetch_score_batch(
+            conn,
+            table_name="nip85_event_ranks_curr",
+            after_subject_id="",
+            limit=10,
+        )
+
+        assert rows == [ScoreExportRow("ab" * 32, 50.0)]
+
+    def test_event_score_fetch_rejects_invalid_hex_subject_ids(self) -> None:
+        row_result = MagicMock()
+        row_result.fetchall.return_value = [("not-a-hex-id", 50.0)]
         conn = MagicMock()
         conn.execute.return_value = row_result
 

@@ -1968,3 +1968,12 @@ Use this section during execution for:
   - added paired `ranker` export coverage proving invalid pubkey and non-user
     score rows now fail fast at the DuckDB fetch boundary instead of being
     silently reshaped into apparently valid public score payloads.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-sixty-second remediation
+  slice:
+  - tightened the subject-specific `ranker` export seam so final pubkey and
+    event score fetches now require canonical 32-byte hex identifiers, which
+    previously let corrupted DuckDB `pubkey_nodes` or `nip85_event_ranks_curr`
+    rows escape as non-empty but semantically invalid public score subjects;
+  - added paired `ranker` export coverage proving uppercase hex subjects are
+    normalized to lowercase while malformed hex identifiers now fail fast
+    before score batches can be staged into PostgreSQL.

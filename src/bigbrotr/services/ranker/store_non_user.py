@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
 
-from .queries import AddressableStatFact, EventStatFact, IdentifierStatFact, ScoreExportRow
+from .queries import (
+    AddressableStatFact,
+    EventStatFact,
+    IdentifierStatFact,
+    ScoreExportRow,
+    _normalize_ranker_hex_id,
+    _require_ranker_text,
+)
 
 
 if TYPE_CHECKING:
@@ -160,11 +167,18 @@ def fetch_score_batch(
 
     return [
         ScoreExportRow(
-            subject_id=subject_id,
+            subject_id=_normalize_score_subject_id(table_name, subject_id),
             score=score,
         )
         for subject_id, score in rows
     ]
+
+
+def _normalize_score_subject_id(table_name: str, value: object) -> str:
+    """Return one canonical subject id for the requested score snapshot table."""
+    if table_name == "nip85_event_ranks_curr":
+        return _normalize_ranker_hex_id(value, field_name="subject_id")
+    return _require_ranker_text(value, field_name="subject_id")
 
 
 _SCORE_BATCH_QUERIES: Final[dict[str, str]] = {
