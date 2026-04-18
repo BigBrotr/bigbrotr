@@ -12,6 +12,7 @@ from .queries import (
     GraphSyncCheckpoint,
     ScoreExportRow,
     _normalize_ranker_pubkey,
+    _require_ranker_non_negative_int,
 )
 
 
@@ -23,6 +24,25 @@ if TYPE_CHECKING:
 
 _DEFAULT_CHECKPOINT: Final[GraphSyncCheckpoint] = GraphSyncCheckpoint()
 _GRAPH_CHECKPOINT_NAME: Final[str] = "graph"
+
+
+def _require_positive_node_id(value: object, *, field_name: str) -> int:
+    """Return one canonical positive local node id."""
+    normalized = _require_ranker_non_negative_int(value, field_name=field_name)
+    if normalized == 0:
+        raise ValueError(f"{field_name} must be positive")
+    return normalized
+
+
+def _decode_node_row(
+    pubkey: object,
+    node_id: object,
+) -> tuple[str, int]:
+    """Return one canonical ``pubkey_nodes`` row."""
+    return (
+        _normalize_ranker_pubkey(pubkey, allow_empty=False),
+        _require_positive_node_id(node_id, field_name="node_id"),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,11 +146,17 @@ def ensure_node_ids(
         """
         SELECT pubkey, node_id
         FROM pubkey_nodes
-        WHERE pubkey = ANY(?)
+        WHERE LOWER(pubkey) = ANY(?)
         """,
         [pubkeys],
     ).fetchall()
-    node_ids = {str(pubkey): int(node_id) for pubkey, node_id in rows}
+    node_ids: dict[str, int] = {}
+    for pubkey, node_id in rows:
+        normalized_pubkey, normalized_node_id = _decode_node_row(pubkey, node_id)
+        existing_node_id = node_ids.get(normalized_pubkey)
+        if existing_node_id is not None and existing_node_id != normalized_node_id:
+            raise ValueError(f"duplicate node_id mapping for pubkey {normalized_pubkey}")
+        node_ids[normalized_pubkey] = normalized_node_id
 
     missing = [pubkey for pubkey in pubkeys if pubkey not in node_ids]
     if not missing:
@@ -139,7 +165,10 @@ def ensure_node_ids(
     next_node_row = conn.execute(
         "SELECT COALESCE(MAX(node_id), 0) + 1 FROM pubkey_nodes"
     ).fetchone()
-    next_node_id = int(next_node_row[0]) if next_node_row is not None else 1
+    next_node_id = _require_positive_node_id(
+        next_node_row[0] if next_node_row is not None else 1,
+        field_name="node_id",
+    )
     new_rows = []
     for offset, pubkey in enumerate(missing):
         node_id = next_node_id + offset

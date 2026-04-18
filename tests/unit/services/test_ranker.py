@@ -1086,6 +1086,45 @@ class TestRankerStore:
             assert store._ensure_node_ids(conn, []) == {}
             store._delete_followers(conn, [])
 
+    def test_ensure_node_ids_reuses_uppercase_persisted_pubkeys(self, tmp_path: Path) -> None:
+        store = RankerStore(
+            db_path=tmp_path / "ranker.duckdb",
+            checkpoint_path=tmp_path / "ranker.checkpoint.json",
+        )
+        store.ensure_initialized()
+
+        pubkey = "ab" * 32
+        with duckdb.connect(str(tmp_path / "ranker.duckdb")) as conn:
+            conn.execute(
+                "INSERT INTO pubkey_nodes (node_id, pubkey) VALUES (?, ?)",
+                [7, pubkey.upper()],
+            )
+
+            assert store._ensure_node_ids(conn, [pubkey]) == {pubkey: 7}
+
+            rows = conn.execute(
+                "SELECT node_id, pubkey FROM pubkey_nodes ORDER BY node_id ASC"
+            ).fetchall()
+
+        assert rows == [(7, pubkey.upper())]
+
+    def test_ensure_node_ids_rejects_invalid_persisted_node_ids(self, tmp_path: Path) -> None:
+        store = RankerStore(
+            db_path=tmp_path / "ranker.duckdb",
+            checkpoint_path=tmp_path / "ranker.checkpoint.json",
+        )
+        store.ensure_initialized()
+
+        pubkey = "ab" * 32
+        with duckdb.connect(str(tmp_path / "ranker.duckdb")) as conn:
+            conn.execute(
+                "INSERT INTO pubkey_nodes (node_id, pubkey) VALUES (?, ?)",
+                [-1, pubkey],
+            )
+
+            with pytest.raises(ValueError, match="node_id must be"):
+                store._ensure_node_ids(conn, [pubkey])
+
     def test_compute_non_user_ranks_matches_formulas_and_normalization(
         self, tmp_path: Path
     ) -> None:

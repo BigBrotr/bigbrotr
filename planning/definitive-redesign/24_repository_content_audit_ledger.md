@@ -1995,3 +1995,12 @@ Use this section during execution for:
     contract used everywhere else in the same sync path;
   - added paired `ranker` query coverage proving `None` still degrades to the
     canonical zero watermark while malformed values now fail fast.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-sixty-fifth remediation
+  slice:
+  - tightened the private `ranker` node-map boundary so `pubkey_nodes`
+    lookups no longer depend on raw case-sensitive matches or broad `str(...)`
+    / `int(...)` coercions, which previously let uppercase persisted pubkeys
+    drift into duplicate semantic nodes and allowed malformed local `node_id`
+    values to re-enter graph sync state;
+  - added paired `ranker` store coverage proving uppercase persisted pubkeys
+    are now reused canonically while invalid persisted node ids fail fast.
