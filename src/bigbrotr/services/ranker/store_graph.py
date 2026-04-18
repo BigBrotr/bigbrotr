@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
@@ -31,6 +32,18 @@ def _require_positive_node_id(value: object, *, field_name: str) -> int:
     normalized = _require_ranker_non_negative_int(value, field_name=field_name)
     if normalized == 0:
         raise ValueError(f"{field_name} must be positive")
+    return normalized
+
+
+def _require_non_negative_graph_float(value: object, *, field_name: str) -> float:
+    """Return one canonical non-negative finite graph float value."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{field_name} must be a float")
+    normalized = float(value)
+    if not math.isfinite(normalized):
+        raise ValueError(f"{field_name} must be finite")
+    if normalized < 0.0:
+        raise ValueError(f"{field_name} must be non-negative")
     return normalized
 
 
@@ -355,7 +368,10 @@ def compute_pubkey_pagerank(
 
         for _ in range(iterations):
             dangling_row = conn.execute(dangling_mass_query).fetchone()
-            dangling_mass = float(dangling_row[0]) if dangling_row is not None else 0.0
+            dangling_mass = _require_non_negative_graph_float(
+                dangling_row[0] if dangling_row is not None else 0.0,
+                field_name="dangling_mass",
+            )
 
             conn.execute("DELETE FROM pagerank_next")
             conn.execute(

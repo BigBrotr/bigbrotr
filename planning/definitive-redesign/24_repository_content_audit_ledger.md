@@ -2021,3 +2021,12 @@ Use this section during execution for:
     the typed `IdentifierStatFact` boundary;
   - added paired `ranker` coverage proving `None` still degrades to the
     canonical empty tag set while falsey non-array payloads now fail fast.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-sixty-eighth remediation
+  slice:
+  - tightened the private `ranker` PageRank boundary so
+    `compute_pubkey_pagerank()` no longer coerces DuckDB `dangling_mass` rows
+    via raw `float(...)`, which previously let malformed boolean, negative, or
+    non-finite local snapshot values poison the next iteration instead of
+    failing at the typed graph boundary;
+  - added paired `ranker` coverage proving invalid `dangling_mass` payloads
+    now fail fast and trigger rollback of the local ranking transaction.

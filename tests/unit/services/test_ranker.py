@@ -619,6 +619,47 @@ class TestRankerQueries:
                 limit=10,
             )
 
+    @pytest.mark.parametrize(
+        ("dangling_mass", "expected_exception"),
+        [
+            (True, TypeError),
+            (float("nan"), ValueError),
+            (-1.0, ValueError),
+        ],
+    )
+    def test_compute_pubkey_pagerank_rejects_invalid_dangling_mass(
+        self,
+        dangling_mass: object,
+        expected_exception: type[Exception],
+    ) -> None:
+        node_count_result = MagicMock()
+        node_count_result.fetchone.return_value = (1,)
+        dangling_result = MagicMock()
+        dangling_result.fetchone.return_value = (dangling_mass,)
+        passthrough_result = MagicMock()
+        passthrough_result.fetchone.return_value = None
+
+        conn = MagicMock()
+
+        def execute_side_effect(query: str, params: object = None) -> MagicMock:
+            if query == store_graph._ACTIVE_NODE_COUNT_QUERY:
+                return node_count_result
+            if "SELECT COALESCE(SUM(c.raw_score), 0.0)" in query:
+                return dangling_result
+            return passthrough_result
+
+        conn.execute.side_effect = execute_side_effect
+
+        with pytest.raises(expected_exception):
+            store_graph.compute_pubkey_pagerank(
+                conn,
+                damping=0.85,
+                iterations=1,
+                ignore_self_follows=False,
+            )
+
+        assert any(call.args[0] == "ROLLBACK" for call in conn.execute.call_args_list)
+
     def test_non_user_score_fetch_rejects_invalid_export_rows(self) -> None:
         row_result = MagicMock()
         row_result.fetchall.return_value = [("", 50.0)]
