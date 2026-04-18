@@ -337,6 +337,14 @@ Use this section during execution for:
   - paired `http` coverage now pins that both lowercase and mixed-case header
     spellings still hydrate the canonical `http_server` and
     `http_powered_by` fields.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-sixteenth remediation slice:
+  - `bigbrotr.nips.nip66.dns.Nip66DnsMetadata._dns()` no longer leaves
+    IPv6-only relays without reverse-DNS coverage; PTR lookup now uses the
+    canonical primary resolved IP address, preferring IPv4 when present but
+    falling back to IPv6 when it is the only family available;
+  - paired `dns` coverage now pins that PTR lookup still follows the stable
+    canonical IPv4 address when both families exist and correctly falls back
+    to the canonical IPv6 address when no A record is available.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

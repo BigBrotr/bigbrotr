@@ -16,8 +16,9 @@ Note:
 
     NS records are resolved against the **registered domain** (e.g.,
     ``damus.io`` for ``relay.damus.io``) using ``tldextract`` to identify
-    the public suffix boundary. Reverse DNS (PTR) uses the first resolved
-    IPv4 address.
+    the public suffix boundary. Reverse DNS (PTR) uses the first canonical
+    resolved IP address, preferring IPv4 when both address families are
+    available.
 
 See Also:
     [bigbrotr.nips.nip66.data.Nip66DnsData][bigbrotr.nips.nip66.data.Nip66DnsData]:
@@ -158,11 +159,16 @@ class Nip66DnsMetadata(BaseNipMetadata):
                 if ns_list:
                     result["dns_ns"] = ns_list
 
-        # Reverse DNS (PTR) using the canonical primary IPv4 address
+        # Reverse DNS (PTR) using the canonical primary resolved IP, preferring IPv4
+        reverse_ip = None
         if result.get("dns_ips"):
+            reverse_ip = result["dns_ips"][0]
+        elif result.get("dns_ips_v6"):
+            reverse_ip = result["dns_ips_v6"][0]
+
+        if reverse_ip:
             with contextlib.suppress(*_dns_errors):
-                ip = result["dns_ips"][0]
-                reverse_name = dns.reversename.from_address(ip)
+                reverse_name = dns.reversename.from_address(reverse_ip)
                 answers = resolver.resolve(reverse_name, "PTR")
                 for rdata in answers:
                     result["dns_reverse"] = str(cast("PTR", rdata).target).rstrip(".")

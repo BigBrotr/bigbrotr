@@ -241,6 +241,44 @@ class TestNip66DnsMetadataDnsSync:
         mock_reverse_name.assert_called_once_with("8.8.4.4")
         assert result.get("dns_reverse") == "dns.google"
 
+    def test_ptr_falls_back_to_canonical_primary_ipv6(self) -> None:
+        """PTR lookup uses the canonical IPv6 address when no IPv4 records exist."""
+        mock_aaaa_response = MagicMock()
+        mock_aaaa_rdata1 = MagicMock()
+        mock_aaaa_rdata1.address = "2001:4860:4860::8888"
+        mock_aaaa_rdata2 = MagicMock()
+        mock_aaaa_rdata2.address = "2001:4860:4860::8844"
+        mock_aaaa_response.__iter__ = lambda _: iter([mock_aaaa_rdata1, mock_aaaa_rdata2])
+
+        mock_ptr_response = MagicMock()
+        mock_ptr_rdata = MagicMock()
+        mock_ptr_rdata.target = "dns.google."
+        mock_ptr_response.__iter__ = lambda _: iter([mock_ptr_rdata])
+
+        mock_resolver = MagicMock()
+
+        def resolve_side_effect(*args: Any, **kwargs: Any) -> MagicMock:
+            if args[1] == "AAAA":
+                return mock_aaaa_response
+            if args[1] == "PTR":
+                return mock_ptr_response
+            raise dns.resolver.NXDOMAIN
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        with (
+            patch("dns.resolver.Resolver", return_value=mock_resolver),
+            patch(
+                "dns.reversename.from_address",
+                return_value="2001:4860:4860::8844.ip6.arpa",
+            ) as mock_reverse_name,
+        ):
+            result = Nip66DnsMetadata._dns("example.com", 5.0)
+
+        assert result.get("dns_ips_v6") == ["2001:4860:4860::8844", "2001:4860:4860::8888"]
+        mock_reverse_name.assert_called_once_with("2001:4860:4860::8844")
+        assert result.get("dns_reverse") == "dns.google"
+
     def test_empty_result_when_no_records(self) -> None:
         """Return empty dict when no DNS records found."""
         mock_resolver = MagicMock()
