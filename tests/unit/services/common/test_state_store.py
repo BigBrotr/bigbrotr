@@ -100,7 +100,9 @@ class TestPayloadCodecs:
         "payload",
         [
             {"timestamp": True, "network": "tor", "failures": 3},
+            {"timestamp": -1, "network": "tor", "failures": 3},
             {"timestamp": 789, "network": "tor", "failures": True},
+            {"timestamp": 789, "network": "tor", "failures": -1},
             {"timestamp": 789, "network": 123, "failures": 3},
             {"network": "tor", "failures": 3},
             {"timestamp": 789, "failures": 3},

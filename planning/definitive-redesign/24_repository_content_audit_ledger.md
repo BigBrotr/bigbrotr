@@ -1823,3 +1823,12 @@ Use this section during execution for:
     required candidate payload fields are rejected by typed decode, and that
     the shared validator query contract now excludes malformed candidate rows
     before count/fetch scheduling proceeds.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-forty-ninth remediation
+  slice:
+  - tightened the shared validator-candidate numeric boundary so persisted
+    candidates with negative `timestamp` or `failures` values no longer pass
+    through typed decode or SQL scheduling as legitimate work, which
+    previously let impossible states outrank fresh candidates;
+  - added paired `services/common` and `validator` coverage proving negative
+    candidate numerics are rejected by typed hydration and skipped by the
+    shared validator fetch path before retry ordering begins.

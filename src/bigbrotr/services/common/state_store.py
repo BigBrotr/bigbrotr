@@ -42,6 +42,14 @@ def _require_state_int(payload: MappingLike, field: str) -> int:
     return value
 
 
+def _require_non_negative_state_int(payload: MappingLike, field: str) -> int:
+    """Read one persisted non-negative integer field."""
+    value = _require_state_int(payload, field)
+    if value < 0:
+        raise ValueError(f"invalid {field}")
+    return value
+
+
 def _require_state_str(payload: MappingLike, field: str) -> str:
     """Read one persisted string field without coercing arbitrary values."""
     if field not in payload:
@@ -99,9 +107,9 @@ class ServiceStateStore:
         """Decode a validator candidate payload."""
         return CandidateCheckpoint(
             key=key,
-            timestamp=_require_state_int(payload, "timestamp"),
+            timestamp=_require_non_negative_state_int(payload, "timestamp"),
             network=NetworkType(_require_state_str(payload, "network")),
-            failures=_require_state_int(payload, "failures"),
+            failures=_require_non_negative_state_int(payload, "failures"),
         )
 
     @staticmethod

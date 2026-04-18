@@ -435,6 +435,58 @@ class TestFetchCandidates:
             )
         ]
 
+    async def test_skips_negative_candidate_fields(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "state_key": "wss://negative-failures.com",
+                        "state_value": {
+                            "failures": -1,
+                            "network": "clearnet",
+                            "timestamp": 0,
+                        },
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://negative-timestamp.com",
+                        "state_value": {
+                            "failures": 0,
+                            "network": "tor",
+                            "timestamp": -5,
+                        },
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://good.com",
+                        "state_value": {
+                            "failures": 1,
+                            "network": "tor",
+                            "timestamp": 2,
+                        },
+                    }
+                ),
+            ]
+        )
+
+        result = await fetch_candidates(
+            query_brotr,
+            [NetworkType.CLEARNET, NetworkType.TOR],
+            10,
+            50,
+        )
+
+        assert result == [
+            CandidateCheckpoint(
+                key="wss://good.com",
+                timestamp=2,
+                network=NetworkType.TOR,
+                failures=1,
+            )
+        ]
+
     async def test_empty_result(self, query_brotr: MagicMock) -> None:
         assert await fetch_candidates(query_brotr, [NetworkType.CLEARNET], 0, 50) == []
 
