@@ -624,6 +624,17 @@ Use this section during execution for:
     `30384` builder output;
   - paired coverage now pins the malformed non-addressable-kind case on both
     constructor and hydration boundaries.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-forty-third remediation
+  slice:
+  - tightened `IdentifierAssertion.identifier` from a generic non-empty text
+    field into the NIP-73 shape the rest of the repo already assumes, so kind
+    `30385` subjects must now be canonical `scheme:value` strings with both
+    scheme and value present;
+  - aligned both direct construction and `from_db_row()` hydration on that
+    stronger contract, so malformed subjects like bare `isbn`, empty schemes,
+    or empty values are rejected before they can reach public `d` / `i` tags;
+  - paired coverage now pins those malformed identifier cases on both
+    constructor and hydration boundaries.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

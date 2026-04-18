@@ -802,6 +802,22 @@ class TestIdentifierAssertionProperties:
         with pytest.raises(ValueError, match="identifier must not be empty"):
             IdentifierAssertion(identifier="")
 
+    @pytest.mark.parametrize(
+        ("identifier", "message"),
+        [
+            ("isbn", "identifier must be a canonical NIP-73 scheme:value string"),
+            (":9780140328721", "identifier scheme must not be empty"),
+            ("isbn:", "identifier value must not be empty"),
+        ],
+    )
+    def test_constructor_rejects_malformed_identifier(
+        self,
+        identifier: str,
+        message: str,
+    ) -> None:
+        with pytest.raises(ValueError, match=message):
+            IdentifierAssertion(identifier=identifier)
+
     def test_from_db_row_normalizes_k_tags(self) -> None:
         row = {
             "identifier": "isbn:9780140328721",
@@ -869,6 +885,31 @@ class TestIdentifierAssertionProperties:
     def test_from_db_row_rejects_empty_identifier(self) -> None:
         with pytest.raises(ValueError, match="identifier must not be empty"):
             IdentifierAssertion.from_db_row({"identifier": ""})
+
+    @pytest.mark.parametrize(
+        ("row", "message"),
+        [
+            (
+                {"identifier": "isbn"},
+                "identifier must be a canonical NIP-73 scheme:value string",
+            ),
+            (
+                {"identifier": ":9780140328721"},
+                "identifier scheme must not be empty",
+            ),
+            (
+                {"identifier": "isbn:"},
+                "identifier value must not be empty",
+            ),
+        ],
+    )
+    def test_from_db_row_rejects_malformed_identifier(
+        self,
+        row: dict[str, object],
+        message: str,
+    ) -> None:
+        with pytest.raises(ValueError, match=message):
+            IdentifierAssertion.from_db_row(row)
 
     @pytest.mark.parametrize(
         ("row", "message"),

@@ -28,6 +28,7 @@ _ACTIVITY_HOURS_BUCKETS = 24
 _ADDRESSABLE_COORD_PARTS = 3
 _ADDRESSABLE_KIND_MIN = 30_000
 _ADDRESSABLE_KIND_MAX = 39_999
+_IDENTIFIER_PARTS = 2
 _MAX_NIP85_SCORE = 100
 _HEX_32_TEXT_LENGTH = 64
 _MISSING = object()
@@ -220,6 +221,21 @@ def _normalize_event_address(value: Any) -> str:
         raise ValueError("event_address d value must not be empty")
 
     return f"{kind}:{pubkey}:{d_value}"
+
+
+def _normalize_nip73_identifier(value: Any) -> str:
+    """Return a canonical `scheme:value` NIP-73 identifier string."""
+    identifier = _require_non_empty_text(value, "identifier")
+    scheme, separator, subject = identifier.partition(":")
+    if separator == "":
+        raise ValueError("identifier must be a canonical NIP-73 scheme:value string")
+    if identifier.count(":") < (_IDENTIFIER_PARTS - 1):
+        raise ValueError("identifier must be a canonical NIP-73 scheme:value string")
+    if not scheme:
+        raise ValueError("identifier scheme must not be empty")
+    if not subject:
+        raise ValueError("identifier value must not be empty")
+    return identifier
 
 
 def _require_text_sequence(value: Any, field_name: str, *, noun: str) -> tuple[str, ...]:
@@ -615,7 +631,7 @@ class IdentifierAssertion:
         object.__setattr__(
             self,
             "identifier",
-            _require_non_empty_text(self.identifier, "identifier"),
+            _normalize_nip73_identifier(self.identifier),
         )
         _normalize_non_negative_int_fields(self, _IDENTIFIER_ASSERTION_INT_FIELDS)
         object.__setattr__(self, "k_tags", _normalize_tag_set(self.k_tags))
