@@ -23,7 +23,8 @@ class NetworkType(StrEnum):
     Each relay URL is classified into exactly one network type during
     [Relay][bigbrotr.models.relay.Relay] construction. The scheme is then
     enforced per network: clearnet requires ``wss://`` (TLS), while overlay
-    networks use ``ws://`` (encryption handled by the overlay).
+    networks use ``ws://`` because privacy/security are provided by the
+    overlay transport layer rather than relay TLS.
 
     Attributes:
         CLEARNET: Public internet relay using ``wss://`` (TLS required).

@@ -522,3 +522,11 @@ Use this section during execution for:
   - tightened the paired unit coverage to assert the concrete SDK error family
     and message for malformed key material, removing the remaining
     `pytest.raises(BaseException)` escape hatch from this leaf test surface.
+- `2.1` models/utils/NIPs leaf audit, forty-third remediation slice:
+  - corrected the remaining tracked `NetworkType` narrative in
+    `bigbrotr.models.constants`, which still reduced overlay relay handling to
+    “encryption handled by the overlay” instead of the more precise repository
+    contract already used elsewhere;
+  - aligned that leaf wording so clearnet/overlay scheme policy now talks
+    consistently about privacy/security coming from the overlay transport
+    layer rather than relay TLS.
