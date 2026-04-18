@@ -111,7 +111,7 @@ def _normalize_http_filters(raw_filters: Mapping[str, str]) -> dict[str, str] | 
         key = raw_key.strip()
         if not key:
             raise ReadModelQueryError("Invalid filter field")
-        filters[key] = value
+        filters[key] = value.strip()
     return filters or None
 
 

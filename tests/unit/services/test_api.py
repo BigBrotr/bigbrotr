@@ -483,7 +483,7 @@ class TestListRowsRoute:
             new_callable=AsyncMock,
             return_value=mock_result,
         ) as mock_query:
-            resp = test_client.get("/v1/relays?%20network%20=clearnet")
+            resp = test_client.get("/v1/relays?%20network%20=%20clearnet%20")
 
         assert resp.status_code == 200
         _, kwargs = mock_query.call_args

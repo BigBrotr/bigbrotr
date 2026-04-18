@@ -1514,3 +1514,11 @@ Use this section during execution for:
   - added paired `services/common` and API coverage proving whitespace-padded
     HTTP filter keys now resolve to the canonical field names while blank keys
     fail fast as explicit client-safe filter-field errors.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-sixteenth remediation slice:
+  - aligned the shared HTTP filter-value path with the compact DVM filter
+    parser so direct query-parameter values are normalized before validation
+    too, instead of keeping whitespace-padded values that human-authored
+    requests on the `NIP-90` path would already trim away;
+  - added paired `services/common` and API coverage proving whitespace-padded
+    HTTP filter values now resolve to the canonical catalog filter payload
+    rather than diverging from the equivalent compact-filter request.

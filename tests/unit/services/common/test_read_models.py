@@ -829,8 +829,8 @@ class TestReadModelQueryHelpers:
     def test_read_model_query_from_http_params_trims_filter_keys(self) -> None:
         query = read_model_query_from_http_params(
             {
-                " network ": "clearnet",
-                " kind ": "1",
+                " network ": " clearnet ",
+                " kind ": " 1 ",
             },
             default_page_size=100,
             max_page_size=1000,
