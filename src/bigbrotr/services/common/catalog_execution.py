@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 import asyncpg
 
-from .catalog_types import _BYTEA_TYPES, QueryResult, TableSchema
+from .catalog_types import QueryResult, TableSchema
 
 
 if TYPE_CHECKING:
@@ -65,6 +65,7 @@ async def execute_catalog_get_by_pk(  # noqa: PLR0913
     schema: TableSchema,
     pk_values: dict[str, str],
     build_select_columns: Callable[[tuple[ColumnSchema, ...]], str],
+    coerce_parameter_value: Callable[[str, str, Any], Any],
     param_cast: Callable[[str], str],
     error_factory: Callable[[str], Exception],
 ) -> dict[str, Any] | None:
@@ -83,13 +84,10 @@ async def execute_catalog_get_by_pk(  # noqa: PLR0913
         cast = param_cast(col_types[pk_col])
         where_parts.append(f"{pk_col} = ${i}{cast}")
         value = pk_values[pk_col]
-        if col_types[pk_col] in _BYTEA_TYPES:
-            try:
-                params.append(bytes.fromhex(value))
-            except ValueError as e:
-                raise error_factory(f"Invalid hex value for column {pk_col}: {value}") from e
-        else:
-            params.append(value)
+        try:
+            params.append(coerce_parameter_value(pk_col, col_types[pk_col], value))
+        except ValueError as e:
+            raise error_factory(f"Invalid parameter value for column {pk_col}") from e
 
     where_sql = " AND ".join(where_parts)
     query = f"SELECT {select_cols} FROM {table} WHERE {where_sql}"  # noqa: S608

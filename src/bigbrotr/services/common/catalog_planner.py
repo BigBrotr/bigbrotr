@@ -396,6 +396,21 @@ def _validate_filter_temporal_value(column: str, pg_type: str, value: str) -> No
         raise CatalogError(f"Invalid filter value for column {column}") from error
 
 
+def _validate_parameter_temporal_value(column: str, pg_type: str, value: str) -> None:
+    """Validate one primary-key parameter temporal scalar against the expected PG type."""
+    normalized = value.strip()
+    if not normalized:
+        raise CatalogError(f"Invalid parameter value for column {column}")
+
+    try:
+        if pg_type == "date":
+            date.fromisoformat(normalized)
+        else:
+            datetime.fromisoformat(normalized)
+    except ValueError as error:
+        raise CatalogError(f"Invalid parameter value for column {column}") from error
+
+
 def _validate_filter_scalar_type(column: str, pg_type: str, value: Any) -> None:
     """Validate one public filter scalar against the expected column type."""
     if not isinstance(value, str):
@@ -430,6 +445,42 @@ def _validate_filter_scalar_type(column: str, pg_type: str, value: Any) -> None:
             raise CatalogError(f"Invalid filter value for column {column}") from error
         if not parsed.is_finite():
             raise CatalogError(f"Invalid filter value for column {column}")
+
+
+def _validate_parameter_scalar_type(column: str, pg_type: str, value: Any) -> None:
+    """Validate one primary-key parameter scalar against the expected column type."""
+    if not isinstance(value, str):
+        raise CatalogError(f"Invalid parameter value for column {column}")
+
+    if pg_type in _TEXT_TYPES:
+        return
+
+    if pg_type in _DATE_TYPES:
+        _validate_parameter_temporal_value(column, pg_type, value)
+        return
+
+    normalized = value.strip()
+    if not normalized:
+        raise CatalogError(f"Invalid parameter value for column {column}")
+
+    if pg_type in {"bigint", "integer", "smallint"}:
+        if _INTEGER_FILTER_RE.fullmatch(normalized) is None:
+            raise CatalogError(f"Invalid parameter value for column {column}")
+        return
+
+    if pg_type == "boolean":
+        lowered = normalized.lower()
+        if lowered not in _BOOLEAN_FILTER_TRUE | _BOOLEAN_FILTER_FALSE:
+            raise CatalogError(f"Invalid parameter value for column {column}")
+        return
+
+    if pg_type in _NUMERIC_TYPES:
+        try:
+            parsed = Decimal(normalized)
+        except InvalidOperation as error:
+            raise CatalogError(f"Invalid parameter value for column {column}") from error
+        if not parsed.is_finite():
+            raise CatalogError(f"Invalid parameter value for column {column}")
 
 
 def _validate_cursor_scalar_type(column: str, pg_type: str, value: Any) -> None:
@@ -475,11 +526,13 @@ def coerce_parameter_value(
         try:
             return bytes.fromhex(value)
         except ValueError as error:
-            if source == "filter":
+            if source in {"filter", "parameter"}:
                 raise CatalogError(f"Invalid hex value for column {column}: {value}") from error
             raise CatalogError(f"Invalid {source} value for column {column}") from error
     if source == "cursor":
         _validate_cursor_scalar_type(column, pg_type, value)
     elif source == "filter":
         _validate_filter_scalar_type(column, pg_type, value)
+    elif source == "parameter":
+        _validate_parameter_scalar_type(column, pg_type, value)
     return value

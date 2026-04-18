@@ -1687,3 +1687,14 @@ Use this section during execution for:
     typed filter values are rejected before touching the database, while the
     catalog still converts unexpected asyncpg data errors into the same safe
     public error contract during execution.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirty-fifth remediation
+  slice:
+  - tightened the shared catalog identity-lookup boundary so malformed typed
+    primary-key parameters for temporal, numeric, boolean, and integer-backed
+    resources no longer rely on SQL casts during `get_by_pk`, and now fail
+    immediately with client-safe parameter errors before any lookup query
+    executes;
+  - added paired `services/common` and `api` coverage proving invalid typed
+    PK path values are rejected at the shared lookup seam before the database
+    is touched, while bytea hex validation keeps the existing explicit public
+    contract.

@@ -870,6 +870,35 @@ class TestCatalogGetByPk:
         call_args = catalog_brotr.fetchrow.call_args
         assert call_args[0][1] == bytes.fromhex("abcd1234")
 
+    async def test_get_by_pk_rejects_invalid_timestamp_before_execution(
+        self,
+        populated_catalog: Catalog,
+        catalog_brotr: Brotr,
+    ) -> None:
+        populated_catalog._tables["daily_counts"] = TableSchema(
+            name="daily_counts",
+            columns=(
+                ColumnSchema(
+                    name="day",
+                    pg_type="timestamp with time zone",
+                    nullable=False,
+                ),
+                ColumnSchema(name="event_count", pg_type="bigint", nullable=False),
+            ),
+            primary_key=("day",),
+            is_view=True,
+        )
+        catalog_brotr.fetchrow = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+        with pytest.raises(CatalogError, match="Invalid parameter value for column day"):
+            await populated_catalog.get_by_pk(
+                catalog_brotr,
+                "daily_counts",
+                {"day": "not-a-timestamp"},
+            )
+
+        catalog_brotr.fetchrow.assert_not_called()  # type: ignore[attr-defined]
+
 
 # ============================================================================
 # Filter Parsing Tests
@@ -1175,6 +1204,34 @@ class TestTypedFilterValidation:
     ) -> None:
         with pytest.raises(CatalogError, match=f"Invalid filter value for column {column}"):
             Catalog._coerce_parameter_value(column, pg_type, value, source="filter")
+
+
+class TestTypedParameterValidation:
+    """Tests that typed PK parameters fail at the shared lookup boundary."""
+
+    @pytest.mark.parametrize(
+        ("column", "pg_type", "value"),
+        [
+            ("kind", "integer", 1),
+            ("enabled", "boolean", "maybe"),
+            ("day", "timestamp with time zone", "not-a-timestamp"),
+            ("score", "numeric", "NaN"),
+        ],
+        ids=[
+            "non_string_integer",
+            "boolean",
+            "timestamp",
+            "numeric_non_finite",
+        ],
+    )
+    def test_direct_parameter_coercion_rejects_invalid_typed_scalars(
+        self,
+        column: str,
+        pg_type: str,
+        value: object,
+    ) -> None:
+        with pytest.raises(CatalogError, match=f"Invalid parameter value for column {column}"):
+            Catalog._coerce_parameter_value(column, pg_type, value, source="parameter")
 
 
 # ============================================================================

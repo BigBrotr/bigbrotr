@@ -214,6 +214,50 @@ class TestApiReadableResourceHandler:
             {"url": "wss://relay.example.com"},
         )
 
+    async def test_get_row_invalid_typed_pk_returns_400_before_db_execution(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        catalog = Catalog()
+        catalog._tables = {
+            "daily_counts": TableSchema(
+                name="daily_counts",
+                columns=(
+                    ColumnSchema(
+                        name="day",
+                        pg_type="timestamp with time zone",
+                        nullable=False,
+                    ),
+                    ColumnSchema(name="event_count", pg_type="bigint", nullable=False),
+                ),
+                primary_key=("day",),
+                is_view=True,
+            )
+        }
+        policies = {"daily-counts": ReadModelPolicy(enabled=True)}
+        read_core = ReadCore(policy_source=lambda: policies)
+        read_core.catalog = catalog
+        handler = ApiReadableResourceHandler(
+            brotr=mock_brotr,
+            read_core=read_core,
+            resource_id="daily-counts",
+            resource=read_core.enabled_resources("api")["daily-counts"],
+            default_page_size=10,
+            max_page_size=100,
+            request_timeout=1.0,
+        )
+        mock_brotr.fetchrow = AsyncMock(return_value=None)  # type: ignore[method-assign]
+        request = _build_request(
+            "/v1/daily-counts/not-a-timestamp",
+            path_params={"day": "not-a-timestamp"},
+        )
+
+        response = await handler.get_row(request)
+
+        assert response.status_code == 400
+        assert b"Invalid parameter value for column day" in response.body
+        mock_brotr.fetchrow.assert_not_awaited()  # type: ignore[attr-defined]
+
     async def test_get_row_timeout_returns_504(
         self,
         mock_brotr: Brotr,

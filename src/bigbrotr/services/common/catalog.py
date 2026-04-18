@@ -316,6 +316,12 @@ class Catalog:
             schema=schema,
             pk_values=pk_values,
             build_select_columns=self._build_select_columns,
+            coerce_parameter_value=lambda column, pg_type, value: self._coerce_parameter_value(
+                column,
+                pg_type,
+                value,
+                source="parameter",
+            ),
             param_cast=self._param_cast,
             error_factory=CatalogError,
         )
