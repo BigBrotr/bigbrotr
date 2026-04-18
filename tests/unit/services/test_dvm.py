@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -126,7 +127,7 @@ def _make_mock_event(
     created_at: int = 1234,
 ) -> MagicMock:
     event = MagicMock()
-    event.id.return_value.to_hex.return_value = event_id
+    event.id.return_value.to_hex.return_value = _canonical_test_event_id(event_id)
     event.author.return_value.to_hex.return_value = author_hex
     event.created_at.return_value.as_secs.return_value = created_at
 
@@ -147,6 +148,16 @@ def _make_mock_event(
     event.tags.return_value = tag_list
 
     return event
+
+
+def _canonical_test_event_id(value: str) -> str:
+    try:
+        normalized = bytes.fromhex(value).hex()
+    except ValueError:
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+    if len(normalized) <= 64:
+        return normalized.rjust(64, "0")
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _make_client_with_events(events: list[MagicMock]) -> MagicMock:
@@ -920,7 +931,7 @@ class TestDvmRun:
         published = builder.sign_with_keys(_KEYS)
         assert json.loads(published.content())["meta"]["read_model"] == "relays"
         assert dvm_service._last_fetch_ts == 2000
-        assert dvm_service._last_fetch_id == "abc123"
+        assert dvm_service._last_fetch_id == _canonical_test_event_id("abc123")
         mock_state_store.upsert_cursors.assert_awaited_once()
 
     async def test_run_dedup(self, dvm_service: Dvm) -> None:
@@ -931,7 +942,7 @@ class TestDvmRun:
         mock_client = _make_client_with_events([event])
         dvm_service._client = mock_client
         await _seed_request_events(dvm_service, [event])
-        dvm_service._processed_ids.add("dedup_id")
+        dvm_service._processed_ids.add(_canonical_test_event_id("dedup_id"))
 
         with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
             await dvm_service.run()
@@ -1130,7 +1141,7 @@ class TestDvmRun:
             await dvm_service.run()
 
         assert dvm_service._last_fetch_ts == 1000
-        assert dvm_service._last_fetch_id == "abc123"
+        assert dvm_service._last_fetch_id == _canonical_test_event_id("abc123")
         mock_state_store.upsert_cursors.assert_awaited_once()
 
     async def test_run_publish_error_failure_does_not_abort_batch(self, dvm_service: Dvm) -> None:
@@ -1414,7 +1425,7 @@ class TestDvmPublishingGuards:
         mock_client = _make_client_with_events([older, same_position, newer])
         dvm_service._client = mock_client
         dvm_service._last_fetch_ts = 1000
-        dvm_service._last_fetch_id = "bb"
+        dvm_service._last_fetch_id = _canonical_test_event_id("bb")
         await _seed_request_events(dvm_service, [newer, older, same_position])
 
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
@@ -1431,7 +1442,7 @@ class TestDvmPublishingGuards:
             await dvm_service.run()
 
         mock_client.send_event_builder.assert_called_once()
-        assert dvm_service._last_fetch_id == "cc"
+        assert dvm_service._last_fetch_id == _canonical_test_event_id("cc")
 
     async def test_run_processes_buffered_events_in_cursor_order(self, dvm_service: Dvm) -> None:
         older = _make_mock_event(event_id="bb", created_at=1000)
@@ -1456,7 +1467,11 @@ class TestDvmPublishingGuards:
         ):
             await dvm_service.run()
 
-        assert processed_ids == ["aa", "bb", "aa"]
+        assert processed_ids == [
+            _canonical_test_event_id("aa"),
+            _canonical_test_event_id("bb"),
+            _canonical_test_event_id("aa"),
+        ]
         mock_state_store.upsert_cursors.assert_awaited_once()
 
 

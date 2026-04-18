@@ -73,12 +73,14 @@ async def fetch_cursors_to_find(brotr: Brotr) -> list[FinderCursor]:
                    state_value,
                    CASE
                        WHEN jsonb_typeof(state_value->'timestamp') = 'number'
-                            AND (state_value->>'timestamp') ~ '^-?[0-9]+$'
+                            AND (state_value->>'timestamp') ~ '^[0-9]+$'
                        THEN (state_value->>'timestamp')::bigint
                        ELSE 0
                    END AS ts,
                    CASE
-                       WHEN jsonb_typeof(state_value->'id') = 'string'
+                       WHEN jsonb_typeof(state_value->'timestamp') = 'number'
+                            AND (state_value->>'timestamp') ~ '^[0-9]+$'
+                            AND jsonb_typeof(state_value->'id') = 'string'
                             AND lower(state_value->>'id') ~ '^[0-9a-f]{64}$'
                        THEN lower(state_value->>'id')
                        ELSE repeat('0', 64)
@@ -112,12 +114,14 @@ async def fetch_cursors_to_find_page(
                    state_value,
                    CASE
                        WHEN jsonb_typeof(state_value->'timestamp') = 'number'
-                            AND (state_value->>'timestamp') ~ '^-?[0-9]+$'
+                            AND (state_value->>'timestamp') ~ '^[0-9]+$'
                        THEN (state_value->>'timestamp')::bigint
                        ELSE 0
                    END AS ts,
                    CASE
-                       WHEN jsonb_typeof(state_value->'id') = 'string'
+                       WHEN jsonb_typeof(state_value->'timestamp') = 'number'
+                            AND (state_value->>'timestamp') ~ '^[0-9]+$'
+                            AND jsonb_typeof(state_value->'id') = 'string'
                             AND lower(state_value->>'id') ~ '^[0-9a-f]{64}$'
                        THEN lower(state_value->>'id')
                        ELSE repeat('0', 64)

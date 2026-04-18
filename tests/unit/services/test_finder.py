@@ -701,6 +701,44 @@ class TestFetchFinderCursors:
 
         assert result == [FinderCursor(key="wss://relay.com")]
 
+    async def test_invalid_persisted_cursor_id_preserves_sanitized_timestamp(
+        self, query_brotr: MagicMock
+    ) -> None:
+        rows = [
+            _make_dict_row(
+                {
+                    "url": "wss://relay.com",
+                    "state_value": {"timestamp": 25, "id": "bad"},
+                    "ts": 25,
+                    "cursor_id": "0" * 64,
+                }
+            ),
+        ]
+        query_brotr.fetch = AsyncMock(return_value=rows)
+
+        result = await fetch_cursors_to_find(query_brotr)
+
+        assert result == [FinderCursor(key="wss://relay.com", timestamp=25)]
+
+    async def test_negative_persisted_cursor_resets_full_cursor_pair(
+        self, query_brotr: MagicMock
+    ) -> None:
+        rows = [
+            _make_dict_row(
+                {
+                    "url": "wss://relay.com",
+                    "state_value": {"timestamp": -5, "id": "ab" * 32},
+                    "ts": 0,
+                    "cursor_id": "0" * 64,
+                }
+            ),
+        ]
+        query_brotr.fetch = AsyncMock(return_value=rows)
+
+        result = await fetch_cursors_to_find(query_brotr)
+
+        assert result == [FinderCursor(key="wss://relay.com")]
+
 
 class TestFinderCursorPages:
     async def test_count_relays_to_find_uses_scalar_query(self, query_brotr: MagicMock) -> None:

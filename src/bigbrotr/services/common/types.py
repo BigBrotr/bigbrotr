@@ -24,6 +24,31 @@ from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType
 
 
+_CURSOR_ID_HEX_LENGTH = 64
+
+
+def _validate_non_negative_int(value: object, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{name} must be an int")
+    if value < 0:
+        raise ValueError(f"{name} must be non-negative")
+    return value
+
+
+def _normalize_cursor_id(value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError("id must be a str")
+    if len(value) != _CURSOR_ID_HEX_LENGTH:
+        raise ValueError("id must be a 64-character hex string")
+    try:
+        normalized = bytes.fromhex(value).hex()
+    except ValueError as exc:
+        raise ValueError("id must be a 64-character hex string") from exc
+    if len(normalized) != _CURSOR_ID_HEX_LENGTH:
+        raise ValueError("id must be a 64-character hex string")
+    return normalized
+
+
 @dataclass(frozen=True, slots=True)
 class Checkpoint:
     """Timestamp-based progress marker stored in ``service_state``.
@@ -147,6 +172,12 @@ class Cursor:
     timestamp: int = 0
     id: str = "0" * 64
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.key, str):
+            raise TypeError("key must be a str")
+        _validate_non_negative_int(self.timestamp, "timestamp")
+        object.__setattr__(self, "id", _normalize_cursor_id(self.id))
+
 
 @dataclass(frozen=True, slots=True)
 class SyncCursor(Cursor):
@@ -155,6 +186,10 @@ class SyncCursor(Cursor):
     Tracks how far event fetching has progressed for a given relay.
     ``timestamp`` is the event ``created_at``, ``id`` is the event ID.
     """
+
+    def __post_init__(self) -> None:
+        Cursor.__post_init__(self)
+        object.__setattr__(self, "key", Relay(self.key).url)
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +200,10 @@ class FinderCursor(Cursor):
     ``timestamp`` is the ``observed_at`` from the ``event_observation`` junction,
     ``id`` is the event ID for tie-breaking.
     """
+
+    def __post_init__(self) -> None:
+        Cursor.__post_init__(self)
+        object.__setattr__(self, "key", Relay(self.key).url)
 
 
 @dataclass(frozen=True, slots=True)

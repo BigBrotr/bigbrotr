@@ -1843,3 +1843,17 @@ Use this section during execution for:
     candidate construction now enforces the real relay contract, and that the
     shared validator fetch path skips both malformed relay keys and
     network-mismatched candidate rows before validation scheduling begins.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fifty-first remediation
+  slice:
+  - tightened the shared cursor boundary so `FinderCursor`, `SyncCursor`, and
+    generic typed cursor hydration now require non-negative timestamps,
+    canonical 32-byte hex event IDs, and canonical relay keys where the
+    runtime really expects relay-backed cursor state;
+  - aligned the `finder` and `synchronizer` query-side cursor fallback so
+    malformed persisted cursor pairs no longer diverge between sanitized SQL
+    ordering and the Python object handed to runtime code, and invalid IDs now
+    collapse to sentinel values while valid timestamps are preserved when safe;
+  - added paired `services/common`, `finder`, and `synchronizer` coverage
+    proving uppercase cursor IDs are canonicalized, negative or malformed
+    persisted cursor state is rejected or sanitized before runtime use, and
+    finder/synchronizer fetch paths now return only canonical cursor objects.

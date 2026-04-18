@@ -43,7 +43,7 @@ class TestPayloadCodecs:
     def test_cursor_from_payload(self) -> None:
         cursor = ServiceStateStore.decode_cursor(
             "wss://relay.example.com",
-            {"timestamp": 456, "id": "ab" * 32},
+            {"timestamp": 456, "id": "AB" * 32},
             FinderCursor,
         )
 
@@ -83,13 +83,15 @@ class TestPayloadCodecs:
         [
             {"timestamp": True, "id": "ab" * 32},
             {"timestamp": 456, "id": 123},
+            {"timestamp": -1, "id": "ab" * 32},
+            {"timestamp": 456, "id": "bad"},
         ],
     )
     def test_cursor_from_payload_rejects_invalid_field_types(
         self,
         payload: dict[str, object],
     ) -> None:
-        with pytest.raises(TypeError):
+        with pytest.raises((TypeError, ValueError)):
             ServiceStateStore.decode_cursor(
                 "wss://relay.example.com",
                 payload,
@@ -231,24 +233,29 @@ class TestServiceStateStore:
             return_value=[
                 {
                     "state_key": "job_requests",
-                    "state_value": {"timestamp": 200, "id": 123},
+                    "state_value": {"timestamp": 200, "id": "bad"},
                 },
                 {
                     "state_key": "job_requests_2",
-                    "state_value": {"timestamp": 300, "id": "cd" * 32},
+                    "state_value": {"timestamp": -1, "id": "cd" * 32},
+                },
+                {
+                    "state_key": "job_requests_3",
+                    "state_value": {"timestamp": 300, "id": "CD" * 32},
                 },
             ]
         )
 
         result = await ServiceStateStore(query_brotr).fetch_cursors(
             ServiceName.DVM,
-            ["job_requests", "job_requests_2"],
+            ["job_requests", "job_requests_2", "job_requests_3"],
             DvmRequestCursor,
         )
 
         assert result == [
             DvmRequestCursor(key="job_requests"),
-            DvmRequestCursor(key="job_requests_2", timestamp=300, id="cd" * 32),
+            DvmRequestCursor(key="job_requests_2"),
+            DvmRequestCursor(key="job_requests_3", timestamp=300, id="cd" * 32),
         ]
 
     async def test_upsert_cursors_skips_zero_timestamp_when_requested(

@@ -331,6 +331,42 @@ class TestFetchCursorsToSync:
 
         assert result == [SyncCursor(key="wss://relay1.example.com")]
 
+    async def test_invalid_persisted_cursor_id_preserves_sanitized_timestamp(
+        self, query_brotr: MagicMock
+    ) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                {
+                    "url": "wss://relay1.example.com",
+                    "state_value": {"timestamp": 25, "id": "bad"},
+                    "ts": 25,
+                    "cursor_id": "0" * 64,
+                },
+            ]
+        )
+
+        result = await fetch_cursors_to_sync(query_brotr, 1000, [NetworkType.CLEARNET])
+
+        assert result == [SyncCursor(key="wss://relay1.example.com", timestamp=25)]
+
+    async def test_negative_persisted_cursor_resets_full_cursor_pair(
+        self, query_brotr: MagicMock
+    ) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                {
+                    "url": "wss://relay1.example.com",
+                    "state_value": {"timestamp": -1, "id": "ab" * 32},
+                    "ts": 0,
+                    "cursor_id": "0" * 64,
+                },
+            ]
+        )
+
+        result = await fetch_cursors_to_sync(query_brotr, 1000, [NetworkType.CLEARNET])
+
+        assert result == [SyncCursor(key="wss://relay1.example.com")]
+
 
 class TestSyncCursorPages:
     async def test_count_cursors_to_sync_uses_scalar_query(self, query_brotr: MagicMock) -> None:

@@ -98,7 +98,7 @@ class ServiceStateStore:
         """Decode a cursor payload into a typed cursor."""
         return cursor_type(
             key=key,
-            timestamp=_require_state_int(payload, "timestamp"),
+            timestamp=_require_non_negative_state_int(payload, "timestamp"),
             id=_require_state_str(payload, "id"),
         )
 

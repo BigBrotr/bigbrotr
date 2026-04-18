@@ -49,7 +49,7 @@ async def count_cursors_to_sync(brotr: Brotr, end: int, networks: Sequence[Netwo
             SELECT state_key,
                    CASE
                        WHEN jsonb_typeof(state_value->'timestamp') = 'number'
-                            AND (state_value->>'timestamp') ~ '^-?[0-9]+$'
+                            AND (state_value->>'timestamp') ~ '^[0-9]+$'
                        THEN (state_value->>'timestamp')::bigint
                        ELSE 0
                    END AS ts
@@ -97,12 +97,14 @@ async def fetch_cursors_to_sync(
                    state_value,
                    CASE
                        WHEN jsonb_typeof(state_value->'timestamp') = 'number'
-                            AND (state_value->>'timestamp') ~ '^-?[0-9]+$'
+                            AND (state_value->>'timestamp') ~ '^[0-9]+$'
                        THEN (state_value->>'timestamp')::bigint
                        ELSE 0
                    END AS ts,
                    CASE
-                       WHEN jsonb_typeof(state_value->'id') = 'string'
+                       WHEN jsonb_typeof(state_value->'timestamp') = 'number'
+                            AND (state_value->>'timestamp') ~ '^[0-9]+$'
+                            AND jsonb_typeof(state_value->'id') = 'string'
                             AND lower(state_value->>'id') ~ '^[0-9a-f]{64}$'
                        THEN lower(state_value->>'id')
                        ELSE repeat('0', 64)
@@ -142,12 +144,14 @@ async def fetch_cursors_to_sync_page(
                    state_value,
                    CASE
                        WHEN jsonb_typeof(state_value->'timestamp') = 'number'
-                            AND (state_value->>'timestamp') ~ '^-?[0-9]+$'
+                            AND (state_value->>'timestamp') ~ '^[0-9]+$'
                        THEN (state_value->>'timestamp')::bigint
                        ELSE 0
                    END AS ts,
                    CASE
-                       WHEN jsonb_typeof(state_value->'id') = 'string'
+                       WHEN jsonb_typeof(state_value->'timestamp') = 'number'
+                            AND (state_value->>'timestamp') ~ '^[0-9]+$'
+                            AND jsonb_typeof(state_value->'id') = 'string'
                             AND lower(state_value->>'id') ~ '^[0-9a-f]{64}$'
                        THEN lower(state_value->>'id')
                        ELSE repeat('0', 64)
