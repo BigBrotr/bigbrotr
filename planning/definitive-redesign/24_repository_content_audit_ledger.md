@@ -1599,3 +1599,12 @@ Use this section during execution for:
   - added paired `services/common` and `validator` coverage proving malformed
     persisted payloads now default cleanly or get skipped, while valid typed
     state still hydrates unchanged.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twenty-sixth remediation
+  slice:
+  - tightened the shared catalog cursor boundary so malformed opaque cursors no
+    longer leak type errors or defer typed corruption down to the DB-cast
+    layer, and now fail immediately when the cursor payload shape or value
+    types do not match the requested page order;
+  - added paired `services/common` coverage proving non-string cursors and
+    tampered cursor values are rejected as client-safe catalog errors before
+    query execution.

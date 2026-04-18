@@ -8,6 +8,8 @@ Tests:
 - Filter parsing and sort parsing
 """
 
+import base64
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import asyncpg
@@ -625,6 +627,50 @@ class TestCatalogQuery:
                 limit=10,
                 offset=0,
                 cursor="not-base64",
+                prefer_keyset=True,
+                include_total=False,
+            )
+
+    async def test_query_rejects_non_string_cursor(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        with pytest.raises(CatalogError, match="Invalid cursor"):
+            await populated_catalog.query(  # type: ignore[arg-type]
+                catalog_brotr,
+                "relay",
+                limit=10,
+                offset=0,
+                cursor=123,
+                prefer_keyset=True,
+                include_total=False,
+            )
+
+    async def test_query_rejects_cursor_with_invalid_typed_values(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        cursor = (
+            base64.urlsafe_b64encode(
+                json.dumps(
+                    {
+                        "v": 1,
+                        "sort": "",
+                        "values": {"url": 123},
+                    },
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode()
+            )
+            .decode()
+            .rstrip("=")
+        )
+
+        with pytest.raises(CatalogError, match="Invalid cursor value for column url"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay",
+                limit=10,
+                offset=0,
+                cursor=cursor,
                 prefer_keyset=True,
                 include_total=False,
             )

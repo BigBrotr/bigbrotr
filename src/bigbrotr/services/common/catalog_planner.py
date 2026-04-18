@@ -319,6 +319,9 @@ def decode_cursor(
     order_terms: tuple[OrderTerm, ...],
 ) -> dict[str, Any]:
     """Decode and validate one opaque keyset cursor."""
+    if not isinstance(cursor, str):
+        raise CatalogError("Invalid cursor")
+
     try:
         padding = "=" * (-len(cursor) % 4)
         raw = base64.urlsafe_b64decode(cursor + padding)
@@ -330,11 +333,15 @@ def decode_cursor(
         raise CatalogError("Invalid cursor")
 
     payload_sort = payload.get("sort", "")
+    if not isinstance(payload_sort, str):
+        raise CatalogError("Invalid cursor")
     if payload_sort != (sort or ""):
         raise CatalogError("Cursor does not match requested sort")
 
     values = payload.get("values")
     if not isinstance(values, dict):
+        raise CatalogError("Invalid cursor")
+    if any(not isinstance(column, str) for column in values):
         raise CatalogError("Invalid cursor")
 
     expected_columns = {term.column for term in order_terms}
@@ -342,6 +349,29 @@ def decode_cursor(
         raise CatalogError("Cursor does not match requested page order")
 
     return values
+
+
+def _validate_cursor_scalar_type(column: str, pg_type: str, value: Any) -> None:
+    """Validate one decoded cursor scalar against the expected column type."""
+    if pg_type in _TEXT_TYPES | _DATE_TYPES:
+        if not isinstance(value, str):
+            raise CatalogError(f"Invalid cursor value for column {column}")
+        return
+
+    if pg_type in {"bigint", "integer", "smallint"}:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise CatalogError(f"Invalid cursor value for column {column}")
+        return
+
+    if pg_type == "boolean":
+        if not isinstance(value, bool):
+            raise CatalogError(f"Invalid cursor value for column {column}")
+        return
+
+    if pg_type in _NUMERIC_TYPES and (
+        isinstance(value, bool) or not isinstance(value, int | float)
+    ):
+        raise CatalogError(f"Invalid cursor value for column {column}")
 
 
 def coerce_parameter_value(
@@ -363,4 +393,6 @@ def coerce_parameter_value(
             if source == "filter":
                 raise CatalogError(f"Invalid hex value for column {column}: {value}") from error
             raise CatalogError(f"Invalid {source} value for column {column}") from error
+    if source == "cursor":
+        _validate_cursor_scalar_type(column, pg_type, value)
     return value
