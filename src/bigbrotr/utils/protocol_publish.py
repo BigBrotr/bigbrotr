@@ -44,7 +44,8 @@ async def broadcast_events(
         clients: Pre-connected ``Client`` instances.
 
     Returns:
-        Number of clients that successfully received all events.
+        Number of clients that retained at least one successful relay across
+        all builders.
     """
     detailed_results = await broadcast_events_detailed(builders, clients)
     return sum(1 for result in detailed_results if result.successful_relays)

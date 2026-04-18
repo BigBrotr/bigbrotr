@@ -726,6 +726,24 @@ class TestBroadcastEvents:
     async def test_returns_zero_on_empty_input(self) -> None:
         assert await self._get_broadcast()([], []) == 0
 
+    async def test_counts_clients_only_when_a_relay_survives_all_builders(self) -> None:
+        client = AsyncMock()
+        client.send_event_builder.side_effect = [
+            self._send_output(
+                event_id="evt-1",
+                success=("wss://relay.a", "wss://relay.b"),
+            ),
+            self._send_output(
+                event_id="evt-2",
+                success=("wss://relay.b",),
+                failed={"wss://relay.a": "rejected"},
+            ),
+        ]
+
+        result = await self._get_broadcast()([MagicMock(), MagicMock()], [client])
+
+        assert result == 1
+
     async def test_detailed_results_keep_failed_relays(self) -> None:
         client = AsyncMock()
         client.send_event_builder.return_value = self._send_output(

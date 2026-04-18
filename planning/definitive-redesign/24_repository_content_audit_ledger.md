@@ -467,3 +467,10 @@ Use this section during execution for:
   - added direct unit coverage for `_await_if_needed()` and `shutdown_client()`,
     including async and sync SDK-style APIs plus failure-tolerant cleanup
     sequencing, because this leaf previously had no dedicated test surface.
+- `2.1` models/utils/NIPs leaf audit, thirty-sixth remediation slice:
+  - corrected the public contract of `broadcast_events()` so it no longer
+    implies an over-strong client-wide success notion; the helper counts
+    clients that retain at least one relay successful across all builders,
+    which is exactly how the implementation already behaved;
+  - added explicit unit coverage for that intersection-based counting rule so
+    the leaf semantics stay pinned in future refactors.
