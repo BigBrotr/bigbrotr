@@ -53,8 +53,8 @@ class DocumentType(StrEnum):
         NIP66_SSL: NIP-66 SSL/TLS certificate information (expiry, issuer, chain).
         NIP66_GEO: NIP-66 geolocation data (country, city, coordinates).
         NIP66_NET: NIP-66 network and ASN information (provider, AS number).
-        NIP66_DNS: NIP-66 DNS resolution data (A/AAAA records, response times).
-        NIP66_HTTP: NIP-66 HTTP header information (server, content-type, CORS).
+        NIP66_DNS: NIP-66 DNS resolution data (A/AAAA, CNAME, PTR, NS, TTL).
+        NIP66_HTTP: NIP-66 handshake header data (Server, X-Powered-By).
 
     See Also:
         [Document][bigbrotr.models.document.Document]: The content-addressed container
