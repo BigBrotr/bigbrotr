@@ -32,7 +32,7 @@ class TestConnectClientRelays:
         client = AsyncMock()
         output = MagicMock()
         output.success = ["wss://relay.b", "wss://relay.a", "wss://relay.b"]
-        output.failed = {}
+        output.failed = {"wss://relay.z": "timeout", "wss://relay.a": "rejected"}
         client.try_connect = AsyncMock(return_value=output)
 
         result = await connect_client_relays(
@@ -43,8 +43,9 @@ class TestConnectClientRelays:
 
         assert result == ClientConnectResult(
             connected=("wss://relay.a", "wss://relay.b"),
-            failed={},
+            failed={"wss://relay.a": "rejected", "wss://relay.z": "timeout"},
         )
+        assert list(result.failed) == ["wss://relay.a", "wss://relay.z"]
 
 
 class TestCreateConnectedClient:
@@ -71,9 +72,11 @@ class TestCreateConnectedClient:
         """Clearnet multi-relay sessions still normalize the connect result."""
         client = AsyncMock()
         relay_url = MagicMock()
+        failed_relay = MagicMock()
+        failed_relay.__str__.return_value = "wss://relay.failed"
         output = MagicMock()
         output.success = [relay_url]
-        output.failed = {}
+        output.failed = {failed_relay: RuntimeError("timeout")}
         client.try_connect = AsyncMock(return_value=output)
         create_client_func = AsyncMock(return_value=client)
 
@@ -89,8 +92,9 @@ class TestCreateConnectedClient:
         assert result_client is client
         assert result == ClientConnectResult(
             connected=(str(relay_url),),
-            failed={},
+            failed={"wss://relay.failed": "timeout"},
         )
+        assert list(result.failed) == ["wss://relay.failed"]
 
     async def test_preserves_connect_error_when_shutdown_reports_expected_noise(self) -> None:
         """Shared-session helper keeps the connect failure as the public outcome."""

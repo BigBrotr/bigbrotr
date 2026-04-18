@@ -263,7 +263,10 @@ class TestCreateConnectedClient:
                     "wss://relay1.example.com",
                     "wss://relay2.example.com",
                 ),
-                failed={},
+                failed={
+                    "wss://relay.z.example.com": "timeout",
+                    "wss://relay.a.example.com": "rejected",
+                },
             )
         )
 
@@ -279,8 +282,15 @@ class TestCreateConnectedClient:
         assert client is mock_client
         assert result == ClientConnectResult(
             connected=("wss://relay1.example.com", "wss://relay2.example.com"),
-            failed={},
+            failed={
+                "wss://relay.a.example.com": "rejected",
+                "wss://relay.z.example.com": "timeout",
+            },
         )
+        assert list(result.failed) == [
+            "wss://relay.a.example.com",
+            "wss://relay.z.example.com",
+        ]
         assert mock_client.add_relay.await_count == 2
         mock_client.try_connect.assert_awaited_once()
 

@@ -902,3 +902,10 @@ Use this section during execution for:
   - added paired publish coverage proving detailed results, aggregate
     summaries, and raw send-output normalization no longer inherit failure-map
     insertion order from the SDK or intermediate updates.
+- `2.1` models/utils/NIPs leaf audit, ninety-first remediation slice:
+  - tightened `bigbrotr.utils.protocol_sessions` so `ClientConnectResult`
+    now canonicalizes failed relay maps as well as successful relay tuples,
+    instead of returning half-normalized connect outcomes;
+  - added paired leaf and facade coverage proving shared-session connect
+    helpers no longer inherit failure-map insertion order from nostr-sdk
+    outputs.

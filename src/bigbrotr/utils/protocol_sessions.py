@@ -47,6 +47,11 @@ class SharedSessionDependencies(NamedTuple):
     shutdown_client: Callable[[Client], Awaitable[None]]
 
 
+def _normalize_failed_relays(failed_relays: dict[str, str]) -> dict[str, str]:
+    """Return failed relay outcomes in stable lexical relay-url order."""
+    return {relay_url: failed_relays[relay_url] for relay_url in sorted(failed_relays)}
+
+
 def _validate_session_relays(relays: list[Relay]) -> None:
     """Reject relay sets that need per-network proxy policy.
 
@@ -75,7 +80,8 @@ async def connect_client_relays(
     This helper is intentionally limited to clearnet relays because one shared
     client cannot carry the per-network proxy policy required by overlay relay
     families. Successful relay URLs are deduplicated and sorted so the
-    returned connect result stays stable across SDK iteration order.
+    returned connect result stays stable across SDK iteration order. Failed
+    relay maps are also returned in stable lexical relay-url order.
     """
     _validate_session_relays(relays)
     for relay in relays:
@@ -86,7 +92,7 @@ async def connect_client_relays(
     failed = {
         str(relay_url): str(error) for relay_url, error in getattr(output, "failed", {}).items()
     }
-    return ClientConnectResult(connected=connected, failed=failed)
+    return ClientConnectResult(connected=connected, failed=_normalize_failed_relays(failed))
 
 
 async def create_connected_client(
