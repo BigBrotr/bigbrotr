@@ -479,3 +479,41 @@ class TestNip66NetMetadataNetAsync:
             result = await Nip66NetMetadata.probe(relay, mock_asn_reader, timeout=0.1)
 
         assert result.logs.success is False
+
+    async def test_timeout_budget_is_shared_between_resolve_and_lookup(
+        self,
+        relay: Relay,
+        mock_asn_reader: MagicMock,
+    ) -> None:
+        """ASN lookup receives only the timeout budget left after DNS resolve."""
+        mock_resolved = MagicMock()
+        mock_resolved.ipv4 = "8.8.8.8"
+        mock_resolved.ipv6 = None
+        mock_resolved.has_ip = True
+        captured_timeouts: list[float] = []
+
+        async def slow_resolve(*args: object, **kwargs: object) -> MagicMock:
+            await asyncio.sleep(0.05)
+            return mock_resolved
+
+        async def fast_thread(*args: object, **kwargs: object) -> dict[str, int]:
+            return {"net_asn": 15169}
+
+        async def fake_wait_for(awaitable: object, timeout: float) -> object:
+            captured_timeouts.append(timeout)
+            return await awaitable
+
+        with (
+            patch(
+                "bigbrotr.nips.nip66.net.resolve_host",
+                new_callable=AsyncMock,
+                side_effect=slow_resolve,
+            ),
+            patch("bigbrotr.nips.nip66.net.asyncio.to_thread", side_effect=fast_thread),
+            patch("bigbrotr.nips.nip66.net.asyncio.wait_for", side_effect=fake_wait_for),
+        ):
+            result = await Nip66NetMetadata.probe(relay, mock_asn_reader, timeout=0.1)
+
+        assert result.logs.success is True
+        assert len(captured_timeouts) == 1
+        assert 0 < captured_timeouts[0] < 0.1

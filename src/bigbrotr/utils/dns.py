@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import socket
+import time
 from dataclasses import dataclass
 
 
@@ -53,12 +54,13 @@ async def resolve_host(host: str, *, timeout: float = 5.0) -> ResolvedHost:  # n
 
     Performs independent A and AAAA record lookups using the system resolver
     via ``asyncio.to_thread``. Failure of one address family does not affect
-    the other. Each lookup is bounded by *timeout* to prevent indefinite
-    blocking on unresponsive DNS servers.
+    the other. The *timeout* budget is shared across the whole resolution
+    attempt so IPv4 and IPv6 lookups together remain bounded.
 
     Args:
         host: Hostname to resolve (e.g., ``"relay.damus.io"``).
-        timeout: Maximum seconds to wait for each DNS lookup (default 5.0).
+        timeout: Maximum total seconds to spend resolving the hostname
+            across both address families (default 5.0).
 
     Returns:
         [ResolvedHost][bigbrotr.utils.dns.ResolvedHost] with resolved
@@ -80,18 +82,26 @@ async def resolve_host(host: str, *, timeout: float = 5.0) -> ResolvedHost:  # n
     """
     ipv4: str | None = None
     ipv6: str | None = None
+    deadline = time.monotonic() + timeout
+
+    def _remaining_timeout() -> float:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError
+        return remaining
 
     # Resolve IPv4
     with contextlib.suppress(OSError, UnicodeError, TimeoutError):
         ipv4 = await asyncio.wait_for(
-            asyncio.to_thread(socket.gethostbyname, host), timeout=timeout
+            asyncio.to_thread(socket.gethostbyname, host),
+            timeout=_remaining_timeout(),
         )
 
     # Resolve IPv6
     with contextlib.suppress(OSError, UnicodeError, TimeoutError):
         ipv6_result = await asyncio.wait_for(
             asyncio.to_thread(socket.getaddrinfo, host, None, socket.AF_INET6),
-            timeout=timeout,
+            timeout=_remaining_timeout(),
         )
         if ipv6_result:
             ipv6 = str(ipv6_result[0][4][0])

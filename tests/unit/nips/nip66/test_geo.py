@@ -679,3 +679,35 @@ class TestNip66GeoMetadataGeoAsync:
             result = await Nip66GeoMetadata.probe(relay, mock_city_reader, timeout=0.1)
 
         assert result.logs.success is False
+
+    async def test_timeout_budget_is_shared_between_resolve_and_geo_lookup(
+        self,
+        relay: Relay,
+        mock_city_reader: MagicMock,
+    ) -> None:
+        """Geo lookup receives only the timeout budget left after DNS resolve."""
+        mock_resolved = MagicMock()
+        mock_resolved.ipv4 = "8.8.8.8"
+        mock_resolved.ipv6 = None
+
+        async def slow_resolve(*args: object, **kwargs: object) -> MagicMock:
+            await asyncio.sleep(0.05)
+            return mock_resolved
+
+        with (
+            patch(
+                "bigbrotr.nips.nip66.geo.resolve_host",
+                new_callable=AsyncMock,
+                side_effect=slow_resolve,
+            ),
+            patch.object(
+                Nip66GeoMetadata,
+                "_lookup_candidate_ips",
+                new_callable=AsyncMock,
+                return_value=({"geo_country": "US"}, None),
+            ) as mock_lookup,
+        ):
+            result = await Nip66GeoMetadata.probe(relay, mock_city_reader, timeout=0.1)
+
+        assert result.logs.success is True
+        assert 0 < mock_lookup.await_args.args[4] < 0.1

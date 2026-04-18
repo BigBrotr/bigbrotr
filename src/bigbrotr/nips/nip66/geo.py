@@ -253,13 +253,15 @@ class Nip66GeoMetadata(BaseNipMetadata):
         """Perform a geolocation lookup for a clearnet relay.
 
         Resolves the relay hostname to an IP (preferring IPv4), then
-        queries the GeoIP City database in a thread pool.
+        queries the GeoIP City database in a thread pool while keeping one
+        shared timeout budget across both phases.
 
         Args:
             relay: Clearnet relay to geolocate.
             city_reader: Open GeoLite2-City database reader.
             geohash_precision: Geohash character length (default 9).
-            timeout: Overall timeout in seconds (default: 10.0).
+            timeout: Overall timeout budget in seconds shared by hostname
+                resolution and GeoIP lookup (default: 10.0).
 
         Returns:
             An ``Nip66GeoMetadata`` instance with location data and logs.
@@ -277,9 +279,19 @@ class Nip66GeoMetadata(BaseNipMetadata):
             )
 
         logs: dict[str, Any] = {"success": False, "reason": None}
+        deadline = time.monotonic() + timeout
+
+        def _remaining_timeout(error_message: str) -> float:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(error_message)
+            return remaining
 
         try:
-            resolved = await asyncio.wait_for(resolve_host(relay.host), timeout=timeout)
+            resolved = await resolve_host(
+                relay.host,
+                timeout=_remaining_timeout("timeout resolving hostname"),
+            )
         except TimeoutError:
             logs["reason"] = "timeout resolving hostname"
             logger.debug("geo_resolve_timeout relay=%s", relay.url)
@@ -299,7 +311,7 @@ class Nip66GeoMetadata(BaseNipMetadata):
                 candidate_ips,
                 city_reader,
                 geohash_precision,
-                timeout,
+                _remaining_timeout("timeout looking up IP"),
             )
             if data:
                 logs["success"] = True

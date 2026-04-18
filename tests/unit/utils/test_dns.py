@@ -13,6 +13,7 @@ Tests:
 
 import asyncio
 import socket
+import time
 from unittest.mock import patch
 
 import pytest
@@ -396,7 +397,7 @@ class TestResolveHostTimeout:
         assert result.ipv6 is None
 
     async def test_custom_timeout_passed(self) -> None:
-        """Custom timeout value is forwarded to asyncio.wait_for."""
+        """No family lookup receives a timeout larger than the caller budget."""
         with (
             patch("socket.gethostbyname", return_value="1.2.3.4"),
             patch("socket.getaddrinfo", return_value=[]),
@@ -404,5 +405,39 @@ class TestResolveHostTimeout:
         ):
             await resolve_host("example.com", timeout=2.5)
 
+        assert mock_wait.call_args_list[0].kwargs["timeout"] == pytest.approx(2.5, abs=0.01)
         for call in mock_wait.call_args_list:
-            assert call.kwargs["timeout"] == 2.5
+            assert 0 < call.kwargs["timeout"] <= 2.5
+
+    async def test_timeout_budget_is_shared_across_address_families(self) -> None:
+        """IPv6 receives only the remaining timeout after the IPv4 phase."""
+        mock_ipv6_result = [
+            (
+                socket.AF_INET6,
+                socket.SOCK_STREAM,
+                6,
+                "",
+                ("2606:2800:220:1:248:1893:25c8:1946", 0, 0, 0),
+            )
+        ]
+        captured_timeouts: list[float] = []
+
+        async def fake_wait_for(awaitable: object, timeout: float) -> object:
+            captured_timeouts.append(timeout)
+            return await awaitable
+
+        def slow_ipv4_lookup(host: str) -> str:
+            time.sleep(0.05)
+            return "1.2.3.4"
+
+        with (
+            patch("socket.gethostbyname", side_effect=slow_ipv4_lookup),
+            patch("socket.getaddrinfo", return_value=mock_ipv6_result),
+            patch("bigbrotr.utils.dns.asyncio.wait_for", side_effect=fake_wait_for),
+        ):
+            result = await resolve_host("example.com", timeout=0.2)
+
+        assert result.ipv4 == "1.2.3.4"
+        assert result.ipv6 == "2606:2800:220:1:248:1893:25c8:1946"
+        assert captured_timeouts[0] == pytest.approx(0.2, abs=0.02)
+        assert 0 < captured_timeouts[1] < captured_timeouts[0]

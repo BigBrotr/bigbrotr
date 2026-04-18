@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any, Self
 
 import geoip2.database
@@ -145,7 +146,8 @@ class Nip66NetMetadata(BaseNipMetadata):
         Args:
             relay: Clearnet relay to look up.
             asn_reader: Open GeoLite2-ASN database reader.
-            timeout: Overall timeout in seconds (default: 10.0).
+            timeout: Overall timeout budget in seconds shared by hostname
+                resolution and ASN lookup (default: 10.0).
 
         Returns:
             An ``Nip66NetMetadata`` instance with network data and logs.
@@ -163,9 +165,19 @@ class Nip66NetMetadata(BaseNipMetadata):
             )
 
         logs: dict[str, Any] = {"success": False, "reason": None}
+        deadline = time.monotonic() + timeout
+
+        def _remaining_timeout(error_message: str) -> float:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(error_message)
+            return remaining
 
         try:
-            resolved = await asyncio.wait_for(resolve_host(relay.host), timeout=timeout)
+            resolved = await resolve_host(
+                relay.host,
+                timeout=_remaining_timeout("timeout resolving hostname"),
+            )
         except TimeoutError:
             logs["reason"] = "timeout resolving hostname"
             logger.debug("net_resolve_timeout relay=%s", relay.url)
@@ -179,7 +191,7 @@ class Nip66NetMetadata(BaseNipMetadata):
             try:
                 data = await asyncio.wait_for(
                     asyncio.to_thread(cls._net, resolved.ipv4, resolved.ipv6, asn_reader),
-                    timeout=timeout,
+                    timeout=_remaining_timeout("timeout looking up ASN"),
                 )
                 if data:
                     logs["success"] = True
