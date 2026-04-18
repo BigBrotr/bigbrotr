@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import contextlib
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 from .protocol_sessions import ClientSession
 from .transport import DEFAULT_TIMEOUT
@@ -15,9 +15,28 @@ if TYPE_CHECKING:
 
     from nostr_sdk import Client, Keys
 
+    from bigbrotr.models.constants import NetworkType
     from bigbrotr.models.relay import Relay
-    from bigbrotr.services.common.configs import NetworksConfig
     from bigbrotr.utils.protocol_sessions import ClientConnectResult
+
+
+class RelayNetworkConfig(Protocol):
+    """Minimal per-network contract required by the client manager."""
+
+    timeout: float
+
+
+class RelayNetworkPolicy(Protocol):
+    """Minimal network-policy contract required by relay-scoped clients.
+
+    This keeps the utils-layer manager generic: higher layers may pass
+    ``NetworksConfig`` or any other object that can answer per-network timeout
+    and proxy lookups.
+    """
+
+    def get(self, network: NetworkType) -> RelayNetworkConfig: ...
+
+    def get_proxy_url(self, network: NetworkType) -> str | None: ...
 
 
 class ProtocolManagerDependencies(NamedTuple):
@@ -31,7 +50,11 @@ class ProtocolManagerDependencies(NamedTuple):
 
 
 class NostrClientManager:
-    """Shared lifecycle manager for nostr-sdk clients."""
+    """Shared lifecycle manager for nostr-sdk clients.
+
+    Relay-scoped clients use a minimal injected network-policy contract rather
+    than a concrete service-layer config type.
+    """
 
     __slots__ = (
         "_allow_insecure",
@@ -48,7 +71,7 @@ class NostrClientManager:
         *,
         dependencies: ProtocolManagerDependencies,
         keys: Keys | None = None,
-        networks: NetworksConfig | None = None,
+        networks: RelayNetworkPolicy | None = None,
         allow_insecure: bool = False,
     ) -> None:
         self._dependencies = dependencies

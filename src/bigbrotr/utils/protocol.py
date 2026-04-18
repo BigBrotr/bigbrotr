@@ -77,8 +77,6 @@ from .transport import (
 if TYPE_CHECKING:
     from nostr_sdk import Keys
 
-    from bigbrotr.services.common.configs import NetworksConfig
-
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +128,7 @@ class NostrClientManager(_protocol_manager.NostrClientManager):
         self,
         *,
         keys: Keys | None = None,
-        networks: NetworksConfig | None = None,
+        networks: _protocol_manager.RelayNetworkPolicy | None = None,
         allow_insecure: bool = False,
     ) -> None:
         async def _shutdown_client(client: Client) -> None:

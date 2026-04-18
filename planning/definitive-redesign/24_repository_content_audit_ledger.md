@@ -351,3 +351,11 @@ Use this section during execution for:
     naming a concrete service config wrapper;
   - corrected the paired RTT test-module inventory so it no longer advertises a
     nonexistent `_validate_network()` surface.
+- `2.1` models/utils/NIPs leaf audit, twenty-second remediation slice:
+  - removed the remaining typed service-layer leak from
+    `bigbrotr.utils.protocol` / `bigbrotr.utils.protocol_manager` by replacing
+    the public `NetworksConfig` annotation with a minimal local
+    `RelayNetworkPolicy` protocol;
+  - strengthened the paired protocol tests to use a small structural policy
+    stub rather than an unbounded mock, proving the manager now depends only on
+    the generic timeout/proxy contract it actually needs.

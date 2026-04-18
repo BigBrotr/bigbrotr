@@ -10,6 +10,7 @@ Tests:
 """
 
 import ssl
+from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -253,13 +254,26 @@ class TestCreateConnectedClient:
         mock_client.try_connect.assert_awaited_once()
 
 
+@dataclass(frozen=True, slots=True)
+class _StubNetworkConfig:
+    timeout: float
+
+
+class _StubNetworkPolicy:
+    def __init__(self, *, timeout: float, proxy_url: str | None = None) -> None:
+        self._config = _StubNetworkConfig(timeout=timeout)
+        self._proxy_url = proxy_url
+
+    def get(self, _network: NetworkType) -> _StubNetworkConfig:
+        return self._config
+
+    def get_proxy_url(self, _network: NetworkType) -> str | None:
+        return self._proxy_url
+
+
 class TestNostrClientManagerRelayClients:
     async def test_get_relay_client_caches_successful_connections(self) -> None:
-        networks = MagicMock()
-        network_cfg = MagicMock()
-        network_cfg.timeout = 12.0
-        networks.get.return_value = network_cfg
-        networks.get_proxy_url.return_value = None
+        networks = _StubNetworkPolicy(timeout=12.0)
         relay = Relay("wss://relay.example.com")
         mock_client = MagicMock()
         manager = NostrClientManager(keys=MagicMock(), networks=networks)
@@ -283,11 +297,7 @@ class TestNostrClientManagerRelayClients:
         )
 
     async def test_get_relay_client_caches_failures(self) -> None:
-        networks = MagicMock()
-        network_cfg = MagicMock()
-        network_cfg.timeout = 9.0
-        networks.get.return_value = network_cfg
-        networks.get_proxy_url.return_value = None
+        networks = _StubNetworkPolicy(timeout=9.0)
         relay = Relay("wss://relay.example.com")
         manager = NostrClientManager(keys=MagicMock(), networks=networks)
 
