@@ -605,3 +605,13 @@ Use this section during execution for:
     shared multi-relay sessions are clearnet-only, must never cache invalid
     overlay sessions, and must fail before any relay registration or connect
     attempt is made.
+- `2.1` models/utils/NIPs leaf audit, fifty-third remediation slice:
+  - removed the broad `contextlib.suppress(Exception)` teardown boundary from
+    `bigbrotr.utils.protocol_lifecycle.shutdown_client()`: the helper now
+    tolerates only plausible transport/SDK cleanup failures
+    (`OSError`, `RuntimeError`, `TimeoutError`, `NostrSdkError`) instead of
+    swallowing arbitrary bugs;
+  - preserved the best-effort cleanup contract by continuing through the
+    remaining teardown steps, but now re-raising the first unexpected
+    exception after the cleanup attempt so logic errors are surfaced instead
+    of being silently buried.

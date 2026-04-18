@@ -3,15 +3,18 @@
 These helpers provide best-effort teardown for short-lived ``nostr_sdk``
 clients created by the shared protocol layer. Cleanup intentionally tries to
 unsubscribe, remove relays, wipe any client-local database state exposed by
-the SDK, and then shut the client down, while suppressing teardown errors so
-callers can keep their own failure handling focused on the primary operation.
+the SDK, and then shut the client down. Expected transport/SDK teardown
+failures are tolerated so callers can stay focused on the primary operation,
+while unexpected bugs are still surfaced after the remaining cleanup steps
+have been attempted.
 """
 
 from __future__ import annotations
 
-import contextlib
 import inspect
 from typing import TYPE_CHECKING, TypeVar, cast
+
+from nostr_sdk import NostrSdkError
 
 
 if TYPE_CHECKING:
@@ -21,6 +24,7 @@ if TYPE_CHECKING:
 
 
 T = TypeVar("T")
+_EXPECTED_TEARDOWN_ERRORS = (OSError, RuntimeError, TimeoutError, NostrSdkError)
 
 
 async def _await_if_needed(value: T | Awaitable[T]) -> T:
@@ -38,16 +42,43 @@ def _database_wipe_call(database: object) -> Callable[[], object] | None:
     return None
 
 
+async def _run_cleanup_step(
+    step: Callable[[], T | Awaitable[T]],
+) -> tuple[bool, T | None, Exception | None]:
+    """Execute one cleanup step, classifying expected teardown failures."""
+    try:
+        return True, await _await_if_needed(step()), None
+    except _EXPECTED_TEARDOWN_ERRORS:
+        return False, None, None
+    except Exception as exc:
+        return False, None, exc
+
+
 async def shutdown_client(client: Client) -> None:
     """Best-effort release of a ``nostr_sdk.Client`` and its local state."""
-    with contextlib.suppress(Exception):
-        await _await_if_needed(client.unsubscribe_all())
-    with contextlib.suppress(Exception):
-        await _await_if_needed(client.force_remove_all_relays())
-    with contextlib.suppress(Exception):
-        database = await _await_if_needed(client.database())
+    unexpected_error: Exception | None = None
+
+    def _record_unexpected(error: Exception | None) -> None:
+        nonlocal unexpected_error
+        if unexpected_error is None and error is not None:
+            unexpected_error = error
+
+    _, _, error = await _run_cleanup_step(client.unsubscribe_all)
+    _record_unexpected(error)
+
+    _, _, error = await _run_cleanup_step(client.force_remove_all_relays)
+    _record_unexpected(error)
+
+    database_ok, database, error = await _run_cleanup_step(client.database)
+    _record_unexpected(error)
+    if database_ok and database is not None:
         wipe = _database_wipe_call(database)
         if wipe is not None:
-            await _await_if_needed(wipe())
-    with contextlib.suppress(Exception):
-        await _await_if_needed(client.shutdown())
+            _, _, error = await _run_cleanup_step(wipe)
+            _record_unexpected(error)
+
+    _, _, error = await _run_cleanup_step(client.shutdown)
+    _record_unexpected(error)
+
+    if unexpected_error is not None:
+        raise unexpected_error

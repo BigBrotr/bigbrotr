@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+from nostr_sdk import NostrSdkError
+
 from bigbrotr.utils.protocol_lifecycle import (
     _await_if_needed,
     _database_wipe_call,
@@ -63,7 +66,7 @@ class TestShutdownClient:
 
     async def test_shutdown_client_continues_when_steps_fail(self) -> None:
         database = MagicMock()
-        database.wipe = AsyncMock(side_effect=RuntimeError("wipe failed"))
+        database.wipe = AsyncMock(side_effect=NostrSdkError("wipe failed"))
 
         client = MagicMock()
         client.unsubscribe_all = AsyncMock(side_effect=OSError("unsubscribe failed"))
@@ -72,6 +75,27 @@ class TestShutdownClient:
         client.shutdown = AsyncMock()
 
         await shutdown_client(client)
+
+        client.unsubscribe_all.assert_awaited_once_with()
+        client.force_remove_all_relays.assert_awaited_once_with()
+        client.database.assert_awaited_once_with()
+        database.wipe.assert_awaited_once_with()
+        client.shutdown.assert_awaited_once_with()
+
+    async def test_shutdown_client_reraises_unexpected_errors_after_best_effort_cleanup(
+        self,
+    ) -> None:
+        database = MagicMock()
+        database.wipe = AsyncMock()
+
+        client = MagicMock()
+        client.unsubscribe_all = AsyncMock(side_effect=ValueError("unexpected"))
+        client.force_remove_all_relays = AsyncMock()
+        client.database = AsyncMock(return_value=database)
+        client.shutdown = AsyncMock()
+
+        with pytest.raises(ValueError, match="unexpected"):
+            await shutdown_client(client)
 
         client.unsubscribe_all.assert_awaited_once_with()
         client.force_remove_all_relays.assert_awaited_once_with()

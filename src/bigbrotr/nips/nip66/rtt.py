@@ -374,7 +374,11 @@ class Nip66RttMetadata(BaseNipMetadata):
 
     @staticmethod
     async def _cleanup(client: Client) -> None:
-        """Shut down the client and release Rust-side memory."""
+        """Shut down the client and release Rust-side memory.
+
+        Expected transport or SDK teardown failures stay best-effort; truly
+        unexpected cleanup bugs still propagate from the shared shutdown helper.
+        """
         from bigbrotr.utils.protocol import shutdown_client  # noqa: PLC0415
 
         await shutdown_client(client)

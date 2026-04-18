@@ -17,6 +17,9 @@ from datetime import timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+from nostr_sdk import NostrSdkError
+
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.rtt import Nip66RttDependencies, Nip66RttMetadata
 
@@ -379,12 +382,21 @@ class TestNip66RttMetadataCleanup:
         await Nip66RttMetadata._cleanup(mock_nostr_client)
         mock_nostr_client.shutdown.assert_called_once()
 
-    async def test_shutdown_exception_suppressed(self, mock_nostr_client: MagicMock) -> None:
-        """Exceptions during shutdown are suppressed."""
-        mock_nostr_client.shutdown = AsyncMock(side_effect=Exception("Shutdown error"))
+    async def test_expected_shutdown_errors_are_suppressed(
+        self, mock_nostr_client: MagicMock
+    ) -> None:
+        """Expected transport or SDK shutdown failures stay best-effort."""
+        mock_nostr_client.shutdown = AsyncMock(side_effect=NostrSdkError("Shutdown error"))
 
         # Should not raise
         await Nip66RttMetadata._cleanup(mock_nostr_client)
+
+    async def test_unexpected_shutdown_errors_propagate(self, mock_nostr_client: MagicMock) -> None:
+        """Unexpected teardown bugs are surfaced after cleanup is attempted."""
+        mock_nostr_client.shutdown = AsyncMock(side_effect=ValueError("Shutdown bug"))
+
+        with pytest.raises(ValueError, match="Shutdown bug"):
+            await Nip66RttMetadata._cleanup(mock_nostr_client)
 
 
 class TestNip66RttMetadataRtt:
