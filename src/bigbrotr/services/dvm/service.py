@@ -2,7 +2,7 @@
 
 Listens for NIP-90 job requests on configured relays, executes
 read-only queries via the shared
-[Catalog][bigbrotr.services.common.catalog.Catalog], and publishes
+[ReadCore][bigbrotr.services.common.read_models.ReadCore], and publishes
 results as job-result events (request kind + 1000). Read-model pricing via
 [ReadModelPolicy][bigbrotr.services.common.configs.ReadModelPolicy]
 enables the NIP-90 bid/payment-required mechanism.
@@ -20,8 +20,8 @@ Note:
 See Also:
     [DvmConfig][bigbrotr.services.dvm.DvmConfig]: Configuration model
         for relays, pricing, and NIP-90 settings.
-    [Catalog][bigbrotr.services.common.catalog.Catalog]: Schema
-        introspection and query builder shared with the API service.
+    [ReadCore][bigbrotr.services.common.read_models.ReadCore]: Shared
+        protocol-agnostic read core used by the API service too.
     [BaseService][bigbrotr.core.base_service.BaseService]: Abstract
         base class providing lifecycle and metrics.
 
@@ -49,7 +49,7 @@ import asyncpg
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.common.read_models import ReadModelSurface
+from bigbrotr.services.common.read_models import ReadCore
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import DvmRequestCursor
 from bigbrotr.utils.protocol import NostrClientManager
@@ -90,7 +90,7 @@ class Dvm(BaseService[DvmConfig]):
         [DvmConfig][bigbrotr.services.dvm.DvmConfig]: Configuration
             model for this service.
         [Api][bigbrotr.services.api.Api]: Sibling service that exposes
-            the same Catalog data via HTTP REST.
+            the same readable-resource data via HTTP REST.
     """
 
     SERVICE_NAME: ClassVar[ServiceName] = ServiceName.DVM
@@ -99,7 +99,7 @@ class Dvm(BaseService[DvmConfig]):
     def __init__(self, brotr: Brotr, config: DvmConfig | None = None) -> None:
         super().__init__(brotr=brotr, config=config)
         self._config: DvmConfig
-        self._read_models = ReadModelSurface(policy_source=lambda: self._config.read_models)
+        self._read_core = ReadCore(policy_source=lambda: self._config.read_models)
         self._client: Client | None = None
         self._client_manager = NostrClientManager(
             keys=self._config.keys.keys,
@@ -116,7 +116,7 @@ class Dvm(BaseService[DvmConfig]):
 
     async def __aenter__(self) -> Dvm:
         await super().__aenter__()
-        await self._read_models.discover(self._brotr, logger=self._logger)
+        await self._read_core.discover(self._brotr, logger=self._logger)
         keys = self._keys
         manager = self._client_manager
         session = await manager.connect_session(
@@ -172,7 +172,7 @@ class Dvm(BaseService[DvmConfig]):
             self._client = None
             raise
 
-        self.set_gauge("read_models_exposed", len(self._read_models.enabled_names("dvm")))
+        self.set_gauge("read_models_exposed", len(self._read_core.enabled_resource_ids("dvm")))
 
         return self
 
@@ -221,7 +221,7 @@ class Dvm(BaseService[DvmConfig]):
                     break
             events.sort(key=lambda event: (event.created_at().as_secs(), event.id().to_hex()))
         if not events:
-            read_models_exposed = len(self._read_models.enabled_names("dvm"))
+            read_models_exposed = len(self._read_core.enabled_resource_ids("dvm"))
             self.inc_counter("requests_total", 0)
             self.inc_counter("requests_failed", 0)
             self.set_gauge("read_models_exposed", read_models_exposed)
@@ -259,7 +259,7 @@ class Dvm(BaseService[DvmConfig]):
             self._processed_ids.clear()
         if (latest_ts, latest_id) != (self._last_fetch_ts, self._last_fetch_id):
             await self._store_request_cursor(latest_ts, latest_id)
-        read_models_exposed = len(self._read_models.enabled_names("dvm"))
+        read_models_exposed = len(self._read_core.enabled_resource_ids("dvm"))
         self.inc_counter("requests_total", received)
         self.inc_counter("requests_failed", failed)
         self.set_gauge("read_models_exposed", read_models_exposed)
@@ -287,11 +287,11 @@ class Dvm(BaseService[DvmConfig]):
             runtime=JobRuntime(
                 logger=self._logger,
                 send_event=self._send_event,
-                query_entry=self._query_read_model,
+                query_resource=self._query_resource,
             ),
             context=JobExecutionContext(
+                read_core=self._read_core,
                 policies=self._config.read_models,
-                available_catalog_names=set(self._read_models.catalog.tables),
                 default_page_size=self._config.default_page_size,
                 max_page_size=self._config.max_page_size,
                 request_kind=self._config.kind,
@@ -342,9 +342,9 @@ class Dvm(BaseService[DvmConfig]):
 
     # ── Event publishing ──────────────────────────────────────────
 
-    async def _query_read_model(self, read_model: Any, query: Any) -> Any:
-        """Execute one resolved read-model query through the shared surface."""
-        return await self._read_models.query_entry(self._brotr, read_model, query)
+    async def _query_resource(self, read_model: Any, query: Any) -> Any:
+        """Execute one resolved readable-resource query through the shared read core."""
+        return await self._read_core.query_resource(self._brotr, read_model, query)
 
     async def _send_event(
         self,
@@ -372,6 +372,6 @@ class Dvm(BaseService[DvmConfig]):
                 kind=self._config.kind,
                 name=self._config.name,
                 about=self._config.about,
-                read_models=self._read_models.enabled_names("dvm"),
+                read_models=self._read_core.enabled_resource_ids("dvm"),
             ),
         )

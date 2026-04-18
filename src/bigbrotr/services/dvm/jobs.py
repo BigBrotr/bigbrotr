@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from bigbrotr.core.logger import Logger
     from bigbrotr.services.common.catalog_types import QueryResult
     from bigbrotr.services.common.configs import ReadModelPolicy
-    from bigbrotr.services.common.read_models import ReadModelEntry, ReadModelQuery
+    from bigbrotr.services.common.read_models import ReadableResourceEntry, ReadCore, ReadModelQuery
 
 
 _MIN_TAG_LEN = 2
@@ -47,11 +47,11 @@ class EventSender(Protocol):
 
 
 class ReadModelQueryExecutor(Protocol):
-    """Callable that executes one resolved read-model query."""
+    """Callable that executes one resolved readable-resource query."""
 
     async def __call__(
         self,
-        read_model: ReadModelEntry,
+        read_model: ReadableResourceEntry,
         query: ReadModelQuery,
     ) -> QueryResult: ...
 
@@ -60,8 +60,8 @@ class ReadModelQueryExecutor(Protocol):
 class JobExecutionContext:
     """Pure configuration and dependencies needed to execute one DVM job."""
 
+    read_core: ReadCore
     policies: Mapping[str, ReadModelPolicy]
-    available_catalog_names: set[str]
     default_page_size: int
     max_page_size: int
     request_kind: int
@@ -73,7 +73,7 @@ class JobRuntime:
 
     logger: Logger
     send_event: EventSender
-    query_entry: ReadModelQueryExecutor
+    query_resource: ReadModelQueryExecutor
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,8 +155,8 @@ async def handle_job_request(
         request.read_model_id,
         request.params,
         context=JobPreparationContext(
+            read_core=context.read_core,
             policies=context.policies,
-            available_catalog_names=context.available_catalog_names,
             default_page_size=context.default_page_size,
             max_page_size=context.max_page_size,
         ),
@@ -170,7 +170,7 @@ async def handle_job_request(
 
     resolved_read_model_id = prepared_job.read_model_id
     start = time.monotonic()
-    result = await runtime.query_entry(prepared_job.read_model, prepared_job.query)
+    result = await runtime.query_resource(prepared_job.read_model, prepared_job.query)
     duration_ms = (time.monotonic() - start) * 1000
 
     await runtime.send_event(

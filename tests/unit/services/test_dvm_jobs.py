@@ -9,6 +9,7 @@ import pytest
 
 from bigbrotr.services.common.catalog import CatalogError, QueryResult
 from bigbrotr.services.common.configs import ReadModelPolicy
+from bigbrotr.services.common.read_models import ReadCore
 from bigbrotr.services.dvm.jobs import JobExecutionContext, JobRuntime, process_request_event
 
 
@@ -42,12 +43,19 @@ def _make_mock_event(
 
 @pytest.fixture
 def job_context() -> JobExecutionContext:
+    read_core = ReadCore(
+        policy_source=lambda: {
+            "relays": ReadModelPolicy(enabled=True),
+            "events": ReadModelPolicy(enabled=True, price=5000),
+        }
+    )
+    read_core.catalog._tables = {"relay": MagicMock(), "event": MagicMock()}
     return JobExecutionContext(
+        read_core=read_core,
         policies={
             "relays": ReadModelPolicy(enabled=True),
             "events": ReadModelPolicy(enabled=True, price=5000),
         },
-        available_catalog_names={"relay", "event"},
         default_page_size=100,
         max_page_size=1000,
         request_kind=5050,
@@ -59,7 +67,7 @@ class TestProcessRequestEvent:
         event = _make_mock_event(event_id="seen")
         logger = MagicMock()
         send_event = AsyncMock()
-        query_entry = AsyncMock()
+        query_resource = AsyncMock()
         processed_ids = {"seen"}
 
         result = await process_request_event(
@@ -69,14 +77,14 @@ class TestProcessRequestEvent:
             runtime=JobRuntime(
                 logger=logger,
                 send_event=send_event,
-                query_entry=query_entry,
+                query_resource=query_resource,
             ),
             context=job_context,
         )
 
         assert result == (0, 0, 0, 0)
         send_event.assert_not_awaited()
-        query_entry.assert_not_awaited()
+        query_resource.assert_not_awaited()
         logger.info.assert_not_called()
 
     async def test_skips_event_targeted_to_other_pubkey(
@@ -96,7 +104,7 @@ class TestProcessRequestEvent:
             runtime=JobRuntime(
                 logger=MagicMock(),
                 send_event=AsyncMock(),
-                query_entry=AsyncMock(),
+                query_resource=AsyncMock(),
             ),
             context=job_context,
         )
@@ -115,7 +123,7 @@ class TestProcessRequestEvent:
         )
         logger = MagicMock()
         send_event = AsyncMock(return_value=(("wss://relay.example.com",), {}))
-        query_entry = AsyncMock()
+        query_resource = AsyncMock()
 
         result = await process_request_event(
             event=event,
@@ -124,13 +132,13 @@ class TestProcessRequestEvent:
             runtime=JobRuntime(
                 logger=logger,
                 send_event=send_event,
-                query_entry=query_entry,
+                query_resource=query_resource,
             ),
             context=job_context,
         )
 
         assert result == (1, 0, 0, 1)
-        query_entry.assert_not_awaited()
+        query_resource.assert_not_awaited()
         send_event.assert_awaited_once()
         logger.info.assert_any_call(
             "job_payment_required",
@@ -148,7 +156,7 @@ class TestProcessRequestEvent:
         query_result = QueryResult(
             rows=[{"url": "wss://relay.example.com"}], total=1, limit=10, offset=0
         )
-        query_entry = AsyncMock(return_value=query_result)
+        query_resource = AsyncMock(return_value=query_result)
 
         result = await process_request_event(
             event=event,
@@ -157,13 +165,13 @@ class TestProcessRequestEvent:
             runtime=JobRuntime(
                 logger=logger,
                 send_event=send_event,
-                query_entry=query_entry,
+                query_resource=query_resource,
             ),
             context=job_context,
         )
 
         assert result == (1, 1, 0, 0)
-        query_entry.assert_awaited_once()
+        query_resource.assert_awaited_once()
         send_event.assert_awaited_once()
         logger.info.assert_any_call(
             "job_completed",
@@ -182,7 +190,7 @@ class TestProcessRequestEvent:
         event = _make_mock_event(event_id="job-error")
         logger = MagicMock()
         send_event = AsyncMock(return_value=(("wss://relay.example.com",), {}))
-        query_entry = AsyncMock(side_effect=error_type("boom"))
+        query_resource = AsyncMock(side_effect=error_type("boom"))
 
         result = await process_request_event(
             event=event,
@@ -191,7 +199,7 @@ class TestProcessRequestEvent:
             runtime=JobRuntime(
                 logger=logger,
                 send_event=send_event,
-                query_entry=query_entry,
+                query_resource=query_resource,
             ),
             context=job_context,
         )
@@ -206,7 +214,7 @@ class TestProcessRequestEvent:
         event = _make_mock_event(event_id="job-pg-error")
         logger = MagicMock()
         send_event = AsyncMock(return_value=(("wss://relay.example.com",), {}))
-        query_entry = AsyncMock(side_effect=asyncpg.PostgresError("pg-boom"))
+        query_resource = AsyncMock(side_effect=asyncpg.PostgresError("pg-boom"))
 
         result = await process_request_event(
             event=event,
@@ -215,7 +223,7 @@ class TestProcessRequestEvent:
             runtime=JobRuntime(
                 logger=logger,
                 send_event=send_event,
-                query_entry=query_entry,
+                query_resource=query_resource,
             ),
             context=job_context,
         )

@@ -17,12 +17,12 @@ from nostr_sdk import EventBuilder, Kind, Tag
 
 from bigbrotr.services.common.configs import ReadModelPolicy
 from bigbrotr.services.common.read_models import (
-    ReadModelEntry,
+    ReadableResourceEntry,
+    ReadCore,
     ReadModelQuery,
     ReadModelQueryError,
     build_read_model_meta,
     read_model_query_from_job_params,
-    resolve_surface_read_model,
 )
 
 
@@ -51,7 +51,7 @@ class PreparedJobRequest:
     """Validated NIP-90 job request ready for execution."""
 
     read_model_id: str
-    read_model: ReadModelEntry
+    read_model: ReadableResourceEntry
     query: ReadModelQuery
     price: int
 
@@ -79,8 +79,8 @@ class RejectedJobRequest:
 class JobPreparationContext:
     """Pure inputs needed to validate one job request."""
 
+    read_core: ReadCore
     policies: Mapping[str, ReadModelPolicy]
-    available_catalog_names: set[str]
     default_page_size: int
     max_page_size: int
 
@@ -116,12 +116,7 @@ def prepare_job_request(
     context: JobPreparationContext,
 ) -> PreparedJobRequest | RejectedJobRequest:
     """Resolve access, pricing, and query parsing for one NIP-90 job request."""
-    resolved_read_model = resolve_surface_read_model(
-        "dvm",
-        name=requested_read_model_id,
-        policies=context.policies,
-        available_catalog_names=context.available_catalog_names,
-    )
+    resolved_read_model = context.read_core.resolve_resource("dvm", requested_read_model_id)
     if resolved_read_model is None:
         return RejectedJobRequest(
             error_message=f"Invalid or disabled read model: {requested_read_model_id}"

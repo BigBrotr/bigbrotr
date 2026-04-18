@@ -23,6 +23,7 @@ from bigbrotr.services.common.catalog import (
     TableSchema,
 )
 from bigbrotr.services.common.configs import ReadModelPolicy
+from bigbrotr.services.common.read_models import ReadCore
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.services.common.types import DvmRequestCursor
 from bigbrotr.services.dvm.configs import DvmConfig
@@ -104,8 +105,17 @@ def sample_dvm_catalog() -> Catalog:
 @pytest.fixture
 def dvm_service(mock_brotr: Brotr, dvm_config: DvmConfig, sample_dvm_catalog: Catalog) -> Dvm:
     service = Dvm(brotr=mock_brotr, config=dvm_config)
-    service._read_models.catalog = sample_dvm_catalog
+    service._read_core.catalog = sample_dvm_catalog
     return service
+
+
+def _build_dvm_read_core(
+    sample_dvm_catalog: Catalog,
+    policies: dict[str, ReadModelPolicy],
+) -> ReadCore:
+    read_core = ReadCore(policy_source=lambda: policies)
+    read_core.catalog = sample_dvm_catalog
+    return read_core
 
 
 def _make_mock_event(
@@ -305,10 +315,10 @@ class TestDvm:
 
 class TestDvmReadModelAccessPolicy:
     def test_enabled_in_config(self, dvm_service: Dvm) -> None:
-        assert dvm_service._read_models.resolve("dvm", "relays") is not None
+        assert dvm_service._read_core.resolve_resource("dvm", "relays") is not None
 
     def test_not_in_config_disabled(self, dvm_service: Dvm) -> None:
-        assert dvm_service._read_models.resolve("dvm", "service_state") is None
+        assert dvm_service._read_core.resolve_resource("dvm", "service_state") is None
 
     def test_configured_internal_read_model_still_disabled(self, mock_brotr: Brotr) -> None:
         with pytest.raises(ValueError, match=r"non-public DVM read models: service_state"):
@@ -322,7 +332,7 @@ class TestDvmReadModelAccessPolicy:
             )
 
     def test_unknown_read_model_disabled(self, dvm_service: Dvm) -> None:
-        assert dvm_service._read_models.resolve("dvm", "nonexistent") is None
+        assert dvm_service._read_core.resolve_resource("dvm", "nonexistent") is None
 
     def test_free_price_default(self, dvm_service: Dvm) -> None:
         assert dvm_service._config.read_models["relays"].price == 0
@@ -347,8 +357,8 @@ class TestPrepareJobRequest:
             "relays",
             {"limit": "5"},
             context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.read_models),
                 policies=dvm_config.read_models,
-                available_catalog_names=set(sample_dvm_catalog.tables),
                 default_page_size=dvm_config.default_page_size,
                 max_page_size=dvm_config.max_page_size,
             ),
@@ -367,8 +377,8 @@ class TestPrepareJobRequest:
             "service_state",
             {},
             context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.read_models),
                 policies=dvm_config.read_models,
-                available_catalog_names=set(sample_dvm_catalog.tables),
                 default_page_size=dvm_config.default_page_size,
                 max_page_size=dvm_config.max_page_size,
             ),
@@ -385,8 +395,8 @@ class TestPrepareJobRequest:
             "events",
             {"bid": 1000},
             context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.read_models),
                 policies=dvm_config.read_models,
-                available_catalog_names=set(sample_dvm_catalog.tables),
                 default_page_size=dvm_config.default_page_size,
                 max_page_size=dvm_config.max_page_size,
             ),
@@ -404,8 +414,8 @@ class TestPrepareJobRequest:
             "relays",
             {"limit": "not-a-number"},
             context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.read_models),
                 policies=dvm_config.read_models,
-                available_catalog_names=set(sample_dvm_catalog.tables),
                 default_page_size=dvm_config.default_page_size,
                 max_page_size=dvm_config.max_page_size,
             ),
@@ -506,8 +516,8 @@ class TestDvmLifecycle:
             read_models={"relays": ReadModelPolicy(enabled=True)},
         )
         service = Dvm(brotr=mock_brotr, config=config)
-        service._read_models.catalog = Catalog()
-        service._read_models.catalog._tables = {
+        service._read_core.catalog = Catalog()
+        service._read_core.catalog._tables = {
             "relay": TableSchema(
                 name="relay",
                 columns=(ColumnSchema(name="url", pg_type="text", nullable=False),),
@@ -691,7 +701,7 @@ class TestDvmRun:
 
         mock_gauge.assert_any_call(
             "read_models_exposed",
-            len(dvm_service._read_models.enabled_names("dvm")),
+            len(dvm_service._read_core.enabled_resource_ids("dvm")),
         )
 
     async def test_run_no_events_does_not_advance_cursor(self, dvm_service: Dvm) -> None:
@@ -732,7 +742,7 @@ class TestDvmRun:
         dvm_service._state_store = mock_state_store
         with (
             patch.object(
-                dvm_service._read_models.catalog,
+                dvm_service._read_core.catalog,
                 "query",
                 new_callable=AsyncMock,
                 return_value=mock_result,
@@ -818,7 +828,7 @@ class TestDvmRun:
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._read_models.catalog,
+                dvm_service._read_core.catalog,
                 "query",
                 new_callable=AsyncMock,
                 return_value=mock_result,
@@ -843,7 +853,7 @@ class TestDvmRun:
         mock_result = QueryResult(rows=[], total=1, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._read_models.catalog,
+                dvm_service._read_core.catalog,
                 "query",
                 new_callable=AsyncMock,
                 return_value=mock_result,
@@ -867,7 +877,7 @@ class TestDvmRun:
         mock_result = QueryResult(rows=[], total=None, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._read_models.catalog,
+                dvm_service._read_core.catalog,
                 "query",
                 new_callable=AsyncMock,
                 return_value=mock_result,
@@ -922,7 +932,7 @@ class TestDvmRun:
         dvm_service._state_store = mock_state_store
         with (
             patch.object(
-                dvm_service._read_models.catalog,
+                dvm_service._read_core.catalog,
                 "query",
                 new_callable=AsyncMock,
                 return_value=mock_result,
@@ -956,7 +966,7 @@ class TestDvmRun:
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._read_models.catalog,
+                dvm_service._read_core.catalog,
                 "query",
                 new_callable=AsyncMock,
                 return_value=mock_result,
@@ -982,7 +992,7 @@ class TestDvmRun:
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._read_models.catalog,
+                dvm_service._read_core.catalog,
                 "query",
                 new_callable=AsyncMock,
                 return_value=mock_result,
@@ -1023,7 +1033,7 @@ class TestDvmPtagTargeting:
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._read_models.catalog,
+                dvm_service._read_core.catalog,
                 "query",
                 new_callable=AsyncMock,
                 return_value=mock_result,
@@ -1062,7 +1072,7 @@ class TestDvmJobErrorHandling:
 
         with (
             patch.object(
-                dvm_service._read_models.catalog,
+                dvm_service._read_core.catalog,
                 "query",
                 new_callable=AsyncMock,
                 side_effect=error,
@@ -1093,7 +1103,7 @@ class TestDvmJobErrorHandling:
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._read_models.catalog,
+                dvm_service._read_core.catalog,
                 "query",
                 new_callable=AsyncMock,
                 return_value=mock_result,
@@ -1115,7 +1125,7 @@ class TestDvmJobErrorHandling:
 
         with (
             patch.object(
-                dvm_service._read_models.catalog,
+                dvm_service._read_core.catalog,
                 "query",
                 new_callable=AsyncMock,
                 side_effect=CatalogError("query failed"),
@@ -1149,7 +1159,7 @@ class TestDvmMetrics:
 
         with (
             patch.object(
-                dvm_service._read_models.catalog,
+                dvm_service._read_core.catalog,
                 "query",
                 new_callable=AsyncMock,
                 return_value=mock_result,
@@ -1186,7 +1196,7 @@ class TestDvmPublishingGuards:
         mock_client.send_event_builder.assert_called_once()
 
     def test_enabled_read_model_names_follow_registry(self, dvm_service: Dvm) -> None:
-        assert dvm_service._read_models.enabled_names("dvm") == ["events", "relays"]
+        assert dvm_service._read_core.enabled_resource_ids("dvm") == ["events", "relays"]
 
     async def test_publish_announcement_logs_warning_when_unaccepted(
         self, dvm_service: Dvm
@@ -1223,7 +1233,7 @@ class TestDvmPublishingGuards:
         mock_result = QueryResult(rows=[], total=0, limit=100, offset=0)
         with (
             patch.object(
-                dvm_service._read_models.catalog,
+                dvm_service._read_core.catalog,
                 "query",
                 new_callable=AsyncMock,
                 return_value=mock_result,

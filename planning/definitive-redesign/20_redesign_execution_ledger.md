@@ -67,7 +67,7 @@ Execution baseline:
 | 4. Shared derivation and maintenance pipeline alignment | done | `Refresher` ownership, source-watermark checkpointing, bounded incremental windows, and backlog reporting are all closed |
 | 5. Service-boundary alignment | done | `Monitor`, offline `Refresher` ownership, `Assertor` package-complete publication, and `Ranker` boundary hardening are all closed |
 | 6. Score/output and NIP capability alignment | done | The static capability registry, NIP-85 builder/publication alignment, and score-vocabulary sweep are all closed |
-| 7. Protocol-agnostic read-core implementation | in progress | The readable-resource contract layer and shared `ReadCore` are now in place above the historical read-model seam; the API adapter now targets `ReadCore` directly, while only the DVM still runs through the compatibility wrapper pending `7.4` |
+| 7. Protocol-agnostic read-core implementation | in progress | The readable-resource contract layer and shared `ReadCore` are now in place above the historical read-model seam; both API and DVM now target `ReadCore` directly, and only the tranche-wide boundedness/contract audit remains in `7.5` |
 | 8. Deployment-contract normalization | not started | |
 | 9. Repository-wide documentation rewrite | not started | |
 | 10. Final cleanup, rename sweep, and closeout audit | not started | |
@@ -145,7 +145,7 @@ Execution baseline:
 | 7.1 Readable-resource contract introduction | done | `refactor: introduce readable resource contract` | Evolved the shared registry from an implicit read-model alias map into an explicit readable-resource descriptor layer by introducing `READABLE_RESOURCE_REGISTRY`, `ReadableResourceEntry`, resource-level contract descriptors (`id`, semantic name, backing kind, relation name, identity fields, traversal/cursor fields, filter/sort capabilities, pagination), and readable-resource resolution helpers while preserving the historical `read model` names as compatibility aliases for API/DVM/config seams. The slice also exposed the new registry from `services.common.read_models`, aligned shared module docstrings to the new center of gravity, and added targeted coverage proving registry alias stability, resource-contract descriptors, and adapter compatibility. Targeted read-core/API/DVM unit suites (`209 passed`), targeted lint/mypy, full `make ci`, and `uv lock --check` passed before closure |
 | 7.2 Shared read-core evolution from current read-model stack | done | `refactor: introduce shared read core` | Introduced a real protocol-agnostic `ReadCore` above the readable-resource registry and moved the shared read-side behavior there: catalog discovery, deployment-aware enabled-resource resolution, normalized missing-resource errors, relation-backed query/get-by-pk execution, and discovery summaries/details now live in the core. `ReadModelSurface` was reduced to a compatibility wrapper that delegates into `ReadCore`, preserving the current API/DVM/config seam while giving the later adapter migrations a concrete nucleus to target. The slice also expanded unit coverage to exercise the core directly alongside the wrapper and revalidated the affected API/DVM suites. Targeted read-core/API/DVM unit suites (`220 passed`), targeted lint/mypy, full `make ci`, and `uv lock --check` passed before closure |
 | 7.3 `API` adapter alignment | done | `refactor: align api with shared read core` | Migrated the HTTP adapter off `ReadModelSurface` and onto `ReadCore` directly while preserving the public `/read-models` contract, pagination semantics, discovery payloads, and config-facing `read_models` policy shape. The API service now owns `_read_core` as its local seam, route registration resolves enabled readable resources through `ReadCore`, the per-route handler executes `query_resource()` / `get_resource_by_pk()` directly, and the touched API docs/tests were realigned to the new adapter boundary. Targeted API handler/service suites (`70 passed`), targeted lint/mypy, full `make ci`, and `uv lock --check` passed before closure |
-| 7.4 `DVM` adapter alignment | not started | | |
+| 7.4 `DVM` adapter alignment | done | `refactor: align dvm with shared read core` | Migrated the NIP-90 adapter off `ReadModelSurface` and onto `ReadCore` directly while preserving the public `read_model` request/result contract, pricing behavior, announcement payload shape, and DVM-specific error semantics. The DVM service now owns `_read_core` as its local seam, job preparation resolves enabled resources through the shared core instead of duplicating registry resolution from raw policy/catalog inputs, runtime job execution now calls `query_resource()` directly, and the touched service/job tests were realigned to the new adapter boundary. Targeted DVM unit suites (`111 passed`), targeted lint/mypy, full `make ci`, and `uv lock --check` passed before closure |
 | 7.5 Read-core boundedness and contract audit | not started | | |
 
 ### Tranche 8 — Deployment-Contract Normalization
@@ -229,14 +229,11 @@ Each entry should include:
 - Classification: improvement / watch point, not blocker
 
 - Originating work package: `7.2 Shared read-core evolution from current read-model stack`
-- Deferred item: the DVM adapter still instantiates and calls
-  `ReadModelSurface` directly rather than targeting `ReadCore` as its primary
-  local abstraction
-- Why deferred: `7.3` closed the HTTP migration cleanly, but the NIP-90
-  adapter-owned wiring and naming are intentionally left for the dedicated DVM
-  slice so the protocol refactor does not mix HTTP and DVM churn
-- Future tranche: `7.4 DVM adapter alignment`
-- Classification: expected migration follow-up, not blocker
+- Follow-up status: resolved in `7.4 DVM adapter alignment`
+- Outcome: both protocol adapters now target `ReadCore` as their primary local
+  abstraction; the historical `ReadModelSurface` remains only as a
+  compatibility seam pending the tranche-wide cleanup/audit pass in `7.5`
+- Classification: closed follow-up
 
 ---
 
