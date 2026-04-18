@@ -408,7 +408,8 @@ class TestNip66DnsMetadataDnsSync:
             patch("dns.resolver.Resolver", return_value=mock_resolver),
             patch.object(Nip66DnsMetadata, "_registered_domain", return_value=None),
             patch(
-                "bigbrotr.nips.nip66.dns.time.monotonic", side_effect=[100.0, 100.0, 102.0, 105.0]
+                "bigbrotr.nips.nip66.dns.time.monotonic",
+                side_effect=[100.0, 100.0, 102.0, 104.5],
             ),
         ):
             result = Nip66DnsMetadata._dns("example.com", 5.0)
@@ -417,7 +418,24 @@ class TestNip66DnsMetadataDnsSync:
         assert mock_resolver.resolve.call_args_list == [
             (("example.com", "A"), {"lifetime": 5.0}),
             (("example.com", "AAAA"), {"lifetime": 3.0}),
+            (("example.com", "CNAME"), {"lifetime": 0.5}),
         ]
+
+    def test_budget_exhaustion_raises_timeout_instead_of_no_data(self) -> None:
+        """Shared-budget exhaustion aborts the probe instead of degrading to empty data."""
+        mock_resolver = MagicMock()
+        mock_resolver.resolve.side_effect = dns.resolver.NXDOMAIN()
+
+        with (
+            patch("dns.resolver.Resolver", return_value=mock_resolver),
+            patch.object(Nip66DnsMetadata, "_registered_domain", return_value=None),
+            patch(
+                "bigbrotr.nips.nip66.dns.time.monotonic",
+                side_effect=[100.0, 100.0, 102.0, 105.0],
+            ),
+            pytest.raises(TimeoutError, match="dns timeout during record collection"),
+        ):
+            Nip66DnsMetadata._dns("example.com", 5.0)
 
 
 class TestNip66DnsMetadataDnsAsync:
@@ -544,3 +562,15 @@ class TestNip66DnsMetadataDnsAsync:
 
         assert result.logs.success is False
         assert result.logs.reason == "TimeoutError"
+
+    async def test_internal_dns_timeout_reports_timeout_reason(self, relay: Relay) -> None:
+        """Internal DNS deadline exhaustion is reported as a timeout, not empty data."""
+        with patch.object(
+            Nip66DnsMetadata,
+            "_dns",
+            side_effect=TimeoutError("dns timeout during record collection"),
+        ):
+            result = await Nip66DnsMetadata.probe(relay, 5.0)
+
+        assert result.logs.success is False
+        assert result.logs.reason == "dns timeout during record collection"

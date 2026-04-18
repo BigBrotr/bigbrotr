@@ -353,6 +353,13 @@ Use this section during execution for:
   - paired `dns` coverage now pins that per-record resolver `lifetime`
     values shrink with the remaining budget and that later record families
     are skipped once the shared DNS deadline is exhausted.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-eighteenth remediation slice:
+  - `bigbrotr.nips.nip66.dns.Nip66DnsMetadata._dns()` now treats shared-budget
+    exhaustion as a real timeout outcome instead of degrading it into an empty
+    DNS result that `probe()` would misreport as `no DNS records found`;
+  - paired `dns` coverage now pins both sides of the contract: the sync probe
+    raises `TimeoutError` once the shared deadline is exhausted, and the async
+    `probe()` surface reports that timeout reason verbatim.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package
