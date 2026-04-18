@@ -147,6 +147,38 @@ class TestProcessRequestEvent:
             bid=1000,
         )
 
+    @patch("bigbrotr.services.dvm.jobs.parse_job_params")
+    async def test_accepts_string_bid_from_preparsed_job_params(
+        self,
+        mock_parse_job_params: MagicMock,
+        job_context: JobExecutionContext,
+    ) -> None:
+        event = _make_mock_event(event_id="job-string-bid")
+        logger = MagicMock()
+        send_event = AsyncMock(return_value=(("wss://relay.example.com",), {}))
+        query_result = QueryResult(rows=[], total=1, limit=10, offset=0)
+        query_resource = AsyncMock(return_value=query_result)
+        mock_parse_job_params.return_value = {
+            "read_model": "events",
+            "bid": " 5000 ",
+        }
+
+        result = await process_request_event(
+            event=event,
+            pubkey_hex="service-pubkey",
+            processed_ids=set(),
+            runtime=JobRuntime(
+                logger=logger,
+                send_event=send_event,
+                query_resource=query_resource,
+            ),
+            context=job_context,
+        )
+
+        assert result == (1, 1, 0, 0)
+        query_resource.assert_awaited_once()
+        send_event.assert_awaited_once()
+
     async def test_executes_query_and_publishes_result(
         self, job_context: JobExecutionContext
     ) -> None:

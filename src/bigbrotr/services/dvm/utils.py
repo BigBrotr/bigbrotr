@@ -124,6 +124,21 @@ def normalize_job_params(params: Mapping[Any, Any]) -> dict[str, Any]:
     return normalized
 
 
+def _normalize_bid(raw_bid: Any) -> int:
+    """Normalize optional pre-parsed bid values to the live transport contract."""
+    if isinstance(raw_bid, bool):
+        return 0
+    if isinstance(raw_bid, int):
+        return raw_bid
+    if not isinstance(raw_bid, str):
+        return 0
+
+    try:
+        return int(raw_bid.strip())
+    except ValueError:
+        return 0
+
+
 def prepare_job_request(
     requested_resource_id: Any,
     params: Mapping[str, Any],
@@ -146,8 +161,7 @@ def prepare_job_request(
     resource = resolved_resource
     resource_id = resource.resource_id
     price = context.exposure_policy.get(resource_id, ReadModelPolicy()).price
-    raw_bid = params.get("bid", 0)
-    bid = raw_bid if isinstance(raw_bid, int) and not isinstance(raw_bid, bool) else 0
+    bid = _normalize_bid(params.get("bid", 0))
     if price > 0 and bid < price:
         return RejectedJobRequest(required_price=price, bid=bid)
 

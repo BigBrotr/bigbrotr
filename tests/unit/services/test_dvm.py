@@ -478,6 +478,26 @@ class TestPrepareJobRequest:
         assert rejected.bid == 0
         assert rejected.error_message is None
 
+    def test_string_bid_is_normalized_like_live_transport(
+        self,
+        dvm_config: DvmConfig,
+        sample_dvm_catalog: Catalog,
+    ) -> None:
+        prepared = prepare_job_request(
+            "events",
+            {"bid": " 5000 "},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(prepared, PreparedJobRequest)
+        assert prepared.resource_id == "events"
+        assert prepared.price == 5000
+
     def test_returns_client_error_for_invalid_query(
         self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
     ) -> None:

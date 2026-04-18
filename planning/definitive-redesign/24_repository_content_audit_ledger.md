@@ -1547,3 +1547,10 @@ Use this section during execution for:
     path now resolves canonical query fields and request logging exactly like
     the live `NIP-90` transport path instead of degrading to defaults or bogus
     disabled-read-model errors.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twentieth remediation slice:
+  - aligned the DVM pre-parsed payment boundary with the live `NIP-90` tag
+    parser so numeric-string bids like `"5000"` no longer degrade to a missing
+    bid when job params are injected or patched before transport parsing;
+  - added paired `dvm/utils` and `dvm/jobs` coverage proving pre-parsed bid
+    values now follow the same payment-required vs executable-query contract as
+    the live tag-based request path.
