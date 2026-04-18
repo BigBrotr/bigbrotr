@@ -68,7 +68,7 @@ Execution baseline:
 | 5. Service-boundary alignment | done | `Monitor`, offline `Refresher` ownership, `Assertor` package-complete publication, and `Ranker` boundary hardening are all closed |
 | 6. Score/output and NIP capability alignment | done | The static capability registry, NIP-85 builder/publication alignment, and score-vocabulary sweep are all closed |
 | 7. Protocol-agnostic read-core implementation | done | The readable-resource contract layer and shared `ReadCore` are now fully in place above the historical read-model seam: both API and DVM target `ReadCore` directly, resource-level pagination/filter/sort capabilities are now enforced by the core itself, and the remaining `ReadModelSurface` wrapper is an explicit thin compatibility layer rather than a parallel execution path |
-| 8. Deployment-contract normalization | not started | |
+| 8. Deployment-contract normalization | in progress | The built-in deployment-folder contract is now normalized in code/docs; storage-profile, protocol-exposure, and reference-deployment cleanup slices remain open |
 | 9. Repository-wide documentation rewrite | not started | |
 | 10. Final cleanup, rename sweep, and closeout audit | not started | |
 
@@ -152,7 +152,7 @@ Execution baseline:
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 8.1 Deployment folder contract normalization | not started | | |
+| 8.1 Deployment folder contract normalization | done | `refactor: normalize deployment folder contract` | Introduced `bigbrotr.core.deployments` as the shared built-in deployment-layout contract (`bigbrotr`/`lilbrotr`) so CLI default-config resolution and deployment-aware tooling stop duplicating root/path/profile conventions, added targeted unit coverage for required deployment pieces and checkout-root discovery, and rewrote the custom-deployment guide so it now describes the real generated-SQL/template workflow instead of hand-editing generated init SQL. Targeted helper/CLI/tooling suites (`55 passed`), full `make ci`, and `uv lock --check` passed before closure |
 | 8.2 Storage-profile normalization | not started | | |
 | 8.3 Protocol exposure policy normalization | not started | | |
 | 8.4 Deployment docs and local operator guidance alignment | not started | | |

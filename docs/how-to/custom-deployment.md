@@ -1,12 +1,21 @@
 # Creating a Custom Deployment
 
-Create a new deployment from the `bigbrotr` base with custom configuration, schema, and Docker settings.
+Create a new deployment from one of the built-in reference deployments with
+custom configuration, schema, and Docker settings.
 
 ---
 
 ## Overview
 
-BigBrotr ships with two deployments: `bigbrotr` (full event archive) and `lilbrotr` (lightweight, tags/content/sig present but NULL). To create your own, copy `bigbrotr` and customize. Each deployment is a self-contained directory with configuration, SQL schema, Docker Compose, and monitoring files.
+BigBrotr ships with two reference deployments:
+
+- `bigbrotr` for the full archive profile
+- `lilbrotr` for the lightweight archive profile
+
+To create your own, copy the reference deployment that is closest to the shape
+you want and customize it. Each deployment is a self-contained directory with
+configuration, generated PostgreSQL init files, Docker Compose, and local
+operator assets.
 
 ## Step 1: Copy the Template
 
@@ -14,6 +23,9 @@ BigBrotr ships with two deployments: `bigbrotr` (full event archive) and `lilbro
 cp -r deployments/bigbrotr deployments/myproject
 cd deployments/myproject
 ```
+
+If you want the lightweight storage profile instead, start from
+`deployments/lilbrotr`.
 
 ## Step 2: Configure Docker Compose
 
@@ -87,17 +99,41 @@ Service files to customize:
       --config deployments/myproject/config/services/finder.yaml
     ```
 
-## Step 5: Choose a Schema
+## Step 5: Choose and Maintain the SQL Package
 
-Edit `postgres/init/02_tables.sql` to select which schema to use:
+The files in `postgres/init/` are generated deployment artifacts. Do **not**
+hand-edit `02_tables_core.sql` or the other generated `.sql` files and expect
+those changes to survive regeneration.
 
-=== "BigBrotr (full archive)"
+For most custom deployments, the right move is simply:
 
-    Keep the full event table with all columns (`tags`, `content`, `sig`). This stores complete Nostr events and enables the full current-state, analytics, and NIP-85 rank schema.
+- start from `deployments/bigbrotr` if you want the full archive profile;
+- start from `deployments/lilbrotr` if you want the lightweight archive profile;
+- keep the copied `postgres/init/` package as your deployment's SQL package.
 
-=== "LilBrotr (lightweight)"
+If you need to customize the schema itself, make the change in the SQL template
+system:
 
-    Use the lightweight event table with all 8 columns where `tags`, `content`, and `sig` are nullable and always NULL. This provides approximately 60% disk savings since NULL values do not occupy storage. The current-state, analytics, and NIP-85 rank schema is still available.
+1. add or update deployment-specific templates under
+   `tools/templates/sql/<deployment>/`;
+2. register that deployment name in `tools/generate_sql.py`;
+3. regenerate the SQL package with:
+
+```bash
+python tools/generate_sql.py
+```
+
+The generator renders the deployment-local files in:
+
+- `deployments/<deployment>/postgres/init/*.sql`
+
+This keeps the checked-in SQL package aligned with the actual template source
+of truth.
+
+!!! note
+    The built-in SQL generator currently knows the shipped deployment names
+    `bigbrotr` and `lilbrotr`. A custom deployment that needs its own SQL
+    generation path must be added explicitly to `tools/generate_sql.py`.
 
 ## Step 6: Set Up the Seed File
 
@@ -153,6 +189,19 @@ docker compose ps
 
 !!! note
     If you need to reset and start fresh, run `docker compose down -v` to remove all containers and volumes, then `docker compose up -d` again.
+
+## Step 10: Add Local Operator Notes
+
+Add a deployment-local `README.md` that explains:
+
+- what this deployment is for;
+- which reference deployment it started from;
+- whether it uses the full or lightweight storage profile;
+- any custom SQL-template overrides, protocol-exposure limits, or operational
+  differences.
+
+That local `README.md` is the fastest way to keep the deployment self-explanatory
+for future operators.
 
 ---
 

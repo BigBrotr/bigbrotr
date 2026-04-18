@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from bigbrotr.core.brotr import Brotr
+from bigbrotr.core.deployments import BUILTIN_DEPLOYMENT_PROFILES, deployment_layout
 from bigbrotr.core.yaml import load_yaml
 from bigbrotr.models.constants import ServiceName
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
@@ -47,7 +48,7 @@ if TYPE_CHECKING:
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SUPPORTED_DEPLOYMENTS = ("bigbrotr", "lilbrotr")
+SUPPORTED_DEPLOYMENTS = BUILTIN_DEPLOYMENT_PROFILES
 CURRENT_TARGETS = list(DEFAULT_CURRENT_TARGETS)
 ANALYTICS_TARGETS = list(DEFAULT_ANALYTICS_TARGETS)
 PERIODIC_TARGETS = list(DEFAULT_PERIODIC_TARGETS)
@@ -69,7 +70,7 @@ class RebuildResult:
 
 
 def _deployment_brotr_config(deployment: str) -> Path:
-    return PROJECT_ROOT / "deployments" / deployment / "config" / "brotr.yaml"
+    return deployment_layout(deployment, cwd=PROJECT_ROOT).brotr_config_path
 
 
 def _runtime_config(

@@ -4,12 +4,12 @@ from unittest.mock import patch
 import pytest
 
 from bigbrotr.__main__ import (
-    CORE_CONFIG,
     DEFAULT_PROFILE,
     _default_brotr_config_path,
     _default_service_config_path,
     parse_args,
 )
+from bigbrotr.core.deployments import deployment_layout
 from bigbrotr.services.registry import CONFIG_BASE, SERVICE_REGISTRY, ServiceEntry
 
 
@@ -36,13 +36,11 @@ class TestServiceRegistry:
 
     def test_default_service_config_path_uses_profile_root(self) -> None:
         for name in SERVICE_REGISTRY:
-            expected = (
-                Path("deployments") / DEFAULT_PROFILE / "config" / "services" / f"{name}.yaml"
-            )
+            expected = deployment_layout(DEFAULT_PROFILE, cwd=Path.cwd()).service_config_path(name)
             assert _default_service_config_path(DEFAULT_PROFILE, name) == expected
 
     def test_default_brotr_config_path_uses_profile_root(self) -> None:
-        expected = Path("deployments") / DEFAULT_PROFILE / CORE_CONFIG
+        expected = deployment_layout(DEFAULT_PROFILE, cwd=Path.cwd()).brotr_config_path
         assert _default_brotr_config_path(DEFAULT_PROFILE) == expected
 
     def test_service_classes_are_base_service_subclasses(self) -> None:

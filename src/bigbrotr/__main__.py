@@ -22,6 +22,11 @@ from typing import Any
 
 from bigbrotr.core import Brotr, start_metrics_server
 from bigbrotr.core.base_service import BaseService
+from bigbrotr.core.deployments import (
+    BUILTIN_DEPLOYMENT_PROFILES,
+    DEFAULT_DEPLOYMENT_PROFILE,
+    deployment_layout,
+)
 from bigbrotr.core.logger import Logger, StructuredFormatter
 from bigbrotr.core.service_runtime import ServiceCliRunner
 from bigbrotr.core.yaml import load_yaml
@@ -31,9 +36,8 @@ from bigbrotr.services.registry import ServiceEntry as _ServiceEntry
 
 CONFIG_BASE = Path("config")
 CORE_CONFIG = CONFIG_BASE / "brotr.yaml"
-DEPLOYMENTS_BASE = Path("deployments")
-DEFAULT_PROFILE = "bigbrotr"
-DEPLOYMENT_PROFILES = ("bigbrotr", "lilbrotr")
+DEFAULT_PROFILE = DEFAULT_DEPLOYMENT_PROFILE
+DEPLOYMENT_PROFILES = BUILTIN_DEPLOYMENT_PROFILES
 ServiceEntry = _ServiceEntry
 
 logger = Logger("cli")
@@ -41,12 +45,12 @@ logger = Logger("cli")
 
 def _default_brotr_config_path(profile: str) -> Path:
     """Resolve the default shared config path for a deployment profile."""
-    return DEPLOYMENTS_BASE / profile / CORE_CONFIG
+    return deployment_layout(profile).brotr_config_path
 
 
 def _default_service_config_path(profile: str, service_name: str) -> Path:
     """Resolve the default service config path for a deployment profile."""
-    return DEPLOYMENTS_BASE / profile / SERVICE_REGISTRY[service_name].config_path
+    return deployment_layout(profile).service_config_path(service_name)
 
 
 async def run_service(
