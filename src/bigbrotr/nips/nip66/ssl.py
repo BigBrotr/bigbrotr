@@ -203,8 +203,12 @@ class Nip66SslMetadata(BaseNipMetadata):
                     result["ssl_fingerprint"] = CertificateExtractor.extract_fingerprint(
                         cert_binary
                     )
-                    parsed = x509.load_der_x509_certificate(cert_binary)
-                    result.update(CertificateExtractor.extract_all_from_x509(parsed))
+                    try:
+                        parsed = x509.load_der_x509_certificate(cert_binary)
+                    except ValueError as e:
+                        logger.debug("ssl_cert_parse_error error=%s", str(e))
+                    else:
+                        result.update(CertificateExtractor.extract_all_from_x509(parsed))
 
                 result.update(Nip66SslMetadata._extract_tls_info(ssock))
 

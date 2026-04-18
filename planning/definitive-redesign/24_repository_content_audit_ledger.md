@@ -320,6 +320,15 @@ Use this section during execution for:
   - paired `ssl` coverage now pins that the validation phase receives only the
     remaining timeout budget and that the probe aborts before validation when
     extraction has already exhausted the caller-provided deadline.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fourteenth remediation slice:
+  - `bigbrotr.nips.nip66.ssl.Nip66SslMetadata._extract_certificate_data()`
+    now treats malformed DER payloads as certificate-parse degradation rather
+    than as a hard probe failure, so the SSL probe still preserves the
+    negotiated TLS info and SHA-256 fingerprint already observed on the live
+    socket;
+  - paired `ssl` coverage now pins that malformed DER input drops only the
+    X.509-derived fields while keeping the fingerprint and negotiated TLS
+    metadata intact.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

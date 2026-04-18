@@ -403,6 +403,40 @@ class TestExtractCertificateDataNoCertBinary:
         assert result.get("ssl_protocol") == "TLSv1.3"
         assert result.get("ssl_cipher") == "AES256-SHA"
 
+    def test_malformed_der_keeps_fingerprint_and_tls_info(self) -> None:
+        """Malformed DER skips x509 fields but keeps fingerprint and negotiated TLS info."""
+        cert_binary = b"not-a-valid-der-certificate"
+
+        with (
+            patch("socket.create_connection") as mock_conn,
+            patch("ssl.create_default_context") as mock_ctx,
+            patch(
+                "bigbrotr.nips.nip66.ssl.x509.load_der_x509_certificate",
+                side_effect=ValueError("malformed certificate"),
+            ),
+        ):
+            mock_socket = MagicMock()
+            mock_conn.return_value.__enter__.return_value = mock_socket
+            mock_conn.return_value.__exit__ = MagicMock(return_value=False)
+
+            mock_ssl_socket = MagicMock()
+            mock_ssl_socket.getpeercert.return_value = cert_binary
+            mock_ssl_socket.version.return_value = "TLSv1.3"
+            mock_ssl_socket.cipher.return_value = ("AES256-SHA", "TLSv1.3", 256)
+
+            mock_wrapped = MagicMock()
+            mock_wrapped.__enter__.return_value = mock_ssl_socket
+            mock_wrapped.__exit__ = MagicMock(return_value=False)
+            mock_ctx.return_value.wrap_socket.return_value = mock_wrapped
+
+            result = Nip66SslMetadata._extract_certificate_data("example.com", 443, 10.0)
+
+        assert result["ssl_fingerprint"] == CertificateExtractor.extract_fingerprint(cert_binary)
+        assert result["ssl_protocol"] == "TLSv1.3"
+        assert result["ssl_cipher"] == "AES256-SHA"
+        assert result["ssl_cipher_bits"] == 256
+        assert "ssl_subject_cn" not in result
+
 
 class TestExtractTlsInfoMissingValues:
     """Test _extract_tls_info when protocol or cipher is None."""
