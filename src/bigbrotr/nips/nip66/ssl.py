@@ -18,7 +18,8 @@ Note:
        to verify the certificate chain against the system trust store.
 
     Both connections are synchronous socket operations delegated to a thread
-    pool via ``asyncio.to_thread`` to avoid blocking the event loop.
+    pool via ``asyncio.to_thread`` to avoid blocking the event loop. They
+    share a single caller-provided timeout budget end-to-end.
 
 See Also:
     [bigbrotr.nips.nip66.data.Nip66SslData][bigbrotr.nips.nip66.data.Nip66SslData]:
@@ -38,6 +39,7 @@ import hashlib
 import logging
 import socket
 import ssl
+from time import monotonic
 from typing import Any, Self
 
 from cryptography import x509
@@ -142,21 +144,37 @@ class Nip66SslMetadata(BaseNipMetadata):
 
         First extracts certificate data using a non-validating context,
         then separately validates the certificate chain using a default
-        (validating) context.
+        (validating) context. Both phases share one end-to-end timeout budget.
 
         Args:
             host: Hostname to connect to.
             port: TCP port number.
-            timeout: Socket timeout in seconds.
+            timeout: End-to-end SSL inspection timeout in seconds.
 
         Returns:
             Dictionary of extracted SSL fields including ``ssl_valid``.
         """
         result: dict[str, Any] = {}
-        cert_data = Nip66SslMetadata._extract_certificate_data(host, port, timeout)
+        deadline = monotonic() + timeout
+
+        def _remaining_timeout(error_message: str) -> float:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError(error_message)
+            return remaining
+
+        cert_data = Nip66SslMetadata._extract_certificate_data(
+            host,
+            port,
+            _remaining_timeout("ssl timeout during certificate extraction"),
+        )
         result.update(cert_data)
         if cert_data:
-            result["ssl_valid"] = Nip66SslMetadata._validate_certificate(host, port, timeout)
+            result["ssl_valid"] = Nip66SslMetadata._validate_certificate(
+                host,
+                port,
+                _remaining_timeout("ssl timeout during certificate validation"),
+            )
         return result
 
     @staticmethod

@@ -13,6 +13,8 @@ import hashlib
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.ssl import CertificateExtractor, Nip66SslMetadata
 
@@ -153,6 +155,41 @@ class TestNip66SslMetadataSslSync:
 
         assert result == {}
         assert "ssl_valid" not in result
+
+    def test_validation_uses_remaining_timeout_budget(self) -> None:
+        """Validation phase receives only the timeout budget left after extraction."""
+        with (
+            patch.object(
+                Nip66SslMetadata,
+                "_extract_certificate_data",
+                return_value={"ssl_subject_cn": "relay.example.com"},
+            ) as mock_extract,
+            patch.object(
+                Nip66SslMetadata, "_validate_certificate", return_value=True
+            ) as mock_validate,
+            patch("bigbrotr.nips.nip66.ssl.monotonic", side_effect=[100.0, 100.0, 106.5]),
+        ):
+            result = Nip66SslMetadata._ssl("example.com", 443, 10.0)
+
+        assert result == {"ssl_subject_cn": "relay.example.com", "ssl_valid": True}
+        mock_extract.assert_called_once_with("example.com", 443, 10.0)
+        mock_validate.assert_called_once_with("example.com", 443, 3.5)
+
+    def test_validation_timeout_exhaustion_raises_timeout(self) -> None:
+        """Validation aborts when extraction has already consumed the full timeout budget."""
+        with (
+            patch.object(
+                Nip66SslMetadata,
+                "_extract_certificate_data",
+                return_value={"ssl_subject_cn": "relay.example.com"},
+            ),
+            patch.object(Nip66SslMetadata, "_validate_certificate") as mock_validate,
+            patch("bigbrotr.nips.nip66.ssl.monotonic", side_effect=[100.0, 100.0, 110.1]),
+            pytest.raises(TimeoutError, match="ssl timeout during certificate validation"),
+        ):
+            Nip66SslMetadata._ssl("example.com", 443, 10.0)
+
+        mock_validate.assert_not_called()
 
 
 class TestNip66SslMetadataSslAsync:

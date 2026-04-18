@@ -311,6 +311,15 @@ Use this section during execution for:
   - paired `transport` coverage now pins that a `fileno()` failure closes the
     temporary devnull handle, resets suppressor state, and preserves the
     original exception.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirteenth remediation slice:
+  - `bigbrotr.nips.nip66.ssl.Nip66SslMetadata._ssl()` no longer treats
+    certificate extraction and certificate validation as two separate
+    full-timeout phases; both steps now share one end-to-end timeout budget,
+    matching the final boundedness standard already enforced on other
+    multi-phase relay probes;
+  - paired `ssl` coverage now pins that the validation phase receives only the
+    remaining timeout budget and that the probe aborts before validation when
+    extraction has already exhausted the caller-provided deadline.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package
