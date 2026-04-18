@@ -227,6 +227,45 @@ class TestProcessRequestEvent:
             duration_ms=pytest.approx(0.0, abs=1000.0),
         )
 
+    async def test_executes_query_for_whitespace_padded_param_key(
+        self, job_context: JobExecutionContext
+    ) -> None:
+        event = _make_mock_event(
+            event_id="job-read-model-key-whitespace",
+            tags=[
+                ["param", " read_model ", "relays"],
+                ["param", " limit ", "10"],
+            ],
+        )
+        logger = MagicMock()
+        send_event = AsyncMock(return_value=(("wss://relay.example.com",), {}))
+        query_result = QueryResult(
+            rows=[{"url": "wss://relay.example.com"}], total=1, limit=10, offset=0
+        )
+        query_resource = AsyncMock(return_value=query_result)
+
+        result = await process_request_event(
+            event=event,
+            pubkey_hex="service-pubkey",
+            processed_ids=set(),
+            runtime=JobRuntime(
+                logger=logger,
+                send_event=send_event,
+                query_resource=query_resource,
+            ),
+            context=job_context,
+        )
+
+        assert result == (1, 1, 0, 0)
+        query_resource.assert_awaited_once()
+        send_event.assert_awaited_once()
+        logger.info.assert_any_call(
+            "job_received",
+            event_id="job-read-model-key-whitespace",
+            requested_read_model_id="relays",
+            customer="author_pubkey_hex",
+        )
+
     @patch("bigbrotr.services.dvm.jobs.parse_job_params")
     async def test_accepts_boolean_include_total_from_preparsed_job_params(
         self,

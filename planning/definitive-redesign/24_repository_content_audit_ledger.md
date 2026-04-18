@@ -1498,3 +1498,11 @@ Use this section during execution for:
   - added paired `dvm/utils` and `dvm/jobs` coverage proving malformed
     non-string resource selectors now fail safely and are logged through the
     same normalized request path as ordinary invalid read-model requests.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fourteenth remediation slice:
+  - tightened `NIP-90` tag parsing so `param` keys are normalized before they
+    enter the DVM request payload, instead of letting human-authored keys like
+    `" read_model "` or `" limit "` bypass the same public-input cleanup we
+    already apply to values further down the read-side stack;
+  - added paired `dvm/utils` and `dvm/jobs` coverage proving whitespace-padded
+    param keys now resolve to the canonical request fields while blank keys are
+    ignored rather than creating unusable payload entries.

@@ -1445,12 +1445,27 @@ class TestParseJobParams:
         assert params["filter"] == "network=clearnet"
         assert params["sort"] == "url:asc"
 
+    def test_param_keys_are_trimmed(self) -> None:
+        event = _make_utils_mock_event(
+            tags=[
+                ["param", " read_model ", "relays"],
+                ["param", " limit ", "50"],
+            ]
+        )
+        params = parse_job_params(event)
+        assert params["read_model"] == "relays"
+        assert params["limit"] == "50"
+
     def test_short_tags_ignored(self) -> None:
         event = _make_utils_mock_event(tags=[["param"], ["bid"], ["x"]])
         assert parse_job_params(event) == {}
 
     def test_param_with_only_two_elements_ignored(self) -> None:
         event = _make_utils_mock_event(tags=[["param", "read_model"]])
+        assert parse_job_params(event) == {}
+
+    def test_blank_param_keys_are_ignored(self) -> None:
+        event = _make_utils_mock_event(tags=[["param", "   ", "relays"]])
         assert parse_job_params(event) == {}
 
 

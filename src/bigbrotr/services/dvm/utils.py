@@ -101,7 +101,10 @@ def parse_job_params(event: Any) -> dict[str, Any]:
     for tag in event.tags().to_vec():
         values = tag.as_vec()
         if len(values) >= _MIN_PARAM_TAG_LEN and values[0] == "param":
-            params[values[1]] = values[2]
+            key = values[1].strip()
+            if not key:
+                continue
+            params[key] = values[2]
         elif len(values) >= _MIN_TAG_LEN and values[0] == "bid":
             with contextlib.suppress(ValueError):
                 params["bid"] = int(values[1])
