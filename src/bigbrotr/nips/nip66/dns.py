@@ -1,5 +1,5 @@
 """
-NIP-66 DNS metadata container with resolution capabilities.
+NIP-66 DNS result container with resolution capabilities.
 
 Performs comprehensive DNS resolution for a relay hostname, including
 A, AAAA, CNAME, NS, and PTR record lookups as part of

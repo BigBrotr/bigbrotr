@@ -3,7 +3,7 @@ Shared fixtures for NIP-66 module tests.
 
 Provides:
 - Relay fixtures (clearnet, tor, i2p, loki)
-- Complete metadata fixtures for all NIP-66 types
+- Complete result-container fixtures for all NIP-66 document families
 - Mock fixtures for nostr-sdk, GeoIP, and ASN readers
 - Helper fixtures for building test data
 """
@@ -321,7 +321,7 @@ def nip66_full(
     complete_dns_metadata: Nip66DnsMetadata,
     complete_http_metadata: Nip66HttpMetadata,
 ) -> Nip66:
-    """Nip66 instance with all six metadata types populated."""
+    """Nip66 instance with all six result families populated."""
     return Nip66(
         relay=relay,
         rtt=complete_rtt_metadata,
@@ -336,7 +336,7 @@ def nip66_full(
 
 @pytest.fixture
 def nip66_rtt_only(relay: Relay, complete_rtt_metadata: Nip66RttMetadata) -> Nip66:
-    """Nip66 instance with only RTT metadata."""
+    """Nip66 instance with only the RTT result family populated."""
     return Nip66(
         relay=relay,
         rtt=complete_rtt_metadata,
@@ -346,7 +346,7 @@ def nip66_rtt_only(relay: Relay, complete_rtt_metadata: Nip66RttMetadata) -> Nip
 
 @pytest.fixture
 def nip66_dns_only(relay: Relay, complete_dns_metadata: Nip66DnsMetadata) -> Nip66:
-    """Nip66 instance with only DNS metadata."""
+    """Nip66 instance with only the DNS result family populated."""
     return Nip66(
         relay=relay,
         dns=complete_dns_metadata,

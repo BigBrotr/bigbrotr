@@ -1,5 +1,5 @@
 """
-NIP-66 geolocation metadata container with GeoIP lookup capabilities.
+NIP-66 geolocation result container with GeoIP lookup capabilities.
 
 Resolves a relay's hostname to an IP address and performs a GeoIP City
 database lookup to determine geographic location, including country,

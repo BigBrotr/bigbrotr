@@ -1,5 +1,5 @@
 """
-NIP-66 RTT metadata container with relay probe capabilities.
+NIP-66 RTT result container with relay probe capabilities.
 
 Tests a relay's round-trip time by measuring connection open, event
 read, and event write latencies as defined by

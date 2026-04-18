@@ -3,7 +3,7 @@
 Implements [NIP-66](https://github.com/nostr-protocol/nips/blob/master/66.md)
 -- relay capability testing and monitoring data collection. Each test type
 (RTT, SSL, GEO, NET, DNS, HTTP) has its own data model, logs model, and
-metadata container. Raw data is sanitized through ``parse()`` methods and
+result container. Raw data is sanitized through ``parse()`` methods and
 validated into typed, frozen Pydantic models. Invalid fields or wrong types
 are silently dropped.
 

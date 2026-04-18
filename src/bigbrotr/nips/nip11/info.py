@@ -1,5 +1,5 @@
 """
-NIP-11 metadata container with HTTP info retrieval capabilities.
+NIP-11 info result container with HTTP retrieval capabilities.
 
 Pairs [Nip11InfoData][bigbrotr.nips.nip11.data.Nip11InfoData] with
 [Nip11InfoLogs][bigbrotr.nips.nip11.logs.Nip11InfoLogs] and provides
@@ -54,7 +54,7 @@ logger = logging.getLogger("bigbrotr.nips.nip11")
 
 
 class Nip11InfoMetadata(BaseNipMetadata):
-    """Container for NIP-11 info data and operation logs.
+    """Result container for NIP-11 info data and operation logs.
 
     Provides the ``fetch()`` class method for retrieving a relay's NIP-11
     document over HTTP(S). The result always contains both a

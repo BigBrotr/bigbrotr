@@ -206,3 +206,11 @@ Use this section during execution for:
     `score` contract only;
   - added unit coverage that proves legacy `rank`-only rows no longer feed
     NIP-85 assertion models.
+- `2.1` models/utils/NIPs leaf audit, second remediation slice:
+  - tightened the NIP-layer prose so historical `*Metadata` class names are
+    described honestly as result containers, while the selected outputs are
+    framed as NIP document/probe families that later become shared
+    `document` / `relay_document` records;
+  - aligned the top-level NIP package/module docs and paired NIP-66 test
+    fixture prose with that final-repository contract, without reopening
+    compatibility-heavy class renames.

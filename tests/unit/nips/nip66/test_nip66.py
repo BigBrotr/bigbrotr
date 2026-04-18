@@ -52,7 +52,7 @@ class TestNip66Construction:
         complete_dns_metadata: Nip66DnsMetadata,
         complete_http_metadata: Nip66HttpMetadata,
     ) -> None:
-        """Construct with all six metadata types."""
+        """Construct with all six result families."""
         nip66 = Nip66(
             relay=relay,
             rtt=complete_rtt_metadata,
@@ -244,7 +244,7 @@ class TestNip66ToRelayDocumentTuple:
         assert result.http.document.type == DocumentType.NIP66_HTTP
 
     def test_returns_none_for_missing_metadata(self, nip66_rtt_only: Nip66) -> None:
-        """Returns None for missing metadata types."""
+        """Returns None for missing result families."""
         result = nip66_rtt_only.to_relay_document_tuple()
         assert isinstance(result.rtt, RelayDocument)
         assert result.rtt.document.data["data"]["rtt_open"] == 100
@@ -275,7 +275,7 @@ class TestNip66ToRelayDocumentTuple:
         assert result.http.associated_at == 1234567890
 
     def test_all_none_returns_all_none(self, relay: Relay) -> None:
-        """All None metadata returns all None in tuple."""
+        """All missing result families return all None in the tuple."""
         nip66 = Nip66(relay=relay)
         result = nip66.to_relay_document_tuple()
         assert result.rtt is None

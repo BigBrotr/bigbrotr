@@ -1,5 +1,5 @@
 """
-NIP-66 network metadata container with ASN lookup capabilities.
+NIP-66 network result container with ASN lookup capabilities.
 
 Resolves a relay's hostname to IPv4/IPv6 addresses and queries the
 GeoIP ASN database for autonomous system number, organization name,

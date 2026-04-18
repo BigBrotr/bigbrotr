@@ -1,5 +1,5 @@
 """
-Shared base classes for all NIP data, metadata, log, and top-level models.
+Shared base classes for all NIP data, result-container, log, and top-level models.
 
 Provides Pydantic base classes that define the common interface and behavior
 inherited by NIP-11 and NIP-66 model hierarchies:
@@ -8,16 +8,18 @@ inherited by NIP-11 and NIP-66 model hierarchies:
         Frozen model with declarative field parsing via
         [FieldSpec][bigbrotr.nips.parsing.FieldSpec].
     [BaseNipMetadata][bigbrotr.nips.base.BaseNipMetadata]
-        Container pairing a data object with a logs object.
+        Historical-name result container pairing a data object with a logs
+        object.
     [BaseLogs][bigbrotr.nips.base.BaseLogs]
         Operation log with success/reason semantic validation.
     [BaseNip][bigbrotr.nips.base.BaseNip]
         Abstract top-level NIP model with relay and generated_at.
     [BaseNipSelection][bigbrotr.nips.base.BaseNipSelection]
-        Base for selection models controlling which metadata types
+        Base for selection models controlling which document or probe families
         to retrieve.
     [BaseNipOptions][bigbrotr.nips.base.BaseNipOptions]
-        Base for options models controlling how metadata is retrieved.
+        Base for options models controlling how NIP retrieval/probe work is
+        executed.
     [BaseNipDependencies][bigbrotr.nips.base.BaseNipDependencies]
         Base for dependency containers holding external objects
         (keys, database readers) required by specific NIP tests.
@@ -138,7 +140,7 @@ class BaseData(BaseModel):
 
 
 class BaseNipMetadata(BaseModel):
-    """Base class for metadata containers that pair data with operation logs.
+    """Base class for result containers that pair data with operation logs.
 
     Provides standard ``from_dict()`` and ``to_dict()`` methods. The
     ``to_dict()`` implementation automatically delegates to nested
@@ -146,6 +148,11 @@ class BaseNipMetadata(BaseModel):
     do not need to override it.
 
     Note:
+        The class keeps the historical ``Metadata`` name for compatibility,
+        but these objects are best understood as parsed NIP result containers.
+        Top-level NIP models later convert them into shared
+        ``document``/``relay_document`` records when persistence is needed.
+
         Subclasses are expected to declare exactly two fields: ``data``
         (a [BaseData][bigbrotr.nips.base.BaseData] subclass) and ``logs``
         (a [BaseLogs][bigbrotr.nips.base.BaseLogs] subclass). The
@@ -154,9 +161,9 @@ class BaseNipMetadata(BaseModel):
 
     See Also:
         [bigbrotr.nips.nip11.info.Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:
-            NIP-11 metadata container with HTTP info retrieval capabilities.
+            NIP-11 result container with HTTP info retrieval capabilities.
         [bigbrotr.nips.nip66.rtt.Nip66RttMetadata][bigbrotr.nips.nip66.rtt.Nip66RttMetadata]:
-            NIP-66 RTT metadata container with relay probe capabilities.
+            NIP-66 RTT result container with relay probe capabilities.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -189,14 +196,14 @@ class BaseNipMetadata(BaseModel):
 
     @property
     def succeeded(self) -> bool:
-        """Return the semantic operation outcome for this metadata result."""
+        """Return the semantic operation outcome for this NIP result."""
         logs = getattr(self, "logs", None)
         value = getattr(logs, "succeeded", None)
         return value if isinstance(value, bool) else False
 
     @property
     def failure_reason(self) -> str | None:
-        """Return the semantic failure reason for this metadata result."""
+        """Return the semantic failure reason for this NIP result."""
         logs = getattr(self, "logs", None)
         value = getattr(logs, "failure_reason", None)
         return str(value) if isinstance(value, str) else None
@@ -258,14 +265,14 @@ class BaseLogs(BaseModel):
 
 
 class BaseNipSelection(BaseModel):
-    """Which metadata types to retrieve during a NIP operation.
+    """Which document or probe families to retrieve during a NIP operation.
 
-    Subclasses define boolean fields for each metadata type supported
+    Subclasses define boolean fields for each document or probe family supported
     by the NIP. All fields should default to ``True`` (all enabled).
 
     See Also:
         [BaseNipOptions][bigbrotr.nips.base.BaseNipOptions]:
-            Controls *how* metadata is retrieved.
+            Controls *how* the selected work is executed.
         [bigbrotr.nips.nip11.nip11.Nip11Selection][bigbrotr.nips.nip11.nip11.Nip11Selection]:
             NIP-11 selection (``info`` field).
         [bigbrotr.nips.nip66.nip66.Nip66Selection][bigbrotr.nips.nip66.nip66.Nip66Selection]:
@@ -274,7 +281,7 @@ class BaseNipSelection(BaseModel):
 
 
 class BaseNipOptions(BaseModel):
-    """How to execute NIP metadata retrieval.
+    """How to execute NIP retrieval or probe work.
 
     Provides the common ``allow_insecure`` option inherited by all
     NIP option models. Subclasses add NIP-specific options
@@ -286,7 +293,7 @@ class BaseNipOptions(BaseModel):
 
     See Also:
         [BaseNipSelection][bigbrotr.nips.base.BaseNipSelection]:
-            Controls *which* metadata is retrieved.
+            Controls *which* document or probe families are enabled.
         [bigbrotr.nips.nip11.nip11.Nip11Options][bigbrotr.nips.nip11.nip11.Nip11Options]:
             NIP-11 options (adds ``max_size``).
         [bigbrotr.nips.nip66.nip66.Nip66Options][bigbrotr.nips.nip66.nip66.Nip66Options]:
@@ -317,9 +324,9 @@ class BaseNipDependencies:
 
     See Also:
         [BaseNipSelection][bigbrotr.nips.base.BaseNipSelection]:
-            Controls *which* metadata is retrieved.
+            Controls *which* document or probe families are enabled.
         [BaseNipOptions][bigbrotr.nips.base.BaseNipOptions]:
-            Controls *how* metadata is retrieved.
+            Controls *how* the selected work is executed.
         [bigbrotr.nips.nip11.nip11.Nip11Dependencies][bigbrotr.nips.nip11.nip11.Nip11Dependencies]:
             NIP-11 dependencies (currently empty).
         [bigbrotr.nips.nip66.nip66.Nip66Dependencies][bigbrotr.nips.nip66.nip66.Nip66Dependencies]:
@@ -343,7 +350,7 @@ class BaseNip(BaseModel, ABC):
       should treat that semantic entrypoint as the public contract. These
       semantic entrypoints must **never raise exceptions** — errors are
       captured in the ``succeeded`` / ``failure_reason`` properties of each
-      metadata container.
+      result container.
 
     Note:
         ``BaseNip`` cannot be instantiated directly due to the ABC constraint.
@@ -356,9 +363,10 @@ class BaseNip(BaseModel, ABC):
         [bigbrotr.nips.nip66.nip66.Nip66][bigbrotr.nips.nip66.nip66.Nip66]:
             NIP-66 implementation.
         [BaseNipSelection][bigbrotr.nips.base.BaseNipSelection]:
-            Selection model base controlling which metadata types to retrieve.
+            Selection model base controlling which document or probe families
+            to retrieve.
         [BaseNipOptions][bigbrotr.nips.base.BaseNipOptions]:
-            Options model base controlling how metadata is retrieved.
+            Options model base controlling how NIP work is executed.
         [BaseNipDependencies][bigbrotr.nips.base.BaseNipDependencies]:
             Dependencies base for external objects required by specific tests.
     """

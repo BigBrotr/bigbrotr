@@ -12,7 +12,7 @@ Model hierarchy:
 Nip11                                    Top-level container
 +-- relay: Relay                         Source relay reference
 +-- generated_at: int                    Unix timestamp
-+-- info: Nip11InfoMetadata              Data + logs container
++-- info: Nip11InfoMetadata              Data + logs result container
     +-- data: Nip11InfoData              Parsed NIP-11 document
     |   +-- name, description, banner, icon, pubkey, ...
     |   +-- supported_nips: list[int]

@@ -1,5 +1,5 @@
 """
-NIP-66 HTTP metadata container with header extraction capabilities.
+NIP-66 HTTP result container with header extraction capabilities.
 
 Captures ``Server`` and ``X-Powered-By`` HTTP headers from the WebSocket
 upgrade handshake response as part of

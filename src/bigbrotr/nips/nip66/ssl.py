@@ -1,5 +1,5 @@
 """
-NIP-66 SSL metadata container with certificate inspection capabilities.
+NIP-66 SSL result container with certificate inspection capabilities.
 
 Connects to a relay's TLS endpoint, extracts certificate details (subject,
 issuer, validity, SANs, fingerprint, cipher), and separately validates the
