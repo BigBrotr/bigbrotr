@@ -22,12 +22,12 @@ Public exports:
         [RelayDocument][bigbrotr.models.relay_document.RelayDocument] record
         with the appropriate [DocumentType][bigbrotr.models.document.DocumentType].
     BaseData, BaseLogs, BaseNipMetadata: Shared abstract bases inherited by
-        all NIP data, log, and document-family models.
+        all NIP data, log, and historical-name result-container models.
     BaseNip: Abstract base class for top-level NIP models with ``relay``
         and ``generated_at`` plus semantic ``fetch()`` / ``probe()``
         entrypoints on concrete subclasses.
-    BaseNipSelection: Base for selection models controlling which document
-        families to retrieve.
+    BaseNipSelection: Base for selection models controlling which document or
+        probe families to retrieve.
     BaseNipOptions: Base for options models controlling how NIP documents are
         retrieved (provides the common ``allow_insecure`` option).
     BaseNipDependencies: Base for dependency containers holding external objects

@@ -278,3 +278,10 @@ Use this section during execution for:
   - kept the public compatibility surface intact: no runtime rename was
     introduced, only the human-facing test wording and local variable names
     were tightened.
+- `2.1` models/utils/NIPs leaf audit, twelfth remediation slice:
+  - aligned the public `bigbrotr.nips` package docstring and the shared
+    NIP-66 test fixtures with the final contract, so they now distinguish
+    historical-name result containers and probe families from canonical stored
+    document families;
+  - kept all runtime exports and lazy-import behavior unchanged: this slice
+    tightened public/package narrative only.

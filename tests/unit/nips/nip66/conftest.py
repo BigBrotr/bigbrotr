@@ -3,7 +3,7 @@ Shared fixtures for NIP-66 module tests.
 
 Provides:
 - Relay fixtures (clearnet, tor, i2p, loki)
-- Complete result-container fixtures for all NIP-66 document families
+- Complete result-container fixtures for all NIP-66 probe families
 - Mock fixtures for nostr-sdk, GeoIP, and ASN readers
 - Helper fixtures for building test data
 """
