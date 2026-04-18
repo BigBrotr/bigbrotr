@@ -133,7 +133,11 @@ class NostrClientManager:
         *,
         timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
     ) -> ClientSession:
-        """Create or reuse a named multi-relay session and preserve its connect result."""
+        """Create or reuse a named clearnet multi-relay session.
+
+        Session helpers intentionally reject overlay relays because one shared
+        client cannot encode the per-network proxy policy they require.
+        """
         relay_urls = tuple(relay.url for relay in relays)
         existing = self._sessions.get(session_id)
         if existing is not None:

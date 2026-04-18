@@ -413,6 +413,28 @@ class TestNostrClientManagerSessions:
         mock_create.assert_awaited_once_with(keys=manager._keys, allow_insecure=False)
         mock_connect.assert_awaited_once_with(mock_client, relays, timeout=15.0)
 
+    async def test_connect_session_rejects_overlay_relays_for_shared_clients(self) -> None:
+        manager = NostrClientManager(keys=MagicMock())
+        mock_client = AsyncMock()
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol.create_client",
+                new=AsyncMock(return_value=mock_client),
+            ) as mock_create,
+            pytest.raises(ValueError, match="unsupported overlay networks: Tor"),
+        ):
+            await manager.connect_session(
+                "read-session",
+                [Relay(f"ws://{'a' * 56}.onion")],
+                timeout=15.0,
+            )
+
+        mock_create.assert_awaited_once_with(keys=manager._keys, allow_insecure=False)
+        mock_client.add_relay.assert_not_awaited()
+        mock_client.try_connect.assert_not_awaited()
+        assert manager._sessions == {}
+
     async def test_disconnect_shuts_down_sessions_and_cached_relays_once(self) -> None:
         shared_client = MagicMock()
         cached_client = MagicMock()

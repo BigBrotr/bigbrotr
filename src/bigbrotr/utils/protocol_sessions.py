@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 
 from nostr_sdk import RelayUrl
 
+from bigbrotr.models.constants import NetworkType
+
 from .transport import DEFAULT_TIMEOUT
 
 
@@ -37,13 +39,36 @@ class ClientSession:
     connect_result: ClientConnectResult
 
 
+def _validate_session_relays(relays: list[Relay]) -> None:
+    """Reject relay sets that need per-network proxy policy.
+
+    Session helpers build one shared client and therefore cannot express the
+    per-network proxy configuration required by overlay relays.
+    """
+    unsupported = sorted(
+        {relay.network.display_name for relay in relays if relay.network != NetworkType.CLEARNET}
+    )
+    if unsupported:
+        names = ", ".join(unsupported)
+        raise ValueError(
+            "multi-relay client sessions support clearnet relays only; "
+            f"unsupported overlay networks: {names}"
+        )
+
+
 async def connect_client_relays(
     client: Client,
     relays: list[Relay],
     *,
     timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
 ) -> ClientConnectResult:
-    """Register relays on one client and normalize the connection outcome."""
+    """Register relays on one shared client and normalize the connection outcome.
+
+    This helper is intentionally limited to clearnet relays because one shared
+    client cannot carry the per-network proxy policy required by overlay relay
+    families.
+    """
+    _validate_session_relays(relays)
     for relay in relays:
         await client.add_relay(RelayUrl.parse(relay.url))
 
@@ -63,6 +88,6 @@ async def create_connected_client(
     timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
     allow_insecure: bool = False,
 ) -> tuple[Client, ClientConnectResult]:
-    """Create a client, register relays, and connect with a normalized result."""
+    """Create a shared client, register clearnet relays, and normalize the result."""
     client = await create_client_func(keys=keys, allow_insecure=allow_insecure)
     return client, await connect_client_relays(client, relays, timeout=timeout)

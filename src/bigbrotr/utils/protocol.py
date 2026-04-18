@@ -8,8 +8,9 @@ WebSocket transport primitives in
 Attributes:
     create_client: Client factory with optional SOCKS5 proxy and SSL override.
     create_connected_client: Convenience helper that builds one client,
-        registers relays, and returns the normalized connect result.
-    NostrClientManager: Shared manager for multi-relay sessions and lazy per-relay clients.
+        registers clearnet relays, and returns the normalized connect result.
+    NostrClientManager: Shared manager for clearnet multi-relay sessions
+        and lazy per-relay clients.
     connect_relay: High-level helper with automatic SSL fallback.
     is_nostr_relay: Check whether a URL hosts a Nostr relay.
     broadcast_events: Sign and broadcast events to multiple relays.
@@ -225,7 +226,12 @@ async def create_connected_client(
     timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
     allow_insecure: bool = False,
 ) -> tuple[Client, ClientConnectResult]:
-    """Create a client, register relays, and connect with a normalized result."""
+    """Create one shared client, register clearnet relays, and normalize the result.
+
+    This helper is intentionally limited to clearnet relay sets. Overlay relays
+    require per-network proxy policy and therefore cannot share the same
+    session-oriented client contract.
+    """
     return await _create_connected_client(
         relays,
         create_client_func=create_client,

@@ -593,3 +593,15 @@ Use this section during execution for:
   - added direct unit coverage for the factory seam so future refactors cannot
     silently collapse the shared overlay proxy contract back to onion-only
     targeting.
+- `2.1` models/utils/NIPs leaf audit, fifty-second remediation slice:
+  - hardened the shared-session boundary in
+    `bigbrotr.utils.protocol_sessions`: multi-relay client sessions now reject
+    overlay relay sets explicitly and early at the relay-registration seam,
+    instead of relying on downstream proxy failures or silently pretending a
+    shared client can encode per-network proxy policy;
+  - aligned the public `bigbrotr.utils.protocol` wording and paired unit
+    coverage so both `create_connected_client()` and
+    `NostrClientManager.connect_session()` now pin the same final contract:
+    shared multi-relay sessions are clearnet-only, must never cache invalid
+    overlay sessions, and must fail before any relay registration or connect
+    attempt is made.
