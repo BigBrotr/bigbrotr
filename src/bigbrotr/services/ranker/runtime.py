@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -43,6 +44,54 @@ _RESET_GAUGES: tuple[str, ...] = (
     "cleanup_removed_rank_runs",
 )
 
+_VALID_CUTOFF_REASONS: frozenset[str] = frozenset(
+    {
+        "max_duration",
+        "sync_max_batches",
+        "sync_max_followers_per_cycle",
+        "facts_stage_event_rows",
+        "facts_stage_addressable_rows",
+        "facts_stage_identifier_rows",
+        "export_pubkey_max_batches",
+        "export_event_max_batches",
+        "export_addressable_max_batches",
+        "export_identifier_max_batches",
+    }
+)
+
+
+def _require_runtime_non_negative_int(value: object, *, field_name: str) -> int:
+    """Return one canonical non-negative runtime integer value."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{field_name} must be an int")
+    if value < 0:
+        raise ValueError(f"{field_name} must be non-negative")
+    return value
+
+
+def _require_runtime_non_negative_float(value: object, *, field_name: str) -> float:
+    """Return one canonical non-negative finite runtime float value."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{field_name} must be a float")
+    normalized = float(value)
+    if not math.isfinite(normalized):
+        raise ValueError(f"{field_name} must be finite")
+    if normalized < 0.0:
+        raise ValueError(f"{field_name} must be non-negative")
+    return normalized
+
+
+def _normalize_cycle_cutoff_reason(value: object) -> str | None:
+    """Return one canonical runtime cutoff reason."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError("cutoff_reason must be a str")
+    if value not in _VALID_CUTOFF_REASONS:
+        allowed = ", ".join(sorted(_VALID_CUTOFF_REASONS))
+        raise ValueError(f"cutoff_reason must be one of: {allowed}")
+    return value
+
 
 @dataclass(frozen=True, slots=True)
 class RankRowCounts:
@@ -52,6 +101,17 @@ class RankRowCounts:
     event: int = 0
     addressable: int = 0
     identifier: int = 0
+
+    def __post_init__(self) -> None:
+        for field_name in ("pubkey", "event", "addressable", "identifier"):
+            object.__setattr__(
+                self,
+                field_name,
+                _require_runtime_non_negative_int(
+                    getattr(self, field_name),
+                    field_name=field_name,
+                ),
+            )
 
     @property
     def non_user(self) -> int:
@@ -67,6 +127,23 @@ class RankPhaseDurations:
     facts_stage_seconds: float = 0.0
     compute_seconds: float = 0.0
     export_seconds: float = 0.0
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "cleanup_seconds",
+            "sync_seconds",
+            "facts_stage_seconds",
+            "compute_seconds",
+            "export_seconds",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                _require_runtime_non_negative_float(
+                    getattr(self, field_name),
+                    field_name=field_name,
+                ),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +161,55 @@ class RankCycleResult:
     duckdb_file_size_bytes: int = 0
     phase_durations: RankPhaseDurations = field(default_factory=RankPhaseDurations)
     cutoff_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "changed_followers_synced",
+            _require_runtime_non_negative_int(
+                self.changed_followers_synced,
+                field_name="changed_followers_synced",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "sync_batches_processed",
+            _require_runtime_non_negative_int(
+                self.sync_batches_processed,
+                field_name="sync_batches_processed",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "graph_nodes",
+            _require_runtime_non_negative_int(self.graph_nodes, field_name="graph_nodes"),
+        )
+        object.__setattr__(
+            self,
+            "graph_edges",
+            _require_runtime_non_negative_int(self.graph_edges, field_name="graph_edges"),
+        )
+        object.__setattr__(
+            self,
+            "checkpoint_lag_seconds",
+            _require_runtime_non_negative_int(
+                self.checkpoint_lag_seconds,
+                field_name="checkpoint_lag_seconds",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "duckdb_file_size_bytes",
+            _require_runtime_non_negative_int(
+                self.duckdb_file_size_bytes,
+                field_name="duckdb_file_size_bytes",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "cutoff_reason",
+            _normalize_cycle_cutoff_reason(self.cutoff_reason),
+        )
 
 
 def cycle_cutoff_reason(*, cycle_start: float, max_duration: float | None) -> str | None:
@@ -144,6 +270,15 @@ def emit_cycle_metrics(
     cleanup_removed_runs: int = 0,
 ) -> None:
     """Emit cycle-level metrics from the public result plus private housekeeping."""
+    failed_runs_total = _require_runtime_non_negative_int(
+        failed_runs_total,
+        field_name="failed_runs_total",
+    )
+    cleanup_removed_runs = _require_runtime_non_negative_int(
+        cleanup_removed_runs,
+        field_name="cleanup_removed_runs",
+    )
+
     service.set_gauge("sync_batches_processed", result.sync_batches_processed)
     service.set_gauge("changed_followers_synced", result.changed_followers_synced)
     service.set_gauge("graph_nodes", result.graph_nodes)

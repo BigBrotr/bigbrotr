@@ -2038,3 +2038,12 @@ Use this section during execution for:
     populated `finished_at` timestamp but a non-terminal lifecycle state;
   - extended paired `ranker` coverage proving only terminal statuses can now
     close a run while query-time status filters keep the broader status enum.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-seventieth remediation
+  slice:
+  - tightened the public `ranker` runtime-result boundary so `RankRowCounts`,
+    `RankPhaseDurations`, `RankCycleResult`, and `emit_cycle_metrics()` now
+    reject negative, boolean, non-finite, or non-canonical cutoff/housekeeping
+    values instead of letting impossible cycle state leak into gauges and
+    result objects;
+  - added paired `ranker` runtime coverage proving invalid model payloads and
+    invalid housekeeping totals now fail fast before metrics emission.

@@ -6,6 +6,8 @@ import time
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
+import pytest
+
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.services.ranker import RankCycleResult, Ranker, RankPhaseDurations, RankRowCounts
 from bigbrotr.services.ranker.configs import RankerConfig
@@ -36,6 +38,25 @@ def _ranker_config(tmp_path: Path) -> RankerConfig:
 
 
 class TestRankerRuntimeHelpers:
+    def test_runtime_models_reject_invalid_values(self) -> None:
+        with pytest.raises(TypeError):
+            RankRowCounts(pubkey=True)
+
+        with pytest.raises(ValueError):
+            RankRowCounts(event=-1)
+
+        with pytest.raises(TypeError):
+            RankPhaseDurations(sync_seconds=True)
+
+        with pytest.raises(ValueError):
+            RankPhaseDurations(export_seconds=float("nan"))
+
+        with pytest.raises(ValueError):
+            RankCycleResult(cutoff_reason="bogus")
+
+        with pytest.raises(ValueError):
+            RankCycleResult(checkpoint_lag_seconds=-1)
+
     def test_cycle_cutoff_reason_returns_duration_budget(self) -> None:
         assert (
             cycle_cutoff_reason(cycle_start=time.monotonic() - 2.0, max_duration=1.0)
@@ -147,3 +168,25 @@ class TestRankerRuntimeHelpers:
         assert emitted["cycle_cutoff_stage_budget"] == 0
         assert emitted["cycle_cutoff_export_budget"] == 0
         assert emitted["cycle_cutoff_duration_budget"] == 0
+
+    def test_emit_cycle_metrics_rejects_invalid_housekeeping_totals(
+        self,
+        mock_brotr: Brotr,
+        tmp_path: Path,
+    ) -> None:
+        ranker = Ranker(brotr=mock_brotr, config=_ranker_config(tmp_path))
+        ranker.set_gauge = MagicMock()
+
+        with pytest.raises(TypeError):
+            emit_cycle_metrics(
+                ranker,
+                RankCycleResult(),
+                failed_runs_total=True,  # type: ignore[arg-type]
+            )
+
+        with pytest.raises(ValueError):
+            emit_cycle_metrics(
+                ranker,
+                RankCycleResult(),
+                cleanup_removed_runs=-1,
+            )
