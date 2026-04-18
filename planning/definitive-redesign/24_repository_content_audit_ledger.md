@@ -1926,3 +1926,14 @@ Use this section during execution for:
     payloads now fall back to the canonical zero checkpoint, and malformed
     DuckDB checkpoint rows are automatically repaired back to that same
     canonical state during initialization.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fifty-eighth remediation
+  slice:
+  - tightened the typed `ranker` graph-sync checkpoint contract so
+    `GraphSyncCheckpoint` no longer accepts negative timestamps, empty pubkeys
+    after positive progress, or non-canonical pubkey identifiers, which
+    previously let impossible checkpoint values survive in memory and drive the
+    lexicographic sync window from a bogus follower boundary;
+  - added paired `ranker` query/store coverage proving canonical uppercase
+    pubkeys normalize to lowercase while malformed checkpoint values now fail
+    fast before they can influence contact-list pagination or local checkpoint
+    persistence.

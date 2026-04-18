@@ -109,6 +109,32 @@ def _normalize_non_user_rank(*, raw_score: float, all_raw_scores: list[float]) -
 
 
 class TestRankerQueries:
+    def test_graph_sync_checkpoint_normalizes_pubkeys(self) -> None:
+        checkpoint = GraphSyncCheckpoint(source_seen_at=9, follower_pubkey="AB" * 32)
+
+        assert checkpoint == GraphSyncCheckpoint(source_seen_at=9, follower_pubkey="ab" * 32)
+
+    @pytest.mark.parametrize(
+        ("source_seen_at", "follower_pubkey"),
+        [
+            (True, "ab" * 32),
+            (-1, "ab" * 32),
+            (1, ""),
+            (1, "not-a-pubkey"),
+            (1, 123),
+        ],
+    )
+    def test_graph_sync_checkpoint_rejects_invalid_values(
+        self,
+        source_seen_at: object,
+        follower_pubkey: object,
+    ) -> None:
+        with pytest.raises((TypeError, ValueError)):
+            GraphSyncCheckpoint(
+                source_seen_at=source_seen_at,  # type: ignore[arg-type]
+                follower_pubkey=follower_pubkey,  # type: ignore[arg-type]
+            )
+
     @pytest.mark.asyncio
     async def test_fetch_changed_contact_lists_maps_rows(self) -> None:
         brotr = MagicMock(spec=Brotr)
@@ -124,11 +150,11 @@ class TestRankerQueries:
             ]
         )
 
-        rows = await fetch_changed_contact_lists(brotr, GraphSyncCheckpoint(9, "z"), 5)
+        rows = await fetch_changed_contact_lists(brotr, GraphSyncCheckpoint(9, "0" * 64), 5)
 
         assert rows == [ContactListFact("a" * 64, "evt-a", 100, 10, 2)]
         brotr.fetch.assert_awaited_once()
-        assert brotr.fetch.await_args.args[1:] == (9, "z", 5)
+        assert brotr.fetch.await_args.args[1:] == (9, "0" * 64, 5)
 
     @pytest.mark.asyncio
     async def test_fetch_follow_edges_skips_empty_followers(self) -> None:

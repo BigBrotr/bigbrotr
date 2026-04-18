@@ -12,9 +12,29 @@ if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
 
 
+_PUBKEY_HEX_LENGTH = 64
+
+
 def _normalize_k_tags(value: tuple[str, ...]) -> tuple[str, ...]:
     """Return a stable deduplicated lexical ordering for identifier ``k`` tags."""
     return tuple(sorted(set(value)))
+
+
+def _normalize_ranker_pubkey(value: object, *, allow_empty: bool) -> str:
+    """Return one canonical 32-byte hex pubkey string."""
+    if not isinstance(value, str):
+        raise TypeError("pubkey must be a str")
+    if allow_empty and value == "":
+        return value
+    if len(value) != _PUBKEY_HEX_LENGTH:
+        raise ValueError("pubkey must be a 64-character hex string")
+    try:
+        normalized = bytes.fromhex(value).hex()
+    except ValueError as exc:
+        raise ValueError("pubkey must be a 64-character hex string") from exc
+    if len(normalized) != _PUBKEY_HEX_LENGTH:
+        raise ValueError("pubkey must be a 64-character hex string")
+    return normalized
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +43,19 @@ class GraphSyncCheckpoint:
 
     source_seen_at: int = 0
     follower_pubkey: str = ""
+
+    def __post_init__(self) -> None:
+        if isinstance(self.source_seen_at, bool) or not isinstance(self.source_seen_at, int):
+            raise TypeError("source_seen_at must be an int")
+        if self.source_seen_at < 0:
+            raise ValueError("source_seen_at must be non-negative")
+        object.__setattr__(
+            self,
+            "follower_pubkey",
+            _normalize_ranker_pubkey(self.follower_pubkey, allow_empty=True),
+        )
+        if self.source_seen_at > 0 and self.follower_pubkey == "":
+            raise ValueError("follower_pubkey must be non-empty when source_seen_at is positive")
 
 
 @dataclass(frozen=True, slots=True)
