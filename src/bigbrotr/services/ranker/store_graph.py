@@ -52,6 +52,18 @@ class GraphStats:
     node_count: int
     edge_count: int
 
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "node_count",
+            _require_ranker_non_negative_int(self.node_count, field_name="node_count"),
+        )
+        object.__setattr__(
+            self,
+            "edge_count",
+            _require_ranker_non_negative_int(self.edge_count, field_name="edge_count"),
+        )
+
 
 def _decode_checkpoint(
     source_seen_at: object,
@@ -273,8 +285,14 @@ def get_graph_stats(conn: duckdb.DuckDBPyConnection) -> GraphStats:
     node_count_row = conn.execute(_ACTIVE_NODE_COUNT_QUERY).fetchone()
     edge_count_row = conn.execute(_ACTIVE_EDGE_COUNT_QUERY).fetchone()
 
-    node_count = int(node_count_row[0]) if node_count_row is not None else 0
-    edge_count = int(edge_count_row[0]) if edge_count_row is not None else 0
+    node_count = _require_ranker_non_negative_int(
+        node_count_row[0] if node_count_row is not None else 0,
+        field_name="node_count",
+    )
+    edge_count = _require_ranker_non_negative_int(
+        edge_count_row[0] if edge_count_row is not None else 0,
+        field_name="edge_count",
+    )
 
     return GraphStats(node_count=node_count, edge_count=edge_count)
 
@@ -292,8 +310,14 @@ def get_graph_stats_for_ranking(
     node_count_row = conn.execute(_ACTIVE_NODE_COUNT_QUERY).fetchone()
     edge_count_row = conn.execute(edge_query).fetchone()
 
-    node_count = int(node_count_row[0]) if node_count_row is not None else 0
-    edge_count = int(edge_count_row[0]) if edge_count_row is not None else 0
+    node_count = _require_ranker_non_negative_int(
+        node_count_row[0] if node_count_row is not None else 0,
+        field_name="node_count",
+    )
+    edge_count = _require_ranker_non_negative_int(
+        edge_count_row[0] if edge_count_row is not None else 0,
+        field_name="edge_count",
+    )
 
     return GraphStats(node_count=node_count, edge_count=edge_count)
 
@@ -311,7 +335,10 @@ def compute_pubkey_pagerank(
     try:
         conn.execute("BEGIN TRANSACTION")
         node_count_row = conn.execute(_ACTIVE_NODE_COUNT_QUERY).fetchone()
-        node_count = int(node_count_row[0]) if node_count_row is not None else 0
+        node_count = _require_ranker_non_negative_int(
+            node_count_row[0] if node_count_row is not None else 0,
+            field_name="node_count",
+        )
 
         conn.execute("DELETE FROM pagerank_curr")
         conn.execute("DELETE FROM pagerank_next")
@@ -366,7 +393,10 @@ def fetch_pubkey_score_batch(
 ) -> list[ScoreExportRow]:
     """Fetch one deterministic score-export batch from the final PageRank snapshot."""
     node_count_row = conn.execute("SELECT COUNT(*) FROM pagerank_curr").fetchone()
-    node_count = int(node_count_row[0]) if node_count_row is not None else 0
+    node_count = _require_ranker_non_negative_int(
+        node_count_row[0] if node_count_row is not None else 0,
+        field_name="node_count",
+    )
     if node_count == 0:
         return []
 

@@ -116,6 +116,17 @@ def _normalize_non_user_rank(*, raw_score: float, all_raw_scores: list[float]) -
 
 
 class TestRankerQueries:
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"node_count": True, "edge_count": 1},
+            {"node_count": 1, "edge_count": -1},
+        ],
+    )
+    def test_graph_stats_reject_invalid_values(self, kwargs: dict[str, object]) -> None:
+        with pytest.raises((TypeError, ValueError)):
+            store_graph.GraphStats(**kwargs)  # type: ignore[arg-type]
+
     def test_graph_sync_checkpoint_normalizes_pubkeys(self) -> None:
         checkpoint = GraphSyncCheckpoint(source_seen_at=9, follower_pubkey="AB" * 32)
 
@@ -527,6 +538,23 @@ class TestRankerQueries:
                 limit=10,
             )
 
+    @pytest.mark.parametrize(
+        "helper", [store_graph.get_graph_stats, store_graph.get_graph_stats_for_ranking]
+    )
+    def test_graph_stats_queries_reject_invalid_count_rows(self, helper: object) -> None:
+        node_result = MagicMock()
+        node_result.fetchone.return_value = (True,)
+        edge_result = MagicMock()
+        edge_result.fetchone.return_value = (0,)
+        conn = MagicMock()
+        conn.execute.side_effect = [node_result, edge_result]
+
+        with pytest.raises(TypeError):
+            if helper is store_graph.get_graph_stats:
+                helper(conn)
+            else:
+                helper(conn, ignore_self_follows=False)
+
     def test_pubkey_score_fetch_normalizes_hex_subject_ids(self) -> None:
         count_result = MagicMock()
         count_result.fetchone.return_value = (1,)
@@ -542,6 +570,19 @@ class TestRankerQueries:
         )
 
         assert rows == [ScoreExportRow("ab" * 32, 50.0)]
+
+    def test_pubkey_score_fetch_rejects_invalid_node_count(self) -> None:
+        count_result = MagicMock()
+        count_result.fetchone.return_value = (True,)
+        conn = MagicMock()
+        conn.execute.side_effect = [count_result]
+
+        with pytest.raises(TypeError):
+            store_graph.fetch_pubkey_score_batch(
+                conn,
+                after_subject_id="",
+                limit=10,
+            )
 
     def test_non_user_score_fetch_rejects_invalid_export_rows(self) -> None:
         row_result = MagicMock()

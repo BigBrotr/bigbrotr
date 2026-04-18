@@ -2004,3 +2004,11 @@ Use this section during execution for:
     values to re-enter graph sync state;
   - added paired `ranker` store coverage proving uppercase persisted pubkeys
     are now reused canonically while invalid persisted node ids fail fast.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-sixty-sixth remediation
+  slice:
+  - tightened the private `ranker` graph-count boundary so `GraphStats`,
+    graph-size helpers, PageRank bootstrap, and pubkey score export no longer
+    coerce DuckDB count rows via raw `int(...)`, which could silently turn
+    malformed local count values into bogus graph-size or baseline-score state;
+  - added paired `ranker` coverage proving invalid graph counts now fail fast
+    both at the typed dataclass boundary and on the DuckDB query/export paths.
