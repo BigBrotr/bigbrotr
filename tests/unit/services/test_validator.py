@@ -224,6 +224,7 @@ class TestDeleteExhaustedCandidates:
         sql = args[0][0]
         assert "DELETE FROM service_state" in sql
         assert "failures" in sql
+        assert "jsonb_typeof(state_value->'failures') = 'number'" in sql
         assert ">= $3" in sql
         assert args[0][3] == 5
         assert result == 3
@@ -252,6 +253,8 @@ class TestCountCandidates:
         assert "count(*)::int" in sql
         assert "owner = $1" in sql
         assert "state_type = $2" in sql
+        assert "jsonb_typeof(state_value->'failures') = 'number'" in sql
+        assert "jsonb_typeof(state_value->'timestamp') = 'number'" in sql
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][2] == ServiceStateType.CHECKPOINT
         assert args[0][3] == [NetworkType.CLEARNET, NetworkType.TOR]
@@ -271,6 +274,8 @@ class TestFetchCandidates:
         args = query_brotr.fetch.call_args
         sql = args[0][0]
         assert "state_key, state_value" in sql
+        assert "jsonb_typeof(state_value->'failures') = 'number'" in sql
+        assert "jsonb_typeof(state_value->'timestamp') = 'number'" in sql
         assert "LIMIT $5" in sql
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][5] == 50

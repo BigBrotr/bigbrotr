@@ -1646,3 +1646,13 @@ Use this section during execution for:
     persisted cursor payloads are sanitized before ordering and default
     cleanly during row hydration instead of crashing or skewing least-progress
     scheduling.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirty-first remediation
+  slice:
+  - tightened the Validator persisted-candidate planning boundary so malformed
+    stored `failures` and `timestamp` values no longer rely on raw SQL casts
+    during cleanup, filtering, and ordering, and now degrade cleanly to the
+    same numeric defaults already expected by the shared typed state seam;
+  - added paired `validator` coverage proving candidate cleanup/count/fetch
+    queries sanitize malformed numeric payloads before scheduling, while
+    typed hydration still skips invalid persisted candidate rows instead of
+    crashing the validation planner.
