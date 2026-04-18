@@ -114,6 +114,14 @@ class TestRankerQueries:
 
         assert checkpoint == GraphSyncCheckpoint(source_seen_at=9, follower_pubkey="ab" * 32)
 
+    def test_graph_facts_normalize_pubkeys(self) -> None:
+        contact = ContactListFact("AB" * 32, "evt-a", 100, 10, 2)
+        edge = FollowEdgeFact("CD" * 32, "EF" * 32, "evt-a", 100, 10)
+
+        assert contact.follower_pubkey == "ab" * 32
+        assert edge.follower_pubkey == "cd" * 32
+        assert edge.followed_pubkey == "ef" * 32
+
     @pytest.mark.parametrize(
         ("source_seen_at", "follower_pubkey"),
         [
@@ -157,6 +165,24 @@ class TestRankerQueries:
         assert brotr.fetch.await_args.args[1:] == (9, "0" * 64, 5)
 
     @pytest.mark.asyncio
+    async def test_fetch_changed_contact_lists_rejects_invalid_row_types(self) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetch = AsyncMock(
+            return_value=[
+                {
+                    "follower_pubkey": "a" * 64,
+                    "source_event_id": "evt-a",
+                    "source_created_at": 100,
+                    "source_seen_at": True,
+                    "follow_count": 2,
+                }
+            ]
+        )
+
+        with pytest.raises(TypeError):
+            await fetch_changed_contact_lists(brotr, GraphSyncCheckpoint(9, "0" * 64), 5)
+
+    @pytest.mark.asyncio
     async def test_fetch_follow_edges_skips_empty_followers(self) -> None:
         brotr = MagicMock(spec=Brotr)
         brotr.fetch = AsyncMock()
@@ -183,6 +209,24 @@ class TestRankerQueries:
 
         assert rows == [FollowEdgeFact("a" * 64, "b" * 64, "evt-a", 100, 10)]
         assert brotr.fetch.await_args.args[1] == ["a" * 64]
+
+    @pytest.mark.asyncio
+    async def test_fetch_follow_edges_rejects_invalid_row_types(self) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetch = AsyncMock(
+            return_value=[
+                {
+                    "follower_pubkey": "a" * 64,
+                    "followed_pubkey": 123,
+                    "source_event_id": "evt-a",
+                    "source_created_at": 100,
+                    "source_seen_at": 10,
+                }
+            ]
+        )
+
+        with pytest.raises(TypeError):
+            await fetch_follow_edges_for_followers(brotr, ["a" * 64])
 
     @pytest.mark.asyncio
     async def test_fetch_non_user_fact_rows(self) -> None:

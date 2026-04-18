@@ -20,6 +20,24 @@ def _normalize_k_tags(value: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(sorted(set(value)))
 
 
+def _require_ranker_non_negative_int(value: object, *, field_name: str) -> int:
+    """Return one canonical non-negative integer field value."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{field_name} must be an int")
+    if value < 0:
+        raise ValueError(f"{field_name} must be non-negative")
+    return value
+
+
+def _require_ranker_text(value: object, *, field_name: str, allow_empty: bool = False) -> str:
+    """Return one canonical text field value."""
+    if not isinstance(value, str):
+        raise TypeError(f"{field_name} must be a str")
+    if not allow_empty and value == "":
+        raise ValueError(f"{field_name} must be non-empty")
+    return value
+
+
 def _normalize_ranker_pubkey(value: object, *, allow_empty: bool) -> str:
     """Return one canonical 32-byte hex pubkey string."""
     if not isinstance(value, str):
@@ -45,10 +63,14 @@ class GraphSyncCheckpoint:
     follower_pubkey: str = ""
 
     def __post_init__(self) -> None:
-        if isinstance(self.source_seen_at, bool) or not isinstance(self.source_seen_at, int):
-            raise TypeError("source_seen_at must be an int")
-        if self.source_seen_at < 0:
-            raise ValueError("source_seen_at must be non-negative")
+        object.__setattr__(
+            self,
+            "source_seen_at",
+            _require_ranker_non_negative_int(
+                self.source_seen_at,
+                field_name="source_seen_at",
+            ),
+        )
         object.__setattr__(
             self,
             "follower_pubkey",
@@ -68,6 +90,42 @@ class ContactListFact:
     source_seen_at: int
     follow_count: int
 
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "follower_pubkey",
+            _normalize_ranker_pubkey(self.follower_pubkey, allow_empty=False),
+        )
+        object.__setattr__(
+            self,
+            "source_event_id",
+            _require_ranker_text(self.source_event_id, field_name="source_event_id"),
+        )
+        object.__setattr__(
+            self,
+            "source_created_at",
+            _require_ranker_non_negative_int(
+                self.source_created_at,
+                field_name="source_created_at",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "source_seen_at",
+            _require_ranker_non_negative_int(
+                self.source_seen_at,
+                field_name="source_seen_at",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "follow_count",
+            _require_ranker_non_negative_int(
+                self.follow_count,
+                field_name="follow_count",
+            ),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class FollowEdgeFact:
@@ -78,6 +136,39 @@ class FollowEdgeFact:
     source_event_id: str
     source_created_at: int
     source_seen_at: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "follower_pubkey",
+            _normalize_ranker_pubkey(self.follower_pubkey, allow_empty=False),
+        )
+        object.__setattr__(
+            self,
+            "followed_pubkey",
+            _normalize_ranker_pubkey(self.followed_pubkey, allow_empty=False),
+        )
+        object.__setattr__(
+            self,
+            "source_event_id",
+            _require_ranker_text(self.source_event_id, field_name="source_event_id"),
+        )
+        object.__setattr__(
+            self,
+            "source_created_at",
+            _require_ranker_non_negative_int(
+                self.source_created_at,
+                field_name="source_created_at",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "source_seen_at",
+            _require_ranker_non_negative_int(
+                self.source_seen_at,
+                field_name="source_seen_at",
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -416,11 +507,11 @@ async def fetch_changed_contact_lists(
     )
     return [
         ContactListFact(
-            follower_pubkey=str(row["follower_pubkey"]),
-            source_event_id=str(row["source_event_id"]),
-            source_created_at=int(row["source_created_at"]),
-            source_seen_at=int(row["source_seen_at"]),
-            follow_count=int(row["follow_count"]),
+            follower_pubkey=row["follower_pubkey"],
+            source_event_id=row["source_event_id"],
+            source_created_at=row["source_created_at"],
+            source_seen_at=row["source_seen_at"],
+            follow_count=row["follow_count"],
         )
         for row in rows
     ]
@@ -437,11 +528,11 @@ async def fetch_follow_edges_for_followers(
     rows = await brotr.fetch(_FOLLOW_EDGES_QUERY, follower_pubkeys)
     return [
         FollowEdgeFact(
-            follower_pubkey=str(row["follower_pubkey"]),
-            followed_pubkey=str(row["followed_pubkey"]),
-            source_event_id=str(row["source_event_id"]),
-            source_created_at=int(row["source_created_at"]),
-            source_seen_at=int(row["source_seen_at"]),
+            follower_pubkey=row["follower_pubkey"],
+            followed_pubkey=row["followed_pubkey"],
+            source_event_id=row["source_event_id"],
+            source_created_at=row["source_created_at"],
+            source_seen_at=row["source_seen_at"],
         )
         for row in rows
     ]

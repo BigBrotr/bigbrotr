@@ -1937,3 +1937,13 @@ Use this section during execution for:
     pubkeys normalize to lowercase while malformed checkpoint values now fail
     fast before they can influence contact-list pagination or local checkpoint
     persistence.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fifty-ninth remediation
+  slice:
+  - tightened the typed `ranker` follow-graph fact boundary so
+    `ContactListFact` and `FollowEdgeFact` no longer accept broad `str(...)` /
+    `int(...)` coercions, which previously let malformed database rows turn
+    `bool` timestamps or non-string pubkeys into apparently valid graph facts
+    before they were persisted into DuckDB;
+  - added paired `ranker` query coverage proving canonical uppercase pubkeys
+    normalize to lowercase while malformed contact-list and follow-edge rows
+    now fail fast before they can mutate the private follow graph.
