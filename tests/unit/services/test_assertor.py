@@ -615,6 +615,34 @@ class TestAssertorPublishUserFlow:
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
     @patch("bigbrotr.services.assertor.service.fetch_user_rows", new_callable=AsyncMock)
+    async def test_top_topics_delimiter_change_is_not_skipped(
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        persisted_row = self._make_row()
+        persisted_row["topic_counts"] = {"alpha,beta": 2, "gamma": 1}
+        current_row = self._make_row()
+        current_row["topic_counts"] = {"alpha": 2, "beta,gamma": 1}
+        mock_fetch.return_value = [current_row]
+        mock_broadcast.return_value = _broadcast_results()
+        service = self._make_service(mock_brotr)
+
+        from bigbrotr.nips.nip85.data import UserAssertion
+
+        persisted_assertion = UserAssertion.from_db_row(persisted_row)
+        state = MagicMock()
+        state.state_value = {"hash": persisted_assertion.tags_hash()}
+        mock_brotr.get_service_state = AsyncMock(return_value=[state])
+
+        published, skipped, failed = await service._publish_user_assertions()
+
+        assert (published, skipped, failed) == (1, 0, 0)
+        mock_broadcast.assert_awaited_once()
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_user_rows", new_callable=AsyncMock)
     async def test_broadcast_failure_counts_as_failed(
         self,
         mock_fetch: AsyncMock,
@@ -1777,6 +1805,44 @@ class TestAssertorPublishAddressableAndIdentifierFlow:
         assert ["i", "isbn:9780140328721"] in tag_vectors
         saved_key = mock_brotr.upsert_service_state.call_args[0][0][0].state_key
         assert saved_key == "global-pagerank:30385:isbn:9780140328721"
+
+    @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
+    @patch("bigbrotr.services.assertor.service.fetch_identifier_rows", new_callable=AsyncMock)
+    async def test_identifier_k_tag_delimiter_change_is_not_skipped(
+        self,
+        mock_fetch: AsyncMock,
+        mock_broadcast: AsyncMock,
+        mock_brotr: MagicMock,
+    ) -> None:
+        persisted_row = {
+            "identifier": "isbn:9780140328721",
+            "score": 66,
+            "comment_count": 4,
+            "reaction_count": 7,
+            "k_tags": ["a,b", "c"],
+        }
+        current_row = {
+            "identifier": "isbn:9780140328721",
+            "score": 66,
+            "comment_count": 4,
+            "reaction_count": 7,
+            "k_tags": ["a", "b,c"],
+        }
+        mock_fetch.return_value = [current_row]
+        mock_broadcast.return_value = _broadcast_results()
+        service = self._make_service(mock_brotr)
+
+        from bigbrotr.nips.nip85.data import IdentifierAssertion
+
+        persisted_assertion = IdentifierAssertion.from_db_row(persisted_row)
+        state = MagicMock()
+        state.state_value = {"hash": persisted_assertion.tags_hash()}
+        mock_brotr.get_service_state = AsyncMock(return_value=[state])
+
+        published, skipped, failed = await service._publish_identifier_assertions()
+
+        assert (published, skipped, failed) == (1, 0, 0)
+        mock_broadcast.assert_awaited_once()
 
 
 # ============================================================================

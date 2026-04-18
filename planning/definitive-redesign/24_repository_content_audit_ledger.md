@@ -1429,3 +1429,11 @@ Use this section during execution for:
   - added paired `NIP-85` model and Assertor coverage proving a persisted
     no-timestamp checkpoint no longer suppresses publication when the live row
     changes to `first_created_at=0`.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-sixth remediation slice:
+  - fixed `UserAssertion.tags_hash()` and `IdentifierAssertion.tags_hash()` so
+    ordered `top_topics` and set-like `k_tags` are hashed as structured
+    payloads instead of delimiter-joined strings, eliminating aliasing when
+    tag values themselves contain commas or other separators;
+  - added paired `NIP-85` model and Assertor coverage proving delimiter-rich
+    topic or `k`-tag changes no longer get skipped by checkpoint reuse when
+    the emitted public tags would actually differ.

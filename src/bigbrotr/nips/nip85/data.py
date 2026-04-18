@@ -16,6 +16,7 @@ See Also:
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -308,6 +309,13 @@ def _metric_from_row(row: dict[str, Any], key: str, *, field_name: str | None = 
     return normalizer(row.get(key, 0), resolved_field_name)
 
 
+def _hash_tag_payload(payload: Any) -> str:
+    """Return a stable SHA-256 digest for structured tag payloads."""
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
 @dataclass(frozen=True, slots=True)
 class UserAssertion:
     """NIP-85 kind 30382: per-pubkey social metrics.
@@ -416,26 +424,27 @@ class UserAssertion:
 
     def tags_hash(self) -> str:
         """SHA-256 hex digest of all tag values for change detection."""
-        values = [
-            str(self.score),
-            str(self.follower_count),
-            "" if self.first_created_at is None else str(self.first_created_at),
-            str(self.post_count),
-            str(self.reply_count),
-            str(self.reaction_count_recd),
-            str(self.zap_amount_recd_sats),
-            str(self.zap_amount_sent_sats),
-            str(self.zap_count_recd),
-            str(self.zap_count_sent),
-            str(self.zap_avg_amt_day_recd_sats),
-            str(self.zap_avg_amt_day_sent_sats),
-            str(self.report_count_recd),
-            str(self.report_count_sent),
-            ",".join(self.top_topics),
-            str(self.active_hours_start),
-            str(self.active_hours_end),
-        ]
-        return hashlib.sha256("|".join(values).encode()).hexdigest()
+        return _hash_tag_payload(
+            {
+                "score": self.score,
+                "follower_count": self.follower_count,
+                "first_created_at": self.first_created_at,
+                "post_count": self.post_count,
+                "reply_count": self.reply_count,
+                "reaction_count_recd": self.reaction_count_recd,
+                "zap_amount_recd_sats": self.zap_amount_recd_sats,
+                "zap_amount_sent_sats": self.zap_amount_sent_sats,
+                "zap_count_recd": self.zap_count_recd,
+                "zap_count_sent": self.zap_count_sent,
+                "zap_avg_amt_day_recd_sats": self.zap_avg_amt_day_recd_sats,
+                "zap_avg_amt_day_sent_sats": self.zap_avg_amt_day_sent_sats,
+                "report_count_recd": self.report_count_recd,
+                "report_count_sent": self.report_count_sent,
+                "top_topics": self.top_topics,
+                "active_hours_start": self.active_hours_start,
+                "active_hours_end": self.active_hours_end,
+            }
+        )
 
     @classmethod
     def from_db_row(cls, row: dict[str, Any]) -> UserAssertion:
@@ -632,13 +641,14 @@ class IdentifierAssertion:
 
     def tags_hash(self) -> str:
         """SHA-256 hex digest of all tag values for change detection."""
-        values = [
-            str(self.score),
-            str(self.comment_count),
-            str(self.reaction_count),
-            ",".join(self.k_tags),
-        ]
-        return hashlib.sha256("|".join(values).encode()).hexdigest()
+        return _hash_tag_payload(
+            {
+                "score": self.score,
+                "comment_count": self.comment_count,
+                "reaction_count": self.reaction_count,
+                "k_tags": self.k_tags,
+            }
+        )
 
     @classmethod
     def from_db_row(cls, row: dict[str, Any]) -> IdentifierAssertion:

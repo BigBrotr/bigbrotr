@@ -218,6 +218,12 @@ class TestUserAssertionTagsHash:
 
         assert without_timestamp.tags_hash() != unix_epoch.tags_hash()
 
+    def test_top_topics_with_delimiters_produce_distinct_hashes(self) -> None:
+        with_comma = UserAssertion(pubkey="aa" * 32, top_topics=("alpha,beta", "gamma"))
+        split_across_topics = UserAssertion(pubkey="aa" * 32, top_topics=("alpha", "beta,gamma"))
+
+        assert with_comma.tags_hash() != split_across_topics.tags_hash()
+
 
 class TestUserAssertionFromDbRow:
     def test_minimal_row(self) -> None:
@@ -851,6 +857,18 @@ class TestIdentifierAssertionProperties:
     def test_constructor_rejects_empty_k_tags(self) -> None:
         with pytest.raises(ValueError, match="k_tags must not contain empty tag strings"):
             IdentifierAssertion(identifier="isbn:9780140328721", k_tags=("isbn", ""))
+
+    def test_tags_hash_distinguishes_delimited_k_tags(self) -> None:
+        with_comma = IdentifierAssertion(
+            identifier="isbn:9780140328721",
+            k_tags=("a,b", "c"),
+        )
+        split_across_tags = IdentifierAssertion(
+            identifier="isbn:9780140328721",
+            k_tags=("a", "b,c"),
+        )
+
+        assert with_comma.tags_hash() != split_across_tags.tags_hash()
 
     @pytest.mark.parametrize(
         ("kwargs", "message"),
