@@ -462,6 +462,25 @@ class TestRankerQueries:
         brotr.fetchval.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_get_contact_list_source_watermark_defaults_none(self) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetchval = AsyncMock(return_value=None)
+
+        assert await get_contact_list_source_watermark(brotr) == 0
+
+    @pytest.mark.parametrize("watermark", [True, -1])
+    @pytest.mark.asyncio
+    async def test_get_contact_list_source_watermark_rejects_invalid_values(
+        self,
+        watermark: object,
+    ) -> None:
+        brotr = MagicMock(spec=Brotr)
+        brotr.fetchval = AsyncMock(return_value=watermark)
+
+        with pytest.raises((TypeError, ValueError)):
+            await get_contact_list_source_watermark(brotr)
+
+    @pytest.mark.asyncio
     async def test_score_stage_helpers_use_subject_specific_queries(self) -> None:
         conn = MagicMock()
         conn.execute = AsyncMock()

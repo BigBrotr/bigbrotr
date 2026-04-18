@@ -1986,3 +1986,12 @@ Use this section during execution for:
     cleanup and failed-run metrics with semantically bogus bookkeeping rows;
   - added paired `ranker` store coverage proving invalid lifecycle inputs now
     fail fast before they can persist or query malformed `rank_runs` state.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-sixty-fourth remediation
+  slice:
+  - tightened the shared `ranker` watermark boundary so
+    `get_contact_list_source_watermark()` no longer coerces booleans or
+    negative persisted `source_seen_at` values via raw `int(...)`, which could
+    silently skew checkpoint-lag metrics away from the typed contact-list
+    contract used everywhere else in the same sync path;
+  - added paired `ranker` query coverage proving `None` still degrades to the
+    canonical zero watermark while malformed values now fail fast.

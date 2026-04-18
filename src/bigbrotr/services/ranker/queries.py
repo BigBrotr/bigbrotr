@@ -667,7 +667,12 @@ async def fetch_follow_edges_for_followers(
 async def get_contact_list_source_watermark(brotr: Brotr) -> int:
     """Return the latest visible ``contact_lists_current.source_seen_at`` watermark."""
     result = await brotr.fetchval(_CONTACT_LIST_SOURCE_WATERMARK_QUERY)
-    return int(result) if result else 0
+    if result is None:
+        return 0
+    return _require_ranker_non_negative_int(
+        result,
+        field_name="source_seen_at",
+    )
 
 
 async def fetch_event_stats(
