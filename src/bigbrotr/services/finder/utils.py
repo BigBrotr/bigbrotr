@@ -71,7 +71,8 @@ def extract_relays_from_response(data: Any, expression: str) -> list[Relay]:
     """
     result = jmespath.search(expression, data)
     if not isinstance(result, list):
-        return []
+        msg = f"JMESPath expression {expression!r} returned {type(result).__name__}, expected list"
+        raise ValueError(msg)
     seen: set[str] = set()
     relays: list[Relay] = []
     for item in result:

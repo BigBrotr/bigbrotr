@@ -1775,3 +1775,14 @@ Use this section during execution for:
     transport-level reserved keys and filter keys are rejected from true HTTP
     `QueryParams` objects before pagination parsing or catalog execution
     begins.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-forty-fourth remediation
+  slice:
+  - tightened the Finder API-source extraction boundary so a configured
+    JMESPath expression that no longer resolves to a list in the live JSON
+    payload no longer degrades silently to "zero relays fetched", and now
+    fails as a recoverable source error instead of advancing the API
+    checkpoint;
+  - added paired `finder` coverage proving non-list extraction results are
+    rejected both at the low-level `fetch_api()` seam and at the
+    `find_from_api()` runtime layer before success counters or checkpoint
+    persistence can advance.

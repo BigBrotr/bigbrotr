@@ -324,9 +324,10 @@ class TestExtractRelaysFromResponse:
         assert len(relays) == 1
         assert relays[0].url == "wss://r1.com"
 
-    def test_nonexistent_path_returns_empty(self) -> None:
+    def test_nonexistent_path_raises_value_error(self) -> None:
         data = {"other": ["wss://r1.com"]}
-        assert extract_relays_from_response(data, "relays") == []
+        with pytest.raises(ValueError, match="expected list"):
+            extract_relays_from_response(data, "relays")
 
     def test_extract_field_from_objects(self) -> None:
         data = [{"url": "wss://r1.com"}, {"url": "wss://r2.com"}]
@@ -354,12 +355,14 @@ class TestExtractRelaysFromResponse:
         [None, 42, "wss://r1.com"],
         ids=["none", "scalar", "string"],
     )
-    def test_non_list_data_returns_empty(self, data: Any) -> None:
-        assert extract_relays_from_response(data, "[*]") == []
+    def test_non_list_data_raises_value_error(self, data: Any) -> None:
+        with pytest.raises(ValueError, match="expected list"):
+            extract_relays_from_response(data, "[*]")
 
-    def test_expression_returns_non_list(self) -> None:
+    def test_expression_returning_non_list_raises_value_error(self) -> None:
         data = {"count": 5}
-        assert extract_relays_from_response(data, "count") == []
+        with pytest.raises(ValueError, match="expected list"):
+            extract_relays_from_response(data, "count")
 
     def test_empty_dict_keys(self) -> None:
         assert extract_relays_from_response({}, "keys(@)") == []
@@ -1119,6 +1122,42 @@ class TestFinderFindFromApi:
 
             assert result == 0
 
+    async def test_shape_mismatch_does_not_advance_checkpoint(self, mock_brotr: Brotr) -> None:
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                sources=[ApiSourceConfig(url="https://api.example.com", expression="relays")],
+                request_delay=0,
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+        finder.inc_gauge = MagicMock()  # type: ignore[method-assign]
+        mock_response = _mock_api_response({"other": ["wss://relay1.com"]})
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.fetch_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value=_default_checkpoints(config),
+            ),
+            patch(
+                "bigbrotr.services.finder.service.upsert_api_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
+            patch("aiohttp.ClientSession") as mock_session_cls,
+        ):
+            mock_session = MagicMock()
+            mock_session.get = MagicMock(return_value=mock_response)
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_session_cls.return_value = mock_session
+
+            result = await finder.find_from_api()
+
+        assert result == 0
+        mock_save.assert_not_awaited()
+        finder.inc_gauge.assert_not_called()
+
     async def test_skips_source_within_cooldown(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(
             api=ApiConfig(
@@ -1435,6 +1474,16 @@ class TestFetchApi:
         result = await fetch_api(mock_session, source, 5_242_880)
 
         assert len(result) == 0
+
+    async def test_shape_mismatch_raises_value_error(self) -> None:
+        source = ApiSourceConfig(url="https://api.example.com", expression="relays")
+
+        mock_response = _mock_api_response({"other": ["wss://relay1.com"]})
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(return_value=mock_response)
+
+        with pytest.raises(ValueError, match="expected list"):
+            await fetch_api(mock_session, source, 5_242_880)
 
     async def test_rejects_oversized_response(self) -> None:
         source = ApiSourceConfig(url="https://api.example.com", expression="[*]")
