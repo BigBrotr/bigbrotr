@@ -193,8 +193,9 @@ class Nip66NetData(BaseData):
 
     Note:
         IPv4 ASN data takes priority; IPv6 ASN data is used as a fallback
-        when IPv4 is not available. IPv6-specific network ranges are always
-        recorded separately in ``net_network_v6``.
+        when IPv4 is not available. IPv6-specific network ranges are recorded
+        separately in ``net_network_v6`` only when the IPv6 ASN lookup
+        actually returns a network.
 
     See Also:
         [bigbrotr.nips.nip66.net.Nip66NetMetadata][bigbrotr.nips.nip66.net.Nip66NetMetadata]:

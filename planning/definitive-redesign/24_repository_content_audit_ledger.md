@@ -438,3 +438,10 @@ Use this section during execution for:
     layer, not a simplistic claim that the overlay "provides encryption";
   - kept the slice documentation-only while deliberately matching the wording
     already fixed in `bigbrotr.nips.nip66.http`.
+- `2.1` models/utils/NIPs leaf audit, thirty-second remediation slice:
+  - corrected the paired `bigbrotr.nips.nip66.data.Nip66NetData` note that
+    still promised `net_network_v6` as an always-recorded side channel; the
+    live contract is conditional, exactly as the runtime and paired
+    `test_net.py` coverage already enforce;
+  - kept this slice documentation-only because the implementation and tests
+    were already aligned with the final repository behavior.
