@@ -16,8 +16,9 @@ Note:
     For clearnet relays, SSL verification is enabled by default. When
     ``allow_insecure=True``, a non-validating SSL context (``CERT_NONE``)
     is used instead. Overlay networks always use ``CERT_NONE`` because
-    the proxy provides encryption. This is the only NIP-66 test that
-    supports **both** clearnet and overlay networks.
+    the overlay transport already provides its own privacy/security layer.
+    Like the RTT probe, this check supports both clearnet and overlay
+    relays when the required proxy settings are supplied.
 
 See Also:
     [bigbrotr.nips.nip66.data.Nip66HttpData][bigbrotr.nips.nip66.data.Nip66HttpData]:

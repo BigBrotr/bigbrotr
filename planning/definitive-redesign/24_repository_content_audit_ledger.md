@@ -416,3 +416,10 @@ Use this section during execution for:
   - added paired unit coverage that locks this behavior in place, so future
     refactors cannot silently reintroduce a harder timeout contract in the
     docs without either changing the runtime or updating the tests.
+- `2.1` models/utils/NIPs leaf audit, twenty-ninth remediation slice:
+  - corrected the tracked `bigbrotr.nips.nip66.http` note that still claimed
+    HTTP header extraction was the only NIP-66 probe supporting both clearnet
+    and overlay relays; the live RTT probe already supports overlay relays
+    when a proxy is configured;
+  - tightened the same note so it attributes the relaxed SSL stance to the
+    overlay transport contract, not to the SOCKS proxy itself.
