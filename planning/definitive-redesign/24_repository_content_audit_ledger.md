@@ -798,3 +798,10 @@ Use this section during execution for:
     public DNS probe path now emit stable DNS lists for identical answers
     even when the underlying resolver returns them out of order or with
     duplicates.
+- `2.1` models/utils/NIPs leaf audit, seventy-seventh remediation slice:
+  - tightened `bigbrotr.nips.nip11.data.Nip11InfoData` so `supported_nips`
+    is normalized to a deduplicated ascending order at the model boundary
+    instead of relying only on the permissive parse path to do that cleanup;
+  - added paired unit coverage proving both direct model construction and the
+    public NIP-11 fetch path now emit stable `supported_nips` values even
+    when the source document lists them out of order or with duplicates.

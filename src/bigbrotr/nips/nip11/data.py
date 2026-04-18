@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from pydantic import ConfigDict, Field, StrictBool, StrictInt
+from pydantic import ConfigDict, Field, StrictBool, StrictInt, field_validator
 
 from bigbrotr.nips.base import BaseData
 from bigbrotr.nips.parsing import (
@@ -482,7 +482,9 @@ class Nip11InfoData(BaseData):
         The NIP-11 ``self`` field is a reserved Python keyword, so it is
         mapped to ``self_pubkey`` with a Pydantic alias. The ``to_dict()``
         method uses ``by_alias=True`` to ensure the JSON output uses the
-        correct ``self`` key name as specified by the NIP.
+        correct ``self`` key name as specified by the NIP. ``supported_nips``
+        is normalized to a deduplicated ascending order so equivalent relay
+        capability sets do not drift when source order changes.
 
     See Also:
         [Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:
@@ -536,6 +538,13 @@ class Nip11InfoData(BaseData):
     def self(self) -> str | None:
         """Relay's own public key from the NIP-11 ``self`` field."""
         return self.self_pubkey
+
+    @field_validator("supported_nips")
+    @classmethod
+    def _normalize_supported_nips(cls, value: list[int] | None) -> list[int] | None:
+        if value is None:
+            return None
+        return sorted(set(value))
 
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         str_fields=frozenset(

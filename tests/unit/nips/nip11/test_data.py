@@ -537,6 +537,11 @@ class TestNip11InfoDataConstructor:
         assert data.description == "A test relay"
         assert data.supported_nips == [1, 11, 42]
 
+    def test_constructor_normalizes_supported_nips(self):
+        """Constructor deduplicates and sorts supported_nips."""
+        data = Nip11InfoData(supported_nips=[42, 1, 11, 42, 1])
+        assert data.supported_nips == [1, 11, 42]
+
     def test_constructor_rejects_non_str_name(self):
         """Constructor raises ValidationError for non-str name."""
         with pytest.raises(ValidationError):
@@ -632,7 +637,7 @@ class TestNip11InfoDataParse:
 
     def test_parse_filters_bools_from_supported_nips(self):
         """Bools are filtered from supported_nips."""
-        data = {"supported_nips": [1, True, 11, False, 42]}
+        data = {"supported_nips": [42, True, 11, False, 1, 42]}
         result = Nip11InfoData.parse(data)
         assert result["supported_nips"] == [1, 11, 42]
 

@@ -180,6 +180,30 @@ class TestNip11InfoMetadataSuccess:
         assert result.data.supported_nips == [1, 11, 42, 65]
         assert result.data.limitation.max_message_length == 65535
 
+    async def test_info_normalizes_supported_nips_order(
+        self, relay: Relay, complete_nip11_data: dict[str, Any], mock_session_factory
+    ) -> None:
+        """Retrieval normalizes supported_nips before building the model."""
+        import json
+
+        payload = dict(complete_nip11_data)
+        payload["supported_nips"] = [65, 11, 42, 1, 11]
+
+        response = AsyncMock()
+        response.status = 200
+        response.headers = {"Content-Type": "application/nostr+json"}
+        response.content.read = AsyncMock(side_effect=[json.dumps(payload).encode(), b""])
+        response.__aenter__ = AsyncMock(return_value=response)
+        response.__aexit__ = AsyncMock(return_value=None)
+
+        session = mock_session_factory(response)
+
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
+            result = await Nip11InfoMetadata.fetch(relay)
+
+        assert result.logs.success is True
+        assert result.data.supported_nips == [1, 11, 42, 65]
+
     async def test_info_empty_json_object(self, relay: Relay, mock_session_factory):
         """Retrieval handles empty JSON object."""
         response = AsyncMock()
