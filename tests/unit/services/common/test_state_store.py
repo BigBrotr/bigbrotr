@@ -66,6 +66,54 @@ class TestPayloadCodecs:
             failures=3,
         )
 
+    @pytest.mark.parametrize("payload", [{"timestamp": True}, {"timestamp": 1.5}])
+    def test_checkpoint_from_payload_rejects_non_integer_timestamp(
+        self,
+        payload: dict[str, object],
+    ) -> None:
+        with pytest.raises(TypeError, match="invalid timestamp"):
+            ServiceStateStore.decode_checkpoint(
+                "https://api.example.com",
+                payload,
+                ApiCheckpoint,
+            )
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"timestamp": True, "id": "ab" * 32},
+            {"timestamp": 456, "id": 123},
+        ],
+    )
+    def test_cursor_from_payload_rejects_invalid_field_types(
+        self,
+        payload: dict[str, object],
+    ) -> None:
+        with pytest.raises(TypeError):
+            ServiceStateStore.decode_cursor(
+                "wss://relay.example.com",
+                payload,
+                FinderCursor,
+            )
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"timestamp": True, "network": "tor", "failures": 3},
+            {"timestamp": 789, "network": "tor", "failures": True},
+            {"timestamp": 789, "network": 123, "failures": 3},
+        ],
+    )
+    def test_candidate_from_payload_rejects_invalid_field_types(
+        self,
+        payload: dict[str, object],
+    ) -> None:
+        with pytest.raises((TypeError, ValueError)):
+            ServiceStateStore.decode_candidate(
+                "wss://relay.example.com",
+                payload,
+            )
+
     def test_candidate_state_override(self) -> None:
         state = ServiceStateStore.encode_candidate(
             CandidateCheckpoint(
@@ -123,6 +171,30 @@ class TestServiceStateStore:
             ApiCheckpoint(key="https://api3.example.com", timestamp=0),
         ]
 
+    async def test_fetch_checkpoints_defaults_invalid_payloads(
+        self, query_brotr: MagicMock
+    ) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                {"state_key": "https://api1.example.com", "state_value": {"timestamp": True}},
+                {"state_key": "https://api2.example.com", "state_value": {"timestamp": 200}},
+            ]
+        )
+
+        result = await ServiceStateStore(query_brotr).fetch_checkpoints(
+            ServiceName.FINDER,
+            [
+                "https://api1.example.com",
+                "https://api2.example.com",
+            ],
+            ApiCheckpoint,
+        )
+
+        assert result == [
+            ApiCheckpoint(key="https://api1.example.com", timestamp=0),
+            ApiCheckpoint(key="https://api2.example.com", timestamp=200),
+        ]
+
     async def test_fetch_cursors_preserves_order_and_defaults(self, query_brotr: MagicMock) -> None:
         query_brotr.fetch = AsyncMock(
             return_value=[
@@ -147,6 +219,31 @@ class TestServiceStateStore:
             DvmRequestCursor(key="job_requests", timestamp=200, id="ab" * 32),
             DvmRequestCursor(key="job_requests_2"),
             DvmRequestCursor(key="job_requests_3"),
+        ]
+
+    async def test_fetch_cursors_defaults_invalid_payloads(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                {
+                    "state_key": "job_requests",
+                    "state_value": {"timestamp": 200, "id": 123},
+                },
+                {
+                    "state_key": "job_requests_2",
+                    "state_value": {"timestamp": 300, "id": "cd" * 32},
+                },
+            ]
+        )
+
+        result = await ServiceStateStore(query_brotr).fetch_cursors(
+            ServiceName.DVM,
+            ["job_requests", "job_requests_2"],
+            DvmRequestCursor,
+        )
+
+        assert result == [
+            DvmRequestCursor(key="job_requests"),
+            DvmRequestCursor(key="job_requests_2", timestamp=300, id="cd" * 32),
         ]
 
     async def test_upsert_cursors_skips_zero_timestamp_when_requested(

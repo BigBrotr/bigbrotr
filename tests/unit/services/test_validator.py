@@ -325,6 +325,48 @@ class TestFetchCandidates:
         result = await fetch_candidates(query_brotr, [NetworkType.CLEARNET], 0, 50)
         assert len(result) == 1
 
+    async def test_skips_invalid_typed_payloads(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "state_key": "wss://bad.com",
+                        "state_value": {
+                            "failures": 0,
+                            "network": "clearnet",
+                            "timestamp": True,
+                        },
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://good.com",
+                        "state_value": {
+                            "failures": 1,
+                            "network": "tor",
+                            "timestamp": 2,
+                        },
+                    }
+                ),
+            ]
+        )
+
+        result = await fetch_candidates(
+            query_brotr,
+            [NetworkType.CLEARNET, NetworkType.TOR],
+            0,
+            50,
+        )
+
+        assert result == [
+            CandidateCheckpoint(
+                key="wss://good.com",
+                timestamp=2,
+                network=NetworkType.TOR,
+                failures=1,
+            )
+        ]
+
     async def test_empty_result(self, query_brotr: MagicMock) -> None:
         assert await fetch_candidates(query_brotr, [NetworkType.CLEARNET], 0, 50) == []
 

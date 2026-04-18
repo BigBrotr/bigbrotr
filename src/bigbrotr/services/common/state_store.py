@@ -32,6 +32,36 @@ _FETCH_STATE_ROWS_SQL = """
     """
 
 
+def _require_state_int(payload: MappingLike, field: str) -> int:
+    """Read one persisted integer field without accepting bool or float aliases."""
+    value: object = payload[field]
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"invalid {field}")
+    return value
+
+
+def _require_state_str(payload: MappingLike, field: str) -> str:
+    """Read one persisted string field without coercing arbitrary values."""
+    value: object = payload[field]
+    if not isinstance(value, str):
+        raise TypeError(f"invalid {field}")
+    return value
+
+
+def _optional_state_int(payload: MappingLike, field: str, default: int) -> int:
+    """Read one optional persisted integer field with a strict typed default."""
+    if field not in payload:
+        return default
+    return _require_state_int(payload, field)
+
+
+def _optional_state_str(payload: MappingLike, field: str, default: str) -> str:
+    """Read one optional persisted string field with a strict typed default."""
+    if field not in payload:
+        return default
+    return _require_state_str(payload, field)
+
+
 class ServiceStateStore:
     """Typed persistence boundary for ``service_state`` access."""
 
@@ -45,7 +75,7 @@ class ServiceStateStore:
         checkpoint_type: type[_CheckpointT],
     ) -> _CheckpointT:
         """Decode a checkpoint payload into a typed checkpoint."""
-        return checkpoint_type(key=key, timestamp=int(payload["timestamp"]))
+        return checkpoint_type(key=key, timestamp=_require_state_int(payload, "timestamp"))
 
     @staticmethod
     def decode_cursor(
@@ -54,16 +84,20 @@ class ServiceStateStore:
         cursor_type: type[_CursorT],
     ) -> _CursorT:
         """Decode a cursor payload into a typed cursor."""
-        return cursor_type(key=key, timestamp=int(payload["timestamp"]), id=str(payload["id"]))
+        return cursor_type(
+            key=key,
+            timestamp=_require_state_int(payload, "timestamp"),
+            id=_require_state_str(payload, "id"),
+        )
 
     @staticmethod
     def decode_candidate(key: str, payload: MappingLike) -> CandidateCheckpoint:
         """Decode a validator candidate payload."""
         return CandidateCheckpoint(
             key=key,
-            timestamp=int(payload.get("timestamp", 0)),
-            network=NetworkType(str(payload.get("network", "clearnet"))),
-            failures=int(payload.get("failures", 0)),
+            timestamp=_optional_state_int(payload, "timestamp", 0),
+            network=NetworkType(_optional_state_str(payload, "network", "clearnet")),
+            failures=_optional_state_int(payload, "failures", 0),
         )
 
     @staticmethod

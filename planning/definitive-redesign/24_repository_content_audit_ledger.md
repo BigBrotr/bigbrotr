@@ -1590,3 +1590,12 @@ Use this section during execution for:
   - added paired `services/common` coverage proving the HTTP helper now rejects
     invalid key/value shapes explicitly instead of crashing before shared query
     validation can run.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twenty-fifth remediation
+  slice:
+  - tightened the shared `service_state` hydration boundary so checkpoint,
+    cursor, and validator-candidate codecs no longer coerce corrupted payloads
+    through `int(...)` or `str(...)`, and now fall back or skip exactly at the
+    typed persistence seam instead of silently reshaping bad state;
+  - added paired `services/common` and `validator` coverage proving malformed
+    persisted payloads now default cleanly or get skipped, while valid typed
+    state still hydrates unchanged.
