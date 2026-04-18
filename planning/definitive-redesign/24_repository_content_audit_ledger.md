@@ -753,3 +753,12 @@ Use this section during execution for:
     `bigbrotr.utils.protocol.is_nostr_relay()` proving `NostrSdkError` now
     maps to `False` while still preserving the existing auth-required success
     contract and best-effort shutdown behavior.
+- `2.1` models/utils/NIPs leaf audit, seventy-first remediation slice:
+  - aligned `bigbrotr.utils.protocol_publish.broadcast_events_detailed()`
+    with the rest of the shared protocol boundaries so ordinary SDK send
+    failures are treated like other dropped-client publish outcomes instead of
+    leaking through the broadcast helper;
+  - added paired unit coverage proving both `broadcast_events()` and
+    `broadcast_events_detailed()` now skip the failed client, drop any partial
+    relay-level state for that client, and log the SDK send failure as the
+    expected publish-boundary warning.

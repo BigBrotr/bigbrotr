@@ -12,6 +12,8 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from nostr_sdk import NostrSdkError
+
 
 if TYPE_CHECKING:
     from nostr_sdk import Client, EventBuilder
@@ -68,9 +70,10 @@ async def broadcast_events_detailed(
     For each client, the resulting ``successful_relays`` set is the
     intersection of the success sets reported by every builder, while
     ``failed_relays`` accumulates relay failures seen on any builder send.
-    If a builder raises ``OSError`` or ``TimeoutError`` before relay-level
-    output is produced, the whole client result is dropped and a warning is
-    logged, because the final normalized outcome for that client is unknowable.
+    If a builder raises an ordinary transport or SDK send failure before
+    relay-level output is produced, the whole client result is dropped and a
+    warning is logged, because the final normalized outcome for that client is
+    unknowable.
     """
     if not builders or not clients:
         return []
@@ -105,7 +108,7 @@ async def broadcast_events_detailed(
                     failed_relays=failed_relays,
                 )
             )
-        except (OSError, TimeoutError) as e:
+        except (NostrSdkError, OSError, TimeoutError) as e:
             logger.warning("broadcast_send_failed error=%s", e)
 
     return results

@@ -900,6 +900,19 @@ class TestBroadcastEvents:
         assert result == 1
         good_client.send_event_builder.assert_awaited_once()
 
+    async def test_sdk_send_error_skips_client(self) -> None:
+        bad_client = AsyncMock()
+        bad_client.send_event_builder.side_effect = NostrSdkError("sdk send failed")
+        good_client = AsyncMock()
+        good_client.send_event_builder.return_value = self._send_output(
+            success=("wss://relay.example.com",)
+        )
+
+        result = await self._get_broadcast()([MagicMock()], [bad_client, good_client])
+
+        assert result == 1
+        good_client.send_event_builder.assert_awaited_once()
+
     async def test_returns_zero_on_all_failures(self) -> None:
         client = AsyncMock()
         client.send_event_builder.return_value = self._send_output(
@@ -985,6 +998,26 @@ class TestBroadcastEvents:
         assert results == []
         assert client.send_event_builder.await_count == 2
         assert "broadcast_send_failed error=relay publish timed out" in caplog.text
+
+    async def test_detailed_results_drop_partial_client_state_on_sdk_send_error(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        client = AsyncMock()
+        client.send_event_builder.side_effect = [
+            self._send_output(
+                event_id="evt-1",
+                success=("wss://relay.a",),
+            ),
+            NostrSdkError("sdk publish failed"),
+        ]
+
+        with caplog.at_level(logging.WARNING, logger="bigbrotr.utils.protocol_publish"):
+            results = await self._get_broadcast_detailed()([MagicMock(), MagicMock()], [client])
+
+        assert results == []
+        assert client.send_event_builder.await_count == 2
+        assert "broadcast_send_failed error=sdk publish failed" in caplog.text
 
 
 class TestSummarizeBroadcastResults:
