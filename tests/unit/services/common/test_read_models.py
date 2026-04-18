@@ -823,6 +823,18 @@ class TestReadModelQueryHelpers:
                 max_page_size=1000,
             )
 
+    @pytest.mark.parametrize("params", [{"limit": "0"}, {"limit": "-1"}, {"offset": "-1"}])
+    def test_read_model_query_from_http_params_rejects_non_positive_or_negative_bounds(
+        self,
+        params: dict[str, str],
+    ) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid limit or offset"):
+            read_model_query_from_http_params(
+                params,
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
     def test_read_model_query_from_http_params_invalid_include_total(self) -> None:
         with pytest.raises(ReadModelQueryError, match="Invalid include_total value"):
             read_model_query_from_http_params(
@@ -894,6 +906,18 @@ class TestReadModelQueryHelpers:
         with pytest.raises(ReadModelQueryError, match="Invalid limit or offset value"):
             read_model_query_from_job_params(
                 {"offset": "oops"},
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
+    @pytest.mark.parametrize("params", [{"limit": "0"}, {"limit": "-1"}, {"offset": "-1"}])
+    def test_read_model_query_from_job_params_rejects_non_positive_or_negative_bounds(
+        self,
+        params: dict[str, str],
+    ) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid limit or offset value"):
+            read_model_query_from_job_params(
+                params,
                 default_page_size=100,
                 max_page_size=1000,
             )

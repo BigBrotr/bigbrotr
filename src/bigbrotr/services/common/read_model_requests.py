@@ -76,15 +76,18 @@ def _parse_cursor(raw_value: Any) -> str | None:
     return normalized or None
 
 
-def _parse_int_param(raw_value: Any, *, error_message: str) -> int:
+def _parse_int_param(raw_value: Any, *, error_message: str, minimum: int) -> int:
     """Normalize one public integer parameter without accepting bool aliases."""
     if isinstance(raw_value, bool):
         raise ReadModelQueryError(error_message)
 
     try:
-        return int(raw_value)
+        value = int(raw_value)
     except (TypeError, ValueError) as error:
         raise ReadModelQueryError(error_message) from error
+    if value < minimum:
+        raise ReadModelQueryError(error_message)
+    return value
 
 
 def read_model_query_from_http_params(
@@ -99,10 +102,12 @@ def read_model_query_from_http_params(
     limit = _parse_int_param(
         raw_params.pop("limit", default_page_size),
         error_message="Invalid limit or offset",
+        minimum=1,
     )
     offset = _parse_int_param(
         raw_params.pop("offset", 0),
         error_message="Invalid limit or offset",
+        minimum=0,
     )
 
     sort = raw_params.pop("sort", None)
@@ -132,10 +137,12 @@ def read_model_query_from_job_params(
     limit = _parse_int_param(
         params.get("limit", default_page_size),
         error_message="Invalid limit or offset value",
+        minimum=1,
     )
     offset = _parse_int_param(
         params.get("offset", 0),
         error_message="Invalid limit or offset value",
+        minimum=0,
     )
 
     raw_sort = params.get("sort")

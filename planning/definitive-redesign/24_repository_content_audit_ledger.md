@@ -1455,3 +1455,11 @@ Use this section during execution for:
     inputs are treated like invalid/missing bids rather than accidental
     one-millisat offers, and added paired `services/common`, `dvm/utils`, and
     `dvm/jobs` coverage proving malformed boolean numerics now fail safely.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-ninth remediation slice:
+  - tightened the shared public pagination parser so `limit` must be strictly
+    positive and `offset` must be non-negative, instead of silently relying on
+    catalog-level clamping that could turn malformed client input like
+    `limit=0` or `offset=-1` into live data queries;
+  - added paired `services/common`, HTTP API, and DVM coverage proving invalid
+    pagination bounds now fail fast as client-safe errors on both adapter
+    surfaces rather than being normalized behind the caller's back.

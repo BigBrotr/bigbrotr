@@ -948,6 +948,30 @@ class TestDvmRun:
 
         mock_client.send_event_builder.assert_called_once()
 
+    async def test_run_rejects_zero_limit(self, dvm_service: Dvm) -> None:
+        event = _make_mock_event(tags=[["param", "read_model", "relays"], ["param", "limit", "0"]])
+        mock_client = _make_client_with_events([event])
+        dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
+
+        with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
+            await dvm_service.run()
+
+        mock_client.send_event_builder.assert_called_once()
+
+    async def test_run_rejects_negative_offset(self, dvm_service: Dvm) -> None:
+        event = _make_mock_event(
+            tags=[["param", "read_model", "relays"], ["param", "offset", "-1"]]
+        )
+        mock_client = _make_client_with_events([event])
+        dvm_service._client = mock_client
+        await _seed_request_events(dvm_service, [event])
+
+        with patch.object(dvm_service, "set_gauge"), patch.object(dvm_service, "inc_counter"):
+            await dvm_service.run()
+
+        mock_client.send_event_builder.assert_called_once()
+
     async def test_run_updates_request_cursor_after_processing(self, dvm_service: Dvm) -> None:
         event = _make_mock_event(tags=[["param", "read_model", "relays"]], created_at=1000)
         mock_client = _make_client_with_events([event])
