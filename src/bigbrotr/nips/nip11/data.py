@@ -41,6 +41,7 @@ from bigbrotr.nips.parsing import (
 
 KindRange = tuple[StrictInt, StrictInt]
 _RetentionEntryT = TypeVar("_RetentionEntryT")
+_FeeEntryT = TypeVar("_FeeEntryT")
 
 
 def _invalid_input_report(path: str, fallback: str) -> ParseReport:
@@ -275,6 +276,43 @@ def _normalize_retention_entries_order(
     return sorted(entries, key=_retention_entry_sort_key)
 
 
+def _optional_str_sort_key(value: str | None) -> tuple[int, str]:
+    if value is None:
+        return (1, "")
+    return (0, value)
+
+
+def _fee_entry_sort_key(
+    entry: Any,
+) -> tuple[tuple[int, ...], tuple[int, int], tuple[int, str], tuple[int, int]]:
+    if isinstance(entry, dict):
+        kinds = entry.get("kinds")
+        amount = entry.get("amount")
+        unit = entry.get("unit")
+        period = entry.get("period")
+    else:
+        kinds = getattr(entry, "kinds", None)
+        amount = getattr(entry, "amount", None)
+        unit = getattr(entry, "unit", None)
+        period = getattr(entry, "period", None)
+
+    normalized_kinds = sorted(set(kinds)) if kinds is not None else []
+    return (
+        tuple(normalized_kinds),
+        _optional_int_sort_key(amount),
+        _optional_str_sort_key(unit),
+        _optional_int_sort_key(period),
+    )
+
+
+def _normalize_fee_entries_order(
+    entries: list[_FeeEntryT] | None,
+) -> list[_FeeEntryT] | None:
+    if entries is None:
+        return None
+    return sorted(entries, key=_fee_entry_sort_key)
+
+
 class Nip11InfoDataLimitation(BaseData):
     """Server-imposed limitations advertised in the NIP-11 document.
 
@@ -471,6 +509,10 @@ class Nip11InfoDataFees(BaseData):
     [Nip11InfoDataFeeEntry][bigbrotr.nips.nip11.data.Nip11InfoDataFeeEntry]
     objects for admission, subscription, and publication fees.
 
+    Note:
+        Each fee-entry list is normalized to a stable order so equivalent
+        fee schedules do not drift when source order changes.
+
     See Also:
         [Nip11InfoData][bigbrotr.nips.nip11.data.Nip11InfoData]: Parent
             model that contains this as the ``fees`` field.
@@ -485,6 +527,13 @@ class Nip11InfoDataFees(BaseData):
     publication: list[Nip11InfoDataFeeEntry] | None = Field(
         default=None, description="Publication fee entries"
     )
+
+    @field_validator("admission", "subscription", "publication")
+    @classmethod
+    def _normalize_entries(
+        cls, value: list[Nip11InfoDataFeeEntry] | None
+    ) -> list[Nip11InfoDataFeeEntry] | None:
+        return _normalize_fee_entries_order(value)
 
     @classmethod
     def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
@@ -532,7 +581,7 @@ class Nip11InfoDataFees(BaseData):
                     entries.append(entry_report.parsed)
 
             if entries:
-                result[key] = entries
+                result[key] = _normalize_fee_entries_order(entries)
             elif not raw_entries:
                 issues.append(
                     ParseIssue(
@@ -564,9 +613,9 @@ class Nip11InfoData(BaseData):
         correct ``self`` key name as specified by the NIP. ``supported_nips``
         plus the set-like string lists ``relay_countries``,
         ``language_tags``, ``tags``, and ``attributes`` are normalized to
-        deduplicated ascending order, and the ``retention`` entry list is
-        normalized to a stable order, so equivalent relay descriptions do not
-        drift when source order changes.
+        deduplicated ascending order, and the nested ``retention`` and
+        ``fees`` entry lists are normalized to stable order, so equivalent
+        relay descriptions do not drift when source order changes.
 
     See Also:
         [Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:

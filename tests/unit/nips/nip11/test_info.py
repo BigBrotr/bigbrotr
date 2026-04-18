@@ -230,6 +230,40 @@ class TestNip11InfoMetadataSuccess:
         assert result.data.fees.publication is not None
         assert result.data.fees.publication[0].kinds == [4, 42]
 
+    async def test_info_normalizes_fee_entry_list_order(
+        self, relay: Relay, complete_nip11_data: dict[str, Any], mock_session_factory
+    ) -> None:
+        """Retrieval normalizes fee-entry list ordering before model construction."""
+        import json
+
+        payload = dict(complete_nip11_data)
+        payload["fees"] = dict(complete_nip11_data["fees"])
+        payload["fees"]["publication"] = [
+            {"kinds": [42], "amount": 500, "unit": "msats"},
+            {"amount": 100, "unit": "msats"},
+            {"kinds": [4], "amount": 100, "unit": "msats"},
+        ]
+
+        response = AsyncMock()
+        response.status = 200
+        response.headers = {"Content-Type": "application/nostr+json"}
+        response.content.read = AsyncMock(side_effect=[json.dumps(payload).encode(), b""])
+        response.__aenter__ = AsyncMock(return_value=response)
+        response.__aexit__ = AsyncMock(return_value=None)
+
+        session = mock_session_factory(response)
+
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
+            result = await Nip11InfoMetadata.fetch(relay)
+
+        assert result.logs.success is True
+        assert result.data.fees.publication is not None
+        assert [entry.to_dict() for entry in result.data.fees.publication] == [
+            {"amount": 100, "unit": "msats"},
+            {"amount": 100, "unit": "msats", "kinds": [4]},
+            {"amount": 500, "unit": "msats", "kinds": [42]},
+        ]
+
     async def test_info_normalizes_set_like_string_lists(
         self, relay: Relay, complete_nip11_data: dict[str, Any], mock_session_factory
     ) -> None:

@@ -477,6 +477,22 @@ class TestNip11InfoDataFeesConstructor:
         fees = Nip11InfoDataFees(admission=[{"amount": 1000}])
         assert fees.admission[0].amount == 1000
 
+    def test_constructor_normalizes_fee_entry_order(self):
+        """Constructor sorts fee entries to a stable canonical order."""
+        fees = Nip11InfoDataFees(
+            publication=[
+                {"kinds": [42], "amount": 500, "unit": "msats"},
+                {"amount": 100, "unit": "msats"},
+                {"kinds": [4], "amount": 100, "unit": "msats"},
+            ]
+        )
+        assert fees.publication is not None
+        assert [entry.to_dict() for entry in fees.publication] == [
+            {"amount": 100, "unit": "msats"},
+            {"amount": 100, "unit": "msats", "kinds": [4]},
+            {"amount": 500, "unit": "msats", "kinds": [42]},
+        ]
+
 
 class TestNip11InfoDataFeesParse:
     """Test Nip11InfoDataFees.parse() method."""
@@ -491,6 +507,24 @@ class TestNip11InfoDataFeesParse:
         assert result == {
             "admission": [{"amount": 1000, "unit": "msats"}],
             "subscription": [{"amount": 500, "unit": "msats", "period": 30}],
+        }
+
+    def test_parse_normalizes_fee_entry_order(self):
+        """Fee entry lists are normalized to a stable canonical order."""
+        data = {
+            "publication": [
+                {"kinds": [42], "amount": 500, "unit": "msats"},
+                {"amount": 100, "unit": "msats"},
+                {"kinds": [4], "amount": 100, "unit": "msats"},
+            ]
+        }
+        result = Nip11InfoDataFees.parse(data)
+        assert result == {
+            "publication": [
+                {"amount": 100, "unit": "msats"},
+                {"amount": 100, "unit": "msats", "kinds": [4]},
+                {"amount": 500, "unit": "msats", "kinds": [42]},
+            ]
         }
 
     def test_parse_empty_entries_filtered(self):

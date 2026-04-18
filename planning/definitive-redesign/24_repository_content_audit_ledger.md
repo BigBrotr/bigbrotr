@@ -846,3 +846,11 @@ Use this section during execution for:
   - added paired unit coverage proving both direct NIP-11 parsing and the
     public fetch path now emit stable retention-entry ordering even when the
     source document lists equivalent policy entries out of order.
+- `2.1` models/utils/NIPs leaf audit, eighty-third remediation slice:
+  - tightened `bigbrotr.nips.nip11.data.Nip11InfoDataFees` so each nested
+    fee-entry list is normalized to a stable order in both the category parse
+    helper and the model boundary instead of inheriting document order
+    directly;
+  - added paired unit coverage proving both direct fee parsing and the public
+    NIP-11 fetch path now emit stable fee-entry ordering even when the source
+    document lists equivalent fee policies out of order.
