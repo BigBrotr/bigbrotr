@@ -430,3 +430,11 @@ Use this section during execution for:
     a network, which is exactly what the paired unit tests cover;
   - kept this slice documentation-only because the runtime behavior and
     existing test coverage were already correct.
+- `2.1` models/utils/NIPs leaf audit, thirty-first remediation slice:
+  - aligned the remaining tracked overlay-transport SSL wording in
+    `bigbrotr.nips.nip11.info` and `bigbrotr.utils.protocol` with the
+    repository's final leaf contract: overlay relays still use relaxed SSL
+    settings, but the reason is the overlay transport's own privacy/security
+    layer, not a simplistic claim that the overlay "provides encryption";
+  - kept the slice documentation-only while deliberately matching the wording
+    already fixed in `bigbrotr.nips.nip66.http`.

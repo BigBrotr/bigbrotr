@@ -22,7 +22,8 @@ Note:
 
     Overlay networks (Tor, I2P, Lokinet) always use
     ``nostr_sdk.ConnectionMode.PROXY`` with a SOCKS5 proxy and do not
-    attempt SSL fallback, as the overlay itself provides encryption.
+    attempt SSL fallback, because the overlay transport already provides
+    its own privacy/security layer.
 
 See Also:
     [bigbrotr.utils.transport][bigbrotr.utils.transport]: WebSocket transport

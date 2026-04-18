@@ -203,8 +203,8 @@ class Nip11InfoMetadata(BaseNipMetadata):
 
         For clearnet HTTPS, verifies the certificate first and falls back to
         insecure if *allow_insecure* is True. Overlay networks always use an
-        insecure SSL context (the overlay provides encryption). Plain HTTP
-        connections use no SSL.
+        insecure SSL context because the overlay transport already provides
+        its own privacy/security layer. Plain HTTP connections use no SSL.
 
         This method never returns ``None`` and does not raise for ordinary
         HTTP or parsing failures. Check ``succeeded`` for the operation
