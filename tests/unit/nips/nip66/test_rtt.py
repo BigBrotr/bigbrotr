@@ -1,5 +1,5 @@
 """
-Unit tests for models.nips.nip66.rtt module.
+Unit tests for the ``bigbrotr.nips.nip66.rtt`` module.
 
 Tests:
 - Nip66RttMetadata._validate_network() - network/proxy validation

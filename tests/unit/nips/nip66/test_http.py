@@ -1,5 +1,5 @@
 """
-Unit tests for models.nips.nip66.http module.
+Unit tests for the ``bigbrotr.nips.nip66.http`` module.
 
 Tests:
 - Nip66HttpMetadata._http() - async HTTP header capture

@@ -1,5 +1,5 @@
 """
-Unit tests for models.nips.nip66.net module.
+Unit tests for the ``bigbrotr.nips.nip66.net`` module.
 
 Tests:
 - Nip66NetMetadata._net() - synchronous ASN lookup

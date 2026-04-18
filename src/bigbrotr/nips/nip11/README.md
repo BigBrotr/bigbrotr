@@ -4,7 +4,7 @@ NIP-11 relay information document support.
 
 ## Main Files
 
-- `nip11.py`: main fetch/probe orchestration.
+- `nip11.py`: main fetch orchestration and document serialization seam.
 - `info.py`: typed relay-information model.
 - `data.py`, `logs.py`: structured NIP-11 payload and log models.
 

@@ -1,5 +1,5 @@
 """
-Unit tests for models.nips.nip66.geo module.
+Unit tests for the ``bigbrotr.nips.nip66.geo`` module.
 
 Tests:
 - GeoExtractor.extract_country() - country code, name, EU membership

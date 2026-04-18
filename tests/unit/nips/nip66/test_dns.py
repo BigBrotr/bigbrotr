@@ -1,5 +1,5 @@
 """
-Unit tests for models.nips.nip66.dns module.
+Unit tests for the ``bigbrotr.nips.nip66.dns`` module.
 
 Tests:
 - Nip66DnsMetadata._dns() - synchronous DNS resolution

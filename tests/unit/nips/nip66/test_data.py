@@ -1,5 +1,5 @@
 """
-Unit tests for models.nips.nip66.data module.
+Unit tests for the ``bigbrotr.nips.nip66.data`` module.
 
 Tests:
 - Nip66RttData construction and field spec validation

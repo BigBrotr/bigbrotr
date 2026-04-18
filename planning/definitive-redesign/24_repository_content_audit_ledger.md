@@ -231,3 +231,11 @@ Use this section during execution for:
   - cleaned up the remaining single-probe `nip66` test names and docstrings
     that still implied `metadata` was the canonical output shape, so the leaf
     test surface now talks consistently about result containers.
+- `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
+  - removed the stale `models.nips` module-path wording from the remaining
+    NIP-66 unit-test module docstrings and the `tests/unit/nips` package
+    surface, so the leaf test tree now names the live `bigbrotr.nips`
+    package honestly;
+  - corrected `src/bigbrotr/nips/nip11/README.md` so the top-level NIP-11
+    seam is described as fetch orchestration plus document serialization,
+    rather than the older ambiguous `fetch/probe` wording.

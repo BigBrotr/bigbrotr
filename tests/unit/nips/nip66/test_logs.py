@@ -1,5 +1,5 @@
 """
-Unit tests for models.nips.nip66.logs module.
+Unit tests for the ``bigbrotr.nips.nip66.logs`` module.
 
 Tests:
 - Nip66RttMultiPhaseLogs semantic validation rules

@@ -1,1 +1,1 @@
-"""Unit tests for models.nips subpackage."""
+"""Unit tests for the ``bigbrotr.nips`` package."""

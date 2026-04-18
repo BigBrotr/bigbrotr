@@ -1,5 +1,5 @@
 """
-Unit tests for models.nips.nip66.ssl module.
+Unit tests for the ``bigbrotr.nips.nip66.ssl`` module.
 
 Tests:
 - CertificateExtractor.extract_fingerprint() - SHA-256 fingerprint
