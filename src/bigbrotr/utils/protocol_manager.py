@@ -152,11 +152,16 @@ class NostrClientManager:
             keys=self._keys,
             allow_insecure=self._allow_insecure,
         )
-        result = await self._dependencies.connect_client_relays(
-            client,
-            relays,
-            timeout=timeout,
-        )
+        try:
+            result = await self._dependencies.connect_client_relays(
+                client,
+                relays,
+                timeout=timeout,
+            )
+        except Exception:
+            with contextlib.suppress(OSError, RuntimeError, TimeoutError, NostrSdkError):
+                await self._dependencies.shutdown_client(client)
+            raise
         session = ClientSession(
             session_id=session_id,
             client=client,

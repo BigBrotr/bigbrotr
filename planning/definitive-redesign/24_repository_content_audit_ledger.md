@@ -705,3 +705,10 @@ Use this section during execution for:
     shared-session helper;
   - tightened paired manager coverage so rejected overlay session requests no
     longer instantiate an unusable shared client.
+- `2.1` models/utils/NIPs leaf audit, sixty-fifth remediation slice:
+  - hardened the shared-session failure path in
+    `bigbrotr.utils.protocol_manager.NostrClientManager.connect_session()` so
+    a client allocated for a named session is released best-effort when the
+    shared connect step raises before any session is cached;
+  - added paired coverage proving the original connect failure still wins when
+    shutdown reports only expected SDK teardown noise.

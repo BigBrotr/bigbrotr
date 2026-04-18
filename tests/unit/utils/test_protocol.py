@@ -448,6 +448,35 @@ class TestNostrClientManagerSessions:
         mock_client.try_connect.assert_not_awaited()
         assert manager._sessions == {}
 
+    async def test_connect_session_cleans_up_failed_client_and_preserves_original_error(
+        self,
+    ) -> None:
+        relays = [Relay("wss://relay1.example.com")]
+        mock_client = MagicMock()
+        manager = NostrClientManager(keys=MagicMock())
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol.create_client",
+                new=AsyncMock(return_value=mock_client),
+            ) as mock_create,
+            patch(
+                "bigbrotr.utils.protocol._connect_client_relays",
+                new=AsyncMock(side_effect=OSError("connect boom")),
+            ) as mock_connect,
+            patch(
+                "bigbrotr.utils.protocol.shutdown_client",
+                new=AsyncMock(side_effect=NostrSdkError("shutdown noise")),
+            ) as mock_shutdown,
+            pytest.raises(OSError, match="connect boom"),
+        ):
+            await manager.connect_session("read-session", relays, timeout=15.0)
+
+        mock_create.assert_awaited_once_with(keys=manager._keys, allow_insecure=False)
+        mock_connect.assert_awaited_once_with(mock_client, relays, timeout=15.0)
+        mock_shutdown.assert_awaited_once_with(mock_client)
+        assert manager._sessions == {}
+
     async def test_disconnect_shuts_down_sessions_and_cached_relays_once(self) -> None:
         shared_client = MagicMock()
         cached_client = MagicMock()
