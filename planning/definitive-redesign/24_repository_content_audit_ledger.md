@@ -94,7 +94,7 @@ Fill this section when the audit actually starts.
 |--------------|--------|--------|-------|
 | 1.1 `.github` leaf audit | not started | — | Issue templates, workflows, and other deepest maintained GitHub automation surfaces |
 | 1.2 Deployment service-config leaf audit | not started | — | `deployments/*/config/services/` plus paired local guidance and service-config truthfulness |
-| 1.3 Deployment SQL/monitoring/support leaf audit | not started | — | `postgres/init`, monitoring assets, pgbouncer, static/support scripts, and paired docs |
+| 1.3 Deployment SQL/monitoring/support leaf audit | not started | — | `postgres/init`, monitoring assets, pgbouncer, static/support scripts, and paired docs. This work package must explicitly judge whether the current monitoring stack is merely aligned or whether it still needs a substantial professional redesign across Grafana, Prometheus, alerts, exporter queries, and operator-facing observability shape |
 | 1.4 Docs asset/snippet/override leaf audit | not started | — | `_snippets`, assets, overrides, and other deepest docs-support surfaces |
 
 ### Wave 2 — Python Leaf Packages

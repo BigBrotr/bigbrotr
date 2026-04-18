@@ -110,6 +110,16 @@ Special audit pairs:
 - dashboards/rules/exporter queries <-> emitted metrics <-> monitoring docs
 - deployment service YAML <-> service config models <-> deployment READMEs
 
+Monitoring-specific judgment questions for this wave:
+
+- Is the current Grafana surface genuinely professional and intentional?
+- Are the overview dashboards strong enough, or too minimal?
+- Should the final product keep, replace, or substantially redesign the
+  current per-service dashboards?
+- Are ranker/assertor/DB/system observability surfaces presented clearly?
+- Do Prometheus rules and exporter queries still match the metrics emitted by
+  the code and the operational questions an operator really needs answered?
+
 ## Wave 2 — Python Leaf Packages
 
 Primary implementation leaves:

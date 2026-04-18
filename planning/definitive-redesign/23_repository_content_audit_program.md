@@ -355,7 +355,23 @@ Special attention:
 - removed or renamed metrics;
 - orphan alerts;
 - panels referring to dead concepts;
-- service count and runtime shape drift.
+- service count and runtime shape drift;
+- whether the current dashboard strategy is actually good enough for the final
+  product, or whether the monitoring surface needs a more professional
+  redesign.
+
+The audit must be willing to conclude that monitoring needs more than simple
+alignment.
+
+For example, it may decide that:
+
+- overview dashboards are too minimal or too weakly structured;
+- per-service dashboards need redesign even if they already exist;
+- DB and system-overview panels need clearer separation;
+- alert rules need stronger severity modeling;
+- exporter queries should be reorganized;
+- or the monitoring stack should present a more intentionally product-quality
+  observability experience overall.
 
 ### 4. Public read-side contracts
 
