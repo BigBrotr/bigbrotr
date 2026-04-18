@@ -102,6 +102,9 @@ class TestPayloadCodecs:
             {"timestamp": True, "network": "tor", "failures": 3},
             {"timestamp": 789, "network": "tor", "failures": True},
             {"timestamp": 789, "network": 123, "failures": 3},
+            {"network": "tor", "failures": 3},
+            {"timestamp": 789, "failures": 3},
+            {"timestamp": 789, "network": "tor"},
         ],
     )
     def test_candidate_from_payload_rejects_invalid_field_types(

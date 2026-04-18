@@ -34,6 +34,8 @@ _FETCH_STATE_ROWS_SQL = """
 
 def _require_state_int(payload: MappingLike, field: str) -> int:
     """Read one persisted integer field without accepting bool or float aliases."""
+    if field not in payload:
+        raise TypeError(f"invalid {field}")
     value: object = payload[field]
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError(f"invalid {field}")
@@ -42,6 +44,8 @@ def _require_state_int(payload: MappingLike, field: str) -> int:
 
 def _require_state_str(payload: MappingLike, field: str) -> str:
     """Read one persisted string field without coercing arbitrary values."""
+    if field not in payload:
+        raise TypeError(f"invalid {field}")
     value: object = payload[field]
     if not isinstance(value, str):
         raise TypeError(f"invalid {field}")
@@ -95,9 +99,9 @@ class ServiceStateStore:
         """Decode a validator candidate payload."""
         return CandidateCheckpoint(
             key=key,
-            timestamp=_optional_state_int(payload, "timestamp", 0),
-            network=NetworkType(_optional_state_str(payload, "network", "clearnet")),
-            failures=_optional_state_int(payload, "failures", 0),
+            timestamp=_require_state_int(payload, "timestamp"),
+            network=NetworkType(_require_state_str(payload, "network")),
+            failures=_require_state_int(payload, "failures"),
         )
 
     @staticmethod

@@ -255,6 +255,8 @@ class TestCountCandidates:
         assert "state_type = $2" in sql
         assert "jsonb_typeof(state_value->'failures') = 'number'" in sql
         assert "jsonb_typeof(state_value->'timestamp') = 'number'" in sql
+        assert "failures_count IS NOT NULL" in sql
+        assert "attempted_at IS NOT NULL" in sql
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][2] == ServiceStateType.CHECKPOINT
         assert args[0][3] == [NetworkType.CLEARNET, NetworkType.TOR]
@@ -276,6 +278,8 @@ class TestFetchCandidates:
         assert "state_key, state_value" in sql
         assert "jsonb_typeof(state_value->'failures') = 'number'" in sql
         assert "jsonb_typeof(state_value->'timestamp') = 'number'" in sql
+        assert "failures_count IS NOT NULL" in sql
+        assert "attempted_at IS NOT NULL" in sql
         assert "LIMIT $5" in sql
         assert args[0][1] == ServiceName.VALIDATOR
         assert args[0][5] == 50
@@ -360,6 +364,65 @@ class TestFetchCandidates:
             query_brotr,
             [NetworkType.CLEARNET, NetworkType.TOR],
             0,
+            50,
+        )
+
+        assert result == [
+            CandidateCheckpoint(
+                key="wss://good.com",
+                timestamp=2,
+                network=NetworkType.TOR,
+                failures=1,
+            )
+        ]
+
+    async def test_skips_payloads_missing_required_fields(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "state_key": "wss://missing-timestamp.com",
+                        "state_value": {
+                            "failures": 0,
+                            "network": "clearnet",
+                        },
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://missing-network.com",
+                        "state_value": {
+                            "failures": 0,
+                            "timestamp": 0,
+                        },
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://missing-failures.com",
+                        "state_value": {
+                            "network": "tor",
+                            "timestamp": 5,
+                        },
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://good.com",
+                        "state_value": {
+                            "failures": 1,
+                            "network": "tor",
+                            "timestamp": 2,
+                        },
+                    }
+                ),
+            ]
+        )
+
+        result = await fetch_candidates(
+            query_brotr,
+            [NetworkType.CLEARNET, NetworkType.TOR],
+            10,
             50,
         )
 

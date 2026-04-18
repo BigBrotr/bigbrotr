@@ -1813,3 +1813,13 @@ Use this section during execution for:
   - added paired `finder` runtime/service coverage proving API batches now
     persist relay candidates before checkpoints on success, and preserve both
     in-memory buffers and pending checkpoints unchanged when insertion fails.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-forty-eighth remediation
+  slice:
+  - tightened the shared validator-candidate hydration and scheduling
+    boundary so persisted candidate rows missing `timestamp`, `network`, or
+    `failures` no longer degrade silently into fresh default candidates, and
+    are now rejected before they can re-enter validation ordering;
+  - added paired `services/common` and `validator` coverage proving missing
+    required candidate payload fields are rejected by typed decode, and that
+    the shared validator query contract now excludes malformed candidate rows
+    before count/fetch scheduling proceeds.

@@ -94,8 +94,12 @@ async def delete_exhausted_candidates(brotr: Brotr, max_failures: int) -> int:
 
 _CANDIDATES_WHERE = """
     FROM candidates
-    WHERE failures_count = 0
-       OR attempted_at < $4
+    WHERE failures_count IS NOT NULL
+      AND attempted_at IS NOT NULL
+      AND (
+            failures_count = 0
+         OR attempted_at < $4
+      )
 """
 
 _CANDIDATES_CTE = """
@@ -106,13 +110,11 @@ _CANDIDATES_CTE = """
                    WHEN jsonb_typeof(state_value->'failures') = 'number'
                         AND (state_value->>'failures') ~ '^-?[0-9]+$'
                    THEN (state_value->>'failures')::int
-                   ELSE 0
                END AS failures_count,
                CASE
                    WHEN jsonb_typeof(state_value->'timestamp') = 'number'
                         AND (state_value->>'timestamp') ~ '^-?[0-9]+$'
                    THEN (state_value->>'timestamp')::bigint
-                   ELSE 0
                END AS attempted_at
         FROM service_state
         WHERE owner = $1
