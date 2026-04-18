@@ -742,8 +742,12 @@ class TestNip11InfoDataParse:
         """parse() returns the constructor-ready internal field name for ``self``."""
         data = {"self": "abc123def456"}
         result = Nip11InfoData.parse(data)
-        assert result["self_pubkey"] == "abc123def456"
-        assert "self" not in result
+        assert result == {"self_pubkey": "abc123def456"}
+
+    def test_parse_accepts_canonical_self_pubkey_input(self):
+        """parse() is idempotent on its canonical internal self-pubkey payload."""
+        result = Nip11InfoData.parse({"self_pubkey": "abc123def456"})
+        assert result == {"self_pubkey": "abc123def456"}
 
     def test_parse_non_dict_returns_empty(self):
         """Non-dict input returns empty dict."""

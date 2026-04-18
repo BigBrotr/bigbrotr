@@ -719,11 +719,17 @@ class Nip11InfoData(BaseData):
         if not isinstance(data, dict):
             return _invalid_input_report(path, cls.__name__)
 
+        parse_input = dict(data)
+        if "self_pubkey" in parse_input and "self" not in parse_input:
+            parse_input["self"] = parse_input["self_pubkey"]
+
         report = parse_fields_report(
-            data,
+            parse_input,
             cls._FIELD_SPEC,
             path=path,
-            extra_known_fields=frozenset({"supported_nips", "limitation", "retention", "fees"}),
+            extra_known_fields=frozenset(
+                {"supported_nips", "limitation", "retention", "fees", "self_pubkey"}
+            ),
         )
         result = dict(report.parsed)
         issues = list(report.issues)

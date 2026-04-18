@@ -939,3 +939,10 @@ Use this section during execution for:
   - tightened the `Nip11InfoData.parse()` boundary so canonical payloads now
     expose internal field names such as `self_pubkey`, while `to_dict()`
     remains the explicit JSON-facing alias surface for external NIP-11 output.
+- `2.1` models/utils/NIPs leaf audit, ninety-sixth remediation slice:
+  - tightened `BaseData` canonical dumping so `parse()` no longer materializes
+    omitted model defaults while still preserving explicit default-valued
+    inputs that survived permissive parsing;
+  - made `Nip11InfoData.parse()` idempotent on its own canonical
+    `self_pubkey` payload by teaching the custom parser to accept the internal
+    field name as well as the external NIP-11 alias `self`.

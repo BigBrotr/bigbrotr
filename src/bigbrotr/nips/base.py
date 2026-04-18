@@ -92,7 +92,8 @@ class BaseData(BaseModel):
     @classmethod
     def _canonicalize_parsed_payload(cls, parsed: dict[str, Any]) -> dict[str, Any]:
         """Return parsed payload in canonical constructor-ready form when valid."""
-        return cls.model_validate(parsed).model_dump(exclude_none=True)
+        model = cls.model_validate(parsed)
+        return model.model_dump(exclude_none=True, include=set(model.model_fields_set))
 
     @classmethod
     def parse(cls, data: Any) -> dict[str, Any]:

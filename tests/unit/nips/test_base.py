@@ -222,6 +222,17 @@ class TestBaseDataSubclass:
 
         assert parsed == {"tags": ["alpha", "beta"]}
 
+    def test_parse_does_not_inject_unspecified_model_defaults(self):
+        """parse() keeps canonicalized fields without materializing omitted defaults."""
+
+        class DefaultedData(BaseData):
+            _FIELD_SPEC = FieldSpec(str_fields=frozenset({"name"}))
+
+            name: str | None = None
+            status: str = "default"
+
+        assert DefaultedData.parse({"name": "relay"}) == {"name": "relay"}
+
     def test_parse_falls_back_to_report_payload_on_validation_error(self):
         """parse() stays permissive when post-parse model validation rejects the payload."""
 
