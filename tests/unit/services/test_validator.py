@@ -226,8 +226,11 @@ class TestDeleteExhaustedCandidates:
         assert "DELETE FROM service_state" in sql
         assert "failures" in sql
         assert "jsonb_typeof(state_value->'failures') = 'number'" in sql
+        assert "jsonb_typeof(state_value->'timestamp') != 'number'" in sql
+        assert "COALESCE(state_value->>'network', '') != ALL($4::text[])" in sql
         assert ">= $3" in sql
         assert args[0][3] == 5
+        assert args[0][4] == ["clearnet", "tor", "i2p", "loki"]
         assert result == 3
 
     async def test_returns_zero_when_none(self, query_brotr: MagicMock) -> None:

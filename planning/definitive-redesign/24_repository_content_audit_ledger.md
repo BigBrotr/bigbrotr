@@ -1883,3 +1883,12 @@ Use this section during execution for:
     scanning past invalid leading rows with stable ordering and offset
     progression until it fills the requested logical page or exhausts the raw
     workset.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fifty-fourth remediation
+  slice:
+  - tightened the `validator` cleanup boundary so malformed persisted
+    candidate rows no longer live forever beside exhausted candidates, which
+    previously let unprocessable validator tombstones block rediscovery of the
+    same relay because `Finder` only checks for raw `service_state` presence;
+  - added paired `validator` coverage proving cleanup SQL now purges invalid
+    `failures`, `timestamp`, and `network` payloads in the same pass that
+    removes exhausted candidates.

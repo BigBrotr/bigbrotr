@@ -20,6 +20,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_CANDIDATE_NETWORKS = tuple(
+    network.value
+    for network in (
+        NetworkType.CLEARNET,
+        NetworkType.TOR,
+        NetworkType.I2P,
+        NetworkType.LOKI,
+    )
+)
+
 
 async def delete_promoted_candidates(brotr: Brotr) -> int:
     """Remove candidates that have already been promoted to the relay table.
@@ -58,7 +68,9 @@ async def delete_exhausted_candidates(brotr: Brotr, max_failures: int) -> int:
     Deletes CHECKPOINT records whose ``failures`` counter meets or exceeds
     ``max_failures``. Called during cleanup when ``cleanup.enabled`` is
     ``True`` to prevent permanently broken relays from consuming validation
-    resources indefinitely.
+    resources indefinitely. Also removes malformed candidate rows whose
+    persisted network or numeric fields can no longer be consumed by the
+    validator runtime, so they do not block rediscovery of the same relay.
 
     Args:
         brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
@@ -74,13 +86,21 @@ async def delete_exhausted_candidates(brotr: Brotr, max_failures: int) -> int:
             WHERE owner = $1
               AND state_type = $2
               AND (
-                    CASE
-                        WHEN jsonb_typeof(state_value->'failures') = 'number'
-                             AND (state_value->>'failures') ~ '^[0-9]+$'
-                        THEN (state_value->>'failures')::int
-                        ELSE 0
-                    END
-              ) >= $3
+                    jsonb_typeof(state_value->'failures') != 'number'
+                    OR (state_value->>'failures') !~ '^[0-9]+$'
+                    OR jsonb_typeof(state_value->'timestamp') != 'number'
+                    OR (state_value->>'timestamp') !~ '^[0-9]+$'
+                    OR COALESCE(state_value->>'network', '') != ALL($4::text[])
+                    OR
+                    (
+                        CASE
+                            WHEN jsonb_typeof(state_value->'failures') = 'number'
+                                 AND (state_value->>'failures') ~ '^[0-9]+$'
+                            THEN (state_value->>'failures')::int
+                            ELSE 0
+                        END
+                    ) >= $3
+              )
             RETURNING 1
         )
         SELECT count(*)::int FROM deleted
@@ -88,6 +108,7 @@ async def delete_exhausted_candidates(brotr: Brotr, max_failures: int) -> int:
         ServiceName.VALIDATOR,
         ServiceStateType.CHECKPOINT,
         max_failures,
+        list(_CANDIDATE_NETWORKS),
     )
     return count
 
