@@ -127,18 +127,26 @@ async def delete_invalid_candidates(brotr: Brotr) -> int:
     Returns:
         Number of invalid candidate rows deleted.
     """
-    store = ServiceStateStore(brotr)
-    states = await store.get(ServiceName.VALIDATOR, ServiceStateType.CHECKPOINT)
-    invalid_states = []
-    for state in states:
+    rows = await brotr.fetch(
+        "SELECT * FROM service_state_get($1, $2, $3)",
+        ServiceName.VALIDATOR,
+        ServiceStateType.CHECKPOINT,
+        None,
+    )
+    invalid_keys: list[str] = []
+    for row in rows:
         try:
-            ServiceStateStore.decode_candidate(state.state_key, state.state_value)
+            ServiceStateStore.decode_candidate(row["state_key"], row["state_value"])
         except (KeyError, TypeError, ValueError):
-            invalid_states.append(state)
+            invalid_keys.append(row["state_key"])
 
-    if not invalid_states:
+    if not invalid_keys:
         return 0
-    return await store.delete_states(invalid_states)
+    return await ServiceStateStore(brotr).delete_keys(
+        ServiceName.VALIDATOR,
+        ServiceStateType.CHECKPOINT,
+        invalid_keys,
+    )
 
 
 _CANDIDATES_WHERE = """

@@ -656,6 +656,33 @@ class TestGetServiceState:
         assert isinstance(result[0], ServiceState)
         assert result[0].state_key == "cursor_key"
 
+    async def test_skips_rows_with_non_mapping_state_value(
+        self, mock_brotr: Brotr, mock_pool: Pool
+    ) -> None:
+        """Test malformed persisted payloads are skipped instead of crashing hydration."""
+        bad_row = MagicMock()
+        bad_row.__getitem__ = lambda _, key: {
+            "state_key": "bad_key",
+            "state_value": ["not", "a", "mapping"],
+        }[key]
+        good_row = MagicMock()
+        good_row.__getitem__ = lambda _, key: {
+            "state_key": "good_key",
+            "state_value": {"offset": 100},
+        }[key]
+        mock_pool._mock_connection.fetch = AsyncMock(return_value=[bad_row, good_row])  # type: ignore[attr-defined]
+
+        result = await mock_brotr.get_service_state(ServiceName.FINDER, ServiceStateType.CURSOR)
+
+        assert result == [
+            ServiceState(
+                owner=ServiceName.FINDER,
+                state_type=ServiceStateType.CURSOR,
+                state_key="good_key",
+                state_value={"offset": 100},
+            )
+        ]
+
     async def test_accepts_custom_string_identifiers(
         self, mock_brotr: Brotr, mock_pool: Pool
     ) -> None:

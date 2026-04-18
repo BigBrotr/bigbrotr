@@ -1903,3 +1903,15 @@ Use this section during execution for:
     deletes typed-decode-invalid candidate rows even when threshold-based
     exhausted cleanup is disabled, so malformed candidate state stops blocking
     later rediscovery of the same relay URL.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fifty-sixth remediation
+  slice:
+  - tightened the shared `service_state` hydration boundary so non-mapping
+    JSON payloads are skipped instead of crashing `Brotr.get_service_state()`,
+    which previously let one corrupted persisted row take down unrelated
+    `assertor`, `refresher`, or cleanup read paths before service-specific
+    typed decoding could even run;
+  - tightened the `validator` raw cleanup seam so candidate purge now reads
+    persisted rows directly and deletes tombstones whose JSON payload is not
+    even a mapping, which previously survived forever because generic
+    `ServiceState` hydration failed before the invalid-candidate cleanup could
+    inspect them.

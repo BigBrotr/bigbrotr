@@ -714,15 +714,26 @@ class Brotr:
             key,
         )
 
-        return [
-            ServiceState(
-                owner=owner,
-                state_type=state_type,
-                state_key=row["state_key"],
-                state_value=row["state_value"],
-            )
-            for row in rows
-        ]
+        states: list[ServiceState] = []
+        for row in rows:
+            try:
+                states.append(
+                    ServiceState(
+                        owner=owner,
+                        state_type=state_type,
+                        state_key=row["state_key"],
+                        state_value=row["state_value"],
+                    )
+                )
+            except (TypeError, ValueError) as exc:
+                self._logger.warning(
+                    "service_state_row_skipped",
+                    owner=owner,
+                    state_type=state_type,
+                    state_key=row["state_key"],
+                    error=str(exc),
+                )
+        return states
 
     async def delete_service_state(
         self,

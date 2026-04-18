@@ -246,19 +246,19 @@ class TestDeleteExhaustedCandidates:
 
 class TestDeleteInvalidCandidates:
     async def test_deletes_unprocessable_candidate_rows(self, query_brotr: MagicMock) -> None:
-        query_brotr.get_service_state = AsyncMock(
+        query_brotr.fetch = AsyncMock(
             return_value=[
-                SimpleNamespace(
-                    owner=ServiceName.VALIDATOR,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key=f"ws://{'a' * 56}.onion",
-                    state_value={"network": "clearnet", "failures": 0, "timestamp": 1},
+                _row(
+                    {
+                        "state_key": f"ws://{'a' * 56}.onion",
+                        "state_value": {"network": "clearnet", "failures": 0, "timestamp": 1},
+                    }
                 ),
-                SimpleNamespace(
-                    owner=ServiceName.VALIDATOR,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key="wss://good.com",
-                    state_value={"network": "clearnet", "failures": 0, "timestamp": 1},
+                _row(
+                    {
+                        "state_key": "wss://good.com",
+                        "state_value": {"network": "clearnet", "failures": 0, "timestamp": 1},
+                    }
                 ),
             ]
         )
@@ -266,7 +266,8 @@ class TestDeleteInvalidCandidates:
 
         result = await delete_invalid_candidates(query_brotr)
 
-        query_brotr.get_service_state.assert_awaited_once_with(
+        query_brotr.fetch.assert_awaited_once_with(
+            "SELECT * FROM service_state_get($1, $2, $3)",
             ServiceName.VALIDATOR,
             ServiceStateType.CHECKPOINT,
             None,
@@ -278,14 +279,42 @@ class TestDeleteInvalidCandidates:
         )
         assert result == 1
 
-    async def test_returns_zero_when_all_candidates_are_valid(self, query_brotr: MagicMock) -> None:
-        query_brotr.get_service_state = AsyncMock(
+    async def test_deletes_rows_with_non_mapping_payloads(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
             return_value=[
-                SimpleNamespace(
-                    owner=ServiceName.VALIDATOR,
-                    state_type=ServiceStateType.CHECKPOINT,
-                    state_key="wss://good.com",
-                    state_value={"network": "clearnet", "failures": 0, "timestamp": 1},
+                _row(
+                    {
+                        "state_key": f"ws://{'a' * 56}.onion",
+                        "state_value": ["not", "a", "mapping"],
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://good.com",
+                        "state_value": {"network": "clearnet", "failures": 0, "timestamp": 1},
+                    }
+                ),
+            ]
+        )
+        query_brotr.delete_service_state = AsyncMock(return_value=1)
+
+        result = await delete_invalid_candidates(query_brotr)
+
+        query_brotr.delete_service_state.assert_awaited_once_with(
+            [ServiceName.VALIDATOR],
+            [ServiceStateType.CHECKPOINT],
+            [f"ws://{'a' * 56}.onion"],
+        )
+        assert result == 1
+
+    async def test_returns_zero_when_all_candidates_are_valid(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "state_key": "wss://good.com",
+                        "state_value": {"network": "clearnet", "failures": 0, "timestamp": 1},
+                    }
                 )
             ]
         )
