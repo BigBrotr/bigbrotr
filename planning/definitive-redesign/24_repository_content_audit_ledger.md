@@ -396,6 +396,16 @@ Use this section during execution for:
     `kinds` lists inside fee/retention entries;
   - paired coverage now pins both outcomes: `parse()` keeps canonical empty
     lists, and `parse_report()` no longer reports them as invalid dropped data.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twenty-third remediation
+  slice:
+  - `UserAssertion.from_db_row()` no longer treats an explicit empty
+    `activity_hours=[]` array as if the row had omitted the field entirely;
+  - the NIP-85 hydration path now preserves the project rule that malformed
+    stored data must stay visible to the frozen model boundary, so an empty
+    heatmap raises the same `24 hourly buckets` validation error as any other
+    wrong-length payload instead of being silently rewritten to all-zeroes;
+  - paired coverage now pins the distinction between the missing-field default
+    path and the explicit-empty-list invalid-data path.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

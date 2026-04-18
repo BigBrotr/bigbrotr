@@ -199,6 +199,16 @@ class TestUserAssertionFromDbRow:
         ):
             UserAssertion.from_db_row(row)
 
+    def test_from_db_row_rejects_explicit_empty_activity_hours(self) -> None:
+        row = {
+            "pubkey": "cc" * 32,
+            "activity_hours": [],
+        }
+        with pytest.raises(
+            ValueError, match="activity_hours must contain exactly 24 hourly buckets"
+        ):
+            UserAssertion.from_db_row(row)
+
 
 class TestEventAssertionProperties:
     def test_zap_amount_sats(self) -> None:

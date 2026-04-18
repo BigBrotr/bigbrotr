@@ -166,8 +166,8 @@ class UserAssertion:
         sorted_topics = sorted(raw_topics.items(), key=_topic_count_sort_key)
         top_n = row.get("top_topics_limit", 5)
 
-        hours_raw = row.get("activity_hours") or [0] * 24
-        hours = tuple(int(h) for h in hours_raw)
+        hours_raw = row.get("activity_hours")
+        hours = tuple(int(h) for h in hours_raw) if hours_raw is not None else (0,) * 24
 
         return cls(
             pubkey=row["pubkey"],
