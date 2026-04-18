@@ -683,3 +683,10 @@ Use this section during execution for:
   - added paired unit coverage proving that mid-handshake overlay failures now
     call the injected shutdown helper and still re-raise the original
     connection error instead of leaking a partially initialized client.
+- `2.1` models/utils/NIPs leaf audit, sixty-second remediation slice:
+  - aligned `bigbrotr.utils.protocol_validation.validate_relay_protocol()`
+    with the rest of the shared teardown contract by treating `NostrSdkError`
+    as an expected shutdown failure during relay validation cleanup;
+  - added paired unit coverage proving that a successful validation result is
+    preserved even when the injected shutdown helper reports an SDK-level
+    teardown failure after the fetch path completes.

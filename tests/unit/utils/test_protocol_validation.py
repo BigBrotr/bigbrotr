@@ -6,6 +6,8 @@ import contextlib
 import logging
 from unittest.mock import AsyncMock, MagicMock
 
+from nostr_sdk import NostrSdkError
+
 from bigbrotr.models.relay import Relay
 from bigbrotr.utils.protocol_validation import (
     RelayValidationContext,
@@ -70,6 +72,25 @@ class TestValidateRelayProtocol:
         client = AsyncMock()
         client.fetch_events = AsyncMock(return_value=[])
         shutdown_client = AsyncMock(side_effect=TimeoutError("stuck shutdown"))
+
+        result = await validate_relay_protocol(
+            relay,
+            _context(
+                connect_relay=AsyncMock(return_value=client),
+                shutdown_client=shutdown_client,
+            ),
+            RelayValidationOptions(connect_timeout=5.0),
+        )
+
+        assert result is True
+        client.fetch_events.assert_awaited_once()
+        shutdown_client.assert_awaited_once_with(client)
+
+    async def test_shutdown_sdk_error_is_suppressed_after_success(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        client = AsyncMock()
+        client.fetch_events = AsyncMock(return_value=[])
+        shutdown_client = AsyncMock(side_effect=NostrSdkError("sdk shutdown failed"))
 
         result = await validate_relay_protocol(
             relay,

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from nostr_sdk import Filter, Kind, KindStandard
+from nostr_sdk import Filter, Kind, KindStandard, NostrSdkError
 
 
 if TYPE_CHECKING:
@@ -102,5 +102,5 @@ async def validate_relay_protocol(
                         context.shutdown_client(client),
                         timeout=options.connect_timeout,
                     )
-                except (OSError, RuntimeError, TimeoutError) as exc:
+                except (OSError, RuntimeError, TimeoutError, NostrSdkError) as exc:
                     context.logger.debug("client_shutdown_error error=%s", exc)
