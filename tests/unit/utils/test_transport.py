@@ -10,6 +10,7 @@ Tests:
 """
 
 import sys
+from io import UnsupportedOperation
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -234,6 +235,30 @@ class TestScopedStderrSuppressor:
         assert suppressor._saved_fd is None
         assert suppressor._devnull is None
         mock_close.assert_called_once_with(55)
+        devnull.close.assert_called_once()
+
+    def test_setup_failure_closes_devnull_when_stderr_has_no_fileno(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        suppressor = _ScopedStderrSuppressor()
+        original = MagicMock()
+        original.fileno.side_effect = UnsupportedOperation("no fileno")
+        devnull = MagicMock()
+        monkeypatch.setattr("bigbrotr.utils.transport.sys.stderr", original)
+
+        with (
+            patch("bigbrotr.utils.transport.open", return_value=devnull, create=True),
+            pytest.raises(UnsupportedOperation, match="no fileno"),
+            suppressor(),
+        ):
+            pass
+
+        assert sys.stderr is original
+        assert suppressor._refcount == 0
+        assert suppressor._saved_stderr is None
+        assert suppressor._saved_fd is None
+        assert suppressor._devnull is None
         devnull.close.assert_called_once()
 
 

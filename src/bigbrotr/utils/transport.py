@@ -33,6 +33,7 @@ import logging
 import os
 import ssl
 import sys
+from io import UnsupportedOperation
 from typing import TYPE_CHECKING, Final, TextIO
 
 import aiohttp
@@ -51,6 +52,7 @@ if TYPE_CHECKING:
 
 
 DEFAULT_TIMEOUT: Final[float] = 10.0
+_STDERR_FD_SETUP_ERRORS: Final = (OSError, ValueError, UnsupportedOperation)
 
 
 logger = logging.getLogger(__name__)
@@ -156,8 +158,8 @@ class _ScopedStderrSuppressor:
                     with contextlib.suppress(OSError):
                         os.close(saved_fd)
                     raise
-            except OSError:
-                with contextlib.suppress(OSError):
+            except _STDERR_FD_SETUP_ERRORS:
+                with contextlib.suppress(OSError, ValueError):
                     devnull.close()
                 self._saved_stderr = None
                 raise

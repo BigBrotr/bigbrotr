@@ -302,6 +302,15 @@ Use this section during execution for:
   - paired `transport` coverage now pins that setup state is reset, the saved
     descriptor is still closed best-effort, and the primary `dup2` error is
     preserved even when `os.close()` complains during rollback.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twelfth remediation slice:
+  - `_ScopedStderrSuppressor()` now still unwinds correctly when `sys.stderr`
+    is a non-file-backed stream whose `fileno()` raises `UnsupportedOperation`
+    or another fd-setup error outside plain `OSError`, so the stricter
+    boundary from the previous slice does not leak `/dev/null` handles or
+    stale suppressor state on alternate stderr implementations;
+  - paired `transport` coverage now pins that a `fileno()` failure closes the
+    temporary devnull handle, resets suppressor state, and preserves the
+    original exception.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package
