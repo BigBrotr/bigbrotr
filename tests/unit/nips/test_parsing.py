@@ -72,6 +72,17 @@ class TestFieldSpecConstruction:
         assert spec.float_fields == frozenset({"lat"})
         assert spec.int_list_fields == frozenset({"ids"})
 
+    def test_duplicate_field_name_across_categories_is_rejected(self):
+        """The same field cannot be declared in multiple parser categories."""
+        with pytest.raises(
+            ValueError,
+            match="FieldSpec field names must belong to exactly one parser category",
+        ):
+            FieldSpec(
+                int_fields=frozenset({"count"}),
+                str_fields=frozenset({"count"}),
+            )
+
 
 class TestFieldSpecImmutability:
     """Test FieldSpec is immutable (frozen=True)."""

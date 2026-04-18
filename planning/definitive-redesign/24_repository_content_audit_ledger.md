@@ -360,6 +360,13 @@ Use this section during execution for:
   - paired `dns` coverage now pins both sides of the contract: the sync probe
     raises `TimeoutError` once the shared deadline is exhausted, and the async
     `probe()` surface reports that timeout reason verbatim.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-nineteenth remediation slice:
+  - `bigbrotr.nips.parsing.FieldSpec` now rejects duplicate field names across
+    parser categories instead of letting `_build_dispatch()` resolve them
+    silently by declaration order;
+  - paired parsing coverage now pins that ambiguous specs fail fast at
+    construction time, keeping shared NIP parsing contracts explicit and
+    deterministic.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

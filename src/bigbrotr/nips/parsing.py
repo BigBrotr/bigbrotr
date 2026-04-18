@@ -180,6 +180,26 @@ class FieldSpec:
     float_fields: frozenset[str] = field(default_factory=frozenset)
     int_list_fields: frozenset[str] = field(default_factory=frozenset)
 
+    def __post_init__(self) -> None:
+        """Reject ambiguous field declarations across multiple parser categories."""
+        seen: dict[str, str] = {}
+        overlaps: list[str] = []
+
+        for attr_name, _parser in _FIELD_PARSERS:
+            label = attr_name.removesuffix("_fields")
+            for name in getattr(self, attr_name):
+                previous = seen.get(name)
+                if previous is None:
+                    seen[name] = label
+                    continue
+                overlaps.append(f"{name!r}: {previous} vs {label}")
+
+        if overlaps:
+            raise ValueError(
+                "FieldSpec field names must belong to exactly one parser category: "
+                + ", ".join(sorted(overlaps))
+            )
+
 
 @functools.lru_cache(maxsize=8)
 def _build_dispatch(spec: FieldSpec) -> dict[str, _FieldParser]:
