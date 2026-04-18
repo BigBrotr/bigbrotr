@@ -1,4 +1,11 @@
-"""Client lifecycle helpers behind the public protocol facade."""
+"""Client lifecycle helpers behind the public protocol facade.
+
+These helpers provide best-effort teardown for short-lived ``nostr_sdk``
+clients created by the shared protocol layer. Cleanup intentionally tries to
+unsubscribe, remove relays, wipe any client-local database state exposed by
+the SDK, and then shut the client down, while suppressing teardown errors so
+callers can keep their own failure handling focused on the primary operation.
+"""
 
 from __future__ import annotations
 
@@ -19,7 +26,7 @@ async def _await_if_needed(value: object) -> object:
 
 
 async def shutdown_client(client: Client) -> None:
-    """Fully release a nostr-sdk Client's resources before shutdown."""
+    """Best-effort release of a ``nostr_sdk.Client`` and its local state."""
     with contextlib.suppress(Exception):
         await _await_if_needed(client.unsubscribe_all())
     with contextlib.suppress(Exception):

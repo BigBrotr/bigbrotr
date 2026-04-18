@@ -460,3 +460,10 @@ Use this section during execution for:
     DNS record collector lives in `bigbrotr.nips.nip66.dns`;
   - deferred the matching narrative drift in `docs/user-guide/architecture.md`
     to the later narrative-docs wave instead of broadening this leaf slice.
+- `2.1` models/utils/NIPs leaf audit, thirty-fifth remediation slice:
+  - tightened the leaf contract of `bigbrotr.utils.protocol_lifecycle` so the
+    module now states clearly that teardown is best-effort and includes wiping
+    any client-local `nostr_sdk` database state exposed by the SDK;
+  - added direct unit coverage for `_await_if_needed()` and `shutdown_client()`,
+    including async and sync SDK-style APIs plus failure-tolerant cleanup
+    sequencing, because this leaf previously had no dedicated test surface.
