@@ -715,6 +715,30 @@ class TestParseFieldsReport:
         assert report.issues[0].kind == "filtered_items"
         assert report.issues[0].path == "tags"
 
+    def test_report_marks_all_invalid_list_items_as_filtered(self):
+        """Report keeps list-filter semantics when no valid elements survive."""
+        spec = FieldSpec(str_list_fields=frozenset({"tags"}))
+
+        report = parse_fields_report({"tags": [1, None, True]}, spec)
+
+        assert report.parsed == {}
+        assert len(report.issues) == 1
+        assert report.issues[0].kind == "filtered_items"
+        assert report.issues[0].path == "tags"
+        assert report.issues[0].detail == "filtered 3 invalid item(s); no valid items remain"
+
+    def test_report_marks_empty_list_as_non_empty_expectation(self):
+        """Report distinguishes empty typed lists from non-list invalid values."""
+        spec = FieldSpec(int_list_fields=frozenset({"ids"}))
+
+        report = parse_fields_report({"ids": []}, spec)
+
+        assert report.parsed == {}
+        assert len(report.issues) == 1
+        assert report.issues[0].kind == "invalid_value"
+        assert report.issues[0].path == "ids"
+        assert report.issues[0].detail == "expected non-empty list[int]"
+
     def test_report_honors_extra_known_fields(self):
         """Custom parsers can suppress unknown reports for nested fields they handle."""
         spec = FieldSpec(str_fields=frozenset({"name"}))

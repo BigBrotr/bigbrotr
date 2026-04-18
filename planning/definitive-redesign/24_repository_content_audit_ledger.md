@@ -769,3 +769,10 @@ Use this section during execution for:
   - added paired unit coverage proving the helper now returns a stable
     success tuple even when the SDK output arrives out of order or with
     duplicate relay entries.
+- `2.1` models/utils/NIPs leaf audit, seventy-third remediation slice:
+  - tightened `bigbrotr.nips.parsing.parse_fields_report()` so typed list
+    fields now distinguish between wrong-type input, empty lists, and
+    lists that were fully filtered after permissive validation;
+  - added paired unit coverage proving the report layer now records
+    `filtered_items` when every list element is invalid and uses an explicit
+    non-empty expectation for empty typed lists.

@@ -238,6 +238,20 @@ def parse_fields_report(
 
         parsed = handler.parser(value)
         if parsed is _SKIP:
+            if handler.is_list and isinstance(value, list):
+                if value:
+                    issues.append(
+                        ParseIssue(
+                            kind="filtered_items",
+                            path=field_path,
+                            detail=f"filtered {len(value)} invalid item(s); no valid items remain",
+                        )
+                    )
+                else:
+                    issues.append(
+                        _invalid_value_issue(field_path, f"expected non-empty {handler.label}")
+                    )
+                continue
             issues.append(_invalid_value_issue(field_path, f"expected {handler.label}"))
             continue
 
