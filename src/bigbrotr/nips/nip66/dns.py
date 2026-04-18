@@ -38,6 +38,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from typing import TYPE_CHECKING, Any, Self, cast
 
 import dns.exception
@@ -46,6 +47,7 @@ import tldextract
 
 
 if TYPE_CHECKING:
+    from dns.name import Name
     from dns.rdtypes.ANY.CNAME import CNAME
     from dns.rdtypes.ANY.NS import NS
     from dns.rdtypes.ANY.PTR import PTR
@@ -108,7 +110,8 @@ class Nip66DnsMetadata(BaseNipMetadata):
 
         Individual record lookups are wrapped in exception suppression so
         that a failure in one type does not prevent the others from being
-        collected.
+        collected. The resolver budget is shared across the whole probe
+        instead of being reused independently for each record type.
 
         Args:
             host: Hostname to resolve.
@@ -121,12 +124,19 @@ class Nip66DnsMetadata(BaseNipMetadata):
         resolver = dns.resolver.Resolver()
         resolver.timeout = timeout
         resolver.lifetime = timeout
+        deadline = time.monotonic() + timeout
 
-        _dns_errors = (OSError, dns.exception.DNSException)
+        _dns_errors = (OSError, TimeoutError, dns.exception.DNSException)
+
+        def _resolve(name: str | Name, record_type: str) -> Any:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("dns timeout during record collection")
+            return resolver.resolve(name, record_type, lifetime=remaining)
 
         # A records (IPv4)
         with contextlib.suppress(*_dns_errors):
-            answers = resolver.resolve(host, "A")
+            answers = _resolve(host, "A")
             ips = cls._normalize_set_like_strings([cast("A", rdata).address for rdata in answers])
             if ips:
                 result["dns_ips"] = ips
@@ -135,7 +145,7 @@ class Nip66DnsMetadata(BaseNipMetadata):
 
         # AAAA records (IPv6)
         with contextlib.suppress(*_dns_errors):
-            answers = resolver.resolve(host, "AAAA")
+            answers = _resolve(host, "AAAA")
             ips_v6 = cls._normalize_set_like_strings(
                 [cast("AAAA", rdata).address for rdata in answers]
             )
@@ -144,7 +154,7 @@ class Nip66DnsMetadata(BaseNipMetadata):
 
         # CNAME record
         with contextlib.suppress(*_dns_errors):
-            answers = resolver.resolve(host, "CNAME")
+            answers = _resolve(host, "CNAME")
             for rdata in answers:
                 result["dns_cname"] = str(cast("CNAME", rdata).target).rstrip(".")
                 break
@@ -152,7 +162,7 @@ class Nip66DnsMetadata(BaseNipMetadata):
         # NS records (resolved against the registered domain)
         with contextlib.suppress(*_dns_errors):
             if registered_domain := Nip66DnsMetadata._registered_domain(host):
-                answers = resolver.resolve(registered_domain, "NS")
+                answers = _resolve(registered_domain, "NS")
                 ns_list = cls._normalize_set_like_strings(
                     [str(cast("NS", rdata).target).rstrip(".") for rdata in answers]
                 )
@@ -169,7 +179,7 @@ class Nip66DnsMetadata(BaseNipMetadata):
         if reverse_ip:
             with contextlib.suppress(*_dns_errors):
                 reverse_name = dns.reversename.from_address(reverse_ip)
-                answers = resolver.resolve(reverse_name, "PTR")
+                answers = _resolve(reverse_name, "PTR")
                 for rdata in answers:
                     result["dns_reverse"] = str(cast("PTR", rdata).target).rstrip(".")
                     break

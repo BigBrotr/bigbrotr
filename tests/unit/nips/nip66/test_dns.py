@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import dns.resolver
 import pytest
@@ -77,7 +77,7 @@ class TestNip66DnsMetadataDnsSync:
 
         mock_resolver = MagicMock()
 
-        def resolve_side_effect(host: str, record_type: str) -> MagicMock:
+        def resolve_side_effect(host: str, record_type: str, **kwargs: Any) -> MagicMock:
             if record_type == "A":
                 return mock_a_response
             if record_type == "AAAA":
@@ -107,7 +107,7 @@ class TestNip66DnsMetadataDnsSync:
 
         mock_resolver = MagicMock()
 
-        def resolve_side_effect(host: str, record_type: str) -> MagicMock:
+        def resolve_side_effect(host: str, record_type: str, **kwargs: Any) -> MagicMock:
             if record_type == "A":
                 return mock_a_response
             if record_type == "CNAME":
@@ -162,7 +162,7 @@ class TestNip66DnsMetadataDnsSync:
             result = Nip66DnsMetadata._dns("www.example.com", 5.0)
 
         assert result.get("dns_ns") == ["ns1.google.com", "ns2.google.com"]
-        mock_resolver.resolve.assert_any_call("example.com", "NS")
+        mock_resolver.resolve.assert_any_call("example.com", "NS", lifetime=ANY)
 
     def test_resolves_ptr_record(self) -> None:
         """Resolve PTR record (reverse DNS)."""
@@ -398,6 +398,26 @@ class TestNip66DnsMetadataDnsSync:
         resolver_instance = mock_resolver_cls.return_value
         assert resolver_instance.timeout == 7.5
         assert resolver_instance.lifetime == 7.5
+
+    def test_record_lookups_share_remaining_timeout_budget(self) -> None:
+        """Later record families use only the remaining DNS probe budget."""
+        mock_resolver = MagicMock()
+        mock_resolver.resolve.side_effect = dns.resolver.NXDOMAIN()
+
+        with (
+            patch("dns.resolver.Resolver", return_value=mock_resolver),
+            patch.object(Nip66DnsMetadata, "_registered_domain", return_value=None),
+            patch(
+                "bigbrotr.nips.nip66.dns.time.monotonic", side_effect=[100.0, 100.0, 102.0, 105.0]
+            ),
+        ):
+            result = Nip66DnsMetadata._dns("example.com", 5.0)
+
+        assert result == {}
+        assert mock_resolver.resolve.call_args_list == [
+            (("example.com", "A"), {"lifetime": 5.0}),
+            (("example.com", "AAAA"), {"lifetime": 3.0}),
+        ]
 
 
 class TestNip66DnsMetadataDnsAsync:

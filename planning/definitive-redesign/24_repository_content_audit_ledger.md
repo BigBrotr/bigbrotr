@@ -345,6 +345,14 @@ Use this section during execution for:
   - paired `dns` coverage now pins that PTR lookup still follows the stable
     canonical IPv4 address when both families exist and correctly falls back
     to the canonical IPv6 address when no A record is available.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-seventeenth remediation slice:
+  - `bigbrotr.nips.nip66.dns.Nip66DnsMetadata._dns()` now shares one timeout
+    budget across A/AAAA/CNAME/NS/PTR collection instead of accidentally
+    giving each record family the full public timeout again inside the sync
+    resolver thread;
+  - paired `dns` coverage now pins that per-record resolver `lifetime`
+    values shrink with the remaining budget and that later record families
+    are skipped once the shared DNS deadline is exhausted.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package
