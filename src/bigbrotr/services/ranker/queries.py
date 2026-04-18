@@ -20,6 +20,23 @@ def _normalize_k_tags(value: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(sorted(set(value)))
 
 
+def _normalize_ranker_hex_id(value: object, *, field_name: str, allow_empty: bool = False) -> str:
+    """Return one canonical 32-byte hex string."""
+    if not isinstance(value, str):
+        raise TypeError(f"{field_name} must be a str")
+    if allow_empty and value == "":
+        return value
+    if len(value) != _PUBKEY_HEX_LENGTH:
+        raise ValueError(f"{field_name} must be a 64-character hex string")
+    try:
+        normalized = bytes.fromhex(value).hex()
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be a 64-character hex string") from exc
+    if len(normalized) != _PUBKEY_HEX_LENGTH:
+        raise ValueError(f"{field_name} must be a 64-character hex string")
+    return normalized
+
+
 def _require_ranker_non_negative_int(value: object, *, field_name: str) -> int:
     """Return one canonical non-negative integer field value."""
     if isinstance(value, bool) or not isinstance(value, int):
@@ -40,19 +57,21 @@ def _require_ranker_text(value: object, *, field_name: str, allow_empty: bool = 
 
 def _normalize_ranker_pubkey(value: object, *, allow_empty: bool) -> str:
     """Return one canonical 32-byte hex pubkey string."""
-    if not isinstance(value, str):
-        raise TypeError("pubkey must be a str")
-    if allow_empty and value == "":
-        return value
-    if len(value) != _PUBKEY_HEX_LENGTH:
-        raise ValueError("pubkey must be a 64-character hex string")
-    try:
-        normalized = bytes.fromhex(value).hex()
-    except ValueError as exc:
-        raise ValueError("pubkey must be a 64-character hex string") from exc
-    if len(normalized) != _PUBKEY_HEX_LENGTH:
-        raise ValueError("pubkey must be a 64-character hex string")
-    return normalized
+    return _normalize_ranker_hex_id(value, field_name="pubkey", allow_empty=allow_empty)
+
+
+def _normalize_ranker_tags(value: object, *, field_name: str) -> tuple[str, ...]:
+    """Return one canonical set-like tuple of tag strings."""
+    if not isinstance(value, (list, tuple)):
+        raise TypeError(f"{field_name} must be a list or tuple")
+    normalized: list[str] = []
+    for tag in value:
+        if not isinstance(tag, str):
+            raise TypeError(f"{field_name} entries must be str")
+        if tag == "":
+            raise ValueError(f"{field_name} entries must be non-empty")
+        normalized.append(tag)
+    return _normalize_k_tags(tuple(normalized))
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +203,34 @@ class EventStatFact:
     zap_count: int
     zap_amount: int
 
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "event_id",
+            _normalize_ranker_hex_id(self.event_id, field_name="event_id"),
+        )
+        object.__setattr__(
+            self,
+            "author_pubkey",
+            _normalize_ranker_pubkey(self.author_pubkey, allow_empty=False),
+        )
+        for field_name in (
+            "comment_count",
+            "quote_count",
+            "repost_count",
+            "reaction_count",
+            "zap_count",
+            "zap_amount",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                _require_ranker_non_negative_int(
+                    getattr(self, field_name),
+                    field_name=field_name,
+                ),
+            )
+
 
 @dataclass(frozen=True, slots=True)
 class AddressableStatFact:
@@ -198,6 +245,34 @@ class AddressableStatFact:
     zap_count: int
     zap_amount: int
 
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "event_address",
+            _require_ranker_text(self.event_address, field_name="event_address"),
+        )
+        object.__setattr__(
+            self,
+            "author_pubkey",
+            _normalize_ranker_pubkey(self.author_pubkey, allow_empty=False),
+        )
+        for field_name in (
+            "comment_count",
+            "quote_count",
+            "repost_count",
+            "reaction_count",
+            "zap_count",
+            "zap_amount",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                _require_ranker_non_negative_int(
+                    getattr(self, field_name),
+                    field_name=field_name,
+                ),
+            )
+
 
 @dataclass(frozen=True, slots=True)
 class IdentifierStatFact:
@@ -209,7 +284,32 @@ class IdentifierStatFact:
     k_tags: tuple[str, ...]
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "k_tags", _normalize_k_tags(self.k_tags))
+        object.__setattr__(
+            self,
+            "identifier",
+            _require_ranker_text(self.identifier, field_name="identifier"),
+        )
+        object.__setattr__(
+            self,
+            "comment_count",
+            _require_ranker_non_negative_int(
+                self.comment_count,
+                field_name="comment_count",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "reaction_count",
+            _require_ranker_non_negative_int(
+                self.reaction_count,
+                field_name="reaction_count",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "k_tags",
+            _normalize_ranker_tags(self.k_tags, field_name="k_tags"),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -553,14 +653,14 @@ async def fetch_event_stats(
     rows = await brotr.fetch(_EVENT_STATS_QUERY, after_event_id, limit)
     return [
         EventStatFact(
-            event_id=str(row["event_id"]),
-            author_pubkey=str(row["author_pubkey"]),
-            comment_count=int(row["comment_count"]),
-            quote_count=int(row["quote_count"]),
-            repost_count=int(row["repost_count"]),
-            reaction_count=int(row["reaction_count"]),
-            zap_count=int(row["zap_count"]),
-            zap_amount=int(row["zap_amount"]),
+            event_id=row["event_id"],
+            author_pubkey=row["author_pubkey"],
+            comment_count=row["comment_count"],
+            quote_count=row["quote_count"],
+            repost_count=row["repost_count"],
+            reaction_count=row["reaction_count"],
+            zap_count=row["zap_count"],
+            zap_amount=row["zap_amount"],
         )
         for row in rows
     ]
@@ -575,14 +675,14 @@ async def fetch_addressable_stats(
     rows = await brotr.fetch(_ADDRESSABLE_STATS_QUERY, after_event_address, limit)
     return [
         AddressableStatFact(
-            event_address=str(row["event_address"]),
-            author_pubkey=str(row["author_pubkey"]),
-            comment_count=int(row["comment_count"]),
-            quote_count=int(row["quote_count"]),
-            repost_count=int(row["repost_count"]),
-            reaction_count=int(row["reaction_count"]),
-            zap_count=int(row["zap_count"]),
-            zap_amount=int(row["zap_amount"]),
+            event_address=row["event_address"],
+            author_pubkey=row["author_pubkey"],
+            comment_count=row["comment_count"],
+            quote_count=row["quote_count"],
+            repost_count=row["repost_count"],
+            reaction_count=row["reaction_count"],
+            zap_count=row["zap_count"],
+            zap_amount=row["zap_amount"],
         )
         for row in rows
     ]
@@ -597,10 +697,10 @@ async def fetch_identifier_stats(
     rows = await brotr.fetch(_IDENTIFIER_STATS_QUERY, after_identifier, limit)
     return [
         IdentifierStatFact(
-            identifier=str(row["identifier"]),
-            comment_count=int(row["comment_count"]),
-            reaction_count=int(row["reaction_count"]),
-            k_tags=tuple(str(tag) for tag in (row["k_tags"] or [])),
+            identifier=row["identifier"],
+            comment_count=row["comment_count"],
+            reaction_count=row["reaction_count"],
+            k_tags=row["k_tags"] or (),
         )
         for row in rows
     ]

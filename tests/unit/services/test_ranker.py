@@ -122,6 +122,16 @@ class TestRankerQueries:
         assert edge.follower_pubkey == "cd" * 32
         assert edge.followed_pubkey == "ef" * 32
 
+    def test_non_user_facts_normalize_pubkeys_and_tags(self) -> None:
+        event = EventStatFact("AB" * 32, "CD" * 32, 1, 2, 3, 4, 5, 6)
+        addressable = AddressableStatFact("30023:aa:alpha", "EF" * 32, 1, 2, 3, 4, 5, 6)
+        identifier = IdentifierStatFact("isbn:9780140328721", 3, 4, ["isbn", "book", "isbn"])
+
+        assert event.event_id == "ab" * 32
+        assert event.author_pubkey == "cd" * 32
+        assert addressable.author_pubkey == "ef" * 32
+        assert identifier.k_tags == ("book", "isbn")
+
     @pytest.mark.parametrize(
         ("source_seen_at", "follower_pubkey"),
         [
@@ -142,6 +152,63 @@ class TestRankerQueries:
                 source_seen_at=source_seen_at,  # type: ignore[arg-type]
                 follower_pubkey=follower_pubkey,  # type: ignore[arg-type]
             )
+
+    @pytest.mark.parametrize(
+        ("factory", "kwargs"),
+        [
+            (
+                EventStatFact,
+                {
+                    "event_id": "11" * 32,
+                    "author_pubkey": "aa" * 32,
+                    "comment_count": True,
+                    "quote_count": 0,
+                    "repost_count": 0,
+                    "reaction_count": 0,
+                    "zap_count": 0,
+                    "zap_amount": 0,
+                },
+            ),
+            (
+                AddressableStatFact,
+                {
+                    "event_address": "",
+                    "author_pubkey": "aa" * 32,
+                    "comment_count": 1,
+                    "quote_count": 0,
+                    "repost_count": 0,
+                    "reaction_count": 0,
+                    "zap_count": 0,
+                    "zap_amount": 0,
+                },
+            ),
+            (
+                IdentifierStatFact,
+                {
+                    "identifier": "isbn:9780140328721",
+                    "comment_count": 1,
+                    "reaction_count": -1,
+                    "k_tags": ("book",),
+                },
+            ),
+            (
+                IdentifierStatFact,
+                {
+                    "identifier": "isbn:9780140328721",
+                    "comment_count": 1,
+                    "reaction_count": 0,
+                    "k_tags": ("",),
+                },
+            ),
+        ],
+    )
+    def test_non_user_fact_models_reject_invalid_values(
+        self,
+        factory: type[EventStatFact] | type[AddressableStatFact] | type[IdentifierStatFact],
+        kwargs: dict[str, object],
+    ) -> None:
+        with pytest.raises((TypeError, ValueError)):
+            factory(**kwargs)  # type: ignore[arg-type]
 
     @pytest.mark.asyncio
     async def test_fetch_changed_contact_lists_maps_rows(self) -> None:
@@ -236,7 +303,7 @@ class TestRankerQueries:
                 [
                     {
                         "event_id": "11" * 32,
-                        "author_pubkey": "a" * 64,
+                        "author_pubkey": "AB" * 32,
                         "comment_count": 1,
                         "quote_count": 2,
                         "repost_count": 3,
@@ -248,7 +315,7 @@ class TestRankerQueries:
                 [
                     {
                         "event_address": "30023:aa:alpha",
-                        "author_pubkey": "a" * 64,
+                        "author_pubkey": "CD" * 32,
                         "comment_count": 1,
                         "quote_count": 2,
                         "repost_count": 3,
@@ -269,14 +336,66 @@ class TestRankerQueries:
         )
 
         assert await fetch_event_stats(brotr, "", 10) == [
-            EventStatFact("11" * 32, "a" * 64, 1, 2, 3, 4, 5, 6000)
+            EventStatFact("11" * 32, "ab" * 32, 1, 2, 3, 4, 5, 6000)
         ]
         assert await fetch_addressable_stats(brotr, "", 10) == [
-            AddressableStatFact("30023:aa:alpha", "a" * 64, 1, 2, 3, 4, 5, 6000)
+            AddressableStatFact("30023:aa:alpha", "cd" * 32, 1, 2, 3, 4, 5, 6000)
         ]
         assert await fetch_identifier_stats(brotr, "", 10) == [
             IdentifierStatFact("isbn:9780140328721", 3, 4, ("book", "fiction"))
         ]
+
+    @pytest.mark.asyncio
+    async def test_fetch_non_user_fact_rows_reject_invalid_values(self) -> None:
+        event_brotr = MagicMock(spec=Brotr)
+        event_brotr.fetch = AsyncMock(
+            return_value=[
+                {
+                    "event_id": "11" * 32,
+                    "author_pubkey": "a" * 64,
+                    "comment_count": True,
+                    "quote_count": 2,
+                    "repost_count": 3,
+                    "reaction_count": 4,
+                    "zap_count": 5,
+                    "zap_amount": 6000,
+                }
+            ]
+        )
+        with pytest.raises(TypeError):
+            await fetch_event_stats(event_brotr, "", 10)
+
+        addressable_brotr = MagicMock(spec=Brotr)
+        addressable_brotr.fetch = AsyncMock(
+            return_value=[
+                {
+                    "event_address": "30023:aa:alpha",
+                    "author_pubkey": 123,
+                    "comment_count": 1,
+                    "quote_count": 2,
+                    "repost_count": 3,
+                    "reaction_count": 4,
+                    "zap_count": 5,
+                    "zap_amount": 6000,
+                }
+            ]
+        )
+        with pytest.raises(TypeError):
+            await fetch_addressable_stats(addressable_brotr, "", 10)
+
+        identifier_brotr = MagicMock(spec=Brotr)
+        identifier_brotr.fetch = AsyncMock(
+            return_value=[
+                {
+                    "identifier": "isbn:9780140328721",
+                    "comment_count": 3,
+                    "reaction_count": 4,
+                    "k_tags": "book",
+                }
+            ]
+        )
+        with pytest.raises(TypeError):
+            await fetch_identifier_stats(identifier_brotr, "", 10)
 
     @pytest.mark.asyncio
     async def test_fetch_identifier_stats_normalizes_k_tags(self) -> None:

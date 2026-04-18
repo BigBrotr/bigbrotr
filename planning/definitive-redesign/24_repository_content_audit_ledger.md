@@ -1947,3 +1947,14 @@ Use this section during execution for:
   - added paired `ranker` query coverage proving canonical uppercase pubkeys
     normalize to lowercase while malformed contact-list and follow-edge rows
     now fail fast before they can mutate the private follow graph.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-sixtieth remediation
+  slice:
+  - tightened the typed `ranker` non-user fact boundary so `EventStatFact`,
+    `AddressableStatFact`, and `IdentifierStatFact` no longer accept broad
+    coercions for subject ids, author pubkeys, counts, or `k_tags`, which
+    previously let malformed `nip85_*_stats` rows drift into DuckDB staging as
+    apparently valid ranking inputs;
+  - added paired `ranker` query coverage proving canonical uppercase author
+    pubkeys normalize to lowercase while malformed event, addressable, and
+    identifier fact rows now fail fast before they can influence staged score
+    computation.
