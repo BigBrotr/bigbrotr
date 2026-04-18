@@ -155,7 +155,8 @@ Key type locations:
 Design principles:
 
 - **Fail-fast validation**: invalid instances never escape the constructor
-- **Content-addressed deduplication**: Metadata hashed with SHA-256 (same data = same hash)
+- **Content-addressed deduplication**: Documents are hashed with SHA-256
+  (same canonical data = same hash within a document type)
 - **Never trust stored data**: constructors re-validate all inputs and re-compute hashes
 
 ---
@@ -175,9 +176,12 @@ The project uses Python built-in and library exceptions (e.g., `ConnectionError`
 
 Rules:
 
-- **Never** use bare `except Exception` in service code. `run_forever()` is the only broad boundary.
+- **Never** use bare `except Exception` in service code. The only intentional
+  broad boundaries are `run_forever()` and the per-worker isolation wrappers
+  inside `_iter_concurrent`.
 - **Never** catch `asyncio.CancelledError`, `KeyboardInterrupt`, or `SystemExit`.
-- **Always** re-raise after logging in catch blocks unless intentionally swallowed (document why).
+- **Always** re-raise after logging in catch blocks unless intentionally
+  swallowed (document why).
 
 ---
 

@@ -1,6 +1,8 @@
 # First Deployment
 
-A complete walkthrough for deploying BigBrotr with Docker Compose, including monitoring with Prometheus and Grafana.
+A complete walkthrough for bringing up the built-in `bigbrotr` reference
+deployment with Docker Compose, including monitoring, alerting, and the full
+10-service runtime.
 
 ---
 
@@ -68,8 +70,9 @@ Docker Compose will:
 
 1. Pull required images (PostgreSQL, PGBouncer, Tor, Prometheus, Grafana)
 2. Build the BigBrotr application image from `deployments/Dockerfile`
-3. Initialize the PostgreSQL schema from `postgres/init/*.sql`
-4. Start all services with health checks and restart policies
+3. Initialize the PostgreSQL schema from the generated `postgres/init/*.sql`
+   package
+4. Start all long-lived services with health checks and restart policies
 
 !!! note
     The first build takes a few minutes to compile dependencies. Subsequent starts
@@ -95,8 +98,8 @@ docker compose logs -f seeder
 # Follow the finder as it discovers relays
 docker compose logs -f finder
 
-# View all service logs
-docker compose logs -f
+# View all long-lived service logs
+docker compose logs -f finder validator monitor synchronizer refresher ranker assertor api dvm
 ```
 
 ## Step 4: Access Grafana Dashboard
@@ -112,8 +115,9 @@ Log in with:
 - **Username**: `admin`
 - **Password**: the `GRAFANA_PASSWORD` value from your `.env` file
 
-The BigBrotr dashboard is auto-provisioned and displays per-service panels including
-last cycle time, cycle duration, error counts, and consecutive failures.
+Grafana is auto-provisioned with datasource and dashboard configuration from
+the deployment tree. You should see service-specific dashboards plus the
+deployment overview without importing JSON manually.
 
 ## Step 5: Check Prometheus Targets
 
@@ -221,6 +225,9 @@ All ports bind to `127.0.0.1` (localhost only) by default:
 | Api HTTP | 8080 |
 | Api Metrics | 8006 |
 | Dvm Metrics | 8007 |
+| Assertor Metrics | 8008 |
+| Ranker Metrics | 8009 |
+| Alertmanager | 9093 |
 
 ## Next Steps
 

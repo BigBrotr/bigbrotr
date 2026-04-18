@@ -24,18 +24,17 @@ cd bigbrotr
 # Install uv (if not already installed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Install with development and documentation dependencies
-uv sync --group dev --group docs
-
-# Install pre-commit hooks
-pre-commit install
+# Install development + docs dependencies and pre-commit hooks
+make install
 
 # Verify the setup
 make ci
+uv lock --check
 ```
 
 !!! tip
-    `make install` runs `uv sync --group dev --group docs` and `pre-commit install` in one step.
+    Run `make docs` as an extra verification step whenever you touch `docs/`,
+    `README.md`, `CONTRIBUTING.md`, or other repository guidance surfaces.
 
 ---
 
@@ -102,8 +101,8 @@ bigbrotr/
 |   +-- integration/                  # Integration tests (require database)
 +-- deployments/
 |   +-- Dockerfile                    # Single parametric Dockerfile
-|   +-- bigbrotr/                     # Full-featured deployment
-|   +-- lilbrotr/                     # Lightweight deployment
+|   +-- bigbrotr/                     # Full-archive reference deployment
+|   +-- lilbrotr/                     # Lightweight reference deployment
 +-- tools/
 |   +-- generate_sql.py              # SQL template generator
 |   +-- templates/sql/               # Jinja2 SQL templates (base + overrides)
@@ -136,10 +135,10 @@ All common development tasks are available as Makefile targets:
 |--------|---------|-------------|
 | `make test-unit` | `pytest tests/ --ignore=tests/integration/` | Run unit tests |
 | `make test-integration` | `pytest tests/integration/` | Run integration tests (requires Docker) |
-| `make test-fast` | `pytest -m "not slow"` | Run unit tests excluding slow markers |
+| `make test-fast` | `pytest tests/ --ignore=tests/integration/ -m "not slow"` | Run unit tests excluding slow markers |
 | `make coverage` | `pytest tests/ --ignore=tests/integration/ --cov=src/bigbrotr --cov-report=term-missing --cov-report=html` | Run unit tests with coverage report |
 
-### Documentation
+### Documentation And Repository Guidance
 
 | Target | Command | Description |
 |--------|---------|-------------|
@@ -169,6 +168,32 @@ All common development tasks are available as Makefile targets:
 !!! note
     The `DEPLOYMENT` variable defaults to `bigbrotr`. Override it for other deployments:
     `make docker-build DEPLOYMENT=lilbrotr`.
+
+### Additional commands worth knowing
+
+```bash
+# Verify the lockfile is aligned with pyproject.toml
+uv lock --check
+
+# Run a built-in deployment profile locally
+python -m bigbrotr finder --profile bigbrotr --once
+python -m bigbrotr finder --profile lilbrotr --once
+```
+
+---
+
+## Local Guidance Surfaces
+
+BigBrotr treats local documentation as part of the maintained project surface.
+
+Before changing a major area, read the nearest:
+
+- folder-level `README.md`
+- `AGENTS.md`
+- narrative docs that describe the local contract
+
+When a change materially alters how a maintained folder is understood or
+operated, update that local guidance in the same slice.
 
 ---
 

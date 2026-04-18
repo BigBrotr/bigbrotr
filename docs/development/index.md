@@ -47,4 +47,5 @@ codebase and repository.
 
     ```bash
     make ci
+    uv lock --check
     ```

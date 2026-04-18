@@ -1,6 +1,7 @@
 # Monitoring Setup
 
-Configure Prometheus metrics collection, Grafana dashboards, and alerting for BigBrotr services.
+Configure Prometheus metrics collection, Grafana dashboards, and alerting for
+BigBrotr services and built-in deployments.
 
 ---
 
@@ -21,11 +22,12 @@ All continuous BigBrotr services expose a `/metrics` endpoint in Prometheus expo
 
 ### Using Docker Compose (included)
 
-The default `docker-compose.yaml` starts Prometheus and Grafana automatically:
+The built-in deployment stacks start Prometheus, Alertmanager, and Grafana
+automatically:
 
 ```bash
 cd deployments/bigbrotr
-docker compose up -d prometheus grafana
+docker compose up -d prometheus alertmanager grafana
 ```
 
 Endpoints:
@@ -33,6 +35,7 @@ Endpoints:
 | Service | URL |
 |---------|-----|
 | Prometheus | `http://localhost:9090` |
+| Alertmanager | `http://localhost:9093` |
 | Grafana | `http://localhost:3000` |
 
 !!! note
@@ -40,7 +43,9 @@ Endpoints:
 
 ### Using an external Prometheus
 
-If you already run Prometheus, add scrape targets for each service. Inside the Docker network, all services listen on container port 8000. On the host, each service is mapped to a unique port (8001--8007):
+If you already run Prometheus, add scrape targets for each service. Inside the
+Docker network, all services listen on container port 8000. On the host, each
+built-in deployment maps them to profile-specific ports:
 
 ```yaml
 scrape_configs:
@@ -59,12 +64,18 @@ scrape_configs:
   - job_name: refresher
     static_configs:
       - targets: ["refresher:8000"]    # or localhost:8005 from host
+  - job_name: ranker
+    static_configs:
+      - targets: ["ranker:8000"]       # or localhost:8009 from host
   - job_name: api
     static_configs:
       - targets: ["api:8000"]          # or localhost:8006 from host
   - job_name: dvm
     static_configs:
       - targets: ["dvm:8000"]          # or localhost:8007 from host
+  - job_name: assertor
+    static_configs:
+      - targets: ["assertor:8000"]     # or localhost:8008 from host
 ```
 
 ## 2. Enable Service Metrics
@@ -80,17 +91,20 @@ metrics:
   path: "/metrics"
 ```
 
-All services listen on container port 8000 by default. Docker Compose maps each to a unique host port:
+All services listen on container port 8000 by default. Docker Compose maps
+each to a unique host port:
 
-| Service | Container Port | Host Port (default) | Override Variable |
-|---------|---------------|--------------------|--------------------|
-| Finder | 8000 | 8001 | `FINDER_METRICS_PORT` |
-| Validator | 8000 | 8002 | `VALIDATOR_METRICS_PORT` |
-| Monitor | 8000 | 8003 | `MONITOR_METRICS_PORT` |
-| Synchronizer | 8000 | 8004 | `SYNCHRONIZER_METRICS_PORT` |
-| Refresher | 8000 | 8005 | `REFRESHER_METRICS_PORT` |
-| Api | 8000 | 8006 | `API_METRICS_PORT` |
-| Dvm | 8000 | 8007 | `DVM_METRICS_PORT` |
+| Service | Container Port | BigBrotr Host Port | LilBrotr Host Port | Override Variable |
+|---------|----------------|--------------------|--------------------|-------------------|
+| Finder | 8000 | 8001 | 9001 | `FINDER_METRICS_PORT` |
+| Validator | 8000 | 8002 | 9002 | `VALIDATOR_METRICS_PORT` |
+| Monitor | 8000 | 8003 | 9003 | `MONITOR_METRICS_PORT` |
+| Synchronizer | 8000 | 8004 | 9004 | `SYNCHRONIZER_METRICS_PORT` |
+| Refresher | 8000 | 8005 | 9005 | `REFRESHER_METRICS_PORT` |
+| Api | 8000 | 8006 | 9006 | `API_METRICS_PORT` |
+| Dvm | 8000 | 8007 | 9007 | `DVM_METRICS_PORT` |
+| Assertor | 8000 | 8008 | 9008 | `ASSERTOR_METRICS_PORT` |
+| Ranker | 8000 | 8009 | 9009 | `RANKER_METRICS_PORT` |
 
 ## 3. Configure Prometheus Targets
 
@@ -104,7 +118,7 @@ To verify targets are being scraped:
 
 ## 4. Import Grafana Dashboards
 
-The BigBrotr deployment auto-provisions Grafana with:
+The built-in deployments auto-provision Grafana with:
 
 - A Prometheus datasource pointing to `http://prometheus:9090`
 - A dashboard directory at `monitoring/grafana/dashboards/`
@@ -117,7 +131,9 @@ To add a custom dashboard:
 4. Select the **Prometheus** datasource
 
 !!! tip
-    The auto-provisioned dashboard includes per-service panels for cycle time, cycle duration, error counts (24h), and consecutive failures. The Validator has additional candidate progress panels.
+    The built-in deployment also ships per-service dashboards for finder,
+    validator, monitor, synchronizer, refresher, ranker, api, dvm, and
+    assertor.
 
 ## 5. Set Up Alerting Rules
 
@@ -151,7 +167,12 @@ windows are enabled by design.
 
 ### Configure alert notifications
 
-To receive alerts via email, Slack, or PagerDuty, configure an Alertmanager and add it to your Prometheus config:
+The built-in deployments already wire Prometheus to Alertmanager. To make that
+useful, customize `monitoring/alertmanager/alertmanager.yml` with real
+receivers (email, Slack, PagerDuty, webhook, and so on).
+
+If you are using an external Prometheus or Alertmanager, ensure your
+Prometheus config includes:
 
 ```yaml
 # prometheus.yml
@@ -161,8 +182,9 @@ alerting:
         - targets: ["alertmanager:9093"]
 ```
 
-!!! warning
-    The default Docker Compose stack does not include Alertmanager. You need to add it as a separate service or use Grafana alerting as an alternative.
+!!! note
+    The shipped Alertmanager config uses a placeholder `default` receiver until
+    you add real notification integrations.
 
 ## 6. Create Custom Dashboards
 

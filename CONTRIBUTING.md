@@ -1,13 +1,34 @@
 # Contributing to BigBrotr
 
-Guidelines for contributing to BigBrotr: workflow, conventions, and quality checks.
+Guidelines for contributing to BigBrotr with the same standards the project
+expects from its own codebase and documentation.
 
 ---
 
 ## Code of Conduct
 
-This project adheres to the [Contributor Covenant Code of Conduct](https://github.com/BigBrotr/bigbrotr/blob/main/.github/CODE_OF_CONDUCT.md).
+This project adheres to the
+[Contributor Covenant Code of Conduct](https://github.com/BigBrotr/bigbrotr/blob/main/.github/CODE_OF_CONDUCT.md).
 By participating, you are expected to uphold this code.
+
+---
+
+## Working Standards
+
+BigBrotr expects a high bar from every contribution:
+
+- understand the current code before changing it;
+- keep each change narrow, coherent, and reviewable;
+- prefer honest naming and clean boundaries over compatibility drift;
+- update tests and documentation as part of the same slice;
+- do not merge a slice that is merely "green enough".
+
+In practice that means:
+
+- no half-implemented behavior;
+- no stale docs left behind after code changes;
+- no SQL changes without template alignment;
+- no public API changes without library/documentation review.
 
 ---
 
@@ -16,8 +37,8 @@ By participating, you are expected to uphold this code.
 ### Prerequisites
 
 - Python 3.11 or higher
-- Docker and Docker Compose
 - Git
+- Docker and Docker Compose for integration tests and local deployments
 
 ### Quick Start
 
@@ -29,104 +50,191 @@ cd bigbrotr
 # Install uv (one-time)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Install dependencies (includes dev tools and pre-commit hooks)
+# Install development + docs dependencies and pre-commit hooks
 make install
 
-# Run tests to verify setup
-make test-unit
+# Verify the checkout
+make ci
+uv lock --check
 ```
 
-### Finding Issues
+If you plan to work on the documentation site, also run:
 
-- Look for issues labeled `good first issue` for beginner-friendly tasks
-- Issues labeled `help wanted` are open for community contribution
-- Check [GitHub Issues](https://github.com/BigBrotr/bigbrotr/issues) for planned work
+```bash
+make docs
+```
 
 ---
 
-## Branch Naming
+## Before You Start Coding
+
+### Read the local guidance
+
+BigBrotr keeps folder-local guidance close to the code.
+
+Before editing a package or major directory, read the relevant:
+
+- `AGENTS.md`
+- folder-level `README.md`
+- nearby docs that explain the local contract
+
+This is especially important for:
+
+- `src/bigbrotr/services/`
+- `src/bigbrotr/core/`
+- `src/bigbrotr/models/`
+- `tools/`
+- `deployments/`
+- `tests/`
+- `docs/`
+
+### Understand the actual surface you are changing
+
+Before editing:
+
+- identify which configs, tests, docs, or SQL templates the change affects;
+- verify whether the repo already has a utility or pattern for that problem;
+- make sure the intended delta is narrow and explicit.
+
+---
+
+## Branching and Commit Discipline
 
 Create branches from `develop` with a descriptive prefix:
 
-```text
-feat/add-api-service
-fix/connection-timeout
-refactor/pool-retry-logic
-docs/update-readme
-test/add-monitor-tests
-chore/update-dependencies
+```bash
+git checkout develop
+git pull origin develop
+git checkout -b <type>/<description>
 ```
 
----
+Examples:
 
-## Commit Messages
+```text
+feat/add-score-resource
+fix/refresher-watermark-lag
+refactor/read-core-pagination
+docs/rewrite-operator-guides
+test/add-ranker-restore-coverage
+chore/update-dependencies
+```
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 | Prefix | Use case |
 |--------|----------|
-| `feat:` | New feature |
+| `feat:` | New behavior or surface |
 | `fix:` | Bug fix |
-| `refactor:` | Code restructuring (no behavior change) |
-| `docs:` | Documentation only |
-| `test:` | Adding or updating tests |
-| `chore:` | Dependency updates, CI config, tooling |
+| `refactor:` | Structural improvement without behavior change |
+| `docs:` | Documentation-only changes |
+| `test:` | Test-only changes |
+| `chore:` | Tooling, dependency, or maintenance work |
 
-Examples:
-
-```text
-feat: add REST API service with OpenAPI documentation
-fix: handle connection timeout in pool retry logic
-refactor: split monitor into publisher and tags modules
-```
+Good commit messages explain **why the slice exists**, not just what files
+changed.
 
 ---
 
-## Pull Request Process
+## Quality Gates
 
-### Before Submitting
+### Minimum final gate before a commit
 
-Run all quality checks:
+Every contribution should end with:
 
 ```bash
-# Run lint, format check, typecheck, unit tests, SQL checks, audit
 make ci
-
-# Run integration tests
-make test-integration
-
-# Run all pre-commit hooks
-make pre-commit
+uv lock --check
 ```
 
-Update documentation if you changed:
+### Additional gates when relevant
 
-- Public API or configuration options
-- Database schema or stored procedures
-- Deployment process
+If you touched generated SQL or deployment SQL packages:
 
-Add your changes to `CHANGELOG.md` under `[Unreleased]`.
+```bash
+python tools/generate_sql.py --check
+```
+
+If you touched repository or site documentation:
+
+```bash
+make docs
+```
+
+If you changed integration-heavy runtime behavior, run the most relevant
+integration tests in addition to the default CI gate.
+
+### Focused validation first
+
+Before the full gate, run the narrowest useful checks for your slice:
+
+- affected unit tests;
+- service-local tests;
+- focused lint/typecheck when iterating on one subsystem;
+- docs or SQL checks when those are the primary surface.
+
+This keeps feedback fast without weakening the final gate.
+
+---
+
+## Documentation Responsibilities
+
+Documentation is part of the contribution, not follow-up cleanup.
+
+Update documentation when you change:
+
+- public APIs or import surfaces;
+- service ownership or operational behavior;
+- configuration fields or defaults;
+- deployment workflows;
+- database schema or SQL-template behavior;
+- contributor expectations;
+- folder-level project surfaces that now need different local guidance.
+
+That includes, when relevant:
+
+- `docs/` pages;
+- root-level docs like `README.md` and `CONTRIBUTING.md`;
+- folder-level `README.md` files;
+- local `AGENTS.md` files that describe maintained contracts.
+
+---
+
+## Pull Requests
+
+### Before submitting
+
+Make sure the branch is:
+
+- based on `develop`;
+- scoped to one coherent slice or feature set;
+- fully green locally;
+- documented honestly.
+
+Recommended checklist:
+
+- [ ] Focused tests for the touched area pass
+- [ ] `make ci` passes
+- [ ] `uv lock --check` passes
+- [ ] `make docs` passes if docs changed
+- [ ] `python tools/generate_sql.py --check` passes if SQL/deployment packages changed
+- [ ] Documentation and local guidance are updated where needed
+- [ ] `CHANGELOG.md` is updated for shipped user-visible changes
 
 ### Submitting
 
-1. Push your branch to your fork
-2. Create a Pull Request targeting `develop` (or `main` for releases)
-3. Fill out the PR template completely
-4. Wait for CI checks to pass
-5. Address any review feedback
-
-### PR Requirements Checklist
-
-- [ ] Unit tests pass (`make test-unit`)
-- [ ] Integration tests pass (`make test-integration`)
-- [ ] Pre-commit hooks pass (`make pre-commit`)
-- [ ] Documentation updated (if applicable)
-- [ ] `CHANGELOG.md` updated
+1. Push your branch to your fork or remote.
+2. Open a Pull Request targeting `develop`.
+3. Explain the architectural intent of the change, not just the file list.
+4. Call out any operational risks, migration notes, or follow-ups explicitly.
+5. Address review findings before merging.
 
 ---
 
-## Questions?
+## Questions and Coordination
 
-- Open a [Discussion](https://github.com/BigBrotr/bigbrotr/discussions) for questions
-- Open an [Issue](https://github.com/BigBrotr/bigbrotr/issues) for bugs or feature requests
-- Check existing issues before creating new ones
+- Open a [Discussion](https://github.com/BigBrotr/bigbrotr/discussions) for design or usage questions.
+- Open an [Issue](https://github.com/BigBrotr/bigbrotr/issues) for bugs or feature requests.
+- Check existing issues and discussions before creating new ones.
+
+When in doubt, prefer asking a focused architecture or workflow question over
+guessing and creating drift.
