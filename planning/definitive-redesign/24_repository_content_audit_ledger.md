@@ -820,3 +820,12 @@ Use this section during execution for:
   - added paired unit coverage proving both direct fee-entry parsing and the
     public NIP-11 fetch path now emit stable fee-kind scopes even when the
     source document lists them out of order or with duplicates.
+- `2.1` models/utils/NIPs leaf audit, eightieth remediation slice:
+  - tightened `bigbrotr.nips.nip11.data.Nip11InfoData` so the set-like
+    string-list fields `relay_countries`, `language_tags`, `tags`, and
+    `attributes` are normalized to deduplicated ascending order in both the
+    parse helper and the model boundary instead of inheriting document order
+    directly;
+  - added paired unit coverage proving both direct NIP-11 parsing and the
+    public fetch path now emit stable string-list surfaces even when the
+    source document lists them out of order or with duplicates.

@@ -504,8 +504,10 @@ class Nip11InfoData(BaseData):
         mapped to ``self_pubkey`` with a Pydantic alias. The ``to_dict()``
         method uses ``by_alias=True`` to ensure the JSON output uses the
         correct ``self`` key name as specified by the NIP. ``supported_nips``
-        is normalized to a deduplicated ascending order so equivalent relay
-        capability sets do not drift when source order changes.
+        plus the set-like string lists ``relay_countries``,
+        ``language_tags``, ``tags``, and ``attributes`` are normalized to
+        deduplicated ascending order so equivalent relay descriptions do not
+        drift when source order changes.
 
     See Also:
         [Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:
@@ -567,6 +569,13 @@ class Nip11InfoData(BaseData):
             return None
         return sorted(set(value))
 
+    @field_validator("relay_countries", "language_tags", "tags", "attributes")
+    @classmethod
+    def _normalize_string_lists(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        return sorted(set(value))
+
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         str_fields=frozenset(
             {
@@ -624,6 +633,10 @@ class Nip11InfoData(BaseData):
         )
         result = dict(report.parsed)
         issues = list(report.issues)
+
+        for field_name in ("relay_countries", "language_tags", "tags", "attributes"):
+            if field_name in result:
+                result[field_name] = sorted(set(result[field_name]))
 
         if "supported_nips" in data:
             supported_nips, supported_nips_issues = _parse_supported_nips(

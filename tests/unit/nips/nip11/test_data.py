@@ -551,6 +551,19 @@ class TestNip11InfoDataConstructor:
         data = Nip11InfoData(supported_nips=[42, 1, 11, 42, 1])
         assert data.supported_nips == [1, 11, 42]
 
+    def test_constructor_normalizes_set_like_string_lists(self):
+        """Constructor deduplicates and sorts set-like string list fields."""
+        data = Nip11InfoData(
+            relay_countries=["US", "DE", "US"],
+            language_tags=["en-US", "en", "en-US"],
+            tags=["bitcoin-only", "sfw-only", "bitcoin-only"],
+            attributes=["Search", "Community", "Search"],
+        )
+        assert data.relay_countries == ["DE", "US"]
+        assert data.language_tags == ["en", "en-US"]
+        assert data.tags == ["bitcoin-only", "sfw-only"]
+        assert data.attributes == ["Community", "Search"]
+
     def test_constructor_rejects_non_str_name(self):
         """Constructor raises ValidationError for non-str name."""
         with pytest.raises(ValidationError):
@@ -615,14 +628,20 @@ class TestNip11InfoDataParse:
             "description": "A test relay",
             "supported_nips": [1, 11, 42],
             "limitation": {"max_message_length": 65535},
-            "relay_countries": ["US", "DE"],
+            "relay_countries": ["US", "DE", "US"],
+            "language_tags": ["en-US", "en", "en-US"],
+            "tags": ["bitcoin-only", "sfw-only", "bitcoin-only"],
+            "attributes": ["Search", "Community", "Search"],
         }
         result = Nip11InfoData.parse(data)
         assert result["name"] == "Test Relay"
         assert result["description"] == "A test relay"
         assert result["supported_nips"] == [1, 11, 42]
         assert result["limitation"] == {"max_message_length": 65535}
-        assert result["relay_countries"] == ["US", "DE"]
+        assert result["relay_countries"] == ["DE", "US"]
+        assert result["language_tags"] == ["en", "en-US"]
+        assert result["tags"] == ["bitcoin-only", "sfw-only"]
+        assert result["attributes"] == ["Community", "Search"]
 
     def test_parse_invalid_types_ignored(self):
         """Invalid types are ignored."""
@@ -652,9 +671,9 @@ class TestNip11InfoDataParse:
 
     def test_parse_filters_non_strings_from_tags(self):
         """Non-strings are filtered from tags."""
-        data = {"tags": ["valid", 42, "also valid", None]}
+        data = {"tags": ["valid", 42, "also valid", None, "valid"]}
         result = Nip11InfoData.parse(data)
-        assert result["tags"] == ["valid", "also valid"]
+        assert result["tags"] == ["also valid", "valid"]
 
     def test_parse_self_field(self):
         """'self' field is parsed as string."""

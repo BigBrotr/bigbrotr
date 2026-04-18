@@ -230,6 +230,36 @@ class TestNip11InfoMetadataSuccess:
         assert result.data.fees.publication is not None
         assert result.data.fees.publication[0].kinds == [4, 42]
 
+    async def test_info_normalizes_set_like_string_lists(
+        self, relay: Relay, complete_nip11_data: dict[str, Any], mock_session_factory
+    ) -> None:
+        """Retrieval normalizes set-like string list fields before model construction."""
+        import json
+
+        payload = dict(complete_nip11_data)
+        payload["relay_countries"] = ["US", "DE", "US"]
+        payload["language_tags"] = ["en-US", "en", "en-US"]
+        payload["tags"] = ["bitcoin-only", "sfw-only", "bitcoin-only"]
+        payload["attributes"] = ["Search", "Community", "Search"]
+
+        response = AsyncMock()
+        response.status = 200
+        response.headers = {"Content-Type": "application/nostr+json"}
+        response.content.read = AsyncMock(side_effect=[json.dumps(payload).encode(), b""])
+        response.__aenter__ = AsyncMock(return_value=response)
+        response.__aexit__ = AsyncMock(return_value=None)
+
+        session = mock_session_factory(response)
+
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
+            result = await Nip11InfoMetadata.fetch(relay)
+
+        assert result.logs.success is True
+        assert result.data.relay_countries == ["DE", "US"]
+        assert result.data.language_tags == ["en", "en-US"]
+        assert result.data.tags == ["bitcoin-only", "sfw-only"]
+        assert result.data.attributes == ["Community", "Search"]
+
     async def test_info_empty_json_object(self, relay: Relay, mock_session_factory):
         """Retrieval handles empty JSON object."""
         response = AsyncMock()
