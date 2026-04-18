@@ -455,6 +455,24 @@ class TestNostrClientManagerRelayClients:
 
 
 class TestNostrClientManagerSessions:
+    async def test_connect_session_rejects_empty_relay_list(self) -> None:
+        manager = NostrClientManager(keys=MagicMock())
+        mock_client = AsyncMock()
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol.create_client",
+                new=AsyncMock(return_value=mock_client),
+            ) as mock_create,
+            pytest.raises(ValueError, match="require at least one relay"),
+        ):
+            await manager.connect_session("read-session", [], timeout=15.0)
+
+        mock_create.assert_not_awaited()
+        mock_client.add_relay.assert_not_awaited()
+        mock_client.try_connect.assert_not_awaited()
+        assert manager._sessions == {}
+
     async def test_connect_session_creates_and_caches_named_session(self) -> None:
         relays = [Relay("wss://relay1.example.com"), Relay("wss://relay2.example.com")]
         mock_client = MagicMock()

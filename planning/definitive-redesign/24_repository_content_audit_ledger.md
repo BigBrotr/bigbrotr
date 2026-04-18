@@ -248,6 +248,13 @@ Use this section during execution for:
     end-to-end bound;
   - paired DNS, `nip66/geo`, and `nip66/net` tests now pin the reduced
     remaining-time behavior directly.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fifth remediation slice:
+  - shared-session helpers now reject empty relay batches before allocating a
+    client or attempting a zero-relay connect, keeping the public
+    multi-relay-session contract honest;
+  - paired `protocol_sessions` and `protocol` tests now pin the fail-fast
+    behavior for both the low-level helper and the `NostrClientManager`
+    facade.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

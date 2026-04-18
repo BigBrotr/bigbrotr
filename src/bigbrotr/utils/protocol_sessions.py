@@ -67,9 +67,13 @@ def _deduplicate_relays(relays: list[Relay]) -> list[Relay]:
 def _validate_session_relays(relays: list[Relay]) -> None:
     """Reject relay sets that need per-network proxy policy.
 
-    Session helpers build one shared client and therefore cannot express the
-    per-network proxy configuration required by overlay relays.
+    Session helpers build one shared client and therefore require at least one
+    clearnet relay. They cannot express the per-network proxy configuration
+    required by overlay relays.
     """
+    if not relays:
+        raise ValueError("multi-relay client sessions require at least one relay")
+
     unsupported = sorted(
         {relay.network.display_name for relay in relays if relay.network != NetworkType.CLEARNET}
     )

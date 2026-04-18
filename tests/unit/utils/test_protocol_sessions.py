@@ -17,6 +17,16 @@ from bigbrotr.utils.protocol_sessions import (
 
 
 class TestConnectClientRelays:
+    async def test_rejects_empty_relay_list(self) -> None:
+        """Shared client sessions reject empty relay batches."""
+        client = AsyncMock()
+
+        with pytest.raises(ValueError, match="require at least one relay"):
+            await connect_client_relays(client, [], timeout=15.0)
+
+        client.add_relay.assert_not_awaited()
+        client.try_connect.assert_not_awaited()
+
     async def test_rejects_overlay_relays_for_shared_session(self) -> None:
         """Shared client sessions reject overlay relays that need proxy policy."""
         client = AsyncMock()
@@ -68,6 +78,25 @@ class TestConnectClientRelays:
 
 
 class TestCreateConnectedClient:
+    async def test_rejects_empty_relay_list_before_client_creation(self) -> None:
+        """Factory helper rejects empty shared sessions before allocating a client."""
+        client = AsyncMock()
+        create_client_func = AsyncMock(return_value=client)
+
+        with pytest.raises(ValueError, match="require at least one relay"):
+            await create_connected_client(
+                [],
+                dependencies=SharedSessionDependencies(
+                    create_client=create_client_func,
+                    shutdown_client=AsyncMock(),
+                ),
+                timeout=15.0,
+            )
+
+        create_client_func.assert_not_awaited()
+        client.add_relay.assert_not_awaited()
+        client.try_connect.assert_not_awaited()
+
     async def test_rejects_overlay_relays_before_client_creation(self) -> None:
         """Factory helper rejects unsupported overlay sessions before allocating a client."""
         client = AsyncMock()
