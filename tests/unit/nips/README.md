@@ -1,6 +1,7 @@
 # unit/nips
 
-Unit tests for protocol-aware NIP helpers and builders.
+Unit tests for protocol-aware NIP result containers, parse/report helpers,
+builders, and registry surfaces.
 
 ## What Lives Here
 

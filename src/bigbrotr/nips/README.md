@@ -8,7 +8,7 @@ Protocol-aware NIP helpers, builders, and the static capability registry.
 - `nip66/`: relay health-check families and probe outputs.
 - `nip85/`: public score/assertion models plus provider-package builders.
 - `event_builders.py`, `parsing.py`, `registry.py`: shared event builders,
-  parsing helpers, and static capability registry.
+  parse/report helpers, and static capability registry.
 
 ## Rules
 

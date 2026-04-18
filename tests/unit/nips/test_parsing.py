@@ -1,4 +1,4 @@
-"""Unit tests for FieldSpec dataclass and parse_fields function."""
+"""Unit tests for FieldSpec plus the permissive NIP parse/report helpers."""
 
 import pytest
 

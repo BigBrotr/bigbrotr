@@ -328,3 +328,10 @@ Use this section during execution for:
   - mirrored that boundary in the local utils README and unit-test package
     surfaces so the tracked low-level utility contract stays consistent for
     library readers and maintainers.
+- `2.1` models/utils/NIPs leaf audit, nineteenth remediation slice:
+  - aligned the tracked root `bigbrotr.nips` narrative and paired parsing test
+    surfaces with the live permissive parsing contract, so `parsing.py` is
+    described as a parse/report seam rather than only a one-way helper;
+  - mirrored that in the root `tests/unit/nips` package narrative so the
+    tracked NIP test surface now names result containers, parse/report helpers,
+    builders, and registry seams explicitly.
