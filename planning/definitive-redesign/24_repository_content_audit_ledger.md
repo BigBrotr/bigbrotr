@@ -2143,3 +2143,11 @@ Use this section during execution for:
   - added paired `core` coverage proving those boolean aliases now fail fast
     at config load instead of mutating the shared PostgreSQL pool contract
     used by every service.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-eighty-first remediation
+  slice:
+  - tightened the public read-adapter config boundary so shared page-size
+    numerics and adapter-local HTTP/NIP-90 timeouts no longer accept boolean
+    aliases, which previously let values like `True` coerce to `1` or `1.0`
+    and silently shrink public pagination defaults or transport deadlines;
+  - added paired `API`/`DVM` coverage proving those boolean aliases now fail
+    fast at config load instead of mutating public read-side behavior.

@@ -10,7 +10,7 @@ See Also:
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from pydantic import Field, field_validator, model_validator
 
@@ -65,6 +65,13 @@ class ApiConfig(PublicReadAdapterConfig):
         le=300.0,
         description="Per-request timeout in seconds",
     )
+
+    @field_validator("request_timeout", mode="before")
+    @classmethod
+    def _reject_boolean_request_timeout(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("request_timeout: expected number, got bool")
+        return value
 
     @field_validator("route_prefix")
     @classmethod

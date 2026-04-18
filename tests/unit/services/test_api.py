@@ -171,6 +171,18 @@ class TestApiConfig:
         config = ApiConfig(default_page_size=100, max_page_size=100)
         assert config.default_page_size == 100
 
+    def test_rejects_boolean_default_page_size_alias(self) -> None:
+        with pytest.raises(ValueError, match="default_page_size: expected integer, got bool"):
+            ApiConfig(default_page_size=True)
+
+    def test_rejects_boolean_max_page_size_alias(self) -> None:
+        with pytest.raises(ValueError, match="max_page_size: expected integer, got bool"):
+            ApiConfig(max_page_size=True)
+
+    def test_rejects_boolean_request_timeout_alias(self) -> None:
+        with pytest.raises(ValueError, match="request_timeout: expected number, got bool"):
+            ApiConfig(request_timeout=True)
+
     def test_empty_host_rejected(self) -> None:
         with pytest.raises(ValueError):
             ApiConfig(host="")

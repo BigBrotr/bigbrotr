@@ -12,9 +12,9 @@ See Also:
 
 from __future__ import annotations
 
-from typing import Annotated, ClassVar
+from typing import Annotated, Any, ClassVar
 
-from pydantic import BeforeValidator, Field
+from pydantic import BeforeValidator, Field, field_validator
 
 from bigbrotr.models import Relay
 from bigbrotr.services.common.configs import (
@@ -97,3 +97,10 @@ class DvmConfig(PublicReadAdapterConfig):
         default=False,
         description="Fall back to insecure transport on SSL certificate failure",
     )
+
+    @field_validator("fetch_timeout", mode="before")
+    @classmethod
+    def _reject_boolean_fetch_timeout(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("fetch_timeout: expected number, got bool")
+        return value

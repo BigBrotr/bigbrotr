@@ -209,6 +209,12 @@ class PublicReadAdapterConfig(BaseServiceConfig):
         description="Adapter-local protocol exposure policy keyed by public readable-resource ID",
     )
 
+    @field_validator("default_page_size", "max_page_size", mode="before")
+    @classmethod
+    def _reject_boolean_page_sizes(cls, value: Any, info: ValidationInfo) -> Any:
+        field_name = info.field_name or "value"
+        return _reject_bool_alias(value, field_name, "integer")
+
     @property
     def exposure_policy(self) -> dict[str, ReadModelPolicy]:
         """Return the adapter-local protocol exposure policy."""

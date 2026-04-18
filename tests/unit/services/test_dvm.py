@@ -296,6 +296,18 @@ class TestDvmConfig:
         )
         assert config.default_page_size == config.max_page_size
 
+    def test_rejects_boolean_default_page_size_alias(self) -> None:
+        with pytest.raises(ValueError, match="default_page_size: expected integer, got bool"):
+            DvmConfig(relays=["wss://relay.example.com"], default_page_size=True)
+
+    def test_rejects_boolean_max_page_size_alias(self) -> None:
+        with pytest.raises(ValueError, match="max_page_size: expected integer, got bool"):
+            DvmConfig(relays=["wss://relay.example.com"], max_page_size=True)
+
+    def test_rejects_boolean_fetch_timeout_alias(self) -> None:
+        with pytest.raises(ValueError, match="fetch_timeout: expected number, got bool"):
+            DvmConfig(relays=["wss://relay.example.com"], fetch_timeout=True)
+
     def test_internal_read_model_rejected(self) -> None:
         with pytest.raises(ValueError, match=r"non-public DVM read models: service_state"):
             DvmConfig(
