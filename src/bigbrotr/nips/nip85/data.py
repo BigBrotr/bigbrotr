@@ -29,6 +29,11 @@ def _topic_count_sort_key(item: tuple[str, Any]) -> tuple[int, str]:
     return (-int(raw_count), topic)
 
 
+def _normalize_tag_set(value: tuple[str, ...]) -> tuple[str, ...]:
+    """Return a stable deduplicated lexical ordering for set-like tag tuples."""
+    return tuple(sorted(set(value)))
+
+
 @dataclass(frozen=True, slots=True)
 class UserAssertion:
     """NIP-85 kind 30382: per-pubkey social metrics.
@@ -295,6 +300,9 @@ class IdentifierAssertion:
     reaction_count: int = 0
     k_tags: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "k_tags", _normalize_tag_set(self.k_tags))
+
     def tags_hash(self) -> str:
         """SHA-256 hex digest of all tag values for change detection."""
         values = [
@@ -314,7 +322,7 @@ class IdentifierAssertion:
             score=int(row.get("score", 0)),
             comment_count=int(row.get("comment_count", 0)),
             reaction_count=int(row.get("reaction_count", 0)),
-            k_tags=tuple(str(tag) for tag in raw_k_tags),
+            k_tags=_normalize_tag_set(tuple(str(tag) for tag in raw_k_tags)),
         )
 
 

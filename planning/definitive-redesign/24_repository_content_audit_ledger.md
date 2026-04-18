@@ -861,3 +861,10 @@ Use this section during execution for:
     JSONB mapping;
   - added paired unit coverage proving equal-count topic sets now produce a
     stable canonical ordering instead of drifting with dictionary key order.
+- `2.1` models/utils/NIPs leaf audit, eighty-fifth remediation slice:
+  - tightened `bigbrotr.nips.nip85.data.IdentifierAssertion` so ``k_tags``
+    are normalized as a deduplicated lexical set at the model boundary
+    instead of trusting raw DB or fixture order directly;
+  - added paired unit and builder coverage proving identifier assertion tags
+    no longer drift or duplicate when the input row provides repeated or
+    unsorted ``k`` tags.

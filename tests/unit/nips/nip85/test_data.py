@@ -265,6 +265,23 @@ class TestIdentifierAssertionProperties:
         assert a.score == 73
         assert a.k_tags == ("book", "isbn")
 
+    def test_constructor_normalizes_k_tags(self) -> None:
+        a = IdentifierAssertion(
+            identifier="isbn:9780140328721",
+            k_tags=("isbn", "book", "isbn"),
+        )
+        assert a.k_tags == ("book", "isbn")
+
+    def test_from_db_row_normalizes_k_tags(self) -> None:
+        row = {
+            "identifier": "isbn:9780140328721",
+            "k_tags": ["isbn", "book", "isbn"],
+        }
+
+        a = IdentifierAssertion.from_db_row(row)
+
+        assert a.k_tags == ("book", "isbn")
+
 
 @pytest.mark.parametrize(
     ("factory", "row"),

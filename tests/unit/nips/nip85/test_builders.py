@@ -265,6 +265,16 @@ class TestBuildIdentifierAssertion:
         assert tags["rank"] == ["55"]
         assert sorted(tags["k"]) == ["book", "isbn"]
 
+    def test_identifier_assertion_normalizes_k_tag_order_before_build(self) -> None:
+        a = IdentifierAssertion(
+            identifier="isbn:9780140328721",
+            k_tags=("isbn", "book", "isbn"),
+        )
+        tags = _extract_tag_vectors(build_identifier_assertion(a))
+        assert ["k", "book"] in tags
+        assert ["k", "isbn"] in tags
+        assert tags.count(["k", "isbn"]) == 1
+
 
 class TestBuildTrustedProviderList:
     def test_kind_public_tag_and_content(self) -> None:
