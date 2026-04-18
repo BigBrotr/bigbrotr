@@ -153,22 +153,53 @@ class TestInstallNostrSdkStderrFilter:
 
 
 class TestScopedStderrSuppressor:
-    def test_single_context_restores_stderr(self) -> None:
+    def test_single_context_restores_stderr(self, monkeypatch: pytest.MonkeyPatch) -> None:
         suppressor = _ScopedStderrSuppressor()
-        original = sys.stderr
-        with suppressor():
-            assert sys.stderr is not original
-        assert sys.stderr is original
+        original = MagicMock()
+        original.fileno.return_value = 2
+        devnull = MagicMock()
+        devnull.fileno.return_value = 99
+        monkeypatch.setattr("bigbrotr.utils.transport.sys.stderr", original)
 
-    def test_nested_contexts_restore_on_last_exit(self) -> None:
+        with (
+            patch("bigbrotr.utils.transport.open", return_value=devnull, create=True),
+            patch("bigbrotr.utils.transport.os.dup", return_value=55) as mock_dup,
+            patch("bigbrotr.utils.transport.os.dup2") as mock_dup2,
+            patch("bigbrotr.utils.transport.os.close") as mock_close,
+            suppressor(),
+        ):
+            assert sys.stderr is devnull
+
+        assert sys.stderr is original
+        mock_dup.assert_called_once_with(2)
+        assert mock_dup2.call_args_list == [((99, 2),), ((55, 2),)]
+        mock_close.assert_called_once_with(55)
+        devnull.close.assert_called_once()
+
+    def test_nested_contexts_restore_on_last_exit(self, monkeypatch: pytest.MonkeyPatch) -> None:
         suppressor = _ScopedStderrSuppressor()
-        original = sys.stderr
-        with suppressor():
+        original = MagicMock()
+        original.fileno.return_value = 2
+        devnull = MagicMock()
+        devnull.fileno.return_value = 99
+        monkeypatch.setattr("bigbrotr.utils.transport.sys.stderr", original)
+
+        with (
+            patch("bigbrotr.utils.transport.open", return_value=devnull, create=True),
+            patch("bigbrotr.utils.transport.os.dup", return_value=55) as mock_dup,
+            patch("bigbrotr.utils.transport.os.dup2") as mock_dup2,
+            patch("bigbrotr.utils.transport.os.close") as mock_close,
+            suppressor(),
+        ):
             with suppressor():
                 assert suppressor._refcount == 2
-            assert sys.stderr is not original
+            assert sys.stderr is devnull
         assert sys.stderr is original
         assert suppressor._refcount == 0
+        mock_dup.assert_called_once_with(2)
+        assert mock_dup2.call_args_list == [((99, 2),), ((55, 2),)]
+        mock_close.assert_called_once_with(55)
+        devnull.close.assert_called_once()
 
     def test_refcount_starts_at_zero(self) -> None:
         suppressor = _ScopedStderrSuppressor()
@@ -178,13 +209,26 @@ class TestScopedStderrSuppressor:
 class TestSuppressNostrSdkStderr:
     def test_context_restores_filtered_stderr(self, monkeypatch: pytest.MonkeyPatch) -> None:
         original = MagicMock()
+        original.fileno.return_value = 2
+        devnull = MagicMock()
+        devnull.fileno.return_value = 99
         monkeypatch.setattr("bigbrotr.utils.transport.sys.stderr", original)
 
-        with suppress_nostr_sdk_stderr():
-            assert sys.stderr is not original
+        with (
+            patch("bigbrotr.utils.transport.open", return_value=devnull, create=True),
+            patch("bigbrotr.utils.transport.os.dup", return_value=55) as mock_dup,
+            patch("bigbrotr.utils.transport.os.dup2") as mock_dup2,
+            patch("bigbrotr.utils.transport.os.close") as mock_close,
+            suppress_nostr_sdk_stderr(),
+        ):
+            assert sys.stderr is devnull
 
         assert isinstance(sys.stderr, _NostrSdkStderrFilter)
         assert sys.stderr._original is original
+        mock_dup.assert_called_once_with(2)
+        assert mock_dup2.call_args_list == [((99, 2),), ((55, 2),)]
+        mock_close.assert_called_once_with(55)
+        devnull.close.assert_called_once()
 
 
 # =============================================================================

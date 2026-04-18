@@ -134,18 +134,33 @@ class _ScopedStderrSuppressor:
     The shared helper below deliberately keeps the scope narrow.
     """
 
-    __slots__ = ("_devnull", "_refcount", "_saved_stderr")
+    __slots__ = ("_devnull", "_refcount", "_saved_fd", "_saved_stderr")
 
     def __init__(self) -> None:
         self._refcount = 0
         self._saved_stderr: TextIO | None = None
         self._devnull: TextIO | None = None
+        self._saved_fd: int | None = None
 
     @contextlib.contextmanager
     def __call__(self) -> Generator[None, None, None]:
         if self._refcount == 0:
             self._saved_stderr = sys.stderr
-            self._devnull = open(os.devnull, "w")  # noqa: PTH123, SIM115
+            devnull = open(os.devnull, "w")  # noqa: PTH123, SIM115
+            try:
+                stderr_fd = self._saved_stderr.fileno()
+                saved_fd = os.dup(stderr_fd)
+                try:
+                    os.dup2(devnull.fileno(), stderr_fd)
+                except Exception:
+                    os.close(saved_fd)
+                    raise
+            except Exception:
+                devnull.close()
+                self._saved_stderr = None
+                raise
+            self._devnull = devnull
+            self._saved_fd = saved_fd
         self._refcount += 1
         sys.stderr = self._devnull
         try:
@@ -154,10 +169,15 @@ class _ScopedStderrSuppressor:
             self._refcount -= 1
             if self._refcount == 0:
                 sys.stderr = self._saved_stderr
+                if self._saved_stderr is not None and self._saved_fd is not None:
+                    stderr_fd = self._saved_stderr.fileno()
+                    os.dup2(self._saved_fd, stderr_fd)
+                    os.close(self._saved_fd)
                 if self._devnull is not None:
                     self._devnull.close()
                 self._saved_stderr = None
                 self._devnull = None
+                self._saved_fd = None
 
 
 _stderr_suppressor = _ScopedStderrSuppressor()

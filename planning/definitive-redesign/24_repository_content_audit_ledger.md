@@ -959,3 +959,11 @@ Use this section during execution for:
   - aligned `NostrClientManager.connect_session()` with the same contract and
     added paired helper/manager coverage proving duplicate session inputs no
     longer trigger duplicate relay registration work.
+- `2.1` models/utils/NIPs leaf audit, ninety-ninth remediation slice:
+  - tightened `bigbrotr.utils.transport._ScopedStderrSuppressor` so the
+    narrow suppression window now redirects the real process stderr file
+    descriptor at the outermost boundary instead of only swapping the Python
+    `sys.stderr` object;
+  - aligned the paired transport tests so enter/exit and nested suppression
+    now prove fd-level redirect/restore happens exactly once per outermost
+    scope, which matches the live contract claimed by the transport layer.
