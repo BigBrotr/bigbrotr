@@ -665,3 +665,12 @@ Use this section during execution for:
     the transport boundary, the helper logs the failure and drops the partial
     client state instead of pretending the earlier relay-level result was a
     complete normalized outcome.
+- `2.1` models/utils/NIPs leaf audit, sixtieth remediation slice:
+  - aligned `bigbrotr.utils.protocol_manager.NostrClientManager.disconnect()`
+    with the rest of the shared protocol teardown contract by suppressing
+    `NostrSdkError` alongside the already expected transport/runtime shutdown
+    failures;
+  - added paired unit coverage proving that cached sessions and relay clients
+    are still cleared even when the injected shutdown helper raises expected
+    SDK teardown errors, while keeping truly unexpected exceptions outside the
+    suppression set.

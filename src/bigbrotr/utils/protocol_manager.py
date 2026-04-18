@@ -5,6 +5,8 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING, NamedTuple, Protocol
 
+from nostr_sdk import NostrSdkError
+
 from .protocol_sessions import ClientSession
 from .transport import DEFAULT_TIMEOUT
 
@@ -172,7 +174,7 @@ class NostrClientManager:
             if client_id in seen:
                 continue
             seen.add(client_id)
-            with contextlib.suppress(OSError, RuntimeError, TimeoutError):
+            with contextlib.suppress(OSError, RuntimeError, TimeoutError, NostrSdkError):
                 await self._dependencies.shutdown_client(session.client)
 
         for client in self._relay_clients.values():
@@ -180,7 +182,7 @@ class NostrClientManager:
             if client_id in seen:
                 continue
             seen.add(client_id)
-            with contextlib.suppress(OSError, RuntimeError, TimeoutError):
+            with contextlib.suppress(OSError, RuntimeError, TimeoutError, NostrSdkError):
                 await self._dependencies.shutdown_client(client)
 
         self._sessions.clear()

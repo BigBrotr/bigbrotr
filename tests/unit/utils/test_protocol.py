@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from nostr_sdk import NostrSdkError
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay
@@ -459,6 +460,34 @@ class TestNostrClientManagerSessions:
         assert mock_shutdown.await_count == 2
         mock_shutdown.assert_any_await(shared_client)
         mock_shutdown.assert_any_await(cached_client)
+        assert manager._sessions == {}
+        assert manager._relay_clients == {}
+        assert manager._failed_relays == set()
+
+    async def test_disconnect_suppresses_expected_sdk_shutdown_errors(self) -> None:
+        shared_client = MagicMock()
+        cached_client = MagicMock()
+        manager = NostrClientManager(keys=MagicMock())
+        manager._sessions["session"] = ClientSession(
+            session_id="session",
+            client=shared_client,
+            relay_urls=("wss://relay1.example.com",),
+            connect_result=ClientConnectResult(connected=("wss://relay1.example.com",), failed={}),
+        )
+        manager._relay_clients["wss://relay2.example.com"] = cached_client
+
+        with patch(
+            "bigbrotr.utils.protocol.shutdown_client",
+            new=AsyncMock(
+                side_effect=[
+                    NostrSdkError("session shutdown failed"),
+                    NostrSdkError("relay shutdown failed"),
+                ]
+            ),
+        ) as mock_shutdown:
+            await manager.disconnect()
+
+        assert mock_shutdown.await_count == 2
         assert manager._sessions == {}
         assert manager._relay_clients == {}
         assert manager._failed_relays == set()
