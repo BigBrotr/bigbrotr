@@ -482,6 +482,16 @@ Use this section during execution for:
     step;
   - paired coverage now pins the scalar-string and mixed-type failures
     explicitly on the affected constructors.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirty-first remediation
+  slice:
+  - aligned `IdentifierAssertion.from_db_row()` with the hardened constructor
+    boundary so hydrated `k_tags` values must also be real string sequences,
+    instead of silently coercing mixed-type stored values like `[1, "book"]`
+    into tag strings;
+  - kept the intentional `None -> ()` compatibility path for missing stored
+    `k_tags`, but removed the remaining malformed-input coercion from the
+    hydration seam;
+  - paired coverage now pins the mixed-type hydration failure explicitly.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

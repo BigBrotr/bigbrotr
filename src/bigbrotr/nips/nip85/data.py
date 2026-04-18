@@ -59,9 +59,7 @@ def _coerce_tag_sequence(value: Any) -> tuple[str, ...]:
     """Return a tuple of tag strings, preserving ``None`` as an empty sequence."""
     if value is None:
         return ()
-    if isinstance(value, (str, bytes)):
-        raise TypeError("k_tags must be a sequence of tag strings, not a scalar string")
-    return tuple(str(tag) for tag in value)
+    return _require_text_sequence(value, "k_tags", noun="tag strings")
 
 
 def _require_text(value: Any, field_name: str) -> str:

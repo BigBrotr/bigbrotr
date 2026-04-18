@@ -435,6 +435,15 @@ class TestIdentifierAssertionProperties:
         with pytest.raises(TypeError, match="k_tags must be a sequence of tag strings"):
             IdentifierAssertion.from_db_row(row)
 
+    def test_from_db_row_rejects_non_string_k_tags(self) -> None:
+        row = {
+            "identifier": "isbn:9780140328721",
+            "k_tags": [1, "book"],
+        }
+
+        with pytest.raises(TypeError, match="k_tags must contain only strings"):
+            IdentifierAssertion.from_db_row(row)
+
     def test_from_db_row_rejects_non_string_identifier(self) -> None:
         row = {
             "identifier": None,
