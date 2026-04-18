@@ -6,6 +6,8 @@ classes. Each model declares a [FieldSpec][bigbrotr.nips.parsing.FieldSpec]
 describing which fields should be parsed as which types;
 [parse_fields][bigbrotr.nips.parsing.parse_fields] then applies the spec
 to raw dictionaries from external sources, silently dropping invalid values.
+For typed list fields, invalid elements are filtered and fully empty results
+are dropped.
 
 Supported field types: ``int``, ``bool``, ``str``, ``float``,
 ``list[int]``, ``list[str]``.
@@ -148,9 +150,11 @@ class FieldSpec:
         int_fields: Fields expected as ``int`` (``bool`` excluded).
         bool_fields: Fields expected as ``bool``.
         str_fields: Fields expected as ``str``.
-        str_list_fields: Fields expected as ``list[str]`` (invalid elements filtered).
+        str_list_fields: Fields expected as ``list[str]``. Invalid elements are
+            filtered; empty results are dropped.
         float_fields: Fields expected as ``float`` (``int`` accepted and converted).
-        int_list_fields: Fields expected as ``list[int]`` (invalid elements filtered).
+        int_list_fields: Fields expected as ``list[int]``. Invalid elements are
+            filtered; empty results are dropped.
 
     Note:
         Python's ``bool`` is a subclass of ``int``, so ``int_fields`` parsing
@@ -257,9 +261,11 @@ def parse_fields(data: dict[str, Any], spec: FieldSpec) -> dict[str, Any]:
       is a subclass of ``int``).
     * ``bool_fields`` -- must be ``bool``.
     * ``str_fields`` -- must be ``str``.
-    * ``str_list_fields`` -- must be ``list``; non-string elements are filtered out.
+    * ``str_list_fields`` -- must be ``list``; non-string elements are filtered out,
+      and fully empty results are dropped.
     * ``float_fields`` -- accepts ``int`` or ``float`` (not ``bool``); converts to ``float``.
-    * ``int_list_fields`` -- must be ``list``; non-int elements (and bools) are filtered out.
+    * ``int_list_fields`` -- must be ``list``; non-int elements (and bools) are
+      filtered out, and fully empty results are dropped.
 
     Args:
         data: Raw dictionary to parse.

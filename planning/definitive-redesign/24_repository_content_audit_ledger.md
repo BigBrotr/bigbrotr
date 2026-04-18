@@ -402,3 +402,9 @@ Use this section during execution for:
     `Nip66RttMetadata`, and `Nip66` so they now describe the real contract:
     ordinary operational failures are contained in result objects, while
     cancellation / shutdown signals still escape.
+- `2.1` models/utils/NIPs leaf audit, twenty-seventh remediation slice:
+  - aligned the tracked `bigbrotr.nips.parsing` docs with the real typed-list
+    behavior already enforced by code and tests: invalid list elements are
+    filtered, and fully empty list results are dropped rather than preserved;
+  - kept the change scoped to the parser contract narrative because the live
+    semantics and paired unit coverage were already correct.
