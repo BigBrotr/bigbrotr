@@ -635,6 +635,18 @@ Use this section during execution for:
     or empty values are rejected before they can reach public `d` / `i` tags;
   - paired coverage now pins those malformed identifier cases on both
     constructor and hydration boundaries.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-forty-fourth remediation
+  slice:
+  - tightened the remaining NIP-85 collection seams that still accepted
+    malformed public tag values: `UserAssertion.top_topics` now rejects empty
+    topics and duplicate topics, while `IdentifierAssertion.k_tags` now
+    rejects empty tag strings instead of silently normalizing them through to
+    public `t` / `k` tags;
+  - kept the intentional set-like normalization for `k_tags`, but aligned the
+    constructor and `from_db_row()` hydration boundaries so malformed empty
+    entries fail fast before they can reach builders or `tags_hash()`;
+  - paired coverage now pins the empty-topic, duplicate-topic, and empty-tag
+    cases on the direct-construction and hydration paths that matter.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

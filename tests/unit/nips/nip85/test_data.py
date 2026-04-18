@@ -131,6 +131,14 @@ class TestUserAssertionProperties:
         with pytest.raises(TypeError, match="top_topics must contain only strings"):
             UserAssertion(pubkey="aa" * 32, top_topics=(1, "nostr"))  # type: ignore[arg-type]
 
+    def test_constructor_rejects_empty_top_topics(self) -> None:
+        with pytest.raises(ValueError, match="top_topics must not contain empty topic strings"):
+            UserAssertion(pubkey="aa" * 32, top_topics=("nostr", ""))
+
+    def test_constructor_rejects_duplicate_top_topics(self) -> None:
+        with pytest.raises(ValueError, match="top_topics must not contain duplicate topics"):
+            UserAssertion(pubkey="aa" * 32, top_topics=("nostr", "nostr"))
+
     def test_constructor_rejects_invalid_activity_hours_length(self) -> None:
         with pytest.raises(
             ValueError, match="activity_hours must contain exactly 24 hourly buckets"
@@ -839,6 +847,10 @@ class TestIdentifierAssertionProperties:
                 k_tags=(1, "book"),  # type: ignore[arg-type]
             )
 
+    def test_constructor_rejects_empty_k_tags(self) -> None:
+        with pytest.raises(ValueError, match="k_tags must not contain empty tag strings"):
+            IdentifierAssertion(identifier="isbn:9780140328721", k_tags=("isbn", ""))
+
     @pytest.mark.parametrize(
         ("kwargs", "message"),
         [
@@ -872,6 +884,15 @@ class TestIdentifierAssertionProperties:
         }
 
         with pytest.raises(TypeError, match="k_tags must contain only strings"):
+            IdentifierAssertion.from_db_row(row)
+
+    def test_from_db_row_rejects_empty_k_tags(self) -> None:
+        row = {
+            "identifier": "isbn:9780140328721",
+            "k_tags": ["isbn", ""],
+        }
+
+        with pytest.raises(ValueError, match="k_tags must not contain empty tag strings"):
             IdentifierAssertion.from_db_row(row)
 
     def test_from_db_row_rejects_non_string_identifier(self) -> None:

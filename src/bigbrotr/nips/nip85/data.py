@@ -115,24 +115,24 @@ def _coerce_topic_count_mapping(value: Any) -> dict[str, int]:
 
 def _normalize_tag_set(value: tuple[str, ...]) -> tuple[str, ...]:
     """Return a stable deduplicated lexical ordering for set-like tag tuples."""
-    return tuple(
-        sorted(
-            set(
-                _require_text_sequence(
-                    value,
-                    "k_tags",
-                    noun="tag strings",
-                )
-            )
-        )
+    tag_values = _require_text_sequence(
+        value,
+        "k_tags",
+        noun="tag strings",
     )
+    if any(not tag for tag in tag_values):
+        raise ValueError("k_tags must not contain empty tag strings")
+    return tuple(sorted(set(tag_values)))
 
 
 def _coerce_tag_sequence(value: Any) -> tuple[str, ...]:
     """Return a tuple of tag strings, preserving ``None`` as an empty sequence."""
     if value is None:
         return ()
-    return _require_text_sequence(value, "k_tags", noun="tag strings")
+    tags = _require_text_sequence(value, "k_tags", noun="tag strings")
+    if any(not tag for tag in tags):
+        raise ValueError("k_tags must not contain empty tag strings")
+    return tags
 
 
 def _require_text(value: Any, field_name: str) -> str:
@@ -236,6 +236,16 @@ def _normalize_nip73_identifier(value: Any) -> str:
     if not subject:
         raise ValueError("identifier value must not be empty")
     return identifier
+
+
+def _normalize_top_topics(value: Any) -> tuple[str, ...]:
+    """Return ordered top-topic strings without duplicates or empty values."""
+    topics = _require_text_sequence(value, "top_topics", noun="topic strings")
+    if any(not topic for topic in topics):
+        raise ValueError("top_topics must not contain empty topic strings")
+    if len(set(topics)) != len(topics):
+        raise ValueError("top_topics must not contain duplicate topics")
+    return topics
 
 
 def _require_text_sequence(value: Any, field_name: str, *, noun: str) -> tuple[str, ...]:
@@ -361,7 +371,7 @@ class UserAssertion:
         object.__setattr__(
             self,
             "top_topics",
-            _require_text_sequence(self.top_topics, "top_topics", noun="topic strings"),
+            _normalize_top_topics(self.top_topics),
         )
         _normalize_non_negative_int_fields(self, _USER_ASSERTION_INT_FIELDS)
         object.__setattr__(
