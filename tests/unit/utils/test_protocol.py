@@ -991,7 +991,7 @@ class TestBroadcastEvents:
         client.send_event_builder.return_value = self._send_output(
             event_id="evt-1",
             success=("wss://relay.good",),
-            failed={"wss://relay.bad": "timeout"},
+            failed={"wss://relay.z": "timeout", "wss://relay.a": "rejected"},
         )
 
         results = await self._get_broadcast_detailed()([MagicMock()], [client])
@@ -999,7 +999,11 @@ class TestBroadcastEvents:
         assert len(results) == 1
         assert results[0].event_ids == ("evt-1",)
         assert results[0].successful_relays == ("wss://relay.good",)
-        assert results[0].failed_relays == {"wss://relay.bad": "timeout"}
+        assert results[0].failed_relays == {
+            "wss://relay.a": "rejected",
+            "wss://relay.z": "timeout",
+        }
+        assert list(results[0].failed_relays) == ["wss://relay.a", "wss://relay.z"]
 
     async def test_detailed_results_require_success_across_all_builders(self) -> None:
         client = AsyncMock()
@@ -1072,33 +1076,41 @@ class TestSummarizeBroadcastResults:
                 BroadcastClientResult(
                     event_ids=("evt-1",),
                     successful_relays=("wss://relay.a", "wss://relay.b"),
-                    failed_relays={"wss://relay.c": "timeout"},
+                    failed_relays={"wss://relay.z": "timeout"},
                 ),
                 BroadcastClientResult(
                     event_ids=("evt-2",),
                     successful_relays=("wss://relay.b",),
-                    failed_relays={"wss://relay.d": "rejected"},
+                    failed_relays={"wss://relay.a": "rejected"},
                 ),
             ]
         )
 
         assert successful_relays == ("wss://relay.a", "wss://relay.b")
         assert failed_relays == {
-            "wss://relay.c": "timeout",
-            "wss://relay.d": "rejected",
+            "wss://relay.a": "rejected",
+            "wss://relay.z": "timeout",
         }
+        assert list(failed_relays) == ["wss://relay.a", "wss://relay.z"]
 
 
 class TestNormalizeSendOutput:
     def test_normalizes_success_and_failure_relays(self) -> None:
         output = MagicMock()
         output.success = ["wss://relay.a", "wss://relay.b"]
-        output.failed = {"wss://relay.c": RuntimeError("boom")}
+        output.failed = {
+            "wss://relay.z": RuntimeError("boom"),
+            "wss://relay.a": RuntimeError("nope"),
+        }
 
         successful_relays, failed_relays = normalize_send_output(output)
 
         assert successful_relays == ("wss://relay.a", "wss://relay.b")
-        assert failed_relays == {"wss://relay.c": "boom"}
+        assert failed_relays == {
+            "wss://relay.a": "nope",
+            "wss://relay.z": "boom",
+        }
+        assert list(failed_relays) == ["wss://relay.a", "wss://relay.z"]
 
     def test_sorts_and_deduplicates_successful_relays(self) -> None:
         output = MagicMock()

@@ -895,3 +895,10 @@ Use this section during execution for:
     order the static registry dict happens to use;
   - added paired registry coverage that scrambles `NIP_REGISTRY` and proves
     service/capability lookups still emit the same stable order.
+- `2.1` models/utils/NIPs leaf audit, ninetieth remediation slice:
+  - tightened `bigbrotr.utils.protocol_publish` so `failed_relays` maps are
+    normalized to stable lexical relay-url order everywhere the publish layer
+    emits or aggregates relay-level outcomes;
+  - added paired publish coverage proving detailed results, aggregate
+    summaries, and raw send-output normalization no longer inherit failure-map
+    insertion order from the SDK or intermediate updates.
