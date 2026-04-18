@@ -310,6 +310,12 @@ class TestNip11InfoDataRetentionEntryParse:
         result = Nip11InfoDataRetentionEntry.parse(data)
         assert result == {}
 
+    def test_parse_preserves_explicit_empty_kinds(self):
+        """Explicit empty kinds list is preserved because the constructor accepts it."""
+        data = {"kinds": []}
+        result = Nip11InfoDataRetentionEntry.parse(data)
+        assert result == {"kinds": []}
+
 
 class TestNip11InfoDataRetentionEntryToDict:
     """Test Nip11InfoDataRetentionEntry.to_dict() method."""
@@ -422,6 +428,12 @@ class TestNip11InfoDataFeeEntryParse:
         data = {"amount": 100, "unit": "sats", "kinds": [3, 1, True, "two", 3]}
         result = Nip11InfoDataFeeEntry.parse(data)
         assert result == {"amount": 100, "unit": "sats", "kinds": [1, 3]}
+
+    def test_parse_preserves_explicit_empty_kinds(self):
+        """Explicit empty kinds list is preserved because the constructor accepts it."""
+        data = {"amount": 100, "unit": "sats", "kinds": []}
+        result = Nip11InfoDataFeeEntry.parse(data)
+        assert result == {"amount": 100, "unit": "sats", "kinds": []}
 
 
 class TestNip11InfoDataFeeEntryToDict:
@@ -544,6 +556,12 @@ class TestNip11InfoDataFeesParse:
         data = {"admission": [{"invalid": "data"}]}
         result = Nip11InfoDataFees.parse(data)
         assert "admission" not in result
+
+    def test_parse_preserves_explicit_empty_entry_lists(self):
+        """Explicit empty fee lists are preserved because the constructor accepts them."""
+        data = {"admission": []}
+        result = Nip11InfoDataFees.parse(data)
+        assert result == {"admission": []}
 
 
 class TestNip11InfoDataFeesRoundtrip:
@@ -726,6 +744,28 @@ class TestNip11InfoDataParse:
         ]
         assert result["fees"] == {"admission": [{"amount": 1000, "unit": "msats"}]}
 
+    def test_parse_preserves_explicit_empty_lists(self):
+        """Explicit empty lists survive the parse path when the model accepts them."""
+        data = {
+            "supported_nips": [],
+            "relay_countries": [],
+            "language_tags": [],
+            "tags": [],
+            "attributes": [],
+            "retention": [],
+            "fees": {"admission": []},
+        }
+        result = Nip11InfoData.parse(data)
+        assert result == {
+            "supported_nips": [],
+            "relay_countries": [],
+            "language_tags": [],
+            "tags": [],
+            "attributes": [],
+            "retention": [],
+            "fees": {"admission": []},
+        }
+
     def test_parse_filters_bools_from_supported_nips(self):
         """Bools are filtered from supported_nips."""
         data = {"supported_nips": [42, True, 11, False, 1, 42]}
@@ -798,6 +838,31 @@ class TestNip11InfoDataParse:
             "supported_nips[2]",
             "limitation.max_message_length",
         ]
+
+    def test_parse_report_does_not_flag_explicit_empty_lists_as_invalid(self):
+        """Canonical empty lists should not be reported as dropped invalid input."""
+        report = Nip11InfoData.parse_report(
+            {
+                "supported_nips": [],
+                "relay_countries": [],
+                "language_tags": [],
+                "tags": [],
+                "attributes": [],
+                "retention": [],
+                "fees": {"admission": []},
+            }
+        )
+
+        assert report.parsed == {
+            "supported_nips": [],
+            "relay_countries": [],
+            "language_tags": [],
+            "tags": [],
+            "attributes": [],
+            "retention": [],
+            "fees": {"admission": []},
+        }
+        assert report.issues == ()
 
 
 class TestNip11InfoDataFromDict:

@@ -75,6 +75,40 @@ def _unknown_field_issues(
     ]
 
 
+def _remove_exact_issue(
+    issues: list[ParseIssue],
+    *,
+    kind: str,
+    path: str,
+    detail: str,
+) -> None:
+    for index, issue in enumerate(issues):
+        if issue.kind == kind and issue.path == path and issue.detail == detail:
+            del issues[index]
+            return
+
+
+def _normalize_explicit_empty_string_lists(
+    data: dict[str, Any],
+    result: dict[str, Any],
+    issues: list[ParseIssue],
+    *,
+    path: str,
+) -> None:
+    for field_name in ("relay_countries", "language_tags", "tags", "attributes"):
+        field_path = join_parse_path(path, field_name)
+        if data.get(field_name) == [] and field_name not in result:
+            result[field_name] = []
+            _remove_exact_issue(
+                issues,
+                kind="invalid_value",
+                path=field_path,
+                detail="expected non-empty list[str]",
+            )
+        if field_name in result:
+            result[field_name] = sorted(set(result[field_name]))
+
+
 def _parse_strict_int_fields(
     data: dict[str, Any],
     field_names: tuple[str, ...],
@@ -113,6 +147,9 @@ def _parse_supported_nips(raw_nips: Any, *, path: str) -> tuple[list[int] | None
             )
         ]
 
+    if not raw_nips:
+        return [], issues
+
     nips: list[int] = []
     for index, value in enumerate(raw_nips):
         if isinstance(value, int) and not isinstance(value, bool):
@@ -128,14 +165,6 @@ def _parse_supported_nips(raw_nips: Any, *, path: str) -> tuple[list[int] | None
 
     if nips:
         return sorted(set(nips)), issues
-    if not raw_nips:
-        issues.append(
-            ParseIssue(
-                kind="invalid_value",
-                path=path,
-                detail="expected non-empty list[int]",
-            )
-        )
     return None, issues
 
 
@@ -152,6 +181,9 @@ def _parse_retention_kinds(
                 detail="expected list[int | [int, int]]",
             )
         ]
+
+    if not raw_kinds:
+        return [], []
 
     kinds: list[int | tuple[int, int]] = []
     issues: list[ParseIssue] = []
@@ -180,14 +212,6 @@ def _parse_retention_kinds(
 
     if kinds:
         return _normalize_retention_kinds(kinds), issues
-    if not raw_kinds:
-        issues.append(
-            ParseIssue(
-                kind="invalid_value",
-                path=path,
-                detail="expected non-empty list[int | [int, int]]",
-            )
-        )
     return None, issues
 
 
@@ -205,6 +229,9 @@ def _parse_retention_entries(
             )
         ]
 
+    if not raw_entries:
+        return [], []
+
     entries: list[dict[str, Any]] = []
     issues: list[ParseIssue] = []
     for index, entry in enumerate(raw_entries):
@@ -218,14 +245,6 @@ def _parse_retention_entries(
 
     if entries:
         return _normalize_retention_entries_order(entries), issues
-    if not raw_entries:
-        issues.append(
-            ParseIssue(
-                kind="invalid_value",
-                path=path,
-                detail="expected non-empty list[retention_entry]",
-            )
-        )
     return None, issues
 
 
@@ -491,11 +510,22 @@ class Nip11InfoDataFeeEntry(BaseData):
     def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
         """Parse a fee entry and normalize its kind scope."""
         report = super().parse_report(data, path=path)
-        if "kinds" not in report.parsed:
-            return report
         parsed = dict(report.parsed)
-        parsed["kinds"] = sorted(set(parsed["kinds"]))
-        return ParseReport(parsed=parsed, issues=report.issues)
+        issues = list(report.issues)
+
+        if isinstance(data, dict) and data.get("kinds") == [] and "kinds" not in parsed:
+            parsed["kinds"] = []
+            _remove_exact_issue(
+                issues,
+                kind="invalid_value",
+                path=join_parse_path(path, "kinds"),
+                detail="expected non-empty list[int]",
+            )
+
+        if "kinds" in parsed:
+            parsed["kinds"] = sorted(set(parsed["kinds"]))
+
+        return ParseReport(parsed=parsed, issues=tuple(issues))
 
 
 class Nip11InfoDataFees(BaseData):
@@ -579,13 +609,7 @@ class Nip11InfoDataFees(BaseData):
             if entries:
                 result[key] = _normalize_fee_entries_order(entries)
             elif not raw_entries:
-                issues.append(
-                    ParseIssue(
-                        kind="invalid_value",
-                        path=field_path,
-                        detail="expected non-empty list[fee_entry]",
-                    )
-                )
+                result[key] = []
 
         return ParseReport(parsed=result, issues=tuple(issues))
 
@@ -734,9 +758,7 @@ class Nip11InfoData(BaseData):
         result = dict(report.parsed)
         issues = list(report.issues)
 
-        for field_name in ("relay_countries", "language_tags", "tags", "attributes"):
-            if field_name in result:
-                result[field_name] = sorted(set(result[field_name]))
+        _normalize_explicit_empty_string_lists(data, result, issues, path=path)
 
         if "supported_nips" in data:
             supported_nips, supported_nips_issues = _parse_supported_nips(

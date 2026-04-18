@@ -386,6 +386,16 @@ Use this section during execution for:
     relying on a dead branch;
   - paired coverage now pins both the shared helper contract and the fact that
     the geo/net probes opt into timeout-preserving resolution.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twenty-second remediation
+  slice:
+  - `Nip11InfoData` and its nested fee/retention entry parsers now preserve
+    explicit empty lists that the constructor path already accepts, instead of
+    dropping them and emitting spurious `expected non-empty list[...]` issues;
+  - this closes a real parse-path vs model-path mismatch on `supported_nips`,
+    the set-like string lists, `retention`, fee category lists, and nested
+    `kinds` lists inside fee/retention entries;
+  - paired coverage now pins both outcomes: `parse()` keeps canonical empty
+    lists, and `parse_report()` no longer reports them as invalid dropped data.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package
