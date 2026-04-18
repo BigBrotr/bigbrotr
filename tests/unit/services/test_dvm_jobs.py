@@ -298,6 +298,45 @@ class TestProcessRequestEvent:
         assert query_resource.await_args.args[1].include_total is True
 
     @patch("bigbrotr.services.dvm.jobs.parse_job_params")
+    async def test_normalizes_whitespace_padded_keys_from_preparsed_job_params(
+        self,
+        mock_parse_job_params: MagicMock,
+        job_context: JobExecutionContext,
+    ) -> None:
+        event = _make_mock_event(event_id="job-preparsed-key-whitespace")
+        logger = MagicMock()
+        send_event = AsyncMock(return_value=(("wss://relay.example.com",), {}))
+        query_result = QueryResult(rows=[], total=1, limit=10, offset=0)
+        query_resource = AsyncMock(return_value=query_result)
+        mock_parse_job_params.return_value = {
+            " read_model ": " relays ",
+            " limit ": "10",
+            " include_total ": True,
+        }
+
+        result = await process_request_event(
+            event=event,
+            pubkey_hex="service-pubkey",
+            processed_ids=set(),
+            runtime=JobRuntime(
+                logger=logger,
+                send_event=send_event,
+                query_resource=query_resource,
+            ),
+            context=job_context,
+        )
+
+        assert result == (1, 1, 0, 0)
+        assert query_resource.await_args.args[1].limit == 10
+        assert query_resource.await_args.args[1].include_total is True
+        logger.info.assert_any_call(
+            "job_received",
+            event_id="job-preparsed-key-whitespace",
+            requested_read_model_id="relays",
+            customer="author_pubkey_hex",
+        )
+
+    @patch("bigbrotr.services.dvm.jobs.parse_job_params")
     async def test_rejects_non_string_read_model_from_preparsed_job_params(
         self,
         mock_parse_job_params: MagicMock,

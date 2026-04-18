@@ -18,6 +18,7 @@ from .utils import (
     build_error_event,
     build_payment_required_event,
     build_result_event,
+    normalize_job_params,
     parse_job_params,
     prepare_job_request,
 )
@@ -109,7 +110,7 @@ async def process_request_event(
         return 0, 0, 0, 0
 
     processed_ids.add(event_id)
-    params = parse_job_params(event)
+    params = normalize_job_params(parse_job_params(event))
     raw_requested_resource_id = params.get("read_model", "")
     requested_resource_id = (
         raw_requested_resource_id.strip()

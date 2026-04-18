@@ -1538,3 +1538,12 @@ Use this section during execution for:
   - added paired `services/common`, API, and DVM coverage proving oversized
     public offsets are rejected before query execution instead of degrading
     into an implicit `100000` offset at the catalog layer.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-nineteenth remediation slice:
+  - aligned the DVM pre-parsed request boundary with the already-normalized
+    tag-parsing path so whitespace-padded parameter keys like `" read_model "`
+    or `" limit "` no longer bypass shared validation and execution semantics
+    when job params are injected or patched before `parse_job_params`;
+  - added paired `dvm/utils` and `dvm/jobs` coverage proving the pre-parsed
+    path now resolves canonical query fields and request logging exactly like
+    the live `NIP-90` transport path instead of degrading to defaults or bogus
+    disabled-read-model errors.

@@ -108,7 +108,20 @@ def parse_job_params(event: Any) -> dict[str, Any]:
         elif len(values) >= _MIN_TAG_LEN and values[0] == "bid":
             with contextlib.suppress(ValueError):
                 params["bid"] = int(values[1])
-    return params
+    return normalize_job_params(params)
+
+
+def normalize_job_params(params: Mapping[Any, Any]) -> dict[str, Any]:
+    """Normalize pre-parsed NIP-90 parameter keys before shared validation."""
+    normalized: dict[str, Any] = {}
+    for raw_key, value in params.items():
+        if not isinstance(raw_key, str):
+            continue
+        key = raw_key.strip()
+        if not key:
+            continue
+        normalized[key] = value
+    return normalized
 
 
 def prepare_job_request(
@@ -118,6 +131,7 @@ def prepare_job_request(
     context: JobPreparationContext,
 ) -> PreparedJobRequest | RejectedJobRequest:
     """Resolve exposure, pricing, and query parsing for one NIP-90 job request."""
+    params = normalize_job_params(params)
     requested_resource_id = (
         requested_resource_id.strip()
         if isinstance(requested_resource_id, str)

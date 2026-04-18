@@ -514,6 +514,24 @@ class TestPrepareJobRequest:
         assert rejected.error_message == "Invalid limit or offset value"
         assert rejected.required_price is None
 
+    def test_normalizes_whitespace_padded_preparsed_query_keys(
+        self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
+    ) -> None:
+        prepared = prepare_job_request(
+            "relays",
+            {" limit ": "5", " include_total ": True},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(prepared, PreparedJobRequest)
+        assert prepared.query.limit == 5
+        assert prepared.query.include_total is True
+
 
 # ============================================================================
 # Lifecycle
