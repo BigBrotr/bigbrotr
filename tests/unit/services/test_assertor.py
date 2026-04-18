@@ -524,9 +524,6 @@ class TestAssertorPublishUserFlow:
             "post_count": post_count,
             "reply_count": 0,
             "reaction_count_recd": 0,
-            "reaction_count_sent": 0,
-            "repost_count_recd": 0,
-            "repost_count_sent": 0,
             "report_count_recd": 0,
             "report_count_sent": 0,
             "zap_count_recd": 0,
@@ -538,7 +535,6 @@ class TestAssertorPublishUserFlow:
             "activity_hours": [0] * 24,
             "topic_counts": {},
             "follower_count": 0,
-            "following_count": 0,
         }
 
     @patch("bigbrotr.services.assertor.service.broadcast_events", new_callable=AsyncMock)
@@ -733,9 +729,6 @@ class TestAssertorCheckpointNamespacing:
                 "post_count": 10,
                 "reply_count": 0,
                 "reaction_count_recd": 0,
-                "reaction_count_sent": 0,
-                "repost_count_recd": 0,
-                "repost_count_sent": 0,
                 "report_count_recd": 0,
                 "report_count_sent": 0,
                 "zap_count_recd": 0,
@@ -747,7 +740,6 @@ class TestAssertorCheckpointNamespacing:
                 "activity_hours": [0] * 24,
                 "topic_counts": {},
                 "follower_count": 0,
-                "following_count": 0,
             }
         ]
         mock_broadcast.return_value = _broadcast_results()
@@ -868,9 +860,6 @@ class TestAssertorCheckpointNamespacing:
                 "post_count": 10,
                 "reply_count": 0,
                 "reaction_count_recd": 0,
-                "reaction_count_sent": 0,
-                "repost_count_recd": 0,
-                "repost_count_sent": 0,
                 "report_count_recd": 0,
                 "report_count_sent": 0,
                 "zap_count_recd": 0,
@@ -882,7 +871,6 @@ class TestAssertorCheckpointNamespacing:
                 "activity_hours": [0] * 24,
                 "topic_counts": {},
                 "follower_count": 0,
-                "following_count": 0,
             }
         ]
         mock_fetch_event.return_value = [

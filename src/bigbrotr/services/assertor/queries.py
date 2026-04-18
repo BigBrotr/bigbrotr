@@ -20,10 +20,7 @@ SELECT
     s.score AS score,
     n.post_count,
     n.reply_count,
-    n.reaction_count_sent,
     n.reaction_count_recd,
-    n.repost_count_sent,
-    n.repost_count_recd,
     n.report_count_sent,
     n.report_count_recd,
     n.zap_count_sent,
@@ -34,7 +31,6 @@ SELECT
     n.activity_hours,
     n.topic_counts,
     n.follower_count,
-    n.following_count,
     ps.last_event_created_at AS last_event_at
 FROM nip85_pubkey_stats AS n
 INNER JOIN pubkey_stats AS ps ON n.pubkey = ps.pubkey

@@ -239,9 +239,6 @@ class TestUserAssertionFromDbRow:
             "post_count": 100,
             "reply_count": 20,
             "reaction_count_recd": 50,
-            "reaction_count_sent": 30,
-            "repost_count_recd": 5,
-            "repost_count_sent": 3,
             "report_count_recd": 1,
             "report_count_sent": 2,
             "zap_count_recd": 10,
@@ -253,14 +250,12 @@ class TestUserAssertionFromDbRow:
             "activity_hours": list(range(24)),
             "topic_counts": {"bitcoin": 50, "nostr": 30, "lightning": 10},
             "follower_count": 200,
-            "following_count": 150,
         }
         a = UserAssertion.from_db_row(row)
         assert a.post_count == 100
         assert a.zap_amount_recd_msats == 500000
         assert a.zap_amount_recd_sats == 500
         assert a.follower_count == 200
-        assert a.following_count == 150
         assert a.top_topics == ("bitcoin", "nostr", "lightning")
 
     def test_topic_limit(self) -> None:

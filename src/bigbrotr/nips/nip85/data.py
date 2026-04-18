@@ -45,9 +45,6 @@ _USER_ASSERTION_INT_FIELDS = (
     "post_count",
     "reply_count",
     "reaction_count_recd",
-    "reaction_count_sent",
-    "repost_count_recd",
-    "repost_count_sent",
     "report_count_recd",
     "report_count_sent",
     "zap_count_recd",
@@ -55,7 +52,6 @@ _USER_ASSERTION_INT_FIELDS = (
     "zap_amount_recd_msats",
     "zap_amount_sent_msats",
     "follower_count",
-    "following_count",
 )
 _EVENT_ASSERTION_INT_FIELDS = (
     "score",
@@ -327,9 +323,6 @@ class UserAssertion:
         post_count: Total kind=1 events authored.
         reply_count: Kind=1 events with an ``e`` tag (replies).
         reaction_count_recd: Kind=7 events with tag ``p=pubkey``.
-        reaction_count_sent: Kind=7 events authored.
-        repost_count_recd: Kind=6 events targeting this pubkey's events.
-        repost_count_sent: Kind=6 events authored.
         report_count_recd: Kind=1984 events with tag ``p=pubkey``.
         report_count_sent: Kind=1984 events authored.
         zap_count_recd: Bolt11-verified kind=9735 zap receipts received.
@@ -342,7 +335,6 @@ class UserAssertion:
         top_topics: Most frequent ``t``-tag topics, descending by count with
             lexical tie-breaking for stable output.
         follower_count: Pubkeys whose latest kind=3 contains tag ``p=pubkey``.
-        following_count: Number of ``p`` tags in this pubkey's latest kind=3.
     """
 
     pubkey: str
@@ -350,9 +342,6 @@ class UserAssertion:
     post_count: int = 0
     reply_count: int = 0
     reaction_count_recd: int = 0
-    reaction_count_sent: int = 0
-    repost_count_recd: int = 0
-    repost_count_sent: int = 0
     report_count_recd: int = 0
     report_count_sent: int = 0
     zap_count_recd: int = 0
@@ -364,7 +353,6 @@ class UserAssertion:
     activity_hours: tuple[int, ...] = field(default_factory=lambda: (0,) * 24)
     top_topics: tuple[str, ...] = ()
     follower_count: int = 0
-    following_count: int = 0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "pubkey", _require_hex32_text(self.pubkey, "pubkey"))
@@ -468,9 +456,6 @@ class UserAssertion:
             post_count=_metric_from_row(row, "post_count"),
             reply_count=_metric_from_row(row, "reply_count"),
             reaction_count_recd=_metric_from_row(row, "reaction_count_recd"),
-            reaction_count_sent=_metric_from_row(row, "reaction_count_sent"),
-            repost_count_recd=_metric_from_row(row, "repost_count_recd"),
-            repost_count_sent=_metric_from_row(row, "repost_count_sent"),
             report_count_recd=_metric_from_row(row, "report_count_recd"),
             report_count_sent=_metric_from_row(row, "report_count_sent"),
             zap_count_recd=_metric_from_row(row, "zap_count_recd"),
@@ -490,7 +475,6 @@ class UserAssertion:
             activity_hours=hours,
             top_topics=tuple(t[0] for t in sorted_topics[:top_n]),
             follower_count=_metric_from_row(row, "follower_count"),
-            following_count=_metric_from_row(row, "following_count"),
         )
 
 

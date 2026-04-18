@@ -1413,3 +1413,11 @@ Use this section during execution for:
   - added paired Assertor coverage proving duplicate or reordered declaration
     helper output no longer triggers a spurious trusted-provider-list publish
     when the emitted public event would be unchanged.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fourth remediation slice:
+  - narrowed the live `NIP-85` user-assertion payload boundary so
+    `UserAssertion` and the Assertor user query no longer carry dead fact-table
+    fields (`reaction_count_sent`, `repost_count_recd`, `repost_count_sent`,
+    `following_count`) that never reach public tags or change detection;
+  - aligned paired data-model and Assertor fixtures with the stricter boundary
+    so the `30382` publication surface now reflects only the metrics the
+    provider package actually emits.
