@@ -7,7 +7,7 @@ Shared service-layer infrastructure used by multiple runtime services.
 - `catalog*.py`: schema discovery, query planning, and safe execution for the
   read side.
 - `read_models.py`, `read_model_registry.py`, `read_model_requests.py`:
-  `ReadCore`, readable-resource registry, and compatibility seams.
+  `ReadCore`, readable-resource registry, and stable transport-query helpers.
 - `configs.py`, `paging.py`, `mixins.py`, `state_store.py`: shared config,
   bounded traversal helpers, concurrency mixins, and service-state access.
 - `discovery_queries.py`, `types.py`, `utils.py`: shared query and helper

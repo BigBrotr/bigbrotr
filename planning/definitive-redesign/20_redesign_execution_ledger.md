@@ -67,10 +67,10 @@ Execution baseline:
 | 4. Shared derivation and maintenance pipeline alignment | done | `Refresher` ownership, source-watermark checkpointing, bounded incremental windows, and backlog reporting are all closed |
 | 5. Service-boundary alignment | done | `Monitor`, offline `Refresher` ownership, `Assertor` package-complete publication, and `Ranker` boundary hardening are all closed |
 | 6. Score/output and NIP capability alignment | done | The static capability registry, NIP-85 builder/publication alignment, and score-vocabulary sweep are all closed |
-| 7. Protocol-agnostic read-core implementation | done | The readable-resource contract layer and shared `ReadCore` are now fully in place above the historical read-model seam: both API and DVM target `ReadCore` directly, resource-level pagination/filter/sort capabilities are now enforced by the core itself, and the remaining `ReadModelSurface` wrapper is an explicit thin compatibility layer rather than a parallel execution path |
+| 7. Protocol-agnostic read-core implementation | done | The readable-resource contract layer and shared `ReadCore` are now fully in place above the historical read-model seam: both API and DVM target `ReadCore` directly, resource-level pagination/filter/sort capabilities are enforced by the core itself, and the temporary `ReadModelSurface` wrapper introduced during migration was later removed in `10.2 Compatibility-cruft removal` |
 | 8. Deployment-contract normalization | done | The built-in deployment-folder contract, storage-profile contract, per-protocol exposure-policy contract, and reference-deployment local operator guidance are now all normalized in code/docs |
 | 9. Repository-wide documentation rewrite | done | In-code/public API docs, MkDocs IA rewrite, folder-level local README coverage, deployment/operator/contributor guides, and the final reference-alignment pass are all closed |
-| 10. Final cleanup, rename sweep, and closeout audit | in progress | The residual-name sweep is closed; compatibility-shim removal, final architecture audit, and release-readiness verification remain |
+| 10. Final cleanup, rename sweep, and closeout audit | in progress | The residual-name sweep and compatibility-cruft removal are closed; the final architecture audit and release-readiness verification remain |
 
 ---
 
@@ -172,7 +172,7 @@ Execution baseline:
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
 | 10.1 Residual-name sweep | done | `refactor: sweep residual read-resource naming` | Removed the remaining legacy read-model vocabulary from internal live code paths without breaking the stable public transport seam: the API handler module moved from `read_models.py` to `readable_resources.py`, internal adapter helpers and route-registration functions now speak in terms of resources, DVM job/result carrier objects and logs now use `resource` / `resource_id` naming internally while preserving the public `read_model` request/result fields, and the adapter observability surface now reports `readable_resources_exposed` instead of `read_models_exposed`, with Grafana dashboards and touched docs/tests aligned to match. Closure audit also fixed the tranche-name drift in this ledger itself so Tranche 10 now matches the operational plan (`10.1 Residual-name sweep`, `10.2 Compatibility-cruft removal`). Targeted `ruff` plus API/DVM unit suites (`172 passed`), targeted `markdownlint`/`codespell`, `mkdocs build --strict`, full `make ci` (`3319 passed`), and `uv lock --check` all passed before closure |
-| 10.2 Compatibility-cruft removal | not started | | |
+| 10.2 Compatibility-cruft removal | done | `refactor: remove shared read-side compatibility shims` | Removed the temporary shared read-side migration shims that were surviving only to avoid touching callers: `ReadModelSurface`, `READ_MODEL_REGISTRY`, `ReadModelEntry`, `normalize_read_model_policies`, `read_models_for_surface`, and the `resolve_surface_read_model*` helpers are gone from `services/common`, `ReadableResourceEntry` now uses the honest `resource_id` field directly, and `configs.py`, common docs, and the shared read-core tests now target only the canonical readable-resource contract. The stable public transport seam intentionally remains where it belongs: `read_models` YAML keys, `/read-models`, `read_model` request params, and `build_read_model_meta()`. Targeted `ruff` and shared/API/DVM unit suites (`223 passed`), targeted ledger/docs `markdownlint`/`codespell`, `mkdocs build --strict`, full `make ci`, and `uv lock --check` all passed before closure |
 | 10.3 Final repository-wide design-hygiene audit | not started | | |
 | 10.4 Final verification and release-readiness gate | not started | | |
 
@@ -227,11 +227,11 @@ Each entry should include:
 - Classification: closed follow-up
 
 - Originating work package: `7.2 Shared read-core evolution from current read-model stack`
-- Follow-up status: resolved in `7.5 Read-core boundedness and contract audit`
+- Follow-up status: resolved in `10.2 Compatibility-cruft removal`
 - Outcome: both protocol adapters now target `ReadCore` as their primary local
-  abstraction; the historical `ReadModelSurface` remains only as an
-  intentional thin compatibility wrapper, and `7.5` closed the remaining
-  tranche-wide audit by moving boundedness enforcement into `ReadCore` itself
+  abstraction; the temporary `ReadModelSurface` wrapper and the registry alias
+  seam were later removed entirely, leaving `ReadCore` plus the canonical
+  readable-resource registry as the only shared execution path
 - Classification: closed follow-up
 
 - Originating work package: `8.2 Storage-profile normalization`
@@ -241,21 +241,17 @@ Each entry should include:
 - Why deferred: `testbrotr` is not part of the built-in deployable set and the
   current slice focused on formalizing the real `bigbrotr` / `lilbrotr`
   storage-profile axis without widening into test-fixture deployment cleanup
-- Future tranche: absorb during `8.4 Reference-deployment cleanup` or `10.2
-  Dead-code and stale-shape sweep`
+- Future tranche: absorb during a later repository/tooling cleanup pass after
+  the redesign closeout if it still matters
 - Classification: improvement / watch point, not blocker
 
 - Originating work package: `10.1 Residual-name sweep`
-- Deferred item: the shared read-side compatibility wrappers and aliases
-  (`ReadModelSurface`, `READ_MODEL_REGISTRY`, `ReadModelEntry`, and the
-  `resolve_surface_read_model*` / `read_models_for_surface` helpers) remain in
-  `services/common` even though API and DVM are already fully on `ReadCore`
-- Why deferred: this slice intentionally limited itself to residual naming
-  drift in live code paths, adapter internals, and operator-facing metrics so
-  the true compatibility-shim removal could stay isolated in the next work
-  package
-- Future tranche: absorb in `10.2 Compatibility-cruft removal`
-- Classification: planned follow-up / not blocker
+- Follow-up status: resolved in `10.2 Compatibility-cruft removal`
+- Outcome: the shared read-side compatibility wrappers and aliases are gone;
+  API and DVM now sit directly on `ReadCore` plus the canonical
+  readable-resource registry without a parallel compatibility layer surviving
+  in `services/common`
+- Classification: closed follow-up
 
 ---
 

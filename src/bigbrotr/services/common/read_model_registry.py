@@ -1,4 +1,4 @@
-"""Readable-resource registry with compatibility helpers for public adapters."""
+"""Readable-resource registry for the shared public read core."""
 
 from __future__ import annotations
 
@@ -28,9 +28,6 @@ ReadableResourceGetByPkHandler = Callable[
     ["Brotr", "Catalog", "ReadableResourceEntry", dict[str, str]],
     Awaitable[dict[str, Any] | None],
 ]
-ReadModelSchemaHandler = ReadableResourceSchemaHandler
-ReadModelQueryHandler = ReadableResourceQueryHandler
-ReadModelGetByPkHandler = ReadableResourceGetByPkHandler
 
 
 def _catalog_schema_handler(catalog: Catalog, resource: ReadableResourceEntry) -> TableSchema:
@@ -87,11 +84,11 @@ class ReadableResourceEntry:
     """One readable resource exposed by one or more public adapter surfaces.
 
     This descriptor is the canonical internal contract for the read side. The
-    public HTTP and NIP-90 transports still expose historical ``read model``
-    identifiers, so compatibility aliases remain part of the API for now.
+    Public HTTP and NIP-90 transports still expose historical ``read_model``
+    identifiers, but the canonical shared descriptor is resource-oriented.
     """
 
-    read_model_id: str
+    resource_id: str
     catalog_name: str
     semantic_name: str = ""
     surfaces: tuple[ReadSurface, ...] = ("api", "dvm")
@@ -107,11 +104,6 @@ class ReadableResourceEntry:
     schema_handler: ReadableResourceSchemaHandler = _catalog_schema_handler
     query_handler: ReadableResourceQueryHandler = _catalog_query_handler
     get_by_pk_handler: ReadableResourceGetByPkHandler = _catalog_get_by_pk_handler
-
-    @property
-    def resource_id(self) -> str:
-        """Return the stable readable-resource ID."""
-        return self.read_model_id
 
     @property
     def relation_name(self) -> str:
@@ -269,9 +261,6 @@ class ReadableResourceEntry:
         return await self.get_by_pk_handler(brotr, catalog, self, pk_values)
 
 
-ReadModelEntry = ReadableResourceEntry
-
-
 def _catalog_readable_resource(
     resource_id: str,
     relation_name: str,
@@ -281,7 +270,7 @@ def _catalog_readable_resource(
 ) -> ReadableResourceEntry:
     """Build one relation-backed readable-resource entry."""
     return ReadableResourceEntry(
-        read_model_id=resource_id,
+        resource_id=resource_id,
         catalog_name=relation_name,
         semantic_name=semantic_name or _default_semantic_name(resource_id),
         surfaces=surfaces,
@@ -383,8 +372,6 @@ READABLE_RESOURCE_REGISTRY: dict[str, ReadableResourceEntry] = {
         semantic_name="NIP-85 identifier stats",
     ),
 }
-READ_MODEL_REGISTRY = READABLE_RESOURCE_REGISTRY
-
 READABLE_RESOURCES_BY_SURFACE: dict[ReadSurface, dict[str, ReadableResourceEntry]] = {
     surface: {
         resource_id: entry
@@ -393,7 +380,6 @@ READABLE_RESOURCES_BY_SURFACE: dict[ReadSurface, dict[str, ReadableResourceEntry
     }
     for surface in _READ_SURFACES
 }
-READ_MODELS_BY_SURFACE = READABLE_RESOURCES_BY_SURFACE
 
 
 def normalize_readable_resource_policies(
@@ -417,23 +403,9 @@ def normalize_readable_resource_policies(
     return normalized
 
 
-def normalize_read_model_policies(
-    policies: Mapping[str, ReadModelPolicy],
-    *,
-    surface: ReadSurface,
-) -> dict[str, ReadModelPolicy]:
-    """Compatibility wrapper over readable-resource policy validation."""
-    return normalize_readable_resource_policies(policies, surface=surface)
-
-
 def readable_resources_for_surface(surface: ReadSurface) -> dict[str, ReadableResourceEntry]:
     """Return the readable resources exposed by one public surface."""
     return dict(READABLE_RESOURCES_BY_SURFACE[surface])
-
-
-def read_models_for_surface(surface: ReadSurface) -> dict[str, ReadModelEntry]:
-    """Compatibility wrapper returning the readable resources for one surface."""
-    return readable_resources_for_surface(surface)
 
 
 def resolve_surface_readable_resources(
@@ -451,20 +423,6 @@ def resolve_surface_readable_resources(
     }
 
 
-def resolve_surface_read_models(
-    surface: ReadSurface,
-    *,
-    policies: Mapping[str, ReadModelPolicy],
-    available_catalog_names: set[str],
-) -> dict[str, ReadModelEntry]:
-    """Compatibility wrapper resolving enabled readable resources."""
-    return resolve_surface_readable_resources(
-        surface,
-        policies=policies,
-        available_catalog_names=available_catalog_names,
-    )
-
-
 def resolve_surface_readable_resource(
     surface: ReadSurface,
     *,
@@ -480,22 +438,6 @@ def resolve_surface_readable_resource(
     ).get(name)
 
 
-def resolve_surface_read_model(
-    surface: ReadSurface,
-    *,
-    name: str,
-    policies: Mapping[str, ReadModelPolicy],
-    available_catalog_names: set[str],
-) -> ReadModelEntry | None:
-    """Compatibility wrapper for resolving one enabled readable resource."""
-    return resolve_surface_readable_resource(
-        surface,
-        name=name,
-        policies=policies,
-        available_catalog_names=available_catalog_names,
-    )
-
-
 def resolve_surface_readable_resource_names(
     surface: ReadSurface,
     *,
@@ -509,18 +451,4 @@ def resolve_surface_readable_resource_names(
             policies=policies,
             available_catalog_names=available_catalog_names,
         )
-    )
-
-
-def resolve_surface_read_model_names(
-    surface: ReadSurface,
-    *,
-    policies: Mapping[str, ReadModelPolicy],
-    available_catalog_names: set[str],
-) -> list[str]:
-    """Compatibility wrapper for enabled readable-resource IDs."""
-    return resolve_surface_readable_resource_names(
-        surface,
-        policies=policies,
-        available_catalog_names=available_catalog_names,
     )

@@ -451,7 +451,7 @@ Configuration classes inherit from `BaseServiceConfig` which provides:
 | `mixins.py` | `ConcurrentStreamMixin`, `NetworkSemaphoresMixin` — shared concurrency helpers |
 | `catalog.py` | Schema discovery and safe query engine used by the shared read core |
 | `configs.py` | Per-network and adapter exposure-policy Pydantic config models |
-| `read_models.py` | `ReadCore`, readable-resource registry, and compatibility wrappers for API/DVM |
+| `read_models.py` | `ReadCore`, readable-resource registry, and stable transport-query helpers for API/DVM |
 
 **Common Query Utilities** (`common/discovery_queries.py`, `common/utils.py`):
 
@@ -656,7 +656,9 @@ Services use mixins from `services/common/mixins.py` to compose shared behavior:
 - `GeoReaders` -- GeoIP database lifecycle helper owned by Monitor
 - `RelayClients` -- managed pool of Nostr clients for Monitor event broadcasting
 - `ReadCore` -- protocol-agnostic readable-resource execution boundary
-- `ReadModelSurface` -- compatibility wrapper that preserves the historical transport seam for Api and Dvm
+
+The stable `read_model` transport seam now lives only in adapter-facing
+request parsing and response metadata helpers, not in a parallel shared wrapper.
 
 ### Content-Addressed Deduplication
 

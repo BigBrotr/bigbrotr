@@ -168,9 +168,11 @@ def normalize_protocol_exposure_policy(
     surface: str,
 ) -> dict[str, ReadModelPolicy]:
     """Validate one adapter-local exposure policy against canonical resource IDs."""
-    from bigbrotr.services.common.read_models import normalize_read_model_policies  # noqa: PLC0415
+    from bigbrotr.services.common.read_models import (  # noqa: PLC0415
+        normalize_readable_resource_policies,
+    )
 
-    return normalize_read_model_policies(policies, surface=cast("ReadSurface", surface))
+    return normalize_readable_resource_policies(policies, surface=cast("ReadSurface", surface))
 
 
 class PublicReadAdapterConfig(BaseServiceConfig):

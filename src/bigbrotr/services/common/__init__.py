@@ -19,7 +19,7 @@ Attributes:
     paging: Keyset-pagination helpers for bounded page scans in service
         query modules.
     read_models: Shared read core, readable-resource registry, and
-        compatibility helpers for the current API and DVM adapter contracts.
+        stable transport-query helpers used by the public adapters.
     discovery_queries: Seeder/Finder candidate-registration helpers.
 
 See Also:
