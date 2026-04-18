@@ -6,6 +6,7 @@ Covers configuration models, database queries, utility functions, and service lo
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -334,6 +335,80 @@ class TestFetchCandidates:
         result = await fetch_candidates(query_brotr, [NetworkType.CLEARNET], 0, 50)
         assert len(result) == 1
 
+    async def test_skips_invalid_relay_keys(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "state_key": "not-a-relay",
+                        "state_value": {
+                            "failures": 0,
+                            "network": "clearnet",
+                            "timestamp": 0,
+                        },
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://good.com",
+                        "state_value": {
+                            "failures": 0,
+                            "network": "clearnet",
+                            "timestamp": 0,
+                        },
+                    }
+                ),
+            ]
+        )
+
+        result = await fetch_candidates(query_brotr, [NetworkType.CLEARNET], 0, 50)
+
+        assert result == [
+            CandidateCheckpoint(
+                key="wss://good.com",
+                timestamp=0,
+                network=NetworkType.CLEARNET,
+                failures=0,
+            )
+        ]
+
+    async def test_skips_mismatched_relay_networks(self, query_brotr: MagicMock) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "state_key": f"ws://{'a' * 56}.onion",
+                        "state_value": {
+                            "failures": 0,
+                            "network": "clearnet",
+                            "timestamp": 0,
+                        },
+                    }
+                ),
+                _row(
+                    {
+                        "state_key": "wss://good.com",
+                        "state_value": {
+                            "failures": 0,
+                            "network": "clearnet",
+                            "timestamp": 0,
+                        },
+                    }
+                ),
+            ]
+        )
+
+        result = await fetch_candidates(query_brotr, [NetworkType.CLEARNET], 0, 50)
+
+        assert result == [
+            CandidateCheckpoint(
+                key="wss://good.com",
+                timestamp=0,
+                network=NetworkType.CLEARNET,
+                failures=0,
+            )
+        ]
+
     async def test_skips_invalid_typed_payloads(self, query_brotr: MagicMock) -> None:
         query_brotr.fetch = AsyncMock(
             return_value=[
@@ -352,7 +427,7 @@ class TestFetchCandidates:
                         "state_key": "wss://good.com",
                         "state_value": {
                             "failures": 1,
-                            "network": "tor",
+                            "network": "clearnet",
                             "timestamp": 2,
                         },
                     }
@@ -371,7 +446,7 @@ class TestFetchCandidates:
             CandidateCheckpoint(
                 key="wss://good.com",
                 timestamp=2,
-                network=NetworkType.TOR,
+                network=NetworkType.CLEARNET,
                 failures=1,
             )
         ]
@@ -411,7 +486,7 @@ class TestFetchCandidates:
                         "state_key": "wss://good.com",
                         "state_value": {
                             "failures": 1,
-                            "network": "tor",
+                            "network": "clearnet",
                             "timestamp": 2,
                         },
                     }
@@ -430,7 +505,7 @@ class TestFetchCandidates:
             CandidateCheckpoint(
                 key="wss://good.com",
                 timestamp=2,
-                network=NetworkType.TOR,
+                network=NetworkType.CLEARNET,
                 failures=1,
             )
         ]
@@ -463,7 +538,7 @@ class TestFetchCandidates:
                         "state_key": "wss://good.com",
                         "state_value": {
                             "failures": 1,
-                            "network": "tor",
+                            "network": "clearnet",
                             "timestamp": 2,
                         },
                     }
@@ -482,7 +557,7 @@ class TestFetchCandidates:
             CandidateCheckpoint(
                 key="wss://good.com",
                 timestamp=2,
-                network=NetworkType.TOR,
+                network=NetworkType.CLEARNET,
                 failures=1,
             )
         ]
@@ -567,7 +642,10 @@ class TestFailCandidates:
 
     async def test_preserves_network(self, query_brotr: MagicMock) -> None:
         query_brotr.upsert_service_state = AsyncMock(return_value=1)
-        await fail_candidates(query_brotr, [_candidate(network=NetworkType.TOR)])
+        await fail_candidates(
+            query_brotr,
+            [_candidate(url=f"ws://{'a' * 56}.onion", network=NetworkType.TOR)],
+        )
         records = query_brotr.upsert_service_state.call_args[0][0]
         assert records[0].state_value["network"] == "tor"
 
@@ -943,7 +1021,7 @@ class TestValidationWorker:
 
     async def test_unknown_network_returns_false(self, validator_brotr: Brotr) -> None:
         v = Validator(validator_brotr)
-        c = _candidate(network=NetworkType.UNKNOWN)
+        c = SimpleNamespace(key="wss://relay.example.com", network=NetworkType.UNKNOWN)
         results = [r async for r in v._validate_worker(c)]
         assert results == [(c, False)]
 

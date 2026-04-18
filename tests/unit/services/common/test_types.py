@@ -149,6 +149,52 @@ class TestCandidateCheckpoint:
         with pytest.raises(FrozenInstanceError):
             candidate.network = NetworkType.TOR  # type: ignore[misc]
 
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            (
+                {
+                    "key": "not-a-relay",
+                    "timestamp": 1700000000,
+                    "network": NetworkType.CLEARNET,
+                },
+                "canonical form|invalid|scheme",
+            ),
+            (
+                {
+                    "key": f"ws://{'a' * 56}.onion",
+                    "timestamp": 1700000000,
+                    "network": NetworkType.CLEARNET,
+                },
+                "candidate network",
+            ),
+            (
+                {
+                    "key": "wss://relay.example.com",
+                    "timestamp": -1,
+                    "network": NetworkType.CLEARNET,
+                },
+                "timestamp must be a non-negative integer",
+            ),
+            (
+                {
+                    "key": "wss://relay.example.com",
+                    "timestamp": 1700000000,
+                    "network": NetworkType.CLEARNET,
+                    "failures": -1,
+                },
+                "failures must be a non-negative integer",
+            ),
+        ],
+    )
+    def test_rejects_invalid_runtime_contracts(
+        self,
+        kwargs: dict[str, object],
+        match: str,
+    ) -> None:
+        with pytest.raises((TypeError, ValueError), match=match):
+            CandidateCheckpoint(**kwargs)  # type: ignore[arg-type]
+
 
 # ============================================================================
 # Cursor Tests

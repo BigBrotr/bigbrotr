@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from bigbrotr.models.constants import ServiceName
+from bigbrotr.models.constants import NetworkType, ServiceName
 from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.common.discovery_queries import insert_relays_as_candidates
 
@@ -42,10 +42,13 @@ def query_brotr() -> MagicMock:
 # ============================================================================
 
 
-def _mock_relay(url: str = "wss://relay.example.com", network: str = "clearnet") -> MagicMock:
+def _mock_relay(
+    url: str = "wss://relay.example.com",
+    network: NetworkType = NetworkType.CLEARNET,
+) -> MagicMock:
     relay = MagicMock()
     relay.url = url
-    relay.network = MagicMock(value=network)
+    relay.network = network
     return relay
 
 

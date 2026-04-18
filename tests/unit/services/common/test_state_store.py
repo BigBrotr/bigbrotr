@@ -55,12 +55,12 @@ class TestPayloadCodecs:
 
     def test_candidate_from_payload(self) -> None:
         candidate = ServiceStateStore.decode_candidate(
-            "wss://relay.example.com",
+            f"ws://{'a' * 56}.onion",
             {"timestamp": 789, "network": "tor", "failures": 3},
         )
 
         assert candidate == CandidateCheckpoint(
-            key="wss://relay.example.com",
+            key=f"ws://{'a' * 56}.onion",
             timestamp=789,
             network=NetworkType.TOR,
             failures=3,

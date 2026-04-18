@@ -19,11 +19,9 @@ Each ``ServiceStateType`` has a corresponding typed class:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
-
-if TYPE_CHECKING:
-    from bigbrotr.models.constants import NetworkType
+from bigbrotr.models import Relay
+from bigbrotr.models.constants import NetworkType
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +98,29 @@ class CandidateCheckpoint(Checkpoint):
 
     network: NetworkType
     failures: int = 0
+
+    def __post_init__(self) -> None:
+        relay = Relay(self.key)
+        if (
+            not isinstance(self.timestamp, int)
+            or isinstance(self.timestamp, bool)
+            or self.timestamp < 0
+        ):
+            raise ValueError("timestamp must be a non-negative integer")
+        if (
+            not isinstance(self.failures, int)
+            or isinstance(self.failures, bool)
+            or self.failures < 0
+        ):
+            raise ValueError("failures must be a non-negative integer")
+        if not isinstance(self.network, NetworkType):
+            raise TypeError("network must be a NetworkType")
+        if relay.network != self.network:
+            raise ValueError(
+                "candidate network "
+                f"{self.network.value!r} does not match relay URL network "
+                f"{relay.network.value!r}"
+            )
 
 
 @dataclass(frozen=True, slots=True)

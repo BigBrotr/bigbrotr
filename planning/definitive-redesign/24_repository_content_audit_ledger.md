@@ -1832,3 +1832,14 @@ Use this section during execution for:
   - added paired `services/common` and `validator` coverage proving negative
     candidate numerics are rejected by typed hydration and skipped by the
     shared validator fetch path before retry ordering begins.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fiftieth remediation
+  slice:
+  - tightened the shared `CandidateCheckpoint` constructor boundary so
+    invalid relay keys, non-canonical relay URLs, network/key mismatches, and
+    impossible direct-construction numerics no longer survive until the
+    validator worker path, which previously let malformed candidate state pick
+    the wrong routing/proxy behavior before failing late;
+  - added paired `services/common` and `validator` coverage proving direct
+    candidate construction now enforces the real relay contract, and that the
+    shared validator fetch path skips both malformed relay keys and
+    network-mismatched candidate rows before validation scheduling begins.
