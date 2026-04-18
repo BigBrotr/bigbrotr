@@ -167,13 +167,14 @@ async def persist_api_discovery_results(
     context: ApiDiscoveryPersistenceContext,
 ) -> int:
     """Persist one API discovery cycle and clear its in-memory state."""
+    relays_batch = list(buffer)
+    found = await context.insert_relays_fn(context.brotr, relays_batch)
+    context.set_gauge("candidates_found_from_api", found)
+    buffer.clear()
+
     if pending_checkpoints:
         checkpoints_batch = list(pending_checkpoints)
         await context.upsert_api_checkpoints_fn(context.brotr, checkpoints_batch)
         pending_checkpoints.clear()
 
-    relays_batch = list(buffer)
-    found = await context.insert_relays_fn(context.brotr, relays_batch)
-    context.set_gauge("candidates_found_from_api", found)
-    buffer.clear()
     return found

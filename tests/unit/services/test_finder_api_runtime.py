@@ -117,8 +117,15 @@ class TestPersistApiDiscoveryResults:
         checkpoint = ApiCheckpoint(key="https://api.example.com", timestamp=123)
         buffer = [relay]
         pending_checkpoints = [checkpoint]
-        upsert = AsyncMock()
-        insert_relays = AsyncMock(return_value=1)
+        calls: list[str] = []
+
+        async def upsert(*args: object) -> None:
+            calls.append("upsert")
+
+        async def insert_relays(*args: object) -> int:
+            calls.append("insert")
+            return 1
+
         set_gauge = MagicMock()
 
         found = await persist_api_discovery_results(
@@ -135,8 +142,7 @@ class TestPersistApiDiscoveryResults:
         assert found == 1
         assert buffer == []
         assert pending_checkpoints == []
-        upsert.assert_awaited_once_with(runtime_brotr, [checkpoint])
-        insert_relays.assert_awaited_once_with(runtime_brotr, [relay])
+        assert calls == ["insert", "upsert"]
         set_gauge.assert_called_once_with("candidates_found_from_api", 1)
 
     async def test_empty_checkpoints_still_inserts_relays(self, runtime_brotr: MagicMock) -> None:
@@ -158,3 +164,31 @@ class TestPersistApiDiscoveryResults:
         assert found == 1
         upsert.assert_not_awaited()
         insert_relays.assert_awaited_once()
+
+    async def test_insert_failure_does_not_advance_checkpoints(
+        self, runtime_brotr: MagicMock
+    ) -> None:
+        relay = Relay("wss://relay.example.com")
+        checkpoint = ApiCheckpoint(key="https://api.example.com", timestamp=123)
+        buffer = [relay]
+        pending_checkpoints = [checkpoint]
+        upsert = AsyncMock()
+        insert_relays = AsyncMock(side_effect=RuntimeError("insert failed"))
+        set_gauge = MagicMock()
+
+        with pytest.raises(RuntimeError, match="insert failed"):
+            await persist_api_discovery_results(
+                buffer=buffer,
+                pending_checkpoints=pending_checkpoints,
+                context=ApiDiscoveryPersistenceContext(
+                    brotr=runtime_brotr,
+                    upsert_api_checkpoints_fn=upsert,
+                    insert_relays_fn=insert_relays,
+                    set_gauge=set_gauge,
+                ),
+            )
+
+        assert buffer == [relay]
+        assert pending_checkpoints == [checkpoint]
+        upsert.assert_not_awaited()
+        set_gauge.assert_not_called()

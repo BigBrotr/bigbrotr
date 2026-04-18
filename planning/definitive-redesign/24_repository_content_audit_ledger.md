@@ -1804,3 +1804,12 @@ Use this section during execution for:
   - added paired `finder` coverage proving valid URLs are normalized by
     trimming surrounding whitespace, while blank values, missing schemes,
     wrong schemes, and missing hosts are rejected at config validation time.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-forty-seventh remediation
+  slice:
+  - tightened the Finder API persistence boundary so per-source checkpoints
+    no longer advance before candidate insertion succeeds, which previously
+    could lose one fetch cycle by persisting cooldown state even when relay
+    candidate insertion failed afterward;
+  - added paired `finder` runtime/service coverage proving API batches now
+    persist relay candidates before checkpoints on success, and preserve both
+    in-memory buffers and pending checkpoints unchanged when insertion fails.

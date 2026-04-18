@@ -1454,6 +1454,36 @@ class TestFinderFindFromApi:
         mock_insert.assert_awaited_once_with(mock_brotr, [relay])
         finder.set_gauge.assert_any_call("candidates_found_from_api", 1)
 
+    async def test_persist_api_discovery_results_does_not_advance_checkpoint_on_insert_failure(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        finder = Finder(brotr=mock_brotr)
+        finder.set_gauge = MagicMock()  # type: ignore[method-assign]
+        relay = Relay("wss://relay.example.com")
+        checkpoint = ApiCheckpoint(key="https://api.example.com", timestamp=1700000000)
+        buffer = [relay]
+        pending_checkpoints = [checkpoint]
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.upsert_api_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_upsert,
+            patch(
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("insert failed"),
+            ),
+            pytest.raises(RuntimeError, match="insert failed"),
+        ):
+            await finder._persist_api_discovery_results(buffer, pending_checkpoints)
+
+        assert buffer == [relay]
+        assert pending_checkpoints == [checkpoint]
+        mock_upsert.assert_not_awaited()
+        finder.set_gauge.assert_not_called()
+
     async def test_emits_gauge_and_counter(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(
             api=ApiConfig(
