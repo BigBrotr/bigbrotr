@@ -291,6 +291,7 @@ class Nip66GeoMetadata(BaseNipMetadata):
             resolved = await resolve_host(
                 relay.host,
                 timeout=_remaining_timeout("timeout resolving hostname"),
+                raise_on_timeout=True,
             )
         except TimeoutError:
             logs["reason"] = "timeout resolving hostname"

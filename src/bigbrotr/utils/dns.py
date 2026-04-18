@@ -49,7 +49,12 @@ class ResolvedHost:
         return self.ipv4 is not None or self.ipv6 is not None
 
 
-async def resolve_host(host: str, *, timeout: float = 5.0) -> ResolvedHost:  # noqa: ASYNC109
+async def resolve_host(
+    host: str,
+    *,
+    timeout: float = 5.0,  # noqa: ASYNC109
+    raise_on_timeout: bool = False,
+) -> ResolvedHost:
     """Resolve a hostname to IPv4 and IPv6 addresses asynchronously.
 
     Performs independent A and AAAA record lookups using the system resolver
@@ -61,14 +66,20 @@ async def resolve_host(host: str, *, timeout: float = 5.0) -> ResolvedHost:  # n
         host: Hostname to resolve (e.g., ``"relay.damus.io"``).
         timeout: Maximum total seconds to spend resolving the hostname
             across both address families (default 5.0).
+        raise_on_timeout: When True, raise ``TimeoutError`` if the shared
+            timeout budget is exhausted before any address family resolves
+            successfully. Partial success still wins over timeout noise.
 
     Returns:
         [ResolvedHost][bigbrotr.utils.dns.ResolvedHost] with resolved
             addresses (``None`` for failed lookups).
 
     Note:
-        All exceptions from the underlying socket calls are suppressed,
-        including ``asyncio.TimeoutError``.
+        Ordinary socket failures from the underlying resolver calls are
+        suppressed. Timeout exhaustion is also suppressed by default so an
+        unresolvable hostname degrades to ``ResolvedHost(None, None)``. Set
+        ``raise_on_timeout=True`` when higher layers need to distinguish a
+        true shared-budget timeout from an ordinary no-record result.
         A completely unresolvable hostname returns a
         [ResolvedHost][bigbrotr.utils.dns.ResolvedHost] with both fields
         set to ``None`` and ``has_ip == False`` rather than raising.
@@ -82,6 +93,7 @@ async def resolve_host(host: str, *, timeout: float = 5.0) -> ResolvedHost:  # n
     """
     ipv4: str | None = None
     ipv6: str | None = None
+    timed_out = False
     deadline = time.monotonic() + timeout
 
     def _remaining_timeout() -> float:
@@ -91,19 +103,29 @@ async def resolve_host(host: str, *, timeout: float = 5.0) -> ResolvedHost:  # n
         return remaining
 
     # Resolve IPv4
-    with contextlib.suppress(OSError, UnicodeError, TimeoutError):
-        ipv4 = await asyncio.wait_for(
-            asyncio.to_thread(socket.gethostbyname, host),
-            timeout=_remaining_timeout(),
-        )
+    with contextlib.suppress(OSError, UnicodeError):
+        try:
+            ipv4 = await asyncio.wait_for(
+                asyncio.to_thread(socket.gethostbyname, host),
+                timeout=_remaining_timeout(),
+            )
+        except TimeoutError:
+            timed_out = True
 
     # Resolve IPv6
-    with contextlib.suppress(OSError, UnicodeError, TimeoutError):
-        ipv6_result = await asyncio.wait_for(
-            asyncio.to_thread(socket.getaddrinfo, host, None, socket.AF_INET6),
-            timeout=_remaining_timeout(),
-        )
-        if ipv6_result:
-            ipv6 = str(ipv6_result[0][4][0])
+    with contextlib.suppress(OSError, UnicodeError):
+        try:
+            ipv6_result = await asyncio.wait_for(
+                asyncio.to_thread(socket.getaddrinfo, host, None, socket.AF_INET6),
+                timeout=_remaining_timeout(),
+            )
+        except TimeoutError:
+            timed_out = True
+        else:
+            if ipv6_result:
+                ipv6 = str(ipv6_result[0][4][0])
+
+    if raise_on_timeout and timed_out and ipv4 is None and ipv6 is None:
+        raise TimeoutError("timeout resolving hostname")
 
     return ResolvedHost(ipv4=ipv4, ipv6=ipv6)

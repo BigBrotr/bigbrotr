@@ -438,6 +438,29 @@ class TestNip66NetMetadataNetAsync:
         assert result.data.net_asn == 15169
         assert result.data.net_asn_org is None
 
+    async def test_probe_requests_timeout_propagation_from_resolver(
+        self,
+        relay: Relay,
+        mock_asn_reader: MagicMock,
+    ) -> None:
+        """Net probe asks the shared resolver to preserve real timeout outcomes."""
+        mock_resolved = MagicMock()
+        mock_resolved.ipv4 = "8.8.8.8"
+        mock_resolved.ipv6 = None
+        mock_resolved.has_ip = True
+
+        with (
+            patch(
+                "bigbrotr.nips.nip66.net.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
+            ) as mock_resolve,
+            patch.object(Nip66NetMetadata, "_net", return_value={"net_asn": 15169}),
+        ):
+            await Nip66NetMetadata.probe(relay, mock_asn_reader, timeout=0.5)
+
+        assert mock_resolve.await_args.kwargs["raise_on_timeout"] is True
+
     async def test_resolve_timeout_returns_failure(
         self,
         relay: Relay,

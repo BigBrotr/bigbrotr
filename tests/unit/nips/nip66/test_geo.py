@@ -573,6 +573,28 @@ class TestNip66GeoMetadataGeoAsync:
 
         mock_geo.assert_called_once_with("2001:4860:4860::8888", mock_city_reader, 9)
 
+    async def test_probe_requests_timeout_propagation_from_resolver(
+        self,
+        relay: Relay,
+        mock_city_reader: MagicMock,
+    ) -> None:
+        """Geo probe asks the shared resolver to preserve real timeout outcomes."""
+        mock_resolved = MagicMock()
+        mock_resolved.ipv4 = "8.8.8.8"
+        mock_resolved.ipv6 = None
+
+        with (
+            patch(
+                "bigbrotr.nips.nip66.geo.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
+            ) as mock_resolve,
+            patch.object(Nip66GeoMetadata, "_geo", return_value={"geo_country": "US"}),
+        ):
+            await Nip66GeoMetadata.probe(relay, mock_city_reader, timeout=0.5)
+
+        assert mock_resolve.await_args.kwargs["raise_on_timeout"] is True
+
     async def test_ipv4_lookup_failure_falls_back_to_ipv6(
         self,
         relay: Relay,

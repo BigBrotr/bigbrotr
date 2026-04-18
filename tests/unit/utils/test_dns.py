@@ -396,6 +396,26 @@ class TestResolveHostTimeout:
         assert result.ipv4 == "1.2.3.4"
         assert result.ipv6 is None
 
+    async def test_raise_on_timeout_surfaces_when_no_family_resolves(self) -> None:
+        """Opt-in timeout propagation fires only when the shared budget yields no IPs."""
+        with (
+            patch("socket.gethostbyname", side_effect=TimeoutError()),
+            patch("socket.getaddrinfo", side_effect=TimeoutError()),
+            pytest.raises(TimeoutError, match="timeout resolving hostname"),
+        ):
+            await resolve_host("slow.example.com", raise_on_timeout=True)
+
+    async def test_raise_on_timeout_keeps_partial_success(self) -> None:
+        """A successful family still wins even when the other family times out."""
+        with (
+            patch("socket.gethostbyname", return_value="1.2.3.4"),
+            patch("socket.getaddrinfo", side_effect=TimeoutError()),
+        ):
+            result = await resolve_host("slow.example.com", raise_on_timeout=True)
+
+        assert result.ipv4 == "1.2.3.4"
+        assert result.ipv6 is None
+
     async def test_custom_timeout_passed(self) -> None:
         """No family lookup receives a timeout larger than the caller budget."""
         with (

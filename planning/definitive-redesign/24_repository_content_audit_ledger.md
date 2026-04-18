@@ -374,6 +374,18 @@ Use this section during execution for:
   - paired parsing coverage now pins both entrypoints: `parse_fields()` degrades
     invalid top-level input to `{}`, while `parse_fields_report()` records the
     explicit `invalid_input` issue at the root payload boundary.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twenty-first remediation
+  slice:
+  - `bigbrotr.utils.dns.resolve_host()` now has an opt-in `raise_on_timeout`
+    boundary so callers that care about real shared-budget exhaustion can
+    distinguish timeout from ordinary no-record resolution failure without
+    breaking the default permissive helper contract;
+  - `Nip66GeoMetadata.probe()` and `Nip66NetMetadata.probe()` now request that
+    timeout-preserving mode explicitly, so their existing
+    `timeout resolving hostname` result path matches runtime reality instead of
+    relying on a dead branch;
+  - paired coverage now pins both the shared helper contract and the fact that
+    the geo/net probes opt into timeout-preserving resolution.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package
