@@ -236,7 +236,7 @@ async def connect_relay(
     """Connect to a relay with automatic SSL fallback for clearnet.
 
     For clearnet relays, tries SSL first and falls back to insecure if allowed.
-    Overlay networks (Tor/I2P/Loki) require a proxy and use no SSL fallback.
+    Overlay networks (Tor/I2P/Lokinet) require a proxy and use no SSL fallback.
 
     Args:
         relay: [Relay][bigbrotr.models.relay.Relay] to connect to.

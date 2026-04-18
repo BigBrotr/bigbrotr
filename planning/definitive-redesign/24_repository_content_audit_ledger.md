@@ -254,3 +254,19 @@ Use this section during execution for:
     audited `models` / `utils` leaf folders is a broader repository policy
     question, not a safe one-folder cleanup, and therefore remains deferred
     for the later parent/root guidance waves.
+- `2.1` models/utils/NIPs leaf audit, ninth remediation slice:
+  - inspected the local `CLAUDE.md` guides in `src/bigbrotr/models`,
+    `src/bigbrotr/utils`, `tests/unit/models`, and `tests/unit/utils` and
+    confirmed they are outside the tracked-manifest scope of this repository
+    content audit, so the live tracked slice continues to govern only the
+    code, test, and `README.md` surfaces in those folders;
+  - left the repo-wide keep/remove decision for `CLAUDE.md` vs `README.md`
+    explicitly deferred to the later parent/root guidance waves, where that
+    policy can be applied consistently instead of piecemeal.
+- `2.1` models/utils/NIPs leaf audit, tenth remediation slice:
+  - aligned the remaining tracked human-facing overlay-network wording in the
+    `utils.protocol` surface and its paired unit tests so these leaf packages
+    consistently say `Lokinet`, while preserving the stable technical enum/TLD
+    names `LOKI` and `.loki` in the actual runtime contract;
+  - confirmed that this is documentation-level cleanup only, not a domain
+    rename of the persisted network identifier.

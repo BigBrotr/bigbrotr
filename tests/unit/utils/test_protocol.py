@@ -393,7 +393,7 @@ class TestNostrClientManagerSessions:
 
 
 class TestConnectRelayOverlayNetworks:
-    """Tests for connect_relay() with overlay networks (Tor, I2P, Loki)."""
+    """Tests for connect_relay() with overlay networks (Tor, I2P, Lokinet)."""
 
     async def test_tor_requires_proxy(self) -> None:
         """Test Tor relay requires proxy_url."""
