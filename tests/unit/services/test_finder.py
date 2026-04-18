@@ -217,6 +217,33 @@ class TestApiSourceConfig:
         )
         assert config.allow_insecure is True
 
+    def test_url_is_stripped(self) -> None:
+        config = ApiSourceConfig(url="  https://api.example.com/path  ", expression="[*]")
+        assert config.url == "https://api.example.com/path"
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "",
+            "   ",
+            "api.example.com",
+            "wss://relay.example.com",
+            "ftp://api.example.com",
+            "https:///missing-host",
+        ],
+        ids=[
+            "empty",
+            "whitespace",
+            "missing-scheme",
+            "wrong-scheme-wss",
+            "wrong-scheme-ftp",
+            "missing-host",
+        ],
+    )
+    def test_invalid_url_rejected(self, url: str) -> None:
+        with pytest.raises(ValueError, match=r"http\(s\)|blank"):
+            ApiSourceConfig(url=url, expression="[*]")
+
 
 class TestApiConfig:
     def test_default_values(self) -> None:

@@ -9,6 +9,8 @@ See Also:
 
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 import jmespath
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -105,6 +107,17 @@ class ApiSourceConfig(BaseModel):
             msg = f"invalid JMESPath expression: {e}"
             raise ValueError(msg) from e
         return v
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, v: str) -> str:
+        normalized = v.strip()
+        if not normalized:
+            raise ValueError("url must not be blank")
+        parsed = urlsplit(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("url must be an absolute http(s) URL")
+        return normalized
 
 
 class ApiConfig(BaseModel):

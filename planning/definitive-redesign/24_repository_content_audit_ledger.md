@@ -1795,3 +1795,12 @@ Use this section during execution for:
   - added paired `finder` coverage proving duplicate URLs are rejected both
     by the direct `ApiConfig` constructor and by nested `FinderConfig`
     validation before any runtime fetch scheduling can begin.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-forty-sixth remediation
+  slice:
+  - tightened the Finder API-source config boundary so malformed endpoint
+    URLs no longer survive until `aiohttp` runtime failures, and now require
+    non-blank absolute `http://` or `https://` URLs with a real host before
+    the service can start a fetch cycle;
+  - added paired `finder` coverage proving valid URLs are normalized by
+    trimming surrounding whitespace, while blank values, missing schemes,
+    wrong schemes, and missing hosts are rejected at config validation time.
