@@ -47,6 +47,25 @@ class TestConnectClientRelays:
         )
         assert list(result.failed) == ["wss://relay.a", "wss://relay.z"]
 
+    async def test_deduplicates_duplicate_relay_urls_before_registration(self) -> None:
+        """Duplicate relay URLs do not trigger duplicate add_relay calls."""
+        client = AsyncMock()
+        output = MagicMock()
+        output.success = []
+        output.failed = {}
+        client.try_connect = AsyncMock(return_value=output)
+
+        relay_a = Relay("wss://relay1.example.com")
+        relay_b = Relay("wss://relay2.example.com")
+
+        await connect_client_relays(
+            client,
+            [relay_a, relay_a, relay_b, relay_b],
+            timeout=15.0,
+        )
+
+        assert client.add_relay.await_count == 2
+
 
 class TestCreateConnectedClient:
     async def test_rejects_overlay_relays_before_client_creation(self) -> None:

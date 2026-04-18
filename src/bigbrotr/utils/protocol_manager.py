@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 from nostr_sdk import NostrSdkError
 
-from .protocol_sessions import ClientSession, _validate_session_relays
+from .protocol_sessions import ClientSession, _deduplicate_relays, _validate_session_relays
 from .transport import DEFAULT_TIMEOUT
 
 
@@ -153,6 +153,7 @@ class NostrClientManager:
         input order.
         """
         relay_urls = tuple(sorted({relay.url for relay in relays}))
+        normalized_relays = _deduplicate_relays(relays)
         existing = self._sessions.get(session_id)
         if existing is not None:
             if existing.relay_urls != relay_urls:
@@ -167,7 +168,7 @@ class NostrClientManager:
         try:
             result = await self._dependencies.connect_client_relays(
                 client,
-                relays,
+                normalized_relays,
                 timeout=timeout,
             )
         except Exception:

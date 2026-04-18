@@ -952,3 +952,10 @@ Use this section during execution for:
     no longer returns the same connected client multiple times;
   - added paired manager coverage proving duplicate relay URLs no longer
     trigger duplicate connect attempts or duplicate publish-path clients.
+- `2.1` models/utils/NIPs leaf audit, ninety-eighth remediation slice:
+  - tightened the shared-session helpers so duplicate relay URLs are removed
+    before `add_relay()` registration, while preserving first-seen caller
+    order for the distinct relay set;
+  - aligned `NostrClientManager.connect_session()` with the same contract and
+    added paired helper/manager coverage proving duplicate session inputs no
+    longer trigger duplicate relay registration work.

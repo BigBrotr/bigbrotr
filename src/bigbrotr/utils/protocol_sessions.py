@@ -52,6 +52,18 @@ def _normalize_failed_relays(failed_relays: dict[str, str]) -> dict[str, str]:
     return {relay_url: failed_relays[relay_url] for relay_url in sorted(failed_relays)}
 
 
+def _deduplicate_relays(relays: list[Relay]) -> list[Relay]:
+    """Return relays with duplicate URLs removed, preserving first-seen order."""
+    deduplicated: list[Relay] = []
+    seen: set[str] = set()
+    for relay in relays:
+        if relay.url in seen:
+            continue
+        seen.add(relay.url)
+        deduplicated.append(relay)
+    return deduplicated
+
+
 def _validate_session_relays(relays: list[Relay]) -> None:
     """Reject relay sets that need per-network proxy policy.
 
@@ -84,7 +96,7 @@ async def connect_client_relays(
     relay maps are also returned in stable lexical relay-url order.
     """
     _validate_session_relays(relays)
-    for relay in relays:
+    for relay in _deduplicate_relays(relays):
         await client.add_relay(RelayUrl.parse(relay.url))
 
     output = await client.try_connect(timedelta(seconds=timeout))
