@@ -1958,3 +1958,13 @@ Use this section during execution for:
     pubkeys normalize to lowercase while malformed event, addressable, and
     identifier fact rows now fail fast before they can influence staged score
     computation.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-sixty-first remediation
+  slice:
+  - tightened the typed `ranker` score-export boundary so `ScoreExportRow`
+    now requires non-empty subject ids plus finite public scores inside the
+    real `0..100` range, which previously let malformed DuckDB export rows pass
+    through broad `str(...)` / `float(...)` coercions before reaching
+    PostgreSQL temp staging;
+  - added paired `ranker` export coverage proving invalid pubkey and non-user
+    score rows now fail fast at the DuckDB fetch boundary instead of being
+    silently reshaped into apparently valid public score payloads.

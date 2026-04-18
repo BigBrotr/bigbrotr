@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, Literal
 
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
 
 
 _PUBKEY_HEX_LENGTH = 64
+_MAX_PUBLIC_SCORE = 100.0
 
 
 def _normalize_k_tags(value: tuple[str, ...]) -> tuple[str, ...]:
@@ -53,6 +55,18 @@ def _require_ranker_text(value: object, *, field_name: str, allow_empty: bool = 
     if not allow_empty and value == "":
         raise ValueError(f"{field_name} must be non-empty")
     return value
+
+
+def _require_ranker_score(value: object, *, field_name: str) -> float:
+    """Return one canonical public score value."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{field_name} must be a float")
+    normalized = float(value)
+    if not math.isfinite(normalized):
+        raise ValueError(f"{field_name} must be finite")
+    if normalized < 0.0 or normalized > _MAX_PUBLIC_SCORE:
+        raise ValueError(f"{field_name} must be between 0.0 and {_MAX_PUBLIC_SCORE}")
+    return normalized
 
 
 def _normalize_ranker_pubkey(value: object, *, allow_empty: bool) -> str:
@@ -318,6 +332,18 @@ class ScoreExportRow:
 
     subject_id: str
     score: float
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "subject_id",
+            _require_ranker_text(self.subject_id, field_name="subject_id"),
+        )
+        object.__setattr__(
+            self,
+            "score",
+            _require_ranker_score(self.score, field_name="score"),
+        )
 
 
 RankSubjectType = Literal["pubkey", "event", "addressable", "identifier"]

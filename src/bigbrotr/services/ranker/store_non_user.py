@@ -160,8 +160,8 @@ def fetch_score_batch(
 
     return [
         ScoreExportRow(
-            subject_id=str(subject_id),
-            score=float(score),
+            subject_id=subject_id,
+            score=score,
         )
         for subject_id, score in rows
     ]

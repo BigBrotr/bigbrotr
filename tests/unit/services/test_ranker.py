@@ -13,7 +13,14 @@ import pytest
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.services.ranker import RankCycleResult, Ranker, RankerConfig, RankRowCounts
+from bigbrotr.services.ranker import (
+    RankCycleResult,
+    Ranker,
+    RankerConfig,
+    RankRowCounts,
+    store_graph,
+    store_non_user,
+)
 from bigbrotr.services.ranker.queries import (
     AddressableStatFact,
     ContactListFact,
@@ -132,6 +139,11 @@ class TestRankerQueries:
         assert addressable.author_pubkey == "ef" * 32
         assert identifier.k_tags == ("book", "isbn")
 
+    def test_score_export_row_normalizes_numeric_scores(self) -> None:
+        row = ScoreExportRow("11" * 32, 88)
+
+        assert row == ScoreExportRow("11" * 32, 88.0)
+
     @pytest.mark.parametrize(
         ("source_seen_at", "follower_pubkey"),
         [
@@ -209,6 +221,26 @@ class TestRankerQueries:
     ) -> None:
         with pytest.raises((TypeError, ValueError)):
             factory(**kwargs)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize(
+        ("subject_id", "score"),
+        [
+            ("", 50.0),
+            (123, 50.0),
+            ("11" * 32, True),
+            ("11" * 32, float("nan")),
+            ("11" * 32, float("inf")),
+            ("11" * 32, -1.0),
+            ("11" * 32, 101.0),
+        ],
+    )
+    def test_score_export_row_rejects_invalid_values(
+        self,
+        subject_id: object,
+        score: object,
+    ) -> None:
+        with pytest.raises((TypeError, ValueError)):
+            ScoreExportRow(subject_id=subject_id, score=score)  # type: ignore[arg-type]
 
     @pytest.mark.asyncio
     async def test_fetch_changed_contact_lists_maps_rows(self) -> None:
@@ -460,6 +492,35 @@ class TestRankerQueries:
             "global-pagerank",
             "global-pagerank",
         ]
+
+    def test_pubkey_score_fetch_rejects_invalid_export_rows(self) -> None:
+        count_result = MagicMock()
+        count_result.fetchone.return_value = (1,)
+        row_result = MagicMock()
+        row_result.fetchall.return_value = [("11" * 32, float("nan"))]
+        conn = MagicMock()
+        conn.execute.side_effect = [count_result, row_result]
+
+        with pytest.raises(ValueError):
+            store_graph.fetch_pubkey_score_batch(
+                conn,
+                after_subject_id="",
+                limit=10,
+            )
+
+    def test_non_user_score_fetch_rejects_invalid_export_rows(self) -> None:
+        row_result = MagicMock()
+        row_result.fetchall.return_value = [("", 50.0)]
+        conn = MagicMock()
+        conn.execute.return_value = row_result
+
+        with pytest.raises(ValueError):
+            store_non_user.fetch_score_batch(
+                conn,
+                table_name="nip85_event_ranks_curr",
+                after_subject_id="",
+                limit=10,
+            )
 
 
 class TestRankerConfig:
