@@ -184,6 +184,52 @@ Final contract-freeze companion for execution:
 - frozen DB/read-core/deployment/service-boundary contracts;
 - explicit reopen rule for any future contradiction.
 
+### `23_repository_content_audit_program.md`
+
+Post-closeout whole-repository audit program:
+
+- read the content of every tracked file;
+- do it leaf-to-root;
+- classify every file as keep/update/remove/add;
+- and run a final repository cleanup pass against the actual tracked state.
+
+This is the definitive planning note for the full file-content audit that
+should happen after redesign execution is closed and before final integration.
+
+### `24_repository_content_audit_ledger.md`
+
+Execution ledger for the whole-repository content audit:
+
+- manifest freeze;
+- wave-by-wave status;
+- audit findings;
+- remediation commits;
+- deferred watch points.
+
+### `25_repository_content_audit_manifest.txt`
+
+Exact frozen tracked-file manifest for the repository-content audit baseline.
+
+This is the literal `git ls-tree` snapshot of the redesign closeout state under
+audit.
+
+### `26_repository_content_audit_untouched_manifest.txt`
+
+Exact list of final tracked files that were untouched during the redesign
+execution range.
+
+This is the high-suspicion drift baseline for the whole-repository content
+audit.
+
+### `27_repository_content_audit_traversal_map.md`
+
+Concrete wave-by-wave traversal map for the whole-repository content audit:
+
+- baseline counts;
+- touched vs untouched distribution;
+- exact folder scopes by wave;
+- paired-surface watch points.
+
 ### `99_definitive_master_plan.md`
 
 Final distilled plan resulting from the three iterations and their audits.
@@ -204,6 +250,11 @@ Recommended order:
 10. `20_redesign_execution_ledger.md`
 11. `21_canonical_rename_ledger.md`
 12. `22_final_contract_freeze.md`
+13. `23_repository_content_audit_program.md`
+14. `24_repository_content_audit_ledger.md`
+15. `25_repository_content_audit_manifest.txt`
+16. `26_repository_content_audit_untouched_manifest.txt`
+17. `27_repository_content_audit_traversal_map.md`
 
 The iteration files are intentionally more verbose and analytical. The final
 plan is intentionally more decisive and executable.
@@ -227,6 +278,9 @@ At this point, the highest-value “current truth” files in this directory are
 - `20_redesign_execution_ledger.md`
 - `21_canonical_rename_ledger.md`
 - `22_final_contract_freeze.md`
+- `23_repository_content_audit_program.md`
+- `24_repository_content_audit_ledger.md`
+- `27_repository_content_audit_traversal_map.md`
 - `99_definitive_master_plan.md`
 
 ## Canonical Topic Map
@@ -256,5 +310,15 @@ each major topic.
   `21_canonical_rename_ledger.md`
 - frozen execution baseline and planning-file precedence:
   `22_final_contract_freeze.md`
+- post-closeout whole-repository content audit:
+  `23_repository_content_audit_program.md`
+- status ledger for that audit:
+  `24_repository_content_audit_ledger.md`
+- frozen manifest baseline for that audit:
+  `25_repository_content_audit_manifest.txt`
+- untouched-file baseline for that audit:
+  `26_repository_content_audit_untouched_manifest.txt`
+- concrete wave-to-folder traversal map for that audit:
+  `27_repository_content_audit_traversal_map.md`
 - distilled top-level redesign direction:
   `99_definitive_master_plan.md`

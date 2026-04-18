@@ -45,6 +45,8 @@ The detailed execution companion for this master plan is:
 
 - [21_canonical_rename_ledger.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/21_canonical_rename_ledger.md)
 - [22_final_contract_freeze.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/22_final_contract_freeze.md)
+- [23_repository_content_audit_program.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/23_repository_content_audit_program.md)
+- [24_repository_content_audit_ledger.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/24_repository_content_audit_ledger.md)
 - [17_integral_codebase_validation.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/17_integral_codebase_validation.md)
 - [18_code_excellence_standard.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/18_code_excellence_standard.md)
 - [19_documentation_rewrite_program.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/19_documentation_rewrite_program.md)
@@ -69,6 +71,17 @@ The canonical compact freeze of execution baseline and planning-file
 precedence now lives in:
 
 - [22_final_contract_freeze.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/22_final_contract_freeze.md)
+
+Because the redesign execution program is now closed, one additional
+repository-quality program should be treated as the next serious step before
+final integration:
+
+- [23_repository_content_audit_program.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/23_repository_content_audit_program.md)
+- [24_repository_content_audit_ledger.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/24_repository_content_audit_ledger.md)
+
+That follow-on program does not reopen the redesign lightly.
+It re-reads the actual content of the tracked repository leaf-to-root and
+forces explicit keep/update/remove/add decisions against the final contract.
 
 ---
 
