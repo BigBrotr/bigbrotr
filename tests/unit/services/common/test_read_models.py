@@ -874,6 +874,22 @@ class TestReadModelQueryHelpers:
                 max_page_size=1000,
             )
 
+    def test_read_model_query_from_http_params_rejects_non_string_filter_key(self) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid filter field"):
+            read_model_query_from_http_params(
+                {123: "clearnet"},  # type: ignore[dict-item]
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
+    def test_read_model_query_from_http_params_rejects_non_string_filter_value(self) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid filter value"):
+            read_model_query_from_http_params(
+                {"network": 123},  # type: ignore[dict-item]
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
     @pytest.mark.parametrize(
         "params",
         [{"limit": "0"}, {"limit": "-1"}, {"offset": "-1"}, {"offset": str(_MAX_OFFSET + 1)}],

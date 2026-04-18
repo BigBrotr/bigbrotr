@@ -123,9 +123,13 @@ def _normalize_http_filters(raw_filters: Mapping[str, str]) -> dict[str, str] | 
 
     filters: dict[str, str] = {}
     for raw_key, value in raw_filters.items():
+        if not isinstance(raw_key, str):
+            raise ReadModelQueryError("Invalid filter field")
         key = raw_key.strip()
         if not key:
             raise ReadModelQueryError("Invalid filter field")
+        if not isinstance(value, str):
+            raise ReadModelQueryError("Invalid filter value")
         filters[key] = value.strip()
     return filters or None
 
@@ -134,6 +138,8 @@ def _normalize_http_param_keys(raw_params: Mapping[str, str]) -> dict[str, str]:
     """Normalize direct HTTP query parameter keys before dispatch."""
     params: dict[str, str] = {}
     for raw_key, value in raw_params.items():
+        if not isinstance(raw_key, str):
+            raise ReadModelQueryError("Invalid filter field")
         key = raw_key.strip()
         if not key:
             raise ReadModelQueryError("Invalid filter field")

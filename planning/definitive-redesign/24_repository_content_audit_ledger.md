@@ -1581,3 +1581,12 @@ Use this section during execution for:
   - added paired `services/common` and `dvm/jobs` coverage proving malformed
     float numerics are rejected before query execution instead of silently
     widening or reshaping the requested page.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twenty-fourth remediation
+  slice:
+  - hardened the shared HTTP query-normalization seam so exported helper calls
+    with malformed non-string keys or filter values no longer raise accidental
+    attribute errors, and now fail with the same client-safe parse contract as
+    the rest of the public read-side boundary;
+  - added paired `services/common` coverage proving the HTTP helper now rejects
+    invalid key/value shapes explicitly instead of crashing before shared query
+    validation can run.
