@@ -15,7 +15,8 @@ Attributes:
     is_nostr_relay: Check whether a URL hosts a Nostr relay.
     broadcast_events: Sign and broadcast events to multiple relays.
     broadcast_events_detailed: Detailed publish helper that preserves
-        per-client normalized relay outcomes.
+        per-client normalized relay outcomes for clients whose builder sends
+        complete with relay-level SDK results.
     summarize_broadcast_results: Aggregate detailed publish results into
         relay-level success/failure maps.
     normalize_send_output: Normalize one nostr-sdk send or subscribe output

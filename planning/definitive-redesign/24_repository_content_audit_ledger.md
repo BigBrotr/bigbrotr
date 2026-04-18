@@ -656,3 +656,12 @@ Use this section during execution for:
   - added direct unit coverage for the oversize-event debug path, so the
     operator-facing signal around dropped oversized events is now pinned by a
     package-local test instead of being left implicit.
+- `2.1` models/utils/NIPs leaf audit, fifty-ninth remediation slice:
+  - aligned the shared publish contract in `bigbrotr.utils.protocol_publish`
+    and the public `bigbrotr.utils.protocol` facade so they now state
+    explicitly that a `BroadcastClientResult` is emitted only when every
+    builder send for that client completes with relay-level SDK output;
+  - added direct unit coverage proving that if a later builder send fails at
+    the transport boundary, the helper logs the failure and drops the partial
+    client state instead of pretending the earlier relay-level result was a
+    complete normalized outcome.

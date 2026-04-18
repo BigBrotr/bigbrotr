@@ -9,6 +9,7 @@ Tests:
 - broadcast_events() - Event broadcasting to relays
 """
 
+import logging
 import socket
 import ssl
 from dataclasses import dataclass
@@ -845,6 +846,26 @@ class TestBroadcastEvents:
         assert results[0].event_ids == ("evt-1", "evt-2")
         assert results[0].successful_relays == ("wss://relay.b",)
         assert results[0].failed_relays == {"wss://relay.a": "rejected"}
+
+    async def test_detailed_results_drop_partial_client_state_on_transport_error(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        client = AsyncMock()
+        client.send_event_builder.side_effect = [
+            self._send_output(
+                event_id="evt-1",
+                success=("wss://relay.a",),
+            ),
+            TimeoutError("relay publish timed out"),
+        ]
+
+        with caplog.at_level(logging.WARNING, logger="bigbrotr.utils.protocol_publish"):
+            results = await self._get_broadcast_detailed()([MagicMock(), MagicMock()], [client])
+
+        assert results == []
+        assert client.send_event_builder.await_count == 2
+        assert "broadcast_send_failed error=relay publish timed out" in caplog.text
 
 
 class TestSummarizeBroadcastResults:

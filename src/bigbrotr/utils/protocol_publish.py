@@ -26,7 +26,10 @@ class BroadcastClientResult:
 
     ``successful_relays`` contains only the relays that remained successful
     across every builder sent through that client. ``failed_relays`` preserves
-    any per-builder failure reported along the way.
+    any per-builder failure reported along the way. A result is emitted only
+    when every builder send for that client returns a relay-level SDK output;
+    if a later send fails at the transport boundary, the partial client state
+    is discarded because the final relay-level outcome would be incomplete.
     """
 
     event_ids: tuple[str, ...]
@@ -50,7 +53,7 @@ async def broadcast_events(
 
     Returns:
         Number of clients that retained at least one successful relay across
-        all builders.
+        all builders after finishing every builder send.
     """
     detailed_results = await broadcast_events_detailed(builders, clients)
     return sum(1 for result in detailed_results if result.successful_relays)
@@ -65,6 +68,9 @@ async def broadcast_events_detailed(
     For each client, the resulting ``successful_relays`` set is the
     intersection of the success sets reported by every builder, while
     ``failed_relays`` accumulates relay failures seen on any builder send.
+    If a builder raises ``OSError`` or ``TimeoutError`` before relay-level
+    output is produced, the whole client result is dropped and a warning is
+    logged, because the final normalized outcome for that client is unknowable.
     """
     if not builders or not clients:
         return []
