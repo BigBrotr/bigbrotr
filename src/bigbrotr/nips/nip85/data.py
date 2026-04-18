@@ -158,6 +158,14 @@ def _require_hex32_text(value: Any, field_name: str) -> str:
     return text.lower()
 
 
+def _require_optional_hex32_text(value: Any, field_name: str) -> str:
+    """Return ``value`` as an optional canonical 32-byte hex string."""
+    text = _require_text(value, field_name)
+    if not text:
+        return ""
+    return _require_hex32_text(text, field_name)
+
+
 def _normalize_tag_name(value: Any) -> str:
     """Return the canonical declaration tag name."""
     tag_name = _require_text(value, "tag_name").strip()
@@ -304,7 +312,7 @@ class UserAssertion:
     following_count: int = 0
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "pubkey", _require_non_empty_text(self.pubkey, "pubkey"))
+        object.__setattr__(self, "pubkey", _require_hex32_text(self.pubkey, "pubkey"))
         object.__setattr__(
             self,
             "top_topics",
@@ -461,11 +469,11 @@ class EventAssertion:
     zap_amount_msats: int = 0
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "event_id", _require_non_empty_text(self.event_id, "event_id"))
+        object.__setattr__(self, "event_id", _require_hex32_text(self.event_id, "event_id"))
         object.__setattr__(
             self,
             "author_pubkey",
-            _require_text(self.author_pubkey, "author_pubkey"),
+            _require_optional_hex32_text(self.author_pubkey, "author_pubkey"),
         )
         _normalize_non_negative_int_fields(self, _EVENT_ASSERTION_INT_FIELDS)
 
@@ -526,7 +534,7 @@ class AddressableAssertion:
         object.__setattr__(
             self,
             "author_pubkey",
-            _require_text(self.author_pubkey, "author_pubkey"),
+            _require_optional_hex32_text(self.author_pubkey, "author_pubkey"),
         )
         _normalize_non_negative_int_fields(self, _ADDRESSABLE_ASSERTION_INT_FIELDS)
 

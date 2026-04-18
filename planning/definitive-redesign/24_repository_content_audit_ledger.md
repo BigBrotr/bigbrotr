@@ -586,6 +586,19 @@ Use this section during execution for:
   - paired coverage now pins the new malformed-kind, malformed-tag,
     malformed-pubkey, and malformed-relay-hint failures, plus the canonical
     normalization of a valid declaration.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fortieth remediation
+  slice:
+  - aligned the remaining NIP-85 hex subject seams with the contract already
+    documented by the live models: `UserAssertion.pubkey`,
+    `EventAssertion.event_id`, and the optional `author_pubkey` surfaces on
+    event and addressable assertions now require real 32-byte hex identifiers
+    instead of accepting arbitrary non-empty strings;
+  - canonicalized accepted hex inputs to lowercase at the frozen model
+    boundary, so equivalent uppercase/lowercase caller input no longer creates
+    distinct public assertion identities or hash inputs;
+  - paired coverage now pins malformed constructor and `from_db_row()`
+    hydration payloads for all affected subject surfaces, plus the lowercase
+    normalization path for required hex identifiers.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

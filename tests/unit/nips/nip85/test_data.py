@@ -113,6 +113,13 @@ class TestUserAssertionProperties:
         with pytest.raises(ValueError, match="pubkey must not be empty"):
             UserAssertion(pubkey="")
 
+    def test_constructor_normalizes_hex_pubkey(self) -> None:
+        assert UserAssertion(pubkey="AA" * 32).pubkey == "aa" * 32
+
+    def test_constructor_rejects_malformed_pubkey(self) -> None:
+        with pytest.raises(ValueError, match="pubkey must be a 64-character hex string"):
+            UserAssertion(pubkey="abc")
+
     def test_constructor_rejects_scalar_string_top_topics(self) -> None:
         with pytest.raises(
             TypeError,
@@ -213,6 +220,10 @@ class TestUserAssertionFromDbRow:
     def test_from_db_row_rejects_empty_pubkey(self) -> None:
         with pytest.raises(ValueError, match="pubkey must not be empty"):
             UserAssertion.from_db_row({"pubkey": ""})
+
+    def test_from_db_row_rejects_malformed_pubkey(self) -> None:
+        with pytest.raises(ValueError, match="pubkey must be a 64-character hex string"):
+            UserAssertion.from_db_row({"pubkey": "zz" * 32})
 
     def test_full_row(self) -> None:
         row = {
@@ -437,9 +448,20 @@ class TestEventAssertionProperties:
         with pytest.raises(ValueError, match="event_id must not be empty"):
             EventAssertion(event_id="")
 
+    def test_constructor_normalizes_hex_event_id(self) -> None:
+        assert EventAssertion(event_id="EE" * 32).event_id == "ee" * 32
+
+    def test_constructor_rejects_malformed_event_id(self) -> None:
+        with pytest.raises(ValueError, match="event_id must be a 64-character hex string"):
+            EventAssertion(event_id="abc")
+
     def test_constructor_rejects_non_string_author_pubkey(self) -> None:
         with pytest.raises(TypeError, match="author_pubkey must be a string"):
             EventAssertion(event_id="ee" * 32, author_pubkey=None)  # type: ignore[arg-type]
+
+    def test_constructor_rejects_malformed_author_pubkey(self) -> None:
+        with pytest.raises(ValueError, match="author_pubkey must be a 64-character hex string"):
+            EventAssertion(event_id="ee" * 32, author_pubkey="abc")
 
     def test_tags_hash_stability(self) -> None:
         a = EventAssertion(event_id="ee" * 32, comment_count=5, reaction_count=10)
@@ -500,6 +522,10 @@ class TestEventAssertionFromDbRow:
         with pytest.raises(ValueError, match="event_id must not be empty"):
             EventAssertion.from_db_row({"event_id": ""})
 
+    def test_from_db_row_rejects_malformed_event_id(self) -> None:
+        with pytest.raises(ValueError, match="event_id must be a 64-character hex string"):
+            EventAssertion.from_db_row({"event_id": "zz" * 32})
+
     def test_from_db_row_rejects_non_string_author_pubkey(self) -> None:
         row = {
             "event_id": "ff" * 32,
@@ -507,6 +533,10 @@ class TestEventAssertionFromDbRow:
         }
         with pytest.raises(TypeError, match="author_pubkey must be a string"):
             EventAssertion.from_db_row(row)
+
+    def test_from_db_row_rejects_malformed_author_pubkey(self) -> None:
+        with pytest.raises(ValueError, match="author_pubkey must be a 64-character hex string"):
+            EventAssertion.from_db_row({"event_id": "ff" * 32, "author_pubkey": "zz" * 32})
 
     @pytest.mark.parametrize(
         ("row", "message"),
@@ -565,6 +595,13 @@ class TestAddressableAssertionProperties:
                 author_pubkey=None,  # type: ignore[arg-type]
             )
 
+    def test_constructor_rejects_malformed_author_pubkey(self) -> None:
+        with pytest.raises(ValueError, match="author_pubkey must be a 64-character hex string"):
+            AddressableAssertion(
+                event_address="30023:" + ("aa" * 32) + ":article",
+                author_pubkey="abc",
+            )
+
     def test_tags_hash_tracks_author_pubkey(self) -> None:
         a1 = AddressableAssertion(
             event_address="30023:" + ("aa" * 32) + ":article",
@@ -603,6 +640,15 @@ class TestAddressableAssertionProperties:
         }
         with pytest.raises(TypeError, match="author_pubkey must be a string"):
             AddressableAssertion.from_db_row(row)
+
+    def test_from_db_row_rejects_malformed_author_pubkey(self) -> None:
+        with pytest.raises(ValueError, match="author_pubkey must be a 64-character hex string"):
+            AddressableAssertion.from_db_row(
+                {
+                    "event_address": "30023:" + ("aa" * 32) + ":article",
+                    "author_pubkey": "zz" * 32,
+                }
+            )
 
     def test_from_db_row_rejects_non_string_event_address(self) -> None:
         row = {
