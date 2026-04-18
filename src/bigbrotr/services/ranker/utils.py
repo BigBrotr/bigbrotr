@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
 GraphStats = store_graph.GraphStats
 _RANK_RUN_STATUSES: Final[frozenset[str]] = frozenset({"running", "success", "failed", "cutoff"})
+_RANK_RUN_TERMINAL_STATUSES: Final[frozenset[str]] = frozenset({"success", "failed", "cutoff"})
 
 
 def _require_positive_rank_run_int(value: object, *, field_name: str) -> int:
@@ -44,6 +45,15 @@ def _normalize_rank_run_status(value: object) -> str:
     normalized = _require_ranker_text(value, field_name="status")
     if normalized not in _RANK_RUN_STATUSES:
         allowed = ", ".join(sorted(_RANK_RUN_STATUSES))
+        raise ValueError(f"status must be one of: {allowed}")
+    return normalized
+
+
+def _normalize_rank_run_terminal_status(value: object) -> str:
+    """Return one canonical terminal status value for finishing a run."""
+    normalized = _normalize_rank_run_status(value)
+    if normalized not in _RANK_RUN_TERMINAL_STATUSES:
+        allowed = ", ".join(sorted(_RANK_RUN_TERMINAL_STATUSES))
         raise ValueError(f"status must be one of: {allowed}")
     return normalized
 
@@ -206,7 +216,7 @@ class RankerStore:
         return rank_run
 
     def finish_rank_run(self, run_id: int, *, status: str) -> None:
-        """Mark a tracked run as ``success`` or ``failed`` after export finishes."""
+        """Mark a tracked run as one terminal status after export finishes."""
         self.ensure_initialized()
 
         conn = self._connection()
@@ -218,7 +228,7 @@ class RankerStore:
             """,
             [
                 int(time.time()),
-                _normalize_rank_run_status(status),
+                _normalize_rank_run_terminal_status(status),
                 _require_positive_rank_run_int(run_id, field_name="run_id"),
             ],
         )

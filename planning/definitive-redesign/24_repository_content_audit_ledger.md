@@ -2030,3 +2030,11 @@ Use this section during execution for:
     failing at the typed graph boundary;
   - added paired `ranker` coverage proving invalid `dangling_mass` payloads
     now fail fast and trigger rollback of the local ranking transaction.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-sixty-ninth remediation
+  slice:
+  - tightened the private `ranker` run-lifecycle boundary so
+    `finish_rank_run()` no longer accepts `"running"` as a terminal status,
+    which previously allowed impossible DuckDB bookkeeping rows with a
+    populated `finished_at` timestamp but a non-terminal lifecycle state;
+  - extended paired `ranker` coverage proving only terminal statuses can now
+    close a run while query-time status filters keep the broader status enum.

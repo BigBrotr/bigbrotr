@@ -1139,6 +1139,10 @@ class TestRankerStore:
                 {"run_id": 1, "status": "bogus"},
             ),
             (
+                "finish_rank_run",
+                {"run_id": 1, "status": "running"},
+            ),
+            (
                 "count_rank_runs",
                 {"status": "bogus"},
             ),
