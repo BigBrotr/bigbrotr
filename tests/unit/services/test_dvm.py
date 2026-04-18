@@ -377,6 +377,28 @@ class TestPrepareJobRequest:
         assert prepared.query.limit == 5
         assert prepared.price == 0
 
+    def test_trims_whitespace_around_requested_read_model(
+        self,
+        dvm_config: DvmConfig,
+        sample_dvm_catalog: Catalog,
+    ) -> None:
+        prepared = prepare_job_request(
+            "  relays  ",
+            {"limit": "5"},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(prepared, PreparedJobRequest)
+        assert prepared.resource_id == "relays"
+        assert prepared.resource.resource_id == "relays"
+        assert prepared.query.limit == 5
+        assert prepared.price == 0
+
     def test_rejects_disabled_read_model(
         self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
     ) -> None:

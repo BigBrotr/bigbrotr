@@ -115,6 +115,7 @@ def prepare_job_request(
     context: JobPreparationContext,
 ) -> PreparedJobRequest | RejectedJobRequest:
     """Resolve exposure, pricing, and query parsing for one NIP-90 job request."""
+    requested_resource_id = requested_resource_id.strip()
     resolved_resource = context.read_core.resolve_resource("dvm", requested_resource_id)
     if resolved_resource is None:
         return RejectedJobRequest(

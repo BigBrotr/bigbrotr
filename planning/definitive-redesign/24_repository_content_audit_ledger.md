@@ -1482,3 +1482,11 @@ Use this section during execution for:
     paired `services/common` plus `dvm/jobs` coverage proving malformed
     compact-filter payloads now become client-safe rejections rather than
     partially applied queries.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twelfth remediation slice:
+  - aligned the `NIP-90` request boundary so whitespace-padded `read_model`
+    values are normalized before DVM validation, logging, and execution,
+    instead of bypassing the shared public-parameter cleanup already applied
+    to the rest of the read query surface;
+  - added paired `dvm/utils` and `dvm/jobs` coverage proving human-authored
+    requests like `"  relays  "` now resolve to the canonical resource rather
+    than failing as a spurious disabled-read-model error.

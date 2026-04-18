@@ -111,18 +111,23 @@ async def process_request_event(
     processed_ids.add(event_id)
     params = parse_job_params(event)
     raw_requested_resource_id = params.get("read_model", "")
+    requested_resource_id = (
+        raw_requested_resource_id.strip()
+        if isinstance(raw_requested_resource_id, str)
+        else raw_requested_resource_id
+    )
 
     request = JobRequest(
         event_id=event_id,
         customer_pubkey=event.author().to_hex(),
         params=params,
-        requested_resource_id=raw_requested_resource_id,
+        requested_resource_id=requested_resource_id,
     )
 
     runtime.logger.info(
         "job_received",
         event_id=request.event_id,
-        requested_read_model_id=raw_requested_resource_id,
+        requested_read_model_id=requested_resource_id,
         customer=request.customer_pubkey,
     )
 
