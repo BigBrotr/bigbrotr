@@ -512,6 +512,16 @@ class TestListRowsRoute:
         assert kwargs["include_total"] is True
         assert kwargs["filters"] is None
 
+    def test_duplicate_transport_reserved_key_returns_400(self, test_client: TestClient) -> None:
+        resp = test_client.get("/v1/relays?limit=5&limit=10")
+        assert resp.status_code == 400
+        assert resp.json()["error"] == "Invalid query parameter"
+
+    def test_duplicate_transport_filter_key_returns_400(self, test_client: TestClient) -> None:
+        resp = test_client.get("/v1/relays?network=clearnet&network=tor")
+        assert resp.status_code == 400
+        assert resp.json()["error"] == "Invalid query parameter"
+
     def test_blank_filter_key_returns_400(self, test_client: TestClient) -> None:
         resp = test_client.get("/v1/relays?%20%20=clearnet")
         assert resp.status_code == 400

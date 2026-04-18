@@ -1765,3 +1765,13 @@ Use this section during execution for:
     rejected by `parse_job_params()`, surfaced as client-safe rejections by
     `prepare_job_request()`, and converted into ordinary DVM error responses
     by `process_request_event()` before query execution begins.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-forty-third remediation
+  slice:
+  - tightened the shared HTTP query-parameter boundary so duplicate public
+    query keys carried by the real `QueryParams` transport no longer collapse
+    silently via mapping-style last-write-wins before shared validation, and
+    now fail immediately as ambiguous client input;
+  - added paired `services/common` and `api` coverage proving duplicate
+    transport-level reserved keys and filter keys are rejected from true HTTP
+    `QueryParams` objects before pagination parsing or catalog execution
+    begins.

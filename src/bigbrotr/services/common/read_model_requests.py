@@ -140,10 +140,18 @@ def _normalize_http_filters(raw_filters: Mapping[str, str]) -> dict[str, str] | 
     return filters or None
 
 
+def _iter_http_param_items(raw_params: Mapping[str, str]) -> Any:
+    """Return HTTP query items without collapsing transport-level duplicates."""
+    multi_items = getattr(raw_params, "multi_items", None)
+    if callable(multi_items):
+        return multi_items()
+    return raw_params.items()
+
+
 def _normalize_http_param_keys(raw_params: Mapping[str, str]) -> dict[str, str]:
     """Normalize direct HTTP query parameter keys before dispatch."""
     params: dict[str, str] = {}
-    for raw_key, value in raw_params.items():
+    for raw_key, value in _iter_http_param_items(raw_params):
         if not isinstance(raw_key, str):
             raise ReadModelQueryError("Invalid filter field")
         key = raw_key.strip()

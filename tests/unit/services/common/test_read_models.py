@@ -2,6 +2,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from starlette.datastructures import QueryParams
 
 from bigbrotr.core.yaml import load_yaml
 from bigbrotr.services.common.catalog import (
@@ -872,6 +873,16 @@ class TestReadModelQueryHelpers:
                 max_page_size=1000,
             )
 
+    def test_read_model_query_from_http_params_rejects_duplicate_transport_param_keys(
+        self,
+    ) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid query parameter"):
+            read_model_query_from_http_params(
+                QueryParams("limit=25&limit=50"),
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
     def test_read_model_query_from_http_params_invalid_limit(self) -> None:
         with pytest.raises(ReadModelQueryError, match="Invalid limit or offset"):
             read_model_query_from_http_params(
@@ -920,6 +931,16 @@ class TestReadModelQueryHelpers:
         with pytest.raises(ReadModelQueryError, match="Invalid query parameter"):
             read_model_query_from_http_params(
                 {"network": "clearnet", " network ": "tor"},
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
+    def test_read_model_query_from_http_params_rejects_duplicate_transport_filter_keys(
+        self,
+    ) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid query parameter"):
+            read_model_query_from_http_params(
+                QueryParams("network=clearnet&network=tor"),
                 default_page_size=100,
                 max_page_size=1000,
             )
