@@ -868,6 +868,15 @@ class TestReadModelQueryHelpers:
             cursor="opaque-token",
         )
 
+    def test_read_model_query_from_http_params_normalizes_blank_sort(self) -> None:
+        query = read_model_query_from_http_params(
+            {"sort": "   "},
+            default_page_size=100,
+            max_page_size=1000,
+        )
+
+        assert query.sort is None
+
     def test_read_model_query_from_http_params_rejects_cursor_with_offset(self) -> None:
         with pytest.raises(
             ReadModelQueryError,
@@ -975,6 +984,32 @@ class TestReadModelQueryHelpers:
             include_total=False,
             cursor="opaque-token",
         )
+
+    def test_read_model_query_from_job_params_normalizes_blank_sort_and_filter(self) -> None:
+        query = read_model_query_from_job_params(
+            {"sort": "   ", "filter": "   "},
+            default_page_size=100,
+            max_page_size=1000,
+        )
+
+        assert query.sort is None
+        assert query.filters is None
+
+    def test_read_model_query_from_job_params_invalid_sort_type(self) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid sort value"):
+            read_model_query_from_job_params(
+                {"sort": 123},
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
+    def test_read_model_query_from_job_params_invalid_filter_type(self) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid filter value"):
+            read_model_query_from_job_params(
+                {"filter": 123},
+                default_page_size=100,
+                max_page_size=1000,
+            )
 
     def test_read_model_query_from_job_params_rejects_cursor_with_offset(self) -> None:
         with pytest.raises(

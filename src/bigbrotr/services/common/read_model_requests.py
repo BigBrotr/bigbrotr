@@ -76,6 +76,26 @@ def _parse_cursor(raw_value: Any) -> str | None:
     return normalized or None
 
 
+def _parse_sort(raw_value: Any) -> str | None:
+    """Normalize optional public sort strings from HTTP or NIP-90 inputs."""
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, str):
+        raise ReadModelQueryError("Invalid sort value")
+
+    normalized = raw_value.strip()
+    return normalized or None
+
+
+def _parse_job_filter_string(raw_value: Any) -> dict[str, str] | None:
+    """Normalize compact NIP-90 filter strings before shared parsing."""
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, str):
+        raise ReadModelQueryError("Invalid filter value")
+    return parse_read_model_filter_string(raw_value)
+
+
 def _parse_int_param(raw_value: Any, *, error_message: str, minimum: int) -> int:
     """Normalize one public integer parameter without accepting bool aliases."""
     if isinstance(raw_value, bool):
@@ -110,7 +130,7 @@ def read_model_query_from_http_params(
         minimum=0,
     )
 
-    sort = raw_params.pop("sort", None)
+    sort = _parse_sort(raw_params.pop("sort", None))
     include_total = _parse_include_total(raw_params.pop("include_total", None))
     cursor = _parse_cursor(raw_cursor)
     if cursor is not None and offset > 0:
@@ -145,10 +165,7 @@ def read_model_query_from_job_params(
         minimum=0,
     )
 
-    raw_sort = params.get("sort")
-    sort = raw_sort if isinstance(raw_sort, str) and raw_sort else None
-    raw_filter = params.get("filter", "")
-    filter_str = raw_filter if isinstance(raw_filter, str) else ""
+    sort = _parse_sort(params.get("sort", None))
     cursor = _parse_cursor(params.get("cursor", None))
     if cursor is not None and offset > 0:
         raise ReadModelQueryError("Cursor pagination cannot be combined with offset")
@@ -157,7 +174,7 @@ def read_model_query_from_job_params(
         limit=limit,
         offset=offset,
         max_page_size=max_page_size,
-        filters=parse_read_model_filter_string(filter_str),
+        filters=_parse_job_filter_string(params.get("filter", None)),
         sort=sort,
         include_total=_parse_include_total(params.get("include_total", None)),
         cursor=cursor,

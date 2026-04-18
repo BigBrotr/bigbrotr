@@ -422,6 +422,24 @@ class TestListRowsRoute:
         assert kwargs["include_total"] is False
         assert kwargs["cursor"] is None
 
+    def test_blank_sort_param_is_treated_as_absent(
+        self,
+        test_client: TestClient,
+        api_service: Api,
+    ) -> None:
+        mock_result = QueryResult(rows=[], total=None, limit=10, offset=0)
+        with patch.object(
+            api_service._read_core.catalog,
+            "query",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ) as mock_query:
+            resp = test_client.get("/v1/relays?sort=%20%20%20")
+
+        assert resp.status_code == 200
+        _, kwargs = mock_query.call_args
+        assert kwargs["sort"] is None
+
     def test_with_cursor_param(self, test_client: TestClient, api_service: Api) -> None:
         mock_result = QueryResult(rows=[], total=None, limit=10, offset=0)
         with patch.object(

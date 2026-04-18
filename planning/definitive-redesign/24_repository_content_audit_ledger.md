@@ -1463,3 +1463,13 @@ Use this section during execution for:
   - added paired `services/common`, HTTP API, and DVM coverage proving invalid
     pagination bounds now fail fast as client-safe errors on both adapter
     surfaces rather than being normalized behind the caller's back.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-tenth remediation slice:
+  - aligned shared read-request normalization so blank or whitespace-only
+    `sort` values are treated as absent across both HTTP and DVM, instead of
+    leaking through as bogus sort fields on one adapter while the other path
+    behaved differently;
+  - hardened the pre-parsed DVM job path so malformed non-string `sort` and
+    compact `filter` values are rejected as normalized client errors instead
+    of being silently ignored, and added paired `services/common`, API, and
+    `dvm/jobs` coverage proving both adapter surfaces now follow the same
+    transport contract.
