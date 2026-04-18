@@ -145,9 +145,11 @@ def nips_for_service(service_name: ServiceName | str) -> tuple[int, ...]:
     if normalized is None:
         return ()
     return tuple(
-        nip_number
-        for nip_number, entry in NIP_REGISTRY.items()
-        if normalized in entry.service_names
+        sorted(
+            nip_number
+            for nip_number, entry in NIP_REGISTRY.items()
+            if normalized in entry.service_names
+        )
     )
 
 
@@ -157,9 +159,11 @@ def nips_for_document_type(document_type: DocumentType | str) -> tuple[int, ...]
     if normalized is None:
         return ()
     return tuple(
-        nip_number
-        for nip_number, entry in NIP_REGISTRY.items()
-        if normalized in entry.document_types
+        sorted(
+            nip_number
+            for nip_number, entry in NIP_REGISTRY.items()
+            if normalized in entry.document_types
+        )
     )
 
 
@@ -169,9 +173,11 @@ def nips_for_event_kind(event_kind: EventKind | int) -> tuple[int, ...]:
     if normalized is None:
         return ()
     return tuple(
-        nip_number
-        for nip_number, entry in NIP_REGISTRY.items()
-        if any(int(kind) == normalized for kind in entry.protocol_event_kinds)
+        sorted(
+            nip_number
+            for nip_number, entry in NIP_REGISTRY.items()
+            if any(int(kind) == normalized for kind in entry.protocol_event_kinds)
+        )
     )
 
 
@@ -181,7 +187,11 @@ def nips_for_capability(capability: NipCapability | str) -> tuple[int, ...]:
     if normalized is None:
         return ()
     return tuple(
-        nip_number for nip_number, entry in NIP_REGISTRY.items() if normalized in entry.capabilities
+        sorted(
+            nip_number
+            for nip_number, entry in NIP_REGISTRY.items()
+            if normalized in entry.capabilities
+        )
     )
 
 

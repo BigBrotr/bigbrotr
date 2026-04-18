@@ -889,3 +889,9 @@ Use this section during execution for:
   - kept the existing paired NIP-85 coverage green to prove the public
     constructor and DB-row path still emit the same canonical ``k_tags``
     without needing a second normalization site.
+- `2.1` models/utils/NIPs leaf audit, eighty-ninth remediation slice:
+  - tightened `bigbrotr.nips.registry` lookup helpers so they return
+    canonical ascending NIP tuples instead of inheriting whatever insertion
+    order the static registry dict happens to use;
+  - added paired registry coverage that scrambles `NIP_REGISTRY` and proves
+    service/capability lookups still emit the same stable order.
