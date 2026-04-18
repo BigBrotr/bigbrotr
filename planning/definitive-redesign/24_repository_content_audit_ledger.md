@@ -1786,3 +1786,12 @@ Use this section during execution for:
     rejected both at the low-level `fetch_api()` seam and at the
     `find_from_api()` runtime layer before success counters or checkpoint
     persistence can advance.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-forty-fifth remediation
+  slice:
+  - tightened the Finder API-source config boundary so duplicate source URLs
+    can no longer coexist under one `ApiConfig`, which previously let the
+    service fetch the same source multiple times in one cycle while still
+    sharing a single checkpoint identity keyed only by URL;
+  - added paired `finder` coverage proving duplicate URLs are rejected both
+    by the direct `ApiConfig` constructor and by nested `FinderConfig`
+    validation before any runtime fetch scheduling can begin.

@@ -245,6 +245,15 @@ class TestApiConfig:
         assert len(config.sources) == 2
         assert config.sources[0].url == "https://custom1.api.com"
 
+    def test_duplicate_source_urls_rejected(self) -> None:
+        with pytest.raises(ValueError, match="duplicate finder API source URLs"):
+            ApiConfig(
+                sources=[
+                    ApiSourceConfig(url="https://dup.api.com", expression="[*]"),
+                    ApiSourceConfig(url="https://dup.api.com", expression="data.relays"),
+                ]
+            )
+
     @pytest.mark.parametrize(
         ("size", "should_fail"),
         [
@@ -288,6 +297,17 @@ class TestFinderConfig:
         assert config.events.parallel_relays == 15
         assert config.events.max_relay_time == 30.0
         assert config.events.max_duration == 120.0
+
+    def test_duplicate_api_source_urls_rejected(self) -> None:
+        with pytest.raises(ValueError, match="duplicate finder API source URLs"):
+            FinderConfig(
+                api=ApiConfig(
+                    sources=[
+                        ApiSourceConfig(url="https://dup.api.com", expression="[*]"),
+                        ApiSourceConfig(url="https://dup.api.com", expression="data.relays"),
+                    ]
+                )
+            )
 
 
 # ============================================================================

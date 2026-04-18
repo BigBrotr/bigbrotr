@@ -141,6 +141,20 @@ class ApiConfig(BaseModel):
         description="Maximum API response body size in bytes (default: 5 MB)",
     )
 
+    @model_validator(mode="after")
+    def _validate_unique_sources(self) -> ApiConfig:
+        seen: set[str] = set()
+        duplicates: list[str] = []
+        for source in self.sources:
+            if source.url in seen and source.url not in duplicates:
+                duplicates.append(source.url)
+            seen.add(source.url)
+        if duplicates:
+            raise ValueError(
+                "duplicate finder API source URLs are not allowed: " + ", ".join(duplicates)
+            )
+        return self
+
 
 class FinderConfig(BaseServiceConfig):
     """Finder service configuration.
