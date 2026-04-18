@@ -1892,3 +1892,14 @@ Use this section during execution for:
   - added paired `validator` coverage proving cleanup SQL now purges invalid
     `failures`, `timestamp`, and `network` payloads in the same pass that
     removes exhausted candidates.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fifty-fifth remediation
+  slice:
+  - tightened the `validator` service cleanup boundary so candidate rows with
+    invalid relay keys or relay/network mismatches no longer survive forever
+    just because their numerics are well-typed, which previously left
+    unprocessable validator tombstones in `service_state` even though the
+    runtime would skip them forever;
+  - added paired `validator` query/service coverage proving cleanup now
+    deletes typed-decode-invalid candidate rows even when threshold-based
+    exhausted cleanup is disabled, so malformed candidate state stops blocking
+    later rediscovery of the same relay URL.

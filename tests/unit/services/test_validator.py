@@ -33,6 +33,7 @@ from bigbrotr.services.validator import (
 from bigbrotr.services.validator.queries import (
     count_candidates,
     delete_exhausted_candidates,
+    delete_invalid_candidates,
     delete_promoted_candidates,
     fail_candidates,
     fetch_candidates,
@@ -236,6 +237,63 @@ class TestDeleteExhaustedCandidates:
     async def test_returns_zero_when_none(self, query_brotr: MagicMock) -> None:
         query_brotr.fetchval = AsyncMock(return_value=0)
         assert await delete_exhausted_candidates(query_brotr, max_failures=5) == 0
+
+
+# ============================================================================
+# delete_invalid_candidates
+# ============================================================================
+
+
+class TestDeleteInvalidCandidates:
+    async def test_deletes_unprocessable_candidate_rows(self, query_brotr: MagicMock) -> None:
+        query_brotr.get_service_state = AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    owner=ServiceName.VALIDATOR,
+                    state_type=ServiceStateType.CHECKPOINT,
+                    state_key=f"ws://{'a' * 56}.onion",
+                    state_value={"network": "clearnet", "failures": 0, "timestamp": 1},
+                ),
+                SimpleNamespace(
+                    owner=ServiceName.VALIDATOR,
+                    state_type=ServiceStateType.CHECKPOINT,
+                    state_key="wss://good.com",
+                    state_value={"network": "clearnet", "failures": 0, "timestamp": 1},
+                ),
+            ]
+        )
+        query_brotr.delete_service_state = AsyncMock(return_value=1)
+
+        result = await delete_invalid_candidates(query_brotr)
+
+        query_brotr.get_service_state.assert_awaited_once_with(
+            ServiceName.VALIDATOR,
+            ServiceStateType.CHECKPOINT,
+            None,
+        )
+        query_brotr.delete_service_state.assert_awaited_once_with(
+            [ServiceName.VALIDATOR],
+            [ServiceStateType.CHECKPOINT],
+            [f"ws://{'a' * 56}.onion"],
+        )
+        assert result == 1
+
+    async def test_returns_zero_when_all_candidates_are_valid(self, query_brotr: MagicMock) -> None:
+        query_brotr.get_service_state = AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    owner=ServiceName.VALIDATOR,
+                    state_type=ServiceStateType.CHECKPOINT,
+                    state_key="wss://good.com",
+                    state_value={"network": "clearnet", "failures": 0, "timestamp": 1},
+                )
+            ]
+        )
+
+        result = await delete_invalid_candidates(query_brotr)
+
+        query_brotr.delete_service_state.assert_not_awaited()
+        assert result == 0
 
 
 # ============================================================================
@@ -1198,6 +1256,25 @@ class TestCleanup:
         assert "AND EXISTS" in validator_brotr.fetchval.call_args_list[0][0][0]
         assert result == 6  # 3 promoted + 3 exhausted (both fetchval calls return 3)
 
+    async def test_delete_invalid_candidates_runs_even_when_exhausted_cleanup_disabled(
+        self, validator_brotr: Brotr
+    ) -> None:
+        validator_brotr.fetchval = AsyncMock(return_value=0)
+        cfg = ValidatorConfig(cleanup={"enabled": False})
+        with (
+            patch(
+                f"{_SVC}.delete_invalid_candidates",
+                new_callable=AsyncMock,
+                return_value=4,
+            ) as mock_invalid,
+            patch(f"{_SVC}.delete_exhausted_candidates", new_callable=AsyncMock) as mock_exhausted,
+        ):
+            result = await Validator(validator_brotr, config=cfg).cleanup()
+
+        mock_invalid.assert_awaited_once()
+        mock_exhausted.assert_not_awaited()
+        assert result == 4
+
     async def test_delete_exhausted_when_enabled(self, validator_brotr: Brotr) -> None:
         validator_brotr.fetchval = AsyncMock(return_value=0)
         cfg = ValidatorConfig(cleanup={"enabled": True, "max_failures": 10})
@@ -1220,13 +1297,20 @@ class TestCleanup:
     async def test_returns_sum(self, validator_brotr: Brotr) -> None:
         validator_brotr.fetchval = AsyncMock(return_value=4)
         cfg = ValidatorConfig(cleanup={"enabled": True, "max_failures": 5})
-        with patch(
-            f"{_SVC}.delete_exhausted_candidates",
-            new_callable=AsyncMock,
-            return_value=6,
+        with (
+            patch(
+                f"{_SVC}.delete_invalid_candidates",
+                new_callable=AsyncMock,
+                return_value=2,
+            ),
+            patch(
+                f"{_SVC}.delete_exhausted_candidates",
+                new_callable=AsyncMock,
+                return_value=6,
+            ),
         ):
             result = await Validator(validator_brotr, config=cfg).cleanup()
-        assert result == 10
+        assert result == 12
 
 
 # ============================================================================

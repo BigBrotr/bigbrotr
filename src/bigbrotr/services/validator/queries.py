@@ -113,6 +113,34 @@ async def delete_exhausted_candidates(brotr: Brotr, max_failures: int) -> int:
     return count
 
 
+async def delete_invalid_candidates(brotr: Brotr) -> int:
+    """Remove persisted validator candidates that no longer satisfy the typed contract.
+
+    Deletes CHECKPOINT rows whose payload or state key cannot be decoded into a
+    [CandidateCheckpoint][bigbrotr.services.common.types.CandidateCheckpoint].
+    This prevents permanently unprocessable candidate tombstones from lingering
+    in ``service_state`` and blocking rediscovery of the same relay URL.
+
+    Args:
+        brotr: [Brotr][bigbrotr.core.brotr.Brotr] database interface.
+
+    Returns:
+        Number of invalid candidate rows deleted.
+    """
+    store = ServiceStateStore(brotr)
+    states = await store.get(ServiceName.VALIDATOR, ServiceStateType.CHECKPOINT)
+    invalid_states = []
+    for state in states:
+        try:
+            ServiceStateStore.decode_candidate(state.state_key, state.state_value)
+        except (KeyError, TypeError, ValueError):
+            invalid_states.append(state)
+
+    if not invalid_states:
+        return 0
+    return await store.delete_states(invalid_states)
+
+
 _CANDIDATES_WHERE = """
     FROM candidates
     WHERE failures_count IS NOT NULL

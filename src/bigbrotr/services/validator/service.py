@@ -64,6 +64,7 @@ from .configs import ValidatorConfig
 from .queries import (
     count_candidates,
     delete_exhausted_candidates,
+    delete_invalid_candidates,
     delete_promoted_candidates,
     fail_candidates,
     fetch_candidates,
@@ -173,8 +174,9 @@ class Validator(ConcurrentStreamMixin, NetworkSemaphoresMixin, BaseService[Valid
         await self.validate()
 
     async def cleanup(self) -> int:
-        """Remove promoted candidates and exhausted candidates."""
+        """Remove promoted, malformed, and exhausted candidates."""
         removed = await delete_promoted_candidates(self._brotr)
+        removed += await delete_invalid_candidates(self._brotr)
         if self._config.cleanup.enabled:
             removed += await delete_exhausted_candidates(
                 self._brotr, self._config.cleanup.max_failures
