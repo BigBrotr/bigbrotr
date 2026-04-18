@@ -561,6 +561,18 @@ Use this section during execution for:
     required subject identifiers;
   - paired coverage now pins the empty-string failure explicitly for all four
     subject families on both constructor and hydration paths.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirty-eighth
+  remediation slice:
+  - hardened the `TrustedProviderDeclaration` boundary for public kind `10040`
+    declarations so `tag_name`, `service_pubkey`, and `relay_hint` must now be
+    real non-empty strings rather than permitting empty values that serialize
+    to malformed public declaration tags;
+  - kept the existing typed validation split intact (`TypeError` for
+    non-strings, `ValueError` for empty strings), but aligned the live model
+    with the event-builder contract that always emits a `<kind:tag>`,
+    provider pubkey, and relay hint triple;
+  - paired coverage now pins the empty-string failures explicitly on all three
+    declaration fields.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

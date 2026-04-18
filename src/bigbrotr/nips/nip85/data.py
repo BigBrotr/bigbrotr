@@ -569,13 +569,17 @@ class TrustedProviderDeclaration:
             "result_kind",
             _require_non_negative_int(self.result_kind, "result_kind"),
         )
-        object.__setattr__(self, "tag_name", _require_text(self.tag_name, "tag_name"))
+        object.__setattr__(self, "tag_name", _require_non_empty_text(self.tag_name, "tag_name"))
         object.__setattr__(
             self,
             "service_pubkey",
-            _require_text(self.service_pubkey, "service_pubkey"),
+            _require_non_empty_text(self.service_pubkey, "service_pubkey"),
         )
-        object.__setattr__(self, "relay_hint", _require_text(self.relay_hint, "relay_hint"))
+        object.__setattr__(
+            self,
+            "relay_hint",
+            _require_non_empty_text(self.relay_hint, "relay_hint"),
+        )
 
     @property
     def kind_tag(self) -> str:
