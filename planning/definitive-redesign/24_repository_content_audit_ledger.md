@@ -854,3 +854,10 @@ Use this section during execution for:
   - added paired unit coverage proving both direct fee parsing and the public
     NIP-11 fetch path now emit stable fee-entry ordering even when the source
     document lists equivalent fee policies out of order.
+- `2.1` models/utils/NIPs leaf audit, eighty-fourth remediation slice:
+  - tightened `bigbrotr.nips.nip85.data.UserAssertion.from_db_row()` so
+    `top_topics` are ordered by descending numeric count with lexical
+    tie-breaking instead of inheriting equal-count topic order from the raw
+    JSONB mapping;
+  - added paired unit coverage proving equal-count topic sets now produce a
+    stable canonical ordering instead of drifting with dictionary key order.

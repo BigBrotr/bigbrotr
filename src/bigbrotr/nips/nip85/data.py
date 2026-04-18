@@ -23,6 +23,12 @@ from typing import Any
 _MSATS_PER_SAT = 1000
 
 
+def _topic_count_sort_key(item: tuple[str, Any]) -> tuple[int, str]:
+    """Sort topics by descending count, then lexicographically for stability."""
+    topic, raw_count = item
+    return (-int(raw_count), topic)
+
+
 @dataclass(frozen=True, slots=True)
 class UserAssertion:
     """NIP-85 kind 30382: per-pubkey social metrics.
@@ -50,7 +56,8 @@ class UserAssertion:
         first_created_at: Unix timestamp of earliest event.
         last_event_at: Unix timestamp of most recent event (from pubkey_stats).
         activity_hours: 24-element list, index 0 = UTC hour 0 event count.
-        top_topics: Most frequent ``t``-tag topics, descending by count.
+        top_topics: Most frequent ``t``-tag topics, descending by count with
+            lexical tie-breaking for stable output.
         follower_count: Pubkeys whose latest kind=3 contains tag ``p=pubkey``.
         following_count: Number of ``p`` tags in this pubkey's latest kind=3.
     """
@@ -137,7 +144,7 @@ class UserAssertion:
     def from_db_row(cls, row: dict[str, Any]) -> UserAssertion:
         """Construct from a joined nip85_pubkey_stats + pubkey_stats row."""
         raw_topics: dict[str, Any] = row.get("topic_counts") or {}
-        sorted_topics = sorted(raw_topics.items(), key=lambda t: int(t[1]), reverse=True)
+        sorted_topics = sorted(raw_topics.items(), key=_topic_count_sort_key)
         top_n = row.get("top_topics_limit", 5)
 
         hours_raw = row.get("activity_hours") or [0] * 24

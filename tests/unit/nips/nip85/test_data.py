@@ -169,6 +169,16 @@ class TestUserAssertionFromDbRow:
         a = UserAssertion.from_db_row(row)
         assert a.top_topics == ("lightning", "bitcoin", "nostr")
 
+    def test_topic_count_ties_sort_lexicographically(self) -> None:
+        """Equal topic counts should not inherit JSONB key order."""
+        row = {
+            "pubkey": "cc" * 32,
+            "topic_counts": {"zebra": 5, "apple": 5, "nostr": 7, "beta": 5},
+            "top_topics_limit": 4,
+        }
+        a = UserAssertion.from_db_row(row)
+        assert a.top_topics == ("nostr", "apple", "beta", "zebra")
+
 
 class TestEventAssertionProperties:
     def test_zap_amount_sats(self) -> None:
