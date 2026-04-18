@@ -5,7 +5,8 @@ Implements [NIP-11](https://github.com/nostr-protocol/nips/blob/master/11.md)
 Raw JSON responses are sanitized through ``parse()`` methods and validated
 into typed, frozen Pydantic models. The report-oriented parsing path keeps
 track of dropped or unknown fields via ``ParseReport`` while ``parse()``
-remains the convenience wrapper that returns only the parsed payload.
+remains the convenience wrapper that returns constructor-ready canonical
+payloads when the corresponding data model can validate them safely.
 
 Model hierarchy:
 

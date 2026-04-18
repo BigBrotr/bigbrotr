@@ -917,3 +917,11 @@ Use this section during execution for:
     model validation rejects post-parse semantics, and added paired base/NIP-66
     coverage proving the contract now emits canonical list payloads without
     breaking permissive parse behavior.
+- `2.1` models/utils/NIPs leaf audit, ninety-third remediation slice:
+  - aligned the live NIP package/module docstrings (`bigbrotr.nips.base`,
+    `bigbrotr.nips.nip11`, `bigbrotr.nips.nip11.data`,
+    `bigbrotr.nips.nip66`, `bigbrotr.nips.nip66.data`) with the new
+    `BaseData.parse()` contract;
+  - documented explicitly that `parse()` now returns constructor-ready
+    canonical payloads when model validation can normalize them safely,
+    while `parse_report()` remains the issue-preserving permissive path.

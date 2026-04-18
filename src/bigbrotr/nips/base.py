@@ -67,7 +67,9 @@ class BaseData(BaseModel):
     their expected types. The ``parse_report()`` class method uses this spec
     to coerce raw data into valid constructor arguments while recording which
     values were dropped or ignored. ``parse()`` remains the convenience
-    wrapper for callers that only want the parsed payload.
+    wrapper for callers that only want the parsed payload, while still
+    returning constructor-ready canonical values when model validation can
+    normalize them safely.
 
     Subclasses may override ``parse()`` for custom logic (e.g., nested objects).
 

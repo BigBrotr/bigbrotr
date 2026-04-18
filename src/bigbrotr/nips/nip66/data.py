@@ -9,7 +9,10 @@ network/ASN, DNS resolution, and HTTP server headers.
 Note:
     All data classes extend [BaseData][bigbrotr.nips.base.BaseData] and use
     declarative [FieldSpec][bigbrotr.nips.parsing.FieldSpec] parsing with
-    report-oriented issue collection under the hood.
+    report-oriented issue collection under the hood. ``parse()`` returns the
+    permissively parsed payload in canonical model form when field validators
+    can normalize it safely, while ``parse_report()`` retains visibility into
+    dropped values.
     Field names are prefixed with their test type (e.g., ``rtt_``, ``ssl_``,
     ``geo_``, ``net_``, ``dns_``, ``http_``) to avoid collisions when
     multiple test results are serialized alongside each other.

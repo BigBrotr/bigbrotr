@@ -12,7 +12,8 @@ Note:
     Complex nested structures (limitation, retention, fees) override
     ``parse_report()`` with custom logic while still leveraging the base
     mechanism for flat fields; ``parse()`` then remains the convenience
-    wrapper that returns only the parsed payload.
+    wrapper that returns constructor-ready canonical payloads while
+    ``parse_report()`` preserves visibility into dropped or unknown fields.
 
 See Also:
     [bigbrotr.nips.nip11.info.Nip11InfoMetadata][bigbrotr.nips.nip11.info.Nip11InfoMetadata]:
