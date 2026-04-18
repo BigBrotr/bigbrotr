@@ -11,6 +11,7 @@ from bigbrotr.services.common.catalog import (
     QueryResult,
     TableSchema,
 )
+from bigbrotr.services.common.catalog_types import _MAX_OFFSET
 from bigbrotr.services.common.configs import ReadModelPolicy
 from bigbrotr.services.common.read_models import (
     READABLE_RESOURCE_REGISTRY,
@@ -873,8 +874,11 @@ class TestReadModelQueryHelpers:
                 max_page_size=1000,
             )
 
-    @pytest.mark.parametrize("params", [{"limit": "0"}, {"limit": "-1"}, {"offset": "-1"}])
-    def test_read_model_query_from_http_params_rejects_non_positive_or_negative_bounds(
+    @pytest.mark.parametrize(
+        "params",
+        [{"limit": "0"}, {"limit": "-1"}, {"offset": "-1"}, {"offset": str(_MAX_OFFSET + 1)}],
+    )
+    def test_read_model_query_from_http_params_rejects_invalid_public_bounds(
         self,
         params: dict[str, str],
     ) -> None:
@@ -969,8 +973,11 @@ class TestReadModelQueryHelpers:
                 max_page_size=1000,
             )
 
-    @pytest.mark.parametrize("params", [{"limit": "0"}, {"limit": "-1"}, {"offset": "-1"}])
-    def test_read_model_query_from_job_params_rejects_non_positive_or_negative_bounds(
+    @pytest.mark.parametrize(
+        "params",
+        [{"limit": "0"}, {"limit": "-1"}, {"offset": "-1"}, {"offset": str(_MAX_OFFSET + 1)}],
+    )
+    def test_read_model_query_from_job_params_rejects_invalid_public_bounds(
         self,
         params: dict[str, str],
     ) -> None:

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from .catalog_types import _MAX_OFFSET
+
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -126,7 +128,13 @@ def _normalize_http_param_keys(raw_params: Mapping[str, str]) -> dict[str, str]:
     return params
 
 
-def _parse_int_param(raw_value: Any, *, error_message: str, minimum: int) -> int:
+def _parse_int_param(
+    raw_value: Any,
+    *,
+    error_message: str,
+    minimum: int,
+    maximum: int | None = None,
+) -> int:
     """Normalize one public integer parameter without accepting bool aliases."""
     if isinstance(raw_value, bool):
         raise ReadModelQueryError(error_message)
@@ -136,6 +144,8 @@ def _parse_int_param(raw_value: Any, *, error_message: str, minimum: int) -> int
     except (TypeError, ValueError) as error:
         raise ReadModelQueryError(error_message) from error
     if value < minimum:
+        raise ReadModelQueryError(error_message)
+    if maximum is not None and value > maximum:
         raise ReadModelQueryError(error_message)
     return value
 
@@ -158,6 +168,7 @@ def read_model_query_from_http_params(
         raw_params.pop("offset", 0),
         error_message="Invalid limit or offset",
         minimum=0,
+        maximum=_MAX_OFFSET,
     )
 
     sort = _parse_sort(raw_params.pop("sort", None))
@@ -193,6 +204,7 @@ def read_model_query_from_job_params(
         params.get("offset", 0),
         error_message="Invalid limit or offset value",
         minimum=0,
+        maximum=_MAX_OFFSET,
     )
 
     sort = _parse_sort(params.get("sort", None))

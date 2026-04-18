@@ -22,6 +22,7 @@ from bigbrotr.services.common.catalog import (
     QueryResult,
     TableSchema,
 )
+from bigbrotr.services.common.catalog_types import _MAX_OFFSET
 from bigbrotr.services.common.configs import ReadModelPolicy
 from bigbrotr.services.common.read_models import ReadCore
 from bigbrotr.services.common.state_store import ServiceStateStore
@@ -483,6 +484,24 @@ class TestPrepareJobRequest:
         rejected = prepare_job_request(
             "relays",
             {"limit": "not-a-number"},
+            context=JobPreparationContext(
+                read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
+                exposure_policy=dvm_config.exposure_policy,
+                default_page_size=dvm_config.default_page_size,
+                max_page_size=dvm_config.max_page_size,
+            ),
+        )
+
+        assert isinstance(rejected, RejectedJobRequest)
+        assert rejected.error_message == "Invalid limit or offset value"
+        assert rejected.required_price is None
+
+    def test_rejects_offset_above_public_max(
+        self, dvm_config: DvmConfig, sample_dvm_catalog: Catalog
+    ) -> None:
+        rejected = prepare_job_request(
+            "relays",
+            {"offset": str(_MAX_OFFSET + 1)},
             context=JobPreparationContext(
                 read_core=_build_dvm_read_core(sample_dvm_catalog, dvm_config.exposure_policy),
                 exposure_policy=dvm_config.exposure_policy,

@@ -1530,3 +1530,11 @@ Use this section during execution for:
   - added paired `services/common` and API coverage proving whitespace-padded
     reserved HTTP query keys now resolve to the canonical pagination/sort/total
     contract instead of degrading into spurious filter-field behavior.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-eighteenth remediation slice:
+  - tightened the shared public pagination boundary so offsets above the
+    catalog's hard anti-abuse ceiling no longer get silently clamped behind the
+    caller's back, and now fail fast as normalized client errors on both HTTP
+    and `NIP-90` request surfaces;
+  - added paired `services/common`, API, and DVM coverage proving oversized
+    public offsets are rejected before query execution instead of degrading
+    into an implicit `100000` offset at the catalog layer.
