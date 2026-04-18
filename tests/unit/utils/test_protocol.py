@@ -398,6 +398,38 @@ class TestNostrClientManagerRelayClients:
         with pytest.raises(RuntimeError, match="networks configuration required"):
             await manager.get_relay_client(Relay("wss://relay.example.com"))
 
+    async def test_get_relay_clients_deduplicates_relay_urls(self) -> None:
+        networks = _StubNetworkPolicy(timeout=12.0)
+        relay_a = Relay("wss://relay-a.example.com")
+        relay_b = Relay("wss://relay-b.example.com")
+        client_a = MagicMock()
+        client_b = MagicMock()
+        manager = NostrClientManager(keys=MagicMock(), networks=networks)
+
+        with patch(
+            "bigbrotr.utils.protocol.connect_relay",
+            new_callable=AsyncMock,
+            side_effect=[client_a, client_b],
+        ) as mock_connect:
+            clients = await manager.get_relay_clients([relay_a, relay_a, relay_b, relay_b])
+
+        assert clients == [client_a, client_b]
+        assert mock_connect.await_count == 2
+        mock_connect.assert_any_await(
+            relay_a,
+            keys=manager._keys,
+            proxy_url=None,
+            timeout=12.0,
+            allow_insecure=False,
+        )
+        mock_connect.assert_any_await(
+            relay_b,
+            keys=manager._keys,
+            proxy_url=None,
+            timeout=12.0,
+            allow_insecure=False,
+        )
+
 
 class TestNostrClientManagerSessions:
     async def test_connect_session_creates_and_caches_named_session(self) -> None:

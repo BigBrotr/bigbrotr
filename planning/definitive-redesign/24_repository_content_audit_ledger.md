@@ -946,3 +946,9 @@ Use this section during execution for:
   - made `Nip11InfoData.parse()` idempotent on its own canonical
     `self_pubkey` payload by teaching the custom parser to accept the internal
     field name as well as the external NIP-11 alias `self`.
+- `2.1` models/utils/NIPs leaf audit, ninety-seventh remediation slice:
+  - tightened `bigbrotr.utils.protocol_manager.NostrClientManager` so
+    `get_relay_clients()` treats repeated relay URLs as a set-like input and
+    no longer returns the same connected client multiple times;
+  - added paired manager coverage proving duplicate relay URLs no longer
+    trigger duplicate connect attempts or duplicate publish-path clients.

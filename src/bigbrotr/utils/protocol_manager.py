@@ -120,9 +120,19 @@ class NostrClientManager:
         return client
 
     async def get_relay_clients(self, relays: list[Relay]) -> list[Client]:
-        """Return connected clients for the provided relays."""
+        """Return one connected client per distinct relay URL.
+
+        The returned list preserves the first-seen relay order from the caller
+        while treating duplicate relay URLs as a set-like input. This avoids
+        duplicate publish/subscribe attempts when higher layers pass repeated
+        relay objects for the same endpoint.
+        """
         clients: list[Client] = []
+        seen_relays: set[str] = set()
         for relay in relays:
+            if relay.url in seen_relays:
+                continue
+            seen_relays.add(relay.url)
             client = await self.get_relay_client(relay)
             if client is not None:
                 clients.append(client)
