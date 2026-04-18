@@ -15,7 +15,7 @@ Note:
 
     IPv4 ASN data takes priority; IPv6 ASN data is used only as a fallback
     when no IPv4 address is available. IPv6-specific network ranges are
-    always recorded separately.
+    recorded separately when the IPv6 lookup returns one.
 
 See Also:
     [bigbrotr.nips.nip66.data.Nip66NetData][bigbrotr.nips.nip66.data.Nip66NetData]:
@@ -78,8 +78,8 @@ class Nip66NetMetadata(BaseNipMetadata):
         """Perform synchronous ASN lookups for IPv4 and/or IPv6 addresses.
 
         IPv4 ASN data takes priority; IPv6 ASN data is used as a fallback
-        when IPv4 is not available. IPv6-specific network range is always
-        recorded separately.
+        when IPv4 is not available. IPv6-specific network range data is
+        recorded separately when the IPv6 lookup yields it.
 
         Args:
             ipv4: Resolved IPv4 address, or None.

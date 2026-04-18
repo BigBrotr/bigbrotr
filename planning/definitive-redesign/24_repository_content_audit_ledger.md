@@ -423,3 +423,10 @@ Use this section during execution for:
     when a proxy is configured;
   - tightened the same note so it attributes the relaxed SSL stance to the
     overlay transport contract, not to the SOCKS proxy itself.
+- `2.1` models/utils/NIPs leaf audit, thirtieth remediation slice:
+  - corrected the tracked `bigbrotr.nips.nip66.net` notes that still claimed
+    IPv6-specific network ranges are always recorded separately; the live code
+    already treats that field as conditional on the IPv6 ASN lookup returning
+    a network, which is exactly what the paired unit tests cover;
+  - kept this slice documentation-only because the runtime behavior and
+    existing test coverage were already correct.
