@@ -1915,3 +1915,14 @@ Use this section during execution for:
     even a mapping, which previously survived forever because generic
     `ServiceState` hydration failed before the invalid-candidate cleanup could
     inspect them.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fifty-seventh remediation
+  slice:
+  - tightened the `ranker` local-checkpoint boundary so legacy JSON and DuckDB
+    checkpoint rows no longer pass through broad `int(...)` / `str(...)`
+    coercions, which previously could turn corrupted persisted values into a
+    lexicographically wrong graph-sync checkpoint and silently skip follow-graph
+    work;
+  - added paired `ranker` store coverage proving malformed legacy checkpoint
+    payloads now fall back to the canonical zero checkpoint, and malformed
+    DuckDB checkpoint rows are automatically repaired back to that same
+    canonical state during initialization.

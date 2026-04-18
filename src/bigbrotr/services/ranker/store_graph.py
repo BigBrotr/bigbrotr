@@ -27,6 +27,25 @@ class GraphStats:
     edge_count: int
 
 
+def _decode_checkpoint(
+    source_seen_at: object,
+    follower_pubkey: object,
+) -> GraphSyncCheckpoint | None:
+    """Return a canonical graph checkpoint or ``None`` for malformed persisted values."""
+    if isinstance(source_seen_at, bool) or not isinstance(source_seen_at, int):
+        return None
+    if source_seen_at < 0:
+        return None
+    if not isinstance(follower_pubkey, str):
+        return None
+    if source_seen_at > 0 and follower_pubkey == "":
+        return None
+    return GraphSyncCheckpoint(
+        source_seen_at=source_seen_at,
+        follower_pubkey=follower_pubkey,
+    )
+
+
 def load_checkpoint_from_db(conn: duckdb.DuckDBPyConnection) -> GraphSyncCheckpoint | None:
     """Read the canonical graph-sync checkpoint row from DuckDB."""
     row = conn.execute(
@@ -39,10 +58,7 @@ def load_checkpoint_from_db(conn: duckdb.DuckDBPyConnection) -> GraphSyncCheckpo
     ).fetchone()
     if row is None:
         return None
-    return GraphSyncCheckpoint(
-        source_seen_at=int(row[0]),
-        follower_pubkey=str(row[1]),
-    )
+    return _decode_checkpoint(row[0], row[1])
 
 
 def load_legacy_checkpoint(checkpoint_path: Path) -> GraphSyncCheckpoint:
@@ -50,12 +66,22 @@ def load_legacy_checkpoint(checkpoint_path: Path) -> GraphSyncCheckpoint:
     if not checkpoint_path.exists():
         return _DEFAULT_CHECKPOINT
 
-    raw = json.loads(checkpoint_path.read_text())
+    try:
+        raw = json.loads(checkpoint_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return _DEFAULT_CHECKPOINT
+
+    if not isinstance(raw, dict):
+        return _DEFAULT_CHECKPOINT
     graph = raw.get("graph", {})
-    return GraphSyncCheckpoint(
-        source_seen_at=int(graph.get("source_seen_at", 0)),
-        follower_pubkey=str(graph.get("follower_pubkey", "")),
+    if not isinstance(graph, dict):
+        return _DEFAULT_CHECKPOINT
+
+    checkpoint = _decode_checkpoint(
+        graph.get("source_seen_at", 0),
+        graph.get("follower_pubkey", ""),
     )
+    return checkpoint if checkpoint is not None else _DEFAULT_CHECKPOINT
 
 
 def upsert_checkpoint(

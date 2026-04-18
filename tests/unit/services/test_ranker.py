@@ -400,6 +400,58 @@ class TestRankerStore:
         checkpoint_path.unlink()
         assert store.load_checkpoint() == checkpoint
 
+    def test_load_checkpoint_defaults_invalid_legacy_json_payload(self, tmp_path: Path) -> None:
+        checkpoint_path = tmp_path / "ranker.checkpoint.json"
+        checkpoint_path.write_text(
+            json.dumps(
+                {
+                    "graph": {
+                        "source_seen_at": True,
+                        "follower_pubkey": None,
+                    }
+                }
+            )
+        )
+        store = RankerStore(
+            db_path=tmp_path / "ranker.duckdb",
+            checkpoint_path=checkpoint_path,
+        )
+
+        assert store.load_checkpoint() == GraphSyncCheckpoint()
+
+    def test_load_checkpoint_repairs_invalid_duckdb_checkpoint_row(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "ranker.duckdb"
+        store = RankerStore(
+            db_path=db_path,
+            checkpoint_path=tmp_path / "ranker.checkpoint.json",
+        )
+        store.ensure_initialized()
+        store.close()
+
+        with duckdb.connect(str(db_path)) as conn:
+            conn.execute(
+                """
+                UPDATE graph_sync_checkpoint
+                SET source_seen_at = -1,
+                    follower_pubkey = ''
+                WHERE checkpoint_name = 'graph'
+                """
+            )
+
+        assert store.load_checkpoint() == GraphSyncCheckpoint()
+        store.close()
+
+        with duckdb.connect(str(db_path)) as conn:
+            repaired = conn.execute(
+                """
+                SELECT source_seen_at, follower_pubkey
+                FROM graph_sync_checkpoint
+                WHERE checkpoint_name = 'graph'
+                """
+            ).fetchone()
+
+        assert repaired == (0, "")
+
     def test_reuses_cached_connection_until_closed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
