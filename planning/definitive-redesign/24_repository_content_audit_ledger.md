@@ -1608,3 +1608,12 @@ Use this section during execution for:
   - added paired `services/common` coverage proving non-string cursors and
     tampered cursor values are rejected as client-safe catalog errors before
     query execution.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twenty-seventh remediation
+  slice:
+  - tightened the shared catalog cursor version contract so boolean payload
+    versions like `v=true` no longer pass the opaque cursor guard through
+    Python truthiness and are now rejected as invalid cursors before query
+    execution;
+  - added paired `services/common` coverage proving tampered keyset cursors
+    must carry the exact typed version marker instead of merely a truthy
+    surrogate.

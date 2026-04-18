@@ -329,7 +329,13 @@ def decode_cursor(
     except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise CatalogError("Invalid cursor") from error
 
-    if not isinstance(payload, dict) or payload.get("v") != 1:
+    version = payload.get("v") if isinstance(payload, dict) else None
+    if (
+        not isinstance(payload, dict)
+        or not isinstance(version, int)
+        or isinstance(version, bool)
+        or version != 1
+    ):
         raise CatalogError("Invalid cursor")
 
     payload_sort = payload.get("sort", "")

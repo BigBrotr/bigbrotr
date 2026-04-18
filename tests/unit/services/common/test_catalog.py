@@ -675,6 +675,36 @@ class TestCatalogQuery:
                 include_total=False,
             )
 
+    async def test_query_rejects_cursor_with_boolean_version(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        cursor = (
+            base64.urlsafe_b64encode(
+                json.dumps(
+                    {
+                        "v": True,
+                        "sort": "",
+                        "values": {"url": "wss://relay-1.example.com"},
+                    },
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode()
+            )
+            .decode()
+            .rstrip("=")
+        )
+
+        with pytest.raises(CatalogError, match="Invalid cursor"):
+            await populated_catalog.query(
+                catalog_brotr,
+                "relay",
+                limit=10,
+                offset=0,
+                cursor=cursor,
+                prefer_keyset=True,
+                include_total=False,
+            )
+
     async def test_query_skips_total_when_not_requested(
         self, populated_catalog: Catalog, catalog_brotr: Brotr
     ) -> None:
