@@ -1736,3 +1736,12 @@ Use this section during execution for:
   - added paired `services/common` coverage proving numeric keyset follow-up
     pages now bind exact cursor values and reject malformed non-finite numeric
     cursor payloads at the same shared typed boundary.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fortieth remediation slice:
+  - tightened the shared compact read-filter boundary so repeated filter keys
+    in one public `filter=` string no longer overwrite each other via silent
+    last-write-wins parsing, and now fail immediately as ambiguous client
+    input at the shared request seam;
+  - added paired `services/common` coverage proving duplicate compact filter
+    keys are rejected both by the low-level parser and by the normalized
+    `read_model_query_from_job_params()` DVM/job path before query validation
+    continues.

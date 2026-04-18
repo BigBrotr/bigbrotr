@@ -51,6 +51,8 @@ def parse_read_model_filter_string(filter_str: str) -> dict[str, str] | None:
         normalized_key = key.strip()
         if not normalized_key:
             raise ReadModelQueryError("Invalid filter value")
+        if normalized_key in filters:
+            raise ReadModelQueryError("Invalid filter value")
         filters[normalized_key] = value.strip()
     return filters or None
 

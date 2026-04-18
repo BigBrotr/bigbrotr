@@ -804,6 +804,10 @@ class TestReadModelQueryHelpers:
         with pytest.raises(ReadModelQueryError, match="Invalid filter value"):
             parse_read_model_filter_string(filter_str)
 
+    def test_parse_read_model_filter_string_rejects_duplicate_keys(self) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid filter value"):
+            parse_read_model_filter_string("network=clearnet,network=tor")
+
     def test_read_model_query_from_http_params(self) -> None:
         query = read_model_query_from_http_params(
             {
@@ -1159,6 +1163,14 @@ class TestReadModelQueryHelpers:
         with pytest.raises(ReadModelQueryError, match="Invalid filter value"):
             read_model_query_from_job_params(
                 {"filter": "network=clearnet,invalid"},
+                default_page_size=100,
+                max_page_size=1000,
+            )
+
+    def test_read_model_query_from_job_params_rejects_duplicate_filter_keys(self) -> None:
+        with pytest.raises(ReadModelQueryError, match="Invalid filter value"):
+            read_model_query_from_job_params(
+                {"filter": "network=clearnet,network=tor"},
                 default_page_size=100,
                 max_page_size=1000,
             )
