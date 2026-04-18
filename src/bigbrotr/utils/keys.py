@@ -50,7 +50,7 @@ def load_keys_from_env(env_var: str) -> Keys | None:
         if the environment variable is unset or blank.
 
     Raises:
-        nostr_sdk.NostrError: If the key value is malformed or invalid.
+        nostr_sdk.NostrSdkError: If the key value is malformed or invalid.
 
     Warning:
         The returned ``Keys`` object holds the private key in memory for the

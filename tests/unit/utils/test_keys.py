@@ -6,7 +6,7 @@ import os
 from unittest.mock import patch
 
 import pytest
-from nostr_sdk import Keys
+from nostr_sdk import Keys, NostrSdkError
 
 from bigbrotr.utils.keys import load_keys_from_env
 
@@ -59,6 +59,6 @@ class TestLoadKeysFromEnv:
                 os.environ,
                 {"NOSTR_PRIVATE_KEY_MONITOR": invalid_key},  # pragma: allowlist secret
             ),
-            pytest.raises(BaseException),  # noqa: B017
+            pytest.raises(NostrSdkError, match="Invalid secret key"),
         ):
             load_keys_from_env("NOSTR_PRIVATE_KEY_MONITOR")

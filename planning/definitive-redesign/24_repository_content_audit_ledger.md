@@ -515,3 +515,10 @@ Use this section during execution for:
     separate HTTP fetchers that make their own TLS-context decisions;
   - kept this slice documentation-only because the runtime distinction was
     already covered by existing overlay/proxy test surfaces.
+- `2.1` models/utils/NIPs leaf audit, forty-second remediation slice:
+  - corrected the tracked `bigbrotr.utils.keys` contract so it names the real
+    public error family from `nostr_sdk` (`NostrSdkError`) instead of the stale
+    `NostrError` wording;
+  - tightened the paired unit coverage to assert the concrete SDK error family
+    and message for malformed key material, removing the remaining
+    `pytest.raises(BaseException)` escape hatch from this leaf test surface.
