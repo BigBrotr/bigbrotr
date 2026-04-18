@@ -329,6 +329,14 @@ Use this section during execution for:
   - paired `ssl` coverage now pins that malformed DER input drops only the
     X.509-derived fields while keeping the fingerprint and negotiated TLS
     metadata intact.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fifteenth remediation slice:
+  - `bigbrotr.nips.nip66.http.Nip66HttpMetadata._http()` now treats handshake
+    response headers with the correct HTTP case-insensitive semantics instead
+    of converting them to a plain dict and then performing case-sensitive
+    lookups for `Server` and `X-Powered-By`;
+  - paired `http` coverage now pins that both lowercase and mixed-case header
+    spellings still hydrate the canonical `http_server` and
+    `http_powered_by` fields.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

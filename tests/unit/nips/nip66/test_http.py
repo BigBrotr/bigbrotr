@@ -259,9 +259,29 @@ class TestNip66HttpMetadataInternalHttp:
         assert result.data.http_server == "nginx/1.24.0"
         assert result.logs.success is True
 
+    async def test_captures_server_header_case_insensitively(self, relay: Relay) -> None:
+        """Lowercase server headers are still captured from the handshake."""
+        _, factory = self._make_session_mock({"server": "nginx/1.24.0"})
+
+        with patch("bigbrotr.nips.nip66.http.aiohttp.ClientSession", side_effect=factory):
+            result = await Nip66HttpMetadata.probe(relay, 10.0)
+
+        assert result.data.http_server == "nginx/1.24.0"
+        assert result.logs.success is True
+
     async def test_captures_powered_by_header(self, relay: Relay) -> None:
         """X-Powered-By header captured via trace hook produces http_powered_by."""
         _, factory = self._make_session_mock({"X-Powered-By": "Strfry"})
+
+        with patch("bigbrotr.nips.nip66.http.aiohttp.ClientSession", side_effect=factory):
+            result = await Nip66HttpMetadata.probe(relay, 10.0)
+
+        assert result.data.http_powered_by == "Strfry"
+        assert result.logs.success is True
+
+    async def test_captures_powered_by_header_case_insensitively(self, relay: Relay) -> None:
+        """Mixed-case X-Powered-By headers are still captured from the handshake."""
+        _, factory = self._make_session_mock({"x-PoWeReD-bY": "Strfry"})
 
         with patch("bigbrotr.nips.nip66.http.aiohttp.ClientSession", side_effect=factory):
             result = await Nip66HttpMetadata.probe(relay, 10.0)

@@ -101,7 +101,9 @@ class Nip66HttpMetadata(BaseNipMetadata):
             params: aiohttp.TraceRequestEndParams,
         ) -> None:
             if params.response and params.response.headers:
-                captured_headers.update(dict(params.response.headers))
+                captured_headers.update(
+                    {name.lower(): value for name, value in params.response.headers.items()}
+                )
 
         trace_config = aiohttp.TraceConfig()
         trace_config.on_request_end.append(on_request_end)
@@ -132,11 +134,11 @@ class Nip66HttpMetadata(BaseNipMetadata):
         ):
             await ws.close()
 
-        server = captured_headers.get("Server")
+        server = captured_headers.get("server")
         if server:
             result["http_server"] = server
 
-        powered_by = captured_headers.get("X-Powered-By")
+        powered_by = captured_headers.get("x-powered-by")
         if powered_by:
             result["http_powered_by"] = powered_by
 
