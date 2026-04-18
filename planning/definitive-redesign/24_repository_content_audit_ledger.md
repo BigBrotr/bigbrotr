@@ -371,3 +371,17 @@ Use this section during execution for:
   - corrected the remaining `ServiceName` doc wording that still referred to
     `service_state` filtering by “service name” instead of the final `owner`
     vocabulary.
+- `2.1` models/utils/NIPs leaf audit, twenty-fourth remediation slice:
+  - corrected the remaining false boundary claim on the tracked
+    `bigbrotr.models` package surface: the models layer is free of
+    higher-level BigBrotr dependencies, but not literally stdlib-only because
+    leaf modules legitimately use focused external protocol and URL libraries;
+  - aligned the tracked `models/README.md` with that same contract so package
+    guidance now documents the real boundary instead of implying a stricter
+    rule than the live code follows;
+  - corrected the tracked `Relay` module narrative so local relay handling is
+    described honestly as a policy distinction between default raw-input
+    parsing and explicitly admitted canonical local rows;
+  - deferred the paired drift in `docs/user-guide/architecture.md` to the
+    later narrative-docs wave, because it sits outside the leaf-package scope
+    of `2.1`.

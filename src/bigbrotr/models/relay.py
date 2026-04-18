@@ -4,7 +4,8 @@ Validated Nostr relay URL with network type detection.
 Parses, normalizes, and validates WebSocket relay URLs (``ws://`` or ``wss://``),
 automatically detecting the [NetworkType][bigbrotr.models.constants.NetworkType]
 (clearnet, Tor, I2P, Lokinet) and enforcing the correct scheme for each network.
-Local and private IP addresses are rejected.
+Raw local and private relay URLs are rejected by the default parsing policy,
+but already-canonical local relay rows may still be represented explicitly.
 
 See Also:
     [bigbrotr.models.constants][]: Defines the

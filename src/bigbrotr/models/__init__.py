@@ -1,8 +1,10 @@
 """Pure frozen dataclasses with zero I/O for the shared BigBrotr data model.
 
 The models layer is the foundation of the diamond DAG. It has **no dependencies**
-on any other BigBrotr package -- only the Python standard library. Every model uses
-``@dataclass(frozen=True, slots=True)`` for immutability and memory efficiency.
+on any higher-level BigBrotr package. Leaf modules may still depend on focused
+third-party libraries such as ``nostr_sdk`` and ``rfc3986`` where the domain
+contract requires them. Every model uses ``@dataclass(frozen=True, slots=True)``
+for immutability and memory efficiency.
 
 Database parameter containers use ``NamedTuple`` and are cached in ``__post_init__``
 to avoid repeated conversions. All validation happens in ``__post_init__`` so

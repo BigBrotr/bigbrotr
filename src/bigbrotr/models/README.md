@@ -15,6 +15,9 @@ Pure frozen dataclasses and enums for the shared BigBrotr data model.
 ## Rules
 
 - No I/O and no upward package dependencies.
+- Focused third-party validation/protocol libraries are acceptable at this
+  layer; the real boundary is no dependency on higher-level `bigbrotr`
+  packages.
 - Fail-fast validation and cached DB-parameter conversion stay part of the
   model contract.
 - Keep NIP-specific result containers and provider/probe builders in
