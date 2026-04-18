@@ -415,9 +415,24 @@ class TestNip66DnsMetadataDnsAsync:
 
         assert result.logs.success is True
         assert result.logs.reason is None
-        assert result.data.dns_ips == ["8.8.8.8", "8.8.4.4"]
+        assert result.data.dns_ips == ["8.8.4.4", "8.8.8.8"]
         assert result.data.dns_ips_v6 == ["2001:4860:4860::8888"]
         assert result.data.dns_cname == "dns.google"
+
+    async def test_probe_normalizes_set_like_dns_fields(self, relay: Relay) -> None:
+        """Probe output normalizes set-like DNS lists before building the model."""
+        dns_result = {
+            "dns_ips": ["8.8.8.8", "8.8.4.4", "8.8.8.8"],
+            "dns_ips_v6": ["2001:4860:4860::8888", "2001:4860:4860::8844"],
+            "dns_ns": ["ns2.google.com", "ns1.google.com", "ns2.google.com"],
+        }
+
+        with patch.object(Nip66DnsMetadata, "_dns", return_value=dns_result):
+            result = await Nip66DnsMetadata.probe(relay, 5.0)
+
+        assert result.data.dns_ips == ["8.8.4.4", "8.8.8.8"]
+        assert result.data.dns_ips_v6 == ["2001:4860:4860::8844", "2001:4860:4860::8888"]
+        assert result.data.dns_ns == ["ns1.google.com", "ns2.google.com"]
 
     async def test_outer_timeout(self, relay: Relay) -> None:
         """Outer timeout fires when thread hangs indefinitely."""

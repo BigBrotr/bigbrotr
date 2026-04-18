@@ -295,9 +295,21 @@ class TestNip66DnsData:
             dns_ns=["ns1.google.com", "ns2.google.com"],
             dns_ttl=300,
         )
-        assert data.dns_ips == ["8.8.8.8", "8.8.4.4"]
+        assert data.dns_ips == ["8.8.4.4", "8.8.8.8"]
         assert data.dns_ttl == 300
         assert len(data.dns_ns) == 2
+
+    def test_construction_normalizes_set_like_dns_lists(self) -> None:
+        """Constructed DNS set-like lists are deduplicated and sorted."""
+        data = Nip66DnsData(
+            dns_ips=["8.8.4.4", "8.8.8.8", "8.8.4.4"],
+            dns_ips_v6=["2001:4860:4860::8844", "2001:4860:4860::8888", "2001:4860:4860::8844"],
+            dns_ns=["ns2.google.com", "ns1.google.com", "ns2.google.com"],
+        )
+
+        assert data.dns_ips == ["8.8.4.4", "8.8.8.8"]
+        assert data.dns_ips_v6 == ["2001:4860:4860::8844", "2001:4860:4860::8888"]
+        assert data.dns_ns == ["ns1.google.com", "ns2.google.com"]
 
     def test_parse_filters_empty_lists(self) -> None:
         """parse() filters empty lists."""
@@ -313,12 +325,12 @@ class TestNip66DnsData:
     def test_parse_filters_invalid_list_elements(self) -> None:
         """parse() filters invalid elements in lists."""
         raw = {
-            "dns_ips": ["8.8.8.8", 123, None, "8.8.4.4"],
-            "dns_ns": ["ns1.google.com", 456, "ns2.google.com"],
+            "dns_ips": ["8.8.8.8", 123, None, "8.8.4.4", "8.8.8.8"],
+            "dns_ns": ["ns2.google.com", 456, "ns1.google.com", "ns2.google.com"],
         }
         parsed = Nip66DnsData.parse(raw)
         data = Nip66DnsData(**parsed)
-        assert data.dns_ips == ["8.8.8.8", "8.8.4.4"]
+        assert data.dns_ips == ["8.8.4.4", "8.8.8.8"]
         assert data.dns_ns == ["ns1.google.com", "ns2.google.com"]
 
     def test_parse_list_all_invalid_becomes_none(self) -> None:

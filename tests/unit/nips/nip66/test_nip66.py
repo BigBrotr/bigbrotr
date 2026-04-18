@@ -125,7 +125,7 @@ class TestNip66Construction:
     ) -> None:
         """Construct with only the DNS result container."""
         nip66 = Nip66(relay=relay, dns=complete_dns_metadata)
-        assert nip66.dns.data.dns_ips == ["8.8.8.8", "8.8.4.4"]
+        assert nip66.dns.data.dns_ips == ["8.8.4.4", "8.8.8.8"]
         assert nip66.rtt is None
 
     def test_with_http_only(
@@ -209,7 +209,7 @@ class TestNip66ResultAccess:
 
     def test_dns_result_access(self, nip66_full: Nip66) -> None:
         """Access DNS values via the result container."""
-        assert nip66_full.dns.data.dns_ips == ["8.8.8.8", "8.8.4.4"]
+        assert nip66_full.dns.data.dns_ips == ["8.8.4.4", "8.8.8.8"]
         assert nip66_full.dns.data.dns_ips_v6 == ["2001:4860:4860::8888"]
         assert nip66_full.dns.data.dns_ttl == 300
 

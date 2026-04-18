@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from pydantic import Field, StrictBool, StrictFloat, StrictInt
+from pydantic import Field, StrictBool, StrictFloat, StrictInt, field_validator
 
 from bigbrotr.nips.base import BaseData
 from bigbrotr.nips.parsing import FieldSpec
@@ -238,7 +238,9 @@ class Nip66DnsData(BaseData):
         This is the comprehensive DNS data model used by the NIP-66 DNS test.
         Unlike the simpler [resolve_host][bigbrotr.utils.dns.resolve_host]
         utility (which only resolves A/AAAA), this includes CNAME, NS, PTR,
-        and TTL records collected via the ``dnspython`` library.
+        and TTL records collected via the ``dnspython`` library. Set-like list
+        fields are normalized to a deduplicated, sorted order so identical DNS
+        answers do not drift when resolver iteration order changes.
 
     See Also:
         [bigbrotr.nips.nip66.dns.Nip66DnsMetadata][bigbrotr.nips.nip66.dns.Nip66DnsMetadata]:
@@ -259,6 +261,13 @@ class Nip66DnsData(BaseData):
         str_fields=frozenset({"dns_cname", "dns_reverse"}),
         str_list_fields=frozenset({"dns_ips", "dns_ips_v6", "dns_ns"}),
     )
+
+    @field_validator("dns_ips", "dns_ips_v6", "dns_ns")
+    @classmethod
+    def _normalize_set_like_lists(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        return sorted(set(value))
 
 
 class Nip66HttpData(BaseData):

@@ -790,3 +790,11 @@ Use this section during execution for:
   - added paired unit coverage proving the manager now reuses an existing
     named session when the same relay set is requested in a different order
     while still rejecting genuinely different relay sets.
+- `2.1` models/utils/NIPs leaf audit, seventy-sixth remediation slice:
+  - tightened `bigbrotr.nips.nip66.data.Nip66DnsData` so the set-like DNS
+    fields (`dns_ips`, `dns_ips_v6`, `dns_ns`) are deduplicated and sorted at
+    the model boundary instead of inheriting resolver iteration order;
+  - added paired unit coverage proving both direct model construction and the
+    public DNS probe path now emit stable DNS lists for identical answers
+    even when the underlying resolver returns them out of order or with
+    duplicates.
