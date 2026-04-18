@@ -1718,3 +1718,12 @@ Use this section during execution for:
     coercion and full query planning reject non-finite numeric cursor values
     at the shared typed boundary instead of deferring them to runtime or
     database behavior.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirty-eighth remediation
+  slice:
+  - tightened the shared catalog keyset sort contract so semantically
+    equivalent sort strings no longer diverge just because the caller changes
+    direction casing (`desc` vs `DESC`), and now canonicalize to one stable
+    cursor payload form before follow-up page matching;
+  - added paired `services/common` coverage proving both direct sort
+    canonicalization and full cursor-pagination follow-ups accept equivalent
+    sort casing without breaking the keyset boundary.

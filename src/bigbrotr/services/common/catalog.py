@@ -85,6 +85,8 @@ class _CatalogPlannerModule(Protocol):
 
     def parse_sort(self, sort: str) -> tuple[str, str]: ...
 
+    def canonicalize_sort(self, sort: str | None) -> str: ...
+
     def param_cast(self, pg_type: str) -> str: ...
 
     def build_order_terms(
@@ -381,6 +383,11 @@ class Catalog:
     def _parse_sort(sort: str) -> tuple[str, str]:
         """Parse a sort spec like ``"name:desc"`` into ``("name", "DESC")``."""
         return _planner_module().parse_sort(sort)
+
+    @staticmethod
+    def _canonicalize_sort(sort: str | None) -> str:
+        """Canonicalize one sort string for cursor payload matching."""
+        return _planner_module().canonicalize_sort(sort)
 
     @staticmethod
     def _param_cast(pg_type: str) -> str:

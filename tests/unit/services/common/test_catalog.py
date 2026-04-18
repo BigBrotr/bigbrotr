@@ -485,6 +485,74 @@ class TestCatalogQuery:
         call_args = catalog_brotr.fetch.call_args
         assert "ORDER BY stored_at DESC" in call_args[0][0]
 
+    async def test_query_accepts_equivalent_sort_casing_across_cursor_pages(
+        self, populated_catalog: Catalog, catalog_brotr: Brotr
+    ) -> None:
+        first = MagicMock()
+        first.items.return_value = [
+            ("url", "wss://relay-3.example.com"),
+            ("network", "clearnet"),
+            ("stored_at", 300),
+        ]
+        first.__iter__ = lambda self: iter(self.items())
+        first.keys.return_value = ["url", "network", "stored_at"]
+        first.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        second = MagicMock()
+        second.items.return_value = [
+            ("url", "wss://relay-2.example.com"),
+            ("network", "clearnet"),
+            ("stored_at", 200),
+        ]
+        second.__iter__ = lambda self: iter(self.items())
+        second.keys.return_value = ["url", "network", "stored_at"]
+        second.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        catalog_brotr.fetch = AsyncMock(return_value=[first, second])  # type: ignore[method-assign]
+        first_page = await populated_catalog.query(
+            catalog_brotr,
+            "relay",
+            limit=1,
+            offset=0,
+            sort="stored_at:desc",
+            prefer_keyset=True,
+            include_total=False,
+        )
+
+        next_row = MagicMock()
+        next_row.items.return_value = [
+            ("url", "wss://relay-2.example.com"),
+            ("network", "clearnet"),
+            ("stored_at", 200),
+        ]
+        next_row.__iter__ = lambda self: iter(self.items())
+        next_row.keys.return_value = ["url", "network", "stored_at"]
+        next_row.__getitem__ = lambda self, key: dict(self.items())[key]
+
+        catalog_brotr.fetch = AsyncMock(return_value=[next_row])  # type: ignore[method-assign]
+
+        result = await populated_catalog.query(
+            catalog_brotr,
+            "relay",
+            limit=1,
+            offset=0,
+            sort="stored_at:DESC",
+            cursor=first_page.next_cursor,
+            prefer_keyset=True,
+            include_total=False,
+        )
+
+        assert result.rows == [
+            {
+                "url": "wss://relay-2.example.com",
+                "network": "clearnet",
+                "stored_at": 200,
+            }
+        ]
+        call_args = catalog_brotr.fetch.call_args
+        assert "(stored_at, url) < ($1::bigint, $2)" in call_args[0][0]
+        assert call_args[0][1:] == (300, "wss://relay-3.example.com", 2)
+
     async def test_query_prefers_primary_key_keyset_when_requested(
         self, populated_catalog: Catalog, catalog_brotr: Brotr
     ) -> None:
@@ -1000,6 +1068,18 @@ class TestSortParsing:
     def test_invalid_direction(self) -> None:
         with pytest.raises(CatalogError, match="Invalid sort direction"):
             Catalog._parse_sort("name:invalid")
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("name", "name"),
+            ("name:asc", "name"),
+            ("name:ASC", "name"),
+            ("name:desc", "name:DESC"),
+        ],
+    )
+    def test_canonicalize_sort(self, raw: str, expected: str) -> None:
+        assert Catalog._canonicalize_sort(raw) == expected
 
 
 class TestSelectColumns:

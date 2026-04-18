@@ -64,6 +64,16 @@ _BOOLEAN_FILTER_TRUE = frozenset({"1", "t", "true", "y", "yes", "on"})
 _BOOLEAN_FILTER_FALSE = frozenset({"0", "f", "false", "n", "no", "off"})
 
 
+def canonicalize_sort(sort: str | None) -> str:
+    """Return one canonical sort representation for cursor payload matching."""
+    if not sort:
+        return ""
+    column, direction = parse_sort(sort)
+    if direction == "ASC":
+        return column
+    return f"{column}:{direction}"
+
+
 def build_query_context(
     schema: TableSchema,
     filters: dict[str, str] | None,
@@ -316,7 +326,7 @@ def encode_cursor(
     """Encode one opaque cursor from the last row in a keyset page."""
     payload = {
         "v": 1,
-        "sort": sort or "",
+        "sort": canonicalize_sort(sort),
         "values": {term.column: row[term.column] for term in order_terms},
     }
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
@@ -352,7 +362,7 @@ def decode_cursor(
     payload_sort = payload.get("sort", "")
     if not isinstance(payload_sort, str):
         raise CatalogError("Invalid cursor")
-    if payload_sort != (sort or ""):
+    if payload_sort != canonicalize_sort(sort):
         raise CatalogError("Cursor does not match requested sort")
 
     values = payload.get("values")
