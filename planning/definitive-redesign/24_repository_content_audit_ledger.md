@@ -640,3 +640,11 @@ Use this section during execution for:
     the parsed subset while recording unknown top-level fields and nested
     invalid values, closing a real gap between the runtime behavior and the
     package-level test surface.
+- `2.1` models/utils/NIPs leaf audit, fifty-seventh remediation slice:
+  - aligned the `bigbrotr.nips.nip66` package and data-module prose with the
+    report-oriented parsing contract, removing one more package-level claim
+    that NIP-66 parsing was merely “silent drop only”;
+  - added direct unit coverage proving `Nip66RttData.parse_report()` keeps the
+    parsed subset while recording invalid and unknown fields, so the shared
+    NIP-66 data layer now has an explicit package-local test for the same
+    report contract enforced elsewhere in the runtime.

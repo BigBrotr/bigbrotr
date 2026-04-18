@@ -77,6 +77,20 @@ class TestNip66RttData:
         data = Nip66RttData(**parsed)
         assert data.rtt_open == 100
 
+    def test_parse_report_records_unknown_and_invalid_fields(self) -> None:
+        """parse_report() keeps the parsed payload and records dropped RTT fields."""
+        report = Nip66RttData.parse_report(
+            {
+                "rtt_open": 100,
+                "rtt_read": "slow",
+                "unknown_field": "ignored",
+            }
+        )
+
+        assert report.parsed == {"rtt_open": 100}
+        assert [issue.kind for issue in report.issues] == ["invalid_value", "unknown_field"]
+        assert [issue.path for issue in report.issues] == ["rtt_read", "unknown_field"]
+
     def test_to_dict_excludes_none(self) -> None:
         """to_dict() excludes None values."""
         data = Nip66RttData(rtt_open=100)
