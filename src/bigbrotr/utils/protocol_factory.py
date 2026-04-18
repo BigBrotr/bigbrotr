@@ -63,7 +63,13 @@ async def build_client(
     *,
     allow_insecure: bool = False,
 ) -> Client:
-    """Build a nostr-sdk client with optional signer, proxy and SSL override."""
+    """Build a nostr-sdk client with optional signer, proxy and SSL override.
+
+    When ``proxy_url`` is provided, the client is configured to route all
+    attached relay URLs through the proxy target. BigBrotr uses the same
+    helper for Tor, I2P, and Lokinet overlays, so the proxy contract cannot
+    stay onion-specific.
+    """
     builder = ClientBuilder()
 
     if keys is not None:
@@ -81,7 +87,7 @@ async def build_client(
         proxy_host = await _resolve_proxy_host(proxy_host)
 
         proxy_mode = ConnectionMode.PROXY(proxy_host, proxy_port)
-        conn = Connection().mode(proxy_mode).target(ConnectionTarget.ONION)
+        conn = Connection().mode(proxy_mode).target(ConnectionTarget.ALL)
         opts = ClientOptions().connection(conn)
         builder = builder.opts(opts)
 

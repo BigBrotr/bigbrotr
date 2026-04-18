@@ -585,3 +585,11 @@ Use this section during execution for:
     realistic parser failure, empty-suffix hosts still return no registered
     domain, and unexpected extractor failures are now proven to propagate
     instead of being silently hidden.
+- `2.1` models/utils/NIPs leaf audit, fifty-first remediation slice:
+  - corrected `bigbrotr.utils.protocol_factory.build_client()` so proxied
+    clients now target `ConnectionTarget.ALL` instead of the onion-only mode;
+    the shared proxy path is used for Tor, I2P, and Lokinet overlays, so the
+    previous target leaked an onion-centric assumption into the final repo;
+  - added direct unit coverage for the factory seam so future refactors cannot
+    silently collapse the shared overlay proxy contract back to onion-only
+    targeting.
