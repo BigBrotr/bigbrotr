@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any, Self
 
 import geohash2
@@ -166,6 +167,15 @@ class Nip66GeoMetadata(BaseNipMetadata):
     logs: Nip66GeoLogs
 
     @staticmethod
+    def _candidate_ips(ipv4: str | None, ipv6: str | None) -> tuple[str, ...]:
+        """Return unique lookup candidates, preferring IPv4 over IPv6."""
+        candidates: list[str] = []
+        for ip in (ipv4, ipv6):
+            if ip and ip not in candidates:
+                candidates.append(ip)
+        return tuple(candidates)
+
+    @staticmethod
     def _geo(
         ip: str, city_reader: geoip2.database.Reader, geohash_precision: int = 9
     ) -> dict[str, Any]:
@@ -185,6 +195,52 @@ class Nip66GeoMetadata(BaseNipMetadata):
         """
         response = city_reader.city(ip)
         return GeoExtractor.extract_all(response, geohash_precision=geohash_precision)
+
+    @classmethod
+    async def _lookup_candidate_ips(
+        cls,
+        relay_url: str,
+        candidate_ips: tuple[str, ...],
+        city_reader: geoip2.database.Reader,
+        geohash_precision: int,
+        timeout: float,  # noqa: ASYNC109
+    ) -> tuple[dict[str, Any], Exception | None]:
+        """Try candidate IPs in order within a single shared timeout budget."""
+        deadline = time.monotonic() + timeout
+        last_error: Exception | None = None
+
+        for ip in candidate_ips:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return {}, TimeoutError("timeout looking up IP")
+
+            try:
+                data = await asyncio.wait_for(
+                    asyncio.to_thread(cls._geo, ip, city_reader, geohash_precision),
+                    timeout=remaining,
+                )
+            except (TimeoutError, geoip2.errors.GeoIP2Error, ValueError) as e:
+                last_error = e
+                logger.debug(
+                    "geo_lookup_failed relay=%s ip=%s error=%s",
+                    relay_url,
+                    ip,
+                    str(e) or type(e).__name__,
+                )
+                continue
+
+            if data:
+                logger.debug(
+                    "geo_completed relay=%s ip=%s country=%s",
+                    relay_url,
+                    ip,
+                    data.get("geo_country"),
+                )
+                return data, None
+
+            logger.debug("geo_no_data relay=%s ip=%s", relay_url, ip)
+
+        return {}, last_error
 
     @classmethod
     async def probe(
@@ -232,29 +288,28 @@ class Nip66GeoMetadata(BaseNipMetadata):
                 logs=Nip66GeoLogs.model_validate(logs),
             )
 
-        ip = resolved.ipv4 or resolved.ipv6
-
+        candidate_ips = cls._candidate_ips(resolved.ipv4, resolved.ipv6)
         data: dict[str, Any] = {}
-        if ip:
-            try:
-                data = await asyncio.wait_for(
-                    asyncio.to_thread(cls._geo, ip, city_reader, geohash_precision),
-                    timeout=timeout,
-                )
-                if data:
-                    logs["success"] = True
-                    logger.debug(
-                        "geo_completed relay=%s country=%s", relay.url, data.get("geo_country")
-                    )
-                else:
-                    logs["reason"] = "no geo data found for IP"
-                    logger.debug("geo_no_data relay=%s", relay.url)
-            except (TimeoutError, geoip2.errors.GeoIP2Error, ValueError) as e:
-                logs["reason"] = str(e) or type(e).__name__
-                logger.debug("geo_lookup_failed relay=%s error=%s", relay.url, logs["reason"])
-        else:
+        if not candidate_ips:
             logs["reason"] = "could not resolve hostname to IP"
             logger.debug("geo_no_ip relay=%s", relay.url)
+        else:
+            data, last_error = await cls._lookup_candidate_ips(
+                relay.url,
+                candidate_ips,
+                city_reader,
+                geohash_precision,
+                timeout,
+            )
+            if data:
+                logs["success"] = True
+            elif last_error is not None:
+                if isinstance(last_error, TimeoutError):
+                    logs["reason"] = "timeout looking up IP"
+                else:
+                    logs["reason"] = str(last_error) or type(last_error).__name__
+            else:
+                logs["reason"] = "no geo data found for IP"
 
         data_report = Nip66GeoData.parse_report(data)
         Nip66GeoData.log_parse_issues(logger, relay.url, data_report)

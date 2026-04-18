@@ -13,7 +13,7 @@ Tests:
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -572,6 +572,72 @@ class TestNip66GeoMetadataGeoAsync:
             await Nip66GeoMetadata.probe(relay, mock_city_reader)
 
         mock_geo.assert_called_once_with("2001:4860:4860::8888", mock_city_reader, 9)
+
+    async def test_ipv4_lookup_failure_falls_back_to_ipv6(
+        self,
+        relay: Relay,
+        mock_city_reader: MagicMock,
+    ) -> None:
+        """IPv6 is tried when the preferred IPv4 lookup raises."""
+        mock_resolved = MagicMock()
+        mock_resolved.ipv4 = "8.8.8.8"
+        mock_resolved.ipv6 = "2001:4860:4860::8888"
+
+        geo_result = {"geo_country": "US"}
+
+        with (
+            patch(
+                "bigbrotr.nips.nip66.geo.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
+            ),
+            patch.object(
+                Nip66GeoMetadata,
+                "_geo",
+                side_effect=[ValueError("IPv4 lookup failed"), geo_result],
+            ) as mock_geo,
+        ):
+            result = await Nip66GeoMetadata.probe(relay, mock_city_reader)
+
+        assert result.logs.success is True
+        assert result.data.geo_country == "US"
+        assert mock_geo.call_args_list == [
+            call("8.8.8.8", mock_city_reader, 9),
+            call("2001:4860:4860::8888", mock_city_reader, 9),
+        ]
+
+    async def test_ipv4_empty_data_falls_back_to_ipv6(
+        self,
+        relay: Relay,
+        mock_city_reader: MagicMock,
+    ) -> None:
+        """IPv6 is tried when the preferred IPv4 lookup returns no geo data."""
+        mock_resolved = MagicMock()
+        mock_resolved.ipv4 = "8.8.8.8"
+        mock_resolved.ipv6 = "2001:4860:4860::8888"
+
+        geo_result = {"geo_country": "US"}
+
+        with (
+            patch(
+                "bigbrotr.nips.nip66.geo.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
+            ),
+            patch.object(
+                Nip66GeoMetadata,
+                "_geo",
+                side_effect=[{}, geo_result],
+            ) as mock_geo,
+        ):
+            result = await Nip66GeoMetadata.probe(relay, mock_city_reader)
+
+        assert result.logs.success is True
+        assert result.data.geo_country == "US"
+        assert mock_geo.call_args_list == [
+            call("8.8.8.8", mock_city_reader, 9),
+            call("2001:4860:4860::8888", mock_city_reader, 9),
+        ]
 
     async def test_resolve_timeout_returns_failure(
         self,

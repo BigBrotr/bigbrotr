@@ -982,3 +982,10 @@ Use this section during execution for:
     registered-country fallback path;
   - aligned the paired geo extractor coverage so the fallback contract is
     locked down explicitly.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-second remediation slice:
+  - fixed `bigbrotr.nips.nip66.geo.Nip66GeoMetadata.probe()` so GeoIP lookup
+    now really prefers IPv4 but falls back to IPv6 when the preferred lookup
+    fails or returns no data, instead of stopping at the first candidate;
+  - kept that retry path bounded by the original timeout budget and aligned the
+    paired geo coverage so both failure-fallback and empty-data fallback are
+    locked down explicitly.
