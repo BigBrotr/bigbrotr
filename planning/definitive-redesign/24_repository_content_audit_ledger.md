@@ -270,3 +270,11 @@ Use this section during execution for:
     names `LOKI` and `.loki` in the actual runtime contract;
   - confirmed that this is documentation-level cleanup only, not a domain
     rename of the persisted network identifier.
+- `2.1` models/utils/NIPs leaf audit, eleventh remediation slice:
+  - aligned the tracked `tests/unit/nips/test_base.py` language with the final
+    NIP-layer contract, so the base tests now describe `BaseNipMetadata` as a
+    historical-name result container instead of narrating it as the canonical
+    persistence model;
+  - kept the public compatibility surface intact: no runtime rename was
+    introduced, only the human-facing test wording and local variable names
+    were tightened.

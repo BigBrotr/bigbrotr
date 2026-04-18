@@ -1,4 +1,4 @@
-"""Unit tests for BaseData, BaseNipMetadata, BaseLogs, BaseNip, BaseNipSelection, BaseNipOptions, BaseNipDependencies."""
+"""Unit tests for the shared NIP base models and historical-name result containers."""
 
 import logging
 
@@ -221,7 +221,7 @@ class TestBaseDataFrozen:
 
 
 class TestBaseNipMetadata:
-    """Test BaseNipMetadata class."""
+    """Test the historical-name BaseNipMetadata result-container contract."""
 
     @pytest.fixture
     def metadata_subclass(self):
@@ -244,7 +244,7 @@ class TestBaseNipMetadata:
         return TestMetadata, TestData, TestLogs
 
     def test_from_dict_creates_model(self, metadata_subclass):
-        """from_dict() creates metadata model from valid dict."""
+        """from_dict() creates a result container from a valid dict."""
         TestMetadata, _TestData, _TestLogs = metadata_subclass
         raw = {
             "data": {"name": "Test", "count": 10},
@@ -532,7 +532,7 @@ class TestIntegration:
 
     @pytest.fixture
     def complete_model(self):
-        """Create a complete metadata model setup."""
+        """Create a complete result-container setup."""
 
         class MyData(BaseData):
             _FIELD_SPEC = FieldSpec(
@@ -568,9 +568,9 @@ class TestIntegration:
 
         data = MyData.from_dict(parsed)
         logs = MyLogs(success=True, elapsed_ms=50)
-        metadata = MyMetadata(data=data, logs=logs)
+        result_container = MyMetadata(data=data, logs=logs)
 
-        result = metadata.to_dict()
+        result = result_container.to_dict()
         assert result == {
             "data": {"count": 10, "name": "Test"},
             "logs": {"success": True, "elapsed_ms": 50},
@@ -582,10 +582,10 @@ class TestIntegration:
 
         data = MyData()
         logs = MyLogs(success=False, reason="Connection timeout", elapsed_ms=10000)
-        metadata = MyMetadata(data=data, logs=logs)
+        result_container = MyMetadata(data=data, logs=logs)
 
         # Serialize
-        result = metadata.to_dict()
+        result = result_container.to_dict()
         assert result == {
             "data": {},
             "logs": {"success": False, "reason": "Connection timeout", "elapsed_ms": 10000},
