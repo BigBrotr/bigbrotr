@@ -39,7 +39,8 @@ See Also:
     [bigbrotr.models.service_state][]: Shared service-state types.
     [bigbrotr.models.constants][]: Shared constants and enumerations.
     [bigbrotr.nips][]: NIP-aware protocol package with runtime I/O,
-        static capability registry, and builder/data helpers.
+        static capability registry, historical-name result containers, and
+        provider/probe builder surfaces.
 """
 
 from .constants import EVENT_KIND_MAX, EventKind, NetworkType, ServiceName

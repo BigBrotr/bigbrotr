@@ -313,3 +313,10 @@ Use this section during execution for:
     on empty `__init__.py` files plus stale helper-oriented narrative;
   - paired the slice with NIP package import and builder/data tests to keep the
     tracked test-package contract honest.
+- `2.1` models/utils/NIPs leaf audit, seventeenth remediation slice:
+  - aligned the tracked `bigbrotr.models` package surface with the final
+    models-vs-NIPs boundary, so the public package docs now describe
+    `bigbrotr.nips` as the home of historical-name result containers and
+    provider/probe builders rather than a vague bag of helper utilities;
+  - mirrored that boundary in the local `models` README so the tracked package
+    surface stays consistent for library readers and maintainers.

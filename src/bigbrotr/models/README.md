@@ -17,3 +17,5 @@ Pure frozen dataclasses and enums for the shared BigBrotr data model.
 - No I/O and no upward package dependencies.
 - Fail-fast validation and cached DB-parameter conversion stay part of the
   model contract.
+- Keep NIP-specific result containers and provider/probe builders in
+  `bigbrotr.nips`, not in this package.
