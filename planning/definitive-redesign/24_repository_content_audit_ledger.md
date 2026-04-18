@@ -776,3 +776,10 @@ Use this section during execution for:
   - added paired unit coverage proving the report layer now records
     `filtered_items` when every list element is invalid and uses an explicit
     non-empty expectation for empty typed lists.
+- `2.1` models/utils/NIPs leaf audit, seventy-fourth remediation slice:
+  - tightened `bigbrotr.utils.protocol_sessions.connect_client_relays()` so
+    the `ClientConnectResult.connected` tuple is genuinely normalized:
+    deduplicated and sorted instead of inheriting raw SDK iteration order;
+  - added paired unit coverage on both the leaf shared-session helper and the
+    public `bigbrotr.utils.protocol.create_connected_client()` facade to lock
+    the stable connected-relay ordering contract in place.

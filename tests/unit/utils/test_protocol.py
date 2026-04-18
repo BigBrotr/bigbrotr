@@ -258,8 +258,12 @@ class TestCreateConnectedClient:
         mock_client.add_relay = AsyncMock()
         mock_client.try_connect = AsyncMock(
             return_value=MagicMock(
-                success=("wss://relay1.example.com",),
-                failed={"wss://relay2.example.com": "timeout"},
+                success=(
+                    "wss://relay2.example.com",
+                    "wss://relay1.example.com",
+                    "wss://relay2.example.com",
+                ),
+                failed={},
             )
         )
 
@@ -274,8 +278,8 @@ class TestCreateConnectedClient:
 
         assert client is mock_client
         assert result == ClientConnectResult(
-            connected=("wss://relay1.example.com",),
-            failed={"wss://relay2.example.com": "timeout"},
+            connected=("wss://relay1.example.com", "wss://relay2.example.com"),
+            failed={},
         )
         assert mock_client.add_relay.await_count == 2
         mock_client.try_connect.assert_awaited_once()

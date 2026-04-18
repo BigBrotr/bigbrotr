@@ -74,14 +74,15 @@ async def connect_client_relays(
 
     This helper is intentionally limited to clearnet relays because one shared
     client cannot carry the per-network proxy policy required by overlay relay
-    families.
+    families. Successful relay URLs are deduplicated and sorted so the
+    returned connect result stays stable across SDK iteration order.
     """
     _validate_session_relays(relays)
     for relay in relays:
         await client.add_relay(RelayUrl.parse(relay.url))
 
     output = await client.try_connect(timedelta(seconds=timeout))
-    connected = tuple(str(relay_url) for relay_url in getattr(output, "success", ()))
+    connected = tuple(sorted({str(relay_url) for relay_url in getattr(output, "success", ())}))
     failed = {
         str(relay_url): str(error) for relay_url, error in getattr(output, "failed", {}).items()
     }

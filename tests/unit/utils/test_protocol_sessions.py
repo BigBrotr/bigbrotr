@@ -27,6 +27,25 @@ class TestConnectClientRelays:
         client.add_relay.assert_not_awaited()
         client.try_connect.assert_not_awaited()
 
+    async def test_normalizes_connected_relays_to_stable_order(self) -> None:
+        """Connected relay URLs are deduplicated and sorted in the normalized result."""
+        client = AsyncMock()
+        output = MagicMock()
+        output.success = ["wss://relay.b", "wss://relay.a", "wss://relay.b"]
+        output.failed = {}
+        client.try_connect = AsyncMock(return_value=output)
+
+        result = await connect_client_relays(
+            client,
+            [Relay("wss://relay1.example.com"), Relay("wss://relay2.example.com")],
+            timeout=15.0,
+        )
+
+        assert result == ClientConnectResult(
+            connected=("wss://relay.a", "wss://relay.b"),
+            failed={},
+        )
+
 
 class TestCreateConnectedClient:
     async def test_rejects_overlay_relays_before_client_creation(self) -> None:
