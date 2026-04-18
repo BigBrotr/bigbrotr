@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, NamedTuple
 
-from nostr_sdk import RelayUrl
+from nostr_sdk import NostrSdkError, RelayUrl
 
 from bigbrotr.models.constants import NetworkType
 
@@ -106,5 +107,6 @@ async def create_connected_client(
     try:
         return client, await connect_client_relays(client, relays, timeout=timeout)
     except Exception:
-        await dependencies.shutdown_client(client)
+        with contextlib.suppress(OSError, RuntimeError, TimeoutError, NostrSdkError):
+            await dependencies.shutdown_client(client)
         raise

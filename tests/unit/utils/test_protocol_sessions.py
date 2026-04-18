@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from nostr_sdk import NostrSdkError
 
 from bigbrotr.models.relay import Relay
 from bigbrotr.utils.protocol_sessions import (
@@ -72,14 +73,14 @@ class TestCreateConnectedClient:
             failed={},
         )
 
-    async def test_cleans_up_failed_client_before_reraising_cleanup_bug(self) -> None:
-        """Shared-session helper releases the allocated client if connect setup fails."""
+    async def test_preserves_connect_error_when_shutdown_reports_expected_noise(self) -> None:
+        """Shared-session helper keeps the connect failure as the public outcome."""
         client = AsyncMock()
         create_client_func = AsyncMock(return_value=client)
-        shutdown_client_func = AsyncMock(side_effect=RuntimeError("shutdown noise"))
+        shutdown_client_func = AsyncMock(side_effect=NostrSdkError("shutdown noise"))
         client.add_relay = AsyncMock(side_effect=OSError("connect boom"))
 
-        with pytest.raises(RuntimeError, match="shutdown noise"):
+        with pytest.raises(OSError, match="connect boom"):
             await create_connected_client(
                 [Relay("wss://relay.example.com")],
                 dependencies=SharedSessionDependencies(

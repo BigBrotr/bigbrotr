@@ -727,3 +727,12 @@ Use this section during execution for:
   - added paired unit coverage proving both clearnet failure paths still
     surface their original connection error when the injected shutdown helper
     reports only expected SDK teardown noise.
+- `2.1` models/utils/NIPs leaf audit, sixty-eighth remediation slice:
+  - aligned `bigbrotr.utils.protocol_sessions.create_connected_client()` with
+    the rest of the shared session and relay-connect cleanup boundaries so
+    expected teardown noise no longer overrides the primary multi-relay
+    connect failure;
+  - tightened paired unit coverage on both the leaf helper and the public
+    `bigbrotr.utils.protocol.create_connected_client()` facade so the shared
+    session helper now preserves the original connect error when cleanup
+    reports only expected SDK shutdown noise.

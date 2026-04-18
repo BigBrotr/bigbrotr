@@ -280,7 +280,7 @@ class TestCreateConnectedClient:
         assert mock_client.add_relay.await_count == 2
         mock_client.try_connect.assert_awaited_once()
 
-    async def test_cleans_up_failed_shared_client_before_reraising_cleanup_bug(self) -> None:
+    async def test_preserves_connect_error_when_shutdown_reports_expected_noise(self) -> None:
         relay = Relay("wss://relay.example.com")
         mock_client = MagicMock()
         mock_client.add_relay = AsyncMock(side_effect=OSError("connect boom"))
@@ -292,9 +292,9 @@ class TestCreateConnectedClient:
             ) as mock_create_client,
             patch(
                 "bigbrotr.utils.protocol.shutdown_client",
-                new=AsyncMock(side_effect=RuntimeError("shutdown noise")),
+                new=AsyncMock(side_effect=NostrSdkError("shutdown noise")),
             ) as mock_shutdown_client,
-            pytest.raises(RuntimeError, match="shutdown noise"),
+            pytest.raises(OSError, match="connect boom"),
         ):
             await create_connected_client([relay], timeout=12.0)
 
