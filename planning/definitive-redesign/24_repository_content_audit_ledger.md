@@ -868,3 +868,10 @@ Use this section during execution for:
   - added paired unit and builder coverage proving identifier assertion tags
     no longer drift or duplicate when the input row provides repeated or
     unsorted ``k`` tags.
+- `2.1` models/utils/NIPs leaf audit, eighty-sixth remediation slice:
+  - tightened `bigbrotr.nips.nip85.data.UserAssertion` so ``activity_hours``
+    is validated and normalized at the model boundary instead of allowing an
+    invalid bucket count to fail later inside heatmap window helpers;
+  - added paired unit coverage proving direct construction accepts 24-slot
+    list input but rejects malformed heatmaps from both constructor and DB-row
+    paths.

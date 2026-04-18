@@ -21,6 +21,7 @@ from typing import Any
 
 
 _MSATS_PER_SAT = 1000
+_ACTIVITY_HOURS_BUCKETS = 24
 
 
 def _topic_count_sort_key(item: tuple[str, Any]) -> tuple[int, str]:
@@ -32,6 +33,16 @@ def _topic_count_sort_key(item: tuple[str, Any]) -> tuple[int, str]:
 def _normalize_tag_set(value: tuple[str, ...]) -> tuple[str, ...]:
     """Return a stable deduplicated lexical ordering for set-like tag tuples."""
     return tuple(sorted(set(value)))
+
+
+def _normalize_activity_hours(value: tuple[int, ...]) -> tuple[int, ...]:
+    """Validate and normalize the 24-slot UTC activity heatmap."""
+    normalized = tuple(int(hour) for hour in value)
+    if len(normalized) != _ACTIVITY_HOURS_BUCKETS:
+        raise ValueError(
+            f"activity_hours must contain exactly {_ACTIVITY_HOURS_BUCKETS} hourly buckets"
+        )
+    return normalized
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +98,9 @@ class UserAssertion:
     top_topics: tuple[str, ...] = ()
     follower_count: int = 0
     following_count: int = 0
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "activity_hours", _normalize_activity_hours(self.activity_hours))
 
     @property
     def zap_amount_recd_sats(self) -> int:

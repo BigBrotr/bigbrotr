@@ -80,6 +80,16 @@ class TestUserAssertionProperties:
         a = UserAssertion(pubkey="aa" * 32, zap_amount_recd_msats=5000)
         assert a.zap_avg_amt_day_recd_sats == 0
 
+    def test_constructor_accepts_list_activity_hours(self) -> None:
+        a = UserAssertion(pubkey="aa" * 32, activity_hours=[0] * 24)
+        assert a.activity_hours == tuple(0 for _ in range(24))
+
+    def test_constructor_rejects_invalid_activity_hours_length(self) -> None:
+        with pytest.raises(
+            ValueError, match="activity_hours must contain exactly 24 hourly buckets"
+        ):
+            UserAssertion(pubkey="aa" * 32, activity_hours=(0,) * 23)
+
 
 class TestUserAssertionActiveHours:
     def test_all_zeros(self) -> None:
@@ -178,6 +188,16 @@ class TestUserAssertionFromDbRow:
         }
         a = UserAssertion.from_db_row(row)
         assert a.top_topics == ("nostr", "apple", "beta", "zebra")
+
+    def test_from_db_row_rejects_invalid_activity_hours_length(self) -> None:
+        row = {
+            "pubkey": "cc" * 32,
+            "activity_hours": [0] * 23,
+        }
+        with pytest.raises(
+            ValueError, match="activity_hours must contain exactly 24 hourly buckets"
+        ):
+            UserAssertion.from_db_row(row)
 
 
 class TestEventAssertionProperties:
