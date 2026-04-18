@@ -7,10 +7,18 @@ WebSocket transport primitives in
 
 Attributes:
     create_client: Client factory with optional SOCKS5 proxy and SSL override.
+    create_connected_client: Convenience helper that builds one client,
+        registers relays, and returns the normalized connect result.
     NostrClientManager: Shared manager for multi-relay sessions and lazy per-relay clients.
     connect_relay: High-level helper with automatic SSL fallback.
     is_nostr_relay: Check whether a URL hosts a Nostr relay.
     broadcast_events: Sign and broadcast events to multiple relays.
+    broadcast_events_detailed: Detailed publish helper that preserves
+        per-client normalized relay outcomes.
+    summarize_broadcast_results: Aggregate detailed publish results into
+        relay-level success/failure maps.
+    normalize_send_output: Normalize one nostr-sdk send or subscribe output
+        into relay-level outcomes.
 
 Note:
     The SSL fallback strategy for clearnet relays follows a two-phase

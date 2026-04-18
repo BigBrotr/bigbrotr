@@ -22,7 +22,12 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class BroadcastClientResult:
-    """Normalized per-client outcome of publishing one or more events."""
+    """Normalized per-client outcome of publishing one or more events.
+
+    ``successful_relays`` contains only the relays that remained successful
+    across every builder sent through that client. ``failed_relays`` preserves
+    any per-builder failure reported along the way.
+    """
 
     event_ids: tuple[str, ...]
     successful_relays: tuple[str, ...]
@@ -55,7 +60,12 @@ async def broadcast_events_detailed(
     builders: list[EventBuilder],
     clients: list[Client],
 ) -> list[BroadcastClientResult]:
-    """Broadcast events and preserve the per-relay send semantics from nostr-sdk."""
+    """Broadcast events and preserve normalized per-relay send semantics.
+
+    For each client, the resulting ``successful_relays`` set is the
+    intersection of the success sets reported by every builder, while
+    ``failed_relays`` accumulates relay failures seen on any builder send.
+    """
     if not builders or not clients:
         return []
 
@@ -98,7 +108,11 @@ async def broadcast_events_detailed(
 def summarize_broadcast_results(
     results: list[BroadcastClientResult],
 ) -> tuple[tuple[str, ...], dict[str, str]]:
-    """Collapse detailed per-client publish results into relay-level outcomes."""
+    """Collapse per-client publish results into aggregate relay-level outcomes.
+
+    Successful relays are unioned across clients. Failed relays are merged by
+    relay URL, keeping the most recent error text seen in ``results``.
+    """
     successful_relays = tuple(
         sorted({relay_url for result in results for relay_url in result.successful_relays})
     )

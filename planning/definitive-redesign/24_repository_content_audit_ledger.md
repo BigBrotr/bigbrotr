@@ -500,3 +500,11 @@ Use this section during execution for:
     covering the success path, `auth-required` success, timeout failure, and
     best-effort shutdown semantics that were previously only exercised through
     the higher-level facade tests.
+- `2.1` models/utils/NIPs leaf audit, fortieth remediation slice:
+  - hardened the public documentation of `bigbrotr.utils.protocol` and the
+    underlying publish helpers so the exported helper set is described
+    completely and the normalization contracts are explicit: multi-builder
+    success is an intersection per client, aggregate success is a union across
+    clients, and failure maps preserve per-relay error state;
+  - kept this slice documentation-only because the runtime semantics were
+    already pinned by the existing publish/session test coverage.
