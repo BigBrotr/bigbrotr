@@ -217,8 +217,8 @@ async def fetch_api_checkpoints(brotr: Brotr, urls: list[str]) -> list[ApiCheckp
     their persisted ``timestamp``; URLs without a record get a default
     checkpoint with ``timestamp=0`` (immediately eligible for refresh).
 
-    Records that cannot be parsed (missing or non-integer ``timestamp``)
-    are treated as missing and receive the default.
+    Records that cannot be parsed (missing, negative, or non-integer
+    ``timestamp``) are treated as missing and receive the default.
 
     Args:
         brotr: The [Brotr][bigbrotr.core.brotr.Brotr] database facade.

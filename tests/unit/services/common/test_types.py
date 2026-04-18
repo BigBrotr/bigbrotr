@@ -51,6 +51,31 @@ class TestCheckpoint:
         with pytest.raises(FrozenInstanceError):
             cp.timestamp = 0  # type: ignore[misc]
 
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            (
+                {"key": 123, "timestamp": 1700000000},
+                "key must be a str",
+            ),
+            (
+                {"key": "wss://relay.example.com", "timestamp": True},
+                "timestamp must be an int",
+            ),
+            (
+                {"key": "wss://relay.example.com", "timestamp": -1},
+                "timestamp must be non-negative",
+            ),
+        ],
+    )
+    def test_rejects_invalid_runtime_contracts(
+        self,
+        kwargs: dict[str, object],
+        match: str,
+    ) -> None:
+        with pytest.raises((TypeError, ValueError), match=match):
+            Checkpoint(**kwargs)  # type: ignore[arg-type]
+
 
 # ============================================================================
 # Checkpoint Subclass Tests

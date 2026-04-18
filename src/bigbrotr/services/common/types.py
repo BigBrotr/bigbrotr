@@ -72,6 +72,11 @@ class Checkpoint:
     key: str
     timestamp: int = 0
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.key, str):
+            raise TypeError("key must be a str")
+        _validate_non_negative_int(self.timestamp, "timestamp")
+
 
 @dataclass(frozen=True, slots=True)
 class ApiCheckpoint(Checkpoint):

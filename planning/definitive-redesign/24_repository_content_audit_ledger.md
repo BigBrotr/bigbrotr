@@ -1857,3 +1857,18 @@ Use this section during execution for:
     proving uppercase cursor IDs are canonicalized, negative or malformed
     persisted cursor state is rejected or sanitized before runtime use, and
     finder/synchronizer fetch paths now return only canonical cursor objects.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-fifty-second remediation
+  slice:
+  - tightened the shared checkpoint boundary so generic `Checkpoint`
+    construction and typed checkpoint hydration no longer accept negative
+    timestamps, which previously let malformed persisted state survive into
+    refresher watermarks and other checkpoint-backed defaults instead of
+    collapsing to the zero sentinel;
+  - aligned the `monitor` SQL-side checkpoint sanitization with the same
+    non-negative contract so corrupted persisted monitor timestamps no longer
+    outrank default-zero relays in due-order planning;
+  - added paired `services/common`, `finder`, `monitor`, and `refresher`
+    coverage proving negative checkpoint payloads now default to zero at the
+    shared fetch/decode boundary, refresher incremental runs restart from
+    zero on malformed persisted state, and monitor query SQL only treats
+    non-negative persisted timestamps as valid.

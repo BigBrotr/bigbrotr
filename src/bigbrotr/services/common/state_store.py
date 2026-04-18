@@ -87,7 +87,10 @@ class ServiceStateStore:
         checkpoint_type: type[_CheckpointT],
     ) -> _CheckpointT:
         """Decode a checkpoint payload into a typed checkpoint."""
-        return checkpoint_type(key=key, timestamp=_require_state_int(payload, "timestamp"))
+        return checkpoint_type(
+            key=key,
+            timestamp=_require_non_negative_state_int(payload, "timestamp"),
+        )
 
     @staticmethod
     def decode_cursor(

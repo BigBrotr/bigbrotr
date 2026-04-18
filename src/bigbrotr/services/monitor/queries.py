@@ -76,7 +76,7 @@ _RELAYS_TO_MONITOR_WHERE = """
              OR (
                  CASE
                      WHEN jsonb_typeof(ss.state_value->'timestamp') = 'number'
-                          AND (ss.state_value->>'timestamp') ~ '^-?[0-9]+$'
+                          AND (ss.state_value->>'timestamp') ~ '^[0-9]+$'
                      THEN (ss.state_value->>'timestamp')::bigint
                      ELSE 0
                  END
@@ -128,7 +128,7 @@ async def fetch_relays_to_monitor(
         ORDER BY
             CASE
                 WHEN jsonb_typeof(ss.state_value->'timestamp') = 'number'
-                     AND (ss.state_value->>'timestamp') ~ '^-?[0-9]+$'
+                     AND (ss.state_value->>'timestamp') ~ '^[0-9]+$'
                 THEN (ss.state_value->>'timestamp')::bigint
                 ELSE 0
             END ASC,
@@ -162,7 +162,7 @@ async def fetch_relays_to_monitor_page(
                r.stored_at,
                CASE
                    WHEN jsonb_typeof(ss.state_value->'timestamp') = 'number'
-                        AND (ss.state_value->>'timestamp') ~ '^-?[0-9]+$'
+                        AND (ss.state_value->>'timestamp') ~ '^[0-9]+$'
                    THEN (ss.state_value->>'timestamp')::bigint
                    ELSE 0
                END AS last_monitored
@@ -172,7 +172,7 @@ async def fetch_relays_to_monitor_page(
                 OR (
                     CASE
                         WHEN jsonb_typeof(ss.state_value->'timestamp') = 'number'
-                             AND (ss.state_value->>'timestamp') ~ '^-?[0-9]+$'
+                             AND (ss.state_value->>'timestamp') ~ '^[0-9]+$'
                         THEN (ss.state_value->>'timestamp')::bigint
                         ELSE 0
                     END,
@@ -183,7 +183,7 @@ async def fetch_relays_to_monitor_page(
         ORDER BY
             CASE
                 WHEN jsonb_typeof(ss.state_value->'timestamp') = 'number'
-                     AND (ss.state_value->>'timestamp') ~ '^-?[0-9]+$'
+                     AND (ss.state_value->>'timestamp') ~ '^[0-9]+$'
                 THEN (ss.state_value->>'timestamp')::bigint
                 ELSE 0
             END ASC,

@@ -839,20 +839,26 @@ class TestFetchApiCheckpoints:
             ApiCheckpoint(key="https://api2.example.com", timestamp=1700001000),
         ]
 
-    async def test_malformed_defaults_to_zero(self, query_brotr: MagicMock) -> None:
+    async def test_invalid_payloads_default_to_zero(self, query_brotr: MagicMock) -> None:
         query_brotr.fetch = AsyncMock(
             return_value=[
                 {"state_key": "https://api1.example.com", "state_value": {"timestamp": 1700000000}},
                 {"state_key": "https://api2.example.com", "state_value": {}},
+                {"state_key": "https://api3.example.com", "state_value": {"timestamp": -1}},
             ]
         )
-        urls = ["https://api1.example.com", "https://api2.example.com"]
+        urls = [
+            "https://api1.example.com",
+            "https://api2.example.com",
+            "https://api3.example.com",
+        ]
 
         result = await fetch_api_checkpoints(query_brotr, urls)
 
         assert result == [
             ApiCheckpoint(key="https://api1.example.com", timestamp=1700000000),
             ApiCheckpoint(key="https://api2.example.com", timestamp=0),
+            ApiCheckpoint(key="https://api3.example.com", timestamp=0),
         ]
 
     async def test_empty_urls(self, query_brotr: MagicMock) -> None:

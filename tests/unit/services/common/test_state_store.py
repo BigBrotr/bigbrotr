@@ -66,12 +66,14 @@ class TestPayloadCodecs:
             failures=3,
         )
 
-    @pytest.mark.parametrize("payload", [{"timestamp": True}, {"timestamp": 1.5}])
-    def test_checkpoint_from_payload_rejects_non_integer_timestamp(
+    @pytest.mark.parametrize(
+        "payload", [{"timestamp": True}, {"timestamp": 1.5}, {"timestamp": -1}]
+    )
+    def test_checkpoint_from_payload_rejects_invalid_timestamp(
         self,
         payload: dict[str, object],
     ) -> None:
-        with pytest.raises(TypeError, match="invalid timestamp"):
+        with pytest.raises((TypeError, ValueError), match="invalid timestamp"):
             ServiceStateStore.decode_checkpoint(
                 "https://api.example.com",
                 payload,
@@ -185,6 +187,7 @@ class TestServiceStateStore:
             return_value=[
                 {"state_key": "https://api1.example.com", "state_value": {"timestamp": True}},
                 {"state_key": "https://api2.example.com", "state_value": {"timestamp": 200}},
+                {"state_key": "https://api3.example.com", "state_value": {"timestamp": -1}},
             ]
         )
 
@@ -193,6 +196,7 @@ class TestServiceStateStore:
             [
                 "https://api1.example.com",
                 "https://api2.example.com",
+                "https://api3.example.com",
             ],
             ApiCheckpoint,
         )
@@ -200,6 +204,7 @@ class TestServiceStateStore:
         assert result == [
             ApiCheckpoint(key="https://api1.example.com", timestamp=0),
             ApiCheckpoint(key="https://api2.example.com", timestamp=200),
+            ApiCheckpoint(key="https://api3.example.com", timestamp=0),
         ]
 
     async def test_fetch_cursors_preserves_order_and_defaults(self, query_brotr: MagicMock) -> None:

@@ -1164,6 +1164,7 @@ class TestFetchRelaysToMonitor:
         assert "owner = $3" in sql
         assert "state_type = $4" in sql
         assert "jsonb_typeof(ss.state_value->'timestamp') = 'number'" in sql
+        assert "~ '^[0-9]+$'" in sql
         assert "LIMIT" not in sql
         assert args[0][1] == [NetworkType.CLEARNET]
         assert args[0][2] == 1700000000
@@ -1211,6 +1212,7 @@ class TestMonitorRelayPages:
         args = query_brotr.fetchval.call_args[0]
         assert "count(*)::int" in args[0]
         assert "jsonb_typeof(ss.state_value->'timestamp') = 'number'" in args[0]
+        assert "~ '^[0-9]+$'" in args[0]
         assert args[1] == [NetworkType.CLEARNET]
         assert args[2] == 1700000000
         assert args[3] == ServiceName.MONITOR
@@ -1229,6 +1231,7 @@ class TestMonitorRelayPages:
         sql = args[0]
         assert "LIMIT $8" in sql
         assert "jsonb_typeof(ss.state_value->'timestamp') = 'number'" in sql
+        assert "~ '^[0-9]+$'" in sql
         assert "r.url" in sql
         assert args[8] == 50
 

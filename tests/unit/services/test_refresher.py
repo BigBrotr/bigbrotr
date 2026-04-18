@@ -460,9 +460,11 @@ class TestRefresherRun:
 
         mock_seen.assert_awaited_once_with(mock_refresher_brotr, 0, 25)
 
+    @pytest.mark.parametrize("payload", [{"timestamp": True}, {"timestamp": -1}])
     async def test_invalid_persisted_incremental_checkpoint_defaults_to_zero(
         self,
         mock_refresher_brotr: Brotr,
+        payload: dict[str, object],
     ) -> None:
         mock_refresher_brotr.get_service_state = AsyncMock(  # type: ignore[method-assign]
             return_value=[
@@ -470,7 +472,7 @@ class TestRefresherRun:
                     owner=ServiceName.REFRESHER,
                     state_type=ServiceStateType.CHECKPOINT,
                     state_key=AnalyticsRefreshTarget.PUBKEY_KIND_STATS.value,
-                    state_value={"timestamp": True},
+                    state_value=payload,
                 )
             ]
         )
