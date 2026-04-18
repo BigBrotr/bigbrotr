@@ -59,7 +59,7 @@ class TestNip66DnsMetadataDnsSync:
         with patch("dns.resolver.Resolver", return_value=mock_resolver):
             result = Nip66DnsMetadata._dns("example.com", 5.0)
 
-        assert result.get("dns_ips") == ["8.8.8.8", "8.8.4.4"]
+        assert result.get("dns_ips") == ["8.8.4.4", "8.8.8.8"]
 
     def test_resolves_aaaa_records(self) -> None:
         """Resolve AAAA records (IPv6)."""
@@ -199,6 +199,46 @@ class TestNip66DnsMetadataDnsSync:
         ):
             result = Nip66DnsMetadata._dns("example.com", 5.0)
 
+        assert result.get("dns_reverse") == "dns.google"
+
+    def test_ptr_uses_canonical_primary_ipv4(self) -> None:
+        """PTR lookup follows the normalized primary IPv4, not resolver order."""
+        mock_a_response = MagicMock()
+        mock_a_rdata1 = MagicMock()
+        mock_a_rdata1.address = "8.8.8.8"
+        mock_a_rdata2 = MagicMock()
+        mock_a_rdata2.address = "8.8.4.4"
+        mock_a_response.__iter__ = lambda _: iter([mock_a_rdata1, mock_a_rdata2])
+        mock_a_response.rrset = MagicMock()
+        mock_a_response.rrset.ttl = 300
+
+        mock_ptr_response = MagicMock()
+        mock_ptr_rdata = MagicMock()
+        mock_ptr_rdata.target = "dns.google."
+        mock_ptr_response.__iter__ = lambda _: iter([mock_ptr_rdata])
+
+        mock_resolver = MagicMock()
+
+        def resolve_side_effect(*args: Any, **kwargs: Any) -> MagicMock:
+            if args[1] == "A":
+                return mock_a_response
+            if args[1] == "PTR":
+                return mock_ptr_response
+            raise dns.resolver.NXDOMAIN
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        with (
+            patch("dns.resolver.Resolver", return_value=mock_resolver),
+            patch(
+                "dns.reversename.from_address",
+                return_value="8.8.4.4.in-addr.arpa",
+            ) as mock_reverse_name,
+        ):
+            result = Nip66DnsMetadata._dns("example.com", 5.0)
+
+        assert result.get("dns_ips") == ["8.8.4.4", "8.8.8.8"]
+        mock_reverse_name.assert_called_once_with("8.8.4.4")
         assert result.get("dns_reverse") == "dns.google"
 
     def test_empty_result_when_no_records(self) -> None:

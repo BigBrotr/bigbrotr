@@ -97,7 +97,12 @@ class Nip66DnsMetadata(BaseNipMetadata):
         return None
 
     @staticmethod
-    def _dns(host: str, timeout: float) -> dict[str, Any]:
+    def _normalize_set_like_strings(values: list[str]) -> list[str]:
+        """Return a stable deduplicated ordering for set-like DNS answer lists."""
+        return sorted(set(values))
+
+    @classmethod
+    def _dns(cls, host: str, timeout: float) -> dict[str, Any]:
         """Perform synchronous DNS resolution across multiple record types.
 
         Individual record lookups are wrapped in exception suppression so
@@ -121,7 +126,7 @@ class Nip66DnsMetadata(BaseNipMetadata):
         # A records (IPv4)
         with contextlib.suppress(*_dns_errors):
             answers = resolver.resolve(host, "A")
-            ips = [cast("A", rdata).address for rdata in answers]
+            ips = cls._normalize_set_like_strings([cast("A", rdata).address for rdata in answers])
             if ips:
                 result["dns_ips"] = ips
                 if answers.rrset:
@@ -130,7 +135,9 @@ class Nip66DnsMetadata(BaseNipMetadata):
         # AAAA records (IPv6)
         with contextlib.suppress(*_dns_errors):
             answers = resolver.resolve(host, "AAAA")
-            ips_v6 = [cast("AAAA", rdata).address for rdata in answers]
+            ips_v6 = cls._normalize_set_like_strings(
+                [cast("AAAA", rdata).address for rdata in answers]
+            )
             if ips_v6:
                 result["dns_ips_v6"] = ips_v6
 
@@ -145,11 +152,13 @@ class Nip66DnsMetadata(BaseNipMetadata):
         with contextlib.suppress(*_dns_errors):
             if registered_domain := Nip66DnsMetadata._registered_domain(host):
                 answers = resolver.resolve(registered_domain, "NS")
-                ns_list = [str(cast("NS", rdata).target).rstrip(".") for rdata in answers]
+                ns_list = cls._normalize_set_like_strings(
+                    [str(cast("NS", rdata).target).rstrip(".") for rdata in answers]
+                )
                 if ns_list:
                     result["dns_ns"] = ns_list
 
-        # Reverse DNS (PTR) using the first resolved IPv4 address
+        # Reverse DNS (PTR) using the canonical primary IPv4 address
         if result.get("dns_ips"):
             with contextlib.suppress(*_dns_errors):
                 ip = result["dns_ips"][0]

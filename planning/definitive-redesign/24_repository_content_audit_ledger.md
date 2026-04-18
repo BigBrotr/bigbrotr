@@ -967,3 +967,11 @@ Use this section during execution for:
   - aligned the paired transport tests so enter/exit and nested suppression
     now prove fd-level redirect/restore happens exactly once per outermost
     scope, which matches the live contract claimed by the transport layer.
+- `2.1` models/utils/NIPs leaf audit, hundredth remediation slice:
+  - tightened `bigbrotr.nips.nip66.dns.Nip66DnsMetadata._dns()` so the
+    set-like A/AAAA/NS answers are canonicalized before later probe logic
+    consumes them, instead of relying on the model boundary alone;
+  - aligned PTR lookup with that contract so reverse DNS now follows the
+    canonical primary IPv4 address rather than whichever A record the resolver
+    happened to yield first, and added paired DNS coverage that locks this
+    behavior down.
