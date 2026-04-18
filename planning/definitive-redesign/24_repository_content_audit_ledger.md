@@ -470,6 +470,18 @@ Use this section during execution for:
   - paired coverage now pins both surfaces for all four assertion families:
     direct construction and `from_db_row()` reject non-string subject
     identifiers explicitly.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirtieth remediation
+  slice:
+  - hardened the remaining direct-constructor collection boundaries in the
+    NIP-85 data models: `UserAssertion.top_topics` now rejects scalar strings
+    and mixed-type topic collections before `tags_hash()` or the public event
+    builders can crash on non-string topics;
+  - aligned `IdentifierAssertion.k_tags` with the same fail-fast standard, so
+    mixed-type tag collections now raise a typed boundary error instead of
+    leaking a sorter-dependent `TypeError` from the internal normalization
+    step;
+  - paired coverage now pins the scalar-string and mixed-type failures
+    explicitly on the affected constructors.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

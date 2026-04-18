@@ -42,9 +42,17 @@ def _coerce_topic_count_mapping(value: Any) -> dict[str, Any]:
 
 def _normalize_tag_set(value: tuple[str, ...]) -> tuple[str, ...]:
     """Return a stable deduplicated lexical ordering for set-like tag tuples."""
-    if isinstance(value, (str, bytes)):
-        raise TypeError("k_tags must be a sequence of tag strings, not a scalar string")
-    return tuple(sorted(set(value)))
+    return tuple(
+        sorted(
+            set(
+                _require_text_sequence(
+                    value,
+                    "k_tags",
+                    noun="tag strings",
+                )
+            )
+        )
+    )
 
 
 def _coerce_tag_sequence(value: Any) -> tuple[str, ...]:
@@ -61,6 +69,18 @@ def _require_text(value: Any, field_name: str) -> str:
     if not isinstance(value, str):
         raise TypeError(f"{field_name} must be a string")
     return value
+
+
+def _require_text_sequence(value: Any, field_name: str, *, noun: str) -> tuple[str, ...]:
+    """Return ``value`` as a tuple of strings, rejecting scalar or mixed-type inputs."""
+    if value is None:
+        raise TypeError(f"{field_name} must be a sequence of {noun}")
+    if isinstance(value, (str, bytes)):
+        raise TypeError(f"{field_name} must be a sequence of {noun}, not a scalar string")
+    items = tuple(value)
+    if any(not isinstance(item, str) for item in items):
+        raise TypeError(f"{field_name} must contain only strings")
+    return items
 
 
 def _require_non_negative_int(value: Any, field_name: str) -> int:
@@ -138,6 +158,11 @@ class UserAssertion:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "pubkey", _require_text(self.pubkey, "pubkey"))
+        object.__setattr__(
+            self,
+            "top_topics",
+            _require_text_sequence(self.top_topics, "top_topics", noun="topic strings"),
+        )
         object.__setattr__(self, "activity_hours", _normalize_activity_hours(self.activity_hours))
 
     @property
