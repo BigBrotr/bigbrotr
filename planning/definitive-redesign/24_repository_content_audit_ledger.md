@@ -612,6 +612,18 @@ Use this section during execution for:
   - paired coverage now pins malformed constructor and `from_db_row()`
     hydration payloads for all of those failure modes, plus the successful
     lowercase normalization path.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-forty-second remediation
+  slice:
+  - tightened the same `AddressableAssertion.event_address` seam one step
+    further so the leading kind must now be a real NIP-33 addressable kind
+    (`30000-39999`), not merely any canonical event kind inside the global
+    Nostr range;
+  - aligned the direct-construction and `from_db_row()` hydration paths on
+    that stronger contract, so non-addressable coordinates like
+    `1:<pubkey>:<d>` are now rejected before they can reach public kind
+    `30384` builder output;
+  - paired coverage now pins the malformed non-addressable-kind case on both
+    constructor and hydration boundaries.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

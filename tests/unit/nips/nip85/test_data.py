@@ -613,6 +613,10 @@ class TestAddressableAssertionProperties:
                 "event_address kind must be <= 65535",
             ),
             (
+                "1:" + ("aa" * 32) + ":article",
+                "event_address kind must be a NIP-33 addressable kind",
+            ),
+            (
                 "30023:abc:article",
                 "event_address pubkey must be a 64-character hex string",
             ),
@@ -718,6 +722,10 @@ class TestAddressableAssertionProperties:
             (
                 {"event_address": "030023:" + ("aa" * 32) + ":article"},
                 "event_address kind must be canonical",
+            ),
+            (
+                {"event_address": "1:" + ("aa" * 32) + ":article"},
+                "event_address kind must be a NIP-33 addressable kind",
             ),
             (
                 {"event_address": "30023:" + ("zz" * 32) + ":article"},

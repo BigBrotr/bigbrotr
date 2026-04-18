@@ -26,6 +26,8 @@ from bigbrotr.models.relay import Relay
 _MSATS_PER_SAT = 1000
 _ACTIVITY_HOURS_BUCKETS = 24
 _ADDRESSABLE_COORD_PARTS = 3
+_ADDRESSABLE_KIND_MIN = 30_000
+_ADDRESSABLE_KIND_MAX = 39_999
 _MAX_NIP85_SCORE = 100
 _HEX_32_TEXT_LENGTH = 64
 _MISSING = object()
@@ -210,6 +212,8 @@ def _normalize_event_address(value: Any) -> str:
         raise ValueError("event_address kind must be canonical")
     if kind > EVENT_KIND_MAX:
         raise ValueError(f"event_address kind must be <= {EVENT_KIND_MAX}")
+    if not (_ADDRESSABLE_KIND_MIN <= kind <= _ADDRESSABLE_KIND_MAX):
+        raise ValueError("event_address kind must be a NIP-33 addressable kind")
 
     pubkey = _require_hex32_text(pubkey_text, "event_address pubkey")
     if not d_value:
