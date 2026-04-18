@@ -25,19 +25,43 @@ _ACTIVITY_HOURS_BUCKETS = 24
 _MISSING = object()
 
 
-def _topic_count_sort_key(item: tuple[str, Any]) -> tuple[int, str]:
+def _topic_count_sort_key(item: tuple[str, int]) -> tuple[int, str]:
     """Sort topics by descending count, then lexicographically for stability."""
     topic, raw_count = item
-    return (-int(raw_count), topic)
+    return (-raw_count, topic)
 
 
-def _coerce_topic_count_mapping(value: Any) -> dict[str, Any]:
+def _normalize_topic_count(value: Any) -> int:
+    """Return a non-negative topic count, accepting integer JSONB strings."""
+    if isinstance(value, bool):
+        raise TypeError("topic_counts values must be non-negative integers")
+    if isinstance(value, int):
+        if value < 0:
+            raise ValueError("topic_counts values must be >= 0")
+        return value
+    if isinstance(value, str):
+        try:
+            normalized = int(value)
+        except ValueError as exc:
+            raise TypeError("topic_counts values must be non-negative integers") from exc
+        if normalized < 0 or value.strip() != str(normalized):
+            raise TypeError("topic_counts values must be non-negative integers")
+        return normalized
+    raise TypeError("topic_counts values must be non-negative integers")
+
+
+def _coerce_topic_count_mapping(value: Any) -> dict[str, int]:
     """Return topic counts as a mapping, preserving ``None`` as an empty mapping."""
     if value is None:
         return {}
     if not hasattr(value, "items"):
         raise TypeError("topic_counts must be a mapping of topic strings to counts")
-    return dict(value)
+    topic_counts: dict[str, int] = {}
+    for key, raw_count in value.items():
+        if not isinstance(key, str):
+            raise TypeError("topic_counts keys must be strings")
+        topic_counts[key] = _normalize_topic_count(raw_count)
+    return topic_counts
 
 
 def _normalize_tag_set(value: tuple[str, ...]) -> tuple[str, ...]:

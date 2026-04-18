@@ -219,6 +219,30 @@ class TestUserAssertionFromDbRow:
         ):
             UserAssertion.from_db_row(row)
 
+    def test_from_db_row_rejects_non_string_topic_count_keys(self) -> None:
+        row = {
+            "pubkey": "cc" * 32,
+            "topic_counts": {1: 7},
+        }
+        with pytest.raises(TypeError, match="topic_counts keys must be strings"):
+            UserAssertion.from_db_row(row)
+
+    def test_from_db_row_rejects_boolean_topic_count_values(self) -> None:
+        row = {
+            "pubkey": "cc" * 32,
+            "topic_counts": {"nostr": True},
+        }
+        with pytest.raises(TypeError, match="topic_counts values must be non-negative integers"):
+            UserAssertion.from_db_row(row)
+
+    def test_from_db_row_rejects_float_topic_count_values(self) -> None:
+        row = {
+            "pubkey": "cc" * 32,
+            "topic_counts": {"nostr": 1.5},
+        }
+        with pytest.raises(TypeError, match="topic_counts values must be non-negative integers"):
+            UserAssertion.from_db_row(row)
+
     def test_from_db_row_rejects_non_integer_top_topics_limit(self) -> None:
         row = {
             "pubkey": "cc" * 32,

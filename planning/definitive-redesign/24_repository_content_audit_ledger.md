@@ -492,6 +492,17 @@ Use this section during execution for:
     `k_tags`, but removed the remaining malformed-input coercion from the
     hydration seam;
   - paired coverage now pins the mixed-type hydration failure explicitly.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirty-second remediation
+  slice:
+  - hardened `UserAssertion.from_db_row()` so `topic_counts` now enforces the
+    contract it already claimed: topic keys must be strings and count values
+    must be real non-negative integers, while still accepting integer-shaped
+    JSONB strings such as `"10"`;
+  - removed the remaining silent coercions where malformed values like
+    `True` or `1.5` could slip through as topic counts and alter output
+    ordering or selection semantics;
+  - paired coverage now pins the non-string-key and malformed-count failures
+    explicitly on the hydration seam.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package
