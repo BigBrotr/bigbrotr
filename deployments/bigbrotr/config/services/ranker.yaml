@@ -4,7 +4,9 @@
 # Private DuckDB-backed NIP-85 ranker. Syncs the canonical follow graph from
 # PostgreSQL, computes deterministic 30382/30383/30384/30385 score outputs,
 # and exports final scores back to PostgreSQL.
-# Only values that differ from defaults are specified here.
+# This deployment file keeps deployment-local overrides and a few restated
+# operator-facing defaults. See docs/user-guide/services.md and
+# src/bigbrotr/services/ranker/configs.py for the full config contract.
 # =============================================================================
 
 pool:

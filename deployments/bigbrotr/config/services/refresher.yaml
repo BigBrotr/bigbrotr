@@ -3,7 +3,9 @@
 # =============================================================================
 # Periodically refreshes narrow current winners, shared analytics facts,
 # and operational contact-graph facts.
-# Only values that differ from defaults are specified here.
+# This deployment file keeps deployment-local overrides and a few restated
+# operator-facing defaults. See docs/user-guide/services.md and
+# src/bigbrotr/services/refresher/configs.py for the full config contract.
 # =============================================================================
 
 pool:

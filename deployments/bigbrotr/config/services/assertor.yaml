@@ -3,7 +3,9 @@
 # =============================================================================
 # NIP-85 provider-package publisher. Reads ranked NIP-85 facts and publishes
 # trusted assertions, provider profile, and trusted-provider list events.
-# Only values that differ from defaults are specified here.
+# This deployment file keeps deployment-local overrides and a few restated
+# operator-facing defaults. See docs/user-guide/services.md and
+# src/bigbrotr/services/assertor/configs.py for the full config contract.
 # =============================================================================
 
 pool:

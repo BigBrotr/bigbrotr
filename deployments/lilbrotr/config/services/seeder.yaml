@@ -2,8 +2,9 @@
 # Seeder Service Configuration (LilBrotr)
 # =============================================================================
 # One-shot service that loads initial relay URLs from a seed file.
-# Only values that differ from defaults are specified here.
-# See brotr/config/services/seeder.yaml for all options and documentation.
+# This deployment file keeps deployment-local overrides and a few restated
+# operator-facing defaults. See docs/user-guide/services.md and
+# src/bigbrotr/services/seeder/configs.py for the full config contract.
 # =============================================================================
 
 pool:

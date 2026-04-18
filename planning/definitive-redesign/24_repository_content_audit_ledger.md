@@ -93,7 +93,7 @@ Fill this section when the audit actually starts.
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
 | 1.1 `.github` leaf audit | done | `chore: align github automation surfaces` | Audited all tracked `.github` leaf surfaces and corrected real drift: added `.github/AGENTS.md` and `.github/workflows/AGENTS.md` as maintained local guidance, removed stale local `CLAUDE.md` leftovers from the live tree, aligned issue-template contact paths with the public docs/security surfaces, tightened the PR template to the actual contributor contract, and strengthened `release.yml` so the validation gate now runs pre-commit plus the repository contract gate (`make ci`, `uv lock --check`, and docs build) instead of only narrating a stronger standard. Targeted YAML/markdown/spelling checks, full `make ci`, and `uv lock --check` all passed before closure |
-| 1.2 Deployment service-config leaf audit | not started | — | `deployments/*/config/services/` plus paired local guidance and service-config truthfulness |
+| 1.2 Deployment service-config leaf audit | done | `chore: align deployment service-config guidance` | Audited the per-service deployment YAML leaves and their paired `config/services/README.md` files against the live service config models. Corrected the misleading leaf contract that claimed every file only contained non-default overrides, removed dead references to nonexistent `brotr/config/services/*.yaml` paths, and rewrote the local guidance so these files are described honestly as deployment-local overlays that may also restate important defaults for operator clarity. The slice intentionally leaves broader parent-level deployment guidance, including the missing `deployments/AGENTS.md` surface, to the later parent-folder audit. Targeted YAML/markdown/spelling checks, full `make ci`, and `uv lock --check` must pass before closure |
 | 1.3 Deployment SQL/monitoring/support leaf audit | not started | — | `postgres/init`, monitoring assets, pgbouncer, static/support scripts, and paired docs. This work package must explicitly judge whether the current monitoring stack is merely aligned or whether it still needs a substantial professional redesign across Grafana, Prometheus, alerts, exporter queries, and operator-facing observability shape |
 | 1.4 Docs asset/snippet/override leaf audit | not started | — | `_snippets`, assets, overrides, and other deepest docs-support surfaces |
 
@@ -165,3 +165,7 @@ Use this section during execution for:
   - many other `CLAUDE.md` local-guidance files still exist outside `.github`;
     they must be judged folder by folder against the final repository shape
     rather than removed mechanically in the `.github` slice.
+  - the parent-level `deployments/AGENTS.md` guidance surface is still missing
+    even though the root repository contract points to it; handle that in the
+    parent-folder guidance wave rather than mixing it into the service-config
+    leaf slice.

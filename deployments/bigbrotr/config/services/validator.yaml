@@ -2,8 +2,9 @@
 # Validator Service Configuration (BigBrotr)
 # =============================================================================
 # Tests candidate relay URLs via WebSocket before adding them to the
-# relays table. Only values that differ from defaults are specified here.
-# See brotr/config/services/validator.yaml for all options and documentation.
+# relays table. This deployment file keeps deployment-local overrides and a few
+# restated operator-facing defaults. See docs/user-guide/services.md and
+# src/bigbrotr/services/validator/configs.py for the full config contract.
 # =============================================================================
 
 pool:

@@ -2,7 +2,9 @@
 # API Service Configuration (BigBrotr)
 # =============================================================================
 # Read-only HTTP API for querying relay and event data.
-# Only values that differ from defaults are specified here.
+# This deployment file keeps deployment-local overrides and a few restated
+# operator-facing defaults. See docs/user-guide/services.md and
+# src/bigbrotr/services/api/configs.py for the full config contract.
 # =============================================================================
 
 pool:
