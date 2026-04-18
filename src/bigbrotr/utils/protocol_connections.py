@@ -84,9 +84,16 @@ async def _connect_overlay_relay(
 
         return client
     except Exception:
-        with contextlib.suppress(OSError, RuntimeError, TimeoutError, NostrSdkError):
-            await context.shutdown_client(client)
+        await _best_effort_shutdown_client(context, client)
         raise
+
+
+async def _best_effort_shutdown_client(
+    context: RelayConnectContext,
+    client: Client,
+) -> None:
+    with contextlib.suppress(OSError, RuntimeError, TimeoutError, NostrSdkError):
+        await context.shutdown_client(client)
 
 
 async def connect_relay(
@@ -118,7 +125,7 @@ async def connect_relay(
         context.logger.debug("ssl_connected relay=%s", relay.url)
         return client
 
-    await context.shutdown_client(client)
+    await _best_effort_shutdown_client(context, client)
     context.logger.debug("connect_failed relay=%s error=%s", relay.url, error_message)
 
     if not context.is_ssl_error(error_message):
@@ -139,7 +146,7 @@ async def connect_relay(
         connect_timeout=options.timeout,
     )
     if error_message is not None:
-        await context.shutdown_client(client)
+        await _best_effort_shutdown_client(context, client)
         raise OSError(f"Connection failed (insecure): {relay.url} ({error_message})")
 
     context.logger.debug("insecure_connected relay=%s", relay.url)

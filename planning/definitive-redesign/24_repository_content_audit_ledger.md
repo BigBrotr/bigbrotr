@@ -719,3 +719,11 @@ Use this section during execution for:
   - added paired coverage on both the leaf helper and the public
     `bigbrotr.utils.protocol.create_connected_client()` facade to lock the
     cleanup contract in place.
+- `2.1` models/utils/NIPs leaf audit, sixty-seventh remediation slice:
+  - aligned the clearnet branch of
+    `bigbrotr.utils.protocol_connections.connect_relay()` with the rest of
+    the shared teardown contract so expected shutdown noise no longer
+    overrides the primary verified-connect or insecure-fallback failure;
+  - added paired unit coverage proving both clearnet failure paths still
+    surface their original connection error when the injected shutdown helper
+    reports only expected SDK teardown noise.

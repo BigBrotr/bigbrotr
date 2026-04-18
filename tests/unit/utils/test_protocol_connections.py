@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
+from nostr_sdk import NostrSdkError
 
 from bigbrotr.models.relay import Relay
 from bigbrotr.utils.protocol_connections import (
@@ -194,3 +195,78 @@ class TestProtocolConnections:
             )
 
         shutdown_client.assert_awaited_once_with(client)
+
+    async def test_non_ssl_failure_preserves_primary_error_when_shutdown_reports_expected_noise(
+        self,
+    ) -> None:
+        relay = Relay("wss://relay.example.com")
+        relay_url = MagicMock()
+        output = MagicMock()
+        output.success = []
+        output.failed = {relay_url: "Connection refused"}
+        client = AsyncMock()
+        client.try_connect = AsyncMock(return_value=output)
+        shutdown_client = AsyncMock(side_effect=NostrSdkError("shutdown noise"))
+        context = _context(
+            create_client=AsyncMock(return_value=client),
+            shutdown_client=shutdown_client,
+            parse_relay_url=MagicMock(return_value=relay_url),
+            is_ssl_error=MagicMock(return_value=False),
+        )
+
+        with pytest.raises(OSError, match=r"Connection failed: wss://relay\.example\.com"):
+            await connect_relay(
+                relay,
+                context,
+                RelayConnectOptions(
+                    keys=None,
+                    proxy_url=None,
+                    timeout=7.0,
+                    allow_insecure=False,
+                ),
+            )
+
+        shutdown_client.assert_awaited_once_with(client)
+
+    async def test_insecure_fallback_failure_preserves_primary_error_when_shutdown_reports_expected_noise(
+        self,
+    ) -> None:
+        relay = Relay("wss://relay.example.com")
+        relay_url = MagicMock()
+        ssl_output = MagicMock()
+        ssl_output.success = []
+        ssl_output.failed = {relay_url: "SSL certificate verify failed"}
+        insecure_output = MagicMock()
+        insecure_output.success = []
+        insecure_output.failed = {relay_url: "Connection refused"}
+
+        ssl_client = AsyncMock()
+        ssl_client.try_connect = AsyncMock(return_value=ssl_output)
+        insecure_client = AsyncMock()
+        insecure_client.try_connect = AsyncMock(return_value=insecure_output)
+
+        shutdown_client = AsyncMock(side_effect=[None, NostrSdkError("shutdown noise")])
+        context = _context(
+            create_client=AsyncMock(side_effect=[ssl_client, insecure_client]),
+            shutdown_client=shutdown_client,
+            parse_relay_url=MagicMock(return_value=relay_url),
+            set_event_loop=MagicMock(),
+            is_ssl_error=MagicMock(return_value=True),
+        )
+
+        with pytest.raises(
+            OSError,
+            match=r"Connection failed \(insecure\): wss://relay\.example\.com",
+        ):
+            await connect_relay(
+                relay,
+                context,
+                RelayConnectOptions(
+                    keys=None,
+                    proxy_url=None,
+                    timeout=7.0,
+                    allow_insecure=True,
+                ),
+            )
+
+        shutdown_client.assert_has_awaits([call(ssl_client), call(insecure_client)])
