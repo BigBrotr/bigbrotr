@@ -187,8 +187,11 @@ async def create_client(
 
     Note:
         When a ``proxy_url`` hostname is not already an IP address, it is
-        resolved asynchronously via ``asyncio.to_thread(socket.gethostbyname)``
-        because nostr-sdk requires a numeric IP for the proxy connection.
+        resolved asynchronously to a numeric IPv4 or IPv6 address because
+        nostr-sdk requires a numeric IP for the proxy connection. Hostnames
+        first try ``socket.gethostbyname()`` and then fall back to
+        ``socket.getaddrinfo(..., AF_INET6)`` so IPv6-only proxy hosts still
+        work without forcing callers to pass bracketed literals.
 
     Warning:
         Setting ``allow_insecure=True`` bypasses all SSL/TLS certificate

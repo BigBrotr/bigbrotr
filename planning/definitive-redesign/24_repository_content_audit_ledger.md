@@ -474,3 +474,10 @@ Use this section during execution for:
     which is exactly how the implementation already behaved;
   - added explicit unit coverage for that intersection-based counting rule so
     the leaf semantics stay pinned in future refactors.
+- `2.1` models/utils/NIPs leaf audit, thirty-seventh remediation slice:
+  - corrected `bigbrotr.utils.protocol_factory` so proxy hostname resolution
+    no longer stops at IPv4-only `socket.gethostbyname()`; the factory now
+    falls back to IPv6 `getaddrinfo()` and therefore matches the repository's
+    broader A/AAAA resolution discipline;
+  - added explicit unit coverage proving that IPv6-only proxy hostnames still
+    produce a working numeric proxy target instead of failing spuriously.

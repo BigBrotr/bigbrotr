@@ -9,6 +9,7 @@ Tests:
 - broadcast_events() - Event broadcasting to relays
 """
 
+import socket
 import ssl
 from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -188,6 +189,19 @@ class TestCreateClientProxy:
         with patch("asyncio.to_thread", new_callable=AsyncMock, return_value="127.0.0.1"):
             client = await create_client(proxy_url="socks5://tor:9050")
             assert client is not None
+
+    async def test_proxy_hostname_falls_back_to_ipv6_resolution(self) -> None:
+        """IPv6-only proxy hostnames still resolve to a numeric proxy target."""
+        ipv6_result = [(None, None, None, None, ("2001:db8::5", 0, 0, 0))]
+        with patch(
+            "asyncio.to_thread",
+            new_callable=AsyncMock,
+            side_effect=[socket.gaierror("No IPv4"), ipv6_result],
+        ) as mock_to_thread:
+            client = await create_client(proxy_url="socks5://proxy.example:9050")
+
+        assert client is not None
+        assert mock_to_thread.await_count == 2
 
     async def test_proxy_ip_not_resolved(self) -> None:
         """Test IP address proxy does not call asyncio.to_thread for resolution."""
