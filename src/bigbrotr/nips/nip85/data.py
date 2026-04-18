@@ -30,6 +30,15 @@ def _topic_count_sort_key(item: tuple[str, Any]) -> tuple[int, str]:
     return (-int(raw_count), topic)
 
 
+def _coerce_topic_count_mapping(value: Any) -> dict[str, Any]:
+    """Return topic counts as a mapping, preserving ``None`` as an empty mapping."""
+    if value is None:
+        return {}
+    if not hasattr(value, "items"):
+        raise TypeError("topic_counts must be a mapping of topic strings to counts")
+    return dict(value)
+
+
 def _normalize_tag_set(value: tuple[str, ...]) -> tuple[str, ...]:
     """Return a stable deduplicated lexical ordering for set-like tag tuples."""
     if isinstance(value, (str, bytes)):
@@ -173,7 +182,7 @@ class UserAssertion:
     @classmethod
     def from_db_row(cls, row: dict[str, Any]) -> UserAssertion:
         """Construct from a joined nip85_pubkey_stats + pubkey_stats row."""
-        raw_topics: dict[str, Any] = row.get("topic_counts") or {}
+        raw_topics = _coerce_topic_count_mapping(row.get("topic_counts"))
         sorted_topics = sorted(raw_topics.items(), key=_topic_count_sort_key)
         top_n = row.get("top_topics_limit", 5)
 

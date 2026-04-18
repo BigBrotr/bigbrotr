@@ -189,6 +189,16 @@ class TestUserAssertionFromDbRow:
         a = UserAssertion.from_db_row(row)
         assert a.top_topics == ("nostr", "apple", "beta", "zebra")
 
+    def test_from_db_row_rejects_non_mapping_topic_counts(self) -> None:
+        row = {
+            "pubkey": "cc" * 32,
+            "topic_counts": [],
+        }
+        with pytest.raises(
+            TypeError, match="topic_counts must be a mapping of topic strings to counts"
+        ):
+            UserAssertion.from_db_row(row)
+
     def test_from_db_row_rejects_invalid_activity_hours_length(self) -> None:
         row = {
             "pubkey": "cc" * 32,

@@ -416,6 +416,16 @@ Use this section during execution for:
     iteration/defaulting logic;
   - paired coverage now pins both surfaces: direct construction and row
     hydration both reject scalar-string `k_tags` inputs explicitly.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-twenty-fifth remediation
+  slice:
+  - `UserAssertion.from_db_row()` no longer collapses malformed
+    `topic_counts` payloads such as `[]` into the same empty-topic outcome as a
+    genuinely missing field;
+  - the NIP-85 hydration path now requires `topic_counts` to be a real mapping
+    before it can derive stable top-topic output, which keeps bad stored data
+    visible instead of silently treating it as “no topics”;
+  - paired coverage now pins the distinction between `topic_counts=None` as the
+    empty default path and non-mapping payloads as explicit invalid input.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package
