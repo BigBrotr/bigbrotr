@@ -105,6 +105,22 @@ class TestUserAssertionProperties:
         ):
             UserAssertion(pubkey="aa" * 32, activity_hours=(0,) * 23)
 
+    def test_constructor_rejects_boolean_activity_hours(self) -> None:
+        with pytest.raises(
+            TypeError, match="activity_hours entries must be a non-negative integer"
+        ):
+            UserAssertion(pubkey="aa" * 32, activity_hours=(True,) * 24)
+
+    def test_constructor_rejects_float_activity_hours(self) -> None:
+        with pytest.raises(
+            TypeError, match="activity_hours entries must be a non-negative integer"
+        ):
+            UserAssertion(pubkey="aa" * 32, activity_hours=(1.5,) * 24)  # type: ignore[arg-type]
+
+    def test_constructor_rejects_negative_activity_hours(self) -> None:
+        with pytest.raises(ValueError, match="activity_hours entries must be >= 0"):
+            UserAssertion(pubkey="aa" * 32, activity_hours=(-1,) * 24)
+
 
 class TestUserAssertionActiveHours:
     def test_all_zeros(self) -> None:
@@ -279,6 +295,34 @@ class TestUserAssertionFromDbRow:
         with pytest.raises(
             ValueError, match="activity_hours must contain exactly 24 hourly buckets"
         ):
+            UserAssertion.from_db_row(row)
+
+    def test_from_db_row_rejects_boolean_activity_hours(self) -> None:
+        row = {
+            "pubkey": "cc" * 32,
+            "activity_hours": [True] * 24,
+        }
+        with pytest.raises(
+            TypeError, match="activity_hours entries must be a non-negative integer"
+        ):
+            UserAssertion.from_db_row(row)
+
+    def test_from_db_row_rejects_float_activity_hours(self) -> None:
+        row = {
+            "pubkey": "cc" * 32,
+            "activity_hours": [1.5] * 24,
+        }
+        with pytest.raises(
+            TypeError, match="activity_hours entries must be a non-negative integer"
+        ):
+            UserAssertion.from_db_row(row)
+
+    def test_from_db_row_rejects_negative_activity_hours(self) -> None:
+        row = {
+            "pubkey": "cc" * 32,
+            "activity_hours": [-1] * 24,
+        }
+        with pytest.raises(ValueError, match="activity_hours entries must be >= 0"):
             UserAssertion.from_db_row(row)
 
 

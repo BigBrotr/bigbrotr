@@ -116,7 +116,7 @@ def _require_non_negative_int(value: Any, field_name: str) -> int:
 
 def _normalize_activity_hours(value: tuple[int, ...]) -> tuple[int, ...]:
     """Validate and normalize the 24-slot UTC activity heatmap."""
-    normalized = tuple(int(hour) for hour in value)
+    normalized = tuple(_require_non_negative_int(hour, "activity_hours entries") for hour in value)
     if len(normalized) != _ACTIVITY_HOURS_BUCKETS:
         raise ValueError(
             f"activity_hours must contain exactly {_ACTIVITY_HOURS_BUCKETS} hourly buckets"
@@ -255,7 +255,7 @@ class UserAssertion:
         )
 
         hours_raw = row.get("activity_hours")
-        hours = tuple(int(h) for h in hours_raw) if hours_raw is not None else (0,) * 24
+        hours = tuple(hours_raw) if hours_raw is not None else (0,) * 24
 
         return cls(
             pubkey=row["pubkey"],

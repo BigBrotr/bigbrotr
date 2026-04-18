@@ -503,6 +503,16 @@ Use this section during execution for:
     ordering or selection semantics;
   - paired coverage now pins the non-string-key and malformed-count failures
     explicitly on the hydration seam.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirty-third remediation
+  slice:
+  - hardened `UserAssertion.activity_hours` on both constructor and hydration
+    paths so the 24-slot heatmap now requires real non-negative integer
+    buckets, instead of silently truncating malformed values like `True`,
+    `1.5`, or `-1` through `int(...)` coercion;
+  - kept the existing 24-bucket length contract intact, but removed the last
+    implicit numeric coercion from this NIP-85 event-count seam;
+  - paired coverage now pins boolean, float, and negative-hour failures
+    explicitly for both direct construction and `from_db_row()`.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package
