@@ -27,10 +27,11 @@ See Also:
         Data model for RTT measurements.
     [bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs][bigbrotr.nips.nip66.logs.Nip66RttMultiPhaseLogs]:
         Multi-phase log model with per-phase success/reason.
+    [bigbrotr.nips.nip66.rtt.Nip66RttDependencies][bigbrotr.nips.nip66.rtt.Nip66RttDependencies]:
+        Higher layers inject signing keys, event builders, and read filters for
+        the write-capable RTT probe.
     [bigbrotr.utils.protocol.connect_relay][bigbrotr.utils.protocol.connect_relay]:
         Transport function used for the open phase.
-    [bigbrotr.services.common.configs.NostrKeysConfig][bigbrotr.services.common.configs.NostrKeysConfig]:
-        Key management -- RTT probes require signing keys for the write phase.
 """
 
 from __future__ import annotations

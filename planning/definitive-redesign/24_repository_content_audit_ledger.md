@@ -342,3 +342,12 @@ Use this section during execution for:
   - kept the practical context about key consumers, but described wrapper
     policy generically so the `utils` package remains documented as a reusable
     low-level library seam.
+- `2.1` models/utils/NIPs leaf audit, twenty-first remediation slice:
+  - moved `NostrKeysConfig` coverage out of `tests/unit/utils/test_keys.py` and
+    into `tests/unit/services/common/test_configs.py`, because the shared
+    service-layer config wrapper is not part of the local `utils` leaf contract;
+  - tightened `bigbrotr.nips.nip66.rtt` so the tracked NIP leaf surface now
+    describes signing dependencies as injected higher-layer inputs rather than
+    naming a concrete service config wrapper;
+  - corrected the paired RTT test-module inventory so it no longer advertises a
+    nonexistent `_validate_network()` surface.

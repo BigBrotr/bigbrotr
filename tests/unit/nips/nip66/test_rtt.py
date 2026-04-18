@@ -2,13 +2,13 @@
 Unit tests for the ``bigbrotr.nips.nip66.rtt`` module.
 
 Tests:
-- Nip66RttMetadata._validate_network() - network/proxy validation
 - Nip66RttMetadata._test_open() - connection phase
 - Nip66RttMetadata._test_read() - read phase
 - Nip66RttMetadata._test_write() - write phase
 - Nip66RttMetadata._verify_write() - write verification
 - Nip66RttMetadata._cleanup() - client disconnection
 - Nip66RttMetadata.probe() - full RTT test
+- Nip66RttDependencies - grouped signing/read dependencies for the probe
 """
 
 from __future__ import annotations
