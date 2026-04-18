@@ -23,6 +23,38 @@ from typing import Any
 _MSATS_PER_SAT = 1000
 _ACTIVITY_HOURS_BUCKETS = 24
 _MISSING = object()
+_USER_ASSERTION_INT_FIELDS = (
+    "score",
+    "post_count",
+    "reply_count",
+    "reaction_count_recd",
+    "reaction_count_sent",
+    "repost_count_recd",
+    "repost_count_sent",
+    "report_count_recd",
+    "report_count_sent",
+    "zap_count_recd",
+    "zap_count_sent",
+    "zap_amount_recd_msats",
+    "zap_amount_sent_msats",
+    "follower_count",
+    "following_count",
+)
+_EVENT_ASSERTION_INT_FIELDS = (
+    "score",
+    "comment_count",
+    "quote_count",
+    "repost_count",
+    "reaction_count",
+    "zap_count",
+    "zap_amount_msats",
+)
+_ADDRESSABLE_ASSERTION_INT_FIELDS = _EVENT_ASSERTION_INT_FIELDS
+_IDENTIFIER_ASSERTION_INT_FIELDS = (
+    "score",
+    "comment_count",
+    "reaction_count",
+)
 
 
 def _topic_count_sort_key(item: tuple[str, int]) -> tuple[int, str]:
@@ -124,6 +156,21 @@ def _normalize_activity_hours(value: tuple[int, ...]) -> tuple[int, ...]:
     return normalized
 
 
+def _normalize_non_negative_int_fields(instance: object, field_names: tuple[str, ...]) -> None:
+    """Validate named dataclass integer fields as real non-negative integers."""
+    for field_name in field_names:
+        object.__setattr__(
+            instance,
+            field_name,
+            _require_non_negative_int(getattr(instance, field_name), field_name),
+        )
+
+
+def _metric_from_row(row: dict[str, Any], key: str, *, field_name: str | None = None) -> int:
+    """Read one integer metric from a DB row without permissive coercion."""
+    return _require_non_negative_int(row.get(key, 0), field_name or key)
+
+
 @dataclass(frozen=True, slots=True)
 class UserAssertion:
     """NIP-85 kind 30382: per-pubkey social metrics.
@@ -185,6 +232,7 @@ class UserAssertion:
             "top_topics",
             _require_text_sequence(self.top_topics, "top_topics", noun="topic strings"),
         )
+        _normalize_non_negative_int_fields(self, _USER_ASSERTION_INT_FIELDS)
         object.__setattr__(self, "activity_hours", _normalize_activity_hours(self.activity_hours))
 
     @property
@@ -259,25 +307,33 @@ class UserAssertion:
 
         return cls(
             pubkey=row["pubkey"],
-            score=int(row.get("score", 0)),
-            post_count=int(row.get("post_count", 0)),
-            reply_count=int(row.get("reply_count", 0)),
-            reaction_count_recd=int(row.get("reaction_count_recd", 0)),
-            reaction_count_sent=int(row.get("reaction_count_sent", 0)),
-            repost_count_recd=int(row.get("repost_count_recd", 0)),
-            repost_count_sent=int(row.get("repost_count_sent", 0)),
-            report_count_recd=int(row.get("report_count_recd", 0)),
-            report_count_sent=int(row.get("report_count_sent", 0)),
-            zap_count_recd=int(row.get("zap_count_recd", 0)),
-            zap_count_sent=int(row.get("zap_count_sent", 0)),
-            zap_amount_recd_msats=int(row.get("zap_amount_recd", 0)),
-            zap_amount_sent_msats=int(row.get("zap_amount_sent", 0)),
+            score=_metric_from_row(row, "score"),
+            post_count=_metric_from_row(row, "post_count"),
+            reply_count=_metric_from_row(row, "reply_count"),
+            reaction_count_recd=_metric_from_row(row, "reaction_count_recd"),
+            reaction_count_sent=_metric_from_row(row, "reaction_count_sent"),
+            repost_count_recd=_metric_from_row(row, "repost_count_recd"),
+            repost_count_sent=_metric_from_row(row, "repost_count_sent"),
+            report_count_recd=_metric_from_row(row, "report_count_recd"),
+            report_count_sent=_metric_from_row(row, "report_count_sent"),
+            zap_count_recd=_metric_from_row(row, "zap_count_recd"),
+            zap_count_sent=_metric_from_row(row, "zap_count_sent"),
+            zap_amount_recd_msats=_metric_from_row(
+                row,
+                "zap_amount_recd",
+                field_name="zap_amount_recd_msats",
+            ),
+            zap_amount_sent_msats=_metric_from_row(
+                row,
+                "zap_amount_sent",
+                field_name="zap_amount_sent_msats",
+            ),
             first_created_at=row.get("first_created_at"),
             last_event_at=row.get("last_event_at"),
             activity_hours=hours,
             top_topics=tuple(t[0] for t in sorted_topics[:top_n]),
-            follower_count=int(row.get("follower_count", 0)),
-            following_count=int(row.get("following_count", 0)),
+            follower_count=_metric_from_row(row, "follower_count"),
+            following_count=_metric_from_row(row, "following_count"),
         )
 
 
@@ -317,6 +373,7 @@ class EventAssertion:
             "author_pubkey",
             _require_text(self.author_pubkey, "author_pubkey"),
         )
+        _normalize_non_negative_int_fields(self, _EVENT_ASSERTION_INT_FIELDS)
 
     @property
     def zap_amount_sats(self) -> int:
@@ -342,13 +399,13 @@ class EventAssertion:
         return cls(
             event_id=row["event_id"],
             author_pubkey=row.get("author_pubkey", ""),
-            score=int(row.get("score", 0)),
-            comment_count=int(row.get("comment_count", 0)),
-            quote_count=int(row.get("quote_count", 0)),
-            repost_count=int(row.get("repost_count", 0)),
-            reaction_count=int(row.get("reaction_count", 0)),
-            zap_count=int(row.get("zap_count", 0)),
-            zap_amount_msats=int(row.get("zap_amount", 0)),
+            score=_metric_from_row(row, "score"),
+            comment_count=_metric_from_row(row, "comment_count"),
+            quote_count=_metric_from_row(row, "quote_count"),
+            repost_count=_metric_from_row(row, "repost_count"),
+            reaction_count=_metric_from_row(row, "reaction_count"),
+            zap_count=_metric_from_row(row, "zap_count"),
+            zap_amount_msats=_metric_from_row(row, "zap_amount", field_name="zap_amount_msats"),
         )
 
 
@@ -377,6 +434,7 @@ class AddressableAssertion:
             "author_pubkey",
             _require_text(self.author_pubkey, "author_pubkey"),
         )
+        _normalize_non_negative_int_fields(self, _ADDRESSABLE_ASSERTION_INT_FIELDS)
 
     @property
     def zap_amount_sats(self) -> int:
@@ -402,13 +460,13 @@ class AddressableAssertion:
         return cls(
             event_address=row["event_address"],
             author_pubkey=row.get("author_pubkey", ""),
-            score=int(row.get("score", 0)),
-            comment_count=int(row.get("comment_count", 0)),
-            quote_count=int(row.get("quote_count", 0)),
-            repost_count=int(row.get("repost_count", 0)),
-            reaction_count=int(row.get("reaction_count", 0)),
-            zap_count=int(row.get("zap_count", 0)),
-            zap_amount_msats=int(row.get("zap_amount", 0)),
+            score=_metric_from_row(row, "score"),
+            comment_count=_metric_from_row(row, "comment_count"),
+            quote_count=_metric_from_row(row, "quote_count"),
+            repost_count=_metric_from_row(row, "repost_count"),
+            reaction_count=_metric_from_row(row, "reaction_count"),
+            zap_count=_metric_from_row(row, "zap_count"),
+            zap_amount_msats=_metric_from_row(row, "zap_amount", field_name="zap_amount_msats"),
         )
 
 
@@ -424,6 +482,7 @@ class IdentifierAssertion:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "identifier", _require_text(self.identifier, "identifier"))
+        _normalize_non_negative_int_fields(self, _IDENTIFIER_ASSERTION_INT_FIELDS)
         object.__setattr__(self, "k_tags", _normalize_tag_set(self.k_tags))
 
     def tags_hash(self) -> str:
@@ -441,9 +500,9 @@ class IdentifierAssertion:
         """Construct from a joined nip85_identifier_stats + score row."""
         return cls(
             identifier=row["identifier"],
-            score=int(row.get("score", 0)),
-            comment_count=int(row.get("comment_count", 0)),
-            reaction_count=int(row.get("reaction_count", 0)),
+            score=_metric_from_row(row, "score"),
+            comment_count=_metric_from_row(row, "comment_count"),
+            reaction_count=_metric_from_row(row, "reaction_count"),
             k_tags=_coerce_tag_sequence(row.get("k_tags")),
         )
 

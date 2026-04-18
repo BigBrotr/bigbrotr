@@ -513,6 +513,19 @@ Use this section during execution for:
     implicit numeric coercion from this NIP-85 event-count seam;
   - paired coverage now pins boolean, float, and negative-hour failures
     explicitly for both direct construction and `from_db_row()`.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirty-fourth remediation
+  slice:
+  - hardened all four `bigbrotr.nips.nip85.data` subject models so their
+    metric/count fields now require real non-negative integers on the direct
+    constructor path instead of accepting malformed values like `True`, `1.5`,
+    or `-1` through missing validation;
+  - aligned every `from_db_row()` hydration seam with the same contract by
+    removing the remaining permissive `int(...)` coercions for score/count/zap
+    metrics and routing those DB-row values through typed non-negative integer
+    checks;
+  - paired coverage now pins representative boolean, float, and negative-value
+    failures for `UserAssertion`, `EventAssertion`, `AddressableAssertion`,
+    and `IdentifierAssertion` on both constructor and hydration paths.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

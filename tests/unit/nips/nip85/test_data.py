@@ -121,6 +121,25 @@ class TestUserAssertionProperties:
         with pytest.raises(ValueError, match="activity_hours entries must be >= 0"):
             UserAssertion(pubkey="aa" * 32, activity_hours=(-1,) * 24)
 
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"score": True}, "score must be a non-negative integer"),
+            ({"follower_count": -1}, "follower_count must be >= 0"),
+            (
+                {"zap_amount_recd_msats": 1.5},
+                "zap_amount_recd_msats must be a non-negative integer",
+            ),
+        ],
+    )
+    def test_constructor_rejects_invalid_metric_fields(
+        self,
+        kwargs: dict[str, object],
+        message: str,
+    ) -> None:
+        with pytest.raises((TypeError, ValueError), match=message):
+            UserAssertion(pubkey="aa" * 32, **kwargs)
+
 
 class TestUserAssertionActiveHours:
     def test_all_zeros(self) -> None:
@@ -325,6 +344,25 @@ class TestUserAssertionFromDbRow:
         with pytest.raises(ValueError, match="activity_hours entries must be >= 0"):
             UserAssertion.from_db_row(row)
 
+    @pytest.mark.parametrize(
+        ("row", "message"),
+        [
+            ({"pubkey": "cc" * 32, "score": True}, "score must be a non-negative integer"),
+            ({"pubkey": "cc" * 32, "follower_count": -1}, "follower_count must be >= 0"),
+            (
+                {"pubkey": "cc" * 32, "zap_amount_recd": 1.5},
+                "zap_amount_recd_msats must be a non-negative integer",
+            ),
+        ],
+    )
+    def test_from_db_row_rejects_invalid_metric_fields(
+        self,
+        row: dict[str, object],
+        message: str,
+    ) -> None:
+        with pytest.raises((TypeError, ValueError), match=message):
+            UserAssertion.from_db_row(row)
+
 
 class TestEventAssertionProperties:
     def test_zap_amount_sats(self) -> None:
@@ -349,6 +387,22 @@ class TestEventAssertionProperties:
         a1 = EventAssertion(event_id="ee" * 32, author_pubkey="aa" * 32)
         a2 = EventAssertion(event_id="ee" * 32, author_pubkey="bb" * 32)
         assert a1.tags_hash() != a2.tags_hash()
+
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"score": True}, "score must be a non-negative integer"),
+            ({"comment_count": -1}, "comment_count must be >= 0"),
+            ({"zap_amount_msats": 1.5}, "zap_amount_msats must be a non-negative integer"),
+        ],
+    )
+    def test_constructor_rejects_invalid_metric_fields(
+        self,
+        kwargs: dict[str, object],
+        message: str,
+    ) -> None:
+        with pytest.raises((TypeError, ValueError), match=message):
+            EventAssertion(event_id="ee" * 32, **kwargs)
 
 
 class TestEventAssertionFromDbRow:
@@ -383,6 +437,25 @@ class TestEventAssertionFromDbRow:
             "author_pubkey": None,
         }
         with pytest.raises(TypeError, match="author_pubkey must be a string"):
+            EventAssertion.from_db_row(row)
+
+    @pytest.mark.parametrize(
+        ("row", "message"),
+        [
+            ({"event_id": "ff" * 32, "score": True}, "score must be a non-negative integer"),
+            ({"event_id": "ff" * 32, "comment_count": -1}, "comment_count must be >= 0"),
+            (
+                {"event_id": "ff" * 32, "zap_amount": 1.5},
+                "zap_amount_msats must be a non-negative integer",
+            ),
+        ],
+    )
+    def test_from_db_row_rejects_invalid_metric_fields(
+        self,
+        row: dict[str, object],
+        message: str,
+    ) -> None:
+        with pytest.raises((TypeError, ValueError), match=message):
             EventAssertion.from_db_row(row)
 
 
@@ -429,6 +502,25 @@ class TestAddressableAssertionProperties:
         )
         assert a1.tags_hash() != a2.tags_hash()
 
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"score": True}, "score must be a non-negative integer"),
+            ({"reaction_count": -1}, "reaction_count must be >= 0"),
+            ({"zap_amount_msats": 1.5}, "zap_amount_msats must be a non-negative integer"),
+        ],
+    )
+    def test_constructor_rejects_invalid_metric_fields(
+        self,
+        kwargs: dict[str, object],
+        message: str,
+    ) -> None:
+        with pytest.raises((TypeError, ValueError), match=message):
+            AddressableAssertion(
+                event_address="30023:" + ("aa" * 32) + ":article",
+                **kwargs,
+            )
+
     def test_from_db_row_rejects_non_string_author_pubkey(self) -> None:
         row = {
             "event_address": "30023:" + ("aa" * 32) + ":article",
@@ -443,6 +535,31 @@ class TestAddressableAssertionProperties:
             "author_pubkey": "bb" * 32,
         }
         with pytest.raises(TypeError, match="event_address must be a string"):
+            AddressableAssertion.from_db_row(row)
+
+    @pytest.mark.parametrize(
+        ("row", "message"),
+        [
+            (
+                {"event_address": "30023:" + ("aa" * 32) + ":article", "score": True},
+                "score must be a non-negative integer",
+            ),
+            (
+                {"event_address": "30023:" + ("aa" * 32) + ":article", "reaction_count": -1},
+                "reaction_count must be >= 0",
+            ),
+            (
+                {"event_address": "30023:" + ("aa" * 32) + ":article", "zap_amount": 1.5},
+                "zap_amount_msats must be a non-negative integer",
+            ),
+        ],
+    )
+    def test_from_db_row_rejects_invalid_metric_fields(
+        self,
+        row: dict[str, object],
+        message: str,
+    ) -> None:
+        with pytest.raises((TypeError, ValueError), match=message):
             AddressableAssertion.from_db_row(row)
 
 
@@ -494,6 +611,22 @@ class TestIdentifierAssertionProperties:
                 k_tags=(1, "book"),  # type: ignore[arg-type]
             )
 
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"score": True}, "score must be a non-negative integer"),
+            ({"comment_count": -1}, "comment_count must be >= 0"),
+            ({"reaction_count": 1.5}, "reaction_count must be a non-negative integer"),
+        ],
+    )
+    def test_constructor_rejects_invalid_metric_fields(
+        self,
+        kwargs: dict[str, object],
+        message: str,
+    ) -> None:
+        with pytest.raises((TypeError, ValueError), match=message):
+            IdentifierAssertion(identifier="isbn:9780140328721", **kwargs)
+
     def test_from_db_row_rejects_scalar_string_k_tags(self) -> None:
         row = {
             "identifier": "isbn:9780140328721",
@@ -518,6 +651,31 @@ class TestIdentifierAssertionProperties:
         }
 
         with pytest.raises(TypeError, match="identifier must be a string"):
+            IdentifierAssertion.from_db_row(row)
+
+    @pytest.mark.parametrize(
+        ("row", "message"),
+        [
+            (
+                {"identifier": "isbn:9780140328721", "score": True},
+                "score must be a non-negative integer",
+            ),
+            (
+                {"identifier": "isbn:9780140328721", "comment_count": -1},
+                "comment_count must be >= 0",
+            ),
+            (
+                {"identifier": "isbn:9780140328721", "reaction_count": 1.5},
+                "reaction_count must be a non-negative integer",
+            ),
+        ],
+    )
+    def test_from_db_row_rejects_invalid_metric_fields(
+        self,
+        row: dict[str, object],
+        message: str,
+    ) -> None:
+        with pytest.raises((TypeError, ValueError), match=message):
             IdentifierAssertion.from_db_row(row)
 
 
