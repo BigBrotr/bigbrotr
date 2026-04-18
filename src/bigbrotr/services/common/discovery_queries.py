@@ -16,6 +16,18 @@ if TYPE_CHECKING:
     from bigbrotr.models.relay import Relay
 
 
+def _deduplicate_relays_by_url(relays: list[Relay]) -> list[Relay]:
+    """Return relays with duplicate URLs removed, preserving first-seen order."""
+    deduplicated: list[Relay] = []
+    seen: set[str] = set()
+    for relay in relays:
+        if relay.url in seen:
+            continue
+        seen.add(relay.url)
+        deduplicated.append(relay)
+    return deduplicated
+
+
 async def insert_relays_as_candidates(brotr: Brotr, relays: list[Relay]) -> int:
     """Insert new validation candidates, skipping known relays and duplicates."""
     urls = [relay.url for relay in relays]
@@ -37,7 +49,7 @@ async def insert_relays_as_candidates(brotr: Brotr, relays: list[Relay]) -> int:
         ServiceStateType.CHECKPOINT,
     )
     new_urls = {row["url"] for row in rows}
-    new_relays = [relay for relay in relays if relay.url in new_urls]
+    new_relays = _deduplicate_relays_by_url([relay for relay in relays if relay.url in new_urls])
     if not new_relays:
         return 0
 

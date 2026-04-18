@@ -1698,3 +1698,13 @@ Use this section during execution for:
     PK path values are rejected at the shared lookup seam before the database
     is touched, while bytea hex validation keeps the existing explicit public
     contract.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirty-sixth remediation
+  slice:
+  - tightened the shared Seeder/Finder candidate-registration boundary so
+    duplicate relay URLs already present in one input batch no longer survive
+    the DB-side "new relay" filter and produce duplicate validator candidate
+    upserts, and now collapse to a first-seen canonical order before
+    persistence;
+  - added paired `services/common` coverage proving the helper now deduplicates
+    repeated new relays deterministically even when the database returns the
+    allowed URL set in a different order than the caller-provided batch.

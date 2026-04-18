@@ -100,3 +100,29 @@ class TestInsertRelaysAsCandidates:
 
         assert query_brotr.upsert_service_state.await_count == 2
         assert result == 3
+
+    async def test_deduplicates_new_input_relays_preserving_first_seen_order(
+        self, query_brotr: MagicMock
+    ) -> None:
+        relays = [
+            _mock_relay("wss://dup.example.com"),
+            _mock_relay("wss://second.example.com"),
+            _mock_relay("wss://dup.example.com"),
+        ]
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row({"url": "wss://second.example.com"}),
+                _row({"url": "wss://dup.example.com"}),
+            ]
+        )
+        query_brotr.upsert_service_state = AsyncMock(return_value=2)
+
+        result = await insert_relays_as_candidates(query_brotr, relays)
+
+        query_brotr.upsert_service_state.assert_awaited_once()
+        records = query_brotr.upsert_service_state.call_args[0][0]
+        assert [record.state_key for record in records] == [
+            "wss://dup.example.com",
+            "wss://second.example.com",
+        ]
+        assert result == 2
