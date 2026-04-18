@@ -530,3 +530,10 @@ Use this section during execution for:
   - aligned that leaf wording so clearnet/overlay scheme policy now talks
     consistently about privacy/security coming from the overlay transport
     layer rather than relay TLS.
+- `2.1` models/utils/NIPs leaf audit, forty-fourth remediation slice:
+  - corrected the top-level `bigbrotr.nips` package surface, which still
+    claimed overlay NIP fetches always use an insecure SSL context;
+  - aligned that export-level narrative with the actual repository contract:
+    overlay flows are proxy-aware, while any relaxed TLS decision belongs to
+    the specific helper surface (`nip11.info`, `nip66.http`, etc.), not to the
+    package summary itself.

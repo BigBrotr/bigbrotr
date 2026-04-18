@@ -17,7 +17,8 @@ Public exports:
     Nip11: Fetches and parses NIP-11 Relay Information Documents via HTTP.
         Converts wss/ws URL to https/http, sends ``Accept: application/nostr+json``.
         SSL fallback: clearnet tries verified first, falls back to insecure if
-        ``allow_insecure=True``; overlay networks always use insecure context.
+        ``allow_insecure=True``; overlay relay fetches use proxy-aware transport,
+        and any relaxed TLS settings are decided by the specific helper surface.
     Nip66: Orchestrates six parallel health tests per relay: RTT (round-trip
         time), SSL (certificate chain), DNS (A/AAAA/CNAME), Geo (GeoIP location),
         Net (ASN info), HTTP (response headers). Each test produces a separate
