@@ -526,6 +526,18 @@ Use this section during execution for:
   - paired coverage now pins representative boolean, float, and negative-value
     failures for `UserAssertion`, `EventAssertion`, `AddressableAssertion`,
     and `IdentifierAssertion` on both constructor and hydration paths.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-thirty-fifth remediation
+  slice:
+  - aligned the live NIP-85 score boundary with its own documented contract:
+    all four assertion subject models now require `score` to stay within the
+    normalized inclusive range `0-100` on the direct constructor path instead
+    of accepting values like `101`;
+  - hardened the paired `from_db_row()` hydration seams so stored score values
+    also respect that same normalized range rather than bypassing the model
+    contract through row-level numeric hydration;
+  - paired coverage now pins the out-of-range `score=101` failure explicitly
+    for `UserAssertion`, `EventAssertion`, `AddressableAssertion`, and
+    `IdentifierAssertion` on both constructor and hydration paths.
 - `2.1` models/utils/NIPs leaf audit, sixth remediation slice:
   - removed the stale `models.nips` module-path wording from the remaining
     NIP-66 unit-test module docstrings and the `tests/unit/nips` package

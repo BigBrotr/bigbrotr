@@ -125,6 +125,7 @@ class TestUserAssertionProperties:
         ("kwargs", "message"),
         [
             ({"score": True}, "score must be a non-negative integer"),
+            ({"score": 101}, "score must be <= 100"),
             ({"follower_count": -1}, "follower_count must be >= 0"),
             (
                 {"zap_amount_recd_msats": 1.5},
@@ -348,6 +349,7 @@ class TestUserAssertionFromDbRow:
         ("row", "message"),
         [
             ({"pubkey": "cc" * 32, "score": True}, "score must be a non-negative integer"),
+            ({"pubkey": "cc" * 32, "score": 101}, "score must be <= 100"),
             ({"pubkey": "cc" * 32, "follower_count": -1}, "follower_count must be >= 0"),
             (
                 {"pubkey": "cc" * 32, "zap_amount_recd": 1.5},
@@ -392,6 +394,7 @@ class TestEventAssertionProperties:
         ("kwargs", "message"),
         [
             ({"score": True}, "score must be a non-negative integer"),
+            ({"score": 101}, "score must be <= 100"),
             ({"comment_count": -1}, "comment_count must be >= 0"),
             ({"zap_amount_msats": 1.5}, "zap_amount_msats must be a non-negative integer"),
         ],
@@ -443,6 +446,7 @@ class TestEventAssertionFromDbRow:
         ("row", "message"),
         [
             ({"event_id": "ff" * 32, "score": True}, "score must be a non-negative integer"),
+            ({"event_id": "ff" * 32, "score": 101}, "score must be <= 100"),
             ({"event_id": "ff" * 32, "comment_count": -1}, "comment_count must be >= 0"),
             (
                 {"event_id": "ff" * 32, "zap_amount": 1.5},
@@ -506,6 +510,7 @@ class TestAddressableAssertionProperties:
         ("kwargs", "message"),
         [
             ({"score": True}, "score must be a non-negative integer"),
+            ({"score": 101}, "score must be <= 100"),
             ({"reaction_count": -1}, "reaction_count must be >= 0"),
             ({"zap_amount_msats": 1.5}, "zap_amount_msats must be a non-negative integer"),
         ],
@@ -543,6 +548,10 @@ class TestAddressableAssertionProperties:
             (
                 {"event_address": "30023:" + ("aa" * 32) + ":article", "score": True},
                 "score must be a non-negative integer",
+            ),
+            (
+                {"event_address": "30023:" + ("aa" * 32) + ":article", "score": 101},
+                "score must be <= 100",
             ),
             (
                 {"event_address": "30023:" + ("aa" * 32) + ":article", "reaction_count": -1},
@@ -615,6 +624,7 @@ class TestIdentifierAssertionProperties:
         ("kwargs", "message"),
         [
             ({"score": True}, "score must be a non-negative integer"),
+            ({"score": 101}, "score must be <= 100"),
             ({"comment_count": -1}, "comment_count must be >= 0"),
             ({"reaction_count": 1.5}, "reaction_count must be a non-negative integer"),
         ],
@@ -659,6 +669,10 @@ class TestIdentifierAssertionProperties:
             (
                 {"identifier": "isbn:9780140328721", "score": True},
                 "score must be a non-negative integer",
+            ),
+            (
+                {"identifier": "isbn:9780140328721", "score": 101},
+                "score must be <= 100",
             ),
             (
                 {"identifier": "isbn:9780140328721", "comment_count": -1},

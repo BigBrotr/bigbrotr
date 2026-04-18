@@ -22,6 +22,7 @@ from typing import Any
 
 _MSATS_PER_SAT = 1000
 _ACTIVITY_HOURS_BUCKETS = 24
+_MAX_NIP85_SCORE = 100
 _MISSING = object()
 _USER_ASSERTION_INT_FIELDS = (
     "score",
@@ -146,6 +147,14 @@ def _require_non_negative_int(value: Any, field_name: str) -> int:
     return int(value)
 
 
+def _require_score(value: Any, field_name: str = "score") -> int:
+    """Return a normalized NIP-85 score constrained to the inclusive range 0-100."""
+    score = _require_non_negative_int(value, field_name)
+    if score > _MAX_NIP85_SCORE:
+        raise ValueError(f"{field_name} must be <= {_MAX_NIP85_SCORE}")
+    return score
+
+
 def _normalize_activity_hours(value: tuple[int, ...]) -> tuple[int, ...]:
     """Validate and normalize the 24-slot UTC activity heatmap."""
     normalized = tuple(_require_non_negative_int(hour, "activity_hours entries") for hour in value)
@@ -159,16 +168,19 @@ def _normalize_activity_hours(value: tuple[int, ...]) -> tuple[int, ...]:
 def _normalize_non_negative_int_fields(instance: object, field_names: tuple[str, ...]) -> None:
     """Validate named dataclass integer fields as real non-negative integers."""
     for field_name in field_names:
+        normalizer = _require_score if field_name == "score" else _require_non_negative_int
         object.__setattr__(
             instance,
             field_name,
-            _require_non_negative_int(getattr(instance, field_name), field_name),
+            normalizer(getattr(instance, field_name), field_name),
         )
 
 
 def _metric_from_row(row: dict[str, Any], key: str, *, field_name: str | None = None) -> int:
     """Read one integer metric from a DB row without permissive coercion."""
-    return _require_non_negative_int(row.get(key, 0), field_name or key)
+    resolved_field_name = field_name or key
+    normalizer = _require_score if resolved_field_name == "score" else _require_non_negative_int
+    return normalizer(row.get(key, 0), resolved_field_name)
 
 
 @dataclass(frozen=True, slots=True)
