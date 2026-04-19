@@ -111,7 +111,7 @@ class TestAssertorConfig:
             trusted_provider_list={
                 "enabled": True,
                 "relay_hint": "wss://publish.example.com",
-                "tag_names": ["rank", "comment_cnt"],
+                "tag_names": [" Rank ", "Comment_Cnt"],
                 "content": "nip44-ciphertext",
             },
         )
@@ -181,6 +181,10 @@ class TestAssertorConfig:
     def test_duplicate_trusted_provider_tags_rejected(self) -> None:
         with pytest.raises(ValidationError, match="duplicate trusted-provider tag names"):
             AssertorConfig(trusted_provider_list={"tag_names": ["rank", "rank"]})
+
+    def test_case_only_duplicate_trusted_provider_tags_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="duplicate trusted-provider tag names"):
+            AssertorConfig(trusted_provider_list={"tag_names": ["Rank", "rank"]})
 
     def test_colon_in_trusted_provider_tag_rejected(self) -> None:
         with pytest.raises(ValidationError, match="must not contain ':'"):
@@ -1184,6 +1188,26 @@ class TestAssertorUtils:
         assert all(
             declaration.relay_hint == "wss://relay.example.com" for declaration in declarations
         )
+
+    def test_trusted_provider_declarations_use_canonical_config_tag_names(self) -> None:
+        from bigbrotr.services.assertor.utils import trusted_provider_declarations
+
+        declarations = trusted_provider_declarations(
+            config=AssertorConfig(
+                selection={"kinds": [30382]},
+                publishing={"relays": ["wss://relay.example.com"]},
+                trusted_provider_list={
+                    "enabled": True,
+                    "tag_names": [" Rank ", "Comment_Cnt"],
+                },
+            ),
+            service_pubkey="aa" * 32,
+        )
+
+        assert [declaration.kind_tag for declaration in declarations] == [
+            "30382:comment_cnt",
+            "30382:rank",
+        ]
 
 
 class TestAssertorProviderProfile:

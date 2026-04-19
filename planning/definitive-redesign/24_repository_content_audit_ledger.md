@@ -3629,3 +3629,16 @@ Use this section during execution for:
   - added paired `nips.nip85.test_data` and `nips.nip85.test_builders`
     coverage proving declaration tags now canonicalize to one lowercase value
     and builder output collapses case-variant duplicates.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-eighth remediation
+  slice:
+  - tightened the `services.assertor.configs.TrustedProviderListConfig`
+    boundary so configured provider-list `tag_names` now canonicalize with
+    trim+lowercase and reject case-only duplicates before publish-time
+    declaration building;
+  - closed the drift where config payloads like `[" Rank ", "rank"]` could be
+    accepted by the service layer and only collapse later inside the lower
+    `NIP-85` declaration model, leaving the immediate consumer boundary more
+    permissive than the leaf it feeds;
+  - added paired `services.test_assertor` coverage proving trusted-provider
+    config input now normalizes mixed-case tag names up front and rejects
+    case-variant duplicates before any Kind `10040` declarations are built.

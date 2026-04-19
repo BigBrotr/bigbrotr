@@ -119,7 +119,7 @@ class TrustedProviderListConfig(BaseModel):
     @field_validator("tag_names")
     @classmethod
     def tag_names_valid(cls, v: list[str]) -> list[str]:
-        normalized = [tag.strip() for tag in v]
+        normalized = [tag.strip().lower() for tag in v]
         if any(not tag for tag in normalized):
             raise ValueError("tag_names must not contain blank values")
         if any(":" in tag for tag in normalized):
