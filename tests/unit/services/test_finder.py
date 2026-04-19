@@ -236,6 +236,23 @@ class TestApiSourceConfig:
         )
         assert config.allow_insecure is True
 
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("enabled", "true"),
+            ("enabled", 1),
+            ("allow_insecure", "false"),
+            ("allow_insecure", 0),
+        ],
+    )
+    def test_rejects_non_boolean_flag_aliases(self, field_name: str, field_value: object) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected bool, got"):
+            ApiSourceConfig(
+                url="https://api.example.com",
+                expression="[*]",
+                **{field_name: field_value},
+            )
+
     def test_url_is_stripped(self) -> None:
         config = ApiSourceConfig(url="  https://api.example.com/path  ", expression="[*]")
         assert config.url == "https://api.example.com/path"
@@ -297,6 +314,29 @@ class TestApiConfig:
                 sources=[
                     ApiSourceConfig(url="https://dup.api.com", expression="[*]"),
                     ApiSourceConfig(url="https://dup.api.com", expression="data.relays"),
+                ]
+            )
+
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("enabled", "true"),
+            ("enabled", 1),
+            ("allow_insecure", "false"),
+            ("allow_insecure", 0),
+        ],
+    )
+    def test_nested_sources_reject_non_boolean_flag_aliases(
+        self, field_name: str, field_value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected bool, got"):
+            ApiConfig(
+                sources=[
+                    {
+                        "url": "https://api.example.com",
+                        "expression": "[*]",
+                        field_name: field_value,
+                    }
                 ]
             )
 

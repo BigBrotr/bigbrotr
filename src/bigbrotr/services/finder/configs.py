@@ -25,6 +25,13 @@ def _reject_bool_alias(value: Any, field_name: str, expected: str) -> Any:
     return value
 
 
+def _require_bool(value: Any, field_name: str) -> bool:
+    """Require canonical booleans for authored finder config boundaries."""
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected bool, got {type(value).__name__}")
+    return value
+
+
 class EventsConfig(BaseModel):
     """Event scanning configuration for discovering relay URLs from stored events.
 
@@ -111,6 +118,13 @@ class ApiSourceConfig(BaseModel):
         """Reject boolean aliases for HTTP timeout controls."""
         field_name = info.field_name or "value"
         return _reject_bool_alias(v, field_name, "number")
+
+    @field_validator("enabled", "allow_insecure", mode="before")
+    @classmethod
+    def require_boolean_flags(cls, v: Any, info: ValidationInfo) -> bool:
+        """Require canonical booleans for source enablement and TLS policy."""
+        field_name = info.field_name or "value"
+        return _require_bool(v, field_name)
 
     @model_validator(mode="after")
     def _validate_connect_timeout(self) -> ApiSourceConfig:

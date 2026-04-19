@@ -4031,3 +4031,14 @@ Use this section during execution for:
   - added coverage in `services.test_seeder` proving malformed `to_validate`
     aliases now fail fast both on the leaf config and through nested
     `SeederConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-forty-first
+  remediation slice:
+  - tightened the `services.finder.configs.ApiSourceConfig` boolean boundary
+    so `enabled` and `allow_insecure` now require canonical `bool` values
+    instead of accepting truthy/falsy aliases;
+  - closed the drift where authored payloads like `"true"`, `1`, `"false"`
+    or `0` could silently enable or disable a finder API source or switch its
+    TLS verification policy without crossing an explicit boolean boundary;
+  - added paired coverage in `services.test_finder` proving malformed source
+    flag aliases now fail fast both on `ApiSourceConfig` and through nested
+    `ApiConfig.sources` parsing.
