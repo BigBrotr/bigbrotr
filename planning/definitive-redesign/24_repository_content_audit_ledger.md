@@ -2202,3 +2202,12 @@ Use this section during execution for:
   - added paired `services/common` and `API` coverage proving those boolean
     aliases now fail fast at config load instead of mutating public adapter
     behavior.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-eighty-eighth remediation
+  slice:
+  - tightened the finder API cooldown boundary so fractional `cooldown`
+    values no longer get floored to `int(...)` at service wiring time, which
+    previously let sources be fetched up to almost one second too early and
+    advance their checkpoints before the configured wait had actually elapsed;
+  - added paired `finder` and `finder/api_runtime` coverage proving
+    fractional cooldowns now remain intact through attempt planning and the
+    live service fetch path.

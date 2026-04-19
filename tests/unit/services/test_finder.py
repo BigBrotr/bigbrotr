@@ -1149,6 +1149,32 @@ class TestFinderFindFromApi:
         assert attempts[0].source.url == "https://api1.example.com"
         assert attempts[0].last_checked == 900
 
+    def test_build_api_source_attempts_preserves_fractional_cooldown(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                cooldown=3600.9,
+                sources=[ApiSourceConfig(url="https://api.example.com", expression="[*]")],
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+
+        attempts = finder._build_api_source_attempts(
+            list(config.api.sources),
+            checkpoint_map={
+                "https://api.example.com": ApiCheckpoint(
+                    key="https://api.example.com",
+                    timestamp=6_400,
+                ),
+            },
+            now=10_000,
+        )
+
+        assert attempts == ()
+
     async def test_all_sources_disabled(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(
             api=ApiConfig(
@@ -1310,6 +1336,41 @@ class TestFinderFindFromApi:
 
             assert result == 0
             mock_save.assert_not_awaited()
+
+    async def test_skips_source_within_fractional_cooldown(self, mock_brotr: Brotr) -> None:
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                cooldown=3600.9,
+                sources=[ApiSourceConfig(url="https://api.example.com", expression="[*]")],
+                request_delay=0,
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+        with (
+            patch(
+                "bigbrotr.services.finder.service.fetch_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value=[
+                    ApiCheckpoint(key="https://api.example.com", timestamp=int(time.time()) - 3600)
+                ],
+            ),
+            patch(
+                "bigbrotr.services.finder.service.upsert_api_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
+            patch("aiohttp.ClientSession") as mock_session_cls,
+        ):
+            mock_session = MagicMock()
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_session_cls.return_value = mock_session
+
+            result = await finder.find_from_api()
+
+            assert result == 0
+            mock_save.assert_not_awaited()
+            mock_session.get.assert_not_called()
 
     async def test_fetches_source_past_cooldown(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(

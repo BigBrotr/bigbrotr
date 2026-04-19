@@ -39,7 +39,7 @@ class ApiDiscoveryWorkerContext:
     """Dependencies for one finder API-discovery cycle."""
 
     brotr: Brotr
-    cooldown: int
+    cooldown: float
     now: int
     max_response_size: int
     request_delay: float
@@ -67,7 +67,7 @@ def build_api_source_attempts(
     sources: list[ApiSourceConfig],
     checkpoint_map: Mapping[str, ApiCheckpoint],
     *,
-    cooldown: int,
+    cooldown: float,
     now: int,
     logger: Logger,
 ) -> tuple[ApiSourceAttempt, ...]:
@@ -90,7 +90,7 @@ async def stream_api_discovery_attempts(  # noqa: PLR0913
     sources: list[ApiSourceConfig],
     checkpoint_map: Mapping[str, ApiCheckpoint],
     *,
-    cooldown: int,
+    cooldown: float,
     now: int,
     max_response_size: int,
     request_delay: float,

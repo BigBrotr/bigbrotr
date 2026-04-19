@@ -12,6 +12,7 @@ from bigbrotr.services.finder import ApiSourceConfig
 from bigbrotr.services.finder.api_runtime import (
     ApiDiscoveryPersistenceContext,
     ApiDiscoveryWorkerContext,
+    build_api_source_attempts,
     find_from_api_worker,
     persist_api_discovery_results,
 )
@@ -20,6 +21,24 @@ from bigbrotr.services.finder.api_runtime import (
 @pytest.fixture
 def runtime_brotr() -> MagicMock:
     return MagicMock()
+
+
+class TestBuildApiSourceAttempts:
+    def test_skips_sources_until_fractional_cooldown_elapses(self) -> None:
+        source = ApiSourceConfig(url="https://api.example.com", expression="[*]")
+        logger = MagicMock()
+
+        attempts = build_api_source_attempts(
+            [source],
+            {source.url: ApiCheckpoint(key=source.url, timestamp=6_400)},
+            cooldown=3600.9,
+            now=10_000,
+            logger=logger,
+        )
+
+        assert attempts == ()
+        assert logger.debug.call_args is not None
+        assert logger.debug.call_args.kwargs["seconds_left"] == pytest.approx(0.9)
 
 
 class TestFindFromApiWorker:

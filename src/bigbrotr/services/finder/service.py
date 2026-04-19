@@ -229,7 +229,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
             sources=sources,
             context=ApiDiscoveryWorkerContext(
                 brotr=self._brotr,
-                cooldown=int(self._config.api.cooldown),
+                cooldown=self._config.api.cooldown,
                 now=int(time.time()),
                 max_response_size=self._config.api.max_response_size,
                 request_delay=self._config.api.request_delay,
@@ -255,7 +255,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         return build_api_source_attempts(
             sources,
             checkpoint_map,
-            cooldown=int(self._config.api.cooldown),
+            cooldown=self._config.api.cooldown,
             now=now,
             logger=self._logger,
         )
