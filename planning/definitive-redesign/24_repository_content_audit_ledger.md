@@ -2941,3 +2941,17 @@ Use this section during execution for:
   - added paired `nips.event_builders` coverage proving corrupted
     `supported_nips` and `access` inputs are rejected before any
     `Tag.parse()` work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-fifty-second remediation
+  slice:
+  - tightened the direct public helper boundary of
+    `nips.event_builders.add_requirement_and_type_tags()` so malformed
+    `nip11_data` and `rtt_logs` payloads no longer degrade into late
+    attribute errors or partial `R`/`T` tag mutation while the public
+    NIP-11 requirement helper assembles relay restriction tags;
+  - centralized typed normalization of the required `Nip11InfoData` input and
+    optional `Nip66RttMultiPhaseLogs` input inside the leaf helper itself so
+    direct callers now enforce real metadata boundaries instead of relying on
+    higher-level discovery flows to sanitize the public arguments first;
+  - added paired `nips.event_builders` coverage proving corrupted
+    `nip11_data` and `rtt_logs` inputs are rejected before any `Tag.parse()`
+    or downstream `add_type_tags()` work begins.

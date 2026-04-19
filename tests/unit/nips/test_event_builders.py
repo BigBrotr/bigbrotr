@@ -1128,6 +1128,38 @@ class TestAddRequirementAndTypeTags:
         assert ("R", "auth") in pairs
         assert ("R", "payment") in pairs
 
+    @pytest.mark.parametrize("value", [True, "not-a-nip11-data", object()])
+    def test_rejects_invalid_nip11_data_before_requirement_or_type_tags(
+        self, value: object
+    ) -> None:
+        """Malformed nip11_data fails before any R/T tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            patch("bigbrotr.nips.event_builders.add_type_tags") as mock_add_type_tags,
+            pytest.raises(ValueError, match="nip11_data must be a Nip11InfoData"),
+        ):
+            add_requirement_and_type_tags(tags, value, None)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        mock_add_type_tags.assert_not_called()
+        assert tags == []
+
+    @pytest.mark.parametrize("value", [True, "not-rtt-logs", object()])
+    def test_rejects_invalid_rtt_logs_before_requirement_or_type_tags(self, value: object) -> None:
+        """Malformed rtt_logs fails before any R/T tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            patch("bigbrotr.nips.event_builders.add_type_tags") as mock_add_type_tags,
+            pytest.raises(ValueError, match="rtt_logs must be a Nip66RttMultiPhaseLogs or None"),
+        ):
+            add_requirement_and_type_tags(tags, Nip11InfoData(), value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        mock_add_type_tags.assert_not_called()
+        assert tags == []
+
 
 # ============================================================================
 # add_type_tags

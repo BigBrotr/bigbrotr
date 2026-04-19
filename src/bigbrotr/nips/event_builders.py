@@ -205,6 +205,13 @@ def _normalize_optional_nip11_data(nip11_data: object) -> Nip11InfoData | None:
     return cast("Nip11InfoData", nip11_data)
 
 
+def _normalize_required_nip11_data(nip11_data: object) -> Nip11InfoData:
+    nip11_data_type = importlib.import_module("bigbrotr.nips.nip11.data").Nip11InfoData
+    if not isinstance(nip11_data, nip11_data_type):
+        raise ValueError("nip11_data must be a Nip11InfoData")
+    return cast("Nip11InfoData", nip11_data)
+
+
 def _normalize_optional_rtt_logs(rtt_logs: object) -> Nip66RttMultiPhaseLogs | None:
     if rtt_logs is None:
         return None
@@ -535,6 +542,8 @@ def add_requirement_and_type_tags(
     rtt_logs: Nip66RttMultiPhaseLogs | None,
 ) -> None:
     """Add ``R`` (requirement) and ``T`` (type) tags from NIP-11 data and RTT probe logs."""
+    nip11_data = _normalize_required_nip11_data(nip11_data)
+    rtt_logs = _normalize_optional_rtt_logs(rtt_logs)
     limitation = nip11_data.limitation
     nip11_auth = limitation.auth_required or False
     nip11_payment = limitation.payment_required or False
