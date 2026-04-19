@@ -45,6 +45,10 @@ _RetentionEntryT = TypeVar("_RetentionEntryT")
 _FeeEntryT = TypeVar("_FeeEntryT")
 
 
+def _is_non_negative_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
 def _invalid_input_report(path: str, fallback: str) -> ParseReport:
     return ParseReport(
         parsed={},
@@ -152,7 +156,7 @@ def _parse_supported_nips(raw_nips: Any, *, path: str) -> tuple[list[int] | None
 
     nips: list[int] = []
     for index, value in enumerate(raw_nips):
-        if isinstance(value, int) and not isinstance(value, bool):
+        if _is_non_negative_int(value):
             nips.append(value)
         else:
             issues.append(
@@ -189,16 +193,14 @@ def _parse_retention_kinds(
     issues: list[ParseIssue] = []
     for index, item in enumerate(raw_kinds):
         item_path = join_parse_path(path, f"[{index}]")
-        if isinstance(item, int) and not isinstance(item, bool):
+        if _is_non_negative_int(item):
             kinds.append(item)
             continue
         if (
             isinstance(item, list)
             and len(item) == 2  # noqa: PLR2004 - [min, max] range pair
-            and isinstance(item[0], int)
-            and not isinstance(item[0], bool)
-            and isinstance(item[1], int)
-            and not isinstance(item[1], bool)
+            and _is_non_negative_int(item[0])
+            and _is_non_negative_int(item[1])
         ):
             kinds.append((item[0], item[1]))
             continue
@@ -438,6 +440,14 @@ class Nip11InfoDataRetentionEntry(BaseData):
     def _normalize_kinds(
         cls, value: list[int | tuple[int, int]] | None
     ) -> list[int | tuple[int, int]] | None:
+        if value is not None:
+            for kind in value:
+                if isinstance(kind, int):
+                    if kind < 0:
+                        raise ValueError("kinds must contain only non-negative values")
+                    continue
+                if kind[0] < 0 or kind[1] < 0:
+                    raise ValueError("kinds must contain only non-negative values")
         return _normalize_retention_kinds(value)
 
     @classmethod
@@ -504,6 +514,9 @@ class Nip11InfoDataFeeEntry(BaseData):
     def _normalize_kinds(cls, value: list[int] | None) -> list[int] | None:
         if value is None:
             return None
+        for kind in value:
+            if kind < 0:
+                raise ValueError("kinds must contain only non-negative values")
         return sorted(set(value))
 
     @classmethod
@@ -523,7 +536,24 @@ class Nip11InfoDataFeeEntry(BaseData):
             )
 
         if "kinds" in parsed:
-            parsed["kinds"] = sorted(set(parsed["kinds"]))
+            normalized_kinds: list[int] = []
+            for index, kind in enumerate(parsed["kinds"]):
+                if kind < 0:
+                    issues.append(
+                        ParseIssue(
+                            kind="invalid_value",
+                            path=join_parse_path(path, f"kinds[{index}]"),
+                            detail="expected int",
+                        )
+                    )
+                    continue
+                normalized_kinds.append(kind)
+            if normalized_kinds:
+                parsed["kinds"] = sorted(set(normalized_kinds))
+            elif isinstance(data, dict) and data.get("kinds") == []:
+                parsed["kinds"] = []
+            else:
+                del parsed["kinds"]
 
         return ParseReport(parsed=parsed, issues=tuple(issues))
 
@@ -693,6 +723,9 @@ class Nip11InfoData(BaseData):
     def _normalize_supported_nips(cls, value: list[int] | None) -> list[int] | None:
         if value is None:
             return None
+        for nip in value:
+            if nip < 0:
+                raise ValueError("supported_nips must contain only non-negative values")
         return sorted(set(value))
 
     @field_validator("relay_countries", "language_tags", "tags", "attributes")

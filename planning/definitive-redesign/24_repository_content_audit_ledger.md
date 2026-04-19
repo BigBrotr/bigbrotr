@@ -2443,3 +2443,13 @@ Use this section during execution for:
   - added model coverage proving `Event` now fails fast on mapping-backed and
     mixed-type tag payloads instead of silently emitting corrupted JSON tag
     arrays.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-thirteenth remediation
+  slice:
+  - tightened the leaf `NIP-11` numeric identifier boundary so negative
+    `supported_nips`, fee `kinds`, and retention `kinds` / range bounds can
+    no longer survive either permissive parsing or direct constructor
+    validation as if they were canonical protocol identifiers;
+  - added paired `NIP-11` coverage proving constructors now fail fast on
+    negative identifier values, while the permissive parse/report paths drop
+    them instead of leaking impossible NIP numbers or event-kind scopes into
+    canonicalized document payloads.

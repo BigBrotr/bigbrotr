@@ -261,6 +261,16 @@ class TestNip11InfoDataRetentionEntryConstructor:
         with pytest.raises(ValidationError):
             Nip11InfoDataRetentionEntry(kinds=[1, "two"])
 
+    def test_constructor_rejects_negative_kind(self):
+        """Constructor raises ValidationError for negative kinds."""
+        with pytest.raises(ValidationError):
+            Nip11InfoDataRetentionEntry(kinds=[-1, 3])
+
+    def test_constructor_rejects_negative_kind_range_bound(self):
+        """Constructor raises ValidationError for negative range bounds."""
+        with pytest.raises(ValidationError):
+            Nip11InfoDataRetentionEntry(kinds=[(-1, 2)])
+
     def test_constructor_rejects_non_list_kinds(self):
         """Constructor raises ValidationError for non-list kinds."""
         with pytest.raises(ValidationError):
@@ -309,6 +319,12 @@ class TestNip11InfoDataRetentionEntryParse:
         data = {"kinds": [[True, 100]]}
         result = Nip11InfoDataRetentionEntry.parse(data)
         assert result == {}
+
+    def test_parse_negative_kinds_filtered(self):
+        """Negative kinds and ranges are filtered out."""
+        data = {"kinds": [[10, 20], -1, [-1, 2], 3]}
+        result = Nip11InfoDataRetentionEntry.parse(data)
+        assert result == {"kinds": [3, (10, 20)]}
 
     def test_parse_preserves_explicit_empty_kinds(self):
         """Explicit empty kinds list is preserved because the constructor accepts it."""
@@ -407,6 +423,11 @@ class TestNip11InfoDataFeeEntryConstructor:
         with pytest.raises(ValidationError):
             Nip11InfoDataFeeEntry(amount=100, unit="sats", kinds=["four"])
 
+    def test_constructor_rejects_negative_kind(self):
+        """Constructor raises ValidationError for negative fee kinds."""
+        with pytest.raises(ValidationError):
+            Nip11InfoDataFeeEntry(amount=100, unit="sats", kinds=[-1, 4])
+
 
 class TestNip11InfoDataFeeEntryParse:
     """Test Nip11InfoDataFeeEntry.parse() method."""
@@ -434,6 +455,12 @@ class TestNip11InfoDataFeeEntryParse:
         data = {"amount": 100, "unit": "sats", "kinds": []}
         result = Nip11InfoDataFeeEntry.parse(data)
         assert result == {"amount": 100, "unit": "sats", "kinds": []}
+
+    def test_parse_filters_negative_kinds(self):
+        """Negative fee kinds are filtered out."""
+        data = {"amount": 100, "unit": "sats", "kinds": [3, -1, 1]}
+        result = Nip11InfoDataFeeEntry.parse(data)
+        assert result == {"amount": 100, "unit": "sats", "kinds": [1, 3]}
 
 
 class TestNip11InfoDataFeeEntryToDict:
@@ -631,6 +658,11 @@ class TestNip11InfoDataConstructor:
         with pytest.raises(ValidationError):
             Nip11InfoData(supported_nips=[True, 11])
 
+    def test_constructor_rejects_negative_supported_nip(self):
+        """Constructor raises ValidationError for negative supported_nips."""
+        with pytest.raises(ValidationError):
+            Nip11InfoData(supported_nips=[-1, 11])
+
     def test_constructor_rejects_non_str_in_tags(self):
         """Constructor raises ValidationError for non-str in tags list."""
         with pytest.raises(ValidationError):
@@ -772,6 +804,12 @@ class TestNip11InfoDataParse:
         result = Nip11InfoData.parse(data)
         assert result["supported_nips"] == [1, 11, 42]
 
+    def test_parse_filters_negative_supported_nips(self):
+        """Negative supported_nips are filtered out."""
+        data = {"supported_nips": [42, -1, 11, 1, -5, 42]}
+        result = Nip11InfoData.parse(data)
+        assert result["supported_nips"] == [1, 11, 42]
+
     def test_parse_filters_non_strings_from_tags(self):
         """Non-strings are filtered from tags."""
         data = {"tags": ["valid", 42, "also valid", None, "valid"]}
@@ -816,7 +854,7 @@ class TestNip11InfoDataParse:
             {
                 "name": "Test Relay",
                 "invalid_field": "ignored",
-                "supported_nips": [1, True, "invalid"],
+                "supported_nips": [1, True, "invalid", -1],
                 "limitation": {"max_message_length": "bad", "auth_required": False},
             }
         )
@@ -831,11 +869,13 @@ class TestNip11InfoDataParse:
             "invalid_value",
             "invalid_value",
             "invalid_value",
+            "invalid_value",
         ]
         assert [issue.path for issue in report.issues] == [
             "invalid_field",
             "supported_nips[1]",
             "supported_nips[2]",
+            "supported_nips[3]",
             "limitation.max_message_length",
         ]
 
