@@ -275,10 +275,15 @@ class BaseLogs(BaseModel):
     @model_validator(mode="after")
     def validate_semantic(self) -> Self:
         """Enforce success/reason consistency."""
-        if self.success and self.reason is not None:
-            raise ValueError("reason must be None when success is True")
-        if not self.success and self.reason is None:
-            raise ValueError("reason is required when success is False")
+        if self.success:
+            if self.reason is not None:
+                raise ValueError("reason must be None when success is True")
+        else:
+            reason = self.reason
+            if reason is None:
+                raise ValueError("reason is required when success is False")
+            if reason.strip() == "":
+                raise ValueError("reason must be non-empty when success is False")
         return self
 
     @classmethod

@@ -3222,3 +3222,15 @@ Use this section during execution for:
     result containers and public serialization;
   - added paired `nips.nip66.test_logs` coverage proving orphan read/write
     reasons now fail fast at construction time.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-seventy-fifth
+  remediation slice:
+  - tightened the shared log-reason boundary in `nips.base.BaseLogs` and the
+    custom RTT phase log boundary in `nips.nip66.logs.Nip66RttMultiPhaseLogs`
+    so failed operations now require a non-empty reason string instead of
+    merely a non-`None` value;
+  - closed the drift where blank failure reasons could survive as canonical
+    NIP-11/NIP-66 log data and later flow into shared result containers and
+    public serialization as meaningless failure metadata;
+  - added paired `nips.test_base`, `nips.nip11.test_logs`, and
+    `nips.nip66.test_logs` coverage proving blank failure reasons now fail
+    fast for both shared single-phase logs and RTT multi-phase logs.

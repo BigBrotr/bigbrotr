@@ -80,15 +80,24 @@ class Nip66RttMultiPhaseLogs(BaseModel):
             return
         if reason is None:
             raise ValueError(f"{phase_name}_reason is required when {phase_name}_success is False")
+        if reason.strip() == "":
+            raise ValueError(
+                f"{phase_name}_reason must be non-empty when {phase_name}_success is False"
+            )
 
     @model_validator(mode="after")
     def validate_semantic(self) -> Self:
         """Enforce success/reason consistency and phase dependency constraints."""
         # Open phase
-        if self.open_success and self.open_reason is not None:
-            raise ValueError("open_reason must be None when open_success is True")
-        if not self.open_success and self.open_reason is None:
-            raise ValueError("open_reason is required when open_success is False")
+        if self.open_success:
+            if self.open_reason is not None:
+                raise ValueError("open_reason must be None when open_success is True")
+        else:
+            open_reason = self.open_reason
+            if open_reason is None:
+                raise ValueError("open_reason is required when open_success is False")
+            if open_reason.strip() == "":
+                raise ValueError("open_reason must be non-empty when open_success is False")
 
         # Cascading failure: open failure implies read/write failure
         if not self.open_success:
