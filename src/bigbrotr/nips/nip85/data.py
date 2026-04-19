@@ -112,6 +112,8 @@ def _coerce_topic_count_mapping(value: Any) -> dict[str, int]:
     for key, raw_count in value.items():
         if not isinstance(key, str):
             raise TypeError("topic_counts keys must be strings")
+        if key.strip() == "":
+            raise ValueError("topic_counts keys must not be empty")
         canonical_key = _canonicalize_topic(key)
         topic_counts[canonical_key] = topic_counts.get(canonical_key, 0) + _normalize_topic_count(
             raw_count
@@ -247,9 +249,9 @@ def _normalize_nip73_identifier(value: Any) -> str:
 def _normalize_top_topics(value: Any) -> tuple[str, ...]:
     """Return ordered top-topic strings without duplicates or empty values."""
     topics = _require_text_sequence(value, "top_topics", noun="topic strings")
-    normalized = tuple(_canonicalize_topic(topic) for topic in topics)
-    if any(not topic for topic in normalized):
+    if any(topic.strip() == "" for topic in topics):
         raise ValueError("top_topics must not contain empty topic strings")
+    normalized = tuple(_canonicalize_topic(topic) for topic in topics)
     if len(set(normalized)) != len(normalized):
         raise ValueError("top_topics must not contain duplicate topics")
     return normalized

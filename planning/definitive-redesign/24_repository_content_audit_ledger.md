@@ -3571,3 +3571,14 @@ Use this section during execution for:
     coverage proving constructor input now canonicalizes to lowercase,
     case-only duplicates are rejected, DB rows merge case-variant counts
     before ranking, and builder output stays lowercase-stable.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-third remediation
+  slice:
+  - tightened the `nips.nip85.data.UserAssertion` topic boundary so
+    whitespace-only `top_topics` entries and `topic_counts` keys are now
+    rejected instead of surviving as semantically empty public topics;
+  - closed the drift where malformed internal topic payloads like `"   "`
+    could still rank into the public top-N output and then emit `t` tags with
+    effectively blank values;
+  - added `nips.nip85.test_data` coverage proving constructor input rejects
+    whitespace-only top topics and DB rows reject whitespace-only topic-count
+    keys before any public assertion is built.

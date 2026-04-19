@@ -135,6 +135,10 @@ class TestUserAssertionProperties:
         with pytest.raises(ValueError, match="top_topics must not contain empty topic strings"):
             UserAssertion(pubkey="aa" * 32, top_topics=("nostr", ""))
 
+    def test_constructor_rejects_whitespace_only_top_topics(self) -> None:
+        with pytest.raises(ValueError, match="top_topics must not contain empty topic strings"):
+            UserAssertion(pubkey="aa" * 32, top_topics=("nostr", "   "))
+
     def test_constructor_rejects_duplicate_top_topics(self) -> None:
         with pytest.raises(ValueError, match="top_topics must not contain duplicate topics"):
             UserAssertion(pubkey="aa" * 32, top_topics=("nostr", "nostr"))
@@ -369,6 +373,14 @@ class TestUserAssertionFromDbRow:
             "topic_counts": {1: 7},
         }
         with pytest.raises(TypeError, match="topic_counts keys must be strings"):
+            UserAssertion.from_db_row(row)
+
+    def test_from_db_row_rejects_whitespace_only_topic_count_keys(self) -> None:
+        row = {
+            "pubkey": "cc" * 32,
+            "topic_counts": {"   ": 7},
+        }
+        with pytest.raises(ValueError, match="topic_counts keys must not be empty"):
             UserAssertion.from_db_row(row)
 
     def test_from_db_row_rejects_boolean_topic_count_values(self) -> None:
