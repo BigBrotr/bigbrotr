@@ -214,6 +214,27 @@ def _normalize_optional_rtt_logs(rtt_logs: object) -> Nip66RttMultiPhaseLogs | N
     return cast("Nip66RttMultiPhaseLogs", rtt_logs)
 
 
+def _normalize_supported_nips_for_type_tags(supported_nips: object) -> tuple[int, ...] | None:
+    if supported_nips is None:
+        return None
+    if isinstance(supported_nips, MappingABC | str | bytes) or not isinstance(
+        supported_nips, IterableABC
+    ):
+        raise ValueError("supported_nips must be an iterable of integers or None")
+
+    items = tuple(supported_nips)
+    for nip in items:
+        if isinstance(nip, bool) or not isinstance(nip, int):
+            raise ValueError("supported_nips must contain only integers")
+    return items
+
+
+def _normalize_access_flags(access: object) -> AccessFlags:
+    if not isinstance(access, AccessFlags):
+        raise ValueError("access must be an AccessFlags")
+    return access
+
+
 def _normalize_relay_list_urls(relays: Sequence[Relay]) -> tuple[str, ...]:
     """Return a stable deduplicated relay-url ordering for set-like relay lists."""
     return tuple(sorted({relay.url for relay in relays}))
@@ -568,7 +589,9 @@ def add_type_tags(
     access: AccessFlags,
 ) -> None:
     """Add ``T`` (type) tags classifying the relay based on NIPs and access restrictions."""
-    nips = set(supported_nips) if supported_nips else set()
+    normalized_supported_nips = _normalize_supported_nips_for_type_tags(supported_nips)
+    access = _normalize_access_flags(access)
+    nips = set(normalized_supported_nips) if normalized_supported_nips else set()
 
     if _NIP_CAP_SEARCH in nips:
         tags.append(Tag.parse(["T", "Search"]))

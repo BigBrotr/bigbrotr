@@ -1247,6 +1247,47 @@ class TestAddTypeTags:
         assert ("T", "Paid") in pairs
         assert ("T", "PublicOutbox") in pairs
 
+    @pytest.mark.parametrize("value", [True, "50", {"50": True}, object()])
+    def test_rejects_invalid_supported_nips_container_before_tag_build(self, value: object) -> None:
+        """Malformed supported_nips containers fail before any T tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(
+                ValueError, match="supported_nips must be an iterable of integers or None"
+            ),
+        ):
+            add_type_tags(tags, value, AccessFlags(False, False, False, False))  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        assert tags == []
+
+    @pytest.mark.parametrize("value", [[True], ["50"], [object()]])
+    def test_rejects_invalid_supported_nips_items_before_tag_build(self, value: object) -> None:
+        """Malformed supported_nips items fail before any T tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="supported_nips must contain only integers"),
+        ):
+            add_type_tags(tags, value, AccessFlags(False, False, False, False))  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        assert tags == []
+
+    @pytest.mark.parametrize("value", [True, (False, False, False, False), object()])
+    def test_rejects_invalid_access_before_tag_build(self, value: object) -> None:
+        """Malformed access flags fail before any T tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="access must be an AccessFlags"),
+        ):
+            add_type_tags(tags, [50], value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        assert tags == []
+
 
 # ============================================================================
 # add_nip11_tags
