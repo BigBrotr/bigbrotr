@@ -50,6 +50,13 @@ def _reject_bool_alias(value: Any, field_name: str) -> Any:
     return value
 
 
+def _require_bool(value: Any, field_name: str) -> bool:
+    """Require canonical booleans for authored synchronizer config boundaries."""
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected bool, got {type(value).__name__}")
+    return value
+
+
 class TimeoutsConfig(BaseModel):
     """Sync timeout limits: idle progress check and phase-level cap.
 
@@ -152,6 +159,13 @@ class ProcessingConfig(BaseModel):
             return v
         field_name = info.field_name or "value"
         return _reject_bool_alias(v, field_name)
+
+    @field_validator("allow_insecure", mode="before")
+    @classmethod
+    def require_boolean_allow_insecure(cls, v: Any, info: ValidationInfo) -> bool:
+        """Require canonical booleans for the TLS fallback policy."""
+        field_name = info.field_name or "allow_insecure"
+        return _require_bool(v, field_name)
 
     def get_end_time(self) -> int:
         """Compute the sync end timestamp: ``(until or now()) - end_lag``."""

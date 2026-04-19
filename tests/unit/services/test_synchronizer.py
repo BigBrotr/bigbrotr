@@ -237,6 +237,16 @@ class TestSynchronizerConfig:
         with pytest.raises(ValueError, match=rf"{field_name}: expected integer, got bool"):
             ProcessingConfig(**kwargs)
 
+    @pytest.mark.parametrize("value", ["true", 1, 0])
+    def test_rejects_non_boolean_allow_insecure_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"allow_insecure: expected bool, got"):
+            ProcessingConfig(allow_insecure=value)
+
+    @pytest.mark.parametrize("value", ["false", 1, 0])
+    def test_nested_allow_insecure_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"allow_insecure: expected bool, got"):
+            SynchronizerConfig(processing={"allow_insecure": value})
+
 
 # ============================================================================
 # Queries

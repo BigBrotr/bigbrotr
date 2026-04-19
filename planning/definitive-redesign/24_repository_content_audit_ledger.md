@@ -4199,3 +4199,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_validator` proving malformed
     numeric aliases now fail fast both on the leaf processing model and
     through nested `ValidatorConfig.processing` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-fifty-sixth
+  remediation slice:
+  - tightened the authored boolean boundary in
+    `services.synchronizer.configs.ProcessingConfig` so `allow_insecure` now
+    requires a canonical `bool` value;
+  - closed the drift where payloads like `"true"`, `"false"`, `1`, or `0`
+    could silently flip the synchronizer TLS fallback policy at config load
+    time;
+  - added paired coverage in `services.test_synchronizer` proving malformed
+    boolean aliases now fail fast both on the leaf processing model and
+    through nested `SynchronizerConfig.processing` parsing.
