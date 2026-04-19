@@ -9,7 +9,7 @@ required.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -91,6 +91,31 @@ class TestInsertRelaysAsCandidates:
         assert record.state_value["failures"] == 0
         assert record.state_value["network"] == "clearnet"
         assert "timestamp" in record.state_value
+        assert result == 1
+
+    async def test_rounds_fractional_candidate_timestamp_up(
+        self,
+        query_brotr: MagicMock,
+    ) -> None:
+        relay = _mock_relay()
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "url": relay.url,
+                        "relay_exists": False,
+                        "state_value": None,
+                    }
+                )
+            ]
+        )
+        query_brotr.upsert_service_state = AsyncMock(return_value=1)
+
+        with patch("bigbrotr.services.common.discovery_queries.time.time", return_value=1000.1):
+            result = await insert_relays_as_candidates(query_brotr, [relay])
+
+        record = query_brotr.upsert_service_state.call_args[0][0][0]
+        assert record.state_value["timestamp"] == 1001
         assert result == 1
 
     async def test_all_filtered_out(self, query_brotr: MagicMock) -> None:

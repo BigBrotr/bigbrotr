@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from typing import TYPE_CHECKING
 
@@ -69,7 +70,10 @@ async def insert_relays_as_candidates(brotr: Brotr, relays: list[Relay]) -> int:
     if not new_relays:
         return 0
 
-    now = int(time.time())
+    # Validator retry intervals are fractional, so round candidate insertion
+    # timestamps up to avoid validating a newly discovered relay before the
+    # configured minimum wait has elapsed.
+    now = math.ceil(time.time())
     records = [
         CandidateCheckpoint(
             key=relay.url,

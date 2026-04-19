@@ -2394,3 +2394,14 @@ Use this section during execution for:
   - added paired `finder` coverage proving the runtime worker now reevaluates
     cooldown eligibility at each source attempt, and the service wiring
     passes a live clock through that path instead of a one-shot timestamp.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-eighth remediation
+  slice:
+  - tightened the shared `Seeder/Finder -> Validator` candidate boundary so
+    newly discovered relays no longer persist a floored candidate timestamp,
+    which previously let a relay inserted late in a second become eligible
+    for validation up to almost one second before the configured
+    `validator.processing.interval` had really elapsed;
+  - added shared discovery coverage proving candidate insertion now rounds
+    fractional current time up before persisting the initial validator
+    checkpoint timestamp, keeping the discovery-side marker aligned with the
+    validator retry cutoff contract.
