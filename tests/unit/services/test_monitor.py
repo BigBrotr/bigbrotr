@@ -609,6 +609,18 @@ class TestPublishingConfig:
         config = PublishingConfig(relays=["wss://single.relay.com"])
         assert len(config.relays) == 1
 
+    def test_explicit_empty_relay_list_is_preserved(self) -> None:
+        config = PublishingConfig(relays=[])
+
+        assert config.relays == []
+
+    def test_rejects_nonempty_relay_list_without_valid_entries(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays: expected at least one valid relay",
+        ):
+            PublishingConfig(relays=[True, "bad relay"])
+
 
 class TestDiscoveryConfig:
     def test_default_values(self) -> None:
@@ -656,6 +668,13 @@ class TestDiscoveryConfig:
             match=r"enabled: expected boolean, got str",
         ):
             DiscoveryConfig(enabled="false")
+
+    def test_rejects_nonempty_relay_override_without_valid_entries(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays: expected at least one valid relay",
+        ):
+            DiscoveryConfig(relays=[True, "bad relay"])
 
 
 class TestAnnouncementConfig:
@@ -711,6 +730,13 @@ class TestAnnouncementConfig:
             match=r"geohash: expected string, got bool",
         ):
             AnnouncementConfig(geohash=True)
+
+    def test_rejects_nonempty_relay_override_without_valid_entries(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays: expected at least one valid relay",
+        ):
+            AnnouncementConfig(relays=[True, "bad relay"])
 
 
 class TestProfileConfig:
@@ -783,6 +809,13 @@ class TestProfileConfig:
         ):
             ProfileConfig(enabled="false")
 
+    def test_rejects_nonempty_relay_override_without_valid_entries(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays: expected at least one valid relay",
+        ):
+            ProfileConfig(relays=[True, "bad relay"])
+
 
 class TestRelayListConfig:
     def test_default_values(self) -> None:
@@ -798,6 +831,13 @@ class TestRelayListConfig:
             match=r"enabled: expected boolean, got int",
         ):
             RelayListConfig(enabled=0)
+
+    def test_rejects_nonempty_relay_override_without_valid_entries(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays: expected at least one valid relay",
+        ):
+            RelayListConfig(relays=[True, "bad relay"])
 
 
 class TestMonitorConfig:

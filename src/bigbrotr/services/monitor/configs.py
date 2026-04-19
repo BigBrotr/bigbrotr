@@ -9,6 +9,7 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Sequence as SequenceABC
 from pathlib import Path
 from typing import Annotated, Any, Final
 
@@ -76,6 +77,33 @@ def _require_boolean(value: Any, field_name: str) -> bool:
     if not isinstance(value, bool):
         raise ValueError(f"{field_name}: expected boolean, got {type(value).__name__}")
     return value
+
+
+def _validate_nonempty_raw_relay_list(data: Any) -> Any:
+    """Reject non-empty relay overrides when no valid relay survives normalization."""
+    if not isinstance(data, dict) or "relays" not in data:
+        return data
+
+    raw = data.get("relays")
+    if raw is None or isinstance(raw, Relay):
+        return data
+    if isinstance(raw, (str, bytes, bytearray)) or not isinstance(raw, SequenceABC):
+        return data
+    if len(raw) == 0:
+        return data
+
+    for item in raw:
+        if isinstance(item, Relay):
+            return data
+        if not isinstance(item, str):
+            continue
+        try:
+            Relay.parse(item)
+        except (TypeError, ValueError):
+            continue
+        return data
+
+    raise ValueError("relays: expected at least one valid relay")
 
 
 class MetadataFlags(BaseModel):
@@ -359,6 +387,12 @@ class PublishingConfig(BaseModel):
         description="Default relay list for event publishing",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_invalid_nonempty_relays(cls, data: Any) -> Any:
+        """Reject non-empty publishing relay overrides when nothing valid remains."""
+        return _validate_nonempty_raw_relay_list(data)
+
 
 class DiscoveryConfig(BaseModel):
     """Kind 30166 relay discovery event settings (NIP-66).
@@ -383,6 +417,12 @@ class DiscoveryConfig(BaseModel):
         list[Relay] | None,
         BeforeValidator(parse_relay_list_fail_soft),
     ] = Field(default=None, description="Override relay list (None = use publishing default)")
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_invalid_nonempty_relays(cls, data: Any) -> Any:
+        """Reject non-empty discovery relay overrides when nothing valid remains."""
+        return _validate_nonempty_raw_relay_list(data)
 
     @field_validator("enabled", mode="before")
     @classmethod
@@ -419,6 +459,12 @@ class AnnouncementConfig(BaseModel):
         list[Relay] | None,
         BeforeValidator(parse_relay_list_fail_soft),
     ] = Field(default=None, description="Override relay list (None = use publishing default)")
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_invalid_nonempty_relays(cls, data: Any) -> Any:
+        """Reject non-empty announcement relay overrides when nothing valid remains."""
+        return _validate_nonempty_raw_relay_list(data)
 
     @field_validator("enabled", mode="before")
     @classmethod
@@ -466,6 +512,12 @@ class ProfileConfig(BaseModel):
     banner: str | None = Field(default=None, description="Banner image URL")
     lud16: str | None = Field(default=None, description="Lightning address (LNURL)")
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_invalid_nonempty_relays(cls, data: Any) -> Any:
+        """Reject non-empty profile relay overrides when nothing valid remains."""
+        return _validate_nonempty_raw_relay_list(data)
+
     @field_validator(
         "name",
         "about",
@@ -502,6 +554,12 @@ class RelayListConfig(BaseModel):
         list[Relay] | None,
         BeforeValidator(parse_relay_list_fail_soft),
     ] = Field(default=None, description="Override relay list (None = use publishing default)")
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_invalid_nonempty_relays(cls, data: Any) -> Any:
+        """Reject non-empty relay-list overrides when nothing valid remains."""
+        return _validate_nonempty_raw_relay_list(data)
 
     @field_validator("enabled", mode="before")
     @classmethod

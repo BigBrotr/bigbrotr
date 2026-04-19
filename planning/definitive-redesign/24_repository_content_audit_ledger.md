@@ -3789,3 +3789,17 @@ Use this section during execution for:
   - added paired `services.test_monitor` coverage proving Geo config strings
     canonicalize up front and whitespace-only download URLs no longer bypass
     the missing GeoLite database validation path.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-twentieth remediation
+  slice:
+  - tightened the publish-facing relay override boundaries in
+    `services.monitor.configs` so non-empty relay lists must contain at least
+    one valid relay, while still preserving the existing semantics for
+    explicit `[]` and for mixed valid/invalid entries;
+  - closed the drift where payloads like `[True, "bad relay"]` could be
+    normalized all the way down to `[]` and then interpreted by monitor
+    publish paths as “skip publishing”, effectively turning a malformed relay
+    override into a silent disablement;
+  - added paired `services.test_monitor` coverage proving invalid non-empty
+    relay overrides now fail fast across publishing, discovery, announcement,
+    profile, and relay-list config surfaces, while explicit empty relay lists
+    remain valid.
