@@ -81,6 +81,15 @@ class Nip11InfoMetadata(BaseNipMetadata):
 
     _INFO_MAX_SIZE: ClassVar[int] = 65_536  # 64 KB
 
+    @classmethod
+    def _normalize_max_size(cls, max_size: int | None) -> int:
+        """Return a canonical positive response-size budget."""
+        if max_size is None:
+            return cls._INFO_MAX_SIZE
+        if isinstance(max_size, bool) or not isinstance(max_size, int) or max_size < 1:
+            raise ValueError("max_size must be a positive int")
+        return max_size
+
     @staticmethod
     async def _request(  # noqa: PLR0913
         active_session: aiohttp.ClientSession,
@@ -231,7 +240,7 @@ class Nip11InfoMetadata(BaseNipMetadata):
             An ``Nip11InfoMetadata`` instance with data and logs.
         """
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
-        max_size = max_size if max_size is not None else cls._INFO_MAX_SIZE
+        max_size = cls._normalize_max_size(max_size)
 
         # Build the HTTP URL from the relay's WebSocket URL components
         protocol = "https" if relay.scheme == "wss" else "http"

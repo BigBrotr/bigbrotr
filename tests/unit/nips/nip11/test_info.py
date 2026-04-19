@@ -534,6 +534,26 @@ class TestNip11InfoMetadataHttpErrors:
 class TestNip11InfoMetadataResponseSize:
     """Test response size limit handling."""
 
+    async def test_fetch_rejects_non_positive_max_size_before_http(self, relay: Relay) -> None:
+        """fetch() rejects non-positive max_size before opening HTTP state."""
+        with (
+            patch.object(Nip11InfoMetadata, "_info", new_callable=AsyncMock) as mock_info,
+            pytest.raises(ValueError, match="max_size must be a positive int"),
+        ):
+            await Nip11InfoMetadata.fetch(relay, max_size=0)
+
+        mock_info.assert_not_awaited()
+
+    async def test_fetch_rejects_boolean_alias_max_size_before_http(self, relay: Relay) -> None:
+        """fetch() rejects bool aliases instead of degrading to one byte."""
+        with (
+            patch.object(Nip11InfoMetadata, "_info", new_callable=AsyncMock) as mock_info,
+            pytest.raises(ValueError, match="max_size must be a positive int"),
+        ):
+            await Nip11InfoMetadata.fetch(relay, max_size=True)
+
+        mock_info.assert_not_awaited()
+
     async def test_info_response_too_large(self, relay: Relay, mock_session_factory):
         """Response exceeding max_size returns failure."""
         response = AsyncMock()

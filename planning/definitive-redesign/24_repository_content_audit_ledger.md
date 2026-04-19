@@ -2507,3 +2507,12 @@ Use this section during execution for:
     concrete `NIP-11` and `NIP-66` option/selection models now fail fast on
     coerced boolean aliases instead of silently changing runtime probe/fetch
     behavior.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-nineteenth remediation
+  slice:
+  - tightened the public `NIP-11` size-budget boundary so
+    `Nip11Options.max_size` and direct `Nip11InfoMetadata.fetch(max_size=...)`
+    no longer accept zero, negative, or bool-backed budgets that could leak an
+    impossible body limit into the bounded HTTP reader;
+  - added paired `NIP-11` coverage proving invalid `max_size` values now fail
+    fast before any HTTP work starts, while canonical positive budgets still
+    preserve the existing fetch contract.

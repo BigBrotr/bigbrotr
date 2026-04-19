@@ -26,6 +26,8 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 
+from pydantic import Field
+
 from bigbrotr.models.document import Document, DocumentType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.models.relay_document import RelayDocument
@@ -79,7 +81,11 @@ class Nip11Options(BaseNipOptions):
             Controls *which document types are retrieved.
     """
 
-    max_size: int = Nip11InfoMetadata._INFO_MAX_SIZE
+    max_size: int = Field(
+        default=Nip11InfoMetadata._INFO_MAX_SIZE,
+        ge=1,
+        description="Maximum response body size in bytes",
+    )
 
 
 @dataclass(frozen=True, slots=True)

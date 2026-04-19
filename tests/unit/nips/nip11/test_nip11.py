@@ -829,6 +829,12 @@ class TestNip11Options:
         with pytest.raises(ValidationError):
             Nip11Options(max_size=True)
 
+    @pytest.mark.parametrize("value", [0, -1])
+    def test_rejects_non_positive_max_size(self, value: int):
+        """max_size rejects non-positive budgets."""
+        with pytest.raises(ValidationError):
+            Nip11Options(max_size=value)
+
     def test_combined_options(self):
         """Multiple options can be set together."""
         options = Nip11Options(allow_insecure=True, max_size=2048)
