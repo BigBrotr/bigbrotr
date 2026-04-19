@@ -460,6 +460,11 @@ class TestApiConfig:
         else:
             assert ApiConfig(max_response_size=size).max_response_size == size
 
+    @pytest.mark.parametrize("value", ["5242880", 5_242_880.0, True])
+    def test_rejects_non_integer_max_response_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_response_size: expected integer, got"):
+            ApiConfig(max_response_size=value)
+
     @pytest.mark.parametrize(
         ("field_name", "kwargs"),
         [
@@ -580,6 +585,11 @@ class TestFinderConfig:
     ) -> None:
         with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
             FinderConfig(api={field_name: field_value})
+
+    @pytest.mark.parametrize("value", ["5242880", 5_242_880.0])
+    def test_nested_api_reject_non_integer_max_response_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_response_size: expected integer, got"):
+            FinderConfig(api={"max_response_size": value})
 
 
 # ============================================================================

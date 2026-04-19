@@ -236,6 +236,13 @@ class ApiConfig(BaseModel):
         field_name = info.field_name or "value"
         return _require_number(v, field_name)
 
+    @field_validator("max_response_size", mode="before")
+    @classmethod
+    def require_integer_max_response_size(cls, v: Any, info: ValidationInfo) -> int:
+        """Require canonical integers for API response-size budgets."""
+        field_name = info.field_name or "max_response_size"
+        return _require_int(v, field_name)
+
     @field_validator("enabled", mode="before")
     @classmethod
     def require_boolean_enabled(cls, v: Any, info: ValidationInfo) -> bool:

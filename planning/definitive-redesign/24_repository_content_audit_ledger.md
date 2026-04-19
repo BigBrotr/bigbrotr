@@ -4109,3 +4109,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_finder` proving malformed pacing
     payloads now fail fast both on `ApiConfig` and through nested
     `FinderConfig.api` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-forty-eighth
+  remediation slice:
+  - tightened the `services.finder.configs.ApiConfig` integer boundary so
+    `max_response_size` now requires a canonical `int` instead of accepting
+    numeric strings or integral floats;
+  - closed the drift where authored payloads like `"5242880"` or
+    `5242880.0` could silently become valid API body-size budgets without
+    crossing an explicit integer boundary;
+  - added paired coverage in `services.test_finder` proving malformed
+    response-size payloads now fail fast both on `ApiConfig` and through
+    nested `FinderConfig.api` parsing.
