@@ -2274,3 +2274,12 @@ Use this section during execution for:
   - added `finder` coverage proving both the helper and the live service
     wiring now use the precise current time when evaluating fractional
     cooldown expiry.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-ninety-sixth remediation
+  slice:
+  - tightened the `monitor` relay-selection boundary so fractional discovery
+    intervals no longer get measured from a floored current-time snapshot,
+    which previously kept eligible relays blocked for up to almost one second
+    even after the due cutoff itself had already been rounded correctly;
+  - added `monitor` coverage proving both the helper and the live service
+    wiring now use the precise current time when evaluating fractional due
+    cutoffs.

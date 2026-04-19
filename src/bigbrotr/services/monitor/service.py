@@ -450,7 +450,7 @@ class Monitor(
     async def _build_monitor_cycle_plan(
         self,
         *,
-        now: int | None = None,
+        now: float | None = None,
     ) -> MonitorCyclePlan | None:
         """Build the relay-selection plan for one monitor cycle."""
         if not self._config.networks.get_enabled_networks():

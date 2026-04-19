@@ -37,7 +37,7 @@ async def build_monitor_cycle_plan(
     brotr: Brotr,
     config: MonitorConfig,
     network_semaphores: MonitorSemaphoreBudget,
-    now: int | None = None,
+    now: float | None = None,
     count_relays_fn: MonitorRelayCounter = count_relays_to_monitor,
 ) -> MonitorCyclePlan | None:
     """Build the relay-selection plan for one monitor cycle."""
@@ -45,7 +45,7 @@ async def build_monitor_cycle_plan(
     if not networks:
         return None
 
-    current_time = int(time.time()) if now is None else now
+    current_time = time.time() if now is None else now
     monitored_before = math.ceil(current_time - config.discovery.interval)
     max_relays = config.processing.max_relays
     total = await count_relays_fn(brotr, monitored_before, networks)

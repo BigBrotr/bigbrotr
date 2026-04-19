@@ -1598,13 +1598,37 @@ class TestMonitorHelpers:
         config = _make_config(discovery=DiscoveryConfig(interval=3600.9, include=_NO_GEO_NET))
         monitor = Monitor(brotr=mock_brotr, config=config)
 
-        plan = await monitor._build_monitor_cycle_plan(now=10_000)
+        plan = await monitor._build_monitor_cycle_plan(now=10_000.91)
 
         assert plan is not None
-        assert plan.monitored_before == 6400
+        assert plan.monitored_before == 6401
         mock_count.assert_awaited_once_with(
             mock_brotr,
-            6400,
+            6401,
+            [NetworkType.CLEARNET],
+        )
+
+    @patch(
+        "bigbrotr.services.monitor.service.count_relays_to_monitor",
+        new_callable=AsyncMock,
+        return_value=7,
+    )
+    async def test_build_monitor_cycle_plan_uses_precise_current_time_for_fractional_due_cutoff(
+        self,
+        mock_count: AsyncMock,
+        mock_brotr: Brotr,
+    ) -> None:
+        config = _make_config(discovery=DiscoveryConfig(interval=3600.9, include=_NO_GEO_NET))
+        monitor = Monitor(brotr=mock_brotr, config=config)
+
+        with patch("bigbrotr.services.monitor.runtime.time.time", return_value=10_000.91):
+            plan = await monitor._build_monitor_cycle_plan()
+
+        assert plan is not None
+        assert plan.monitored_before == 6401
+        mock_count.assert_awaited_once_with(
+            mock_brotr,
+            6401,
             [NetworkType.CLEARNET],
         )
 
