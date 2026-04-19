@@ -38,6 +38,16 @@ def _normalize_non_blank_string(value: Any, field_name: str) -> str:
     return normalized
 
 
+def _normalize_non_blank_string_items(values: list[str], field_name: str) -> list[str]:
+    normalized_values: list[str] = []
+    for index, value in enumerate(values):
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError(f"{field_name}[{index}] must not be blank")
+        normalized_values.append(normalized)
+    return normalized_values
+
+
 class ApiConfig(PublicReadAdapterConfig):
     """Configuration for the API service.
 
@@ -110,6 +120,12 @@ class ApiConfig(PublicReadAdapterConfig):
     def _normalize_title(cls, value: Any, info: ValidationInfo) -> str:
         field_name = info.field_name or "value"
         return _normalize_non_blank_string(value, field_name)
+
+    @field_validator("cors_origins")
+    @classmethod
+    def _normalize_cors_origins(cls, value: list[str], info: ValidationInfo) -> list[str]:
+        field_name = info.field_name or "value"
+        return _normalize_non_blank_string_items(value, field_name)
 
     @field_validator("route_prefix")
     @classmethod

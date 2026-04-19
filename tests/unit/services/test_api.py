@@ -146,6 +146,14 @@ class TestApiConfig:
         config = ApiConfig(title="  LilBrotr API  ")
         assert config.title == "LilBrotr API"
 
+    def test_whitespace_only_cors_origin_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"cors_origins\[0\] must not be blank"):
+            ApiConfig(cors_origins=["   "])
+
+    def test_padded_cors_origin_is_trimmed(self) -> None:
+        config = ApiConfig(cors_origins=[" https://example.com "])
+        assert config.cors_origins == ["https://example.com"]
+
     def test_exposure_policy_aliases_read_models(self) -> None:
         config = ApiConfig(read_models={"relays": ReadModelPolicy(enabled=True)})
         assert config.exposure_policy == config.read_models
@@ -323,6 +331,24 @@ class TestApiBuildApp:
         app = service._build_app()
         middleware_classes = [type(m).__name__ for m in app.user_middleware]
         assert "Middleware" in str(middleware_classes) or len(app.user_middleware) > 0
+
+    def test_cors_middleware_uses_canonicalized_origins(
+        self, mock_brotr: Brotr, sample_catalog: Catalog
+    ) -> None:
+        config = ApiConfig(
+            cors_origins=[" https://example.com "],
+            read_models={"relays": ReadModelPolicy(enabled=True)},
+        )
+        service = Api(brotr=mock_brotr, config=config)
+        service._read_core.catalog = sample_catalog
+        app = service._build_app()
+
+        cors_middleware = next(
+            middleware
+            for middleware in app.user_middleware
+            if "CORSMiddleware" in str(middleware.cls)
+        )
+        assert cors_middleware.kwargs["allow_origins"] == ["https://example.com"]
 
     def test_no_cors_middleware_without_origins(self, api_service: Api) -> None:
         app = api_service._build_app()

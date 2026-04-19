@@ -3988,3 +3988,14 @@ Use this section during execution for:
     application titles and then flow into the HTTP adapter unchanged;
   - added paired coverage in `services.test_api` proving padded titles now
     canonicalize both at config load and at FastAPI app construction time.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-thirty-seventh
+  remediation slice:
+  - tightened the `services.api.configs.ApiConfig` CORS-origin boundary so
+    authored values now trim surrounding whitespace and reject blank-only
+    entries before the middleware is constructed;
+  - closed the drift where payloads like `" https://example.com "` or
+    `"   "` could survive config load as malformed or semantically empty
+    `allow_origins` entries and then flow into FastAPI CORS middleware
+    unchanged;
+  - added paired coverage in `services.test_api` proving padded origins now
+    canonicalize both at config load and at middleware construction time.
