@@ -124,6 +124,34 @@ class TestRefreshTargetConfig:
         with pytest.raises(ValueError, match=rf"{field_name}: expected {expected_type}, got bool"):
             RefresherConfig.model_validate(payload)
 
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("max_source_window", "86400"),
+            ("max_source_window", 86400.0),
+            ("max_targets_per_cycle", "5"),
+            ("max_targets_per_cycle", 5.0),
+        ],
+    )
+    def test_rejects_non_integer_processing_budget_aliases(
+        self, field_name: str, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected integer, got"):
+            ProcessingConfig(**{field_name: value})
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("max_source_window", "86400"),
+            ("max_targets_per_cycle", 5.0),
+        ],
+    )
+    def test_nested_processing_budget_aliases_rejected(
+        self, field_name: str, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected integer, got"):
+            RefresherConfig.model_validate({"processing": {field_name: value}})
+
     @pytest.mark.parametrize("value", ["true", 1, 0])
     def test_rejects_non_boolean_continue_on_target_error_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"continue_on_target_error: expected bool, got"):

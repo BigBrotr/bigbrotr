@@ -150,6 +150,13 @@ def _require_bool(value: Any, field_name: str) -> bool:
     return value
 
 
+def _require_int(value: Any, field_name: str) -> int:
+    """Require canonical integers for authored refresher config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name}: expected integer, got {type(value).__name__}")
+    return int(value)
+
+
 class ProcessingConfig(BaseModel):
     """Refresher cycle processing budgets and failure policy."""
 
@@ -179,8 +186,10 @@ class ProcessingConfig(BaseModel):
 
     @field_validator("max_source_window", "max_targets_per_cycle", mode="before")
     @classmethod
-    def reject_boolean_integer_budgets(cls, value: Any, info: ValidationInfo) -> Any:
-        return _reject_bool_alias(value, str(info.field_name), "integer")
+    def require_integer_budgets(cls, value: Any, info: ValidationInfo) -> Any:
+        if value is None:
+            return value
+        return _require_int(value, str(info.field_name))
 
     @field_validator("max_duration", mode="before")
     @classmethod

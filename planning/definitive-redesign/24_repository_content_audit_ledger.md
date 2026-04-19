@@ -4276,3 +4276,15 @@ Use this section during execution for:
   - added paired coverage in `services.test_refresher` proving malformed
     boolean aliases now fail fast both on the leaf periodic config model and
     through nested `RefresherConfig.periodic` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-sixty-third
+  remediation slice:
+  - tightened the authored integer boundaries in
+    `services.refresher.configs.ProcessingConfig` so
+    `max_source_window` and `max_targets_per_cycle` now require canonical
+    `int` values;
+  - closed the drift where payloads like `"86400"`, `86400.0`, `"5"`, or
+    `5.0` could silently become valid refresher processing budgets at config
+    load time;
+  - added paired coverage in `services.test_refresher` proving malformed
+    integer aliases now fail fast both on the leaf processing model and
+    through nested `RefresherConfig.processing` parsing.
