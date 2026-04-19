@@ -4076,3 +4076,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_finder` proving malformed scan
     controls now fail fast both on `EventsConfig` and through nested
     `FinderConfig.events` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-forty-fifth
+  remediation slice:
+  - tightened the `services.finder.configs.EventsConfig` numeric boundary so
+    `max_relay_time` and `max_duration` now require canonical numeric values
+    instead of accepting numeric strings;
+  - closed the drift where authored payloads like `"30"`, `"30.5"`,
+    `"120"` or `"120.5"` could silently become valid event-scan phase
+    deadlines without crossing an explicit numeric boundary;
+  - added paired coverage in `services.test_finder` proving malformed phase
+    budgets now fail fast both on `EventsConfig` and through nested
+    `FinderConfig.events` parsing.

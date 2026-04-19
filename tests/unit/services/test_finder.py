@@ -154,6 +154,21 @@ class TestEventsConfig:
         with pytest.raises(ValueError):
             EventsConfig(**{field: above_max})
 
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("max_relay_time", "30"),
+            ("max_relay_time", "30.5"),
+            ("max_relay_time", True),
+            ("max_duration", "120"),
+            ("max_duration", "120.5"),
+            ("max_duration", False),
+        ],
+    )
+    def test_rejects_non_numeric_phase_budgets(self, field_name: str, field_value: object) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
+            EventsConfig(**{field_name: field_value})
+
     def test_rejects_boolean_parallel_relays_alias(self) -> None:
         with pytest.raises(ValueError, match="parallel_relays: expected integer, got bool"):
             EventsConfig(parallel_relays=True)
@@ -487,6 +502,19 @@ class TestFinderConfig:
         self, field_name: str, field_value: object
     ) -> None:
         with pytest.raises(ValueError, match=rf"{field_name}: expected integer, got"):
+            FinderConfig(events={field_name: field_value})
+
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("max_relay_time", "30"),
+            ("max_duration", "120.5"),
+        ],
+    )
+    def test_nested_events_reject_non_numeric_phase_budgets(
+        self, field_name: str, field_value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
             FinderConfig(events={field_name: field_value})
 
 

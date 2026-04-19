@@ -9,7 +9,7 @@ See Also:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 import jmespath
@@ -37,6 +37,13 @@ def _require_int(value: Any, field_name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{field_name}: expected integer, got {type(value).__name__}")
     return int(value)
+
+
+def _require_number(value: Any, field_name: str) -> int | float:
+    """Require canonical numeric types for authored finder config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name}: expected number, got {type(value).__name__}")
+    return cast("int | float", value)
 
 
 def _normalize_non_blank_string(value: Any, field_name: str) -> str:
@@ -97,6 +104,13 @@ class EventsConfig(BaseModel):
         """Require canonical booleans for phase enablement."""
         field_name = info.field_name or "enabled"
         return _require_bool(v, field_name)
+
+    @field_validator("max_relay_time", "max_duration", mode="before")
+    @classmethod
+    def require_numeric_phase_budgets(cls, v: Any, info: ValidationInfo) -> int | float:
+        """Require canonical numeric types for event-scan time budgets."""
+        field_name = info.field_name or "value"
+        return _require_number(v, field_name)
 
 
 class ApiSourceConfig(BaseModel):
