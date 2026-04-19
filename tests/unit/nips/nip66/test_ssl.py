@@ -296,6 +296,17 @@ class TestNip66SslMetadataSslAsync:
         call_args = mock_ssl.call_args
         assert call_args[0][2] > 0
 
+    @pytest.mark.parametrize("value", [True, 0, -1, float("nan")])
+    async def test_rejects_invalid_timeout_before_ssl(self, relay: Relay, value: object) -> None:
+        """Invalid timeout budgets fail before any SSL work starts."""
+        with (
+            patch.object(Nip66SslMetadata, "_ssl") as mock_ssl,
+            pytest.raises(ValueError, match="timeout must be a positive finite number"),
+        ):
+            await Nip66SslMetadata.probe(relay, value)
+
+        mock_ssl.assert_not_called()
+
 
 class TestCertificateExtractorMissingFields:
     """Test CertificateExtractor.extract_all_from_x509() with missing certificate fields."""

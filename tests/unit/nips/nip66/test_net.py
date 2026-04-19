@@ -13,6 +13,8 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.net import Nip66NetMetadata
 
@@ -460,6 +462,22 @@ class TestNip66NetMetadataNetAsync:
             await Nip66NetMetadata.probe(relay, mock_asn_reader, timeout=0.5)
 
         assert mock_resolve.await_args.kwargs["raise_on_timeout"] is True
+
+    @pytest.mark.parametrize("value", [True, 0, -1, float("nan")])
+    async def test_rejects_invalid_timeout_before_resolve(
+        self,
+        relay: Relay,
+        mock_asn_reader: MagicMock,
+        value: object,
+    ) -> None:
+        """Invalid timeout budgets fail before any resolver or ASN lookup starts."""
+        with (
+            patch("bigbrotr.nips.nip66.net.resolve_host", new_callable=AsyncMock) as mock_resolve,
+            pytest.raises(ValueError, match="timeout must be a positive finite number"),
+        ):
+            await Nip66NetMetadata.probe(relay, mock_asn_reader, timeout=value)
+
+        mock_resolve.assert_not_awaited()
 
     async def test_resolve_timeout_returns_failure(
         self,

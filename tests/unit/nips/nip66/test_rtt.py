@@ -547,6 +547,28 @@ class TestNip66RttMetadataRtt:
 
         assert isinstance(result, Nip66RttMetadata)
 
+    @pytest.mark.parametrize("value", [True, 0, -1, float("nan")])
+    async def test_rejects_invalid_timeout_before_open_phase(
+        self,
+        relay: Relay,
+        mock_keys: MagicMock,
+        mock_event_builder: MagicMock,
+        mock_read_filter: MagicMock,
+        value: object,
+    ) -> None:
+        """Invalid timeout budgets fail before the open phase starts."""
+        deps = Nip66RttDependencies(
+            keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
+        )
+
+        with (
+            patch.object(Nip66RttMetadata, "_test_open", new_callable=AsyncMock) as mock_open,
+            pytest.raises(ValueError, match="timeout must be a positive finite number"),
+        ):
+            await Nip66RttMetadata.probe(relay, deps, timeout=value)
+
+        mock_open.assert_not_awaited()
+
     async def test_cleanup_called_after_phases(
         self,
         relay: Relay,

@@ -44,8 +44,8 @@ from aiohttp_socks import ProxyConnector
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.nips.base import BaseNipMetadata
-from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
+from ._validation import normalize_timeout_budget
 from .data import Nip66HttpData
 from .logs import Nip66HttpLogs
 
@@ -164,7 +164,7 @@ class Nip66HttpMetadata(BaseNipMetadata):
         Returns:
             An ``Nip66HttpMetadata`` instance with header data and logs.
         """
-        timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
+        timeout = normalize_timeout_budget(timeout)
         logger.debug("http_testing relay=%s timeout_s=%s proxy=%s", relay.url, timeout, proxy_url)
 
         overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)

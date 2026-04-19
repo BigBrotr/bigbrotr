@@ -506,6 +506,17 @@ class TestNip66DnsMetadataDnsAsync:
         call_args = mock_dns.call_args
         assert call_args[0][1] > 0  # Second positional arg is timeout
 
+    @pytest.mark.parametrize("value", [True, 0, -1, float("nan")])
+    async def test_rejects_invalid_timeout_before_dns(self, relay: Relay, value: object) -> None:
+        """Invalid timeout budgets fail before the DNS resolver is entered."""
+        with (
+            patch.object(Nip66DnsMetadata, "_dns") as mock_dns,
+            pytest.raises(ValueError, match="timeout must be a positive finite number"),
+        ):
+            await Nip66DnsMetadata.probe(relay, value)
+
+        mock_dns.assert_not_called()
+
     async def test_uses_relay_host(self, relay: Relay) -> None:
         """Uses relay's host for DNS resolution."""
         dns_result = {"dns_ips": ["8.8.8.8"]}

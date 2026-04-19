@@ -57,8 +57,8 @@ if TYPE_CHECKING:
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.nips.base import BaseNipMetadata
-from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
+from ._validation import normalize_timeout_budget
 from .data import Nip66DnsData
 from .logs import Nip66DnsLogs
 
@@ -216,7 +216,7 @@ class Nip66DnsMetadata(BaseNipMetadata):
         Returns:
             An ``Nip66DnsMetadata`` instance with resolution data and logs.
         """
-        timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
+        timeout = normalize_timeout_budget(timeout)
         logger.debug("dns_testing relay=%s timeout_s=%s", relay.url, timeout)
 
         if relay.network != NetworkType.CLEARNET:

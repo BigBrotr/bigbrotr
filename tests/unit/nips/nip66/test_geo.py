@@ -595,6 +595,22 @@ class TestNip66GeoMetadataGeoAsync:
 
         assert mock_resolve.await_args.kwargs["raise_on_timeout"] is True
 
+    @pytest.mark.parametrize("value", [True, 0, -1, float("nan")])
+    async def test_rejects_invalid_timeout_before_resolve(
+        self,
+        relay: Relay,
+        mock_city_reader: MagicMock,
+        value: object,
+    ) -> None:
+        """Invalid timeout budgets fail before resolver or GeoIP lookups start."""
+        with (
+            patch("bigbrotr.nips.nip66.geo.resolve_host", new_callable=AsyncMock) as mock_resolve,
+            pytest.raises(ValueError, match="timeout must be a positive finite number"),
+        ):
+            await Nip66GeoMetadata.probe(relay, mock_city_reader, timeout=value)
+
+        mock_resolve.assert_not_awaited()
+
     async def test_ipv4_lookup_failure_falls_back_to_ipv6(
         self,
         relay: Relay,

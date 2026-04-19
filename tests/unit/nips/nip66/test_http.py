@@ -14,6 +14,8 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from bigbrotr.models import Relay
 from bigbrotr.nips.nip66.http import Nip66HttpMetadata
 
@@ -138,6 +140,17 @@ class TestNip66HttpMetadataHttp:
         mock_http.assert_called_once()
         call_args = mock_http.call_args
         assert call_args[0][1] > 0
+
+    @pytest.mark.parametrize("value", [True, 0, -1, float("nan")])
+    async def test_rejects_invalid_timeout_before_http(self, relay: Relay, value: object) -> None:
+        """Invalid timeout budgets fail before opening any HTTP state."""
+        with (
+            patch.object(Nip66HttpMetadata, "_http", new_callable=AsyncMock) as mock_http,
+            pytest.raises(ValueError, match="timeout must be a positive finite number"),
+        ):
+            await Nip66HttpMetadata.probe(relay, value)
+
+        mock_http.assert_not_awaited()
 
     async def test_passes_proxy_url_to_http(self, relay: Relay) -> None:
         """Passes proxy_url to _http method."""

@@ -44,8 +44,8 @@ from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.nips.base import BaseNipMetadata
 from bigbrotr.utils.dns import resolve_host
-from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
+from ._validation import normalize_timeout_budget
 from .data import Nip66GeoData
 from .logs import Nip66GeoLogs
 
@@ -266,7 +266,7 @@ class Nip66GeoMetadata(BaseNipMetadata):
         Returns:
             An ``Nip66GeoMetadata`` instance with location data and logs.
         """
-        timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
+        timeout = normalize_timeout_budget(timeout)
         logger.debug("geo_testing relay=%s timeout_s=%s", relay.url, timeout)
 
         if relay.network != NetworkType.CLEARNET:

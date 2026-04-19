@@ -47,8 +47,8 @@ from nostr_sdk import Filter, NostrSdkError, RelayUrl
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.nips.base import BaseNipMetadata
-from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
+from ._validation import normalize_timeout_budget
 from .data import Nip66RttData
 from .logs import Nip66RttMultiPhaseLogs
 
@@ -128,7 +128,7 @@ class Nip66RttMetadata(BaseNipMetadata):
         Returns:
             An ``Nip66RttMetadata`` instance with measurement data and logs.
         """
-        timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
+        timeout = normalize_timeout_budget(timeout)
         logger.debug("rtt_started relay=%s timeout_s=%s proxy=%s", relay.url, timeout, proxy_url)
 
         overlay_networks = (NetworkType.TOR, NetworkType.I2P, NetworkType.LOKI)

@@ -48,8 +48,8 @@ from cryptography.x509.oid import NameOID
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.nips.base import BaseNipMetadata
-from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
+from ._validation import normalize_timeout_budget
 from .data import Nip66SslData
 from .logs import Nip66SslLogs
 
@@ -273,7 +273,7 @@ class Nip66SslMetadata(BaseNipMetadata):
         Returns:
             An ``Nip66SslMetadata`` instance with certificate data and logs.
         """
-        timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
+        timeout = normalize_timeout_budget(timeout)
         logger.debug("ssl_testing relay=%s timeout_s=%s", relay.url, timeout)
 
         if relay.network != NetworkType.CLEARNET:

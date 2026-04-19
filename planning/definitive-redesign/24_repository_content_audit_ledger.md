@@ -2535,3 +2535,18 @@ Use this section during execution for:
   - added paired `NIP-66` coverage proving invalid timeout inputs now fail
     fast before any child probe starts, while canonical positive time budgets
     continue to preserve the existing orchestration contract.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-twenty-second remediation
+  slice:
+  - tightened the direct public `NIP-66` leaf probe boundaries so
+    `Nip66DnsMetadata.probe()`, `Nip66GeoMetadata.probe()`,
+    `Nip66HttpMetadata.probe()`, `Nip66NetMetadata.probe()`,
+    `Nip66RttMetadata.probe()`, and `Nip66SslMetadata.probe()` no longer
+    accept bool aliases, non-finite values, or non-positive timeout budgets
+    that would otherwise leak into resolver, transport, and GeoIP/SSL child
+    work as if they were canonical;
+  - centralized that timeout normalization inside the shared `nip66` family so
+    the top-level container and each direct leaf probe now enforce the same
+    fail-fast public contract;
+  - added paired `NIP-66` coverage proving each direct probe now rejects those
+    malformed timeout inputs before starting any resolver, HTTP, SSL, RTT, or
+    GeoIP child operation.

@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, NamedTuple
 
@@ -47,8 +46,8 @@ from bigbrotr.nips.base import (
     BaseNipOptions,
     BaseNipSelection,
 )
-from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
+from ._validation import normalize_timeout_budget
 from .dns import Nip66DnsMetadata
 from .geo import Nip66GeoMetadata
 from .http import Nip66HttpMetadata
@@ -221,18 +220,6 @@ class Nip66(BaseNip):
     dns: Nip66DnsMetadata | None = None
     http: Nip66HttpMetadata | None = None
 
-    @classmethod
-    def _normalize_timeout(cls, timeout: float | None) -> float:
-        """Return a canonical positive finite timeout budget."""
-        if timeout is None:
-            return DEFAULT_TIMEOUT
-        if isinstance(timeout, bool) or not isinstance(timeout, int | float):
-            raise ValueError("timeout must be a positive finite number")
-        normalized = float(timeout)
-        if not math.isfinite(normalized) or normalized <= 0:
-            raise ValueError("timeout must be a positive finite number")
-        return normalized
-
     def to_relay_document_tuple(self) -> RelayNip66DocumentTuple:
         """Convert to a ``RelayDocument`` tuple for database storage.
 
@@ -299,7 +286,7 @@ class Nip66(BaseNip):
         selection = selection or Nip66Selection()
         options = options or Nip66Options()
         deps = deps or Nip66Dependencies()
-        timeout = cls._normalize_timeout(timeout)
+        timeout = normalize_timeout_budget(timeout)
         logger.debug("probe_started relay=%s timeout_s=%s", relay.url, timeout)
 
         tasks: list[Any] = []
