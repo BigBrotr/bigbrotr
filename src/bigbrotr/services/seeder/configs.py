@@ -48,6 +48,14 @@ class SeedConfig(BaseModel):
         field_name = info.field_name or "value"
         return _normalize_non_blank_string(value, field_name)
 
+    @field_validator("to_validate", mode="before")
+    @classmethod
+    def _require_boolean_to_validate(cls, value: Any, info: ValidationInfo) -> bool:
+        field_name = info.field_name or "value"
+        if not isinstance(value, bool):
+            raise ValueError(f"{field_name}: expected bool, got {type(value).__name__}")
+        return value
+
 
 class SeederConfig(BaseServiceConfig):
     """Seeder service configuration.

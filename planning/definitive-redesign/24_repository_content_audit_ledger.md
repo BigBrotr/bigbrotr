@@ -4020,3 +4020,14 @@ Use this section during execution for:
     file paths and then flow into `Path(...)` resolution unchanged;
   - added paired coverage in `services.test_seeder` proving padded paths now
     canonicalize both at config load and when `Seeder.seed()` opens the file.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-fortieth
+  remediation slice:
+  - tightened the `services.seeder.configs.SeedConfig` boolean boundary so
+    `to_validate` now requires a canonical `bool` instead of accepting
+    truthy/falsy aliases;
+  - closed the drift where authored payloads like `"true"`, `"false"`, `1`
+    or `0` could silently switch seeder insertion mode between candidates and
+    direct relay inserts without crossing an explicit boolean boundary;
+  - added coverage in `services.test_seeder` proving malformed `to_validate`
+    aliases now fail fast both on the leaf config and through nested
+    `SeederConfig` parsing.

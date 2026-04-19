@@ -69,6 +69,11 @@ class TestSeedConfig:
         config = SeedConfig(file_path="  custom.txt  ")
         assert config.file_path == "custom.txt"
 
+    @pytest.mark.parametrize("value", ["true", "false", 1, 0])
+    def test_rejects_non_boolean_to_validate_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"to_validate: expected bool, got"):
+            SeedConfig(to_validate=value)
+
 
 class TestSeederConfig:
     def test_defaults(self) -> None:
@@ -87,6 +92,11 @@ class TestSeederConfig:
         config = SeederConfig(seed=SeedConfig(file_path="t.txt"), interval=120.0)
         assert config.seed.file_path == "t.txt"
         assert config.interval == 120.0
+
+    @pytest.mark.parametrize("value", ["true", "false", 1, 0])
+    def test_nested_seed_rejects_non_boolean_to_validate_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"to_validate: expected bool, got"):
+            SeederConfig(seed={"file_path": "seed.txt", "to_validate": value})
 
 
 # ============================================================================
