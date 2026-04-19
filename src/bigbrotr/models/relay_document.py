@@ -20,6 +20,7 @@ See Also:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from time import time
 from typing import NamedTuple
@@ -117,7 +118,7 @@ class RelayDocument:
 
     relay: Relay
     document: Document
-    associated_at: int = field(default_factory=lambda: int(time()))
+    associated_at: int = field(default_factory=lambda: math.ceil(time()))
     _db_params: RelayDocumentDbParams = field(
         default=None,
         init=False,

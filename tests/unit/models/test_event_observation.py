@@ -1,5 +1,6 @@
 """Unit tests for the EventObservation model."""
 
+import math
 from dataclasses import FrozenInstanceError
 from time import time
 from unittest.mock import MagicMock
@@ -56,10 +57,22 @@ class TestConstruction:
         assert er.relay is relay
 
     def test_observed_at_defaults_to_now(self, mock_event, relay):
-        before = int(time())
+        before = math.ceil(time())
         er = EventObservation(mock_event, relay)
-        after = int(time())
+        after = math.ceil(time())
         assert before <= er.observed_at <= after
+
+    def test_observed_at_defaults_round_up_fractional_time(
+        self,
+        mock_event,
+        relay,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        monkeypatch.setattr("bigbrotr.models.event_observation.time", lambda: 1000.1)
+
+        er = EventObservation(mock_event, relay)
+
+        assert er.observed_at == 1001
 
     def test_observed_at_explicit(self, mock_event, relay):
         er = EventObservation(mock_event, relay, observed_at=9999999999)

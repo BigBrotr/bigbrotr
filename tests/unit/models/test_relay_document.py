@@ -1,6 +1,7 @@
 """Unit tests for the RelayDocument model."""
 
 import json
+import math
 from dataclasses import FrozenInstanceError
 from time import time
 
@@ -48,11 +49,23 @@ class TestConstruction:
         assert rm.associated_at == 1234567890
 
     def test_associated_at_defaults_to_now(self, relay):
-        before = int(time())
+        before = math.ceil(time())
         document = Document(type=DocumentType.NIP11_INFO, data={"name": "Test"})
         rm = RelayDocument(relay=relay, document=document)
-        after = int(time())
+        after = math.ceil(time())
         assert before <= rm.associated_at <= after
+
+    def test_associated_at_defaults_round_up_fractional_time(
+        self,
+        relay,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        monkeypatch.setattr("bigbrotr.models.relay_document.time", lambda: 1000.1)
+
+        document = Document(type=DocumentType.NIP11_INFO, data={"name": "Test"})
+        rm = RelayDocument(relay=relay, document=document)
+
+        assert rm.associated_at == 1001
 
     def test_associated_at_explicit(self, relay):
         document = Document(type=DocumentType.NIP66_RTT, data={"rtt": 100})

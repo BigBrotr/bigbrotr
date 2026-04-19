@@ -19,6 +19,7 @@ See Also:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from time import time
 from typing import NamedTuple
@@ -109,7 +110,7 @@ class EventObservation:
 
     event: Event
     relay: Relay
-    observed_at: int = field(default_factory=lambda: int(time()))
+    observed_at: int = field(default_factory=lambda: math.ceil(time()))
     _db_params: EventObservationDbParams = field(
         default=None,
         init=False,

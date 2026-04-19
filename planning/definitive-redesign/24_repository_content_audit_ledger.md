@@ -2362,3 +2362,15 @@ Use this section during execution for:
     construction and the public fetch/probe factories now round fractional
     generation time up before any `RelayDocument` export preserves that
     timestamp as `associated_at`.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-fifth remediation
+  slice:
+  - tightened the leaf junction-model timestamp contract so
+    `EventObservation` and `RelayDocument` no longer default their
+    persisted source timestamps to a floored current second, which left the
+    public model constructors themselves able to manufacture rows on the
+    wrong side of the refresher's strict incremental watermarks even after
+    the main live service call sites had been corrected;
+  - added paired model coverage proving both junction constructors now round
+    fractional current time up before their default `observed_at` or
+    `associated_at` values can enter the persisted incremental source
+    boundary.
