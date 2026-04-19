@@ -3045,3 +3045,16 @@ Use this section during execution for:
     sanitize the public argument first;
   - added paired `nips.event_builders` coverage proving corrupted
     `nip11_data` inputs are rejected before any `Tag.parse()` work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-sixtieth remediation
+  slice:
+  - tightened the direct public helper boundary of
+    `nips.event_builders.add_language_tags()` so malformed `nip11_data`
+    payloads no longer degrade into late attribute errors or partial
+    ISO-639-1 `l` tag mutation while the public NIP-11 helper assembles relay
+    language tags;
+  - centralized typed normalization of the required `Nip11InfoData` input
+    inside the leaf helper itself so direct callers now enforce a real NIP-11
+    metadata boundary instead of relying on higher-level discovery flows to
+    sanitize the public argument first;
+  - added paired `nips.event_builders` coverage proving corrupted
+    `nip11_data` inputs are rejected before any `Tag.parse()` work begins.

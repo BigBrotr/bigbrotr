@@ -586,6 +586,7 @@ def add_attributes_tags(tags: list[Tag], nip11_data: Nip11InfoData) -> None:
 
 def add_language_tags(tags: list[Tag], nip11_data: Nip11InfoData) -> None:
     """Add ISO 639-1 language tags derived from NIP-11 ``language_tags`` field."""
+    nip11_data = _normalize_required_nip11_data(nip11_data)
     language_tags = nip11_data.language_tags
     if not language_tags or "*" in language_tags:
         return

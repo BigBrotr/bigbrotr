@@ -1030,6 +1030,19 @@ class TestAddLanguageTags:
         vec = tags[0].as_vec()
         assert vec == ["l", "en", "ISO-639-1"]
 
+    @pytest.mark.parametrize("value", [True, "not-a-nip11-data", object()])
+    def test_rejects_invalid_nip11_data_before_language_tag_build(self, value: object) -> None:
+        """Malformed nip11_data fails before any l tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="nip11_data must be a Nip11InfoData"),
+        ):
+            add_language_tags(tags, value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        assert tags == []
+
 
 # ============================================================================
 # add_requirement_and_type_tags
