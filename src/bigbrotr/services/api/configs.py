@@ -10,11 +10,17 @@ See Also:
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 
 from bigbrotr.services.common.configs import PublicReadAdapterConfig
+
+
+def _require_number(value: Any, field_name: str) -> int | float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name}: expected number, got {type(value).__name__}")
+    return cast("int | float", value)
 
 
 class ApiConfig(PublicReadAdapterConfig):
@@ -68,10 +74,9 @@ class ApiConfig(PublicReadAdapterConfig):
 
     @field_validator("request_timeout", mode="before")
     @classmethod
-    def _reject_boolean_request_timeout(cls, value: Any) -> Any:
-        if isinstance(value, bool):
-            raise ValueError("request_timeout: expected number, got bool")
-        return value
+    def _require_numeric_request_timeout(cls, value: Any, info: ValidationInfo) -> int | float:
+        field_name = info.field_name or "value"
+        return _require_number(value, field_name)
 
     @field_validator("port", mode="before")
     @classmethod

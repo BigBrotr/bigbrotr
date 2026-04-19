@@ -3925,3 +3925,16 @@ Use this section during execution for:
   - added paired coverage in `services.common.test_configs` and
     `services.test_validator` proving malformed nested `timeout` payloads now
     fail fast at config load time.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-thirty-first
+  remediation slice:
+  - tightened the public-adapter config boundaries in
+    `services.api.configs.ApiConfig` and `services.dvm.configs.DvmConfig` so
+    `request_timeout` and `fetch_timeout` now require canonical numeric types
+    instead of accepting numeric strings;
+  - closed the drift where authored adapter timeout payloads like `"30"` or
+    `"30.0"` could silently coerce into valid runtime budgets and change API
+    request handling or DVM relay startup behavior without passing through an
+    explicit numeric boundary;
+  - added paired coverage in `services.test_api` and `services.test_dvm`
+    proving malformed timeout aliases now fail fast in both public adapter
+    consumers.

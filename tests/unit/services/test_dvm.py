@@ -358,6 +358,11 @@ class TestDvmConfig:
         with pytest.raises(ValueError, match="fetch_timeout: expected number, got bool"):
             DvmConfig(relays=["wss://relay.example.com"], fetch_timeout=True)
 
+    @pytest.mark.parametrize("value", ["30", "30.0"])
+    def test_rejects_non_numeric_fetch_timeout_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"fetch_timeout: expected number, got"):
+            DvmConfig(relays=["wss://relay.example.com"], fetch_timeout=value)
+
     @pytest.mark.parametrize(
         ("field_name", "value"),
         [

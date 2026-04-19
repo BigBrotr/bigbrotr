@@ -199,6 +199,11 @@ class TestApiConfig:
         with pytest.raises(ValueError, match="request_timeout: expected number, got bool"):
             ApiConfig(request_timeout=True)
 
+    @pytest.mark.parametrize("value", ["30", "30.0"])
+    def test_rejects_non_numeric_request_timeout_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"request_timeout: expected number, got"):
+            ApiConfig(request_timeout=value)
+
     def test_rejects_boolean_port_alias(self) -> None:
         with pytest.raises(ValueError, match="port: expected integer, got bool"):
             ApiConfig(port=True)

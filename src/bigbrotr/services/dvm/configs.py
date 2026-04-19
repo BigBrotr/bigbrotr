@@ -12,7 +12,7 @@ See Also:
 
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, Any, ClassVar, cast
 
 from pydantic import BeforeValidator, Field, ValidationInfo, field_validator
 
@@ -31,6 +31,12 @@ def _normalize_required_text(value: Any, field_name: str) -> str:
     if not normalized:
         raise ValueError(f"{field_name} must not be blank")
     return normalized
+
+
+def _require_number(value: Any, field_name: str) -> int | float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name}: expected number, got {type(value).__name__}")
+    return cast("int | float", value)
 
 
 class DvmConfig(PublicReadAdapterConfig):
@@ -123,7 +129,6 @@ class DvmConfig(PublicReadAdapterConfig):
 
     @field_validator("fetch_timeout", mode="before")
     @classmethod
-    def _reject_boolean_fetch_timeout(cls, value: Any) -> Any:
-        if isinstance(value, bool):
-            raise ValueError("fetch_timeout: expected number, got bool")
-        return value
+    def _require_numeric_fetch_timeout(cls, value: Any, info: ValidationInfo) -> int | float:
+        field_name = info.field_name or "value"
+        return _require_number(value, field_name)
