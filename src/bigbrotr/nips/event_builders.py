@@ -21,7 +21,7 @@ import importlib
 import json
 from collections.abc import Iterable as IterableABC
 from collections.abc import Mapping as MappingABC
-from typing import TYPE_CHECKING, NamedTuple, TypeGuard, cast
+from typing import TYPE_CHECKING, NamedTuple, cast
 
 from nostr_sdk import EventBuilder, Kind, Tag
 from nostr_sdk import Metadata as NostrMetadata
@@ -341,16 +341,13 @@ def canonicalize_trusted_provider_declarations(
     return tuple(sorted(set(declarations), key=_provider_declaration_sort_key))
 
 
-def _is_trusted_provider_declaration(value: object) -> TypeGuard[TrustedProviderDeclaration]:
-    result_kind = getattr(value, "result_kind", None)
-    return (
-        not isinstance(result_kind, bool)
-        and isinstance(result_kind, int)
-        and isinstance(getattr(value, "tag_name", None), str)
-        and isinstance(getattr(value, "service_pubkey", None), str)
-        and isinstance(getattr(value, "relay_hint", None), str)
-        and callable(getattr(value, "as_tag", None))
-    )
+def _normalize_trusted_provider_declaration(value: object) -> TrustedProviderDeclaration:
+    declaration_type = importlib.import_module(
+        "bigbrotr.nips.nip85.data"
+    ).TrustedProviderDeclaration
+    if not isinstance(value, declaration_type):
+        raise ValueError("declarations must contain only TrustedProviderDeclaration items")
+    return cast("TrustedProviderDeclaration", value)
 
 
 def _normalize_trusted_provider_declarations(
@@ -360,10 +357,9 @@ def _normalize_trusted_provider_declarations(
         raise ValueError("declarations must be an iterable of TrustedProviderDeclaration")
     if not isinstance(declarations, IterableABC):
         raise ValueError("declarations must be an iterable of TrustedProviderDeclaration")
-    items = list(declarations)
-    for declaration in items:
-        if not _is_trusted_provider_declaration(declaration):
-            raise ValueError("declarations must contain only TrustedProviderDeclaration items")
+    items = tuple(
+        _normalize_trusted_provider_declaration(declaration) for declaration in declarations
+    )
     return canonicalize_trusted_provider_declarations(items)
 
 

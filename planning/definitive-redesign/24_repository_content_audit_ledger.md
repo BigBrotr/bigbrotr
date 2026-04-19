@@ -3109,3 +3109,16 @@ Use this section during execution for:
     attributes to explode later;
   - added paired `nips.parsing` coverage proving corrupted `spec` inputs are
     rejected before any payload parsing or issue-collection work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-sixty-fifth remediation
+  slice:
+  - tightened the public `nips.event_builders.build_trusted_provider_list()`
+    boundary so Kind `10040` builder inputs must now be real
+    `TrustedProviderDeclaration` instances rather than merely duck-typed
+    declaration-like objects;
+  - closed the bypass where fake objects could smuggle arbitrary `as_tag()`
+    output past the NIP-85 declaration model's canonical
+    kind/pubkey/relay-hint validation and into a public trusted-provider list
+    event;
+  - added paired `nips.nip85.test_builders` coverage proving duck-typed
+    declaration payloads are rejected before any tag parsing or
+    `EventBuilder` assembly starts.

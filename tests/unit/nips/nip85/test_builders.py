@@ -427,3 +427,33 @@ class TestBuildTrustedProviderList:
 
         mock_parse.assert_not_called()
         mock_builder.assert_not_called()
+
+    def test_rejects_duck_typed_declaration_items_before_tag_build(self) -> None:
+        class DuckTypedDeclaration:
+            result_kind = int(EventKind.NIP85_USER_ASSERTION)
+            tag_name = "rank"
+            service_pubkey = "4f" * 32
+            relay_hint = "wss://fake.example.com"
+
+            def as_tag(self) -> list[str]:
+                return [
+                    f"{EventKind.NIP85_USER_ASSERTION}:rank",
+                    self.service_pubkey,
+                    self.relay_hint,
+                ]
+
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(
+                ValueError,
+                match="declarations must contain only TrustedProviderDeclaration items",
+            ),
+        ):
+            build_trusted_provider_list(
+                [DuckTypedDeclaration()],
+                content="encrypted-private-tags",
+            )
+
+        mock_parse.assert_not_called()
+        mock_builder.assert_not_called()
