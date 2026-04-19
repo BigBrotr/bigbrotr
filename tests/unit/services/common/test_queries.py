@@ -64,13 +64,24 @@ def _row(data: dict[str, Any]) -> dict[str, Any]:
 class TestInsertRelaysAsCandidates:
     async def test_filters_then_upserts(self, query_brotr: MagicMock) -> None:
         relay = _mock_relay()
-        query_brotr.fetch = AsyncMock(return_value=[_row({"url": "wss://relay.example.com"})])
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "url": "wss://relay.example.com",
+                        "relay_exists": False,
+                        "state_value": None,
+                    }
+                )
+            ]
+        )
         query_brotr.upsert_service_state = AsyncMock(return_value=1)
 
         result = await insert_relays_as_candidates(query_brotr, [relay])
 
         query_brotr.fetch.assert_awaited_once()
         assert "unnest($1::text[])" in query_brotr.fetch.call_args[0][0]
+        assert "LEFT JOIN service_state" in query_brotr.fetch.call_args[0][0]
         records = query_brotr.upsert_service_state.call_args[0][0]
         assert len(records) == 1
         record = records[0]
@@ -83,7 +94,17 @@ class TestInsertRelaysAsCandidates:
         assert result == 1
 
     async def test_all_filtered_out(self, query_brotr: MagicMock) -> None:
-        query_brotr.fetch = AsyncMock(return_value=[])
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "url": "wss://relay.example.com",
+                        "relay_exists": True,
+                        "state_value": None,
+                    }
+                )
+            ]
+        )
         result = await insert_relays_as_candidates(query_brotr, [_mock_relay()])
         query_brotr.upsert_service_state.assert_not_awaited()
         assert result == 0
@@ -96,7 +117,18 @@ class TestInsertRelaysAsCandidates:
     async def test_batching(self, query_brotr: MagicMock) -> None:
         query_brotr.config.batch.max_size = 2
         relays = [_mock_relay(f"wss://r{i}.example.com") for i in range(3)]
-        query_brotr.fetch = AsyncMock(return_value=[_row({"url": r.url}) for r in relays])
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "url": relay.url,
+                        "relay_exists": False,
+                        "state_value": None,
+                    }
+                )
+                for relay in relays
+            ]
+        )
         query_brotr.upsert_service_state = AsyncMock(side_effect=[2, 1])
 
         result = await insert_relays_as_candidates(query_brotr, relays)
@@ -114,8 +146,20 @@ class TestInsertRelaysAsCandidates:
         ]
         query_brotr.fetch = AsyncMock(
             return_value=[
-                _row({"url": "wss://second.example.com"}),
-                _row({"url": "wss://dup.example.com"}),
+                _row(
+                    {
+                        "url": "wss://second.example.com",
+                        "relay_exists": False,
+                        "state_value": None,
+                    }
+                ),
+                _row(
+                    {
+                        "url": "wss://dup.example.com",
+                        "relay_exists": False,
+                        "state_value": None,
+                    }
+                ),
             ]
         )
         query_brotr.upsert_service_state = AsyncMock(return_value=2)
@@ -129,3 +173,32 @@ class TestInsertRelaysAsCandidates:
             "wss://second.example.com",
         ]
         assert result == 2
+
+    async def test_invalid_persisted_candidate_does_not_block_rediscovery(
+        self, query_brotr: MagicMock
+    ) -> None:
+        relay = _mock_relay()
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                _row(
+                    {
+                        "url": relay.url,
+                        "relay_exists": False,
+                        "state_value": {
+                            "timestamp": 10,
+                            "failures": 0,
+                            "network": "tor",
+                        },
+                    }
+                )
+            ]
+        )
+        query_brotr.upsert_service_state = AsyncMock(return_value=1)
+
+        result = await insert_relays_as_candidates(query_brotr, [relay])
+
+        query_brotr.upsert_service_state.assert_awaited_once()
+        record = query_brotr.upsert_service_state.call_args.args[0][0]
+        assert record.state_key == relay.url
+        assert record.state_value["network"] == "clearnet"
+        assert result == 1

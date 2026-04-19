@@ -30,26 +30,42 @@ def _deduplicate_relays_by_url(relays: list[Relay]) -> list[Relay]:
 
 async def insert_relays_as_candidates(brotr: Brotr, relays: list[Relay]) -> int:
     """Insert new validation candidates, skipping known relays and duplicates."""
-    urls = [relay.url for relay in relays]
+    input_relays = _deduplicate_relays_by_url(relays)
+    urls = [relay.url for relay in input_relays]
     if not urls:
         return 0
 
     rows = await brotr.fetch(
         """
-        SELECT t.url FROM unnest($1::text[]) AS t(url)
-        WHERE NOT EXISTS (SELECT 1 FROM relay r WHERE r.url = t.url)
-          AND NOT EXISTS (
-              SELECT 1 FROM service_state ss
-              WHERE ss.owner = $2 AND ss.state_type = $3
-                AND ss.state_key = t.url
-          )
+        SELECT
+            t.url,
+            EXISTS (SELECT 1 FROM relay r WHERE r.url = t.url) AS relay_exists,
+            ss.state_value
+        FROM unnest($1::text[]) AS t(url)
+        LEFT JOIN service_state ss
+          ON ss.owner = $2
+         AND ss.state_type = $3
+         AND ss.state_key = t.url
         """,
         urls,
         ServiceName.VALIDATOR,
         ServiceStateType.CHECKPOINT,
     )
-    new_urls = {row["url"] for row in rows}
-    new_relays = _deduplicate_relays_by_url([relay for relay in relays if relay.url in new_urls])
+    rows_by_url = {row["url"]: row for row in rows}
+    new_relays: list[Relay] = []
+    for relay in input_relays:
+        row = rows_by_url.get(relay.url)
+        if row is None or row["relay_exists"]:
+            continue
+        state_value = row["state_value"]
+        if state_value is not None:
+            try:
+                ServiceStateStore.decode_candidate(relay.url, state_value)
+            except (KeyError, TypeError, ValueError):
+                pass
+            else:
+                continue
+        new_relays.append(relay)
     if not new_relays:
         return 0
 

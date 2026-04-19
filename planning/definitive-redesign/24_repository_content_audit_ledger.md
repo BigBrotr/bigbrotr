@@ -2312,3 +2312,12 @@ Use this section during execution for:
   - added paired `DVM` coverage proving both direct job preparation and live
     job execution now reject non-string read-model selectors before the
     request is logged or resolved through the shared read core.
+- `2.1` models/utils/NIPs leaf audit, two-hundredth remediation slice:
+  - tightened the shared discovery-to-validator seam so malformed persisted
+    candidate tombstones no longer block relay rediscovery purely because a
+    raw `service_state` row exists; Seeder and Finder now distinguish
+    decodable validator candidates from invalid persisted state before
+    deciding whether a relay is still pending validation;
+  - added shared candidate-insert coverage proving rediscovery now repairs an
+    invalid persisted candidate row in place instead of skipping the relay
+    until a later validator cleanup pass happens to remove the tombstone.
