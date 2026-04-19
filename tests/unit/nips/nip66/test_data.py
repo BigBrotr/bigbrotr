@@ -153,6 +153,25 @@ class TestNip66SslData:
             Nip66SslData(ssl_san=[" ", "relay.example.com"])
 
     @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"ssl_subject_cn": " "}, "ssl_subject_cn must be a non-empty string"),
+            ({"ssl_issuer": ""}, "ssl_issuer must be a non-empty string"),
+            ({"ssl_issuer_cn": " "}, "ssl_issuer_cn must be a non-empty string"),
+            ({"ssl_serial": ""}, "ssl_serial must be a non-empty string"),
+            ({"ssl_fingerprint": " "}, "ssl_fingerprint must be a non-empty string"),
+            ({"ssl_protocol": ""}, "ssl_protocol must be a non-empty string"),
+            ({"ssl_cipher": " "}, "ssl_cipher must be a non-empty string"),
+        ],
+    )
+    def test_construction_rejects_blank_scalar_ssl_strings(
+        self, kwargs: dict[str, str], message: str
+    ) -> None:
+        """Constructor rejects blank or whitespace-only scalar SSL strings."""
+        with pytest.raises(ValidationError, match=message):
+            Nip66SslData(**kwargs)
+
+    @pytest.mark.parametrize(
         "kwargs",
         [
             {"ssl_expires": -1},
@@ -237,6 +256,16 @@ class TestNip66SslData:
         raw = {"ssl_san": [" ", "relay.example.com", "", "*.example.com"]}
         parsed = Nip66SslData.parse(raw)
         assert parsed == {"ssl_san": ["*.example.com", "relay.example.com"]}
+
+    def test_parse_filters_blank_scalar_ssl_strings(self) -> None:
+        """parse() filters blank or whitespace-only scalar SSL strings."""
+        raw = {
+            "ssl_issuer": " ",
+            "ssl_protocol": "TLSv1.3",
+            "ssl_cipher": "",
+        }
+        parsed = Nip66SslData.parse(raw)
+        assert parsed == {"ssl_protocol": "TLSv1.3"}
 
 
 class TestNip66GeoData:
@@ -429,6 +458,20 @@ class TestNip66DnsData:
         with pytest.raises(ValidationError):
             Nip66DnsData(dns_ttl=-1)
 
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"dns_cname": ""}, "dns_cname must be a non-empty string"),
+            ({"dns_reverse": " "}, "dns_reverse must be a non-empty string"),
+        ],
+    )
+    def test_construction_rejects_blank_scalar_dns_strings(
+        self, kwargs: dict[str, str], message: str
+    ) -> None:
+        """Constructor rejects blank or whitespace-only scalar DNS strings."""
+        with pytest.raises(ValidationError, match=message):
+            Nip66DnsData(**kwargs)
+
     def test_construction_normalizes_set_like_dns_lists(self) -> None:
         """Constructed DNS set-like lists are deduplicated and sorted."""
         data = Nip66DnsData(
@@ -496,6 +539,16 @@ class TestNip66DnsData:
             "dns_ns": ["ns1.google.com"],
         }
 
+    def test_parse_filters_blank_scalar_dns_strings(self) -> None:
+        """parse() filters blank or whitespace-only scalar DNS strings."""
+        raw = {
+            "dns_cname": "",
+            "dns_reverse": " ",
+            "dns_ttl": 300,
+        }
+        parsed = Nip66DnsData.parse(raw)
+        assert parsed == {"dns_ttl": 300}
+
     def test_parse_list_all_invalid_becomes_none(self) -> None:
         """parse() returns None when list has only invalid elements."""
         raw = {
@@ -532,6 +585,20 @@ class TestNip66HttpData:
         assert data.http_server is None
         assert data.http_powered_by is None
 
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"http_server": ""}, "http_server must be a non-empty string"),
+            ({"http_powered_by": " "}, "http_powered_by must be a non-empty string"),
+        ],
+    )
+    def test_construction_rejects_blank_http_strings(
+        self, kwargs: dict[str, str], message: str
+    ) -> None:
+        """Constructor rejects blank or whitespace-only HTTP header strings."""
+        with pytest.raises(ValidationError, match=message):
+            Nip66HttpData(**kwargs)
+
     def test_parse_filters_invalid_types(self) -> None:
         """parse() filters invalid string types."""
         raw = {
@@ -542,6 +609,15 @@ class TestNip66HttpData:
         data = Nip66HttpData(**parsed)
         assert data.http_server is None
         assert data.http_powered_by == "Strfry"
+
+    def test_parse_filters_blank_http_strings(self) -> None:
+        """parse() filters blank or whitespace-only HTTP header strings."""
+        raw = {
+            "http_server": "",
+            "http_powered_by": " ",
+        }
+        parsed = Nip66HttpData.parse(raw)
+        assert parsed == {}
 
     def test_to_dict_excludes_none(self) -> None:
         """to_dict() excludes None values."""

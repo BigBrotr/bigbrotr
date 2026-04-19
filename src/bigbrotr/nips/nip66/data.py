@@ -117,6 +117,26 @@ def _drop_blank_string_list_entries(
             del parsed[key]
 
 
+def _drop_blank_string_fields(
+    parsed: dict[str, Any],
+    issues: list[ParseIssue],
+    field_names: tuple[str, ...],
+    *,
+    path: str,
+) -> None:
+    for key in field_names:
+        value = parsed.get(key)
+        if isinstance(value, str) and value.strip() == "":
+            del parsed[key]
+            issues.append(
+                ParseIssue(
+                    kind="invalid_value",
+                    path=join_parse_path(path, key),
+                    detail="expected non-empty str",
+                )
+            )
+
+
 class Nip66RttData(BaseData):
     """Round-trip time measurements in milliseconds.
 
@@ -210,6 +230,21 @@ class Nip66SslData(BaseData):
             raise ValueError(f"{info.field_name} must be non-negative")
         return value
 
+    @field_validator(
+        "ssl_subject_cn",
+        "ssl_issuer",
+        "ssl_issuer_cn",
+        "ssl_serial",
+        "ssl_fingerprint",
+        "ssl_protocol",
+        "ssl_cipher",
+    )
+    @classmethod
+    def _require_non_blank_ssl_strings(cls, value: str | None, info: Any) -> str | None:
+        if value is not None and value.strip() == "":
+            raise ValueError(f"{info.field_name} must be a non-empty string")
+        return value
+
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         bool_fields=frozenset({"ssl_valid"}),
         int_fields=frozenset(
@@ -250,6 +285,20 @@ class Nip66SslData(BaseData):
         report = super().parse_report(data, path=path)
         parsed = dict(report.parsed)
         issues = list(report.issues)
+        _drop_blank_string_fields(
+            parsed,
+            issues,
+            (
+                "ssl_subject_cn",
+                "ssl_issuer",
+                "ssl_issuer_cn",
+                "ssl_serial",
+                "ssl_fingerprint",
+                "ssl_protocol",
+                "ssl_cipher",
+            ),
+            path=path,
+        )
         _drop_blank_string_list_entries(parsed, issues, ("ssl_san",), path=path)
         _drop_negative_int_fields(
             parsed,
@@ -461,12 +510,20 @@ class Nip66DnsData(BaseData):
             raise ValueError("dns_ttl must be non-negative")
         return value
 
+    @field_validator("dns_cname", "dns_reverse")
+    @classmethod
+    def _require_non_blank_dns_strings(cls, value: str | None, info: Any) -> str | None:
+        if value is not None and value.strip() == "":
+            raise ValueError(f"{info.field_name} must be a non-empty string")
+        return value
+
     @classmethod
     def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
         """Parse DNS data while rejecting negative TTL values."""
         report = super().parse_report(data, path=path)
         parsed = dict(report.parsed)
         issues = list(report.issues)
+        _drop_blank_string_fields(parsed, issues, ("dns_cname", "dns_reverse"), path=path)
         _drop_blank_string_list_entries(
             parsed,
             issues,
@@ -512,3 +569,19 @@ class Nip66HttpData(BaseData):
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         str_fields=frozenset({"http_server", "http_powered_by"}),
     )
+
+    @field_validator("http_server", "http_powered_by")
+    @classmethod
+    def _require_non_blank_http_strings(cls, value: str | None, info: Any) -> str | None:
+        if value is not None and value.strip() == "":
+            raise ValueError(f"{info.field_name} must be a non-empty string")
+        return value
+
+    @classmethod
+    def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
+        """Parse HTTP data while rejecting blank header strings."""
+        report = super().parse_report(data, path=path)
+        parsed = dict(report.parsed)
+        issues = list(report.issues)
+        _drop_blank_string_fields(parsed, issues, ("http_server", "http_powered_by"), path=path)
+        return ParseReport(parsed=parsed, issues=tuple(issues))

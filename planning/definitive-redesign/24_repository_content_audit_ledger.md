@@ -3284,3 +3284,15 @@ Use this section during execution for:
   - added paired `nips.nip66.test_data` coverage proving blank set-like list
     entries now fail fast at construction time and are filtered from parse
     output.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-eightieth
+  remediation slice:
+  - tightened the `nips.nip66.data` scalar string boundary so blank or
+    whitespace-only SSL descriptor fields, DNS scalar fields, and HTTP header
+    fields now reject at direct model construction and are filtered from
+    permissive parse/report sanitization;
+  - closed the drift where semantically empty scalar NIP-66 metadata could
+    survive as canonical monitoring data and later flow into shared result
+    containers, persisted documents, and public builder output;
+  - added paired `nips.nip66.test_data` coverage proving blank scalar SSL,
+    DNS, and HTTP strings now fail fast at construction time and are removed
+    from parse output.
