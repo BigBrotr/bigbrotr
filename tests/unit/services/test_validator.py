@@ -108,6 +108,11 @@ class TestProcessingConfig:
         with pytest.raises(ValueError):
             ProcessingConfig(chunk_size=value)
 
+    @pytest.mark.parametrize("value", ["100", 100.0, True])
+    def test_rejects_non_integer_chunk_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"chunk_size: expected integer, got"):
+            ProcessingConfig(chunk_size=value)
+
     def test_max_candidates_valid(self) -> None:
         assert ProcessingConfig(max_candidates=None).max_candidates is None
         assert ProcessingConfig(max_candidates=1).max_candidates == 1
@@ -119,6 +124,11 @@ class TestProcessingConfig:
     def test_rejects_boolean_max_candidates_alias(self) -> None:
         with pytest.raises(ValueError, match="max_candidates: expected integer, got bool"):
             ProcessingConfig(max_candidates=True)
+
+    @pytest.mark.parametrize("value", ["5000", 5000.0])
+    def test_rejects_non_integer_max_candidates_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_candidates: expected integer, got"):
+            ProcessingConfig(max_candidates=value)
 
     def test_interval_bounds(self) -> None:
         assert ProcessingConfig(interval=0.0).interval == 0.0
@@ -201,6 +211,21 @@ class TestValidatorConfig:
         cfg = ValidatorConfig(processing={"chunk_size": 200, "max_candidates": 5000})
         assert cfg.processing.chunk_size == 200
         assert cfg.processing.max_candidates == 5000
+
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("chunk_size", "200"),
+            ("chunk_size", 200.0),
+            ("max_candidates", "5000"),
+            ("max_candidates", 5000.0),
+        ],
+    )
+    def test_nested_processing_integer_aliases_rejected(
+        self, field_name: str, field_value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected integer, got"):
+            ValidatorConfig(processing={field_name: field_value})
 
     def test_nested_cleanup_via_dict(self) -> None:
         cfg = ValidatorConfig(cleanup={"enabled": True, "max_failures": 50})

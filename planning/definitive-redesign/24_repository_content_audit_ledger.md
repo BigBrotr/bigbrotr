@@ -4167,3 +4167,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_validator` proving malformed
     boolean aliases now fail fast both on the leaf models and through nested
     `ValidatorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-fifty-third
+  remediation slice:
+  - tightened the authored integer boundaries in
+    `services.validator.configs.ProcessingConfig` so `chunk_size` and
+    `max_candidates` now require canonical `int` values;
+  - closed the drift where payloads like `"100"`, `100.0`, `"5000"`, or
+    `5000.0` could silently become valid validator processing budgets at
+    config load time;
+  - added paired coverage in `services.test_validator` proving malformed
+    integer aliases now fail fast both on the leaf model and through nested
+    `ValidatorConfig.processing` parsing.

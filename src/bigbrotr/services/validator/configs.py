@@ -32,6 +32,13 @@ def _require_bool(value: Any, field_name: str) -> bool:
     return value
 
 
+def _require_int(value: Any, field_name: str) -> int:
+    """Require canonical integers for authored validator config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name}: expected integer, got {type(value).__name__}")
+    return int(value)
+
+
 class ProcessingConfig(BaseModel):
     """Candidate processing settings.
 
@@ -66,14 +73,21 @@ class ProcessingConfig(BaseModel):
         description="Fall back to insecure transport on SSL certificate failure",
     )
 
+    @field_validator("chunk_size", mode="before")
+    @classmethod
+    def require_integer_chunk_size(cls, v: Any, info: ValidationInfo) -> int:
+        """Require canonical integers for per-cycle candidate batch sizing."""
+        field_name = info.field_name or "chunk_size"
+        return _require_int(v, field_name)
+
     @field_validator("max_candidates", mode="before")
     @classmethod
-    def reject_boolean_max_candidates(cls, v: Any, info: ValidationInfo) -> Any:
-        """Reject boolean aliases that would otherwise coerce to a one-item cycle budget."""
+    def require_integer_max_candidates(cls, v: Any, info: ValidationInfo) -> Any:
+        """Require canonical integers for the optional cycle-wide candidate cap."""
         if v is None:
             return v
         field_name = info.field_name or "max_candidates"
-        return _reject_bool_alias(v, field_name, "integer")
+        return _require_int(v, field_name)
 
     @field_validator("interval", mode="before")
     @classmethod
