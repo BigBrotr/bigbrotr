@@ -2682,3 +2682,16 @@ Use this section during execution for:
     orchestrated probe paths;
   - added paired RTT coverage proving malformed proxy URLs are rejected before
     any child open-phase work starts.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-thirty-third remediation
+  slice:
+  - tightened the direct public `allow_insecure` boundary for the shared
+    session helper `utils.protocol_sessions.create_connected_client()` so
+    callers using that leaf module directly can no longer pass truthy
+    non-bool aliases that would otherwise leak into client allocation as if
+    they were canonical insecure-transport policy;
+  - aligned the leaf helper with the already-hardened top-level
+    `utils.protocol.create_connected_client()` facade so both entrypoints now
+    enforce the same strict bool contract before any shared client is created;
+  - added paired `utils.protocol_sessions` coverage proving malformed
+    `allow_insecure` inputs are rejected before client creation or relay
+    registration starts.

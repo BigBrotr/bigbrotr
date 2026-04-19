@@ -82,6 +82,13 @@ def _normalize_session_timeout(timeout: object) -> float:
     return normalized
 
 
+def _normalize_allow_insecure(allow_insecure: object) -> bool:
+    """Return one canonical insecure-transport toggle for shared sessions."""
+    if not isinstance(allow_insecure, bool):
+        raise ValueError("allow_insecure must be a bool")
+    return allow_insecure
+
+
 def _deduplicate_relays(relays: list[Relay]) -> list[Relay]:
     """Return relays with duplicate URLs removed, preserving first-seen order."""
     deduplicated: list[Relay] = []
@@ -154,8 +161,9 @@ async def create_connected_client(
     allocate client resources for an unsupported contract.
     """
     normalized_timeout = _normalize_session_timeout(timeout)
+    normalized_allow_insecure = _normalize_allow_insecure(allow_insecure)
     _validate_session_relays(relays)
-    client = await dependencies.create_client(keys=keys, allow_insecure=allow_insecure)
+    client = await dependencies.create_client(keys=keys, allow_insecure=normalized_allow_insecure)
     connect_result_ready = False
     try:
         result = await connect_client_relays(client, relays, timeout=normalized_timeout)

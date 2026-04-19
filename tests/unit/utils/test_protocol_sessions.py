@@ -162,6 +162,26 @@ class TestCreateConnectedClient:
         client.add_relay.assert_not_awaited()
         client.try_connect.assert_not_awaited()
 
+    async def test_rejects_non_bool_allow_insecure_before_client_creation(self) -> None:
+        """Malformed insecure toggles fail fast before allocating a shared client."""
+        client = AsyncMock()
+        create_client_func = AsyncMock(return_value=client)
+
+        with pytest.raises(ValueError, match="allow_insecure must be a bool"):
+            await create_connected_client(
+                [Relay("wss://relay.example.com")],
+                dependencies=SharedSessionDependencies(
+                    create_client=create_client_func,
+                    shutdown_client=AsyncMock(),
+                ),
+                timeout=15.0,
+                allow_insecure=1,  # type: ignore[arg-type]
+            )
+
+        create_client_func.assert_not_awaited()
+        client.add_relay.assert_not_awaited()
+        client.try_connect.assert_not_awaited()
+
     async def test_keeps_clearnet_sessions_supported(self) -> None:
         """Clearnet multi-relay sessions still normalize the connect result."""
         client = AsyncMock()
