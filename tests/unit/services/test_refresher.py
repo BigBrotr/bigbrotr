@@ -104,6 +104,23 @@ class TestRefreshTargetConfig:
         assert config1.current.targets is not config2.current.targets
         assert config1.analytics.targets is not config2.analytics.targets
 
+    @pytest.mark.parametrize(
+        ("payload", "field_name", "expected_type"),
+        [
+            ({"processing": {"max_source_window": True}}, "max_source_window", "integer"),
+            ({"processing": {"max_duration": True}}, "max_duration", "number"),
+            ({"processing": {"max_targets_per_cycle": True}}, "max_targets_per_cycle", "integer"),
+        ],
+    )
+    def test_rejects_boolean_processing_budget_aliases(
+        self,
+        payload: dict[str, object],
+        field_name: str,
+        expected_type: str,
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected {expected_type}, got bool"):
+            RefresherConfig.model_validate(payload)
+
     def test_empty_targets_are_allowed(self) -> None:
         config = _refresher_config()
 

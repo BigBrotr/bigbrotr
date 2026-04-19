@@ -11,9 +11,9 @@ See Also:
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import TypeVar
+from typing import Any, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 
@@ -136,6 +136,13 @@ def validate_refresh_dependencies(
         raise ValueError("invalid refresher target selection: " + "; ".join(problems))
 
 
+def _reject_bool_alias(value: Any, field_name: str, expected_type: str) -> Any:
+    """Reject bool aliases before Pydantic coerces them into numeric budgets."""
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected {expected_type}, got bool")
+    return value
+
+
 class ProcessingConfig(BaseModel):
     """Refresher cycle processing budgets and failure policy."""
 
@@ -162,6 +169,16 @@ class ProcessingConfig(BaseModel):
         default=True,
         description="Continue refreshing later targets after one target fails",
     )
+
+    @field_validator("max_source_window", "max_targets_per_cycle", mode="before")
+    @classmethod
+    def reject_boolean_integer_budgets(cls, value: Any, info: ValidationInfo) -> Any:
+        return _reject_bool_alias(value, str(info.field_name), "integer")
+
+    @field_validator("max_duration", mode="before")
+    @classmethod
+    def reject_boolean_duration_budget(cls, value: Any, info: ValidationInfo) -> Any:
+        return _reject_bool_alias(value, str(info.field_name), "number")
 
 
 class CurrentRefreshConfig(BaseModel):

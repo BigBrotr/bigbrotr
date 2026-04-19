@@ -2168,3 +2168,11 @@ Use this section during execution for:
   - added paired `ranker` coverage proving those boolean aliases now fail
     fast at config load instead of mutating private DuckDB and export
     scheduling behavior.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-eighty-fourth remediation
+  slice:
+  - tightened the `refresher` processing boundary so `max_source_window`,
+    `max_duration`, and `max_targets_per_cycle` no longer accept boolean
+    aliases, which previously let values like `True` coerce to `1` or `1.0`
+    and silently collapse source slices or cycle target budgets to one unit;
+  - added paired `refresher` coverage proving those boolean aliases now fail
+    fast at config load instead of mutating incremental refresh scheduling.
