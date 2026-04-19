@@ -3355,3 +3355,15 @@ Use this section during execution for:
   - added paired `nips.nip11.test_data` coverage proving malformed pubkey
     values now fail fast at construction time and are removed from parse
     output.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-eighty-seventh
+  remediation slice:
+  - tightened the `nips.nip66.data.Nip66SslData` certificate-identifier
+    boundary so malformed `ssl_serial` and `ssl_fingerprint` values now
+    reject at direct model construction and are filtered from permissive
+    parse/report sanitization;
+  - closed the drift where non-canonical certificate identifiers could
+    survive as canonical NIP-66 SSL data and later flow into shared result
+    containers, persisted documents, and public builder output;
+  - added paired `nips.nip66.test_data` coverage proving malformed serial
+    and SHA-256 fingerprint strings now fail fast at construction time and
+    are removed from parse output.

@@ -28,6 +28,7 @@ See Also:
 
 from __future__ import annotations
 
+import re
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -45,6 +46,8 @@ _GEO_LAT_MIN = -90.0
 _GEO_LAT_MAX = 90.0
 _GEO_LON_MIN = -180.0
 _GEO_LON_MAX = 180.0
+_SSL_SERIAL_RE = re.compile(r"^[0-9A-F]+$", re.IGNORECASE)
+_SSL_FINGERPRINT_RE = re.compile(r"^SHA256:(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$", re.IGNORECASE)
 
 
 def _drop_negative_int_fields(
@@ -225,6 +228,14 @@ def _is_valid_ipv6_network(value: str) -> bool:
     return True
 
 
+def _is_valid_ssl_serial(value: str) -> bool:
+    return bool(_SSL_SERIAL_RE.fullmatch(value))
+
+
+def _is_valid_ssl_fingerprint(value: str) -> bool:
+    return bool(_SSL_FINGERPRINT_RE.fullmatch(value))
+
+
 class Nip66RttData(BaseData):
     """Round-trip time measurements in milliseconds.
 
@@ -333,6 +344,24 @@ class Nip66SslData(BaseData):
             raise ValueError(f"{info.field_name} must be a non-empty string")
         return value
 
+    @field_validator("ssl_serial")
+    @classmethod
+    def _normalize_ssl_serial(cls, value: str | None) -> str | None:
+        if value is not None:
+            if not _is_valid_ssl_serial(value):
+                raise ValueError("ssl_serial must be a hexadecimal string")
+            return value.upper()
+        return value
+
+    @field_validator("ssl_fingerprint")
+    @classmethod
+    def _normalize_ssl_fingerprint(cls, value: str | None) -> str | None:
+        if value is not None:
+            if not _is_valid_ssl_fingerprint(value):
+                raise ValueError("ssl_fingerprint must be a SHA256 fingerprint")
+            return value.upper()
+        return value
+
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         bool_fields=frozenset({"ssl_valid"}),
         int_fields=frozenset(
@@ -369,7 +398,7 @@ class Nip66SslData(BaseData):
 
     @classmethod
     def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
-        """Parse SSL data while rejecting negative numeric certificate metadata."""
+        """Parse SSL data while rejecting malformed certificate metadata."""
         report = super().parse_report(data, path=path)
         parsed = dict(report.parsed)
         issues = list(report.issues)
@@ -384,6 +413,15 @@ class Nip66SslData(BaseData):
                 "ssl_fingerprint",
                 "ssl_protocol",
                 "ssl_cipher",
+            ),
+            path=path,
+        )
+        _drop_invalid_string_fields(
+            parsed,
+            issues,
+            (
+                ("ssl_serial", _is_valid_ssl_serial, "expected hexadecimal string"),
+                ("ssl_fingerprint", _is_valid_ssl_fingerprint, "expected SHA256 fingerprint"),
             ),
             path=path,
         )

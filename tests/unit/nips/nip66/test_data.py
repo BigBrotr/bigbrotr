@@ -130,7 +130,10 @@ class TestNip66SslData:
             ssl_san=["relay.example.com", "*.example.com"],
             ssl_serial="04ABCDEF",
             ssl_version=3,
-            ssl_fingerprint="SHA256:AB:CD",
+            ssl_fingerprint=(
+                "SHA256:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:"
+                "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89"
+            ),
             ssl_protocol="TLSv1.3",
             ssl_cipher="TLS_AES_256_GCM_SHA384",
             ssl_cipher_bits=256,
@@ -168,6 +171,25 @@ class TestNip66SslData:
         self, kwargs: dict[str, str], message: str
     ) -> None:
         """Constructor rejects blank or whitespace-only scalar SSL strings."""
+        with pytest.raises(ValidationError, match=message):
+            Nip66SslData(**kwargs)
+
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"ssl_serial": "not-hex"}, "ssl_serial must be a hexadecimal string"),
+            ({"ssl_serial": "0xABCD"}, "ssl_serial must be a hexadecimal string"),
+            ({"ssl_fingerprint": "bad"}, "ssl_fingerprint must be a SHA256 fingerprint"),
+            (
+                {"ssl_fingerprint": "SHA1:AB:CD"},
+                "ssl_fingerprint must be a SHA256 fingerprint",
+            ),
+        ],
+    )
+    def test_construction_rejects_invalid_ssl_identifiers(
+        self, kwargs: dict[str, str], message: str
+    ) -> None:
+        """Constructor rejects malformed SSL serial and fingerprint values."""
         with pytest.raises(ValidationError, match=message):
             Nip66SslData(**kwargs)
 
@@ -263,6 +285,16 @@ class TestNip66SslData:
             "ssl_issuer": " ",
             "ssl_protocol": "TLSv1.3",
             "ssl_cipher": "",
+        }
+        parsed = Nip66SslData.parse(raw)
+        assert parsed == {"ssl_protocol": "TLSv1.3"}
+
+    def test_parse_filters_invalid_ssl_identifiers(self) -> None:
+        """parse() filters malformed SSL serial and fingerprint values."""
+        raw = {
+            "ssl_serial": "not-hex",
+            "ssl_fingerprint": "bad",
+            "ssl_protocol": "TLSv1.3",
         }
         parsed = Nip66SslData.parse(raw)
         assert parsed == {"ssl_protocol": "TLSv1.3"}
