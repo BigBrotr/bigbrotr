@@ -4178,3 +4178,13 @@ Use this section during execution for:
   - added paired coverage in `services.test_validator` proving malformed
     integer aliases now fail fast both on the leaf model and through nested
     `ValidatorConfig.processing` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-fifty-fourth
+  remediation slice:
+  - tightened the authored integer boundary in
+    `services.validator.configs.CleanupConfig` so `max_failures` now requires
+    a canonical `int` value;
+  - closed the drift where payloads like `"50"` or `50.0` could silently
+    become valid exhausted-candidate cleanup thresholds at config load time;
+  - added paired coverage in `services.test_validator` proving malformed
+    integer aliases now fail fast both on the leaf cleanup model and through
+    nested `ValidatorConfig.cleanup` parsing.

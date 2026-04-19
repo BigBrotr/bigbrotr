@@ -175,6 +175,11 @@ class TestCleanupConfig:
         with pytest.raises(ValueError, match="max_failures: expected integer, got bool"):
             CleanupConfig(max_failures=True)
 
+    @pytest.mark.parametrize("value", ["100", 100.0])
+    def test_rejects_non_integer_max_failures_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_failures: expected integer, got"):
+            CleanupConfig(max_failures=value)
+
     @pytest.mark.parametrize("value", ["false", 1, 0])
     def test_rejects_non_boolean_enabled_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
@@ -231,6 +236,11 @@ class TestValidatorConfig:
         cfg = ValidatorConfig(cleanup={"enabled": True, "max_failures": 50})
         assert cfg.cleanup.enabled is True
         assert cfg.cleanup.max_failures == 50
+
+    @pytest.mark.parametrize("value", ["50", 50.0])
+    def test_nested_cleanup_max_failures_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_failures: expected integer, got"):
+            ValidatorConfig(cleanup={"enabled": True, "max_failures": value})
 
     @pytest.mark.parametrize(
         ("section", "field_name", "field_value"),

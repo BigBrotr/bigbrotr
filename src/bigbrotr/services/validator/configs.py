@@ -128,10 +128,10 @@ class CleanupConfig(BaseModel):
 
     @field_validator("max_failures", mode="before")
     @classmethod
-    def reject_boolean_max_failures(cls, v: Any, info: ValidationInfo) -> Any:
-        """Reject boolean aliases that would otherwise coerce to a failure threshold of 1/0."""
+    def require_integer_max_failures(cls, v: Any, info: ValidationInfo) -> int:
+        """Require canonical integers for the exhausted-candidate failure threshold."""
         field_name = info.field_name or "max_failures"
-        return _reject_bool_alias(v, field_name, "integer")
+        return _require_int(v, field_name)
 
     @field_validator("enabled", mode="before")
     @classmethod
