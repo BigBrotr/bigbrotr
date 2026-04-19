@@ -259,6 +259,20 @@ class TestBuildAddressableAssertion:
         }
         assert expected_keys.issubset(set(tags.keys()))
 
+    @pytest.mark.parametrize("value", [True, "30023:" + ("aa" * 32) + ":article", object()])
+    def test_rejects_invalid_addressable_assertion_before_tag_build(self, value: object) -> None:
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.identifier") as mock_identifier,
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(ValueError, match="assertion must be an AddressableAssertion"),
+        ):
+            build_addressable_assertion(value)  # type: ignore[arg-type]
+
+        mock_identifier.assert_not_called()
+        mock_parse.assert_not_called()
+        mock_builder.assert_not_called()
+
 
 class TestBuildIdentifierAssertion:
     def test_kind(self) -> None:

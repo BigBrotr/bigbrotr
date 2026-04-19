@@ -158,6 +158,15 @@ def _normalize_event_assertion(assertion: object) -> EventAssertion:
     return cast("EventAssertion", assertion)
 
 
+def _normalize_addressable_assertion(assertion: object) -> AddressableAssertion:
+    addressable_assertion_type = importlib.import_module(
+        "bigbrotr.nips.nip85.data"
+    ).AddressableAssertion
+    if not isinstance(assertion, addressable_assertion_type):
+        raise ValueError("assertion must be an AddressableAssertion")
+    return cast("AddressableAssertion", assertion)
+
+
 def _normalize_relay_list_urls(relays: Sequence[Relay]) -> tuple[str, ...]:
     """Return a stable deduplicated relay-url ordering for set-like relay lists."""
     return tuple(sorted({relay.url for relay in relays}))
@@ -669,6 +678,7 @@ def build_event_assertion(assertion: EventAssertion) -> EventBuilder:
 
 def build_addressable_assertion(assertion: AddressableAssertion) -> EventBuilder:
     """Build a Kind 30384 NIP-85 addressable trusted assertion event."""
+    assertion = _normalize_addressable_assertion(assertion)
     tags: list[Tag] = [
         Tag.identifier(assertion.event_address),
         Tag.parse(["a", assertion.event_address]),
