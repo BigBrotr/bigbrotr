@@ -738,12 +738,12 @@ class TestNip11InfoDataConstructor:
         data = Nip11InfoData(
             relay_countries=["us", "DE", "us"],
             language_tags=["EN-us", "en", "zh-hant-tw", "en-US"],
-            tags=["bitcoin-only", "sfw-only", "bitcoin-only"],
+            tags=["Bitcoin", "nostr", "bitcoin"],
             attributes=["Search", "Community", "Search"],
         )
         assert data.relay_countries == ["DE", "US"]
         assert data.language_tags == ["en", "en-US", "zh-Hant-TW"]
-        assert data.tags == ["bitcoin-only", "sfw-only"]
+        assert data.tags == ["bitcoin", "nostr"]
         assert data.attributes == ["Community", "Search"]
 
     def test_constructor_canonicalizes_language_tag_wildcard(self) -> None:
@@ -881,7 +881,7 @@ class TestNip11InfoDataParse:
             "limitation": {"max_message_length": 65535},
             "relay_countries": ["us", "DE", "us"],
             "language_tags": ["EN-us", "en", "zh-hant-tw", "en-US"],
-            "tags": ["bitcoin-only", "sfw-only", "bitcoin-only"],
+            "tags": ["Bitcoin", "nostr", "bitcoin"],
             "attributes": ["Search", "Community", "Search"],
         }
         result = Nip11InfoData.parse(data)
@@ -891,13 +891,18 @@ class TestNip11InfoDataParse:
         assert result["limitation"] == {"max_message_length": 65535}
         assert result["relay_countries"] == ["DE", "US"]
         assert result["language_tags"] == ["en", "en-US", "zh-Hant-TW"]
-        assert result["tags"] == ["bitcoin-only", "sfw-only"]
+        assert result["tags"] == ["bitcoin", "nostr"]
         assert result["attributes"] == ["Community", "Search"]
 
     def test_parse_canonicalizes_language_tag_wildcard(self) -> None:
         """Wildcard language tags dominate mixed payloads during parse()."""
         result = Nip11InfoData.parse({"language_tags": ["EN-us", "*", "zh-hant-tw"]})
         assert result == {"language_tags": ["*"]}
+
+    def test_parse_canonicalizes_topic_tags(self) -> None:
+        """Topic tags collapse case-only variants to one canonical lowercase value."""
+        result = Nip11InfoData.parse({"tags": ["Bitcoin", "nostr", "bitcoin"]})
+        assert result == {"tags": ["bitcoin", "nostr"]}
 
     def test_parse_invalid_types_ignored(self):
         """Invalid types are ignored."""

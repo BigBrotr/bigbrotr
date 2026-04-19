@@ -88,6 +88,10 @@ def _canonicalize_language_tag(value: str) -> str:
     return "-".join(normalized)
 
 
+def _canonicalize_topic_tag(value: str) -> str:
+    return value.lower()
+
+
 def _is_valid_kind_range(value: Any) -> bool:
     return (
         isinstance(value, (list, tuple))
@@ -1022,6 +1026,14 @@ class Nip11InfoData(BaseData):
         normalized = [_canonicalize_language_tag(entry) for entry in value]
         if "*" in normalized:
             return ["*"]
+        return sorted(set(normalized))
+
+    @field_validator("tags")
+    @classmethod
+    def _normalize_topic_tags(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized = [_canonicalize_topic_tag(entry) for entry in value]
         return sorted(set(normalized))
 
     @field_validator("attributes")

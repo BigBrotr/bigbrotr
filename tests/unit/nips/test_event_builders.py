@@ -1597,13 +1597,11 @@ class TestAddNip11Tags:
     def test_with_topic_tags(self) -> None:
         """Test NIP-11 tags with topic (t) tags."""
         tags: list[Tag] = []
-        add_nip11_tags(tags, Nip11InfoData(tags=["social", "bitcoin", "nostr"]))
+        add_nip11_tags(tags, Nip11InfoData(tags=["Social", "bitcoin", "Nostr", "BITCOIN"]))
 
         pairs = _extract_tag_pairs(tags)
         topic_tags = [(k, v) for k, v in pairs if k == "t"]
-        assert ("t", "social") in topic_tags
-        assert ("t", "bitcoin") in topic_tags
-        assert ("t", "nostr") in topic_tags
+        assert topic_tags == [("t", "bitcoin"), ("t", "nostr"), ("t", "social")]
 
     def test_with_languages(self) -> None:
         """Test NIP-11 tags with language_tags."""

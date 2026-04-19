@@ -3544,3 +3544,16 @@ Use this section during execution for:
   - added paired `nips.nip11.test_data` and `nips.nip11.test_info` coverage
     proving language tags now canonicalize to stable case at construction and
     fetch time, and wildcard payloads collapse to a single canonical value.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-first remediation
+  slice:
+  - tightened the `nips.nip11.data.Nip11InfoData` topic-tag boundary so
+    `tags` now canonicalize case-insensitive topic labels to lowercase before
+    they become canonical `NIP-11` metadata or public `t` tags;
+  - closed the drift where semantically identical topic tags like `Bitcoin`
+    and `bitcoin` could survive as different canonical values and then emit
+    duplicate lowercase `t` tags once the public builder passed them through
+    `Tag.hashtag()`;
+  - added paired `nips.nip11.test_data`, `nips.nip11.test_info`, and
+    `nips.test_event_builders` coverage proving topic tags now collapse to a
+    stable lowercase set at construction and fetch time, and public builder
+    output no longer duplicates case-only variants.
