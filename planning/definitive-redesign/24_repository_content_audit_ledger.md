@@ -4120,3 +4120,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_finder` proving malformed
     response-size payloads now fail fast both on `ApiConfig` and through
     nested `FinderConfig.api` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-forty-ninth
+  remediation slice:
+  - tightened the `services.finder.configs.ApiSourceConfig` URL boundary so
+    authored HTTP source URLs now canonicalize scheme and hostname casing
+    instead of preserving mixed-case variants as distinct values;
+  - closed the drift where semantically identical source URLs like
+    `https://api.example.com/path` and `HTTPS://API.EXAMPLE.COM/path` could
+    bypass source dedupe and split checkpoint state across multiple keys;
+  - added paired coverage in `services.test_finder` proving source URL
+    canonicalization now happens at the leaf validator and that duplicate
+    sources are rejected after canonicalization inside `ApiConfig`.

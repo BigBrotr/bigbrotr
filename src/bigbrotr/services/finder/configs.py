@@ -10,7 +10,7 @@ See Also:
 from __future__ import annotations
 
 from typing import Any, cast
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import jmespath
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
@@ -54,6 +54,35 @@ def _normalize_non_blank_string(value: Any, field_name: str) -> str:
     if not normalized:
         raise ValueError(f"{field_name} must not be blank")
     return normalized
+
+
+def _normalize_api_source_url(value: str) -> str:
+    """Canonicalize authored HTTP(S) source URLs for checkpointing and dedupe."""
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("url must not be blank")
+
+    parsed = urlsplit(normalized)
+    scheme = parsed.scheme.lower()
+    hostname = parsed.hostname
+    if scheme not in {"http", "https"} or not parsed.netloc or hostname is None:
+        raise ValueError("url must be an absolute http(s) URL")
+
+    canonical_host = hostname.lower()
+    if ":" in canonical_host and not canonical_host.startswith("["):
+        canonical_host = f"[{canonical_host}]"
+
+    netloc = canonical_host
+    if parsed.port is not None:
+        netloc = f"{netloc}:{parsed.port}"
+
+    if parsed.username is not None:
+        userinfo = parsed.username
+        if parsed.password is not None:
+            userinfo = f"{userinfo}:{parsed.password}"
+        netloc = f"{userinfo}@{netloc}"
+
+    return urlunsplit((scheme, netloc, parsed.path, parsed.query, parsed.fragment))
 
 
 class EventsConfig(BaseModel):
@@ -186,13 +215,7 @@ class ApiSourceConfig(BaseModel):
     @field_validator("url")
     @classmethod
     def _validate_url(cls, v: str) -> str:
-        normalized = v.strip()
-        if not normalized:
-            raise ValueError("url must not be blank")
-        parsed = urlsplit(normalized)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise ValueError("url must be an absolute http(s) URL")
-        return normalized
+        return _normalize_api_source_url(v)
 
 
 class ApiConfig(BaseModel):

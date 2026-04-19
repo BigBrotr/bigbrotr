@@ -325,6 +325,13 @@ class TestApiSourceConfig:
         config = ApiSourceConfig(url="  https://api.example.com/path  ", expression="[*]")
         assert config.url == "https://api.example.com/path"
 
+    def test_url_canonicalizes_scheme_and_hostname(self) -> None:
+        config = ApiSourceConfig(
+            url="  HTTPS://API.EXAMPLE.COM/path?q=1#frag  ",
+            expression="[*]",
+        )
+        assert config.url == "https://api.example.com/path?q=1#frag"
+
     @pytest.mark.parametrize(
         "url",
         [
@@ -390,6 +397,15 @@ class TestApiConfig:
                 ]
             )
 
+    def test_duplicate_source_urls_rejected_after_url_canonicalization(self) -> None:
+        with pytest.raises(ValueError, match="duplicate finder API source URLs"):
+            ApiConfig(
+                sources=[
+                    ApiSourceConfig(url="https://dup.api.com/path", expression="[*]"),
+                    ApiSourceConfig(url="HTTPS://DUP.API.COM/path", expression="data.relays"),
+                ]
+            )
+
     def test_nested_source_expression_is_canonicalized(self) -> None:
         config = ApiConfig(
             sources=[
@@ -400,6 +416,17 @@ class TestApiConfig:
             ]
         )
         assert config.sources[0].expression == "data.relays[*].url"
+
+    def test_nested_source_url_is_canonicalized(self) -> None:
+        config = ApiConfig(
+            sources=[
+                {
+                    "url": " HTTPS://API.EXAMPLE.COM/path ",
+                    "expression": "[*]",
+                }
+            ]
+        )
+        assert config.sources[0].url == "https://api.example.com/path"
 
     @pytest.mark.parametrize(
         ("field_name", "field_value"),
