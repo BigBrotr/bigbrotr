@@ -11,7 +11,11 @@ from nostr_sdk import NostrSdkError, RelayUrl
 
 from bigbrotr.models.constants import NetworkType
 
-from .protocol_outcomes import normalize_relay_outcomes
+from .protocol_outcomes import (
+    normalize_failed_relays,
+    normalize_output_relay_url,
+    normalize_relay_outcomes,
+)
 from .transport import DEFAULT_TIMEOUT
 
 
@@ -29,6 +33,25 @@ class ClientConnectResult:
 
     connected: tuple[str, ...]
     failed: dict[str, str]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "connected",
+            tuple(sorted({normalize_output_relay_url(relay_url) for relay_url in self.connected})),
+        )
+
+        normalized_failed_relays: dict[str, str] = {}
+        for relay_url, error in self.failed.items():
+            normalized_relay_url = normalize_output_relay_url(relay_url)
+            if not isinstance(error, str):
+                raise TypeError(f"failed values must be str, got {type(error).__name__}")
+            normalized_failed_relays[normalized_relay_url] = error
+        object.__setattr__(
+            self,
+            "failed",
+            normalize_failed_relays(normalized_failed_relays),
+        )
 
 
 @dataclass(frozen=True, slots=True)

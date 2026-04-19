@@ -117,7 +117,7 @@ def _broadcast_results(
 ) -> list[BroadcastClientResult]:
     return [
         BroadcastClientResult(
-            event_ids=("event-id",),
+            event_ids=("1" * 64,),
             successful_relays=successful_relays,
             failed_relays=failed_relays or {},
         )

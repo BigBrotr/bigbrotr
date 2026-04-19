@@ -57,6 +57,17 @@ class TestConnectClientRelays:
         )
         assert list(result.failed) == ["wss://relay.a", "wss://relay.z"]
 
+    def test_client_connect_result_rejects_invalid_connected_relays(self) -> None:
+        with pytest.raises(ValueError, match="relay output contained invalid relay URL"):
+            ClientConnectResult(connected=("1",), failed={})
+
+    def test_client_connect_result_rejects_invalid_failed_values(self) -> None:
+        with pytest.raises(TypeError, match="failed values must be str"):
+            ClientConnectResult(
+                connected=("wss://relay.example.com",),
+                failed={"wss://relay.example.com": RuntimeError("boom")},
+            )
+
     async def test_deduplicates_duplicate_relay_urls_before_registration(self) -> None:
         """Duplicate relay URLs do not trigger duplicate add_relay calls."""
         client = AsyncMock()

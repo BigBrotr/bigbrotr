@@ -2487,3 +2487,13 @@ Use this section during execution for:
     canonical stringifiable SDK relay outputs still connect successfully,
     while malformed relay outcomes now fail fast and release the partial
     client on the single-relay path.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-seventeenth remediation
+  slice:
+  - tightened the public `utils.protocol` result-container boundary so direct
+    construction of `BroadcastClientResult` and `ClientConnectResult` no
+    longer accepts impossible event ids, malformed relay URLs, or non-string
+    failure texts as if they were already-normalized outcomes;
+  - added paired `utils.protocol` and service-helper coverage proving those
+    containers now fail fast on invalid direct inputs while the canonical
+    relay/event-id fixtures used by runtime and service harnesses continue to
+    pass through unchanged.

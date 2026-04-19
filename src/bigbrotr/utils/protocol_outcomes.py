@@ -15,7 +15,7 @@ def normalize_failed_relays(failed_relays: dict[str, str]) -> dict[str, str]:
     return {relay_url: failed_relays[relay_url] for relay_url in sorted(failed_relays)}
 
 
-def _normalize_output_relay_url(value: object) -> str:
+def normalize_output_relay_url(value: object) -> str:
     """Return one SDK relay output as a canonical relay URL string."""
     relay_url = str(value)
     if not relay_url:
@@ -51,7 +51,7 @@ def normalize_relay_outcomes(output: object) -> tuple[tuple[str, ...], dict[str,
     success_raw = getattr(output, "success", ())
     try:
         successful_relays = tuple(
-            sorted({_normalize_output_relay_url(relay_url) for relay_url in success_raw})
+            sorted({normalize_output_relay_url(relay_url) for relay_url in success_raw})
         )
     except TypeError as exc:
         raise ValueError("relay output success entries must be iterable") from exc
@@ -61,7 +61,6 @@ def normalize_relay_outcomes(output: object) -> tuple[tuple[str, ...], dict[str,
         raise ValueError("relay output failed entries must be a mapping")
 
     failed_relays = {
-        _normalize_output_relay_url(relay_url): str(error)
-        for relay_url, error in failed_raw.items()
+        normalize_output_relay_url(relay_url): str(error) for relay_url, error in failed_raw.items()
     }
     return successful_relays, normalize_failed_relays(failed_relays)

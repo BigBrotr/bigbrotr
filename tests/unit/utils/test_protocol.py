@@ -1305,12 +1305,12 @@ class TestSummarizeBroadcastResults:
         successful_relays, failed_relays = summarize_broadcast_results(
             [
                 BroadcastClientResult(
-                    event_ids=("evt-1",),
+                    event_ids=("1" * 64,),
                     successful_relays=("wss://relay.a", "wss://relay.b"),
                     failed_relays={"wss://relay.z": "timeout"},
                 ),
                 BroadcastClientResult(
-                    event_ids=("evt-2",),
+                    event_ids=("2" * 64,),
                     successful_relays=("wss://relay.b",),
                     failed_relays={"wss://relay.a": "rejected"},
                 ),
@@ -1323,6 +1323,26 @@ class TestSummarizeBroadcastResults:
             "wss://relay.z": "timeout",
         }
         assert list(failed_relays) == ["wss://relay.a", "wss://relay.z"]
+
+    def test_constructor_rejects_invalid_event_ids(self) -> None:
+        from bigbrotr.utils.protocol import BroadcastClientResult
+
+        with pytest.raises(ValueError, match="event output contained invalid event id"):
+            BroadcastClientResult(
+                event_ids=("event-id",),
+                successful_relays=("wss://relay.a",),
+                failed_relays={},
+            )
+
+    def test_constructor_rejects_invalid_failed_relay_values(self) -> None:
+        from bigbrotr.utils.protocol import BroadcastClientResult
+
+        with pytest.raises(TypeError, match="failed_relays values must be str"):
+            BroadcastClientResult(
+                event_ids=("1" * 64,),
+                successful_relays=("wss://relay.a",),
+                failed_relays={"wss://relay.a": RuntimeError("boom")},
+            )
 
 
 class TestNormalizeSendOutput:

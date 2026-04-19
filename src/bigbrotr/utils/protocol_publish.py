@@ -17,6 +17,7 @@ from nostr_sdk import NostrSdkError
 from .protocol_outcomes import (
     normalize_failed_relays,
     normalize_output_event_id,
+    normalize_output_relay_url,
     normalize_relay_outcomes,
 )
 
@@ -45,6 +46,34 @@ class BroadcastClientResult:
     event_ids: tuple[str, ...]
     successful_relays: tuple[str, ...]
     failed_relays: dict[str, str]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "event_ids",
+            tuple(normalize_output_event_id(event_id) for event_id in self.event_ids),
+        )
+        object.__setattr__(
+            self,
+            "successful_relays",
+            tuple(
+                sorted(
+                    {normalize_output_relay_url(relay_url) for relay_url in self.successful_relays}
+                )
+            ),
+        )
+
+        normalized_failed_relays: dict[str, str] = {}
+        for relay_url, error in self.failed_relays.items():
+            normalized_relay_url = normalize_output_relay_url(relay_url)
+            if not isinstance(error, str):
+                raise TypeError(f"failed_relays values must be str, got {type(error).__name__}")
+            normalized_failed_relays[normalized_relay_url] = error
+        object.__setattr__(
+            self,
+            "failed_relays",
+            normalize_failed_relays(normalized_failed_relays),
+        )
 
 
 async def broadcast_events(
