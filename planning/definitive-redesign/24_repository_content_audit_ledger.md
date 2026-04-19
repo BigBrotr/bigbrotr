@@ -3473,3 +3473,18 @@ Use this section during execution for:
     `nips.nip66.test_dns` coverage proving equivalent IPv6 strings now
     normalize to one canonical representation at both direct model
     construction time and through the public `probe()` containers.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-ninety-sixth
+  remediation slice:
+  - tightened the `nips.nip66.data.Nip66DnsData` hostname boundary so
+    canonical DNS hostnames now accept valid FQDN inputs with a trailing dot,
+    normalize them by stripping the terminal dot and lowercasing, and keep
+    that normalization consistent for `dns_cname`, `dns_reverse`, and
+    `dns_ns`;
+  - closed the drift where semantically identical DNS targets like
+    `dns.google` and `dns.google.` were treated as different validity cases
+    across direct model construction versus the live DNS probe, which already
+    strips trailing dots from resolver output;
+  - added paired `nips.nip66.test_data` and `nips.nip66.test_dns` coverage
+    proving valid FQDN inputs now normalize to one canonical representation
+    at both direct model construction time and through the public `probe()`
+    container.

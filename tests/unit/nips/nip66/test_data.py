@@ -810,11 +810,16 @@ class TestNip66DnsData:
 
         assert data.dns_ips_v6 == ["2001:db8::1"]
 
-    def test_construction_normalizes_scalar_dns_hostnames_to_lowercase(self) -> None:
-        """Constructor canonicalizes scalar DNS hostnames to lowercase."""
-        data = Nip66DnsData(dns_cname="DNS.GOOGLE", dns_reverse="PTR.EXAMPLE.COM")
+    def test_construction_normalizes_scalar_dns_hostnames_to_canonical_form(self) -> None:
+        """Constructor canonicalizes scalar DNS hostnames to lowercase without trailing dots."""
+        data = Nip66DnsData(dns_cname="DNS.GOOGLE.", dns_reverse="PTR.EXAMPLE.COM.")
         assert data.dns_cname == "dns.google"
         assert data.dns_reverse == "ptr.example.com"
+
+    def test_construction_normalizes_nameserver_fqdns_to_canonical_form(self) -> None:
+        """Constructor canonicalizes NS entries to lowercase without trailing dots."""
+        data = Nip66DnsData(dns_ns=["NS2.GOOGLE.COM.", "ns1.google.com."])
+        assert data.dns_ns == ["ns1.google.com", "ns2.google.com"]
 
     @pytest.mark.parametrize(
         ("kwargs", "message"),
@@ -922,12 +927,12 @@ class TestNip66DnsData:
         parsed = Nip66DnsData.parse(raw)
         assert parsed == {"dns_ns": ["ns1.google.com"], "dns_ttl": 300}
 
-    def test_parse_normalizes_dns_hostnames_to_lowercase(self) -> None:
-        """parse() preserves valid DNS hostname fields in canonical lowercase form."""
+    def test_parse_normalizes_dns_hostnames_to_canonical_form(self) -> None:
+        """parse() preserves valid DNS hostname fields in lowercase without trailing dots."""
         raw = {
-            "dns_cname": "DNS.GOOGLE",
-            "dns_reverse": "PTR.EXAMPLE.COM",
-            "dns_ns": ["NS2.GOOGLE.COM", "ns1.google.com"],
+            "dns_cname": "DNS.GOOGLE.",
+            "dns_reverse": "PTR.EXAMPLE.COM.",
+            "dns_ns": ["NS2.GOOGLE.COM.", "ns1.google.com."],
         }
         parsed = Nip66DnsData.parse(raw)
         data = Nip66DnsData(**parsed)

@@ -468,6 +468,22 @@ class TestNip66DnsMetadataDnsAsync:
         assert result.data.dns_ips_v6 == ["2001:db8::1"]
         assert result.logs.success is True
 
+    async def test_probe_canonicalizes_fqdn_hostnames(self, relay: Relay) -> None:
+        """Probe canonicalizes FQDN DNS hostnames before building the model."""
+        dns_result = {
+            "dns_cname": "DNS.GOOGLE.",
+            "dns_reverse": "PTR.EXAMPLE.COM.",
+            "dns_ns": ["NS2.GOOGLE.COM.", "ns1.google.com."],
+        }
+
+        with patch.object(Nip66DnsMetadata, "_dns", return_value=dns_result):
+            result = await Nip66DnsMetadata.probe(relay, 5.0)
+
+        assert result.data.dns_cname == "dns.google"
+        assert result.data.dns_reverse == "ptr.example.com"
+        assert result.data.dns_ns == ["ns1.google.com", "ns2.google.com"]
+        assert result.logs.success is True
+
     async def test_tor_returns_failure(self, tor_relay: Relay) -> None:
         """Returns failure for Tor relay (DNS not applicable)."""
         result = await Nip66DnsMetadata.probe(tor_relay, 5.0)

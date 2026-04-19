@@ -286,8 +286,12 @@ def _is_valid_continent_code(value: str) -> bool:
     return value.upper() in _GEO_CONTINENT_CODES
 
 
+def _canonicalize_dns_hostname(value: str) -> str:
+    return value.rstrip(".").lower()
+
+
 def _is_valid_dns_hostname(value: str) -> bool:
-    return _is_valid_hostname(value.lower())
+    return _is_valid_hostname(_canonicalize_dns_hostname(value))
 
 
 def _is_valid_ssl_dns_name(value: str) -> bool:
@@ -899,7 +903,7 @@ class Nip66DnsData(BaseData):
             return None
         if not _is_valid_dns_hostname(value):
             raise ValueError(f"{info.field_name} must be a valid hostname")
-        return value.lower()
+        return _canonicalize_dns_hostname(value)
 
     @field_validator("dns_ips")
     @classmethod
@@ -940,7 +944,7 @@ class Nip66DnsData(BaseData):
                 raise ValueError(f"{info.field_name} entries must be non-empty strings")
             if not _is_valid_dns_hostname(entry):
                 raise ValueError(f"{info.field_name} entries must be valid hostnames")
-            normalized.append(entry.lower())
+            normalized.append(_canonicalize_dns_hostname(entry))
         return sorted(set(normalized))
 
     @classmethod
