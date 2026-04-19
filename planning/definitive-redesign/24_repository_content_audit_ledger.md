@@ -2773,3 +2773,16 @@ Use this section during execution for:
     the public arguments first;
   - added paired `nips.event_builders` coverage proving corrupted builder
     inputs are rejected before any `Tag.parse()` work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-fortieth remediation
+  slice:
+  - tightened the direct public builder boundary of
+    `nips.event_builders.build_profile_event()` so malformed explicit profile
+    fields and corrupted `extra_fields` payloads no longer leak into Kind 0
+    metadata JSON through Python truthiness or raw key coercion before the
+    public NIP-01 builder serializes its content;
+  - centralized profile-field normalization inside the leaf builder itself so
+    direct callers now enforce string-only profile fields plus canonical
+    mapping keys for `extra_fields`, instead of relying on upstream monitor
+    publication call sites to sanitize metadata payloads first;
+  - added paired `nips.event_builders` coverage proving corrupted profile
+    inputs are rejected before any `NostrMetadata.from_json()` work begins.

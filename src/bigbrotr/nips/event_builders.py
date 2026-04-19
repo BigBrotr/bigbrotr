@@ -18,6 +18,7 @@ See Also:
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping as MappingABC
 from typing import TYPE_CHECKING, NamedTuple
 
 from nostr_sdk import EventBuilder, Kind, Tag
@@ -66,6 +67,34 @@ class AccessFlags(NamedTuple):
     auth: bool
     writes: bool
     read_auth: bool
+
+
+def _normalize_optional_profile_text(value: object, field_name: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    normalized = value.strip()
+    return normalized or None
+
+
+def _normalize_extra_profile_fields(extra_fields: object) -> dict[str, object]:
+    if extra_fields is None:
+        return {}
+    if not isinstance(extra_fields, MappingABC):
+        raise ValueError("extra_fields must be a mapping")
+
+    normalized: dict[str, object] = {}
+    for key, value in extra_fields.items():
+        if not isinstance(key, str):
+            raise ValueError("extra_fields keys must be strings")
+        canonical_key = key.strip()
+        if not canonical_key or value is None:
+            continue
+        if canonical_key in normalized:
+            raise ValueError("extra_fields contains duplicate normalized keys")
+        normalized[canonical_key] = value
+    return normalized
 
 
 def _normalize_positive_int(value: object, field_name: str) -> int:
@@ -128,6 +157,15 @@ def build_profile_event(  # noqa: PLR0913
     extra_fields: Mapping[str, object] | None = None,
 ) -> EventBuilder:
     """Build a Kind 0 profile metadata event per NIP-01."""
+    name = _normalize_optional_profile_text(name, "name")
+    about = _normalize_optional_profile_text(about, "about")
+    picture = _normalize_optional_profile_text(picture, "picture")
+    nip05 = _normalize_optional_profile_text(nip05, "nip05")
+    website = _normalize_optional_profile_text(website, "website")
+    banner = _normalize_optional_profile_text(banner, "banner")
+    lud16 = _normalize_optional_profile_text(lud16, "lud16")
+    normalized_extra_fields = _normalize_extra_profile_fields(extra_fields)
+
     profile_data: dict[str, object] = {}
     if name:
         profile_data["name"] = name
@@ -143,9 +181,9 @@ def build_profile_event(  # noqa: PLR0913
         profile_data["banner"] = banner
     if lud16:
         profile_data["lud16"] = lud16
-    if extra_fields:
-        for key, value in extra_fields.items():
-            if key and value is not None and key not in profile_data:
+    if normalized_extra_fields:
+        for key, value in normalized_extra_fields.items():
+            if key not in profile_data:
                 profile_data[key] = value
     return EventBuilder.metadata(NostrMetadata.from_json(json.dumps(profile_data)))
 

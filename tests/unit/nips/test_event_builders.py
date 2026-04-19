@@ -124,6 +124,78 @@ class TestBuildProfileEvent:
         assert content["algorithm_id"] == "global-pagerank"
         assert content["model_family"] == "pagerank"
 
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("name", True),
+            ("about", 1),
+            ("picture", object()),
+            ("nip05", 1.5),
+            ("website", ["https://example.com"]),
+            ("banner", {"url": "https://example.com/banner.png"}),
+            ("lud16", b"monitor@ln.example.com"),
+        ],
+    )
+    def test_rejects_non_string_profile_fields_before_metadata_build(
+        self,
+        field_name: str,
+        value: object,
+    ) -> None:
+        """Malformed explicit profile fields fail before metadata serialization."""
+        with (
+            patch("bigbrotr.nips.event_builders.NostrMetadata.from_json") as mock_from_json,
+            pytest.raises(ValueError, match=rf"{field_name} must be a string"),
+        ):
+            build_profile_event(**{field_name: value})
+
+        mock_from_json.assert_not_called()
+
+    def test_blank_profile_fields_are_omitted_after_normalization(self) -> None:
+        """Whitespace-only explicit profile fields do not produce blank metadata keys."""
+        event = build_profile_event(name="   ", about="\n\t").sign_with_keys(Keys.generate())
+        content = json.loads(event.content())
+        assert content == {}
+
+    @pytest.mark.parametrize("value", [True, [("algorithm_id", "pagerank")]])
+    def test_rejects_non_mapping_extra_fields_before_metadata_build(self, value: object) -> None:
+        """Malformed extra_fields payloads fail before metadata serialization."""
+        with (
+            patch("bigbrotr.nips.event_builders.NostrMetadata.from_json") as mock_from_json,
+            pytest.raises(ValueError, match="extra_fields must be a mapping"),
+        ):
+            build_profile_event(extra_fields=value)  # type: ignore[arg-type]
+
+        mock_from_json.assert_not_called()
+
+    @pytest.mark.parametrize("value", [{1: "pagerank"}, {True: "pagerank"}])
+    def test_rejects_non_string_extra_field_keys_before_metadata_build(
+        self,
+        value: object,
+    ) -> None:
+        """Malformed extra_fields keys fail before metadata serialization."""
+        with (
+            patch("bigbrotr.nips.event_builders.NostrMetadata.from_json") as mock_from_json,
+            pytest.raises(ValueError, match="extra_fields keys must be strings"),
+        ):
+            build_profile_event(extra_fields=value)  # type: ignore[arg-type]
+
+        mock_from_json.assert_not_called()
+
+    def test_rejects_duplicate_normalized_extra_field_keys_before_metadata_build(self) -> None:
+        """Normalization collisions in extra_fields fail before metadata serialization."""
+        with (
+            patch("bigbrotr.nips.event_builders.NostrMetadata.from_json") as mock_from_json,
+            pytest.raises(ValueError, match="extra_fields contains duplicate normalized keys"),
+        ):
+            build_profile_event(
+                extra_fields={
+                    "algorithm_id": "global-pagerank",
+                    " algorithm_id ": "ignored",
+                }
+            )
+
+        mock_from_json.assert_not_called()
+
 
 # ============================================================================
 # build_relay_list_event (Kind 10002)
