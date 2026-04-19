@@ -208,6 +208,15 @@ class TestRefreshTargetConfig:
         with pytest.raises(ValueError, match=rf"{field_name}: expected bool, got"):
             RefresherConfig.model_validate({"periodic": {field_name: value}})
 
+    def test_rejects_boolean_service_interval_alias(self) -> None:
+        with pytest.raises(ValueError, match=r"interval: expected number, got bool"):
+            RefresherConfig(interval=True)
+
+    @pytest.mark.parametrize("value", ["86400", "120.5"])
+    def test_root_service_interval_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"interval: expected number, got"):
+            RefresherConfig.model_validate({"interval": value})
+
     def test_empty_targets_are_allowed(self) -> None:
         config = _refresher_config()
 

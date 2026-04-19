@@ -318,6 +318,11 @@ class RefresherConfig(BaseServiceConfig):
         description="Checkpoint cleanup configuration",
     )
 
+    @field_validator("interval", mode="before")
+    @classmethod
+    def require_numeric_interval(cls, value: Any, info: ValidationInfo) -> int | float:
+        return _require_number(value, str(info.field_name))
+
     @model_validator(mode="after")
     def validate_target_dependencies(self) -> RefresherConfig:
         """Ensure configured targets include required upstream dependencies."""
