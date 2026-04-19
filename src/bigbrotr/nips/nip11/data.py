@@ -405,6 +405,24 @@ class Nip11InfoDataLimitation(BaseData):
         default=None, description="Default limit when not specified in REQ"
     )
 
+    @field_validator(
+        "max_message_length",
+        "max_subscriptions",
+        "max_limit",
+        "max_subid_length",
+        "max_event_tags",
+        "max_content_length",
+        "min_pow_difficulty",
+        "created_at_lower_limit",
+        "created_at_upper_limit",
+        "default_limit",
+    )
+    @classmethod
+    def _require_non_negative_int_fields(cls, value: int | None, info: Any) -> int | None:
+        if value is not None and value < 0:
+            raise ValueError(f"{info.field_name} must be non-negative")
+        return value
+
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         int_fields=frozenset(
             {
@@ -428,6 +446,32 @@ class Nip11InfoDataLimitation(BaseData):
             }
         ),
     )
+
+    @classmethod
+    def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
+        """Parse limitation data while rejecting negative numeric budgets."""
+        report = super().parse_report(data, path=path)
+        parsed = dict(report.parsed)
+        issues = list(report.issues)
+
+        _drop_negative_int_fields(
+            parsed,
+            issues,
+            (
+                "max_message_length",
+                "max_subscriptions",
+                "max_limit",
+                "max_subid_length",
+                "max_event_tags",
+                "max_content_length",
+                "min_pow_difficulty",
+                "created_at_lower_limit",
+                "created_at_upper_limit",
+                "default_limit",
+            ),
+            path=path,
+        )
+        return ParseReport(parsed=parsed, issues=tuple(issues))
 
 
 class Nip11InfoDataRetentionEntry(BaseData):

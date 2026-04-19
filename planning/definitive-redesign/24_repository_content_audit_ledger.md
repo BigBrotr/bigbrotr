@@ -3165,3 +3165,15 @@ Use this section during execution for:
   - added paired `nips.nip11.test_data` coverage proving negative retention
     and fee budgets now fail fast at the constructor and are filtered out by
     permissive parse paths.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-seventieth
+  remediation slice:
+  - tightened the `nips.nip11.data.Nip11InfoDataLimitation` numeric boundary
+    so relay limit fields now reject negative values both at direct model
+    construction and during permissive parse/report sanitization;
+  - closed the drift where semantically impossible negative NIP-11 limits
+    such as `max_message_length`, `default_limit`, or `created_at_*` bounds
+    could survive as canonical limitation data and later flow into shared
+    result containers and public builders;
+  - added paired `nips.nip11.test_data` coverage proving negative limitation
+    budgets now fail fast at construction time and are filtered from parse
+    output while valid zero values remain accepted.

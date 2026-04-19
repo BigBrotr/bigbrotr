@@ -153,11 +153,17 @@ class TestNip11InfoDataLimitationParse:
         assert Nip11InfoDataLimitation.parse(None) == {}
         assert Nip11InfoDataLimitation.parse([1, 2]) == {}
 
-    def test_parse_negative_int_accepted(self):
-        """Negative integers are accepted (validation is type-only)."""
-        data = {"max_message_length": -100}
+    @pytest.mark.parametrize("kwargs", [{"max_message_length": -100}, {"default_limit": -1}])
+    def test_constructor_rejects_negative_int_fields(self, kwargs: dict[str, int]):
+        """Constructor rejects negative limitation budgets."""
+        with pytest.raises(ValidationError):
+            Nip11InfoDataLimitation(**kwargs)
+
+    def test_parse_negative_int_filtered(self):
+        """Negative limitation budgets are filtered out by parse()."""
+        data = {"max_message_length": -100, "auth_required": True}
         result = Nip11InfoDataLimitation.parse(data)
-        assert result == {"max_message_length": -100}
+        assert result == {"auth_required": True}
 
     def test_parse_zero_accepted(self):
         """Zero is accepted for int fields."""
