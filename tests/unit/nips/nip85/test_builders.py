@@ -278,6 +278,20 @@ class TestBuildIdentifierAssertion:
         assert ["k", "isbn"] in tags
         assert tags.count(["k", "isbn"]) == 1
 
+    @pytest.mark.parametrize("value", [True, "isbn:9780140328721", object()])
+    def test_rejects_invalid_identifier_assertion_before_tag_build(self, value: object) -> None:
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.identifier") as mock_identifier,
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(ValueError, match="assertion must be an IdentifierAssertion"),
+        ):
+            build_identifier_assertion(value)  # type: ignore[arg-type]
+
+        mock_identifier.assert_not_called()
+        mock_parse.assert_not_called()
+        mock_builder.assert_not_called()
+
 
 class TestBuildTrustedProviderList:
     def test_kind_public_tag_and_content(self) -> None:

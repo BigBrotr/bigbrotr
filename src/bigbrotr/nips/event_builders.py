@@ -17,10 +17,11 @@ See Also:
 
 from __future__ import annotations
 
+import importlib
 import json
 from collections.abc import Iterable as IterableABC
 from collections.abc import Mapping as MappingABC
-from typing import TYPE_CHECKING, NamedTuple, TypeGuard
+from typing import TYPE_CHECKING, NamedTuple, TypeGuard, cast
 
 from nostr_sdk import EventBuilder, Kind, Tag
 from nostr_sdk import Metadata as NostrMetadata
@@ -139,6 +140,15 @@ def _normalize_discovery_relay(relay: object) -> Relay:
     if not isinstance(relay, Relay):
         raise ValueError("relay must be a Relay")
     return relay
+
+
+def _normalize_identifier_assertion(assertion: object) -> IdentifierAssertion:
+    identifier_assertion_type = importlib.import_module(
+        "bigbrotr.nips.nip85.data"
+    ).IdentifierAssertion
+    if not isinstance(assertion, identifier_assertion_type):
+        raise ValueError("assertion must be an IdentifierAssertion")
+    return cast("IdentifierAssertion", assertion)
 
 
 def _normalize_relay_list_urls(relays: Sequence[Relay]) -> tuple[str, ...]:
@@ -670,6 +680,7 @@ def build_addressable_assertion(assertion: AddressableAssertion) -> EventBuilder
 
 def build_identifier_assertion(assertion: IdentifierAssertion) -> EventBuilder:
     """Build a Kind 30385 NIP-85 identifier trusted assertion event."""
+    assertion = _normalize_identifier_assertion(assertion)
     tags: list[Tag] = [
         Tag.identifier(assertion.identifier),
         Tag.parse(["i", assertion.identifier]),

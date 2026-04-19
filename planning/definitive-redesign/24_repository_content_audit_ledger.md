@@ -2829,3 +2829,17 @@ Use this section during execution for:
   - added paired `nips.event_builders` coverage proving corrupted discovery
     relay inputs are rejected before any `EventBuilder` or `Tag.identifier()`
     work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-forty-fourth remediation
+  slice:
+  - tightened the direct public builder boundary of
+    `nips.event_builders.build_identifier_assertion()` so malformed
+    assertion payloads no longer degrade into fake `Kind 30385` tags or late
+    attribute errors while the public NIP-85 identifier builder assembles its
+    subject and score tags;
+  - centralized identifier-assertion normalization inside the leaf builder
+    itself so direct callers now enforce a real typed `IdentifierAssertion`
+    boundary instead of relying on higher-level assertor publication flows to
+    sanitize the public argument first;
+  - added paired `NIP-85` builder coverage proving corrupted identifier
+    assertion inputs are rejected before any `EventBuilder`,
+    `Tag.identifier()`, or `Tag.parse()` work begins.
