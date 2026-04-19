@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import math
 import socket
 import time
 from dataclasses import dataclass
@@ -47,6 +48,23 @@ class ResolvedHost:
     def has_ip(self) -> bool:
         """Return True if at least one IP address was resolved."""
         return self.ipv4 is not None or self.ipv6 is not None
+
+
+def _normalize_timeout(timeout: object) -> float:
+    """Return one canonical positive finite DNS timeout budget."""
+    if isinstance(timeout, bool) or not isinstance(timeout, int | float):
+        raise ValueError("timeout must be a positive finite number")
+    normalized = float(timeout)
+    if not math.isfinite(normalized) or normalized <= 0:
+        raise ValueError("timeout must be a positive finite number")
+    return normalized
+
+
+def _normalize_raise_on_timeout(raise_on_timeout: object) -> bool:
+    """Return one canonical timeout-propagation toggle."""
+    if not isinstance(raise_on_timeout, bool):
+        raise ValueError("raise_on_timeout must be a bool")
+    return raise_on_timeout
 
 
 async def resolve_host(
@@ -91,6 +109,8 @@ async def resolve_host(
         result.has_ip  # True
         ```
     """
+    timeout = _normalize_timeout(timeout)
+    raise_on_timeout = _normalize_raise_on_timeout(raise_on_timeout)
     ipv4: str | None = None
     ipv6: str | None = None
     timed_out = False

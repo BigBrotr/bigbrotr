@@ -375,6 +375,34 @@ class TestResolveHostAsync:
 class TestResolveHostTimeout:
     """Tests for resolve_host() timeout behavior."""
 
+    @pytest.mark.parametrize("timeout", [True, 0, -1.0, float("nan")])
+    async def test_rejects_invalid_timeout_before_resolution(self, timeout: object) -> None:
+        """Malformed timeout budgets fail fast before any resolver lookup starts."""
+        with (
+            patch("socket.gethostbyname") as mock_ipv4,
+            patch("socket.getaddrinfo") as mock_ipv6,
+            pytest.raises(ValueError, match="timeout must be a positive finite number"),
+        ):
+            await resolve_host("slow.example.com", timeout=timeout)  # type: ignore[arg-type]
+
+        mock_ipv4.assert_not_called()
+        mock_ipv6.assert_not_called()
+
+    async def test_rejects_non_bool_raise_on_timeout_before_resolution(self) -> None:
+        """Non-bool timeout propagation flags fail before any resolver lookup starts."""
+        with (
+            patch("socket.gethostbyname") as mock_ipv4,
+            patch("socket.getaddrinfo") as mock_ipv6,
+            pytest.raises(ValueError, match="raise_on_timeout must be a bool"),
+        ):
+            await resolve_host(
+                "slow.example.com",
+                raise_on_timeout=1,  # type: ignore[arg-type]
+            )
+
+        mock_ipv4.assert_not_called()
+        mock_ipv6.assert_not_called()
+
     async def test_ipv4_timeout_returns_none(self) -> None:
         """TimeoutError from asyncio.wait_for is suppressed for IPv4."""
         with (

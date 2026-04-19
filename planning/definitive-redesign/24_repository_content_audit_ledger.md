@@ -2733,3 +2733,15 @@ Use this section during execution for:
     sites to sanitize inputs first;
   - added paired `utils.streaming` coverage proving corrupted public
     arguments are rejected before any fetch or verification pass starts.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-thirty-seventh remediation
+  slice:
+  - tightened the direct public boundary of `utils.dns.resolve_host()` so
+    malformed `timeout` budgets and non-bool `raise_on_timeout` flags no
+    longer degrade into impossible deadline math or truthy timeout propagation
+    policy before the hostname resolver starts;
+  - centralized that normalization inside the DNS leaf utility itself so
+    direct callers now enforce the same semantic contract already assumed by
+    downstream `NIP-66` net/geo consumers instead of relying on upstream call
+    sites to sanitize the public arguments first;
+  - added paired `utils.dns` coverage proving corrupted timeout inputs are
+    rejected before any IPv4 or IPv6 lookup begins.
