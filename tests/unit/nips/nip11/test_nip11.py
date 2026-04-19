@@ -1,5 +1,6 @@
 """Unit tests for Nip11 class, Nip11.fetch(), and RelayNip11DocumentTuple."""
 
+import math
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -58,11 +59,24 @@ class TestNip11Construction:
         """Default generated_at is current timestamp."""
         import time
 
-        before = int(time.time())
+        before = math.ceil(time.time())
         nip11 = Nip11(relay=relay, info=info_metadata)
-        after = int(time.time())
+        after = math.ceil(time.time())
 
         assert before <= nip11.generated_at <= after
+
+    def test_default_generated_at_rounds_up_fractional_time(
+        self,
+        relay: Relay,
+        info_metadata: Nip11InfoMetadata,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Default generated_at rounds fractional current time up."""
+        monkeypatch.setattr("bigbrotr.nips.base.time", lambda: 1000.1)
+
+        nip11 = Nip11(relay=relay, info=info_metadata)
+
+        assert nip11.generated_at == 1001
 
     def test_explicit_generated_at(self, relay: Relay, info_metadata: Nip11InfoMetadata):
         """Explicit generated_at is preserved."""
@@ -281,6 +295,29 @@ class TestNip11FetchSuccess:
         assert result.info.logs.success is True
         assert result.info.data.name == "Test Relay"
         assert result.generated_at > 0
+
+    async def test_fetch_rounds_up_fractional_generated_at(
+        self,
+        relay: Relay,
+        mock_session_factory,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Public fetch factory rounds generated_at up before document export."""
+        response = AsyncMock()
+        response.status = 200
+        response.headers = {"Content-Type": "application/nostr+json"}
+        response.content.read = AsyncMock(side_effect=[b'{"name": "Test Relay"}', b""])
+        response.__aenter__ = AsyncMock(return_value=response)
+        response.__aexit__ = AsyncMock(return_value=None)
+
+        session = mock_session_factory(response)
+        monkeypatch.setattr("bigbrotr.nips.base.time", lambda: 1000.1)
+
+        with patch("bigbrotr.nips.nip11.info.aiohttp.ClientSession", return_value=session):
+            result = await Nip11.fetch(relay)
+
+        assert result.generated_at == 1001
+        assert result.to_relay_document_tuple().nip11_info.associated_at == 1001
 
     async def test_fetch_with_complete_data(
         self,

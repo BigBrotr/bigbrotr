@@ -35,6 +35,7 @@ See Also:
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from time import time
@@ -403,7 +404,7 @@ class BaseNip(BaseModel, ABC):
 
     relay: Relay
     generated_at: StrictInt = Field(
-        default_factory=lambda: int(time()),
+        default_factory=lambda: math.ceil(time()),
         ge=0,
         description="Unix timestamp when this result was generated",
     )

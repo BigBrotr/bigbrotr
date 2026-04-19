@@ -2351,3 +2351,14 @@ Use this section during execution for:
   - added `synchronizer` runtime coverage proving event observations are now
     created with their timestamp rounded up before they enter the persisted
     incremental source boundary.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-fourth remediation
+  slice:
+  - tightened the public `BaseNip -> RelayDocument` timestamp boundary so
+    `Nip11.fetch()` and `Nip66.probe()` no longer default `generated_at` to
+    a floored current second, which previously let exported relay documents
+    land exactly on an already-consumed refresher watermark and fall on the
+    wrong side of the strict `associated_at > checkpoint` incremental seam;
+  - added paired `NIP-11` and `NIP-66` coverage proving both direct model
+    construction and the public fetch/probe factories now round fractional
+    generation time up before any `RelayDocument` export preserves that
+    timestamp as `associated_at`.

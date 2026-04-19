@@ -11,6 +11,7 @@ Tests:
 from __future__ import annotations
 
 import asyncio
+import math
 from time import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -144,10 +145,23 @@ class TestNip66Construction:
         complete_rtt_metadata: Nip66RttMetadata,
     ) -> None:
         """generated_at defaults to current time."""
-        before = int(time())
+        before = math.ceil(time())
         nip66 = Nip66(relay=relay, rtt=complete_rtt_metadata)
-        after = int(time())
+        after = math.ceil(time())
         assert before <= nip66.generated_at <= after
+
+    def test_generated_at_default_rounds_up_fractional_time(
+        self,
+        relay: Relay,
+        complete_rtt_metadata: Nip66RttMetadata,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """generated_at rounds fractional current time up."""
+        monkeypatch.setattr("bigbrotr.nips.base.time", lambda: 1000.1)
+
+        nip66 = Nip66(relay=relay, rtt=complete_rtt_metadata)
+
+        assert nip66.generated_at == 1001
 
     def test_generated_at_explicit(
         self,
@@ -288,6 +302,27 @@ class TestNip66ToRelayDocumentTuple:
 
 class TestNip66Probe:
     """Test Nip66.probe() class method."""
+
+    async def test_probe_rounds_up_fractional_generated_at(
+        self,
+        relay: Relay,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Probe rounds generated_at up before document export."""
+        dns_metadata = Nip66DnsMetadata(
+            data=Nip66DnsData(dns_ips=["8.8.8.8"], dns_ttl=300),
+            logs=Nip66DnsLogs(success=True, reason=None),
+        )
+        selection = Nip66Selection(rtt=False, geo=False, net=False)
+        monkeypatch.setattr("bigbrotr.nips.base.time", lambda: 1000.1)
+
+        with patch.object(
+            Nip66DnsMetadata, "probe", new_callable=AsyncMock, return_value=dns_metadata
+        ):
+            result = await Nip66.probe(relay, selection=selection)
+
+        assert result.generated_at == 1001
+        assert result.to_relay_document_tuple().dns.associated_at == 1001
 
     async def test_returns_nip66_on_success(
         self,
