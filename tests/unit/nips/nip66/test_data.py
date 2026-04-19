@@ -712,12 +712,18 @@ class TestNip66DnsData:
         data = Nip66DnsData(
             dns_ips=["8.8.4.4", "8.8.8.8", "8.8.4.4"],
             dns_ips_v6=["2001:4860:4860::8844", "2001:4860:4860::8888", "2001:4860:4860::8844"],
-            dns_ns=["ns2.google.com", "ns1.google.com", "ns2.google.com"],
+            dns_ns=["NS2.GOOGLE.COM", "ns1.google.com", "NS2.GOOGLE.COM"],
         )
 
         assert data.dns_ips == ["8.8.4.4", "8.8.8.8"]
         assert data.dns_ips_v6 == ["2001:4860:4860::8844", "2001:4860:4860::8888"]
         assert data.dns_ns == ["ns1.google.com", "ns2.google.com"]
+
+    def test_construction_normalizes_scalar_dns_hostnames_to_lowercase(self) -> None:
+        """Constructor canonicalizes scalar DNS hostnames to lowercase."""
+        data = Nip66DnsData(dns_cname="DNS.GOOGLE", dns_reverse="PTR.EXAMPLE.COM")
+        assert data.dns_cname == "dns.google"
+        assert data.dns_reverse == "ptr.example.com"
 
     @pytest.mark.parametrize(
         ("kwargs", "message"),
@@ -734,6 +740,24 @@ class TestNip66DnsData:
         self, kwargs: dict[str, list[str]], message: str
     ) -> None:
         """Constructor rejects blank or whitespace-only DNS list entries."""
+        with pytest.raises(ValidationError, match=message):
+            Nip66DnsData(**kwargs)
+
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"dns_cname": "singlehost"}, "dns_cname must be a valid hostname"),
+            ({"dns_reverse": "-bad.example"}, "dns_reverse must be a valid hostname"),
+            (
+                {"dns_ns": ["singlehost", "ns1.google.com"]},
+                "dns_ns entries must be valid hostnames",
+            ),
+        ],
+    )
+    def test_construction_rejects_invalid_dns_hostnames(
+        self, kwargs: dict[str, object], message: str
+    ) -> None:
+        """Constructor rejects malformed DNS hostname fields."""
         with pytest.raises(ValidationError, match=message):
             Nip66DnsData(**kwargs)
 
@@ -787,6 +811,30 @@ class TestNip66DnsData:
             "dns_ips_v6": ["2001:4860:4860::8888"],
             "dns_ns": ["ns1.google.com"],
         }
+
+    def test_parse_filters_invalid_dns_hostnames(self) -> None:
+        """parse() filters malformed DNS hostname fields."""
+        raw = {
+            "dns_cname": "singlehost",
+            "dns_reverse": "-bad.example",
+            "dns_ns": ["singlehost", "ns1.google.com"],
+            "dns_ttl": 300,
+        }
+        parsed = Nip66DnsData.parse(raw)
+        assert parsed == {"dns_ns": ["ns1.google.com"], "dns_ttl": 300}
+
+    def test_parse_normalizes_dns_hostnames_to_lowercase(self) -> None:
+        """parse() preserves valid DNS hostname fields in canonical lowercase form."""
+        raw = {
+            "dns_cname": "DNS.GOOGLE",
+            "dns_reverse": "PTR.EXAMPLE.COM",
+            "dns_ns": ["NS2.GOOGLE.COM", "ns1.google.com"],
+        }
+        parsed = Nip66DnsData.parse(raw)
+        data = Nip66DnsData(**parsed)
+        assert data.dns_cname == "dns.google"
+        assert data.dns_reverse == "ptr.example.com"
+        assert data.dns_ns == ["ns1.google.com", "ns2.google.com"]
 
     def test_parse_filters_blank_scalar_dns_strings(self) -> None:
         """parse() filters blank or whitespace-only scalar DNS strings."""

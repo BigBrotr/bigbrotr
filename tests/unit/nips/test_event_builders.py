@@ -945,7 +945,7 @@ class TestAddDnsTags:
             Nip66DnsData(
                 dns_ips=["1.2.3.4", "5.6.7.8"],
                 dns_ips_v6=["2001:db8::1"],
-                dns_cname="relay.cdn.example.com",
+                dns_cname="RELAY.CDN.EXAMPLE.COM",
                 dns_ttl=3600,
             ),
         )

@@ -3405,3 +3405,16 @@ Use this section during execution for:
     coverage proving malformed code values now fail fast at construction
     time, are removed from parse output, and that valid canonical country
     codes still flow through the public geo tag helper.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-ninety-first
+  remediation slice:
+  - tightened the `nips.nip66.data.Nip66DnsData` hostname boundary so
+    `dns_cname`, `dns_reverse`, and `dns_ns` now require canonical
+    hostnames, normalize to lowercase when valid, and are filtered from
+    permissive parse/report sanitization when malformed;
+  - closed the drift where arbitrary non-hostname DNS targets could survive
+    as canonical NIP-66 DNS metadata and later flow into shared result
+    containers, persisted documents, and public DNS tag output;
+  - added paired `nips.nip66.test_data` and `nips.test_event_builders`
+    coverage proving malformed hostname values now fail fast at construction
+    time, are removed from parse output, and that valid canonical DNS
+    hostnames still flow through the public DNS tag helper.

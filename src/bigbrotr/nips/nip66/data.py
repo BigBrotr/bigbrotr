@@ -35,6 +35,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, StrictBool, StrictFloat, StrictInt, field_validator
 
+from bigbrotr.models.relay_url import _is_valid_hostname
 from bigbrotr.nips.base import BaseData
 from bigbrotr.nips.parsing import FieldSpec, ParseIssue, ParseReport, join_parse_path
 
@@ -250,6 +251,10 @@ def _is_valid_country_code(value: str) -> bool:
 
 def _is_valid_continent_code(value: str) -> bool:
     return value.upper() in _GEO_CONTINENT_CODES
+
+
+def _is_valid_dns_hostname(value: str) -> bool:
+    return _is_valid_hostname(value.lower())
 
 
 def _is_valid_timezone_name(value: str) -> bool:
@@ -797,6 +802,15 @@ class Nip66DnsData(BaseData):
             raise ValueError(f"{info.field_name} must be a non-empty string")
         return value
 
+    @field_validator("dns_cname", "dns_reverse")
+    @classmethod
+    def _normalize_dns_hostnames(cls, value: str | None, info: Any) -> str | None:
+        if value is None:
+            return None
+        if not _is_valid_dns_hostname(value):
+            raise ValueError(f"{info.field_name} must be a valid hostname")
+        return value.lower()
+
     @field_validator("dns_ips")
     @classmethod
     def _normalize_ipv4_records(cls, value: list[str] | None, info: Any) -> list[str] | None:
@@ -826,10 +840,14 @@ class Nip66DnsData(BaseData):
     def _normalize_nameserver_lists(cls, value: list[str] | None, info: Any) -> list[str] | None:
         if value is None:
             return None
+        normalized: list[str] = []
         for entry in value:
             if entry.strip() == "":
                 raise ValueError(f"{info.field_name} entries must be non-empty strings")
-        return sorted(set(value))
+            if not _is_valid_dns_hostname(entry):
+                raise ValueError(f"{info.field_name} entries must be valid hostnames")
+            normalized.append(entry.lower())
+        return sorted(set(normalized))
 
     @classmethod
     def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
@@ -850,6 +868,16 @@ class Nip66DnsData(BaseData):
             (
                 ("dns_ips", _is_valid_ipv4_address, "expected valid IPv4 address"),
                 ("dns_ips_v6", _is_valid_ipv6_address, "expected valid IPv6 address"),
+                ("dns_ns", _is_valid_dns_hostname, "expected valid hostname"),
+            ),
+            path=path,
+        )
+        _drop_invalid_string_fields(
+            parsed,
+            issues,
+            (
+                ("dns_cname", _is_valid_dns_hostname, "expected valid hostname"),
+                ("dns_reverse", _is_valid_dns_hostname, "expected valid hostname"),
             ),
             path=path,
         )
