@@ -224,6 +224,19 @@ class TestNip66GeoData:
         assert data.geo_lat is None
         assert data.geo_lon == -122.084
 
+    def test_parse_filters_non_finite_float_values(self) -> None:
+        """parse() filters NaN and infinity for geo coordinates."""
+        raw = {
+            "geo_country": "US",  # Valid
+            "geo_lat": float("nan"),  # Invalid: non-finite float
+            "geo_lon": float("inf"),  # Invalid: non-finite float
+        }
+        parsed = Nip66GeoData.parse(raw)
+        data = Nip66GeoData(**parsed)
+        assert data.geo_country == "US"
+        assert data.geo_lat is None
+        assert data.geo_lon is None
+
     def test_parse_filters_invalid_bool_types(self) -> None:
         """parse() filters invalid boolean values."""
         raw = {

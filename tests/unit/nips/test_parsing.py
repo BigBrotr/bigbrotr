@@ -421,6 +421,16 @@ class TestParseFieldsFloat:
         result = parse_fields({"lon": -122.084}, float_spec)
         assert result == {"lon": -122.084}
 
+    def test_nan_rejected(self, float_spec):
+        """Non-finite NaN is rejected for float fields."""
+        result = parse_fields({"lat": float("nan")}, float_spec)
+        assert result == {}
+
+    def test_infinity_rejected(self, float_spec):
+        """Non-finite infinity is rejected for float fields."""
+        result = parse_fields({"lat": float("inf")}, float_spec)
+        assert result == {}
+
     def test_bool_true_rejected(self, float_spec):
         """Boolean True is rejected for float fields."""
         result = parse_fields({"lat": True}, float_spec)
@@ -766,6 +776,17 @@ class TestParseFieldsReport:
         assert report.issues[0].kind == "invalid_value"
         assert report.issues[0].path == "ids"
         assert report.issues[0].detail == "expected non-empty list[int]"
+
+    def test_report_marks_non_finite_float_as_invalid(self):
+        """Report treats NaN and infinity like invalid float payloads."""
+        spec = FieldSpec(float_fields=frozenset({"lat", "lon"}))
+
+        report = parse_fields_report({"lat": float("nan"), "lon": float("inf")}, spec)
+
+        assert report.parsed == {}
+        assert [issue.kind for issue in report.issues] == ["invalid_value", "invalid_value"]
+        assert [issue.path for issue in report.issues] == ["lat", "lon"]
+        assert [issue.detail for issue in report.issues] == ["expected float", "expected float"]
 
     def test_report_honors_extra_known_fields(self):
         """Custom parsers can suppress unknown reports for nested fields they handle."""

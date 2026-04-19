@@ -36,6 +36,7 @@ See Also:
 from __future__ import annotations
 
 import functools
+import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -61,7 +62,9 @@ def _parse_str(value: Any) -> Any:
 
 def _parse_float(value: Any) -> Any:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return float(value)
+        normalized = float(value)
+        if math.isfinite(normalized):
+            return normalized
     return _SKIP
 
 

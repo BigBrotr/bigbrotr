@@ -2424,3 +2424,12 @@ Use this section during execution for:
   - added paired `NIP-85` coverage proving both direct constructors and
     database-row hydration now fail fast on malformed mapping payloads for
     `activity_hours`, `top_topics`, and `k_tags`.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-eleventh remediation
+  slice:
+  - tightened the shared `NIP` float parser so `float_fields` no longer
+    accept non-finite payloads like `nan` or `inf`, which previously let
+    impossible numeric values survive permissive parsing and reach public
+    `NIP-66` geo payloads as if they were canonical coordinates;
+  - added paired shared-parser and `NIP-66` coverage proving non-finite
+    float inputs are now dropped and reported as invalid instead of leaking
+    through `BaseData.parse()` into typed geo models.
