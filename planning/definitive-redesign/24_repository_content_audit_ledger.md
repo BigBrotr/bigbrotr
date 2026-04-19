@@ -3948,3 +3948,14 @@ Use this section during execution for:
     listener behavior without passing through an explicit integer boundary;
   - added coverage in `services.test_api` proving malformed port aliases now
     fail fast at API config load time.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-thirty-third
+  remediation slice:
+  - tightened the public-adapter config boundary in
+    `services.dvm.configs.DvmConfig` so `kind` now requires a canonical
+    integer instead of accepting numeric strings or floats;
+  - closed the drift where authored DVM request-kind payloads like `"5050"`
+    or `5050.0` could silently coerce into a valid NIP-90 kind and change
+    public request routing without passing through an explicit integer
+    boundary;
+  - added coverage in `services.test_dvm` proving malformed `kind` aliases
+    now fail fast at DVM config load time.

@@ -260,6 +260,11 @@ class TestDvmConfig:
         with pytest.raises(ValueError):
             DvmConfig(relays=["wss://relay.example.com"], kind=4000)
 
+    @pytest.mark.parametrize("value", ["5050", 5050.0])
+    def test_rejects_non_integer_kind_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"kind: expected integer, got"):
+            DvmConfig(relays=["wss://relay.example.com"], kind=value)
+
     def test_custom_read_models(self) -> None:
         config = DvmConfig(
             relays=["wss://relay.example.com"],

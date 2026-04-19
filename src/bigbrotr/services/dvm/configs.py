@@ -39,6 +39,12 @@ def _require_number(value: Any, field_name: str) -> int | float:
     return cast("int | float", value)
 
 
+def _require_int(value: Any, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name}: expected integer, got {type(value).__name__}")
+    return cast("int", value)
+
+
 class DvmConfig(PublicReadAdapterConfig):
     """Configuration for the DVM service.
 
@@ -126,6 +132,12 @@ class DvmConfig(PublicReadAdapterConfig):
     def _normalize_announcement_text_fields(cls, value: Any, info: ValidationInfo) -> str:
         field_name = info.field_name or "value"
         return _normalize_required_text(value, field_name)
+
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _require_integer_kind(cls, value: Any, info: ValidationInfo) -> int:
+        field_name = info.field_name or "value"
+        return _require_int(value, field_name)
 
     @field_validator("fetch_timeout", mode="before")
     @classmethod
