@@ -1412,6 +1412,30 @@ class TestBuildRelayDiscovery:
         mock_identifier.assert_not_called()
         mock_builder.assert_not_called()
 
+    def test_rejects_mismatched_nip11_relay_before_document_or_tag_build(self) -> None:
+        """Nip11 metadata for a different relay fails before document or tag work starts."""
+        relay = Relay("wss://relay.example.com")
+        other_relay = Relay("wss://other.example.com")
+        nip11 = Nip11(
+            relay=other_relay,
+            info=Nip11InfoMetadata(
+                data=Nip11InfoData(name="Other Relay"),
+                logs=Nip11InfoLogs(success=True),
+            ),
+        )
+
+        with (
+            patch("bigbrotr.nips.event_builders.Document") as mock_document,
+            patch("bigbrotr.nips.event_builders.Tag.identifier") as mock_identifier,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(ValueError, match="nip11 relay must match relay"),
+        ):
+            build_relay_discovery(relay, nip11=nip11)
+
+        mock_document.assert_not_called()
+        mock_identifier.assert_not_called()
+        mock_builder.assert_not_called()
+
     @pytest.mark.parametrize("value", [True, "not-a-nip66", object()])
     def test_rejects_invalid_nip66_before_discovery_tag_build(self, value: object) -> None:
         """Malformed nip66 payloads fail before any discovery tag or builder work starts."""
@@ -1422,6 +1446,28 @@ class TestBuildRelayDiscovery:
             pytest.raises(ValueError, match="nip66 must be a Nip66 or None"),
         ):
             build_relay_discovery(relay, nip66=value)  # type: ignore[arg-type]
+
+        mock_identifier.assert_not_called()
+        mock_builder.assert_not_called()
+
+    def test_rejects_mismatched_nip66_relay_before_discovery_tag_build(self) -> None:
+        """Nip66 metadata for a different relay fails before any discovery tag or builder work."""
+        relay = Relay("wss://relay.example.com")
+        other_relay = Relay("wss://other.example.com")
+        nip66 = Nip66(
+            relay=other_relay,
+            rtt=Nip66RttMetadata(
+                data=Nip66RttData(rtt_open=45),
+                logs=Nip66RttMultiPhaseLogs(open_success=True),
+            ),
+        )
+
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.identifier") as mock_identifier,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(ValueError, match="nip66 relay must match relay"),
+        ):
+            build_relay_discovery(relay, nip66=nip66)
 
         mock_identifier.assert_not_called()
         mock_builder.assert_not_called()

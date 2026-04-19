@@ -174,21 +174,25 @@ def _normalize_user_assertion(assertion: object) -> UserAssertion:
     return cast("UserAssertion", assertion)
 
 
-def _normalize_optional_nip11(nip11: object) -> Nip11 | None:
+def _normalize_optional_nip11(nip11: object, relay: Relay) -> Nip11 | None:
     if nip11 is None:
         return None
     nip11_type = importlib.import_module("bigbrotr.nips.nip11.nip11").Nip11
     if not isinstance(nip11, nip11_type):
         raise ValueError("nip11 must be a Nip11 or None")
+    if nip11.relay != relay:
+        raise ValueError("nip11 relay must match relay")
     return cast("Nip11", nip11)
 
 
-def _normalize_optional_nip66(nip66: object) -> Nip66 | None:
+def _normalize_optional_nip66(nip66: object, relay: Relay) -> Nip66 | None:
     if nip66 is None:
         return None
     nip66_type = importlib.import_module("bigbrotr.nips.nip66.nip66").Nip66
     if not isinstance(nip66, nip66_type):
         raise ValueError("nip66 must be a Nip66 or None")
+    if nip66.relay != relay:
+        raise ValueError("nip66 relay must match relay")
     return cast("Nip66", nip66)
 
 
@@ -605,8 +609,8 @@ def build_relay_discovery(
         A signed-ready ``EventBuilder`` for Kind 30166.
     """
     relay = _normalize_discovery_relay(relay)
-    nip11 = _normalize_optional_nip11(nip11)
-    nip66 = _normalize_optional_nip66(nip66)
+    nip11 = _normalize_optional_nip11(nip11, relay)
+    nip66 = _normalize_optional_nip66(nip66, relay)
     nip11_canonical_json = ""
     nip11_data = None
     if nip11 and nip11.info:

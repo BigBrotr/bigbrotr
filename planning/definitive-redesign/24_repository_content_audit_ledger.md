@@ -2899,3 +2899,16 @@ Use this section during execution for:
   - added paired `nips.event_builders` coverage proving corrupted discovery
     `nip11` and `nip66` inputs are rejected before any `Document`,
     `EventBuilder`, or `Tag.identifier()` work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-forty-ninth remediation
+  slice:
+  - tightened the direct public consistency boundary of
+    `nips.event_builders.build_relay_discovery()` so optional `Nip11` and
+    `Nip66` payloads tied to a different relay can no longer be mixed into a
+    contradictory `Kind 30166` event for the current subject relay;
+  - centralized relay-identity matching for discovery metadata inside the
+    leaf builder itself so direct callers now enforce that `relay`, `nip11`,
+    and `nip66` all describe the same relay instead of relying on higher-level
+    monitor flows to preserve that invariant by convention;
+  - added paired `nips.event_builders` coverage proving mismatched discovery
+    metadata is rejected before any `Document`, `EventBuilder`, or
+    `Tag.identifier()` work begins.
