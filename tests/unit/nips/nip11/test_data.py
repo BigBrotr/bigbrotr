@@ -14,6 +14,10 @@ from bigbrotr.nips.nip11 import (
 )
 
 
+_VALID_PUBKEY = "a" * 64
+_VALID_SELF_PUBKEY = "b" * 64
+
+
 # =============================================================================
 # Nip11InfoDataLimitation Tests
 # =============================================================================
@@ -713,6 +717,22 @@ class TestNip11InfoDataConstructor:
         with pytest.raises(ValidationError, match=message):
             Nip11InfoData(**kwargs)
 
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"pubkey": "not-a-pubkey"}, "pubkey must be a 64-character hex string"),
+            ({"pubkey": "a" * 63}, "pubkey must be a 64-character hex string"),
+            ({"self_pubkey": "xyz789"}, "self_pubkey must be a 64-character hex string"),
+            ({"self_pubkey": "g" * 64}, "self_pubkey must be a 64-character hex string"),
+        ],
+    )
+    def test_constructor_rejects_malformed_pubkeys(
+        self, kwargs: dict[str, str], message: str
+    ) -> None:
+        """Constructor rejects malformed relay and self pubkeys."""
+        with pytest.raises(ValidationError, match=message):
+            Nip11InfoData(**kwargs)
+
     def test_constructor_normalizes_set_like_string_lists(self):
         """Constructor deduplicates and sorts set-like string list fields."""
         data = Nip11InfoData(
@@ -799,21 +819,21 @@ class TestNip11InfoDataSelfProperty:
 
     def test_self_property_returns_self_pubkey(self):
         """self property returns self_pubkey value."""
-        data = Nip11InfoData(self_pubkey="abc123")
-        assert data.self == "abc123"
+        data = Nip11InfoData(self_pubkey=_VALID_SELF_PUBKEY)
+        assert data.self == _VALID_SELF_PUBKEY
 
     def test_self_alias_in_from_dict(self):
         """'self' key in dict maps to self_pubkey field."""
-        data = Nip11InfoData.from_dict({"self": "xyz789"})
-        assert data.self_pubkey == "xyz789"
-        assert data.self == "xyz789"
+        data = Nip11InfoData.from_dict({"self": _VALID_SELF_PUBKEY})
+        assert data.self_pubkey == _VALID_SELF_PUBKEY
+        assert data.self == _VALID_SELF_PUBKEY
 
     def test_self_alias_in_to_dict(self):
         """to_dict outputs 'self' key (via alias)."""
-        data = Nip11InfoData(self_pubkey="abc123")
+        data = Nip11InfoData(self_pubkey=_VALID_SELF_PUBKEY)
         d = data.to_dict()
         assert "self" in d
-        assert d["self"] == "abc123"
+        assert d["self"] == _VALID_SELF_PUBKEY
         assert "self_pubkey" not in d
 
 
@@ -939,14 +959,24 @@ class TestNip11InfoDataParse:
 
     def test_parse_self_field(self):
         """parse() returns the constructor-ready internal field name for ``self``."""
-        data = {"self": "abc123def456"}
+        data = {"self": _VALID_SELF_PUBKEY}
         result = Nip11InfoData.parse(data)
-        assert result == {"self_pubkey": "abc123def456"}
+        assert result == {"self_pubkey": _VALID_SELF_PUBKEY}
 
     def test_parse_accepts_canonical_self_pubkey_input(self):
         """parse() is idempotent on its canonical internal self-pubkey payload."""
-        result = Nip11InfoData.parse({"self_pubkey": "abc123def456"})
-        assert result == {"self_pubkey": "abc123def456"}
+        result = Nip11InfoData.parse({"self_pubkey": _VALID_SELF_PUBKEY})
+        assert result == {"self_pubkey": _VALID_SELF_PUBKEY}
+
+    def test_parse_filters_malformed_pubkeys(self):
+        """Malformed relay and self pubkeys are filtered from parse output."""
+        data = {
+            "name": "relay",
+            "pubkey": "bad",
+            "self": "also-bad",
+        }
+        result = Nip11InfoData.parse(data)
+        assert result == {"name": "relay"}
 
     def test_parse_non_dict_returns_empty(self):
         """Non-dict input returns empty dict."""

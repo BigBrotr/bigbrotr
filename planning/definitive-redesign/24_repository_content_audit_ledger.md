@@ -3343,3 +3343,15 @@ Use this section during execution for:
   - added paired `nips.nip66.test_data` coverage proving malformed IPv4 and
     IPv6 DNS address entries now fail fast at construction time and are
     removed from parse output.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-eighty-sixth
+  remediation slice:
+  - tightened the `nips.nip11.data.Nip11InfoData` pubkey boundary so
+    malformed relay `pubkey` and `self_pubkey` values now reject at direct
+    model construction and are filtered from permissive parse/report
+    sanitization;
+  - closed the drift where non-canonical Nostr pubkeys could survive as
+    canonical NIP-11 relay metadata and later flow into shared result
+    containers and public serialization;
+  - added paired `nips.nip11.test_data` coverage proving malformed pubkey
+    values now fail fast at construction time and are removed from parse
+    output.

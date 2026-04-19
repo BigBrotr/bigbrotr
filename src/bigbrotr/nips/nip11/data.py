@@ -43,10 +43,21 @@ from bigbrotr.nips.parsing import (
 KindRange = tuple[StrictInt, StrictInt]
 _RetentionEntryT = TypeVar("_RetentionEntryT")
 _FeeEntryT = TypeVar("_FeeEntryT")
+_HEX_32_TEXT_LENGTH = 64
 
 
 def _is_non_negative_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _is_hex32_text(value: str) -> bool:
+    if len(value) != _HEX_32_TEXT_LENGTH:
+        return False
+    try:
+        bytes.fromhex(value)
+    except ValueError:
+        return False
+    return True
 
 
 def _is_valid_kind_range(value: Any) -> bool:
@@ -170,6 +181,26 @@ def _drop_blank_string_fields(
                     kind="invalid_value",
                     path=join_parse_path(path, field_name),
                     detail="expected non-empty str",
+                )
+            )
+
+
+def _drop_invalid_string_fields(
+    parsed: dict[str, Any],
+    issues: list[ParseIssue],
+    field_validators: tuple[tuple[str, Any, str], ...],
+    *,
+    path: str,
+) -> None:
+    for field_name, validator, detail in field_validators:
+        value = parsed.get(field_name)
+        if isinstance(value, str) and not validator(value):
+            del parsed[field_name]
+            issues.append(
+                ParseIssue(
+                    kind="invalid_value",
+                    path=join_parse_path(path, field_name),
+                    detail=detail,
                 )
             )
 
@@ -895,6 +926,13 @@ class Nip11InfoData(BaseData):
             raise ValueError(f"{info.field_name} must be a non-empty string")
         return value
 
+    @field_validator("pubkey", "self_pubkey")
+    @classmethod
+    def _require_hex_pubkeys(cls, value: str | None, info: Any) -> str | None:
+        if value is not None and not _is_hex32_text(value):
+            raise ValueError(f"{info.field_name} must be a 64-character hex string")
+        return value
+
     @field_validator("relay_countries", "language_tags", "tags", "attributes")
     @classmethod
     def _normalize_string_lists(cls, value: list[str] | None, info: Any) -> list[str] | None:
@@ -978,6 +1016,15 @@ class Nip11InfoData(BaseData):
                 "terms_of_service",
                 "posting_policy",
                 "payments_url",
+            ),
+            path=path,
+        )
+        _drop_invalid_string_fields(
+            result,
+            issues,
+            (
+                ("pubkey", _is_hex32_text, "expected 64-character hex string"),
+                ("self", _is_hex32_text, "expected 64-character hex string"),
             ),
             path=path,
         )
