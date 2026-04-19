@@ -2576,3 +2576,15 @@ Use this section during execution for:
   - added paired `utils.protocol` coverage proving those public entrypoints now
     reject malformed aliases like `1` without invoking child helpers, while
     canonical boolean inputs preserve the existing relay/session behavior.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-twenty-fifth remediation
+  slice:
+  - tightened the leaf `utils.protocol_validation` option boundary so
+    `RelayValidationOptions` no longer accepts boolean aliases, non-finite
+    values, or non-positive `connect_timeout` / `overall_timeout` budgets that
+    would otherwise leak impossible deadlines into the direct relay validator;
+  - aligned the public `is_nostr_relay()` consumer with that stricter leaf
+    contract, so malformed validation budgets now fail before any connect,
+    fetch, or shutdown work starts;
+  - added paired `utils.protocol_validation` and `utils.protocol` coverage
+    proving invalid validation budgets are rejected at construction time and
+    never invoke the underlying protocol validator.

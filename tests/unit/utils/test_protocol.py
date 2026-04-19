@@ -1721,3 +1721,31 @@ class TestIsNostrRelayAdditional:
             await is_nostr_relay(relay, allow_insecure=1)  # type: ignore[arg-type]
 
         mock_validate.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        ("kwargs", "expected_message"),
+        [
+            ({"timeout": 0}, "connect_timeout must be a positive finite number"),
+            ({"overall_timeout": 0}, "overall_timeout must be a positive finite number"),
+        ],
+    )
+    async def test_rejects_invalid_time_budgets_before_validation(
+        self,
+        kwargs: dict[str, int],
+        expected_message: str,
+    ) -> None:
+        """Invalid validation budgets fail fast before protocol work starts."""
+        relay = Relay("wss://relay.example.com")
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol._validate_relay_protocol",
+                new_callable=AsyncMock,
+            ) as mock_validate,
+            pytest.raises(ValueError, match=expected_message),
+        ):
+            from bigbrotr.utils.protocol import is_nostr_relay
+
+            await is_nostr_relay(relay, **kwargs)
+
+        mock_validate.assert_not_awaited()

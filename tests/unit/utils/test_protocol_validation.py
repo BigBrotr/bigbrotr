@@ -6,6 +6,7 @@ import contextlib
 import logging
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from nostr_sdk import NostrSdkError
 
 from bigbrotr.models.relay import Relay
@@ -158,3 +159,19 @@ class TestValidateRelayProtocol:
 
         assert result is False
         shutdown_client.assert_awaited_once_with(client)
+
+
+class TestRelayValidationOptions:
+    @pytest.mark.parametrize("value", [True, 0, -1, float("nan")])
+    def test_rejects_invalid_connect_timeout(self, value: object) -> None:
+        with pytest.raises(ValueError, match="connect_timeout must be a positive finite number"):
+            RelayValidationOptions(connect_timeout=value)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("value", [True, 0, -1, float("inf")])
+    def test_rejects_invalid_overall_timeout(self, value: object) -> None:
+        with pytest.raises(ValueError, match="overall_timeout must be a positive finite number"):
+            RelayValidationOptions(connect_timeout=5.0, overall_timeout=value)  # type: ignore[arg-type]
+
+    def test_rejects_non_bool_allow_insecure(self) -> None:
+        with pytest.raises(ValueError, match="allow_insecure must be a bool"):
+            RelayValidationOptions(connect_timeout=5.0, allow_insecure=1)  # type: ignore[arg-type]

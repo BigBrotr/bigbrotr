@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -18,6 +19,23 @@ if TYPE_CHECKING:
     from nostr_sdk import Client
 
     from bigbrotr.models.relay import Relay
+
+
+def _normalize_timeout_budget(timeout: object, field_name: str) -> float:
+    """Return one canonical positive finite timeout budget."""
+    if isinstance(timeout, bool) or not isinstance(timeout, int | float):
+        raise ValueError(f"{field_name} must be a positive finite number")
+    normalized = float(timeout)
+    if not math.isfinite(normalized) or normalized <= 0:
+        raise ValueError(f"{field_name} must be a positive finite number")
+    return normalized
+
+
+def _normalize_allow_insecure(allow_insecure: object) -> bool:
+    """Return one canonical insecure-transport toggle."""
+    if not isinstance(allow_insecure, bool):
+        raise ValueError("allow_insecure must be a bool")
+    return allow_insecure
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +56,24 @@ class RelayValidationOptions:
     proxy_url: str | None = None
     overall_timeout: float | None = None
     allow_insecure: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "connect_timeout",
+            _normalize_timeout_budget(self.connect_timeout, "connect_timeout"),
+        )
+        if self.overall_timeout is not None:
+            object.__setattr__(
+                self,
+                "overall_timeout",
+                _normalize_timeout_budget(self.overall_timeout, "overall_timeout"),
+            )
+        object.__setattr__(
+            self,
+            "allow_insecure",
+            _normalize_allow_insecure(self.allow_insecure),
+        )
 
 
 async def validate_relay_protocol(
