@@ -3211,3 +3211,14 @@ Use this section during execution for:
   - added paired `nips.nip66.test_data` coverage proving those negative geo,
     net, and DNS integer fields now fail fast at construction time and are
     filtered from parse output.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-seventy-fourth
+  remediation slice:
+  - tightened the `nips.nip66.logs.Nip66RttMultiPhaseLogs` semantic boundary
+    so optional `read_reason` and `write_reason` fields are now forbidden
+    unless the corresponding phase explicitly reports `read_success` or
+    `write_success`;
+  - closed the drift where orphan failure reasons for unexecuted RTT phases
+    could survive as canonical NIP-66 log data and later flow into shared
+    result containers and public serialization;
+  - added paired `nips.nip66.test_logs` coverage proving orphan read/write
+    reasons now fail fast at construction time.

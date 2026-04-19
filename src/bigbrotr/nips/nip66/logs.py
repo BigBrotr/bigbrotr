@@ -59,6 +59,28 @@ class Nip66RttMultiPhaseLogs(BaseModel):
     write_success: StrictBool | None = None
     write_reason: str | None = None
 
+    @staticmethod
+    def _validate_optional_phase(
+        phase_name: str,
+        *,
+        success: bool | None,
+        reason: str | None,
+    ) -> None:
+        if success is None:
+            if reason is not None:
+                raise ValueError(
+                    f"{phase_name}_reason must be None when {phase_name}_success is None"
+                )
+            return
+        if success:
+            if reason is not None:
+                raise ValueError(
+                    f"{phase_name}_reason must be None when {phase_name}_success is True"
+                )
+            return
+        if reason is None:
+            raise ValueError(f"{phase_name}_reason is required when {phase_name}_success is False")
+
     @model_validator(mode="after")
     def validate_semantic(self) -> Self:
         """Enforce success/reason consistency and phase dependency constraints."""
@@ -75,19 +97,8 @@ class Nip66RttMultiPhaseLogs(BaseModel):
             if self.write_success is not None and self.write_success:
                 raise ValueError("write_success must be False when open_success is False")
 
-        # Read phase (if present)
-        if self.read_success is not None:
-            if self.read_success and self.read_reason is not None:
-                raise ValueError("read_reason must be None when read_success is True")
-            if not self.read_success and self.read_reason is None:
-                raise ValueError("read_reason is required when read_success is False")
-
-        # Write phase (if present)
-        if self.write_success is not None:
-            if self.write_success and self.write_reason is not None:
-                raise ValueError("write_reason must be None when write_success is True")
-            if not self.write_success and self.write_reason is None:
-                raise ValueError("write_reason is required when write_success is False")
+        self._validate_optional_phase("read", success=self.read_success, reason=self.read_reason)
+        self._validate_optional_phase("write", success=self.write_success, reason=self.write_reason)
 
         return self
 

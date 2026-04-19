@@ -123,6 +123,14 @@ class TestNip66RttMultiPhaseLogsSuccessReasonConstraints:
                 read_reason=None,
             )
 
+    def test_read_reason_without_phase_outcome_raises(self) -> None:
+        """Read reason without a read phase result is invalid."""
+        with pytest.raises(ValueError, match="read_reason must be None when read_success is None"):
+            Nip66RttMultiPhaseLogs(
+                open_success=True,
+                read_reason="orphan-read",
+            )
+
     def test_write_success_with_reason_raises(self) -> None:
         """Write success with reason is invalid."""
         with pytest.raises(
@@ -143,6 +151,16 @@ class TestNip66RttMultiPhaseLogsSuccessReasonConstraints:
                 open_success=True,
                 write_success=False,
                 write_reason=None,
+            )
+
+    def test_write_reason_without_phase_outcome_raises(self) -> None:
+        """Write reason without a write phase result is invalid."""
+        with pytest.raises(
+            ValueError, match="write_reason must be None when write_success is None"
+        ):
+            Nip66RttMultiPhaseLogs(
+                open_success=True,
+                write_reason="orphan-write",
             )
 
 
