@@ -251,9 +251,9 @@ class PublicReadAdapterConfig(BaseServiceConfig):
 
     @field_validator("default_page_size", "max_page_size", mode="before")
     @classmethod
-    def _reject_boolean_page_sizes(cls, value: Any, info: ValidationInfo) -> Any:
+    def _require_integer_page_sizes(cls, value: Any, info: ValidationInfo) -> int:
         field_name = info.field_name or "value"
-        return _reject_bool_alias(value, field_name, "integer")
+        return _require_int(value, field_name)
 
     @property
     def exposure_policy(self) -> dict[str, ReadModelPolicy]:

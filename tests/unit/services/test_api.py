@@ -181,9 +181,19 @@ class TestApiConfig:
         with pytest.raises(ValueError, match="default_page_size: expected integer, got bool"):
             ApiConfig(default_page_size=True)
 
+    @pytest.mark.parametrize("value", ["100", 100.0])
+    def test_rejects_non_integer_default_page_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"default_page_size: expected integer, got"):
+            ApiConfig(default_page_size=value)
+
     def test_rejects_boolean_max_page_size_alias(self) -> None:
         with pytest.raises(ValueError, match="max_page_size: expected integer, got bool"):
             ApiConfig(max_page_size=True)
+
+    @pytest.mark.parametrize("value", ["1000", 1000.0])
+    def test_rejects_non_integer_max_page_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_page_size: expected integer, got"):
+            ApiConfig(max_page_size=value)
 
     def test_rejects_boolean_request_timeout_alias(self) -> None:
         with pytest.raises(ValueError, match="request_timeout: expected number, got bool"):

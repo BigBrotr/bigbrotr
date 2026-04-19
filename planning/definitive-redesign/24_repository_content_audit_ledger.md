@@ -3889,3 +3889,15 @@ Use this section during execution for:
   - added paired coverage in `services.common.test_configs` and
     `services.test_dvm` proving malformed nested `price` payloads now fail
     fast at config load time.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-twenty-eighth
+  remediation slice:
+  - tightened the shared public-adapter boundary in
+    `services.common.configs.PublicReadAdapterConfig` so `default_page_size`
+    and `max_page_size` now require canonical integers instead of accepting
+    numeric strings or floats;
+  - closed the drift where authored API/DVM page-size payloads like `"100"`
+    or `1000.0` could silently coerce into valid limits and change public
+    pagination behavior without passing through an explicit integer boundary;
+  - added paired coverage in `services.test_api` and `services.test_dvm`
+    proving malformed page-size aliases now fail fast in both public adapter
+    consumers.
