@@ -360,9 +360,19 @@ def _normalize_trusted_provider_declarations(
     return canonicalize_trusted_provider_declarations(items)
 
 
-def _normalize_networks(enabled_networks: Sequence[NetworkType]) -> tuple[NetworkType, ...]:
+def _normalize_networks(enabled_networks: object) -> tuple[NetworkType, ...]:
     """Return a stable deduplicated ordering for network capability tags."""
-    return tuple(sorted(set(enabled_networks), key=lambda network: network.value))
+    if isinstance(enabled_networks, MappingABC | str | bytes):
+        raise ValueError("enabled_networks must be an iterable of NetworkType")
+    if not isinstance(enabled_networks, IterableABC):
+        raise ValueError("enabled_networks must be an iterable of NetworkType")
+
+    items = tuple(enabled_networks)
+    for network in items:
+        if not isinstance(network, NetworkType):
+            raise ValueError("enabled_networks must contain only NetworkType items")
+
+    return tuple(sorted(set(items), key=lambda network: network.value))
 
 
 def build_profile_event(  # noqa: PLR0913
@@ -453,14 +463,13 @@ def build_monitor_announcement(  # noqa: PLR0913
     timeout_ms = _normalize_positive_int(timeout_ms, "timeout_ms")
     nip11_selection = _normalize_nip11_selection(nip11_selection)
     nip66_selection = _normalize_nip66_selection(nip66_selection)
+    normalized_networks = _normalize_networks(enabled_networks)
     geohash = _normalize_geohash(geohash)
 
     tags = [Tag.parse(["frequency", str(interval)])]
     if geohash:
         tags.append(Tag.parse(["g", geohash]))
-    tags.extend(
-        Tag.parse(["n", network.value]) for network in _normalize_networks(enabled_networks)
-    )
+    tags.extend(Tag.parse(["n", network.value]) for network in normalized_networks)
 
     ms = str(timeout_ms)
 

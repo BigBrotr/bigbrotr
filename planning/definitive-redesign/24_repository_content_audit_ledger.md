@@ -3071,3 +3071,16 @@ Use this section during execution for:
     flows to sanitize the public arguments first;
   - added paired `nips.event_builders` coverage proving corrupted selection
     inputs are rejected before any `Tag.parse()` work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-sixty-second remediation
+  slice:
+  - tightened the direct public builder boundary of
+    `nips.event_builders.build_monitor_announcement()` so malformed
+    `enabled_networks` containers and item payloads no longer degrade into
+    late attribute errors or partial `Kind 10166` network tag mutation while
+    the public monitor announcement builder assembles capability tags;
+  - centralized typed normalization of the `enabled_networks` iterable inside
+    the leaf helper itself so direct callers now enforce a real
+    `NetworkType` boundary instead of relying on higher-level monitor flows
+    to sanitize the public argument first;
+  - added paired `nips.event_builders` coverage proving corrupted network
+    inputs are rejected before any `Tag.parse()` work begins.

@@ -413,6 +413,66 @@ class TestBuildMonitorAnnouncement:
             ["n", "tor"],
         ]
 
+    @pytest.mark.parametrize(
+        "value",
+        [
+            True,
+            "clearnet",
+            b"tor",
+            {"network": NetworkType.CLEARNET},
+            object(),
+        ],
+    )
+    def test_rejects_invalid_enabled_networks_container_before_tag_build(
+        self,
+        value: object,
+    ) -> None:
+        """Malformed enabled_networks containers fail before any announcement tags are built."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="enabled_networks must be an iterable of NetworkType"),
+        ):
+            build_monitor_announcement(
+                interval=3600,
+                timeout_ms=10000,
+                enabled_networks=value,  # type: ignore[arg-type]
+                nip11_selection=Nip11Selection(info=False),
+                nip66_selection=Nip66Selection(
+                    rtt=False,
+                    ssl=False,
+                    geo=False,
+                    net=False,
+                    dns=False,
+                    http=False,
+                ),
+            )
+
+        mock_parse.assert_not_called()
+
+    @pytest.mark.parametrize("value", [True, "clearnet", object()])
+    def test_rejects_invalid_enabled_network_items_before_tag_build(self, value: object) -> None:
+        """Malformed enabled_networks items fail before any announcement tags are built."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="enabled_networks must contain only NetworkType items"),
+        ):
+            build_monitor_announcement(
+                interval=3600,
+                timeout_ms=10000,
+                enabled_networks=[NetworkType.CLEARNET, value],  # type: ignore[list-item]
+                nip11_selection=Nip11Selection(info=False),
+                nip66_selection=Nip66Selection(
+                    rtt=False,
+                    ssl=False,
+                    geo=False,
+                    net=False,
+                    dns=False,
+                    http=False,
+                ),
+            )
+
+        mock_parse.assert_not_called()
+
     @pytest.mark.parametrize("value", [True, 0, -1])
     def test_rejects_invalid_interval_before_tag_build(self, value: object) -> None:
         """Invalid frequency budgets fail before any announcement tags are built."""
