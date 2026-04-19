@@ -118,6 +118,13 @@ class TestBaseServiceConfig:
         config = BaseServiceConfig(max_consecutive_failures=0)
         assert config.max_consecutive_failures == 0
 
+    def test_rejects_boolean_max_consecutive_failures_alias(self) -> None:
+        """Test bool aliases do not coerce into a one-failure shutdown budget."""
+        with pytest.raises(
+            ValidationError, match="max_consecutive_failures: expected integer, got bool"
+        ):
+            BaseServiceConfig(max_consecutive_failures=True)
+
     def test_max_consecutive_failures_negative_not_allowed(self) -> None:
         """Test that negative max_consecutive_failures is not allowed."""
         with pytest.raises(ValidationError):

@@ -2151,3 +2151,11 @@ Use this section during execution for:
     and silently shrink public pagination defaults or transport deadlines;
   - added paired `API`/`DVM` coverage proving those boolean aliases now fail
     fast at config load instead of mutating public read-side behavior.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-eighty-second remediation
+  slice:
+  - tightened the shared `BaseServiceConfig` lifecycle boundary so
+    `max_consecutive_failures` no longer accepts boolean aliases, which
+    previously let values like `True` coerce to `1` and silently collapse a
+    service's failure budget to a single bad cycle;
+  - added paired `core` coverage proving that boolean alias now fails fast at
+    config load instead of mutating shared service shutdown behavior.

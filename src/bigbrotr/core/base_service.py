@@ -26,7 +26,7 @@ from abc import ABC, abstractmethod
 from types import TracebackType
 from typing import Any, ClassVar, Generic, Self, TypeVar, cast
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .brotr import Brotr
 from .logger import Logger
@@ -70,6 +70,14 @@ class BaseServiceConfig(BaseModel):
         default_factory=MetricsConfig,
         description="Prometheus metrics configuration",
     )
+
+    @field_validator("max_consecutive_failures", mode="before")
+    @classmethod
+    def reject_boolean_max_consecutive_failures(cls, value: Any) -> Any:
+        """Reject bool aliases before they coerce into a one-failure budget."""
+        if isinstance(value, bool):
+            raise ValueError("max_consecutive_failures: expected integer, got bool")
+        return value
 
 
 # Bound TypeVar ensuring all service configs inherit from BaseServiceConfig
