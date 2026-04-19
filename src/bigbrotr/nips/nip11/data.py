@@ -45,6 +45,7 @@ KindRange = tuple[StrictInt, StrictInt]
 _RetentionEntryT = TypeVar("_RetentionEntryT")
 _FeeEntryT = TypeVar("_FeeEntryT")
 _HEX_32_TEXT_LENGTH = 64
+_COUNTRY_CODE_RE = re.compile(r"^[A-Z]{2}$", re.IGNORECASE)
 _PASCAL_CASE_ATTRIBUTE_RE = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 
 
@@ -64,6 +65,10 @@ def _is_hex32_text(value: str) -> bool:
 
 def _is_valid_pascal_case_attribute(value: str) -> bool:
     return bool(_PASCAL_CASE_ATTRIBUTE_RE.fullmatch(value))
+
+
+def _is_valid_country_code(value: str) -> bool:
+    return bool(_COUNTRY_CODE_RE.fullmatch(value))
 
 
 def _is_valid_kind_range(value: Any) -> bool:
@@ -980,6 +985,18 @@ class Nip11InfoData(BaseData):
                 raise ValueError(f"{info.field_name} entries must be non-empty strings")
         return sorted(set(value))
 
+    @field_validator("relay_countries")
+    @classmethod
+    def _normalize_relay_countries(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized: list[str] = []
+        for entry in value:
+            if not _is_valid_country_code(entry):
+                raise ValueError("relay_countries entries must be ISO 3166-1 alpha-2 codes")
+            normalized.append(entry.upper())
+        return sorted(set(normalized))
+
     @field_validator("attributes")
     @classmethod
     def _require_pascal_case_attributes(cls, value: list[str] | None) -> list[str] | None:
@@ -1079,6 +1096,18 @@ class Nip11InfoData(BaseData):
             result,
             issues,
             ("relay_countries", "language_tags", "tags", "attributes"),
+            path=path,
+        )
+        _drop_invalid_string_list_entries(
+            result,
+            issues,
+            (
+                (
+                    "relay_countries",
+                    _is_valid_country_code,
+                    "expected valid ISO 3166-1 alpha-2 code",
+                ),
+            ),
             path=path,
         )
         _drop_invalid_string_list_entries(

@@ -271,7 +271,7 @@ class TestNip11InfoMetadataSuccess:
         import json
 
         payload = dict(complete_nip11_data)
-        payload["relay_countries"] = ["US", "DE", "US"]
+        payload["relay_countries"] = ["us", "DE", "us", "USA"]
         payload["language_tags"] = ["en-US", "en", "en-US"]
         payload["tags"] = ["bitcoin-only", "sfw-only", "bitcoin-only"]
         payload["attributes"] = ["Search", "Community", "Search"]

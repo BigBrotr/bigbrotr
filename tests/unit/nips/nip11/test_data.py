@@ -736,7 +736,7 @@ class TestNip11InfoDataConstructor:
     def test_constructor_normalizes_set_like_string_lists(self):
         """Constructor deduplicates and sorts set-like string list fields."""
         data = Nip11InfoData(
-            relay_countries=["US", "DE", "US"],
+            relay_countries=["us", "DE", "us"],
             language_tags=["en-US", "en", "en-US"],
             tags=["bitcoin-only", "sfw-only", "bitcoin-only"],
             attributes=["Search", "Community", "Search"],
@@ -761,6 +761,20 @@ class TestNip11InfoDataConstructor:
         """Constructor rejects blank or whitespace-only string list entries."""
         with pytest.raises(ValidationError, match=message):
             Nip11InfoData(**kwargs)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            ["USA", "DE"],
+            ["u1", "DE"],
+        ],
+    )
+    def test_constructor_rejects_invalid_relay_country_entries(self, value: list[str]) -> None:
+        """Constructor rejects malformed relay country codes."""
+        with pytest.raises(
+            ValidationError, match="relay_countries entries must be ISO 3166-1 alpha-2 codes"
+        ):
+            Nip11InfoData(relay_countries=value)
 
     @pytest.mark.parametrize(
         "value",
@@ -860,7 +874,7 @@ class TestNip11InfoDataParse:
             "description": "A test relay",
             "supported_nips": [1, 11, 42],
             "limitation": {"max_message_length": 65535},
-            "relay_countries": ["US", "DE", "US"],
+            "relay_countries": ["us", "DE", "us"],
             "language_tags": ["en-US", "en", "en-US"],
             "tags": ["bitcoin-only", "sfw-only", "bitcoin-only"],
             "attributes": ["Search", "Community", "Search"],
@@ -942,6 +956,12 @@ class TestNip11InfoDataParse:
         data = {"tags": ["valid", 42, "also valid", None, "valid"]}
         result = Nip11InfoData.parse(data)
         assert result["tags"] == ["also valid", "valid"]
+
+    def test_parse_filters_invalid_relay_country_entries(self):
+        """Malformed relay country codes are filtered from parse output."""
+        data = {"relay_countries": ["us", "USA", "u1", "DE"]}
+        result = Nip11InfoData.parse(data)
+        assert result == {"relay_countries": ["DE", "US"]}
 
     def test_parse_filters_blank_string_list_entries(self):
         """Blank string entries are filtered from NIP-11 string lists."""

@@ -3517,3 +3517,17 @@ Use this section during execution for:
     coverage proving malformed attribute values now fail fast at
     construction time, are removed from parse output, and only canonical
     PascalCase attributes survive into public builder output.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-ninety-ninth
+  remediation slice:
+  - tightened the `nips.nip11.data.Nip11InfoData` relay-country boundary so
+    `relay_countries` now requires ISO 3166-1 alpha-2 codes, normalizes valid
+    entries to uppercase, and filters malformed values from permissive
+    parse/report sanitization instead of preserving them as canonical
+    metadata;
+  - closed the drift where semantically identical country codes like `us`
+    and `US` could survive as different canonical `NIP-11` values, while
+    malformed values like `USA` could still flow through the fetch path;
+  - added paired `nips.nip11.test_data` and `nips.nip11.test_info` coverage
+    proving valid lowercase country codes now canonicalize to uppercase at
+    construction and fetch time, and malformed entries are removed from parse
+    output before the public container is built.
