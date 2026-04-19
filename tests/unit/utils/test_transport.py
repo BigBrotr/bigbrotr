@@ -292,6 +292,29 @@ class TestSuppressNostrSdkStderr:
 # =============================================================================
 
 
+class TestInsecureWebSocketAdapterInit:
+    @pytest.mark.parametrize(
+        ("field_name", "kwargs"),
+        [
+            ("recv_timeout", {"recv_timeout": True}),
+            ("recv_timeout", {"recv_timeout": 0}),
+            ("recv_timeout", {"recv_timeout": -1.0}),
+            ("recv_timeout", {"recv_timeout": float("nan")}),
+            ("close_timeout", {"close_timeout": True}),
+            ("close_timeout", {"close_timeout": 0}),
+            ("close_timeout", {"close_timeout": -1.0}),
+            ("close_timeout", {"close_timeout": float("inf")}),
+        ],
+    )
+    def test_rejects_invalid_timeout_budgets(
+        self,
+        field_name: str,
+        kwargs: dict[str, object],
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name} must be a positive finite number"):
+            InsecureWebSocketAdapter(AsyncMock(), AsyncMock(), **kwargs)
+
+
 class TestInsecureWebSocketAdapterSend:
     """Tests for InsecureWebSocketAdapter.send() method."""
 
@@ -507,6 +530,29 @@ class TestInsecureWebSocketAdapterClose:
 # =============================================================================
 # InsecureWebSocketTransport Tests
 # =============================================================================
+
+
+class TestInsecureWebSocketTransportInit:
+    @pytest.mark.parametrize(
+        ("field_name", "kwargs"),
+        [
+            ("recv_timeout", {"recv_timeout": True}),
+            ("recv_timeout", {"recv_timeout": 0}),
+            ("recv_timeout", {"recv_timeout": -1.0}),
+            ("recv_timeout", {"recv_timeout": float("nan")}),
+            ("close_timeout", {"close_timeout": True}),
+            ("close_timeout", {"close_timeout": 0}),
+            ("close_timeout", {"close_timeout": -1.0}),
+            ("close_timeout", {"close_timeout": float("inf")}),
+        ],
+    )
+    def test_rejects_invalid_timeout_budgets(
+        self,
+        field_name: str,
+        kwargs: dict[str, object],
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name} must be a positive finite number"):
+            InsecureWebSocketTransport(**kwargs)
 
 
 class TestInsecureWebSocketTransport:

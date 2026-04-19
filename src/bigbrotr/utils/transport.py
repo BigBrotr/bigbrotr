@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import math
 import os
 import ssl
 import sys
@@ -199,6 +200,15 @@ _WS_RECV_TIMEOUT = 60.0
 _WS_CLOSE_TIMEOUT = 5.0
 
 
+def _normalize_timeout(value: object, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field_name} must be a positive finite number")
+    timeout = float(value)
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError(f"{field_name} must be a positive finite number")
+    return timeout
+
+
 class InsecureWebSocketAdapter(WebSocketAdapter):
     """aiohttp-based WebSocket adapter with SSL verification disabled.
 
@@ -224,8 +234,8 @@ class InsecureWebSocketAdapter(WebSocketAdapter):
     ) -> None:
         self._ws = ws
         self._session = session
-        self._recv_timeout = recv_timeout
-        self._close_timeout = close_timeout
+        self._recv_timeout = _normalize_timeout(recv_timeout, "recv_timeout")
+        self._close_timeout = _normalize_timeout(close_timeout, "close_timeout")
 
     async def send(self, msg: WebSocketMessage) -> None:
         """Send a WebSocket message (text, binary, ping, or pong)."""
@@ -306,8 +316,8 @@ class InsecureWebSocketTransport(CustomWebSocketTransport):
         recv_timeout: float = _WS_RECV_TIMEOUT,
         close_timeout: float = _WS_CLOSE_TIMEOUT,
     ) -> None:
-        self._recv_timeout = recv_timeout
-        self._close_timeout = close_timeout
+        self._recv_timeout = _normalize_timeout(recv_timeout, "recv_timeout")
+        self._close_timeout = _normalize_timeout(close_timeout, "close_timeout")
 
     async def connect(
         self,

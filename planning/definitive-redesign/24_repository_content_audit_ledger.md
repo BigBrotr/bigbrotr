@@ -2745,3 +2745,17 @@ Use this section during execution for:
     sites to sanitize the public arguments first;
   - added paired `utils.dns` coverage proving corrupted timeout inputs are
     rejected before any IPv4 or IPv6 lookup begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-thirty-eighth remediation
+  slice:
+  - tightened the direct public constructor boundaries of
+    `utils.transport.InsecureWebSocketAdapter()` and
+    `utils.transport.InsecureWebSocketTransport()` so malformed timeout
+    budgets no longer degrade into one-second truthy timeouts, immediate
+    close deadlines, or non-finite wait windows inside the insecure WebSocket
+    transport path;
+  - centralized timeout normalization inside the shared transport leaf so both
+    the per-connection adapter and the custom transport now enforce the same
+    positive finite budget contract before any recv/close or insecure relay
+    connection logic starts;
+  - added paired `utils.transport` coverage proving corrupted timeout inputs
+    are rejected before adapter or transport state is created.
