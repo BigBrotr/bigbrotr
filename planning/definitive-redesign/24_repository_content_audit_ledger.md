@@ -2526,3 +2526,12 @@ Use this section during execution for:
   - added paired `NIP-11` coverage proving invalid timeout inputs now fail
     fast before any child fetch or HTTP work starts, while canonical positive
     time budgets still preserve the existing runtime contract.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-twenty-first remediation
+  slice:
+  - tightened the public top-level `NIP-66` timeout boundary so
+    `Nip66.probe(timeout=...)` no longer accepts bool aliases, non-finite
+    values, or non-positive budgets that would otherwise be propagated to the
+    shared RTT/SSL/DNS/HTTP probe family as if they were canonical;
+  - added paired `NIP-66` coverage proving invalid timeout inputs now fail
+    fast before any child probe starts, while canonical positive time budgets
+    continue to preserve the existing orchestration contract.

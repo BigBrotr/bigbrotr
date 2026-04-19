@@ -508,6 +508,27 @@ class TestNip66Probe:
 
         assert isinstance(result, Nip66)
 
+    @pytest.mark.parametrize("value", [True, 0, -1, float("nan")])
+    async def test_rejects_invalid_timeout_before_probe_tasks(
+        self,
+        relay: Relay,
+        value: object,
+    ) -> None:
+        """Invalid timeout budgets fail before any child probe starts."""
+        selection = Nip66Selection(rtt=False, geo=False, net=False)
+
+        with (
+            patch.object(Nip66DnsMetadata, "probe", new_callable=AsyncMock) as mock_dns,
+            patch.object(Nip66SslMetadata, "probe", new_callable=AsyncMock) as mock_ssl,
+            patch.object(Nip66HttpMetadata, "probe", new_callable=AsyncMock) as mock_http,
+            pytest.raises(ValueError, match="timeout must be a positive finite number"),
+        ):
+            await Nip66.probe(relay, timeout=value, selection=selection)
+
+        mock_dns.assert_not_awaited()
+        mock_ssl.assert_not_awaited()
+        mock_http.assert_not_awaited()
+
     async def test_passes_proxy_url(
         self,
         relay: Relay,
