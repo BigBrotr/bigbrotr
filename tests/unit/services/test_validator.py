@@ -200,6 +200,11 @@ class TestValidatorConfig:
         cfg = ValidatorConfig(networks=NetworksConfig(tor=TorConfig(enabled=True)))
         assert cfg.networks.tor.enabled is True
 
+    @pytest.mark.parametrize("value", ["true", 1])
+    def test_nested_network_enabled_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"enabled: expected boolean, got"):
+            ValidatorConfig(networks={"tor": {"enabled": value}})
+
     def test_processing_validation_propagated(self) -> None:
         with pytest.raises(ValueError):
             ValidatorConfig(processing={"chunk_size": 5})

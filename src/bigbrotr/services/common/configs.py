@@ -74,6 +74,13 @@ def _reject_bool_alias(value: Any, field_name: str, expected: str) -> Any:
     return value
 
 
+def _require_bool(value: Any, field_name: str) -> bool:
+    """Require canonical booleans for public service config boundaries."""
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected boolean, got {type(value).__name__}")
+    return value
+
+
 def parse_relay_list_fail_soft(raw: object) -> list[Relay] | None:
     """Parse one config value into canonical relays, skipping invalid entries."""
     if raw is None:
@@ -287,6 +294,12 @@ class ClearnetConfig(BaseModel):
         expected = "integer" if field_name == "max_tasks" else "number"
         return _reject_bool_alias(value, field_name, expected)
 
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def require_boolean_enabled(cls, value: Any, info: ValidationInfo) -> bool:
+        field_name = info.field_name or "enabled"
+        return _require_bool(value, field_name)
+
 
 class TorConfig(BaseModel):
     """Configuration for Tor (.onion) relays.
@@ -315,6 +328,12 @@ class TorConfig(BaseModel):
         expected = "integer" if field_name == "max_tasks" else "number"
         return _reject_bool_alias(value, field_name, expected)
 
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def require_boolean_enabled(cls, value: Any, info: ValidationInfo) -> bool:
+        field_name = info.field_name or "enabled"
+        return _require_bool(value, field_name)
+
 
 class I2pConfig(BaseModel):
     """Configuration for I2P (.i2p) relays.
@@ -342,6 +361,12 @@ class I2pConfig(BaseModel):
         field_name = info.field_name or "value"
         expected = "integer" if field_name == "max_tasks" else "number"
         return _reject_bool_alias(value, field_name, expected)
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def require_boolean_enabled(cls, value: Any, info: ValidationInfo) -> bool:
+        field_name = info.field_name or "enabled"
+        return _require_bool(value, field_name)
 
 
 class LokiConfig(BaseModel):
@@ -373,6 +398,12 @@ class LokiConfig(BaseModel):
         field_name = info.field_name or "value"
         expected = "integer" if field_name == "max_tasks" else "number"
         return _reject_bool_alias(value, field_name, expected)
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def require_boolean_enabled(cls, value: Any, info: ValidationInfo) -> bool:
+        field_name = info.field_name or "enabled"
+        return _require_bool(value, field_name)
 
 
 # Union type for any network-specific configuration

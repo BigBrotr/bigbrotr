@@ -231,6 +231,11 @@ class TestClearnetConfigCustomValues:
         assert config.max_tasks == 25
         assert config.timeout == 10.0
 
+    @pytest.mark.parametrize("value", ["true", 1])
+    def test_rejects_boolean_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"enabled: expected boolean, got"):
+            ClearnetConfig(enabled=value)
+
 
 # =============================================================================
 # TorConfig Tests
@@ -259,6 +264,11 @@ class TestTorConfigDefaults:
         """Test Tor has 30.0s timeout by default (longer than clearnet)."""
         config = TorConfig()
         assert config.timeout == 30.0
+
+    @pytest.mark.parametrize("value", ["true", 1])
+    def test_rejects_boolean_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"enabled: expected boolean, got"):
+            TorConfig(enabled=value)
 
 
 class TestTorConfigPartialOverride:
@@ -321,6 +331,11 @@ class TestI2pConfigDefaults:
         config = I2pConfig()
         assert config.timeout == 45.0
 
+    @pytest.mark.parametrize("value", ["true", 1])
+    def test_rejects_boolean_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"enabled: expected boolean, got"):
+            I2pConfig(enabled=value)
+
 
 class TestI2pConfigCustomValues:
     """Tests for I2pConfig with custom values."""
@@ -360,6 +375,11 @@ class TestLokiConfigDefaults:
         """Test Lokinet has 30.0s timeout by default."""
         config = LokiConfig()
         assert config.timeout == 30.0
+
+    @pytest.mark.parametrize("value", ["true", 1])
+    def test_rejects_boolean_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"enabled: expected boolean, got"):
+            LokiConfig(enabled=value)
 
 
 class TestLokiConfigCustomValues:

@@ -3838,3 +3838,16 @@ Use this section during execution for:
   - added paired coverage in `services.common.test_configs`,
     `services.test_api`, and `services.test_dvm` proving malformed
     `read_models.*.enabled` aliases now fail fast at config load time.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-twenty-fourth
+  remediation slice:
+  - tightened the shared network config boundaries in
+    `services.common.configs` so `ClearnetConfig`, `TorConfig`, `I2pConfig`,
+    and `LokiConfig` now require canonical booleans for `enabled`;
+  - closed the drift where payloads like `"true"` or `1` could silently flip
+    overlay family enablement in authored service configs, changing runtime
+    routing and proxy selection without passing through an explicit boolean
+    boundary;
+  - added paired coverage in `services.common.test_configs` and
+    `services.test_validator` proving malformed nested network `enabled`
+    aliases now fail fast in both the shared model layer and a concrete
+    service config consumer.
