@@ -35,6 +35,9 @@ _SUPPORTED_KINDS = frozenset(
 )
 _ALGORITHM_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 _DEFAULT_ALGORITHM_ID = "global-pagerank"
+_RESERVED_PROFILE_EXTRA_KEYS = frozenset(
+    {"name", "about", "picture", "nip05", "website", "banner", "lud16"}
+)
 
 
 def _reject_bool_alias(value: Any, field_name: str, expected_type: str) -> Any:
@@ -65,6 +68,10 @@ def _normalize_profile_extra_fields(value: Any) -> dict[str, object]:
         canonical_key = key.strip()
         if not canonical_key or item is None:
             continue
+        if canonical_key in _RESERVED_PROFILE_EXTRA_KEYS:
+            raise ValueError(
+                f"extra_fields must not contain reserved profile field {canonical_key!r}"
+            )
         if canonical_key in normalized:
             raise ValueError("extra_fields contains duplicate normalized keys")
         try:

@@ -3708,3 +3708,17 @@ Use this section during execution for:
   - added paired `services.test_assertor` coverage proving config input now
     canonicalizes provider-profile text up front and the hashed profile
     content no longer retains blank optional fields.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-fourteenth remediation
+  slice:
+  - tightened the `services.assertor.configs.ProviderProfileKind0Content`
+    `extra_fields` boundary so reserved Kind `0` profile keys like `name`,
+    `picture`, `website`, or `lud16` are no longer accepted through the
+    generic extras channel;
+  - closed the drift where a reserved extra like `{"picture": "..."}` could
+    survive into the provider-profile content hash but then be stripped out
+    before `build_profile_event()` because the publish path splits standard
+    profile fields away from `extra_fields`, producing a hashed payload that
+    did not match the actual public Kind `0` event body;
+  - added paired `services.test_assertor` coverage proving reserved profile
+    keys now fail fast at config load while non-reserved extras still
+    canonicalize and merge into provider-profile content.

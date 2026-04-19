@@ -296,6 +296,14 @@ class TestAssertorConfig:
                 "extra_fields contains duplicate normalized keys",
             ),
             (
+                {" picture ": "https://img.example/x.png"},
+                r"extra_fields must not contain reserved profile field 'picture'",
+            ),
+            (
+                {"name": "ignored"},
+                r"extra_fields must not contain reserved profile field 'name'",
+            ),
+            (
                 {"weights": float("nan")},
                 r"extra_fields\['weights'\] contains a non-finite float",
             ),
@@ -1270,7 +1278,6 @@ class TestAssertorUtils:
                 website="https://bigbrotr.com",
                 picture="https://bigbrotr.com/avatar.png",
                 extra_fields={
-                    " name ": "ignored",
                     " algorithm_id ": "ignored",
                     " software ": "bigbrotr",
                     "hidden": None,
