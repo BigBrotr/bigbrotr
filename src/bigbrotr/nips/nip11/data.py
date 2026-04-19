@@ -154,6 +154,26 @@ def _drop_blank_string_list_entries(
             del parsed[field_name]
 
 
+def _drop_blank_string_fields(
+    parsed: dict[str, Any],
+    issues: list[ParseIssue],
+    field_names: tuple[str, ...],
+    *,
+    path: str,
+) -> None:
+    for field_name in field_names:
+        value = parsed.get(field_name)
+        if isinstance(value, str) and value.strip() == "":
+            del parsed[field_name]
+            issues.append(
+                ParseIssue(
+                    kind="invalid_value",
+                    path=join_parse_path(path, field_name),
+                    detail="expected non-empty str",
+                )
+            )
+
+
 def _parse_strict_int_fields(
     data: dict[str, Any],
     field_names: tuple[str, ...],
@@ -846,6 +866,27 @@ class Nip11InfoData(BaseData):
                 raise ValueError("supported_nips must contain only non-negative values")
         return sorted(set(value))
 
+    @field_validator(
+        "name",
+        "description",
+        "banner",
+        "icon",
+        "pubkey",
+        "self_pubkey",
+        "contact",
+        "software",
+        "version",
+        "privacy_policy",
+        "terms_of_service",
+        "posting_policy",
+        "payments_url",
+    )
+    @classmethod
+    def _require_non_blank_strings(cls, value: str | None, info: Any) -> str | None:
+        if value is not None and value.strip() == "":
+            raise ValueError(f"{info.field_name} must be a non-empty string")
+        return value
+
     @field_validator("relay_countries", "language_tags", "tags", "attributes")
     @classmethod
     def _normalize_string_lists(cls, value: list[str] | None, info: Any) -> list[str] | None:
@@ -912,6 +953,26 @@ class Nip11InfoData(BaseData):
         result = dict(report.parsed)
         issues = list(report.issues)
 
+        _drop_blank_string_fields(
+            result,
+            issues,
+            (
+                "name",
+                "description",
+                "banner",
+                "icon",
+                "pubkey",
+                "self",
+                "contact",
+                "software",
+                "version",
+                "privacy_policy",
+                "terms_of_service",
+                "posting_policy",
+                "payments_url",
+            ),
+            path=path,
+        )
         _drop_blank_string_list_entries(
             result,
             issues,

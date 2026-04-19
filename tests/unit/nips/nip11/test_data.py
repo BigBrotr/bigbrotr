@@ -676,6 +676,31 @@ class TestNip11InfoDataConstructor:
         data = Nip11InfoData(supported_nips=[42, 1, 11, 42, 1])
         assert data.supported_nips == [1, 11, 42]
 
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"name": " "}, "name must be a non-empty string"),
+            ({"description": ""}, "description must be a non-empty string"),
+            ({"banner": " "}, "banner must be a non-empty string"),
+            ({"icon": ""}, "icon must be a non-empty string"),
+            ({"pubkey": " "}, "pubkey must be a non-empty string"),
+            ({"self_pubkey": ""}, "self_pubkey must be a non-empty string"),
+            ({"contact": " "}, "contact must be a non-empty string"),
+            ({"software": ""}, "software must be a non-empty string"),
+            ({"version": " "}, "version must be a non-empty string"),
+            ({"privacy_policy": ""}, "privacy_policy must be a non-empty string"),
+            ({"terms_of_service": " "}, "terms_of_service must be a non-empty string"),
+            ({"posting_policy": ""}, "posting_policy must be a non-empty string"),
+            ({"payments_url": " "}, "payments_url must be a non-empty string"),
+        ],
+    )
+    def test_constructor_rejects_blank_scalar_strings(
+        self, kwargs: dict[str, str], message: str
+    ) -> None:
+        """Constructor rejects blank or whitespace-only scalar strings."""
+        with pytest.raises(ValidationError, match=message):
+            Nip11InfoData(**kwargs)
+
     def test_constructor_normalizes_set_like_string_lists(self):
         """Constructor deduplicates and sorts set-like string list fields."""
         data = Nip11InfoData(
@@ -888,6 +913,17 @@ class TestNip11InfoDataParse:
             "tags": ["relay"],
             "attributes": ["Search"],
         }
+
+    def test_parse_filters_blank_scalar_string_entries(self):
+        """Blank scalar strings are filtered from NIP-11 descriptor fields."""
+        data = {
+            "name": " ",
+            "software": "",
+            "icon": "   ",
+            "contact": "ops@example.com",
+        }
+        result = Nip11InfoData.parse(data)
+        assert result == {"contact": "ops@example.com"}
 
     def test_parse_self_field(self):
         """parse() returns the constructor-ready internal field name for ``self``."""
