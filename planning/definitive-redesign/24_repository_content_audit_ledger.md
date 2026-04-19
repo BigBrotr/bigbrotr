@@ -3445,3 +3445,16 @@ Use this section during execution for:
     proving malformed protocol values now fail fast at construction time,
     are removed from parse output, and that valid canonical protocol names
     still flow through the public SSL probe container.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-ninety-fourth
+  remediation slice:
+  - tightened the `nips.nip66.data.Nip66SslData` certificate-version
+    boundary so `ssl_version` now accepts only the raw X.509 enum values
+    emitted by `cryptography` (`v1=0`, `v3=2`) and filters malformed version
+    integers from permissive parse/report sanitization;
+  - closed the drift where arbitrary non-enum integers such as `3` could
+    survive as canonical NIP-66 SSL metadata even though the live extractor
+    emits the raw enum value domain;
+  - added paired `nips.nip66.test_data`, `nips.nip66.test_ssl`, and fixture
+    coverage proving malformed version values now fail fast at construction
+    time, are removed from parse output, and that valid extractor output
+    still flows through the public SSL probe container.

@@ -129,7 +129,7 @@ class TestNip66SslData:
             ssl_not_before=1727827200,
             ssl_san=["relay.example.com", "*.example.com"],
             ssl_serial="04ABCDEF",
-            ssl_version=3,
+            ssl_version=2,
             ssl_fingerprint=(
                 "SHA256:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:"
                 "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89"
@@ -233,6 +233,14 @@ class TestNip66SslData:
         with pytest.raises(ValidationError):
             Nip66SslData(**kwargs)
 
+    @pytest.mark.parametrize("value", [1, 3, 4])
+    def test_construction_rejects_invalid_ssl_version(self, value: int) -> None:
+        """Constructor rejects values outside the X.509 version enum domain."""
+        with pytest.raises(
+            ValidationError, match=r"ssl_version must be a valid X\.509 version enum value"
+        ):
+            Nip66SslData(ssl_version=value)
+
     def test_parse_filters_invalid_bool(self) -> None:
         """parse() filters invalid boolean values."""
         raw = {
@@ -248,13 +256,13 @@ class TestNip66SslData:
         """parse() filters invalid integer values."""
         raw = {
             "ssl_expires": "tomorrow",  # Invalid: should be int
-            "ssl_version": 3,  # Valid
+            "ssl_version": 2,  # Valid
             "ssl_cipher_bits": "256",  # Invalid: string, not int
         }
         parsed = Nip66SslData.parse(raw)
         data = Nip66SslData(**parsed)
         assert data.ssl_expires is None
-        assert data.ssl_version == 3
+        assert data.ssl_version == 2
         assert data.ssl_cipher_bits is None
 
     def test_parse_filters_negative_ssl_ints(self) -> None:
@@ -345,6 +353,12 @@ class TestNip66SslData:
         raw = {"ssl_protocol": "TLS1.3", "ssl_cipher": "TLS_AES_256_GCM_SHA384"}
         parsed = Nip66SslData.parse(raw)
         assert parsed == {"ssl_cipher": "TLS_AES_256_GCM_SHA384"}
+
+    def test_parse_filters_invalid_ssl_version(self) -> None:
+        """parse() filters X.509 version integers outside the enum domain."""
+        raw = {"ssl_version": 3, "ssl_protocol": "TLSv1.3"}
+        parsed = Nip66SslData.parse(raw)
+        assert parsed == {"ssl_protocol": "TLSv1.3"}
 
 
 class TestNip66GeoData:

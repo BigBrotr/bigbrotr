@@ -61,6 +61,7 @@ _SSL_PROTOCOL_CANONICAL = {
     "tlsv1.2": "TLSv1.2",
     "tlsv1.3": "TLSv1.3",
 }
+_SSL_X509_VERSIONS = frozenset({0, 2})
 
 
 def _drop_negative_int_fields(
@@ -253,6 +254,10 @@ def _normalize_ssl_protocol_name(value: str) -> str | None:
     return _SSL_PROTOCOL_CANONICAL.get(value.lower())
 
 
+def _is_valid_ssl_certificate_version(value: int) -> bool:
+    return value in _SSL_X509_VERSIONS
+
+
 def _is_valid_geohash(value: str) -> bool:
     return bool(_GEOHASH_RE.fullmatch(value))
 
@@ -375,6 +380,13 @@ class Nip66SslData(BaseData):
     def _require_non_negative_ssl_ints(cls, value: int | None, info: Any) -> int | None:
         if value is not None and value < 0:
             raise ValueError(f"{info.field_name} must be non-negative")
+        return value
+
+    @field_validator("ssl_version")
+    @classmethod
+    def _normalize_ssl_certificate_version(cls, value: int | None) -> int | None:
+        if value is not None and not _is_valid_ssl_certificate_version(value):
+            raise ValueError("ssl_version must be a valid X.509 version enum value")
         return value
 
     @field_validator(
@@ -505,6 +517,16 @@ class Nip66SslData(BaseData):
             ("ssl_expires", "ssl_not_before", "ssl_version", "ssl_cipher_bits"),
             path=path,
         )
+        version_value = parsed.get("ssl_version")
+        if isinstance(version_value, int) and not _is_valid_ssl_certificate_version(version_value):
+            del parsed["ssl_version"]
+            issues.append(
+                ParseIssue(
+                    kind="invalid_value",
+                    path=join_parse_path(path, "ssl_version"),
+                    detail="expected valid X.509 version enum value",
+                )
+            )
         return ParseReport(parsed=parsed, issues=tuple(issues))
 
 

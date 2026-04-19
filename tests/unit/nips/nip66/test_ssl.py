@@ -97,7 +97,7 @@ class TestNip66SslMetadataSslSync:
         mock_x509_cert.extensions.get_extension_for_class.return_value = san_ext
 
         mock_x509_cert.serial_number = 0x04ABCDEF12345678
-        mock_x509_cert.version = MagicMock(value=3)
+        mock_x509_cert.version = MagicMock(value=2)
 
         with (
             patch("socket.create_connection") as mock_conn,
@@ -131,6 +131,7 @@ class TestNip66SslMetadataSslSync:
         assert result.get("ssl_cipher") == "TLS_AES_256_GCM_SHA384"
         assert result.get("ssl_cipher_bits") == 256
         assert result.get("ssl_san") == ["relay.example.com", "*.example.com"]
+        assert result.get("ssl_version") == 2
 
     def test_ssl_error_returns_empty(self) -> None:
         """SSL error during extraction skips validation, returns empty dict."""
@@ -248,6 +249,19 @@ class TestNip66SslMetadataSslAsync:
             result = await Nip66SslMetadata.probe(relay, 10.0)
 
         assert result.data.ssl_protocol is None
+        assert result.logs.success is True
+
+    async def test_probe_filters_invalid_ssl_version_value(self, relay: Relay) -> None:
+        """Probe drops malformed X.509 version values while preserving success."""
+        ssl_result = {
+            "ssl_valid": True,
+            "ssl_version": 3,
+        }
+
+        with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result):
+            result = await Nip66SslMetadata.probe(relay, 10.0)
+
+        assert result.data.ssl_version is None
         assert result.logs.success is True
 
     async def test_ssl_failure_returns_result_container_with_failure(self, relay: Relay) -> None:

@@ -147,7 +147,7 @@ def complete_ssl_data() -> Nip66SslData:
         ssl_not_before=1727827200,
         ssl_san=["relay.example.com", "*.example.com"],
         ssl_serial="04ABCDEF12345678",  # pragma: allowlist secret
-        ssl_version=3,
+        ssl_version=2,
         ssl_fingerprint=(
             "SHA256:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:"
             "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89"
