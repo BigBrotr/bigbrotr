@@ -852,6 +852,50 @@ class TestSynchronize:
         events_seen_calls = [c for c in sync.inc_gauge.call_args_list if c.args[0] == "events_seen"]
         assert len(events_seen_calls) == len(events)
 
+    async def test_synchronize_cursor_page_passes_plan_end_time_to_worker(
+        self,
+        mock_synchronizer_brotr: Brotr,
+    ) -> None:
+        sync = Synchronizer(brotr=mock_synchronizer_brotr)
+        captured_end_times: list[int | None] = []
+
+        async def fake_iter_concurrent(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+            worker = args[1]
+            async for item in worker(SyncCursor(key="wss://relay.example.com")):
+                yield item
+
+        async def fake_synchronize_worker(  # type: ignore[no-untyped-def]
+            cursor: SyncCursor,
+            *,
+            end_time: int | None = None,
+        ):
+            captured_end_times.append(end_time)
+            if False:
+                yield cursor, Relay(cursor.key)
+
+        with (
+            patch.object(sync, "_iter_concurrent", side_effect=fake_iter_concurrent),
+            patch.object(sync, "_synchronize_worker", side_effect=fake_synchronize_worker),
+        ):
+            synced, timed_out = await sync._synchronize_cursor_page(
+                [SyncCursor(key="wss://relay.example.com")],
+                [],
+                {},
+                plan=sync.SyncCyclePlan(
+                    networks=(NetworkType.CLEARNET,),
+                    end_time=456,
+                    total_relays=1,
+                    batch_size=100,
+                    max_concurrency=1,
+                    page_size=100,
+                    deadline=time.monotonic() + 60,
+                ),
+            )
+
+        assert synced == 0
+        assert timed_out is False
+        assert captured_end_times == [456]
+
     async def test_max_duration_exceeded_breaks_after_flush(
         self, mock_synchronizer_brotr: Brotr
     ) -> None:

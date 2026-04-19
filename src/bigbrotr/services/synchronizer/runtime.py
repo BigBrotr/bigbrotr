@@ -120,6 +120,7 @@ class SyncWorkerContext:
     client_manager: RelayClientManager
     stream_events_fn: StreamEvents
     inc_gauge: GaugeIncrementer
+    end_time: int | None = None
 
 
 async def build_sync_cycle_plan(
@@ -244,7 +245,11 @@ async def synchronize_worker(
                     client,
                     context.config.processing.filters,
                     cursor.timestamp,
-                    context.config.processing.get_end_time(),
+                    (
+                        context.end_time
+                        if context.end_time is not None
+                        else context.config.processing.get_end_time()
+                    ),
                     context.config.processing.limit,
                     request_timeout,
                     context.config.timeouts.idle,

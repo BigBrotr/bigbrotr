@@ -2374,3 +2374,13 @@ Use this section during execution for:
     fractional current time up before their default `observed_at` or
     `associated_at` values can enter the persisted incremental source
     boundary.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-sixth remediation
+  slice:
+  - tightened the `synchronizer` planning/execution seam so relay workers no
+    longer recompute `processing.get_end_time()` after the cycle plan has
+    already frozen its `end_time`, which previously let late-starting workers
+    stream a newer cutoff than the one used for relay counting and page
+    selection in the same cycle;
+  - added paired `synchronizer` coverage proving the runtime worker now uses
+    the plan-frozen `end_time` when provided, and the service wrapper passes
+    that same cutoff through to worker execution for each cursor page.

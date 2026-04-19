@@ -348,6 +348,42 @@ class TestSynchronizeWorker:
         logger.warning.assert_not_called()
         logger.error.assert_not_called()
 
+    async def test_uses_frozen_plan_end_time_when_provided(self) -> None:
+        config = SynchronizerConfig(processing={"until": 999, "end_lag": 0})
+        relay = Relay("wss://relay.example.com")
+        cursor = SyncCursor(key=relay.url, timestamp=123, id="ab" * 32)
+        event = MagicMock()
+        logger = MagicMock()
+        inc_gauge = MagicMock()
+        semaphore = asyncio.Semaphore(1)
+        client = object()
+        client_manager = MagicMock()
+        client_manager.get_relay_client = AsyncMock(return_value=client)
+
+        async def stream_events_fn(*args: object):
+            assert args[0] is client
+            assert args[3] == 456
+            yield event
+
+        items = [
+            item
+            async for item in synchronize_worker(
+                context=SyncWorkerContext(
+                    network_semaphores=MagicMock(get=MagicMock(return_value=semaphore)),
+                    logger=logger,
+                    is_running=lambda: True,
+                    config=config,
+                    client_manager=client_manager,
+                    stream_events_fn=stream_events_fn,
+                    inc_gauge=inc_gauge,
+                    end_time=456,
+                ),
+                cursor=cursor,
+            )
+        ]
+
+        assert items == [(event, relay)]
+
     async def test_logs_unknown_network_and_returns(self) -> None:
         config = SynchronizerConfig()
         relay = Relay("wss://relay.example.com")

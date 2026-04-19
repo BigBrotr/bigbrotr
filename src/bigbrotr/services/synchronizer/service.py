@@ -249,7 +249,7 @@ class Synchronizer(
             plan=plan,
             context=SyncPageContext(
                 iter_concurrent=self._iter_concurrent,
-                worker=self._synchronize_worker,
+                worker=lambda cursor: self._synchronize_worker(cursor, end_time=plan.end_time),
                 flush_batch=self._flush_sync_batch,
                 inc_gauge=self.inc_gauge,
                 logger=self._logger,
@@ -273,7 +273,10 @@ class Synchronizer(
     # ── Workers ────────────────────────────────────────────────────
 
     async def _synchronize_worker(
-        self, cursor: SyncCursor
+        self,
+        cursor: SyncCursor,
+        *,
+        end_time: int | None = None,
     ) -> AsyncGenerator[tuple[Event, Relay], None]:
         """Stream events from a single relay for use with ``_iter_concurrent``.
 
@@ -289,6 +292,7 @@ class Synchronizer(
                 client_manager=self._client_manager,
                 stream_events_fn=stream_events,
                 inc_gauge=self.inc_gauge,
+                end_time=end_time,
             ),
             cursor=cursor,
         ):
