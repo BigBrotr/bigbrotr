@@ -3669,3 +3669,15 @@ Use this section during execution for:
   - added paired `services.test_assertor` coverage proving those feature and
     policy flags now fail fast on string aliases before any runtime publish,
     TLS, or cleanup behavior is selected.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-eleventh remediation
+  slice:
+  - tightened the `services.assertor.configs.AssertorSelectionConfig` kinds
+    boundary so assertion-kind selections now require real integers instead of
+    accepting parseable aliases like strings, floats, or bools at config load;
+  - closed the drift where payloads such as `["30382"]`, `[30382.0]`, or
+    `[True]` could be coerced into apparently valid assertion kinds and then
+    drive publish selection despite never crossing an explicit typed integer
+    boundary;
+  - added paired `services.test_assertor` coverage proving selection kinds now
+    fail fast on non-integer aliases before duplicate/unsupported-kind logic
+    or runtime publish planning runs.

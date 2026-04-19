@@ -192,6 +192,16 @@ class AssertorSelectionConfig(BaseModel):
     def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
         return _reject_bool_alias(value, str(info.field_name), "integer")
 
+    @field_validator("kinds", mode="before")
+    @classmethod
+    def kinds_must_be_integers(cls, value: Any) -> Any:
+        if isinstance(value, list | tuple):
+            items = list(value)
+            if any(isinstance(item, bool) or not isinstance(item, int) for item in items):
+                raise ValueError("kinds must contain only integers")
+            return items
+        return value
+
     @field_validator("kinds")
     @classmethod
     def kinds_supported(cls, v: list[int]) -> list[int]:

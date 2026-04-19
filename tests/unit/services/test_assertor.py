@@ -166,6 +166,19 @@ class TestAssertorConfig:
         with pytest.raises(ValidationError, match="unsupported assertion kinds"):
             AssertorConfig(selection={"kinds": [30382, 99999]})
 
+    @pytest.mark.parametrize(
+        "value",
+        [
+            ["30382"],
+            [30382.0],
+            [30382, "30383"],
+            [True],
+        ],
+    )
+    def test_rejects_non_integer_kind_aliases(self, value: list[object]) -> None:
+        with pytest.raises(ValidationError, match="kinds must contain only integers"):
+            AssertorConfig(selection={"kinds": value})
+
     def test_valid_single_kind(self) -> None:
         config = AssertorConfig(selection={"kinds": [30385]})
         assert config.selection.kinds == [30385]
