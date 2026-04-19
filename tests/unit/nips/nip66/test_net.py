@@ -300,6 +300,36 @@ class TestNip66NetMetadataNetAsync:
         assert result.data.net_asn == 15169
         assert result.logs.success is True
 
+    async def test_probe_canonicalizes_ipv6_net_fields(
+        self,
+        relay: Relay,
+        mock_asn_reader: MagicMock,
+    ) -> None:
+        """Probe canonicalizes equivalent IPv6 address and network strings."""
+        net_result = {
+            "net_ipv6": "2001:DB8:0:0:0:0:0:1",
+            "net_network_v6": "2001:DB8:0:0::/32",
+        }
+
+        mock_resolved = MagicMock()
+        mock_resolved.ipv4 = None
+        mock_resolved.ipv6 = "2001:db8::1"
+        mock_resolved.has_ip = True
+
+        with (
+            patch(
+                "bigbrotr.nips.nip66.net.resolve_host",
+                new_callable=AsyncMock,
+                return_value=mock_resolved,
+            ),
+            patch.object(Nip66NetMetadata, "_net", return_value=net_result),
+        ):
+            result = await Nip66NetMetadata.probe(relay, mock_asn_reader)
+
+        assert result.data.net_ipv6 == "2001:db8::1"
+        assert result.data.net_network_v6 == "2001:db8::/32"
+        assert result.logs.success is True
+
     async def test_tor_returns_failure(
         self,
         tor_relay: Relay,

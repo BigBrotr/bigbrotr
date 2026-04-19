@@ -3458,3 +3458,18 @@ Use this section during execution for:
     coverage proving malformed version values now fail fast at construction
     time, are removed from parse output, and that valid extractor output
     still flows through the public SSL probe container.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-ninety-fifth
+  remediation slice:
+  - tightened the `nips.nip66.data` IPv6 address/network boundary so
+    `Nip66NetData.net_ipv6`, `net_network_v6`, and `Nip66DnsData.dns_ips_v6`
+    now canonicalize valid values through `ipaddress` before deduplication or
+    persistence, collapsing representation drift across equivalent IPv6
+    strings;
+  - closed the drift where semantically identical IPv6 values with different
+    case or compression could survive as distinct canonical `NIP-66` metadata
+    and later flow into shared result containers, persisted documents, and
+    public builder output;
+  - added paired `nips.nip66.test_data`, `nips.nip66.test_net`, and
+    `nips.nip66.test_dns` coverage proving equivalent IPv6 strings now
+    normalize to one canonical representation at both direct model
+    construction time and through the public `probe()` containers.

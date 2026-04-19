@@ -456,6 +456,18 @@ class TestNip66DnsMetadataDnsAsync:
         assert result.data.dns_ttl == 300
         assert result.logs.success is True
 
+    async def test_probe_canonicalizes_ipv6_dns_records(self, relay: Relay) -> None:
+        """Probe canonicalizes equivalent IPv6 AAAA records before deduping."""
+        dns_result = {
+            "dns_ips_v6": ["2001:DB8:0:0:0:0:0:1", "2001:db8::1"],
+        }
+
+        with patch.object(Nip66DnsMetadata, "_dns", return_value=dns_result):
+            result = await Nip66DnsMetadata.probe(relay, 5.0)
+
+        assert result.data.dns_ips_v6 == ["2001:db8::1"]
+        assert result.logs.success is True
+
     async def test_tor_returns_failure(self, tor_relay: Relay) -> None:
         """Returns failure for Tor relay (DNS not applicable)."""
         result = await Nip66DnsMetadata.probe(tor_relay, 5.0)

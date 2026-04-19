@@ -226,6 +226,14 @@ def _is_valid_ipv6_address(value: str) -> bool:
     return True
 
 
+def _canonicalize_ipv4_address(value: str) -> str:
+    return str(IPv4Address(value))
+
+
+def _canonicalize_ipv6_address(value: str) -> str:
+    return str(IPv6Address(value))
+
+
 def _is_valid_ipv4_network(value: str) -> bool:
     try:
         IPv4Network(value)
@@ -240,6 +248,14 @@ def _is_valid_ipv6_network(value: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _canonicalize_ipv4_network(value: str) -> str:
+    return str(IPv4Network(value))
+
+
+def _canonicalize_ipv6_network(value: str) -> str:
+    return str(IPv6Network(value))
 
 
 def _is_valid_ssl_serial(value: str) -> bool:
@@ -768,29 +784,37 @@ class Nip66NetData(BaseData):
     @field_validator("net_ip")
     @classmethod
     def _require_valid_ipv4_address(cls, value: str | None) -> str | None:
-        if value is not None and not _is_valid_ipv4_address(value):
-            raise ValueError("net_ip must be a valid IPv4 address")
+        if value is not None:
+            if not _is_valid_ipv4_address(value):
+                raise ValueError("net_ip must be a valid IPv4 address")
+            return _canonicalize_ipv4_address(value)
         return value
 
     @field_validator("net_ipv6")
     @classmethod
     def _require_valid_ipv6_address(cls, value: str | None) -> str | None:
-        if value is not None and not _is_valid_ipv6_address(value):
-            raise ValueError("net_ipv6 must be a valid IPv6 address")
+        if value is not None:
+            if not _is_valid_ipv6_address(value):
+                raise ValueError("net_ipv6 must be a valid IPv6 address")
+            return _canonicalize_ipv6_address(value)
         return value
 
     @field_validator("net_network")
     @classmethod
     def _require_valid_ipv4_network(cls, value: str | None) -> str | None:
-        if value is not None and not _is_valid_ipv4_network(value):
-            raise ValueError("net_network must be a valid IPv4 network")
+        if value is not None:
+            if not _is_valid_ipv4_network(value):
+                raise ValueError("net_network must be a valid IPv4 network")
+            return _canonicalize_ipv4_network(value)
         return value
 
     @field_validator("net_network_v6")
     @classmethod
     def _require_valid_ipv6_network(cls, value: str | None) -> str | None:
-        if value is not None and not _is_valid_ipv6_network(value):
-            raise ValueError("net_network_v6 must be a valid IPv6 network")
+        if value is not None:
+            if not _is_valid_ipv6_network(value):
+                raise ValueError("net_network_v6 must be a valid IPv6 network")
+            return _canonicalize_ipv6_network(value)
         return value
 
     @classmethod
@@ -882,24 +906,28 @@ class Nip66DnsData(BaseData):
     def _normalize_ipv4_records(cls, value: list[str] | None, info: Any) -> list[str] | None:
         if value is None:
             return None
+        normalized: list[str] = []
         for entry in value:
             if entry.strip() == "":
                 raise ValueError(f"{info.field_name} entries must be non-empty strings")
             if not _is_valid_ipv4_address(entry):
                 raise ValueError(f"{info.field_name} entries must be valid IPv4 addresses")
-        return sorted(set(value))
+            normalized.append(_canonicalize_ipv4_address(entry))
+        return sorted(set(normalized))
 
     @field_validator("dns_ips_v6")
     @classmethod
     def _normalize_ipv6_records(cls, value: list[str] | None, info: Any) -> list[str] | None:
         if value is None:
             return None
+        normalized: list[str] = []
         for entry in value:
             if entry.strip() == "":
                 raise ValueError(f"{info.field_name} entries must be non-empty strings")
             if not _is_valid_ipv6_address(entry):
                 raise ValueError(f"{info.field_name} entries must be valid IPv6 addresses")
-        return sorted(set(value))
+            normalized.append(_canonicalize_ipv6_address(entry))
+        return sorted(set(normalized))
 
     @field_validator("dns_ns")
     @classmethod

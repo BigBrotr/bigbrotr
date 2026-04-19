@@ -616,6 +616,16 @@ class TestNip66NetData:
         assert data.net_asn == 15169
         assert data.net_network_v6 == "2001:4860::/32"
 
+    def test_construction_canonicalizes_ipv6_net_fields(self) -> None:
+        """Constructor canonicalizes equivalent IPv6 address and network strings."""
+        data = Nip66NetData(
+            net_ipv6="2001:DB8:0:0:0:0:0:1",
+            net_network_v6="2001:DB8:0:0::/32",
+        )
+
+        assert data.net_ipv6 == "2001:db8::1"
+        assert data.net_network_v6 == "2001:db8::/32"
+
     @pytest.mark.parametrize(
         ("kwargs", "message"),
         [
@@ -709,6 +719,18 @@ class TestNip66NetData:
         parsed = Nip66NetData.parse(raw)
         assert parsed == {"net_asn": 15169, "net_asn_org": "GOOGLE"}
 
+    def test_parse_canonicalizes_ipv6_net_fields(self) -> None:
+        """parse() canonicalizes equivalent IPv6 address and network strings."""
+        raw = {
+            "net_ipv6": "2001:DB8:0:0:0:0:0:1",
+            "net_network_v6": "2001:DB8:0:0::/32",
+        }
+        parsed = Nip66NetData.parse(raw)
+        assert parsed == {
+            "net_ipv6": "2001:db8::1",
+            "net_network_v6": "2001:db8::/32",
+        }
+
 
 class TestNip66DnsData:
     """Test Nip66DnsData model."""
@@ -779,6 +801,14 @@ class TestNip66DnsData:
         assert data.dns_ips == ["8.8.4.4", "8.8.8.8"]
         assert data.dns_ips_v6 == ["2001:4860:4860::8844", "2001:4860:4860::8888"]
         assert data.dns_ns == ["ns1.google.com", "ns2.google.com"]
+
+    def test_construction_canonicalizes_ipv6_dns_records(self) -> None:
+        """Constructor canonicalizes equivalent IPv6 AAAA records before deduping."""
+        data = Nip66DnsData(
+            dns_ips_v6=["2001:DB8:0:0:0:0:0:1", "2001:db8::1"],
+        )
+
+        assert data.dns_ips_v6 == ["2001:db8::1"]
 
     def test_construction_normalizes_scalar_dns_hostnames_to_lowercase(self) -> None:
         """Constructor canonicalizes scalar DNS hostnames to lowercase."""
@@ -872,6 +902,14 @@ class TestNip66DnsData:
             "dns_ips_v6": ["2001:4860:4860::8888"],
             "dns_ns": ["ns1.google.com"],
         }
+
+    def test_parse_canonicalizes_ipv6_dns_records(self) -> None:
+        """parse() canonicalizes equivalent IPv6 AAAA records before deduping."""
+        raw = {
+            "dns_ips_v6": ["2001:DB8:0:0:0:0:0:1", "2001:db8::1"],
+        }
+        parsed = Nip66DnsData.parse(raw)
+        assert parsed == {"dns_ips_v6": ["2001:db8::1"]}
 
     def test_parse_filters_invalid_dns_hostnames(self) -> None:
         """parse() filters malformed DNS hostname fields."""
