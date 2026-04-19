@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from typing import TYPE_CHECKING, Protocol
 
@@ -45,7 +46,7 @@ async def build_monitor_cycle_plan(
         return None
 
     current_time = int(time.time()) if now is None else now
-    monitored_before = int(current_time - config.discovery.interval)
+    monitored_before = math.ceil(current_time - config.discovery.interval)
     max_relays = config.processing.max_relays
     total = await count_relays_fn(brotr, monitored_before, networks)
     if max_relays is not None:

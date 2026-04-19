@@ -2220,3 +2220,11 @@ Use this section during execution for:
     deadline than the runtime actually enforced;
   - added `monitor` coverage proving `Kind 10166` publish wiring now rounds
     those public values up before handing them to the event builder.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-ninetieth remediation
+  slice:
+  - tightened the `monitor` cycle-planning boundary so fractional discovery
+    intervals no longer get truncated before the due-relay query, which
+    previously delayed rechecks by up to almost one second because the SQL
+    selector compares persisted checkpoints with a strict `<` cutoff;
+  - added `monitor` coverage proving the planner now rounds the due cutoff up
+    before counting and paging relay work.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, call, patch
@@ -1537,7 +1538,7 @@ class TestMonitorHelpers:
     ) -> None:
         config = _make_config(processing=ProcessingConfig(max_relays=10, chunk_size=10))
         monitor = Monitor(brotr=mock_brotr, config=config)
-        monitored_before = int(1000 - config.discovery.interval)
+        monitored_before = math.ceil(1000 - config.discovery.interval)
 
         plan = await monitor._build_monitor_cycle_plan(now=1000)
 
@@ -1552,6 +1553,29 @@ class TestMonitorHelpers:
         mock_count.assert_awaited_once_with(
             mock_brotr,
             monitored_before,
+            [NetworkType.CLEARNET],
+        )
+
+    @patch(
+        "bigbrotr.services.monitor.service.count_relays_to_monitor",
+        new_callable=AsyncMock,
+        return_value=7,
+    )
+    async def test_build_monitor_cycle_plan_rounds_fractional_due_cutoff_up(
+        self,
+        mock_count: AsyncMock,
+        mock_brotr: Brotr,
+    ) -> None:
+        config = _make_config(discovery=DiscoveryConfig(interval=3600.9, include=_NO_GEO_NET))
+        monitor = Monitor(brotr=mock_brotr, config=config)
+
+        plan = await monitor._build_monitor_cycle_plan(now=10_000)
+
+        assert plan is not None
+        assert plan.monitored_before == 6400
+        mock_count.assert_awaited_once_with(
+            mock_brotr,
+            6400,
             [NetworkType.CLEARNET],
         )
 
