@@ -64,6 +64,13 @@ def _require_number(value: Any, field_name: str) -> int | float:
     return cast("int | float", value)
 
 
+def _require_int(value: Any, field_name: str) -> int:
+    """Require canonical integers for authored synchronizer config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name}: expected integer, got {type(value).__name__}")
+    return int(value)
+
+
 class TimeoutsConfig(BaseModel):
     """Sync timeout limits: idle progress check and phase-level cap.
 
@@ -173,6 +180,22 @@ class ProcessingConfig(BaseModel):
             return v
         field_name = info.field_name or "value"
         return _reject_bool_alias(v, field_name)
+
+    @field_validator("limit", "batch_size", mode="before")
+    @classmethod
+    def require_integer_processing_budgets(cls, v: Any, info: ValidationInfo) -> int:
+        """Require canonical integers for synchronizer processing budgets."""
+        field_name = info.field_name or "value"
+        return _require_int(v, field_name)
+
+    @field_validator("max_event_size", mode="before")
+    @classmethod
+    def require_integer_max_event_size(cls, v: Any, info: ValidationInfo) -> Any:
+        """Require canonical integers for the optional event-size budget."""
+        if v is None:
+            return v
+        field_name = info.field_name or "max_event_size"
+        return _require_int(v, field_name)
 
     @field_validator("allow_insecure", mode="before")
     @classmethod

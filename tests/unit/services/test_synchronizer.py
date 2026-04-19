@@ -250,6 +250,23 @@ class TestSynchronizerConfig:
         with pytest.raises(ValueError, match=rf"{field_name}: expected integer, got bool"):
             ProcessingConfig(**kwargs)
 
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("limit", "500"),
+            ("limit", 500.0),
+            ("batch_size", "1000"),
+            ("batch_size", 1000.0),
+            ("max_event_size", "8192"),
+            ("max_event_size", 8192.0),
+        ],
+    )
+    def test_rejects_non_integer_processing_budget_aliases(
+        self, field_name: str, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected integer, got"):
+            ProcessingConfig(**{field_name: value})
+
     @pytest.mark.parametrize("value", ["true", 1, 0])
     def test_rejects_non_boolean_allow_insecure_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"allow_insecure: expected bool, got"):
@@ -259,6 +276,20 @@ class TestSynchronizerConfig:
     def test_nested_allow_insecure_aliases_rejected(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"allow_insecure: expected bool, got"):
             SynchronizerConfig(processing={"allow_insecure": value})
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("limit", "50"),
+            ("batch_size", 200.0),
+            ("max_event_size", "4096"),
+        ],
+    )
+    def test_nested_processing_budget_aliases_rejected(
+        self, field_name: str, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected integer, got"):
+            SynchronizerConfig(processing={field_name: value})
 
     @pytest.mark.parametrize(
         ("field_name", "value"),

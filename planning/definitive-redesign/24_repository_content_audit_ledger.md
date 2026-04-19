@@ -4221,3 +4221,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_synchronizer` proving malformed
     timeout aliases now fail fast both on the leaf timeout model and through
     nested `SynchronizerConfig.timeouts` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-fifty-eighth
+  remediation slice:
+  - tightened the authored integer boundaries in
+    `services.synchronizer.configs.ProcessingConfig` so `limit`,
+    `batch_size`, and `max_event_size` now require canonical `int` values;
+  - closed the drift where payloads like `"500"`, `500.0`, `"1000"`,
+    `1000.0`, `"8192"`, or `8192.0` could silently become valid
+    synchronizer processing budgets at config load time;
+  - added paired coverage in `services.test_synchronizer` proving malformed
+    integer aliases now fail fast both on the leaf processing model and
+    through nested `SynchronizerConfig.processing` parsing.
