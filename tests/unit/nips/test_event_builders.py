@@ -879,6 +879,14 @@ class TestAddGeoTags:
         assert "g" not in tag_map
         assert tag_map["geo-country"] == "IT"
 
+    def test_country_tags_use_canonical_iso_code(self) -> None:
+        """Lowercase country codes are normalized before public geo tags are emitted."""
+        tags: list[Tag] = []
+        add_geo_tags(tags, Nip66GeoData(geo_country="de"))
+
+        tag_map = _extract_tag_map(tags)
+        assert tag_map["geo-country"] == "DE"
+
     def test_no_hash_no_country_with_city(self) -> None:
         """Test geo tags when only geo_city is present (covers geo_hash and geo_country False branches)."""
         tags: list[Tag] = []

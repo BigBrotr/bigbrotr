@@ -3392,3 +3392,16 @@ Use this section during execution for:
   - added paired `nips.nip66.test_data` coverage proving malformed timezone
     identifiers now fail fast at construction time and are removed from parse
     output.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-ninetieth
+  remediation slice:
+  - tightened the `nips.nip66.data.Nip66GeoData` code-field boundary so
+    `geo_country` and `geo_continent` now require canonical GeoIP codes,
+    normalize to uppercase when valid, and are filtered from permissive
+    parse/report sanitization when malformed;
+  - closed the drift where arbitrary non-code strings could survive as
+    canonical NIP-66 geographic metadata and later flow into shared result
+    containers, persisted documents, and public geo tag output;
+  - added paired `nips.nip66.test_data` and `nips.test_event_builders`
+    coverage proving malformed code values now fail fast at construction
+    time, are removed from parse output, and that valid canonical country
+    codes still flow through the public geo tag helper.

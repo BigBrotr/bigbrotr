@@ -47,6 +47,8 @@ _GEO_LAT_MIN = -90.0
 _GEO_LAT_MAX = 90.0
 _GEO_LON_MIN = -180.0
 _GEO_LON_MAX = 180.0
+_GEO_COUNTRY_CODE_RE = re.compile(r"^[A-Z]{2}$", re.IGNORECASE)
+_GEO_CONTINENT_CODES = frozenset({"AF", "AN", "AS", "EU", "NA", "OC", "SA"})
 _GEOHASH_RE = re.compile(r"^[0123456789bcdefghjkmnpqrstuvwxyz]{1,12}$", re.IGNORECASE)
 _SSL_SERIAL_RE = re.compile(r"^[0-9A-F]+$", re.IGNORECASE)
 _SSL_FINGERPRINT_RE = re.compile(r"^SHA256:(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$", re.IGNORECASE)
@@ -240,6 +242,14 @@ def _is_valid_ssl_fingerprint(value: str) -> bool:
 
 def _is_valid_geohash(value: str) -> bool:
     return bool(_GEOHASH_RE.fullmatch(value))
+
+
+def _is_valid_country_code(value: str) -> bool:
+    return bool(_GEO_COUNTRY_CODE_RE.fullmatch(value))
+
+
+def _is_valid_continent_code(value: str) -> bool:
+    return value.upper() in _GEO_CONTINENT_CODES
 
 
 def _is_valid_timezone_name(value: str) -> bool:
@@ -533,6 +543,24 @@ class Nip66GeoData(BaseData):
             raise ValueError(f"{info.field_name} must be a non-empty string")
         return value
 
+    @field_validator("geo_country")
+    @classmethod
+    def _normalize_country_code(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not _is_valid_country_code(value):
+            raise ValueError("geo_country must be a valid ISO 3166-1 alpha-2 code")
+        return value.upper()
+
+    @field_validator("geo_continent")
+    @classmethod
+    def _normalize_continent_code(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not _is_valid_continent_code(value):
+            raise ValueError("geo_continent must be a valid continent code")
+        return value.upper()
+
     @field_validator("geo_hash")
     @classmethod
     def _normalize_geohash(cls, value: str | None) -> str | None:
@@ -589,6 +617,8 @@ class Nip66GeoData(BaseData):
             parsed,
             issues,
             (
+                ("geo_country", _is_valid_country_code, "expected valid ISO 3166-1 alpha-2 code"),
+                ("geo_continent", _is_valid_continent_code, "expected valid continent code"),
                 ("geo_tz", _is_valid_timezone_name, "expected valid IANA timezone identifier"),
                 ("geo_hash", _is_valid_geohash, "expected valid geohash with precision 1 to 12"),
             ),

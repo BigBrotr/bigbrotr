@@ -331,6 +331,12 @@ class TestNip66GeoData:
         data = Nip66GeoData(geo_hash="U33DC")
         assert data.geo_hash == "u33dc"
 
+    def test_construction_normalizes_geo_codes_to_uppercase(self) -> None:
+        """Constructor canonicalizes valid country and continent codes to uppercase."""
+        data = Nip66GeoData(geo_country="us", geo_continent="eu")
+        assert data.geo_country == "US"
+        assert data.geo_continent == "EU"
+
     @pytest.mark.parametrize(
         ("kwargs", "message"),
         [
@@ -366,6 +372,22 @@ class TestNip66GeoData:
             ValidationError, match="geo_tz must be a valid IANA timezone identifier"
         ):
             Nip66GeoData(geo_tz="Mars/Phobos")
+
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"geo_country": "USA"}, "geo_country must be a valid ISO 3166-1 alpha-2 code"),
+            ({"geo_country": "U1"}, "geo_country must be a valid ISO 3166-1 alpha-2 code"),
+            ({"geo_continent": "ZZ"}, "geo_continent must be a valid continent code"),
+            ({"geo_continent": "1"}, "geo_continent must be a valid continent code"),
+        ],
+    )
+    def test_construction_rejects_invalid_geo_codes(
+        self, kwargs: dict[str, str], message: str
+    ) -> None:
+        """Constructor rejects malformed country and continent codes."""
+        with pytest.raises(ValidationError, match=message):
+            Nip66GeoData(**kwargs)
 
     @pytest.mark.parametrize(
         ("kwargs", "message"),
@@ -447,6 +469,17 @@ class TestNip66GeoData:
         data = Nip66GeoData(**parsed)
         assert data.geo_hash == "u33dc"
 
+    def test_parse_normalizes_geo_codes_to_uppercase(self) -> None:
+        """parse() preserves valid country and continent codes in canonical uppercase form."""
+        raw = {
+            "geo_country": "us",
+            "geo_continent": "eu",
+        }
+        parsed = Nip66GeoData.parse(raw)
+        data = Nip66GeoData(**parsed)
+        assert data.geo_country == "US"
+        assert data.geo_continent == "EU"
+
     def test_parse_filters_invalid_timezone_identifier(self) -> None:
         """parse() filters malformed IANA timezone identifiers."""
         raw = {
@@ -455,6 +488,16 @@ class TestNip66GeoData:
         }
         parsed = Nip66GeoData.parse(raw)
         assert parsed == {"geo_country": "US"}
+
+    def test_parse_filters_invalid_geo_codes(self) -> None:
+        """parse() filters malformed country and continent codes."""
+        raw = {
+            "geo_country": "USA",
+            "geo_continent": "ZZ",
+            "geo_country_name": "United States",
+        }
+        parsed = Nip66GeoData.parse(raw)
+        assert parsed == {"geo_country_name": "United States"}
 
     def test_parse_filters_invalid_bool_types(self) -> None:
         """parse() filters invalid boolean values."""
