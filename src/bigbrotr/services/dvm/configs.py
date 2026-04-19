@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, ClassVar
 
-from pydantic import BeforeValidator, Field, field_validator
+from pydantic import BeforeValidator, Field, ValidationInfo, field_validator
 
 from bigbrotr.models import Relay
 from bigbrotr.services.common.configs import (
@@ -97,6 +97,14 @@ class DvmConfig(PublicReadAdapterConfig):
         default=False,
         description="Fall back to insecure transport on SSL certificate failure",
     )
+
+    @field_validator("announce", "allow_insecure", mode="before")
+    @classmethod
+    def _require_boolean_flags(cls, value: Any, info: ValidationInfo) -> bool:
+        field_name = info.field_name or "value"
+        if not isinstance(value, bool):
+            raise ValueError(f"{field_name}: expected bool, got {type(value).__name__}")
+        return value
 
     @field_validator("fetch_timeout", mode="before")
     @classmethod

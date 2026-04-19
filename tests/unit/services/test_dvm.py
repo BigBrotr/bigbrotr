@@ -308,6 +308,19 @@ class TestDvmConfig:
         with pytest.raises(ValueError, match="fetch_timeout: expected number, got bool"):
             DvmConfig(relays=["wss://relay.example.com"], fetch_timeout=True)
 
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("announce", "true"),
+            ("announce", 1),
+            ("allow_insecure", "false"),
+            ("allow_insecure", 0),
+        ],
+    )
+    def test_rejects_boolean_flag_aliases(self, field_name: str, value: object) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected bool, got"):
+            DvmConfig(relays=["wss://relay.example.com"], **{field_name: value})
+
     def test_internal_read_model_rejected(self) -> None:
         with pytest.raises(ValueError, match=r"non-public DVM read models: service_state"):
             DvmConfig(

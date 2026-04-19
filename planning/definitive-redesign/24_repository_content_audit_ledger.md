@@ -3803,3 +3803,14 @@ Use this section during execution for:
     relay overrides now fail fast across publishing, discovery, announcement,
     profile, and relay-list config surfaces, while explicit empty relay lists
     remain valid.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-twenty-first
+  remediation slice:
+  - tightened the public boolean boundaries in `services.dvm.configs.DvmConfig`
+    so `announce` and `allow_insecure` now require canonical `bool` values
+    instead of accepting truthy / falsy aliases;
+  - closed the drift where payloads like `"true"` or `1` could silently enable
+    NIP-89 announcement publishing or insecure TLS fallback inside the DVM
+    config, even though nearby service configs already fail fast on the same
+    class of boolean alias;
+  - added paired `services.test_dvm` coverage proving malformed boolean flag
+    aliases are now rejected at config load time.
