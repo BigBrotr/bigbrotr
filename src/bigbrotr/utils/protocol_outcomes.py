@@ -7,6 +7,9 @@ from collections.abc import Mapping
 from bigbrotr.models.relay_url import normalize_relay_url
 
 
+_HEX_32_TEXT_LENGTH = 64
+
+
 def normalize_failed_relays(failed_relays: dict[str, str]) -> dict[str, str]:
     """Return failed relay outcomes in stable lexical relay-url order."""
     return {relay_url: failed_relays[relay_url] for relay_url in sorted(failed_relays)}
@@ -27,6 +30,20 @@ def _normalize_output_relay_url(value: object) -> str:
         raise ValueError(f"relay output contained non-canonical relay URL: {relay_url!r}")
 
     return relay_url
+
+
+def normalize_output_event_id(value: object) -> str:
+    """Return one SDK event output id as a canonical 32-byte hex string."""
+    event_id = str(value)
+    if len(event_id) != _HEX_32_TEXT_LENGTH:
+        raise ValueError(f"event output contained invalid event id: {event_id!r}")
+
+    try:
+        bytes.fromhex(event_id)
+    except ValueError as exc:
+        raise ValueError(f"event output contained invalid event id: {event_id!r}") from exc
+
+    return event_id.lower()
 
 
 def normalize_relay_outcomes(output: object) -> tuple[tuple[str, ...], dict[str, str]]:

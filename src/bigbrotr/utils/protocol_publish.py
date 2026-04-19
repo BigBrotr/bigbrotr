@@ -14,7 +14,11 @@ from typing import TYPE_CHECKING
 
 from nostr_sdk import NostrSdkError
 
-from .protocol_outcomes import normalize_failed_relays, normalize_relay_outcomes
+from .protocol_outcomes import (
+    normalize_failed_relays,
+    normalize_output_event_id,
+    normalize_relay_outcomes,
+)
 
 
 if TYPE_CHECKING:
@@ -91,7 +95,7 @@ async def broadcast_events_detailed(
 
             for builder in builders:
                 output = await client.send_event_builder(builder)
-                event_ids.append(str(getattr(output, "id", "")))
+                event_ids.append(normalize_output_event_id(getattr(output, "id", "")))
                 builder_success, builder_failed = normalize_relay_outcomes(output)
 
                 if successful_relays is None:

@@ -1063,7 +1063,7 @@ class TestBroadcastEvents:
     @staticmethod
     def _send_output(
         *,
-        event_id: str = "event-id",
+        event_id: str = "0" * 64,
         success: tuple[str, ...] = (),
         failed: dict[str, str] | None = None,
     ) -> MagicMock:
@@ -1091,7 +1091,7 @@ class TestBroadcastEvents:
         for index, client in enumerate(clients):
             client.send_event_builder.side_effect = [
                 self._send_output(
-                    event_id=f"event-{index}-{builder_index}",
+                    event_id=f"{index + 1:x}" * 64,
                     success=(f"wss://relay-{index}.example.com",),
                 )
                 for builder_index, _builder in enumerate(builders)
@@ -1153,11 +1153,11 @@ class TestBroadcastEvents:
         client = AsyncMock()
         client.send_event_builder.side_effect = [
             self._send_output(
-                event_id="evt-1",
+                event_id="1" * 64,
                 success=("wss://relay.a", "wss://relay.b"),
             ),
             self._send_output(
-                event_id="evt-2",
+                event_id="2" * 64,
                 success=("wss://relay.b",),
                 failed={"wss://relay.a": "rejected"},
             ),
@@ -1170,7 +1170,7 @@ class TestBroadcastEvents:
     async def test_detailed_results_keep_failed_relays(self) -> None:
         client = AsyncMock()
         client.send_event_builder.return_value = self._send_output(
-            event_id="evt-1",
+            event_id="1" * 64,
             success=("wss://relay.good",),
             failed={"wss://relay.z": "timeout", "wss://relay.a": "rejected"},
         )
@@ -1178,7 +1178,7 @@ class TestBroadcastEvents:
         results = await self._get_broadcast_detailed()([MagicMock()], [client])
 
         assert len(results) == 1
-        assert results[0].event_ids == ("evt-1",)
+        assert results[0].event_ids == ("1" * 64,)
         assert results[0].successful_relays == ("wss://relay.good",)
         assert results[0].failed_relays == {
             "wss://relay.a": "rejected",
@@ -1190,11 +1190,11 @@ class TestBroadcastEvents:
         client = AsyncMock()
         client.send_event_builder.side_effect = [
             self._send_output(
-                event_id="evt-1",
+                event_id="1" * 64,
                 success=("wss://relay.a", "wss://relay.b"),
             ),
             self._send_output(
-                event_id="evt-2",
+                event_id="2" * 64,
                 success=("wss://relay.b",),
                 failed={"wss://relay.a": "rejected"},
             ),
@@ -1203,7 +1203,7 @@ class TestBroadcastEvents:
         results = await self._get_broadcast_detailed()([MagicMock(), MagicMock()], [client])
 
         assert len(results) == 1
-        assert results[0].event_ids == ("evt-1", "evt-2")
+        assert results[0].event_ids == ("1" * 64, "2" * 64)
         assert results[0].successful_relays == ("wss://relay.b",)
         assert results[0].failed_relays == {"wss://relay.a": "rejected"}
 
@@ -1214,7 +1214,7 @@ class TestBroadcastEvents:
         client = AsyncMock()
         client.send_event_builder.side_effect = [
             self._send_output(
-                event_id="evt-1",
+                event_id="1" * 64,
                 success=("wss://relay.a",),
             ),
             TimeoutError("relay publish timed out"),
@@ -1234,7 +1234,7 @@ class TestBroadcastEvents:
         client = AsyncMock()
         client.send_event_builder.side_effect = [
             self._send_output(
-                event_id="evt-1",
+                event_id="1" * 64,
                 success=("wss://relay.a",),
             ),
             NostrSdkError("sdk publish failed"),
@@ -1253,12 +1253,12 @@ class TestBroadcastEvents:
     ) -> None:
         client = AsyncMock()
         bad_output = MagicMock()
-        bad_output.id = "evt-2"
+        bad_output.id = "2" * 64
         bad_output.success = [1]
         bad_output.failed = {}
         client.send_event_builder.side_effect = [
             self._send_output(
-                event_id="evt-1",
+                event_id="1" * 64,
                 success=("wss://relay.a",),
             ),
             bad_output,
@@ -1270,6 +1270,30 @@ class TestBroadcastEvents:
         assert results == []
         assert client.send_event_builder.await_count == 2
         assert "relay output contained invalid relay URL" in caplog.text
+
+    async def test_detailed_results_drop_partial_client_state_on_malformed_event_id(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        client = AsyncMock()
+        bad_output = MagicMock()
+        bad_output.id = 123
+        bad_output.success = ["wss://relay.a"]
+        bad_output.failed = {}
+        client.send_event_builder.side_effect = [
+            self._send_output(
+                event_id="1" * 64,
+                success=("wss://relay.a",),
+            ),
+            bad_output,
+        ]
+
+        with caplog.at_level(logging.WARNING, logger="bigbrotr.utils.protocol_publish"):
+            results = await self._get_broadcast_detailed()([MagicMock(), MagicMock()], [client])
+
+        assert results == []
+        assert client.send_event_builder.await_count == 2
+        assert "event output contained invalid event id" in caplog.text
 
 
 class TestSummarizeBroadcastResults:

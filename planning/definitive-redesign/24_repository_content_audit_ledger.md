@@ -2465,3 +2465,13 @@ Use this section during execution for:
     payloads are now rejected both in direct send-output normalization and in
     the live `broadcast` / `create_connected_client` paths that consume SDK
     connect and publish results.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-fifteenth remediation
+  slice:
+  - tightened the shared `utils.protocol` publish-event boundary so
+    `broadcast_events_detailed()` no longer stringifies arbitrary SDK `id`
+    payloads into fake event ids; live publish results now require one
+    canonical 32-byte hex id per builder output or treat the client result as
+    malformed/incomplete instead of emitting impossible `event_ids`;
+  - added paired `utils.protocol` coverage proving malformed builder event ids
+    now drop partial client publish state, while healthy detailed results keep
+    canonical event ids end-to-end.
