@@ -2184,3 +2184,12 @@ Use this section during execution for:
     publish batch size or subject thresholds to one unit;
   - added paired `assertor` coverage proving those boolean aliases now fail
     fast at config load instead of mutating `NIP-85` selection behavior.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-eighty-sixth remediation
+  slice:
+  - tightened the `monitor` geo boundary so `max_age_days` and
+    `geohash_precision` no longer accept boolean aliases, which previously
+    let values like `True` coerce to `1` and silently force daily GeoLite
+    refreshes or minimum-precision announcement geohashes;
+  - added paired `monitor` coverage proving those boolean aliases now fail
+    fast at config load instead of mutating geo download and publish
+    behavior.

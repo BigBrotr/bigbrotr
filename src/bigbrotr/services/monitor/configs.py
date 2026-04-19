@@ -257,6 +257,15 @@ class GeoConfig(BaseModel):
         default=9, ge=1, le=12, description="Geohash precision (9=~4.77m)"
     )
 
+    @field_validator("max_age_days", "geohash_precision", mode="before")
+    @classmethod
+    def reject_boolean_geo_numerics(cls, v: Any, info: ValidationInfo) -> Any:
+        """Reject boolean aliases that would otherwise collapse geo settings to 1."""
+        if v is None:
+            return v
+        field_name = info.field_name or "value"
+        return _reject_bool_alias(v, field_name, "integer")
+
 
 class PublishingConfig(BaseModel):
     """Default relay list used as fallback for event publishing.

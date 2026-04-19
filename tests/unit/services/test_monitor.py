@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from nostr_sdk import Keys
+from pydantic import ValidationError
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import Relay
@@ -512,6 +513,17 @@ class TestGeoConfig:
     def test_max_age_none(self) -> None:
         config = GeoConfig(max_age_days=None)
         assert config.max_age_days is None
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("max_age_days", True),
+            ("geohash_precision", True),
+        ],
+    )
+    def test_rejects_boolean_geo_aliases(self, field_name: str, value: bool) -> None:
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected integer, got bool"):
+            GeoConfig(**{field_name: value})
 
     def test_empty_city_path_rejected(self) -> None:
         with pytest.raises(ValueError):
