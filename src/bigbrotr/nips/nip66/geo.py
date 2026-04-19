@@ -45,7 +45,7 @@ from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.nips.base import BaseNipMetadata
 from bigbrotr.utils.dns import resolve_host
 
-from ._validation import normalize_timeout_budget
+from ._validation import normalize_geohash_precision, normalize_timeout_budget
 from .data import Nip66GeoData
 from .logs import Nip66GeoLogs
 
@@ -116,6 +116,7 @@ class GeoExtractor:
     @staticmethod
     def extract_location(response: Any, geohash_precision: int = 9) -> dict[str, Any]:
         """Extract latitude, longitude, accuracy radius, timezone, and geohash."""
+        geohash_precision = normalize_geohash_precision(geohash_precision)
         result: dict[str, Any] = {}
         loc = response.location
 
@@ -193,6 +194,7 @@ class Nip66GeoMetadata(BaseNipMetadata):
             geoip2.errors.GeoIP2Error: GeoIP database lookup failure.
             ValueError: Invalid IP address or database response.
         """
+        geohash_precision = normalize_geohash_precision(geohash_precision)
         response = city_reader.city(ip)
         return GeoExtractor.extract_all(response, geohash_precision=geohash_precision)
 
@@ -266,6 +268,7 @@ class Nip66GeoMetadata(BaseNipMetadata):
         Returns:
             An ``Nip66GeoMetadata`` instance with location data and logs.
         """
+        geohash_precision = normalize_geohash_precision(geohash_precision)
         timeout = normalize_timeout_budget(timeout)
         logger.debug("geo_testing relay=%s timeout_s=%s", relay.url, timeout)
 

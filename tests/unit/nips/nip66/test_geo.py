@@ -299,6 +299,20 @@ class TestGeoExtractorExtractLocation:
 
         assert len(result["geo_hash"]) == 9
 
+    @pytest.mark.parametrize("value", [True, 0, -1, 13])
+    def test_rejects_invalid_geohash_precision(self, value: object) -> None:
+        """Invalid precision values fail before geohash generation."""
+        response = MagicMock()
+        response.location.latitude = 0.0
+        response.location.longitude = 0.0
+        response.location.accuracy_radius = None
+        response.location.time_zone = None
+
+        with pytest.raises(
+            ValueError, match="geohash_precision must be an integer between 1 and 12"
+        ):
+            GeoExtractor.extract_location(response, geohash_precision=value)
+
 
 class TestGeoExtractorExtractAll:
     """Test GeoExtractor.extract_all() method."""
@@ -385,6 +399,18 @@ class TestNip66GeoMetadataGeoSync:
 
         assert result["geo_country"] == "US"
         mock_city_reader.city.assert_called_once_with("2001:4860:4860::8888")
+
+    @pytest.mark.parametrize("value", [True, 0, -1, 13])
+    def test_rejects_invalid_geohash_precision_before_lookup(self, value: object) -> None:
+        """Invalid precision values fail before the GeoIP reader is touched."""
+        mock_city_reader = MagicMock()
+
+        with pytest.raises(
+            ValueError, match="geohash_precision must be an integer between 1 and 12"
+        ):
+            Nip66GeoMetadata._geo("8.8.8.8", mock_city_reader, geohash_precision=value)
+
+        mock_city_reader.city.assert_not_called()
 
 
 class TestNip66GeoMetadataGeoAsync:
@@ -594,6 +620,24 @@ class TestNip66GeoMetadataGeoAsync:
             await Nip66GeoMetadata.probe(relay, mock_city_reader, timeout=0.5)
 
         assert mock_resolve.await_args.kwargs["raise_on_timeout"] is True
+
+    @pytest.mark.parametrize("value", [True, 0, -1, 13])
+    async def test_rejects_invalid_geohash_precision_before_resolve(
+        self,
+        relay: Relay,
+        mock_city_reader: MagicMock,
+        value: object,
+    ) -> None:
+        """Invalid precision values fail before resolver or GeoIP lookups start."""
+        with (
+            patch("bigbrotr.nips.nip66.geo.resolve_host", new_callable=AsyncMock) as mock_resolve,
+            pytest.raises(
+                ValueError, match="geohash_precision must be an integer between 1 and 12"
+            ),
+        ):
+            await Nip66GeoMetadata.probe(relay, mock_city_reader, geohash_precision=value)
+
+        mock_resolve.assert_not_awaited()
 
     @pytest.mark.parametrize("value", [True, 0, -1, float("nan")])
     async def test_rejects_invalid_timeout_before_resolve(

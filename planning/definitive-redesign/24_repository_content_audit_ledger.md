@@ -2550,3 +2550,15 @@ Use this section during execution for:
   - added paired `NIP-66` coverage proving each direct probe now rejects those
     malformed timeout inputs before starting any resolver, HTTP, SSL, RTT, or
     GeoIP child operation.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-twenty-third remediation
+  slice:
+  - tightened the public `NIP-66` geo precision boundary so
+    `GeoExtractor.extract_location()`, `Nip66GeoMetadata._geo()`, and
+    `Nip66GeoMetadata.probe()` no longer accept boolean aliases or out-of-range
+    `geohash_precision` values that would otherwise degrade into empty hashes,
+    one-character hashes, or overlong non-canonical geohashes;
+  - aligned that leaf contract with the already-strict `monitor.geo.geohash_precision`
+    config range (`1..12`) via shared `nip66` validation;
+  - added paired `NIP-66` geo coverage proving invalid precision inputs now
+    fail before any geohash generation, GeoIP reader lookup, or hostname
+    resolution starts.
