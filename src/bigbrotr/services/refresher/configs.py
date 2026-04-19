@@ -143,6 +143,13 @@ def _reject_bool_alias(value: Any, field_name: str, expected_type: str) -> Any:
     return value
 
 
+def _require_bool(value: Any, field_name: str) -> bool:
+    """Require canonical booleans for authored refresher config boundaries."""
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected bool, got {type(value).__name__}")
+    return value
+
+
 class ProcessingConfig(BaseModel):
     """Refresher cycle processing budgets and failure policy."""
 
@@ -179,6 +186,11 @@ class ProcessingConfig(BaseModel):
     @classmethod
     def reject_boolean_duration_budget(cls, value: Any, info: ValidationInfo) -> Any:
         return _reject_bool_alias(value, str(info.field_name), "number")
+
+    @field_validator("continue_on_target_error", mode="before")
+    @classmethod
+    def require_boolean_continue_on_target_error(cls, value: Any, info: ValidationInfo) -> bool:
+        return _require_bool(value, str(info.field_name))
 
 
 class CurrentRefreshConfig(BaseModel):

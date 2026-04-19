@@ -4243,3 +4243,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_synchronizer` proving malformed
     temporal aliases now fail fast both on the leaf processing model and
     through nested `SynchronizerConfig.processing` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-sixtieth
+  remediation slice:
+  - tightened the authored boolean boundary in
+    `services.refresher.configs.ProcessingConfig` so
+    `continue_on_target_error` now requires a canonical `bool` value;
+  - closed the drift where payloads like `"true"`, `"false"`, `1`, or `0`
+    could silently change whether the refresher continues after a target
+    failure at config load time;
+  - added paired coverage in `services.test_refresher` proving malformed
+    boolean aliases now fail fast both on the leaf processing model and
+    through nested `RefresherConfig.processing` parsing.

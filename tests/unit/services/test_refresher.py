@@ -27,6 +27,7 @@ from bigbrotr.services.refresher import (
 from bigbrotr.services.refresher.configs import (
     DEFAULT_ANALYTICS_TARGETS,
     DEFAULT_CURRENT_TARGETS,
+    ProcessingConfig,
     validate_refresh_dependencies,
 )
 from bigbrotr.services.refresher.queries import (
@@ -120,6 +121,16 @@ class TestRefreshTargetConfig:
     ) -> None:
         with pytest.raises(ValueError, match=rf"{field_name}: expected {expected_type}, got bool"):
             RefresherConfig.model_validate(payload)
+
+    @pytest.mark.parametrize("value", ["true", 1, 0])
+    def test_rejects_non_boolean_continue_on_target_error_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"continue_on_target_error: expected bool, got"):
+            ProcessingConfig(continue_on_target_error=value)
+
+    @pytest.mark.parametrize("value", ["false", 1, 0])
+    def test_nested_continue_on_target_error_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"continue_on_target_error: expected bool, got"):
+            RefresherConfig.model_validate({"processing": {"continue_on_target_error": value}})
 
     def test_empty_targets_are_allowed(self) -> None:
         config = _refresher_config()
