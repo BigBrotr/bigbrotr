@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -330,7 +331,9 @@ async def upsert_publish_checkpoints(brotr: Brotr, state_keys: list[str]) -> Non
     if not state_keys:
         return
     _validate_publish_keys(state_keys)
-    now = int(time.time())
+    # Publish intervals are fractional, so persist the completion marker at the
+    # next whole second to avoid advertising the next publish too early.
+    now = math.ceil(time.time())
     await ServiceStateStore(brotr).upsert_checkpoints(
         ServiceName.MONITOR,
         [PublishCheckpoint(key=key, timestamp=now) for key in state_keys],

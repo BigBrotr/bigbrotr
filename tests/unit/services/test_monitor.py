@@ -1405,6 +1405,26 @@ class TestIsPublishDue:
         )
         assert await is_publish_due(query_brotr, "announcement", 86400) is True
 
+    async def test_fractional_interval_not_elapsed_before_ceiled_checkpoint_due_time(
+        self, query_brotr: MagicMock
+    ) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[{"state_key": "announcement", "state_value": {"timestamp": 1001}}]
+        )
+
+        with patch("bigbrotr.services.monitor.queries.time.time", return_value=4601.8):
+            assert await is_publish_due(query_brotr, "announcement", 3600.9) is False
+
+    async def test_fractional_interval_elapsed_after_ceiled_checkpoint_due_time(
+        self, query_brotr: MagicMock
+    ) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[{"state_key": "announcement", "state_value": {"timestamp": 1001}}]
+        )
+
+        with patch("bigbrotr.services.monitor.queries.time.time", return_value=4601.91):
+            assert await is_publish_due(query_brotr, "announcement", 3600.9) is True
+
     async def test_invalid_key_raises(self, query_brotr: MagicMock) -> None:
         with pytest.raises(ValueError, match="invalid publish keys"):
             await is_publish_due(query_brotr, "bogus", 86400)
@@ -1436,6 +1456,15 @@ class TestUpsertPublishCheckpoints:
         assert len(states) == 2
         keys = {s.state_key for s in states}
         assert keys == {"announcement", "profile"}
+
+    async def test_rounds_fractional_checkpoint_timestamp_up(self, query_brotr: MagicMock) -> None:
+        query_brotr.upsert_service_state = AsyncMock(return_value=1)
+
+        with patch("bigbrotr.services.monitor.queries.time.time", return_value=1000.2):
+            await upsert_publish_checkpoints(query_brotr, ["announcement"])
+
+        state = query_brotr.upsert_service_state.call_args[0][0][0]
+        assert state.state_value["timestamp"] == 1001
 
     async def test_empty_list_skips(self, query_brotr: MagicMock) -> None:
         query_brotr.upsert_service_state = AsyncMock(return_value=0)

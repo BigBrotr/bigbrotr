@@ -2236,3 +2236,12 @@ Use this section during execution for:
     the SQL selector compares failed-at timestamps with a strict `<` cutoff;
   - added `validator` coverage proving the planner now rounds that retry
     cutoff up before counting and fetching candidate work.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-ninety-second remediation
+  slice:
+  - tightened the `monitor` publish-checkpoint boundary so fractional publish
+    intervals no longer get measured from a floored completion timestamp,
+    which previously let `announcement`, `profile`, and `relay_list`
+    publishes become due up to almost one second too early;
+  - added `monitor` coverage proving publish checkpoints now round their
+    persisted timestamp up and that fractional intervals stay blocked until
+    that ceiled checkpoint has really elapsed.
