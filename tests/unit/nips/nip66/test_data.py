@@ -455,6 +455,26 @@ class TestNip66NetData:
         with pytest.raises(ValidationError):
             Nip66NetData(net_asn=-1)
 
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"net_ip": "not-an-ip"}, "net_ip must be a valid IPv4 address"),
+            ({"net_ip": "2001:4860:4860::8888"}, "net_ip must be a valid IPv4 address"),
+            ({"net_ipv6": "not-an-ipv6"}, "net_ipv6 must be a valid IPv6 address"),
+            ({"net_ipv6": "8.8.8.8"}, "net_ipv6 must be a valid IPv6 address"),
+            ({"net_network": "bad-cidr"}, "net_network must be a valid IPv4 network"),
+            ({"net_network": "2001:4860::/32"}, "net_network must be a valid IPv4 network"),
+            ({"net_network_v6": "bad-v6-cidr"}, "net_network_v6 must be a valid IPv6 network"),
+            ({"net_network_v6": "8.8.8.0/24"}, "net_network_v6 must be a valid IPv6 network"),
+        ],
+    )
+    def test_construction_rejects_invalid_network_address_strings(
+        self, kwargs: dict[str, str], message: str
+    ) -> None:
+        """Constructor rejects malformed IP address and CIDR strings."""
+        with pytest.raises(ValidationError, match=message):
+            Nip66NetData(**kwargs)
+
     def test_parse_filters_invalid_ip_types(self) -> None:
         """parse() filters invalid IP string types."""
         raw = {
@@ -492,6 +512,19 @@ class TestNip66NetData:
         }
         parsed = Nip66NetData.parse(raw)
         assert parsed == {"net_asn": 15169}
+
+    def test_parse_filters_invalid_network_address_strings(self) -> None:
+        """parse() filters malformed IP address and CIDR strings."""
+        raw = {
+            "net_ip": "not-an-ip",
+            "net_ipv6": "8.8.8.8",
+            "net_asn": 15169,
+            "net_asn_org": "GOOGLE",
+            "net_network": "2001:4860::/32",
+            "net_network_v6": "8.8.8.0/24",
+        }
+        parsed = Nip66NetData.parse(raw)
+        assert parsed == {"net_asn": 15169, "net_asn_org": "GOOGLE"}
 
 
 class TestNip66DnsData:

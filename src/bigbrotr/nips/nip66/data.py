@@ -28,12 +28,17 @@ See Also:
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import Field, StrictBool, StrictFloat, StrictInt, field_validator
 
 from bigbrotr.nips.base import BaseData
 from bigbrotr.nips.parsing import FieldSpec, ParseIssue, ParseReport, join_parse_path
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 _GEO_LAT_MIN = -90.0
@@ -135,6 +140,58 @@ def _drop_blank_string_fields(
                     detail="expected non-empty str",
                 )
             )
+
+
+def _drop_invalid_string_fields(
+    parsed: dict[str, Any],
+    issues: list[ParseIssue],
+    field_validators: tuple[tuple[str, Callable[[str], bool], str], ...],
+    *,
+    path: str,
+) -> None:
+    for key, validator, detail in field_validators:
+        value = parsed.get(key)
+        if isinstance(value, str) and not validator(value):
+            del parsed[key]
+            issues.append(
+                ParseIssue(
+                    kind="invalid_value",
+                    path=join_parse_path(path, key),
+                    detail=detail,
+                )
+            )
+
+
+def _is_valid_ipv4_address(value: str) -> bool:
+    try:
+        IPv4Address(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _is_valid_ipv6_address(value: str) -> bool:
+    try:
+        IPv6Address(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _is_valid_ipv4_network(value: str) -> bool:
+    try:
+        IPv4Network(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _is_valid_ipv6_network(value: str) -> bool:
+    try:
+        IPv6Network(value)
+    except ValueError:
+        return False
+    return True
 
 
 class Nip66RttData(BaseData):
@@ -499,9 +556,37 @@ class Nip66NetData(BaseData):
             raise ValueError(f"{info.field_name} must be a non-empty string")
         return value
 
+    @field_validator("net_ip")
+    @classmethod
+    def _require_valid_ipv4_address(cls, value: str | None) -> str | None:
+        if value is not None and not _is_valid_ipv4_address(value):
+            raise ValueError("net_ip must be a valid IPv4 address")
+        return value
+
+    @field_validator("net_ipv6")
+    @classmethod
+    def _require_valid_ipv6_address(cls, value: str | None) -> str | None:
+        if value is not None and not _is_valid_ipv6_address(value):
+            raise ValueError("net_ipv6 must be a valid IPv6 address")
+        return value
+
+    @field_validator("net_network")
+    @classmethod
+    def _require_valid_ipv4_network(cls, value: str | None) -> str | None:
+        if value is not None and not _is_valid_ipv4_network(value):
+            raise ValueError("net_network must be a valid IPv4 network")
+        return value
+
+    @field_validator("net_network_v6")
+    @classmethod
+    def _require_valid_ipv6_network(cls, value: str | None) -> str | None:
+        if value is not None and not _is_valid_ipv6_network(value):
+            raise ValueError("net_network_v6 must be a valid IPv6 network")
+        return value
+
     @classmethod
     def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
-        """Parse network data while rejecting negative ASN values."""
+        """Parse network data while rejecting invalid address metadata."""
         report = super().parse_report(data, path=path)
         parsed = dict(report.parsed)
         issues = list(report.issues)
@@ -509,6 +594,17 @@ class Nip66NetData(BaseData):
             parsed,
             issues,
             ("net_ip", "net_ipv6", "net_asn_org", "net_network", "net_network_v6"),
+            path=path,
+        )
+        _drop_invalid_string_fields(
+            parsed,
+            issues,
+            (
+                ("net_ip", _is_valid_ipv4_address, "expected valid IPv4 address"),
+                ("net_ipv6", _is_valid_ipv6_address, "expected valid IPv6 address"),
+                ("net_network", _is_valid_ipv4_network, "expected valid IPv4 network"),
+                ("net_network_v6", _is_valid_ipv6_network, "expected valid IPv6 network"),
+            ),
             path=path,
         )
         _drop_negative_int_fields(parsed, issues, ("net_asn",), path=path)

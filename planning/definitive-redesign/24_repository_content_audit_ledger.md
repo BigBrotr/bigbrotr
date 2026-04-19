@@ -3319,15 +3319,15 @@ Use this section during execution for:
     containers and public serialization;
   - added paired `nips.nip11.test_data` coverage proving blank fee units now
     fail fast at construction time and are removed from parse output.
-- `2.1` models/utils/NIPs leaf audit, two-hundred-and-eighty-third
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-eighty-fourth
   remediation slice:
-  - tightened the `nips.nip66.data` geo/net scalar string boundary so blank
-    or whitespace-only geolocation and network descriptor fields now reject
-    at direct model construction and are filtered from permissive
-    parse/report sanitization;
-  - closed the drift where semantically empty geo/net metadata could survive
-    as canonical NIP-66 data and later flow into shared result containers,
-    persisted documents, and public builder output;
-  - added paired `nips.nip66.test_data` coverage proving blank scalar
-    `geo_*` and `net_*` strings now fail fast at construction time and are
+  - tightened the `nips.nip66.data.Nip66NetData` address boundary so
+    malformed `net_ip`, `net_ipv6`, `net_network`, and `net_network_v6`
+    strings now reject at direct model construction and are filtered from
+    permissive parse/report sanitization;
+  - closed the drift where non-IP and non-CIDR network metadata could
+    survive as canonical NIP-66 data and later flow into shared result
+    containers, persisted documents, and public builder output;
+  - added paired `nips.nip66.test_data` coverage proving malformed IPv4,
+    IPv6, and CIDR strings now fail fast at construction time and are
     removed from parse output.
