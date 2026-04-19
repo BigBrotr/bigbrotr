@@ -25,6 +25,13 @@ def _reject_bool_alias(value: Any, field_name: str, expected: str) -> Any:
     return value
 
 
+def _require_bool(value: Any, field_name: str) -> bool:
+    """Require canonical booleans for authored validator config boundaries."""
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected bool, got {type(value).__name__}")
+    return value
+
+
 class ProcessingConfig(BaseModel):
     """Candidate processing settings.
 
@@ -75,6 +82,13 @@ class ProcessingConfig(BaseModel):
         field_name = info.field_name or "interval"
         return _reject_bool_alias(v, field_name, "number")
 
+    @field_validator("allow_insecure", mode="before")
+    @classmethod
+    def require_boolean_allow_insecure(cls, v: Any, info: ValidationInfo) -> bool:
+        """Require canonical booleans for the TLS fallback policy."""
+        field_name = info.field_name or "allow_insecure"
+        return _require_bool(v, field_name)
+
 
 class CleanupConfig(BaseModel):
     """Exhausted candidate cleanup settings.
@@ -104,6 +118,13 @@ class CleanupConfig(BaseModel):
         """Reject boolean aliases that would otherwise coerce to a failure threshold of 1/0."""
         field_name = info.field_name or "max_failures"
         return _reject_bool_alias(v, field_name, "integer")
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def require_boolean_enabled(cls, v: Any, info: ValidationInfo) -> bool:
+        """Require canonical booleans for cleanup enablement."""
+        field_name = info.field_name or "enabled"
+        return _require_bool(v, field_name)
 
 
 class ValidatorConfig(BaseServiceConfig):

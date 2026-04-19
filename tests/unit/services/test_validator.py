@@ -132,6 +132,11 @@ class TestProcessingConfig:
         with pytest.raises(ValueError, match="interval: expected number, got bool"):
             ProcessingConfig(interval=True)
 
+    @pytest.mark.parametrize("value", ["true", 1, 0])
+    def test_rejects_non_boolean_allow_insecure_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"allow_insecure: expected bool, got"):
+            ProcessingConfig(allow_insecure=value)
+
 
 # ============================================================================
 # CleanupConfig
@@ -159,6 +164,11 @@ class TestCleanupConfig:
     def test_rejects_boolean_max_failures_alias(self) -> None:
         with pytest.raises(ValueError, match="max_failures: expected integer, got bool"):
             CleanupConfig(max_failures=True)
+
+    @pytest.mark.parametrize("value", ["false", 1, 0])
+    def test_rejects_non_boolean_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
+            CleanupConfig(enabled=value)
 
 
 # ============================================================================
@@ -196,6 +206,21 @@ class TestValidatorConfig:
         cfg = ValidatorConfig(cleanup={"enabled": True, "max_failures": 50})
         assert cfg.cleanup.enabled is True
         assert cfg.cleanup.max_failures == 50
+
+    @pytest.mark.parametrize(
+        ("section", "field_name", "field_value"),
+        [
+            ("processing", "allow_insecure", "true"),
+            ("processing", "allow_insecure", 1),
+            ("cleanup", "enabled", "false"),
+            ("cleanup", "enabled", 0),
+        ],
+    )
+    def test_nested_validator_boolean_aliases_rejected(
+        self, section: str, field_name: str, field_value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected bool, got"):
+            ValidatorConfig(**{section: {field_name: field_value}})
 
     def test_nested_networks(self) -> None:
         cfg = ValidatorConfig(networks=NetworksConfig(tor=TorConfig(enabled=True)))

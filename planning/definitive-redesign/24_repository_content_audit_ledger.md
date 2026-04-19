@@ -4155,3 +4155,15 @@ Use this section during execution for:
   - added paired coverage in `services.test_finder` proving default-port
     source URLs canonicalize at the leaf validator and that duplicate sources
     are rejected after default-port stripping inside `ApiConfig`.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-fifty-second
+  remediation slice:
+  - tightened the authored boolean boundaries in
+    `services.validator.configs.ProcessingConfig` and
+    `services.validator.configs.CleanupConfig` so `allow_insecure` and
+    `enabled` now require canonical `bool` values;
+  - closed the drift where payloads like `"true"`, `"false"`, `1`, or `0`
+    could silently flip the validator TLS fallback policy or exhausted-candidate
+    cleanup behavior at config load time;
+  - added paired coverage in `services.test_validator` proving malformed
+    boolean aliases now fail fast both on the leaf models and through nested
+    `ValidatorConfig` parsing.
