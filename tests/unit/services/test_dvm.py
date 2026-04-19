@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import asyncpg
 import pytest
 from nostr_sdk import Keys
+from pydantic import ValidationError
 
 from bigbrotr.core.base_service import BaseService
 from bigbrotr.core.brotr import Brotr
@@ -265,6 +266,13 @@ class TestDvmConfig:
             read_models={"relays": ReadModelPolicy(enabled=True, price=1000)},
         )
         assert config.exposure_policy == config.read_models
+
+    @pytest.mark.parametrize("value", ["true", 1])
+    def test_rejects_boolean_read_model_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"enabled: expected boolean, got"):
+            DvmConfig(
+                relays=["wss://relay.example.com"], read_models={"relays": {"enabled": value}}
+            )
 
     def test_read_models_require_canonical_names(self) -> None:
         with pytest.raises(

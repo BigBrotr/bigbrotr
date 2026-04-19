@@ -3827,3 +3827,14 @@ Use this section during execution for:
   - added paired `services.test_dvm` coverage proving the config normalizes the
     three text fields up front and `publish_announcement()` emits the cleaned
     values in the final event.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-twenty-third
+  remediation slice:
+  - tightened the shared public-adapter boundary in
+    `services.common.configs.ReadModelPolicy` so `enabled` now requires a
+    canonical `bool` instead of accepting truthy / falsy aliases;
+  - closed the drift where payloads like `"true"` or `1` could silently expose
+    public readable resources in `API` and `DVM` configs through nested
+    `read_models` policy coercion;
+  - added paired coverage in `services.common.test_configs`,
+    `services.test_api`, and `services.test_dvm` proving malformed
+    `read_models.*.enabled` aliases now fail fast at config load time.

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models.constants import ServiceName
@@ -140,6 +141,11 @@ class TestApiConfig:
     def test_exposure_policy_aliases_read_models(self) -> None:
         config = ApiConfig(read_models={"relays": ReadModelPolicy(enabled=True)})
         assert config.exposure_policy == config.read_models
+
+    @pytest.mark.parametrize("value", ["true", 1])
+    def test_rejects_boolean_read_model_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"enabled: expected boolean, got"):
+            ApiConfig(read_models={"relays": {"enabled": value}})
 
     def test_read_models_require_canonical_names(self) -> None:
         with pytest.raises(

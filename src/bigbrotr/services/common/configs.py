@@ -168,6 +168,14 @@ class ReadModelPolicy(BaseModel):
     enabled: bool = Field(default=False, description="Whether this readable resource is exposed")
     price: int = Field(default=0, ge=0, description="Price in millisats (0 = free)")
 
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def _require_boolean_enabled(cls, value: Any, info: ValidationInfo) -> bool:
+        field_name = info.field_name or "value"
+        if not isinstance(value, bool):
+            raise ValueError(f"{field_name}: expected boolean, got {type(value).__name__}")
+        return value
+
     @field_validator("price", mode="before")
     @classmethod
     def _reject_boolean_price(cls, value: Any, info: ValidationInfo) -> Any:

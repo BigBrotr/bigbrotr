@@ -113,6 +113,11 @@ class TestReadModelPolicy:
         config = ReadModelPolicy.model_validate({"enabled": True})
         assert config.enabled is True
 
+    @pytest.mark.parametrize("value", ["true", 1])
+    def test_rejects_boolean_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"enabled: expected boolean, got"):
+            ReadModelPolicy(enabled=value)
+
     def test_with_price(self) -> None:
         config = ReadModelPolicy(enabled=True, price=5000)
         assert config.price == 5000
