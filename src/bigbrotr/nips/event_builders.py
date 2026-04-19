@@ -18,8 +18,9 @@ See Also:
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable as IterableABC
 from collections.abc import Mapping as MappingABC
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, TypeGuard
 
 from nostr_sdk import EventBuilder, Kind, Tag
 from nostr_sdk import Metadata as NostrMetadata
@@ -116,6 +117,12 @@ def _normalize_geohash(geohash: object) -> str | None:
     return normalized
 
 
+def _normalize_trusted_provider_list_content(content: object) -> str:
+    if not isinstance(content, str):
+        raise ValueError("content must be a string")
+    return content
+
+
 def _normalize_relay_list_urls(relays: Sequence[Relay]) -> tuple[str, ...]:
     """Return a stable deduplicated relay-url ordering for set-like relay lists."""
     return tuple(sorted({relay.url for relay in relays}))
@@ -138,6 +145,32 @@ def canonicalize_trusted_provider_declarations(
 ) -> tuple[TrustedProviderDeclaration, ...]:
     """Return a stable deduplicated ordering for trusted provider declarations."""
     return tuple(sorted(set(declarations), key=_provider_declaration_sort_key))
+
+
+def _is_trusted_provider_declaration(value: object) -> TypeGuard[TrustedProviderDeclaration]:
+    result_kind = getattr(value, "result_kind", None)
+    return (
+        not isinstance(result_kind, bool)
+        and isinstance(result_kind, int)
+        and isinstance(getattr(value, "tag_name", None), str)
+        and isinstance(getattr(value, "service_pubkey", None), str)
+        and isinstance(getattr(value, "relay_hint", None), str)
+        and callable(getattr(value, "as_tag", None))
+    )
+
+
+def _normalize_trusted_provider_declarations(
+    declarations: object,
+) -> tuple[TrustedProviderDeclaration, ...]:
+    if isinstance(declarations, MappingABC | str | bytes):
+        raise ValueError("declarations must be an iterable of TrustedProviderDeclaration")
+    if not isinstance(declarations, IterableABC):
+        raise ValueError("declarations must be an iterable of TrustedProviderDeclaration")
+    items = list(declarations)
+    for declaration in items:
+        if not _is_trusted_provider_declaration(declaration):
+            raise ValueError("declarations must contain only TrustedProviderDeclaration items")
+    return canonicalize_trusted_provider_declarations(items)
 
 
 def _normalize_networks(enabled_networks: Sequence[NetworkType]) -> tuple[NetworkType, ...]:
@@ -211,10 +244,9 @@ def build_trusted_provider_list(
     private declarations. Public declarations are emitted as ``<kind:tag>``,
     service pubkey, and relay hint tag vectors in stable deduplicated order.
     """
-    tags = [
-        Tag.parse(declaration.as_tag())
-        for declaration in canonicalize_trusted_provider_declarations(declarations)
-    ]
+    content = _normalize_trusted_provider_list_content(content)
+    normalized_declarations = _normalize_trusted_provider_declarations(declarations)
+    tags = [Tag.parse(declaration.as_tag()) for declaration in normalized_declarations]
     return EventBuilder(Kind(EventKind.NIP85_TRUSTED_PROVIDER_LIST), content).tags(tags)
 
 

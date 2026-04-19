@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import patch
+
+import pytest
 
 from bigbrotr.models.constants import EventKind
 from bigbrotr.nips.event_builders import (
@@ -328,3 +331,43 @@ class TestBuildTrustedProviderList:
             [f"{EventKind.NIP85_USER_ASSERTION}:rank", "4f" * 32, "wss://a.example.com"],
             [f"{EventKind.NIP85_EVENT_ASSERTION}:rank", "5f" * 32, "wss://b.example.com"],
         ]
+
+    @pytest.mark.parametrize("value", [True, 1, b"ciphertext"])
+    def test_rejects_non_string_content_before_event_builder(self, value: object) -> None:
+        with (
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(ValueError, match="content must be a string"),
+        ):
+            build_trusted_provider_list([], content=value)  # type: ignore[arg-type]
+
+        mock_builder.assert_not_called()
+
+    @pytest.mark.parametrize("value", [True, "not-a-sequence", {"rank": "value"}])
+    def test_rejects_invalid_declarations_container_before_tag_build(self, value: object) -> None:
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(
+                ValueError,
+                match="declarations must be an iterable of TrustedProviderDeclaration",
+            ),
+        ):
+            build_trusted_provider_list(value, content="encrypted-private-tags")  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        mock_builder.assert_not_called()
+
+    @pytest.mark.parametrize("value", [[True], [object()]])
+    def test_rejects_invalid_declaration_items_before_tag_build(self, value: object) -> None:
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(
+                ValueError,
+                match="declarations must contain only TrustedProviderDeclaration items",
+            ),
+        ):
+            build_trusted_provider_list(value, content="encrypted-private-tags")  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        mock_builder.assert_not_called()

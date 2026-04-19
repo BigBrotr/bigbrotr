@@ -2786,3 +2786,18 @@ Use this section during execution for:
     publication call sites to sanitize metadata payloads first;
   - added paired `nips.event_builders` coverage proving corrupted profile
     inputs are rejected before any `NostrMetadata.from_json()` work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-forty-first remediation
+  slice:
+  - tightened the direct public builder boundary of
+    `nips.event_builders.build_trusted_provider_list()` so malformed
+    `content` payloads and corrupted `declarations` containers no longer
+    degrade into fake Kind 10040 payloads or late attribute errors while the
+    public NIP-85 trusted-provider builder assembles tags;
+  - centralized trusted-provider argument normalization inside the leaf
+    builder itself so direct callers now enforce real string `content` plus
+    iterable typed `TrustedProviderDeclaration` items, instead of relying on
+    higher-level assertor publishing code to sanitize the public arguments
+    first;
+  - added paired `NIP-85` builder coverage proving corrupted content and
+    declaration payloads are rejected before any `EventBuilder` or `Tag.parse()`
+    work begins.
