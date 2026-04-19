@@ -154,6 +154,20 @@ class TestApiConfig:
         config = ApiConfig(cors_origins=[" https://example.com "])
         assert config.cors_origins == ["https://example.com"]
 
+    def test_duplicate_cors_origins_are_deduplicated(self) -> None:
+        config = ApiConfig(
+            cors_origins=[
+                "https://example.com",
+                " https://example.com ",
+                "https://relay.example",
+                "https://example.com",
+            ]
+        )
+        assert config.cors_origins == [
+            "https://example.com",
+            "https://relay.example",
+        ]
+
     def test_exposure_policy_aliases_read_models(self) -> None:
         config = ApiConfig(read_models={"relays": ReadModelPolicy(enabled=True)})
         assert config.exposure_policy == config.read_models
@@ -349,6 +363,32 @@ class TestApiBuildApp:
             if "CORSMiddleware" in str(middleware.cls)
         )
         assert cors_middleware.kwargs["allow_origins"] == ["https://example.com"]
+
+    def test_cors_middleware_uses_deduplicated_origins(
+        self, mock_brotr: Brotr, sample_catalog: Catalog
+    ) -> None:
+        config = ApiConfig(
+            cors_origins=[
+                "https://example.com",
+                " https://example.com ",
+                "https://relay.example",
+                "https://example.com",
+            ],
+            read_models={"relays": ReadModelPolicy(enabled=True)},
+        )
+        service = Api(brotr=mock_brotr, config=config)
+        service._read_core.catalog = sample_catalog
+        app = service._build_app()
+
+        cors_middleware = next(
+            middleware
+            for middleware in app.user_middleware
+            if "CORSMiddleware" in str(middleware.cls)
+        )
+        assert cors_middleware.kwargs["allow_origins"] == [
+            "https://example.com",
+            "https://relay.example",
+        ]
 
     def test_no_cors_middleware_without_origins(self, api_service: Api) -> None:
         app = api_service._build_app()

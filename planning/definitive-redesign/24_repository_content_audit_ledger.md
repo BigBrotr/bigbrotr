@@ -3999,3 +3999,14 @@ Use this section during execution for:
     unchanged;
   - added paired coverage in `services.test_api` proving padded origins now
     canonicalize both at config load and at middleware construction time.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-thirty-eighth
+  remediation slice:
+  - tightened the `services.api.configs.ApiConfig` CORS-origin
+    canonicalization so duplicate entries now collapse after normalization
+    while preserving first-seen order;
+  - closed the drift where authored payloads like
+    `["https://example.com", " https://example.com "]` could survive config
+    load as duplicate `allow_origins` entries and then flow into FastAPI CORS
+    middleware unchanged;
+  - added paired coverage in `services.test_api` proving equivalent origins
+    now deduplicate both at config load and at middleware construction time.

@@ -40,10 +40,14 @@ def _normalize_non_blank_string(value: Any, field_name: str) -> str:
 
 def _normalize_non_blank_string_items(values: list[str], field_name: str) -> list[str]:
     normalized_values: list[str] = []
+    seen_values: set[str] = set()
     for index, value in enumerate(values):
         normalized = value.strip()
         if not normalized:
             raise ValueError(f"{field_name}[{index}] must not be blank")
+        if normalized in seen_values:
+            continue
+        seen_values.add(normalized)
         normalized_values.append(normalized)
     return normalized_values
 
