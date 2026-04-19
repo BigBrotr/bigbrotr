@@ -2955,3 +2955,16 @@ Use this section during execution for:
   - added paired `nips.event_builders` coverage proving corrupted
     `nip11_data` and `rtt_logs` inputs are rejected before any `Tag.parse()`
     or downstream `add_type_tags()` work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-fifty-third remediation
+  slice:
+  - tightened the direct public helper boundary of
+    `nips.event_builders.add_rtt_tags()` so malformed `rtt_data` payloads no
+    longer degrade into late attribute errors or partial RTT tag mutation
+    while the public NIP-66 helper assembles `rtt-open`, `rtt-read`, and
+    `rtt-write` tags;
+  - centralized typed normalization of the optional `Nip66RttData` input
+    inside the leaf helper itself so direct callers now enforce a real RTT
+    metadata boundary instead of relying on higher-level discovery flows to
+    sanitize the public argument first;
+  - added paired `nips.event_builders` coverage proving corrupted `rtt_data`
+    inputs are rejected before any `Tag.parse()` work begins.

@@ -527,6 +527,19 @@ class TestAddRttTags:
         add_rtt_tags(tags, Nip66RttData())
         assert tags == []
 
+    @pytest.mark.parametrize("value", [True, "not-rtt-data", object()])
+    def test_rejects_invalid_rtt_data_before_tag_build(self, value: object) -> None:
+        """Malformed RTT data fails before any RTT tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="rtt_data must be a Nip66RttData or None"),
+        ):
+            add_rtt_tags(tags, value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        assert tags == []
+
 
 # ============================================================================
 # add_ssl_tags

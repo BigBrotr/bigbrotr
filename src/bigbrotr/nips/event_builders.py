@@ -221,6 +221,15 @@ def _normalize_optional_rtt_logs(rtt_logs: object) -> Nip66RttMultiPhaseLogs | N
     return cast("Nip66RttMultiPhaseLogs", rtt_logs)
 
 
+def _normalize_optional_nip66_rtt_data(rtt_data: object) -> Nip66RttData | None:
+    if rtt_data is None:
+        return None
+    rtt_data_type = importlib.import_module("bigbrotr.nips.nip66.data").Nip66RttData
+    if not isinstance(rtt_data, rtt_data_type):
+        raise ValueError("rtt_data must be a Nip66RttData or None")
+    return cast("Nip66RttData", rtt_data)
+
+
 def _normalize_supported_nips_for_type_tags(supported_nips: object) -> tuple[int, ...] | None:
     if supported_nips is None:
         return None
@@ -420,6 +429,7 @@ def build_monitor_announcement(  # noqa: PLR0913
 
 def add_rtt_tags(tags: list[Tag], rtt_data: Nip66RttData | None) -> None:
     """Add round-trip time tags: ``rtt-open``, ``rtt-read``, ``rtt-write``."""
+    rtt_data = _normalize_optional_nip66_rtt_data(rtt_data)
     if rtt_data is None:
         return
     if rtt_data.rtt_open is not None:
