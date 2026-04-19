@@ -486,6 +486,47 @@ class TestBuildMonitorAnnouncement:
 
         mock_parse.assert_not_called()
 
+    @pytest.mark.parametrize("value", [True, "not-a-selection", object()])
+    def test_rejects_invalid_nip11_selection_before_tag_build(self, value: object) -> None:
+        """Malformed NIP-11 selection payloads fail before announcement tag assembly."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="nip11_selection must be a Nip11Selection"),
+        ):
+            build_monitor_announcement(
+                interval=3600,
+                timeout_ms=10000,
+                enabled_networks=[NetworkType.CLEARNET],
+                nip11_selection=value,  # type: ignore[arg-type]
+                nip66_selection=Nip66Selection(
+                    rtt=False,
+                    ssl=False,
+                    geo=False,
+                    net=False,
+                    dns=False,
+                    http=False,
+                ),
+            )
+
+        mock_parse.assert_not_called()
+
+    @pytest.mark.parametrize("value", [True, "not-a-selection", object()])
+    def test_rejects_invalid_nip66_selection_before_tag_build(self, value: object) -> None:
+        """Malformed NIP-66 selection payloads fail before announcement tag assembly."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="nip66_selection must be a Nip66Selection"),
+        ):
+            build_monitor_announcement(
+                interval=3600,
+                timeout_ms=10000,
+                enabled_networks=[NetworkType.CLEARNET],
+                nip11_selection=Nip11Selection(info=False),
+                nip66_selection=value,  # type: ignore[arg-type]
+            )
+
+        mock_parse.assert_not_called()
+
 
 # ============================================================================
 # add_rtt_tags

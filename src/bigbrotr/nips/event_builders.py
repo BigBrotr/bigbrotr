@@ -196,6 +196,20 @@ def _normalize_optional_nip66(nip66: object, relay: Relay) -> Nip66 | None:
     return cast("Nip66", nip66)
 
 
+def _normalize_nip11_selection(selection: object) -> Nip11Selection:
+    nip11_selection_type = importlib.import_module("bigbrotr.nips.nip11.nip11").Nip11Selection
+    if not isinstance(selection, nip11_selection_type):
+        raise ValueError("nip11_selection must be a Nip11Selection")
+    return cast("Nip11Selection", selection)
+
+
+def _normalize_nip66_selection(selection: object) -> Nip66Selection:
+    nip66_selection_type = importlib.import_module("bigbrotr.nips.nip66.nip66").Nip66Selection
+    if not isinstance(selection, nip66_selection_type):
+        raise ValueError("nip66_selection must be a Nip66Selection")
+    return cast("Nip66Selection", selection)
+
+
 def _normalize_optional_nip11_data(nip11_data: object) -> Nip11InfoData | None:
     if nip11_data is None:
         return None
@@ -437,6 +451,8 @@ def build_monitor_announcement(  # noqa: PLR0913
     """Build a Kind 10166 monitor announcement event per NIP-66."""
     interval = _normalize_positive_int(interval, "interval")
     timeout_ms = _normalize_positive_int(timeout_ms, "timeout_ms")
+    nip11_selection = _normalize_nip11_selection(nip11_selection)
+    nip66_selection = _normalize_nip66_selection(nip66_selection)
     geohash = _normalize_geohash(geohash)
 
     tags = [Tag.parse(["frequency", str(interval)])]

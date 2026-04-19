@@ -3058,3 +3058,16 @@ Use this section during execution for:
     sanitize the public argument first;
   - added paired `nips.event_builders` coverage proving corrupted
     `nip11_data` inputs are rejected before any `Tag.parse()` work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-sixty-first remediation
+  slice:
+  - tightened the direct public builder boundary of
+    `nips.event_builders.build_monitor_announcement()` so malformed
+    `nip11_selection` and `nip66_selection` payloads no longer degrade into
+    late attribute errors or partial `Kind 10166` tag mutation while the
+    public monitor announcement builder assembles timeout and capability tags;
+  - centralized typed normalization of both selection inputs inside the leaf
+    builder itself so direct callers now enforce real `Nip11Selection` and
+    `Nip66Selection` boundaries instead of relying on higher-level monitor
+    flows to sanitize the public arguments first;
+  - added paired `nips.event_builders` coverage proving corrupted selection
+    inputs are rejected before any `Tag.parse()` work begins.
