@@ -46,6 +46,16 @@ def _reject_bool_alias(value: Any, field_name: str, expected: str) -> Any:
     return value
 
 
+def _normalize_optional_profile_text(value: Any, field_name: str) -> str | None:
+    """Trim optional profile text fields and collapse blank payloads to ``None``."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name}: expected string, got {type(value).__name__}")
+    normalized = value.strip()
+    return normalized or None
+
+
 class MetadataFlags(BaseModel):
     """Boolean flags controlling which metadata types to compute, store, or publish.
 
@@ -375,6 +385,20 @@ class ProfileConfig(BaseModel):
     website: str | None = Field(default=None, description="Website URL")
     banner: str | None = Field(default=None, description="Banner image URL")
     lud16: str | None = Field(default=None, description="Lightning address (LNURL)")
+
+    @field_validator(
+        "name",
+        "about",
+        "picture",
+        "nip05",
+        "website",
+        "banner",
+        "lud16",
+        mode="before",
+    )
+    @classmethod
+    def profile_text_fields_valid(cls, value: Any, info: ValidationInfo) -> str | None:
+        return _normalize_optional_profile_text(value, str(info.field_name))
 
 
 class RelayListConfig(BaseModel):

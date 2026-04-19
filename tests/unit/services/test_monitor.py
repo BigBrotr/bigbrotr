@@ -640,6 +640,44 @@ class TestProfileConfig:
         with pytest.raises(ValueError):
             ProfileConfig(interval=604801.0)
 
+    def test_text_fields_are_canonicalized(self) -> None:
+        config = ProfileConfig(
+            name=" BigBrotr Monitor ",
+            about=" Nostr relay monitoring service ",
+            picture=" https://example.com/pic.png ",
+            nip05=" monitor@example.com ",
+            website=" https://example.com ",
+            banner=" https://example.com/banner.png ",
+            lud16=" monitor@ln.example.com ",
+        )
+
+        assert config.name == "BigBrotr Monitor"
+        assert config.about == "Nostr relay monitoring service"
+        assert config.picture == "https://example.com/pic.png"
+        assert config.nip05 == "monitor@example.com"
+        assert config.website == "https://example.com"
+        assert config.banner == "https://example.com/banner.png"
+        assert config.lud16 == "monitor@ln.example.com"
+
+    def test_blank_text_fields_collapse_to_none(self) -> None:
+        config = ProfileConfig(
+            name="   ",
+            about="   ",
+            picture="   ",
+            nip05="   ",
+            website="   ",
+            banner="   ",
+            lud16="   ",
+        )
+
+        assert config.name is None
+        assert config.about is None
+        assert config.picture is None
+        assert config.nip05 is None
+        assert config.website is None
+        assert config.banner is None
+        assert config.lud16 is None
+
 
 class TestMonitorConfig:
     def test_default_values_with_geo_disabled(self, tmp_path: Path) -> None:
@@ -2639,6 +2677,53 @@ class TestPublishProfile:
             event="profile",
             relays=1,
             failed_relays=0,
+        )
+
+    async def test_publish_profile_passes_canonicalized_text_fields(self, test_keys: Keys) -> None:
+        config = _make_config(
+            profile=ProfileConfig(
+                enabled=True,
+                name=" Monitor ",
+                about="   ",
+                picture="   ",
+                website=" https://example.com ",
+                banner="   ",
+                lud16="   ",
+            )
+        )
+        harness = _MonitorStub(config, test_keys)
+        fake_builder = MagicMock()
+
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.build_profile_event",
+                return_value=fake_builder,
+            ) as mock_build,
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
+                new_callable=AsyncMock,
+                return_value=_broadcast_results(),
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await harness.publish_profile()
+
+        mock_build.assert_called_once_with(
+            name="Monitor",
+            about=None,
+            picture=None,
+            nip05=None,
+            website="https://example.com",
+            banner=None,
+            lud16=None,
         )
 
     async def test_publish_profile_no_reachable_clients(self, stub: _MonitorStub) -> None:

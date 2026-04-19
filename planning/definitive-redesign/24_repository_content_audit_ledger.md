@@ -3722,3 +3722,16 @@ Use this section during execution for:
   - added paired `services.test_assertor` coverage proving reserved profile
     keys now fail fast at config load while non-reserved extras still
     canonicalize and merge into provider-profile content.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-fifteenth remediation
+  slice:
+  - tightened the `services.monitor.configs.ProfileConfig` text-field
+    boundary so monitor profile strings now trim and collapse blank payloads
+    to `None` before the publish path hands them to the public Kind `0`
+    builder;
+  - closed the drift where padded or whitespace-only config values like
+    `" Monitor "` or `"   "` could survive inside the monitor config even
+    though `build_profile_event()` would later trim or omit them, leaving the
+    immediate consumer boundary more permissive than the leaf it feeds;
+  - added paired `services.test_monitor` coverage proving profile config text
+    now canonicalizes up front and `publish_profile()` forwards the cleaned
+    values to `build_profile_event()`.
