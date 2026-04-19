@@ -82,7 +82,7 @@ def _normalize_api_source_url(value: str) -> str:
             userinfo = f"{userinfo}:{parsed.password}"
         netloc = f"{userinfo}@{netloc}"
 
-    return urlunsplit((scheme, netloc, parsed.path, parsed.query, parsed.fragment))
+    return urlunsplit((scheme, netloc, parsed.path, parsed.query, ""))
 
 
 class EventsConfig(BaseModel):

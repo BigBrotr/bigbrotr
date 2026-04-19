@@ -4131,3 +4131,15 @@ Use this section during execution for:
   - added paired coverage in `services.test_finder` proving source URL
     canonicalization now happens at the leaf validator and that duplicate
     sources are rejected after canonicalization inside `ApiConfig`.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-fiftieth
+  remediation slice:
+  - tightened the `services.finder.configs.ApiSourceConfig` URL boundary so
+    authored HTTP source URLs now discard fragment identifiers from their
+    canonical form;
+  - closed the drift where semantically identical endpoints like
+    `https://api.example.com/path#one` and `https://api.example.com/path#two`
+    could bypass source dedupe and split checkpoint state even though the
+    fragment never participates in the outbound HTTP request;
+  - added paired coverage in `services.test_finder` proving fragment-bearing
+    source URLs canonicalize at the leaf validator and that duplicate sources
+    are rejected after fragment stripping inside `ApiConfig`.

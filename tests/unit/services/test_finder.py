@@ -330,7 +330,7 @@ class TestApiSourceConfig:
             url="  HTTPS://API.EXAMPLE.COM/path?q=1#frag  ",
             expression="[*]",
         )
-        assert config.url == "https://api.example.com/path?q=1#frag"
+        assert config.url == "https://api.example.com/path?q=1"
 
     @pytest.mark.parametrize(
         "url",
@@ -406,6 +406,15 @@ class TestApiConfig:
                 ]
             )
 
+    def test_duplicate_source_urls_rejected_after_fragment_stripping(self) -> None:
+        with pytest.raises(ValueError, match="duplicate finder API source URLs"):
+            ApiConfig(
+                sources=[
+                    ApiSourceConfig(url="https://dup.api.com/path#one", expression="[*]"),
+                    ApiSourceConfig(url="https://dup.api.com/path#two", expression="data.relays"),
+                ]
+            )
+
     def test_nested_source_expression_is_canonicalized(self) -> None:
         config = ApiConfig(
             sources=[
@@ -421,7 +430,7 @@ class TestApiConfig:
         config = ApiConfig(
             sources=[
                 {
-                    "url": " HTTPS://API.EXAMPLE.COM/path ",
+                    "url": " HTTPS://API.EXAMPLE.COM/path#frag ",
                     "expression": "[*]",
                 }
             ]
