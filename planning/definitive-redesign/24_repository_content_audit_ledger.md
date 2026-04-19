@@ -3695,3 +3695,16 @@ Use this section during execution for:
   - added paired `services.test_assertor` coverage proving provider-profile
     config input now canonicalizes safe extras up front and rejects malformed
     or colliding extras before Kind `0` publish planning begins.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-thirteenth remediation
+  slice:
+  - tightened the `services.assertor.configs.ProviderProfileKind0Content`
+    text-field boundary so required profile strings now trim and reject blank
+    payloads, while optional strings trim and collapse blank values to `None`
+    before provider-profile hashing and publish planning;
+  - closed the drift where payloads like `" https://bigbrotr.com "` or
+    `"   "` could be hashed as distinct provider-profile content even though
+    the public Kind `0` builder would later trim or omit those same values and
+    publish a different canonical event body;
+  - added paired `services.test_assertor` coverage proving config input now
+    canonicalizes provider-profile text up front and the hashed profile
+    content no longer retains blank optional fields.

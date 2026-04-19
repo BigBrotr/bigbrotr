@@ -77,6 +77,26 @@ def _normalize_profile_extra_fields(value: Any) -> dict[str, object]:
     return normalized
 
 
+def _normalize_required_profile_text(value: Any, field_name: str) -> str:
+    """Trim required provider-profile text fields and reject blank payloads."""
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name}: expected string, got {type(value).__name__}")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{field_name} must not be blank")
+    return normalized
+
+
+def _normalize_optional_profile_text(value: Any, field_name: str) -> str | None:
+    """Trim optional provider-profile text fields and collapse blank payloads to ``None``."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name}: expected string, got {type(value).__name__}")
+    normalized = value.strip()
+    return normalized or None
+
+
 class ProviderProfileKind0Content(BaseModel):
     """Kind 0 metadata content for the optional NIP-85 provider profile."""
 
@@ -110,6 +130,16 @@ class ProviderProfileKind0Content(BaseModel):
     @classmethod
     def extra_fields_valid(cls, value: Any) -> dict[str, object]:
         return _normalize_profile_extra_fields(value)
+
+    @field_validator("name", "about", "website", mode="before")
+    @classmethod
+    def required_text_fields_valid(cls, value: Any, info: ValidationInfo) -> str:
+        return _normalize_required_profile_text(value, str(info.field_name))
+
+    @field_validator("picture", "nip05", "banner", "lud16", mode="before")
+    @classmethod
+    def optional_text_fields_valid(cls, value: Any, info: ValidationInfo) -> str | None:
+        return _normalize_optional_profile_text(value, str(info.field_name))
 
 
 class ProviderProfileConfig(BaseModel):

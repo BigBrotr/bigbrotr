@@ -238,6 +238,56 @@ class TestAssertorConfig:
 
         assert config.provider_profile.kind0_content.extra_fields == {"software": "bigbrotr"}
 
+    def test_provider_profile_text_fields_are_canonicalized(self) -> None:
+        config = AssertorConfig(
+            provider_profile={
+                "kind0_content": {
+                    "name": " BigBrotr Trusted Assertions ",
+                    "about": " NIP-85 trusted assertion provider ",
+                    "website": " https://bigbrotr.com ",
+                    "picture": " https://bigbrotr.com/avatar.png ",
+                    "nip05": " assertor@bigbrotr.com ",
+                    "banner": " https://bigbrotr.com/banner.png ",
+                    "lud16": " assertor@ln.bigbrotr.com ",
+                }
+            }
+        )
+
+        kind0 = config.provider_profile.kind0_content
+        assert kind0.name == "BigBrotr Trusted Assertions"
+        assert kind0.about == "NIP-85 trusted assertion provider"
+        assert kind0.website == "https://bigbrotr.com"
+        assert kind0.picture == "https://bigbrotr.com/avatar.png"
+        assert kind0.nip05 == "assertor@bigbrotr.com"
+        assert kind0.banner == "https://bigbrotr.com/banner.png"
+        assert kind0.lud16 == "assertor@ln.bigbrotr.com"
+
+    def test_blank_optional_provider_profile_text_fields_collapse_to_none(self) -> None:
+        config = AssertorConfig(
+            provider_profile={
+                "kind0_content": {
+                    "picture": "   ",
+                    "nip05": "   ",
+                    "banner": "   ",
+                    "lud16": "   ",
+                }
+            }
+        )
+
+        kind0 = config.provider_profile.kind0_content
+        assert kind0.picture is None
+        assert kind0.nip05 is None
+        assert kind0.banner is None
+        assert kind0.lud16 is None
+
+    @pytest.mark.parametrize("field_name", ["name", "about", "website"])
+    def test_blank_required_provider_profile_text_fields_are_rejected(
+        self,
+        field_name: str,
+    ) -> None:
+        with pytest.raises(ValidationError, match=rf"{field_name} must not be blank"):
+            AssertorConfig(provider_profile={"kind0_content": {field_name: "   "}})
+
     @pytest.mark.parametrize(
         ("value", "message"),
         [
@@ -1236,6 +1286,37 @@ class TestAssertorUtils:
             "algorithm_id": "global-pagerank",
             "picture": "https://bigbrotr.com/avatar.png",
             "software": "bigbrotr",
+        }
+
+    def test_provider_profile_content_omits_blank_optional_fields_after_config_normalization(
+        self,
+    ) -> None:
+        from bigbrotr.services.assertor.utils import provider_profile_content
+
+        config = AssertorConfig(
+            provider_profile={
+                "kind0_content": {
+                    "name": " Provider ",
+                    "about": " NIP-85 provider ",
+                    "website": " https://bigbrotr.com ",
+                    "picture": "   ",
+                    "nip05": "   ",
+                    "banner": "   ",
+                    "lud16": "   ",
+                }
+            }
+        )
+
+        content = provider_profile_content(
+            algorithm_id="global-pagerank",
+            kind0_content=config.provider_profile.kind0_content,
+        )
+
+        assert content == {
+            "name": "Provider",
+            "about": "NIP-85 provider",
+            "website": "https://bigbrotr.com",
+            "algorithm_id": "global-pagerank",
         }
 
     def test_trusted_provider_declarations_use_canonical_defaults(self) -> None:
