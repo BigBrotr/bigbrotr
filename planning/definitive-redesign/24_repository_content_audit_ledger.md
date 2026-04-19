@@ -2815,3 +2815,17 @@ Use this section during execution for:
   - added paired `nips.event_builders` coverage proving corrupted relay-list
     inputs are rejected before any `EventBuilder` or `Tag.parse()` work
     begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-forty-third remediation
+  slice:
+  - tightened the direct public builder boundary of
+    `nips.event_builders.build_relay_discovery()` so malformed `relay`
+    payloads no longer degrade into late attribute errors or fake
+    `Kind 30166` tag assembly while the public NIP-66 discovery builder
+    prepares relay metadata;
+  - centralized discovery-relay normalization inside the leaf builder itself
+    so direct callers now enforce a real typed `Relay` boundary instead of
+    relying on higher-level monitor publication flows to sanitize the public
+    argument first;
+  - added paired `nips.event_builders` coverage proving corrupted discovery
+    relay inputs are rejected before any `EventBuilder` or `Tag.identifier()`
+    work begins.

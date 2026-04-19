@@ -135,6 +135,12 @@ def _normalize_relay_list_relays(relays: object) -> tuple[Relay, ...]:
     return items
 
 
+def _normalize_discovery_relay(relay: object) -> Relay:
+    if not isinstance(relay, Relay):
+        raise ValueError("relay must be a Relay")
+    return relay
+
+
 def _normalize_relay_list_urls(relays: Sequence[Relay]) -> tuple[str, ...]:
     """Return a stable deduplicated relay-url ordering for set-like relay lists."""
     return tuple(sorted({relay.url for relay in relays}))
@@ -547,6 +553,7 @@ def build_relay_discovery(
     Returns:
         A signed-ready ``EventBuilder`` for Kind 30166.
     """
+    relay = _normalize_discovery_relay(relay)
     nip11_canonical_json = ""
     nip11_data = None
     if nip11 and nip11.info:

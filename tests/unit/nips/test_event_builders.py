@@ -1383,6 +1383,19 @@ class TestBuildRelayDiscovery:
         builder = build_relay_discovery(relay, nip11)
         assert builder is not None
 
+    @pytest.mark.parametrize("value", [True, "wss://relay.example.com", object()])
+    def test_rejects_invalid_relay_before_discovery_tag_build(self, value: object) -> None:
+        """Malformed relay inputs fail before any discovery tag or builder work starts."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.identifier") as mock_identifier,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(ValueError, match="relay must be a Relay"),
+        ):
+            build_relay_discovery(value)  # type: ignore[arg-type]
+
+        mock_identifier.assert_not_called()
+        mock_builder.assert_not_called()
+
 
 # ============================================================================
 # AccessFlags
