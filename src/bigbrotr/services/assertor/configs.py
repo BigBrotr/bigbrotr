@@ -13,9 +13,9 @@ See Also:
 from __future__ import annotations
 
 import re
-from typing import Annotated
+from typing import Annotated, Any
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationInfo, field_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
@@ -33,6 +33,13 @@ _SUPPORTED_KINDS = frozenset(
 )
 _ALGORITHM_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 _DEFAULT_ALGORITHM_ID = "global-pagerank"
+
+
+def _reject_bool_alias(value: Any, field_name: str, expected_type: str) -> Any:
+    """Reject bool aliases before Pydantic coerces them into numeric budgets."""
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected {expected_type}, got bool")
+    return value
 
 
 class ProviderProfileKind0Content(BaseModel):
@@ -152,6 +159,11 @@ class AssertorSelectionConfig(BaseModel):
         le=50,
         description="Number of topic tags to include per user assertion",
     )
+
+    @field_validator("batch_size", "min_events", "top_topics", mode="before")
+    @classmethod
+    def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
+        return _reject_bool_alias(value, str(info.field_name), "integer")
 
     @field_validator("kinds")
     @classmethod

@@ -2176,3 +2176,11 @@ Use this section during execution for:
     and silently collapse source slices or cycle target budgets to one unit;
   - added paired `refresher` coverage proving those boolean aliases now fail
     fast at config load instead of mutating incremental refresh scheduling.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-eighty-fifth remediation
+  slice:
+  - tightened the `assertor` selection boundary so `batch_size`,
+    `min_events`, and `top_topics` no longer accept boolean aliases, which
+    previously let values like `True` coerce to `1` and silently collapse
+    publish batch size or subject thresholds to one unit;
+  - added paired `assertor` coverage proving those boolean aliases now fail
+    fast at config load instead of mutating `NIP-85` selection behavior.

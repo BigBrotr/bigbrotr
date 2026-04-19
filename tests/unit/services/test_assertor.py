@@ -134,6 +134,18 @@ class TestAssertorConfig:
         with pytest.raises(ValidationError):
             AssertorConfig(selection={"batch_size": 0})
 
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("batch_size", True),
+            ("min_events", True),
+            ("top_topics", True),
+        ],
+    )
+    def test_rejects_boolean_selection_aliases(self, field_name: str, value: bool) -> None:
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected integer, got bool"):
+            AssertorConfig(selection={field_name: value})
+
     def test_kinds_must_not_be_empty(
         self,
     ) -> None:
