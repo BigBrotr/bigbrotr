@@ -2211,3 +2211,12 @@ Use this section during execution for:
   - added paired `finder` and `finder/api_runtime` coverage proving
     fractional cooldowns now remain intact through attempt planning and the
     live service fetch path.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-eighty-ninth remediation
+  slice:
+  - tightened the public `monitor` announcement boundary so fractional
+    discovery intervals and network timeouts no longer get floored when
+    serialized into `NIP-66` `frequency` and `timeout` tags, which
+    previously let the service advertise a slightly faster cadence or tighter
+    deadline than the runtime actually enforced;
+  - added `monitor` coverage proving `Kind 10166` publish wiring now rounds
+    those public values up before handing them to the event builder.

@@ -2369,6 +2369,39 @@ class TestPublishAnnouncement:
         mock_broadcast.assert_awaited_once()
         mock_save.assert_awaited_once()
 
+    async def test_publish_announcement_rounds_public_frequency_and_timeout_up(self) -> None:
+        config = _make_config(
+            discovery=DiscoveryConfig(interval=3600.9, include=_NO_GEO_NET),
+            networks=NetworksConfig(clearnet=ClearnetConfig(timeout=1.001)),
+        )
+        stub = _MonitorStub(config, Keys.generate())
+
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.build_monitor_announcement",
+                return_value=MagicMock(),
+            ) as mock_builder,
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
+                new_callable=AsyncMock,
+                return_value=_broadcast_results(),
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await stub.publish_announcement()
+
+        assert mock_builder.call_args is not None
+        assert mock_builder.call_args.kwargs["interval"] == 3601
+        assert mock_builder.call_args.kwargs["timeout_ms"] == 1001
+
     async def test_publish_announcement_no_reachable_clients(self, stub: _MonitorStub) -> None:
         stub.clients.get_relay_clients = AsyncMock(return_value=[])
         with (

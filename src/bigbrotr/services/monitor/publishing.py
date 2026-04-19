@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -163,7 +164,7 @@ async def publish_announcement(
     include = cfg.include
     enabled_networks = context.config.networks.get_enabled_networks()
     first_network = enabled_networks[0] if enabled_networks else NetworkType.CLEARNET
-    timeout_ms = int(context.config.networks.get(first_network).timeout * 1000)
+    timeout_ms = math.ceil(context.config.networks.get(first_network).timeout * 1000)
 
     connected_clients = await context.clients.get_relay_clients(relays)
     if not connected_clients:
@@ -178,7 +179,7 @@ async def publish_announcement(
         await context.broadcast(
             [
                 build_announcement(
-                    interval=int(context.config.discovery.interval),
+                    interval=math.ceil(context.config.discovery.interval),
                     timeout_ms=timeout_ms,
                     enabled_networks=enabled_networks,
                     nip11_selection=Nip11Selection(info=include.nip11_info),
