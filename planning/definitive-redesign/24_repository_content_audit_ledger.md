@@ -2871,3 +2871,17 @@ Use this section during execution for:
   - added paired `NIP-85` builder coverage proving corrupted addressable
     assertion inputs are rejected before any `EventBuilder`,
     `Tag.identifier()`, or `Tag.parse()` work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-forty-seventh remediation
+  slice:
+  - tightened the direct public builder boundary of
+    `nips.event_builders.build_user_assertion()` so malformed assertion
+    payloads no longer degrade into fake `Kind 30382` tags or late attribute
+    errors while the public NIP-85 user builder assembles its subject,
+    engagement, and topic tags;
+  - centralized user-assertion normalization inside the leaf builder itself
+    so direct callers now enforce a real typed `UserAssertion` boundary
+    instead of relying on higher-level assertor publication flows to sanitize
+    the public argument first;
+  - added paired `NIP-85` builder coverage proving corrupted user assertion
+    inputs are rejected before any `EventBuilder`, `Tag.identifier()`, or
+    `Tag.parse()` work begins.

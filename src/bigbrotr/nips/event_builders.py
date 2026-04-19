@@ -167,6 +167,13 @@ def _normalize_addressable_assertion(assertion: object) -> AddressableAssertion:
     return cast("AddressableAssertion", assertion)
 
 
+def _normalize_user_assertion(assertion: object) -> UserAssertion:
+    user_assertion_type = importlib.import_module("bigbrotr.nips.nip85.data").UserAssertion
+    if not isinstance(assertion, user_assertion_type):
+        raise ValueError("assertion must be a UserAssertion")
+    return cast("UserAssertion", assertion)
+
+
 def _normalize_relay_list_urls(relays: Sequence[Relay]) -> tuple[str, ...]:
     """Return a stable deduplicated relay-url ordering for set-like relay lists."""
     return tuple(sorted({relay.url for relay in relays}))
@@ -618,6 +625,7 @@ def build_user_assertion(assertion: UserAssertion) -> EventBuilder:
     Returns:
         An unsigned ``EventBuilder`` ready for signing by the service key.
     """
+    assertion = _normalize_user_assertion(assertion)
     tags: list[Tag] = [
         Tag.identifier(assertion.pubkey),
         Tag.parse(["p", assertion.pubkey]),
