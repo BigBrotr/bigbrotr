@@ -4098,3 +4098,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_finder` proving malformed timeout
     payloads now fail fast both on `ApiSourceConfig` and through nested
     `ApiConfig.sources` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-forty-seventh
+  remediation slice:
+  - tightened the `services.finder.configs.ApiConfig` numeric boundary so
+    `cooldown` and `request_delay` now require canonical numeric values
+    instead of accepting numeric strings;
+  - closed the drift where authored payloads like `"86400"`, `"86400.5"`,
+    `"1"` or `"1.5"` could silently become valid pacing budgets for the API
+    discovery phase without crossing an explicit numeric boundary;
+  - added paired coverage in `services.test_finder` proving malformed pacing
+    payloads now fail fast both on `ApiConfig` and through nested
+    `FinderConfig.api` parsing.

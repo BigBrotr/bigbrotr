@@ -231,10 +231,10 @@ class ApiConfig(BaseModel):
 
     @field_validator("cooldown", "request_delay", mode="before")
     @classmethod
-    def reject_boolean_pacing_aliases(cls, v: Any, info: ValidationInfo) -> Any:
-        """Reject boolean aliases for API pacing controls."""
+    def require_numeric_pacing_controls(cls, v: Any, info: ValidationInfo) -> int | float:
+        """Require canonical numeric types for API pacing controls."""
         field_name = info.field_name or "value"
-        return _reject_bool_alias(v, field_name, "number")
+        return _require_number(v, field_name)
 
     @field_validator("enabled", mode="before")
     @classmethod

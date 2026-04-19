@@ -475,6 +475,19 @@ class TestApiConfig:
         with pytest.raises(ValueError, match=rf"{field_name}: expected number, got bool"):
             ApiConfig(**kwargs)
 
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("cooldown", "86400"),
+            ("cooldown", "86400.5"),
+            ("request_delay", "1"),
+            ("request_delay", "1.5"),
+        ],
+    )
+    def test_rejects_non_numeric_pacing_aliases(self, field_name: str, field_value: object) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
+            ApiConfig(**{field_name: field_value})
+
 
 class TestFinderConfig:
     def test_default_values(self) -> None:
@@ -554,6 +567,19 @@ class TestFinderConfig:
     ) -> None:
         with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
             FinderConfig(events={field_name: field_value})
+
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("cooldown", "86400"),
+            ("request_delay", "1.5"),
+        ],
+    )
+    def test_nested_api_reject_non_numeric_pacing_aliases(
+        self, field_name: str, field_value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
+            FinderConfig(api={field_name: field_value})
 
 
 # ============================================================================
