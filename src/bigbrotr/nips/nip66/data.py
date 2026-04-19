@@ -36,6 +36,12 @@ from bigbrotr.nips.base import BaseData
 from bigbrotr.nips.parsing import FieldSpec, ParseIssue, ParseReport, join_parse_path
 
 
+_GEO_LAT_MIN = -90.0
+_GEO_LAT_MAX = 90.0
+_GEO_LON_MIN = -180.0
+_GEO_LON_MAX = 180.0
+
+
 def _drop_negative_int_fields(
     parsed: dict[str, Any],
     issues: list[ParseIssue],
@@ -52,6 +58,30 @@ def _drop_negative_int_fields(
                     kind="invalid_value",
                     path=join_parse_path(path, key),
                     detail="expected non-negative int",
+                )
+            )
+
+
+def _drop_out_of_range_number_fields(
+    parsed: dict[str, Any],
+    issues: list[ParseIssue],
+    field_ranges: tuple[tuple[str, float, float], ...],
+    *,
+    path: str,
+) -> None:
+    for key, lower, upper in field_ranges:
+        value = parsed.get(key)
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and (value < lower or value > upper)
+        ):
+            del parsed[key]
+            issues.append(
+                ParseIssue(
+                    kind="invalid_value",
+                    path=join_parse_path(path, key),
+                    detail=f"expected {lower} <= value <= {upper}",
                 )
             )
 
@@ -262,13 +292,36 @@ class Nip66GeoData(BaseData):
             raise ValueError(f"{info.field_name} must be non-negative")
         return value
 
+    @field_validator("geo_lat")
+    @classmethod
+    def _require_valid_latitude(cls, value: float | None) -> float | None:
+        if value is not None and not _GEO_LAT_MIN <= value <= _GEO_LAT_MAX:
+            raise ValueError("geo_lat must be between -90 and 90")
+        return value
+
+    @field_validator("geo_lon")
+    @classmethod
+    def _require_valid_longitude(cls, value: float | None) -> float | None:
+        if value is not None and not _GEO_LON_MIN <= value <= _GEO_LON_MAX:
+            raise ValueError("geo_lon must be between -180 and 180")
+        return value
+
     @classmethod
     def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
-        """Parse geo data while rejecting negative integer metadata."""
+        """Parse geo data while rejecting impossible numeric metadata."""
         report = super().parse_report(data, path=path)
         parsed = dict(report.parsed)
         issues = list(report.issues)
         _drop_negative_int_fields(parsed, issues, ("geo_accuracy", "geo_geoname_id"), path=path)
+        _drop_out_of_range_number_fields(
+            parsed,
+            issues,
+            (
+                ("geo_lat", _GEO_LAT_MIN, _GEO_LAT_MAX),
+                ("geo_lon", _GEO_LON_MIN, _GEO_LON_MAX),
+            ),
+            path=path,
+        )
         return ParseReport(parsed=parsed, issues=tuple(issues))
 
 

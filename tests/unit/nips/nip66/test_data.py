@@ -255,6 +255,22 @@ class TestNip66GeoData:
         assert data.geo_geoname_id == 5375480
 
     @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"geo_lat": 91.0}, "geo_lat must be between -90 and 90"),
+            ({"geo_lat": -91.0}, "geo_lat must be between -90 and 90"),
+            ({"geo_lon": 181.0}, "geo_lon must be between -180 and 180"),
+            ({"geo_lon": -181.0}, "geo_lon must be between -180 and 180"),
+        ],
+    )
+    def test_construction_rejects_out_of_range_coordinates(
+        self, kwargs: dict[str, float], message: str
+    ) -> None:
+        """Constructor rejects latitude/longitude values outside Earth bounds."""
+        with pytest.raises(ValidationError, match=message):
+            Nip66GeoData(**kwargs)
+
+    @pytest.mark.parametrize(
         "kwargs",
         [
             {"geo_accuracy": -1},
@@ -289,6 +305,16 @@ class TestNip66GeoData:
         assert data.geo_country == "US"
         assert data.geo_lat is None
         assert data.geo_lon is None
+
+    def test_parse_filters_out_of_range_coordinates(self) -> None:
+        """parse() filters latitude/longitude values outside Earth bounds."""
+        raw = {
+            "geo_country": "US",
+            "geo_lat": 95.0,
+            "geo_lon": 200.0,
+        }
+        parsed = Nip66GeoData.parse(raw)
+        assert parsed == {"geo_country": "US"}
 
     def test_parse_filters_invalid_bool_types(self) -> None:
         """parse() filters invalid boolean values."""

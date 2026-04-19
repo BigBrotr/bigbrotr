@@ -3234,3 +3234,16 @@ Use this section during execution for:
   - added paired `nips.test_base`, `nips.nip11.test_logs`, and
     `nips.nip66.test_logs` coverage proving blank failure reasons now fail
     fast for both shared single-phase logs and RTT multi-phase logs.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-seventy-sixth
+  remediation slice:
+  - tightened the `nips.nip66.data.Nip66GeoData` coordinate boundary so
+    latitude and longitude must now stay within real Earth ranges both at
+    direct model construction and during permissive parse/report
+    sanitization;
+  - closed the drift where semantically impossible `geo_lat` / `geo_lon`
+    values could survive as canonical NIP-66 geo data and later flow into
+    shared result containers, persisted documents, and public event-builder
+    output;
+  - added paired `nips.nip66.test_data` coverage proving out-of-range
+    coordinates now fail fast at construction time and are filtered from
+    parse output.
