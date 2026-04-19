@@ -27,12 +27,12 @@ from nostr_sdk import Metadata as NostrMetadata
 
 from bigbrotr.models.constants import EventKind, NetworkType
 from bigbrotr.models.document import Document, DocumentType
+from bigbrotr.models.relay import Relay
 
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from bigbrotr.models.relay import Relay
     from bigbrotr.nips.nip11.data import Nip11InfoData
     from bigbrotr.nips.nip11.nip11 import Nip11, Nip11Selection
     from bigbrotr.nips.nip66.data import (
@@ -121,6 +121,18 @@ def _normalize_trusted_provider_list_content(content: object) -> str:
     if not isinstance(content, str):
         raise ValueError("content must be a string")
     return content
+
+
+def _normalize_relay_list_relays(relays: object) -> tuple[Relay, ...]:
+    if isinstance(relays, MappingABC | str | bytes):
+        raise ValueError("relays must be an iterable of Relay")
+    if not isinstance(relays, IterableABC):
+        raise ValueError("relays must be an iterable of Relay")
+    items = tuple(relays)
+    for relay in items:
+        if not isinstance(relay, Relay):
+            raise ValueError("relays must contain only Relay items")
+    return items
 
 
 def _normalize_relay_list_urls(relays: Sequence[Relay]) -> tuple[str, ...]:
@@ -227,8 +239,10 @@ def build_relay_list_event(relays: list[Relay]) -> EventBuilder:
     Relay URLs are emitted in stable deduplicated order because the list is a
     set-like public declaration, not an order-sensitive payload.
     """
+    normalized_relays = _normalize_relay_list_relays(relays)
     tags = [
-        Tag.parse(["r", relay_url, "write"]) for relay_url in _normalize_relay_list_urls(relays)
+        Tag.parse(["r", relay_url, "write"])
+        for relay_url in _normalize_relay_list_urls(normalized_relays)
     ]
     return EventBuilder(Kind(EventKind.RELAY_LIST), "").tags(tags)
 

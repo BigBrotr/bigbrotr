@@ -235,6 +235,49 @@ class TestBuildRelayListEvent:
             ["r", "wss://relay-b.example.com", "write"],
         ]
 
+    @pytest.mark.parametrize(
+        "value",
+        [
+            True,
+            "wss://relay.example.com",
+            b"wss://relay.example.com",
+            {"relay": Relay("wss://relay.example.com")},
+            object(),
+        ],
+    )
+    def test_rejects_invalid_relay_containers_before_tag_build(self, value: object) -> None:
+        """Malformed relay containers fail before any tag or builder work starts."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(ValueError, match="relays must be an iterable of Relay"),
+        ):
+            build_relay_list_event(value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        mock_builder.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            [True],
+            ["wss://relay.example.com"],
+            [object()],
+            [Relay("wss://relay.example.com"), True],
+        ],
+    )
+    def test_rejects_invalid_relay_items_before_tag_build(self, value: object) -> None:
+        """Malformed relay items fail before any tag or builder work starts."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(ValueError, match="relays must contain only Relay items"),
+        ):
+            build_relay_list_event(value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        mock_builder.assert_not_called()
+
 
 # ============================================================================
 # build_monitor_announcement (Kind 10166)

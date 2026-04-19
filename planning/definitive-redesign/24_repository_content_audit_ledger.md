@@ -2801,3 +2801,17 @@ Use this section during execution for:
   - added paired `NIP-85` builder coverage proving corrupted content and
     declaration payloads are rejected before any `EventBuilder` or `Tag.parse()`
     work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-forty-second remediation
+  slice:
+  - tightened the direct public builder boundary of
+    `nips.event_builders.build_relay_list_event()` so malformed relay-list
+    containers and corrupted relay items no longer degrade into fake
+    `Kind 10002` payloads or late attribute errors while the public NIP-65
+    builder assembles relay tags;
+  - centralized relay-list argument normalization inside the leaf builder
+    itself so direct callers now enforce iterable typed `Relay` items,
+    instead of relying on higher-level monitor publication code to sanitize
+    the public arguments first;
+  - added paired `nips.event_builders` coverage proving corrupted relay-list
+    inputs are rejected before any `EventBuilder` or `Tag.parse()` work
+    begins.
