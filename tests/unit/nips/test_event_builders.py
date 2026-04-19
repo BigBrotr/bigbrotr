@@ -860,10 +860,10 @@ class TestAddGeoTags:
     def test_partial_fields(self) -> None:
         """Test geo tags with only country and geohash present."""
         tags: list[Tag] = []
-        add_geo_tags(tags, Nip66GeoData(geo_hash="abc", geo_country="US"))
+        add_geo_tags(tags, Nip66GeoData(geo_hash="u33dc", geo_country="US"))
 
         tag_map = _extract_tag_map(tags)
-        assert tag_map["g"] == "abc"
+        assert tag_map["g"] == "u33dc"
         assert tag_map["geo-country"] == "US"
         assert "geo-city" not in tag_map
         assert "geo-lat" not in tag_map

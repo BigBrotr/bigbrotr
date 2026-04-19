@@ -46,6 +46,7 @@ _GEO_LAT_MIN = -90.0
 _GEO_LAT_MAX = 90.0
 _GEO_LON_MIN = -180.0
 _GEO_LON_MAX = 180.0
+_GEOHASH_RE = re.compile(r"^[0123456789bcdefghjkmnpqrstuvwxyz]{1,12}$", re.IGNORECASE)
 _SSL_SERIAL_RE = re.compile(r"^[0-9A-F]+$", re.IGNORECASE)
 _SSL_FINGERPRINT_RE = re.compile(r"^SHA256:(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$", re.IGNORECASE)
 
@@ -234,6 +235,10 @@ def _is_valid_ssl_serial(value: str) -> bool:
 
 def _is_valid_ssl_fingerprint(value: str) -> bool:
     return bool(_SSL_FINGERPRINT_RE.fullmatch(value))
+
+
+def _is_valid_geohash(value: str) -> bool:
+    return bool(_GEOHASH_RE.fullmatch(value))
 
 
 class Nip66RttData(BaseData):
@@ -519,6 +524,15 @@ class Nip66GeoData(BaseData):
             raise ValueError(f"{info.field_name} must be a non-empty string")
         return value
 
+    @field_validator("geo_hash")
+    @classmethod
+    def _normalize_geohash(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not _is_valid_geohash(value):
+            raise ValueError("geo_hash must be a valid geohash with precision 1 to 12")
+        return value.lower()
+
     @field_validator("geo_lat")
     @classmethod
     def _require_valid_latitude(cls, value: float | None) -> float | None:
@@ -553,6 +567,12 @@ class Nip66GeoData(BaseData):
                 "geo_tz",
                 "geo_hash",
             ),
+            path=path,
+        )
+        _drop_invalid_string_fields(
+            parsed,
+            issues,
+            (("geo_hash", _is_valid_geohash, "expected valid geohash with precision 1 to 12"),),
             path=path,
         )
         _drop_negative_int_fields(parsed, issues, ("geo_accuracy", "geo_geoname_id"), path=path)

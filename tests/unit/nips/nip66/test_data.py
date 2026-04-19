@@ -326,6 +326,11 @@ class TestNip66GeoData:
         assert data.geo_is_eu is False
         assert data.geo_geoname_id == 5375480
 
+    def test_construction_normalizes_geohash_to_lowercase(self) -> None:
+        """Constructor canonicalizes valid geohash strings to lowercase."""
+        data = Nip66GeoData(geo_hash="U33DC")
+        assert data.geo_hash == "u33dc"
+
     @pytest.mark.parametrize(
         ("kwargs", "message"),
         [
@@ -346,6 +351,14 @@ class TestNip66GeoData:
         """Constructor rejects blank or whitespace-only scalar geo strings."""
         with pytest.raises(ValidationError, match=message):
             Nip66GeoData(**kwargs)
+
+    @pytest.mark.parametrize("value", ["abc", "u33dc!", "u33dc12345678"])
+    def test_construction_rejects_invalid_geohashes(self, value: str) -> None:
+        """Constructor rejects malformed geohash strings."""
+        with pytest.raises(
+            ValidationError, match="geo_hash must be a valid geohash with precision 1 to 12"
+        ):
+            Nip66GeoData(geo_hash=value)
 
     @pytest.mark.parametrize(
         ("kwargs", "message"),
@@ -408,6 +421,24 @@ class TestNip66GeoData:
         }
         parsed = Nip66GeoData.parse(raw)
         assert parsed == {"geo_country": "US"}
+
+    def test_parse_filters_invalid_geohash(self) -> None:
+        """parse() filters malformed geohash strings."""
+        raw = {
+            "geo_country": "US",
+            "geo_hash": "abc",
+        }
+        parsed = Nip66GeoData.parse(raw)
+        assert parsed == {"geo_country": "US"}
+
+    def test_parse_normalizes_geohash_to_lowercase(self) -> None:
+        """parse() preserves valid geohash values in canonical lowercase form."""
+        raw = {
+            "geo_hash": "U33DC",
+        }
+        parsed = Nip66GeoData.parse(raw)
+        data = Nip66GeoData(**parsed)
+        assert data.geo_hash == "u33dc"
 
     def test_parse_filters_invalid_bool_types(self) -> None:
         """parse() filters invalid boolean values."""

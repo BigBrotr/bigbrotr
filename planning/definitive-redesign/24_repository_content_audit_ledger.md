@@ -3367,3 +3367,16 @@ Use this section during execution for:
   - added paired `nips.nip66.test_data` coverage proving malformed serial
     and SHA-256 fingerprint strings now fail fast at construction time and
     are removed from parse output.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-eighty-eighth
+  remediation slice:
+  - tightened the `nips.nip66.data.Nip66GeoData` geohash boundary so
+    malformed or non-canonical `geo_hash` values now reject at direct model
+    construction, normalize to lowercase when valid, and are filtered from
+    permissive parse/report sanitization;
+  - closed the drift where arbitrary non-geohash strings could survive as
+    canonical NIP-66 geographic metadata and later flow into shared result
+    containers, persisted documents, and public builder output;
+  - added paired `nips.nip66.test_data` and `nips.test_event_builders`
+    coverage proving malformed geohash values now fail fast at construction
+    time, are removed from parse output, and that valid canonical geohashes
+    still flow through the public geo tag helper.
