@@ -25,6 +25,40 @@ if TYPE_CHECKING:
     from nostr_sdk import Keys
 
 
+def _normalize_allow_insecure(allow_insecure: object) -> bool:
+    """Return one canonical insecure-transport toggle."""
+    if not isinstance(allow_insecure, bool):
+        raise ValueError("allow_insecure must be a bool")
+    return allow_insecure
+
+
+def _normalize_proxy_url(proxy_url: object) -> str | None:
+    """Return one canonical proxy URL or ``None``."""
+    if proxy_url is None:
+        return None
+    if not isinstance(proxy_url, str):
+        raise ValueError("proxy_url must be a valid proxy URL with scheme and hostname")
+
+    normalized_proxy_url = proxy_url.strip()
+    if not normalized_proxy_url:
+        raise ValueError("proxy_url must be a valid proxy URL with scheme and hostname")
+
+    parsed = urlparse(normalized_proxy_url)
+    try:
+        proxy_port = parsed.port
+    except ValueError as exc:
+        raise ValueError("proxy_url must be a valid proxy URL with scheme and hostname") from exc
+
+    if (
+        parsed.scheme == ""
+        or parsed.hostname is None
+        or (proxy_port is not None and proxy_port < 1)
+    ):
+        raise ValueError("proxy_url must be a valid proxy URL with scheme and hostname")
+
+    return normalized_proxy_url
+
+
 async def _resolve_proxy_host(proxy_host: str) -> str:
     """Resolve one proxy host to a numeric IPv4 or IPv6 address."""
     bare_host = proxy_host.strip("[]")
@@ -70,19 +104,24 @@ async def build_client(
     helper for Tor, I2P, and Lokinet overlays, so the proxy contract cannot
     stay onion-specific.
     """
+    normalized_allow_insecure = _normalize_allow_insecure(allow_insecure)
+    normalized_proxy_url = _normalize_proxy_url(proxy_url)
+
     builder = ClientBuilder()
 
     if keys is not None:
         signer = NostrSigner.keys(keys)
         builder = builder.signer(signer)
 
-    if allow_insecure:
+    if normalized_allow_insecure:
         transport = InsecureWebSocketTransport()
         builder = builder.websocket_transport(transport)
 
-    if proxy_url is not None:
-        parsed = urlparse(proxy_url)
-        proxy_host = parsed.hostname or "127.0.0.1"
+    if normalized_proxy_url is not None:
+        parsed = urlparse(normalized_proxy_url)
+        proxy_host = parsed.hostname
+        if proxy_host is None:  # Defensive; normalization already guarantees a hostname.
+            raise ValueError("proxy_url must be a valid proxy URL with scheme and hostname")
         proxy_port = parsed.port or 9050
         proxy_host = await _resolve_proxy_host(proxy_host)
 

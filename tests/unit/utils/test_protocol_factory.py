@@ -4,9 +4,39 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from nostr_sdk import ConnectionTarget
 
 from bigbrotr.utils.protocol_factory import build_client
+
+
+class TestBuildClientValidation:
+    async def test_rejects_non_bool_allow_insecure_before_builder(self) -> None:
+        """Non-bool insecure-policy aliases fail before builder setup starts."""
+        with (
+            patch("bigbrotr.utils.protocol_factory.ClientBuilder") as mock_builder,
+            pytest.raises(ValueError, match="allow_insecure must be a bool"),
+        ):
+            await build_client(allow_insecure=1)  # type: ignore[arg-type]
+
+        mock_builder.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "proxy_url",
+        [True, "", "   ", "garbage", "socks5://:9050", "socks5://127.0.0.1:0"],
+    )
+    async def test_rejects_invalid_proxy_url_before_builder(self, proxy_url: object) -> None:
+        """Malformed proxy URLs fail before builder setup starts."""
+        with (
+            patch("bigbrotr.utils.protocol_factory.ClientBuilder") as mock_builder,
+            pytest.raises(
+                ValueError,
+                match="proxy_url must be a valid proxy URL with scheme and hostname",
+            ),
+        ):
+            await build_client(proxy_url=proxy_url)  # type: ignore[arg-type]
+
+        mock_builder.assert_not_called()
 
 
 class TestBuildClientProxyTarget:

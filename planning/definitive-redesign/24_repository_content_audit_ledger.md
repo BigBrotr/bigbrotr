@@ -2614,3 +2614,16 @@ Use this section during execution for:
   - added paired `utils.protocol_connections` and `utils.protocol` coverage
     proving invalid option payloads are rejected at construction time and do
     not invoke the underlying single-relay connect flow.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-twenty-eighth remediation
+  slice:
+  - tightened the client-factory `utils.protocol_factory` boundary so
+    `build_client()` no longer accepts non-bool `allow_insecure` aliases or
+    malformed `proxy_url` payloads that would otherwise degrade into the
+    implicit default proxy target `127.0.0.1:9050` as if the caller had passed
+    a canonical overlay transport policy;
+  - preserved the intended default-port contract for canonical proxy URLs like
+    `socks5://127.0.0.1` while making malformed or blank proxy inputs fail
+    before any client-builder or hostname-resolution work starts;
+  - added paired `utils.protocol_factory` and `utils.protocol` coverage
+    proving malformed proxy payloads and insecure-policy aliases now fail fast
+    and do not invoke the underlying client builder.

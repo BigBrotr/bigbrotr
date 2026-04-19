@@ -217,6 +217,20 @@ class TestCreateClientProxy:
         client = await create_client(proxy_url="socks5://127.0.0.1")
         assert client is not None
 
+    @pytest.mark.parametrize("proxy_url", [True, "garbage"])
+    async def test_rejects_invalid_proxy_url_before_builder(self, proxy_url: object) -> None:
+        """Malformed proxy URLs fail fast before client-builder work starts."""
+        with (
+            patch("bigbrotr.utils.protocol._protocol_factory.ClientBuilder") as mock_builder,
+            pytest.raises(
+                ValueError,
+                match="proxy_url must be a valid proxy URL with scheme and hostname",
+            ),
+        ):
+            await create_client(proxy_url=proxy_url)  # type: ignore[arg-type]
+
+        mock_builder.assert_not_called()
+
 
 # =============================================================================
 # create_client(allow_insecure=True) Tests
