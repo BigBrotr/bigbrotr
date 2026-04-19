@@ -10,19 +10,12 @@ See Also:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.services.common.configs import NetworksConfig
-
-
-def _reject_bool_alias(value: Any, field_name: str, expected: str) -> Any:
-    """Reject boolean aliases for numeric validator config fields."""
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name}: expected {expected}, got bool")
-    return value
 
 
 def _require_bool(value: Any, field_name: str) -> bool:
@@ -37,6 +30,13 @@ def _require_int(value: Any, field_name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{field_name}: expected integer, got {type(value).__name__}")
     return int(value)
+
+
+def _require_number(value: Any, field_name: str) -> int | float:
+    """Require canonical numeric types for authored validator config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name}: expected number, got {type(value).__name__}")
+    return cast("int | float", value)
 
 
 class ProcessingConfig(BaseModel):
@@ -91,10 +91,10 @@ class ProcessingConfig(BaseModel):
 
     @field_validator("interval", mode="before")
     @classmethod
-    def reject_boolean_interval(cls, v: Any, info: ValidationInfo) -> Any:
-        """Reject boolean aliases that would otherwise coerce to retry windows."""
+    def require_numeric_interval(cls, v: Any, info: ValidationInfo) -> int | float:
+        """Require canonical numeric types for the failed-candidate retry window."""
         field_name = info.field_name or "interval"
-        return _reject_bool_alias(v, field_name, "number")
+        return _require_number(v, field_name)
 
     @field_validator("allow_insecure", mode="before")
     @classmethod

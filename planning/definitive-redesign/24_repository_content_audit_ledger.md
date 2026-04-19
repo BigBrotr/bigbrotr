@@ -4188,3 +4188,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_validator` proving malformed
     integer aliases now fail fast both on the leaf cleanup model and through
     nested `ValidatorConfig.cleanup` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-fifty-fifth
+  remediation slice:
+  - tightened the authored numeric boundary in
+    `services.validator.configs.ProcessingConfig` so `interval` now requires a
+    canonical numeric type instead of accepting string aliases;
+  - closed the drift where payloads like `"3600"`, `"3600.0"`, `"120"`, or
+    `"120.5"` could silently become valid failed-candidate retry windows at
+    config load time;
+  - added paired coverage in `services.test_validator` proving malformed
+    numeric aliases now fail fast both on the leaf processing model and
+    through nested `ValidatorConfig.processing` parsing.

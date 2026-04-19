@@ -142,6 +142,11 @@ class TestProcessingConfig:
         with pytest.raises(ValueError, match="interval: expected number, got bool"):
             ProcessingConfig(interval=True)
 
+    @pytest.mark.parametrize("value", ["3600", "3600.0"])
+    def test_rejects_non_numeric_interval_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"interval: expected number, got"):
+            ProcessingConfig(interval=value)
+
     @pytest.mark.parametrize("value", ["true", 1, 0])
     def test_rejects_non_boolean_allow_insecure_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"allow_insecure: expected bool, got"):
@@ -216,6 +221,11 @@ class TestValidatorConfig:
         cfg = ValidatorConfig(processing={"chunk_size": 200, "max_candidates": 5000})
         assert cfg.processing.chunk_size == 200
         assert cfg.processing.max_candidates == 5000
+
+    @pytest.mark.parametrize("value", ["120", "120.5"])
+    def test_nested_processing_interval_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"interval: expected number, got"):
+            ValidatorConfig(processing={"interval": value})
 
     @pytest.mark.parametrize(
         ("field_name", "field_value"),
