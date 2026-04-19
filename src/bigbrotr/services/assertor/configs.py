@@ -128,6 +128,16 @@ class TrustedProviderListConfig(BaseModel):
             raise ValueError("duplicate trusted-provider tag names are not allowed")
         return normalized
 
+    @field_validator("relay_hint")
+    @classmethod
+    def relay_hint_valid(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            return Relay.parse(value).url
+        except ValueError as exc:
+            raise ValueError("relay_hint must be a valid relay URL") from exc
+
 
 class AssertorSelectionConfig(BaseModel):
     """Subject selection and per-kind assertion scope."""

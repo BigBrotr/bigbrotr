@@ -3642,3 +3642,16 @@ Use this section during execution for:
   - added paired `services.test_assertor` coverage proving trusted-provider
     config input now normalizes mixed-case tag names up front and rejects
     case-variant duplicates before any Kind `10040` declarations are built.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-ninth remediation
+  slice:
+  - tightened the `services.assertor.configs.TrustedProviderListConfig`
+    relay-hint boundary so configured `relay_hint` values now canonicalize to
+    a valid relay URL at config load instead of being deferred to the lower
+    `NIP-85` declaration leaf;
+  - closed the drift where invalid or non-canonical relay hints like
+    `"not-a-relay"` or `" WSS://Publish.Example.com:443 "` could survive in
+    service config and only fail or normalize later during Kind `10040`
+    declaration construction;
+  - added paired `services.test_assertor` coverage proving trusted-provider
+    config input now rejects invalid relay hints early and normalizes valid
+    ones before any declarations are built.

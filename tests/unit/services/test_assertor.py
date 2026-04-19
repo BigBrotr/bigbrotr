@@ -110,7 +110,7 @@ class TestAssertorConfig:
             cleanup={"remove_stale_checkpoints": False},
             trusted_provider_list={
                 "enabled": True,
-                "relay_hint": "wss://publish.example.com",
+                "relay_hint": " WSS://Publish.Example.com:443 ",
                 "tag_names": [" Rank ", "Comment_Cnt"],
                 "content": "nip44-ciphertext",
             },
@@ -189,6 +189,10 @@ class TestAssertorConfig:
     def test_colon_in_trusted_provider_tag_rejected(self) -> None:
         with pytest.raises(ValidationError, match="must not contain ':'"):
             AssertorConfig(trusted_provider_list={"tag_names": ["30382:rank"]})
+
+    def test_invalid_trusted_provider_relay_hint_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="relay_hint must be a valid relay URL"):
+            AssertorConfig(trusted_provider_list={"relay_hint": "not-a-relay"})
 
 
 class TestAssertorInit:
@@ -1198,6 +1202,7 @@ class TestAssertorUtils:
                 publishing={"relays": ["wss://relay.example.com"]},
                 trusted_provider_list={
                     "enabled": True,
+                    "relay_hint": " WSS://Publish.Example.com:443 ",
                     "tag_names": [" Rank ", "Comment_Cnt"],
                 },
             ),
@@ -1208,6 +1213,9 @@ class TestAssertorUtils:
             "30382:comment_cnt",
             "30382:rank",
         ]
+        assert all(
+            declaration.relay_hint == "wss://publish.example.com" for declaration in declarations
+        )
 
 
 class TestAssertorProviderProfile:
