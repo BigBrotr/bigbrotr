@@ -4288,3 +4288,13 @@ Use this section during execution for:
   - added paired coverage in `services.test_refresher` proving malformed
     integer aliases now fail fast both on the leaf processing model and
     through nested `RefresherConfig.processing` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-sixty-fourth
+  remediation slice:
+  - tightened the authored numeric boundary in
+    `services.refresher.configs.ProcessingConfig` so `max_duration` now
+    requires a canonical numeric type;
+  - closed the drift where payloads like `"3600"` or `"120.5"` could
+    silently become valid refresher duration budgets at config load time;
+  - added paired coverage in `services.test_refresher` proving malformed
+    numeric aliases now fail fast both on the leaf processing model and
+    through nested `RefresherConfig.processing` parsing.

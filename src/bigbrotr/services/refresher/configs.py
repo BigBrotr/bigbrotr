@@ -11,7 +11,7 @@ See Also:
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
@@ -157,6 +157,13 @@ def _require_int(value: Any, field_name: str) -> int:
     return int(value)
 
 
+def _require_number(value: Any, field_name: str) -> int | float:
+    """Require canonical numeric types for authored refresher config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name}: expected number, got {type(value).__name__}")
+    return cast("int | float", value)
+
+
 class ProcessingConfig(BaseModel):
     """Refresher cycle processing budgets and failure policy."""
 
@@ -193,8 +200,10 @@ class ProcessingConfig(BaseModel):
 
     @field_validator("max_duration", mode="before")
     @classmethod
-    def reject_boolean_duration_budget(cls, value: Any, info: ValidationInfo) -> Any:
-        return _reject_bool_alias(value, str(info.field_name), "number")
+    def require_numeric_duration_budget(cls, value: Any, info: ValidationInfo) -> Any:
+        if value is None:
+            return value
+        return _require_number(value, str(info.field_name))
 
     @field_validator("continue_on_target_error", mode="before")
     @classmethod

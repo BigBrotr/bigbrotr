@@ -152,6 +152,16 @@ class TestRefreshTargetConfig:
         with pytest.raises(ValueError, match=rf"{field_name}: expected integer, got"):
             RefresherConfig.model_validate({"processing": {field_name: value}})
 
+    @pytest.mark.parametrize("value", ["3600", "120.5"])
+    def test_rejects_non_numeric_duration_budget_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_duration: expected number, got"):
+            ProcessingConfig(max_duration=value)
+
+    @pytest.mark.parametrize("value", ["3600", "120.5"])
+    def test_nested_duration_budget_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_duration: expected number, got"):
+            RefresherConfig.model_validate({"processing": {"max_duration": value}})
+
     @pytest.mark.parametrize("value", ["true", 1, 0])
     def test_rejects_non_boolean_continue_on_target_error_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"continue_on_target_error: expected bool, got"):
