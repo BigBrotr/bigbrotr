@@ -120,6 +120,7 @@ class TestCreateConnectedClient:
         """Clearnet multi-relay sessions still normalize the connect result."""
         client = AsyncMock()
         relay_url = MagicMock()
+        relay_url.__str__.return_value = "wss://relay.connected"
         failed_relay = MagicMock()
         failed_relay.__str__.return_value = "wss://relay.failed"
         output = MagicMock()
@@ -139,7 +140,7 @@ class TestCreateConnectedClient:
 
         assert result_client is client
         assert result == ClientConnectResult(
-            connected=(str(relay_url),),
+            connected=("wss://relay.connected",),
             failed={"wss://relay.failed": "timeout"},
         )
         assert list(result.failed) == ["wss://relay.failed"]

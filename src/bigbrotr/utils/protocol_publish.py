@@ -14,17 +14,14 @@ from typing import TYPE_CHECKING
 
 from nostr_sdk import NostrSdkError
 
+from .protocol_outcomes import normalize_failed_relays, normalize_relay_outcomes
+
 
 if TYPE_CHECKING:
     from nostr_sdk import Client, EventBuilder
 
 
 logger = logging.getLogger(__name__)
-
-
-def _normalize_failed_relays(failed_relays: dict[str, str]) -> dict[str, str]:
-    """Return failed relay outcomes in stable lexical relay-url order."""
-    return {relay_url: failed_relays[relay_url] for relay_url in sorted(failed_relays)}
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,12 +92,7 @@ async def broadcast_events_detailed(
             for builder in builders:
                 output = await client.send_event_builder(builder)
                 event_ids.append(str(getattr(output, "id", "")))
-
-                builder_success = {str(relay_url) for relay_url in getattr(output, "success", ())}
-                builder_failed = {
-                    str(relay_url): str(error)
-                    for relay_url, error in getattr(output, "failed", {}).items()
-                }
+                builder_success, builder_failed = normalize_relay_outcomes(output)
 
                 if successful_relays is None:
                     successful_relays = set(builder_success)
@@ -112,10 +104,10 @@ async def broadcast_events_detailed(
                 BroadcastClientResult(
                     event_ids=tuple(event_ids),
                     successful_relays=tuple(sorted(successful_relays or ())),
-                    failed_relays=_normalize_failed_relays(failed_relays),
+                    failed_relays=normalize_failed_relays(failed_relays),
                 )
             )
-        except (NostrSdkError, OSError, TimeoutError) as e:
+        except (NostrSdkError, OSError, TimeoutError, ValueError) as e:
             logger.warning("broadcast_send_failed error=%s", e)
 
     return results
@@ -135,7 +127,7 @@ def summarize_broadcast_results(
     failed_relays: dict[str, str] = {}
     for result in results:
         failed_relays.update(result.failed_relays)
-    return successful_relays, _normalize_failed_relays(failed_relays)
+    return successful_relays, normalize_failed_relays(failed_relays)
 
 
 def normalize_send_output(output: object) -> tuple[tuple[str, ...], dict[str, str]]:
@@ -146,10 +138,4 @@ def normalize_send_output(output: object) -> tuple[tuple[str, ...], dict[str, st
     the SDK's iteration order. Failed relay maps are also returned in stable
     lexical relay-url order.
     """
-    successful_relays = tuple(
-        sorted({str(relay_url) for relay_url in getattr(output, "success", ())})
-    )
-    failed_relays = {
-        str(relay_url): str(error) for relay_url, error in getattr(output, "failed", {}).items()
-    }
-    return successful_relays, _normalize_failed_relays(failed_relays)
+    return normalize_relay_outcomes(output)

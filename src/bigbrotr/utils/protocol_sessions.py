@@ -11,6 +11,7 @@ from nostr_sdk import NostrSdkError, RelayUrl
 
 from bigbrotr.models.constants import NetworkType
 
+from .protocol_outcomes import normalize_relay_outcomes
 from .transport import DEFAULT_TIMEOUT
 
 
@@ -45,11 +46,6 @@ class SharedSessionDependencies(NamedTuple):
 
     create_client: Callable[..., Awaitable[Client]]
     shutdown_client: Callable[[Client], Awaitable[None]]
-
-
-def _normalize_failed_relays(failed_relays: dict[str, str]) -> dict[str, str]:
-    """Return failed relay outcomes in stable lexical relay-url order."""
-    return {relay_url: failed_relays[relay_url] for relay_url in sorted(failed_relays)}
 
 
 def _deduplicate_relays(relays: list[Relay]) -> list[Relay]:
@@ -104,11 +100,8 @@ async def connect_client_relays(
         await client.add_relay(RelayUrl.parse(relay.url))
 
     output = await client.try_connect(timedelta(seconds=timeout))
-    connected = tuple(sorted({str(relay_url) for relay_url in getattr(output, "success", ())}))
-    failed = {
-        str(relay_url): str(error) for relay_url, error in getattr(output, "failed", {}).items()
-    }
-    return ClientConnectResult(connected=connected, failed=_normalize_failed_relays(failed))
+    connected, failed = normalize_relay_outcomes(output)
+    return ClientConnectResult(connected=connected, failed=failed)
 
 
 async def create_connected_client(

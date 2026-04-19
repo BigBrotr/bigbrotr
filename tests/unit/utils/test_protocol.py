@@ -294,6 +294,32 @@ class TestCreateConnectedClient:
         assert mock_client.add_relay.await_count == 2
         mock_client.try_connect.assert_awaited_once()
 
+    async def test_rejects_malformed_connect_output_and_shuts_down_client(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        mock_client = MagicMock()
+        mock_client.add_relay = AsyncMock()
+        mock_client.try_connect = AsyncMock(
+            return_value=MagicMock(
+                success=(1,),
+                failed={},
+            )
+        )
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol.create_client",
+                new=AsyncMock(return_value=mock_client),
+            ),
+            patch(
+                "bigbrotr.utils.protocol.shutdown_client",
+                new=AsyncMock(),
+            ) as mock_shutdown_client,
+            pytest.raises(ValueError, match="relay output contained invalid relay URL"),
+        ):
+            await create_connected_client([relay], timeout=12.0)
+
+        mock_shutdown_client.assert_awaited_once_with(mock_client)
+
     async def test_deduplicates_duplicate_relay_urls_before_registration(self) -> None:
         relays = [
             Relay("wss://relay1.example.com"),
@@ -1221,6 +1247,30 @@ class TestBroadcastEvents:
         assert client.send_event_builder.await_count == 2
         assert "broadcast_send_failed error=sdk publish failed" in caplog.text
 
+    async def test_detailed_results_drop_partial_client_state_on_malformed_relay_output(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        client = AsyncMock()
+        bad_output = MagicMock()
+        bad_output.id = "evt-2"
+        bad_output.success = [1]
+        bad_output.failed = {}
+        client.send_event_builder.side_effect = [
+            self._send_output(
+                event_id="evt-1",
+                success=("wss://relay.a",),
+            ),
+            bad_output,
+        ]
+
+        with caplog.at_level(logging.WARNING, logger="bigbrotr.utils.protocol_publish"):
+            results = await self._get_broadcast_detailed()([MagicMock(), MagicMock()], [client])
+
+        assert results == []
+        assert client.send_event_builder.await_count == 2
+        assert "relay output contained invalid relay URL" in caplog.text
+
 
 class TestSummarizeBroadcastResults:
     def test_merges_successful_and_failed_relays(self) -> None:
@@ -1276,6 +1326,22 @@ class TestNormalizeSendOutput:
 
         assert successful_relays == ("wss://relay.a", "wss://relay.b")
         assert failed_relays == {}
+
+    def test_rejects_invalid_successful_relay_values(self) -> None:
+        output = MagicMock()
+        output.success = [1, "wss://relay.example.com"]
+        output.failed = {}
+
+        with pytest.raises(ValueError, match="relay output contained invalid relay URL"):
+            normalize_send_output(output)
+
+    def test_rejects_invalid_failed_relay_keys(self) -> None:
+        output = MagicMock()
+        output.success = []
+        output.failed = {1: RuntimeError("boom")}
+
+        with pytest.raises(ValueError, match="relay output contained invalid relay URL"):
+            normalize_send_output(output)
 
 
 # =============================================================================

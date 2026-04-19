@@ -2453,3 +2453,15 @@ Use this section during execution for:
     negative identifier values, while the permissive parse/report paths drop
     them instead of leaking impossible NIP numbers or event-kind scopes into
     canonicalized document payloads.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-fourteenth remediation
+  slice:
+  - tightened the shared `utils.protocol` relay-outcome boundary so
+    `connect` and `publish` helpers no longer stringify arbitrary SDK output
+    values into fake canonical relay URLs; relay success/failure maps must
+    now normalize to already-canonical relay URLs or fail as malformed output
+    instead of leaking integers or opaque object reprs into downstream logs
+    and public publish results;
+  - added paired `utils.protocol` coverage proving malformed relay outcome
+    payloads are now rejected both in direct send-output normalization and in
+    the live `broadcast` / `create_connected_client` paths that consume SDK
+    connect and publish results.
