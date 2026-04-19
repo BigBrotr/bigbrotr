@@ -1388,9 +1388,7 @@ class TestFinderFindFromApi:
             patch(
                 "bigbrotr.services.finder.service.fetch_api_checkpoints",
                 new_callable=AsyncMock,
-                return_value=[
-                    ApiCheckpoint(key="https://api.example.com", timestamp=int(time.time()) - 7200)
-                ],
+                return_value=[ApiCheckpoint(key="https://api.example.com", timestamp=0)],
             ),
             patch(
                 "bigbrotr.services.finder.service.upsert_api_checkpoints",
@@ -1402,6 +1400,7 @@ class TestFinderFindFromApi:
                 new_callable=AsyncMock,
                 return_value=1,
             ),
+            patch("bigbrotr.services.finder.service.time.time", return_value=7200.2),
         ):
             mock_session = MagicMock()
             mock_session.get = MagicMock(return_value=mock_response)
@@ -1413,6 +1412,10 @@ class TestFinderFindFromApi:
 
             assert result == 1
             mock_save.assert_awaited_once()
+            saved_checkpoints = mock_save.await_args.args[1]
+            assert saved_checkpoints == [
+                ApiCheckpoint(key="https://api.example.com", timestamp=7201)
+            ]
 
     async def test_shutdown_during_iteration_stops(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(

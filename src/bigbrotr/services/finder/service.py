@@ -54,6 +54,7 @@ Examples:
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from typing import TYPE_CHECKING, ClassVar
 
@@ -238,7 +239,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
                 fetch_api_fn=fetch_api,
                 client_session_factory=aiohttp.ClientSession,
                 recoverable_errors=(TimeoutError, OSError, aiohttp.ClientError, ValueError),
-                checkpoint_timestamp=lambda: int(time.time()),
+                checkpoint_timestamp=lambda: math.ceil(time.time()),
                 logger=self._logger,
                 fetch_api_checkpoints_fn=fetch_api_checkpoints,
             ),

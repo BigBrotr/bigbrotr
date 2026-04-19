@@ -2255,3 +2255,12 @@ Use this section during execution for:
   - added `validator` coverage proving failed candidates now persist their
     retry timestamp rounded up instead of truncating fractional completion
     time.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-ninety-fourth remediation
+  slice:
+  - tightened the `finder` API checkpoint boundary so fractional source
+    cooldowns no longer get measured from a floored success timestamp, which
+    previously let a source become eligible again up to almost one second too
+    early after a successful fetch;
+  - added `finder` coverage proving successful API discovery now persists its
+    checkpoint timestamp rounded up instead of truncating fractional
+    completion time.
