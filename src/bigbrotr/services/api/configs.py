@@ -73,6 +73,13 @@ class ApiConfig(PublicReadAdapterConfig):
             raise ValueError("request_timeout: expected number, got bool")
         return value
 
+    @field_validator("port", mode="before")
+    @classmethod
+    def _reject_boolean_port(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("port: expected integer, got bool")
+        return value
+
     @field_validator("route_prefix")
     @classmethod
     def _normalize_route_prefix(cls, v: str) -> str:

@@ -183,6 +183,10 @@ class TestApiConfig:
         with pytest.raises(ValueError, match="request_timeout: expected number, got bool"):
             ApiConfig(request_timeout=True)
 
+    def test_rejects_boolean_port_alias(self) -> None:
+        with pytest.raises(ValueError, match="port: expected integer, got bool"):
+            ApiConfig(port=True)
+
     def test_empty_host_rejected(self) -> None:
         with pytest.raises(ValueError):
             ApiConfig(host="")

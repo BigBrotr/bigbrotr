@@ -168,6 +168,12 @@ class ReadModelPolicy(BaseModel):
     enabled: bool = Field(default=False, description="Whether this readable resource is exposed")
     price: int = Field(default=0, ge=0, description="Price in millisats (0 = free)")
 
+    @field_validator("price", mode="before")
+    @classmethod
+    def _reject_boolean_price(cls, value: Any, info: ValidationInfo) -> Any:
+        field_name = info.field_name or "value"
+        return _reject_bool_alias(value, field_name, "integer")
+
 
 def normalize_protocol_exposure_policy(
     policies: Mapping[str, ReadModelPolicy],

@@ -2193,3 +2193,12 @@ Use this section during execution for:
   - added paired `monitor` coverage proving those boolean aliases now fail
     fast at config load instead of mutating geo download and publish
     behavior.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-eighty-seventh remediation
+  slice:
+  - tightened the shared/API public adapter boundary so `ReadModelPolicy.price`
+    and `ApiConfig.port` no longer accept boolean aliases, which previously
+    let values like `True` coerce to `1` and silently mutate public pricing
+    or bind the HTTP server to port `1`;
+  - added paired `services/common` and `API` coverage proving those boolean
+    aliases now fail fast at config load instead of mutating public adapter
+    behavior.
