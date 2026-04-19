@@ -21,6 +21,7 @@ See Also:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from time import time
 from typing import TYPE_CHECKING, NamedTuple
@@ -123,7 +124,7 @@ class Relay:
     """
 
     url: str
-    stored_at: int = field(default_factory=lambda: int(time()))
+    stored_at: int = field(default_factory=lambda: math.ceil(time()))
 
     network: NetworkType = field(init=False)
     scheme: str = field(init=False)

@@ -2405,3 +2405,12 @@ Use this section during execution for:
     fractional current time up before persisting the initial validator
     checkpoint timestamp, keeping the discovery-side marker aligned with the
     validator retry cutoff contract.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-ninth remediation
+  slice:
+  - tightened the leaf `Relay` timestamp contract so the public model no
+    longer floors its default `stored_at`, which previously let newly
+    promoted relay rows land on the wrong side of monitor keyset ordering
+    and cursor boundaries when they were inserted late in a second;
+  - added paired model and `validator` coverage proving the default relay
+    timestamp now rounds fractional current time up, including along the
+    real promotion path that persists new canonical relay rows.

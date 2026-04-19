@@ -743,6 +743,16 @@ class TestPromoteCandidates:
         )
         assert result == 1
 
+    async def test_rounds_fractional_relay_stored_at_up(self, query_brotr: MagicMock) -> None:
+        query_brotr.insert_relay = AsyncMock(return_value=1)
+        query_brotr.delete_service_state = AsyncMock(return_value=1)
+
+        with patch("bigbrotr.models.relay.time", return_value=1000.1):
+            await promote_candidates(query_brotr, [_candidate("wss://promoted.com")])
+
+        relays = query_brotr.insert_relay.call_args[0][0]
+        assert relays[0].stored_at == 1001
+
     async def test_empty_list(self, query_brotr: MagicMock) -> None:
         assert await promote_candidates(query_brotr, []) == 0
         query_brotr.insert_relay.assert_not_awaited()

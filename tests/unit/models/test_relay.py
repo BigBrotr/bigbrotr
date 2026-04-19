@@ -1,7 +1,9 @@
 """Unit tests for the Relay model."""
 
+import math
 from dataclasses import FrozenInstanceError
 from time import time
+from unittest.mock import patch
 
 import pytest
 
@@ -390,10 +392,16 @@ class TestTimestamp:
     """stored_at timestamp handling."""
 
     def test_defaults_to_now(self):
-        before = int(time())
+        before = math.floor(time())
         r = Relay("wss://relay.example.com")
-        after = int(time())
+        after = math.ceil(time())
         assert before <= r.stored_at <= after
+
+    def test_rounds_fractional_default_timestamp_up(self):
+        with patch("bigbrotr.models.relay.time", return_value=1000.1):
+            r = Relay("wss://relay.example.com")
+
+        assert r.stored_at == 1001
 
     def test_explicit_timestamp(self):
         r = Relay("wss://relay.example.com", stored_at=1234567890)
