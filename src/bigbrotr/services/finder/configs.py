@@ -67,13 +67,14 @@ def _normalize_api_source_url(value: str) -> str:
     hostname = parsed.hostname
     if scheme not in {"http", "https"} or not parsed.netloc or hostname is None:
         raise ValueError("url must be an absolute http(s) URL")
+    default_port = 80 if scheme == "http" else 443
 
     canonical_host = hostname.lower()
     if ":" in canonical_host and not canonical_host.startswith("["):
         canonical_host = f"[{canonical_host}]"
 
     netloc = canonical_host
-    if parsed.port is not None:
+    if parsed.port is not None and parsed.port != default_port:
         netloc = f"{netloc}:{parsed.port}"
 
     if parsed.username is not None:

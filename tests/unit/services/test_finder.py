@@ -332,6 +332,13 @@ class TestApiSourceConfig:
         )
         assert config.url == "https://api.example.com/path?q=1"
 
+    def test_url_strips_default_https_port(self) -> None:
+        config = ApiSourceConfig(
+            url="  HTTPS://API.EXAMPLE.COM:443/path?q=1  ",
+            expression="[*]",
+        )
+        assert config.url == "https://api.example.com/path?q=1"
+
     @pytest.mark.parametrize(
         "url",
         [
@@ -415,6 +422,18 @@ class TestApiConfig:
                 ]
             )
 
+    def test_duplicate_source_urls_rejected_after_default_port_stripping(self) -> None:
+        with pytest.raises(ValueError, match="duplicate finder API source URLs"):
+            ApiConfig(
+                sources=[
+                    ApiSourceConfig(url="https://dup.api.com/path", expression="[*]"),
+                    ApiSourceConfig(
+                        url="HTTPS://DUP.API.COM:443/path",
+                        expression="data.relays",
+                    ),
+                ]
+            )
+
     def test_nested_source_expression_is_canonicalized(self) -> None:
         config = ApiConfig(
             sources=[
@@ -430,7 +449,7 @@ class TestApiConfig:
         config = ApiConfig(
             sources=[
                 {
-                    "url": " HTTPS://API.EXAMPLE.COM/path#frag ",
+                    "url": " HTTPS://API.EXAMPLE.COM:443/path#frag ",
                     "expression": "[*]",
                 }
             ]
