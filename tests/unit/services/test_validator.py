@@ -796,6 +796,15 @@ class TestFailCandidates:
         assert isinstance(records[0].state_value["timestamp"], int)
         assert records[0].state_value["timestamp"] > 0
 
+    async def test_rounds_fractional_failure_timestamp_up(self, query_brotr: MagicMock) -> None:
+        query_brotr.upsert_service_state = AsyncMock(return_value=1)
+
+        with patch("bigbrotr.services.validator.queries.time.time", return_value=1000.2):
+            await fail_candidates(query_brotr, [_candidate()])
+
+        records = query_brotr.upsert_service_state.call_args[0][0]
+        assert records[0].state_value["timestamp"] == 1001
+
     async def test_preserves_network(self, query_brotr: MagicMock) -> None:
         query_brotr.upsert_service_state = AsyncMock(return_value=1)
         await fail_candidates(

@@ -2245,3 +2245,13 @@ Use this section during execution for:
   - added `monitor` coverage proving publish checkpoints now round their
     persisted timestamp up and that fractional intervals stay blocked until
     that ceiled checkpoint has really elapsed.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-ninety-third remediation
+  slice:
+  - tightened the `validator` failure-checkpoint boundary so fractional retry
+    intervals no longer get measured from a floored failed-at timestamp,
+    which previously let invalid candidates become eligible for retry up to
+    almost one second too early even after the retry cutoff itself was
+    rounded correctly;
+  - added `validator` coverage proving failed candidates now persist their
+    retry timestamp rounded up instead of truncating fractional completion
+    time.

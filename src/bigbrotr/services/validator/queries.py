@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from typing import TYPE_CHECKING
 
@@ -324,7 +325,9 @@ async def fail_candidates(brotr: Brotr, candidates: list[CandidateCheckpoint]) -
     if not candidates:
         return 0
 
-    now = int(time.time())
+    # Retry intervals are fractional, so persist the failed-at marker at the
+    # next whole second to avoid retrying before the configured wait elapses.
+    now = math.ceil(time.time())
     records = [
         ServiceStateStore.encode_candidate(
             candidate,
