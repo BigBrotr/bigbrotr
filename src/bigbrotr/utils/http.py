@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -28,6 +29,23 @@ import aiohttp
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+
+def _normalize_timeout(timeout: object) -> float:
+    """Return one canonical positive finite HTTP timeout budget."""
+    if isinstance(timeout, bool) or not isinstance(timeout, int | float):
+        raise ValueError("timeout must be a positive finite number")
+    normalized = float(timeout)
+    if not math.isfinite(normalized) or normalized <= 0:
+        raise ValueError("timeout must be a positive finite number")
+    return normalized
+
+
+def _normalize_max_size(max_size: object) -> int:
+    """Return one canonical non-negative body-size budget."""
+    if isinstance(max_size, bool) or not isinstance(max_size, int) or max_size < 0:
+        raise ValueError("max_size must be a non-negative int")
+    return max_size
 
 
 async def download_bounded_file(
@@ -54,6 +72,8 @@ async def download_bounded_file(
         TimeoutError: If the request exceeds *timeout*.
         ValueError: If the downloaded file exceeds *max_size*.
     """
+    max_size = _normalize_max_size(max_size)
+    timeout = _normalize_timeout(timeout)
     dest.parent.mkdir(parents=True, exist_ok=True)
     client_timeout = aiohttp.ClientTimeout(total=timeout)
     async with (
@@ -125,6 +145,7 @@ async def _read_bounded(response: aiohttp.ClientResponse, max_size: int) -> byte
     Raises:
         ValueError: If the response body exceeds *max_size*.
     """
+    max_size = _normalize_max_size(max_size)
     body = bytearray()
     async for chunk in _iter_bounded_chunks(response, max_size):
         body.extend(chunk)

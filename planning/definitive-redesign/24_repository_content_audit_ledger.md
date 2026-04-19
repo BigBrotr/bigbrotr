@@ -2707,3 +2707,16 @@ Use this section during execution for:
     normalization path instead of maintaining a second permissive entrypoint;
   - added paired coverage proving malformed `allow_insecure` values are
     rejected before the leaf manager stores policy state.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-thirty-fifth remediation
+  slice:
+  - tightened the direct public size/timeout boundaries in `utils.http` so
+    `download_bounded_file()` and `read_bounded_json()` no longer accept
+    bool-backed, negative, or otherwise malformed budget inputs that would
+    previously degrade into truncated one-byte limits, invalid read sizes, or
+    late aiohttp timeout construction as if they were canonical HTTP budgets;
+  - centralized that normalization in shared HTTP leaf helpers so the same
+    `max_size` contract is enforced both for the public JSON/file entrypoints
+    and for the underlying bounded-body reader they share;
+  - added paired `utils.http` coverage proving malformed `timeout` and
+    `max_size` inputs are rejected before any HTTP session or response read
+    starts.
