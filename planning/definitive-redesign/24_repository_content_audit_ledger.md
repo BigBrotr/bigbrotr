@@ -3762,3 +3762,17 @@ Use this section during execution for:
   - added paired `services.test_monitor` coverage proving each affected
     config now fails fast on non-boolean aliases before runtime planning or
     publish orchestration begins.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-eighteenth remediation
+  slice:
+  - tightened the `services.monitor.configs.AnnouncementConfig.geohash`
+    boundary so optional geohash payloads now trim and collapse blank values
+    to `None` before the Kind `10166` publish path hands them to the public
+    announcement builder;
+  - closed the drift where padded or whitespace-only geohash config values
+    could survive inside monitor config even though
+    `build_monitor_announcement()` would later trim or reject those same
+    payloads, leaving the immediate consumer boundary more permissive than
+    the leaf it feeds;
+  - added paired `services.test_monitor` coverage proving announcement config
+    geohash now canonicalizes up front and `publish_announcement()` forwards
+    the cleaned value to `build_monitor_announcement()`.

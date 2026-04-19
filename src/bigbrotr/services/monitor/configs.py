@@ -56,6 +56,11 @@ def _normalize_optional_profile_text(value: Any, field_name: str) -> str | None:
     return normalized or None
 
 
+def _normalize_optional_geohash(value: Any, field_name: str) -> str | None:
+    """Trim optional geohash config payloads and collapse blank values to ``None``."""
+    return _normalize_optional_profile_text(value, field_name)
+
+
 def _require_boolean(value: Any, field_name: str) -> bool:
     """Require canonical booleans for public monitor config boundaries."""
     if not isinstance(value, bool):
@@ -397,6 +402,13 @@ class AnnouncementConfig(BaseModel):
         """Require a canonical boolean for announcement publish toggles."""
         field_name = info.field_name or "enabled"
         return _require_boolean(value, field_name)
+
+    @field_validator("geohash", mode="before")
+    @classmethod
+    def normalize_geohash(cls, value: Any, info: ValidationInfo) -> str | None:
+        """Trim optional geohash payloads before the public builder consumes them."""
+        field_name = info.field_name or "geohash"
+        return _normalize_optional_geohash(value, field_name)
 
 
 class ProfileConfig(BaseModel):

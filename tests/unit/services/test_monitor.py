@@ -668,6 +668,23 @@ class TestAnnouncementConfig:
         ):
             AnnouncementConfig(enabled=1)
 
+    def test_geohash_is_canonicalized(self) -> None:
+        config = AnnouncementConfig(geohash=" u0nd9f ")
+
+        assert config.geohash == "u0nd9f"
+
+    def test_blank_geohash_collapses_to_none(self) -> None:
+        config = AnnouncementConfig(geohash="   ")
+
+        assert config.geohash is None
+
+    def test_geohash_rejects_non_string_payloads(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"geohash: expected string, got bool",
+        ):
+            AnnouncementConfig(geohash=True)
+
 
 class TestProfileConfig:
     def test_default_values(self) -> None:
@@ -2639,6 +2656,37 @@ class TestPublishAnnouncement:
         assert mock_builder.call_args is not None
         assert mock_builder.call_args.kwargs["interval"] == 3601
         assert mock_builder.call_args.kwargs["timeout_ms"] == 1001
+
+    async def test_publish_announcement_passes_canonicalized_geohash(self) -> None:
+        config = _make_config(
+            announcement=AnnouncementConfig(include=_NO_GEO_NET, geohash=" u0nd9f "),
+        )
+        stub = _MonitorStub(config, Keys.generate())
+
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.is_publish_due",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.build_monitor_announcement",
+                return_value=MagicMock(),
+            ) as mock_builder,
+            patch(
+                "bigbrotr.services.monitor.service.broadcast_events_detailed",
+                new_callable=AsyncMock,
+                return_value=_broadcast_results(),
+            ),
+            patch(
+                "bigbrotr.services.monitor.service.upsert_publish_checkpoints",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await stub.publish_announcement()
+
+        assert mock_builder.call_args is not None
+        assert mock_builder.call_args.kwargs["geohash"] == "u0nd9f"
 
     async def test_publish_announcement_no_reachable_clients(self, stub: _MonitorStub) -> None:
         stub.clients.get_relay_clients = AsyncMock(return_value=[])
