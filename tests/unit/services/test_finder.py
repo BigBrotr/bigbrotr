@@ -116,6 +116,11 @@ class TestEventsConfig:
         config = EventsConfig(enabled=False)
         assert config.enabled is False
 
+    @pytest.mark.parametrize("value", ["true", 1, 0])
+    def test_rejects_non_boolean_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
+            EventsConfig(enabled=value)
+
     @pytest.mark.parametrize(
         ("field", "valid_min", "valid_max", "below_min", "above_max"),
         [
@@ -304,6 +309,11 @@ class TestApiConfig:
         assert config.request_delay == 1.0
         assert config.max_response_size == 5_242_880
 
+    @pytest.mark.parametrize("value", ["false", 1, 0])
+    def test_rejects_non_boolean_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
+            ApiConfig(enabled=value)
+
     def test_default_sources(self) -> None:
         config = ApiConfig()
 
@@ -434,6 +444,19 @@ class TestFinderConfig:
                     ]
                 )
             )
+
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("api", {"enabled": "false"}),
+            ("events", {"enabled": 0}),
+        ],
+    )
+    def test_nested_phase_rejects_non_boolean_enabled_aliases(
+        self, field_name: str, field_value: dict[str, object]
+    ) -> None:
+        with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
+            FinderConfig(**{field_name: field_value})
 
 
 # ============================================================================

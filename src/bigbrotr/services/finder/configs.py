@@ -84,6 +84,13 @@ class EventsConfig(BaseModel):
         field_name = info.field_name or "parallel_relays"
         return _reject_bool_alias(v, field_name, "integer")
 
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def require_boolean_enabled(cls, v: Any, info: ValidationInfo) -> bool:
+        """Require canonical booleans for phase enablement."""
+        field_name = info.field_name or "enabled"
+        return _require_bool(v, field_name)
+
 
 class ApiSourceConfig(BaseModel):
     """Single API source configuration.
@@ -207,6 +214,13 @@ class ApiConfig(BaseModel):
         """Reject boolean aliases for API pacing controls."""
         field_name = info.field_name or "value"
         return _reject_bool_alias(v, field_name, "number")
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def require_boolean_enabled(cls, v: Any, info: ValidationInfo) -> bool:
+        """Require canonical booleans for phase enablement."""
+        field_name = info.field_name or "enabled"
+        return _require_bool(v, field_name)
 
     @model_validator(mode="after")
     def _validate_unique_sources(self) -> ApiConfig:

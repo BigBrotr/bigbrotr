@@ -4054,3 +4054,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_finder` proving padded
     expressions now canonicalize both through nested `ApiConfig.sources`
     parsing and at runtime in `fetch_api()`.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-forty-third
+  remediation slice:
+  - tightened the `services.finder.configs` phase enablement boundaries so
+    `ApiConfig.enabled` and `EventsConfig.enabled` now require canonical
+    `bool` values instead of accepting truthy/falsy aliases;
+  - closed the drift where authored payloads like `"false"`, `"true"`, `1`
+    or `0` could silently disable or enable the API-fetch or event-scan phase
+    without crossing an explicit boolean boundary;
+  - added paired coverage in `services.test_finder` proving malformed phase
+    enablement aliases now fail fast both on the leaf configs and through
+    nested `FinderConfig` parsing.
