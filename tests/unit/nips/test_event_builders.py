@@ -1396,6 +1396,36 @@ class TestBuildRelayDiscovery:
         mock_identifier.assert_not_called()
         mock_builder.assert_not_called()
 
+    @pytest.mark.parametrize("value", [True, "not-a-nip11", object()])
+    def test_rejects_invalid_nip11_before_document_or_tag_build(self, value: object) -> None:
+        """Malformed nip11 payloads fail before document or tag work starts."""
+        relay = Relay("wss://relay.example.com")
+        with (
+            patch("bigbrotr.nips.event_builders.Document") as mock_document,
+            patch("bigbrotr.nips.event_builders.Tag.identifier") as mock_identifier,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(ValueError, match="nip11 must be a Nip11 or None"),
+        ):
+            build_relay_discovery(relay, nip11=value)  # type: ignore[arg-type]
+
+        mock_document.assert_not_called()
+        mock_identifier.assert_not_called()
+        mock_builder.assert_not_called()
+
+    @pytest.mark.parametrize("value", [True, "not-a-nip66", object()])
+    def test_rejects_invalid_nip66_before_discovery_tag_build(self, value: object) -> None:
+        """Malformed nip66 payloads fail before any discovery tag or builder work starts."""
+        relay = Relay("wss://relay.example.com")
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.identifier") as mock_identifier,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(ValueError, match="nip66 must be a Nip66 or None"),
+        ):
+            build_relay_discovery(relay, nip66=value)  # type: ignore[arg-type]
+
+        mock_identifier.assert_not_called()
+        mock_builder.assert_not_called()
+
 
 # ============================================================================
 # AccessFlags

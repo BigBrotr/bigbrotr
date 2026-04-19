@@ -2885,3 +2885,17 @@ Use this section during execution for:
   - added paired `NIP-85` builder coverage proving corrupted user assertion
     inputs are rejected before any `EventBuilder`, `Tag.identifier()`, or
     `Tag.parse()` work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-forty-eighth remediation
+  slice:
+  - tightened the direct public builder boundary of
+    `nips.event_builders.build_relay_discovery()` so malformed optional
+    `nip11` and `nip66` payloads no longer degrade into late attribute
+    errors or partial `Kind 30166` assembly while the public NIP-66
+    discovery builder prepares relay metadata;
+  - centralized typed normalization of the optional discovery payloads inside
+    the leaf builder itself so direct callers now enforce real `Nip11` and
+    `Nip66` boundaries instead of relying on higher-level monitor
+    publication flows to sanitize the public arguments first;
+  - added paired `nips.event_builders` coverage proving corrupted discovery
+    `nip11` and `nip66` inputs are rejected before any `Document`,
+    `EventBuilder`, or `Tag.identifier()` work begins.

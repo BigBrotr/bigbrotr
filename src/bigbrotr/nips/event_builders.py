@@ -174,6 +174,24 @@ def _normalize_user_assertion(assertion: object) -> UserAssertion:
     return cast("UserAssertion", assertion)
 
 
+def _normalize_optional_nip11(nip11: object) -> Nip11 | None:
+    if nip11 is None:
+        return None
+    nip11_type = importlib.import_module("bigbrotr.nips.nip11.nip11").Nip11
+    if not isinstance(nip11, nip11_type):
+        raise ValueError("nip11 must be a Nip11 or None")
+    return cast("Nip11", nip11)
+
+
+def _normalize_optional_nip66(nip66: object) -> Nip66 | None:
+    if nip66 is None:
+        return None
+    nip66_type = importlib.import_module("bigbrotr.nips.nip66.nip66").Nip66
+    if not isinstance(nip66, nip66_type):
+        raise ValueError("nip66 must be a Nip66 or None")
+    return cast("Nip66", nip66)
+
+
 def _normalize_relay_list_urls(relays: Sequence[Relay]) -> tuple[str, ...]:
     """Return a stable deduplicated relay-url ordering for set-like relay lists."""
     return tuple(sorted({relay.url for relay in relays}))
@@ -587,6 +605,8 @@ def build_relay_discovery(
         A signed-ready ``EventBuilder`` for Kind 30166.
     """
     relay = _normalize_discovery_relay(relay)
+    nip11 = _normalize_optional_nip11(nip11)
+    nip66 = _normalize_optional_nip66(nip66)
     nip11_canonical_json = ""
     nip11_data = None
     if nip11 and nip11.info:
