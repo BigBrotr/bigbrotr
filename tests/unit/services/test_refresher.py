@@ -27,6 +27,7 @@ from bigbrotr.services.refresher import (
 from bigbrotr.services.refresher.configs import (
     DEFAULT_ANALYTICS_TARGETS,
     DEFAULT_CURRENT_TARGETS,
+    CleanupConfig,
     ProcessingConfig,
     validate_refresh_dependencies,
 )
@@ -131,6 +132,16 @@ class TestRefreshTargetConfig:
     def test_nested_continue_on_target_error_aliases_rejected(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"continue_on_target_error: expected bool, got"):
             RefresherConfig.model_validate({"processing": {"continue_on_target_error": value}})
+
+    @pytest.mark.parametrize("value", ["false", 1, 0])
+    def test_rejects_non_boolean_cleanup_enabled_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
+            CleanupConfig(enabled=value)
+
+    @pytest.mark.parametrize("value", ["false", 1, 0])
+    def test_nested_cleanup_enabled_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
+            RefresherConfig.model_validate({"cleanup": {"enabled": value}})
 
     def test_empty_targets_are_allowed(self) -> None:
         config = _refresher_config()

@@ -4254,3 +4254,13 @@ Use this section during execution for:
   - added paired coverage in `services.test_refresher` proving malformed
     boolean aliases now fail fast both on the leaf processing model and
     through nested `RefresherConfig.processing` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-sixty-first
+  remediation slice:
+  - tightened the authored boolean boundary in
+    `services.refresher.configs.CleanupConfig` so `enabled` now requires a
+    canonical `bool` value;
+  - closed the drift where payloads like `"false"`, `1`, or `0` could
+    silently change stale-checkpoint cleanup behavior at config load time;
+  - added paired coverage in `services.test_refresher` proving malformed
+    boolean aliases now fail fast both on the leaf cleanup model and
+    through nested `RefresherConfig.cleanup` parsing.

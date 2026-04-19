@@ -260,6 +260,11 @@ class CleanupConfig(BaseModel):
         description="Remove stale checkpoints for targets no longer configured",
     )
 
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def require_boolean_enabled(cls, value: Any, info: ValidationInfo) -> bool:
+        return _require_bool(value, str(info.field_name))
+
 
 class RefresherConfig(BaseServiceConfig):
     """Refresher service configuration."""
