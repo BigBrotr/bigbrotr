@@ -3020,3 +3020,16 @@ Use this section during execution for:
     sanitize the public argument first;
   - added paired `nips.event_builders` coverage proving corrupted `dns_data`
     inputs are rejected before any `Tag.parse()` work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-fifty-eighth remediation
+  slice:
+  - tightened the direct public helper boundary of
+    `nips.event_builders.add_http_tags()` so malformed `http_data` payloads
+    no longer degrade into late attribute errors or partial HTTP tag mutation
+    while the public NIP-66 helper assembles `http-server` and
+    `http-powered-by` tags;
+  - centralized typed normalization of the optional `Nip66HttpData` input
+    inside the leaf helper itself so direct callers now enforce a real HTTP
+    metadata boundary instead of relying on higher-level discovery flows to
+    sanitize the public argument first;
+  - added paired `nips.event_builders` coverage proving corrupted
+    `http_data` inputs are rejected before any `Tag.parse()` work begins.

@@ -266,6 +266,15 @@ def _normalize_optional_nip66_dns_data(dns_data: object) -> Nip66DnsData | None:
     return cast("Nip66DnsData", dns_data)
 
 
+def _normalize_optional_nip66_http_data(http_data: object) -> Nip66HttpData | None:
+    if http_data is None:
+        return None
+    http_data_type = importlib.import_module("bigbrotr.nips.nip66.data").Nip66HttpData
+    if not isinstance(http_data, http_data_type):
+        raise ValueError("http_data must be a Nip66HttpData or None")
+    return cast("Nip66HttpData", http_data)
+
+
 def _normalize_supported_nips_for_type_tags(supported_nips: object) -> tuple[int, ...] | None:
     if supported_nips is None:
         return None
@@ -557,6 +566,7 @@ def add_dns_tags(tags: list[Tag], dns_data: Nip66DnsData | None) -> None:
 
 def add_http_tags(tags: list[Tag], http_data: Nip66HttpData | None) -> None:
     """Add HTTP server header tags: ``http-server``, ``http-powered-by``."""
+    http_data = _normalize_optional_nip66_http_data(http_data)
     if http_data is None:
         return
     if http_data.http_server:
