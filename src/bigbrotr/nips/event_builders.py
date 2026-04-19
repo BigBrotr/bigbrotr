@@ -248,6 +248,15 @@ def _normalize_optional_nip66_net_data(net_data: object) -> Nip66NetData | None:
     return cast("Nip66NetData", net_data)
 
 
+def _normalize_optional_nip66_geo_data(geo_data: object) -> Nip66GeoData | None:
+    if geo_data is None:
+        return None
+    geo_data_type = importlib.import_module("bigbrotr.nips.nip66.data").Nip66GeoData
+    if not isinstance(geo_data, geo_data_type):
+        raise ValueError("geo_data must be a Nip66GeoData or None")
+    return cast("Nip66GeoData", geo_data)
+
+
 def _normalize_supported_nips_for_type_tags(supported_nips: object) -> tuple[int, ...] | None:
     if supported_nips is None:
         return None
@@ -502,6 +511,7 @@ def add_geo_tags(tags: list[Tag], geo_data: Nip66GeoData | None) -> None:
     - city    → ``["l", "<city>", "nip66.label.city"]``  (no recognized standard)
     - timezone → ``["l", "<tz>", "IANA-tz"]``
     """
+    geo_data = _normalize_optional_nip66_geo_data(geo_data)
     if geo_data is None:
         return
     if geo_data.geo_hash:

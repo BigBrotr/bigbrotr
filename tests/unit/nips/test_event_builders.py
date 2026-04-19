@@ -781,6 +781,19 @@ class TestAddGeoTags:
         add_geo_tags(tags, None)
         assert tags == []
 
+    @pytest.mark.parametrize("value", [True, "not-geo-data", object()])
+    def test_rejects_invalid_geo_data_before_tag_build(self, value: object) -> None:
+        """Malformed geo data fails before any geo tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="geo_data must be a Nip66GeoData or None"),
+        ):
+            add_geo_tags(tags, value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        assert tags == []
+
 
 # ============================================================================
 # add_dns_tags
