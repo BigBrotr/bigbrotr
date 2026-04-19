@@ -139,11 +139,19 @@ class TestUserAssertionProperties:
         with pytest.raises(ValueError, match="top_topics must not contain duplicate topics"):
             UserAssertion(pubkey="aa" * 32, top_topics=("nostr", "nostr"))
 
+    def test_constructor_rejects_mapping_top_topics(self) -> None:
+        with pytest.raises(TypeError, match="top_topics must be a sequence of topic strings"):
+            UserAssertion(pubkey="aa" * 32, top_topics={"nostr": 7})  # type: ignore[arg-type]
+
     def test_constructor_rejects_invalid_activity_hours_length(self) -> None:
         with pytest.raises(
             ValueError, match="activity_hours must contain exactly 24 hourly buckets"
         ):
             UserAssertion(pubkey="aa" * 32, activity_hours=(0,) * 23)
+
+    def test_constructor_rejects_mapping_activity_hours(self) -> None:
+        with pytest.raises(TypeError, match="activity_hours must be a sequence of hourly buckets"):
+            UserAssertion(pubkey="aa" * 32, activity_hours=dict.fromkeys(range(24), 0))  # type: ignore[arg-type]
 
     def test_constructor_rejects_boolean_activity_hours(self) -> None:
         with pytest.raises(
@@ -370,6 +378,14 @@ class TestUserAssertionFromDbRow:
         with pytest.raises(
             ValueError, match="activity_hours must contain exactly 24 hourly buckets"
         ):
+            UserAssertion.from_db_row(row)
+
+    def test_from_db_row_rejects_mapping_activity_hours(self) -> None:
+        row = {
+            "pubkey": "cc" * 32,
+            "activity_hours": dict.fromkeys(range(24), 0),
+        }
+        with pytest.raises(TypeError, match="activity_hours must be a sequence of hourly buckets"):
             UserAssertion.from_db_row(row)
 
     def test_from_db_row_rejects_boolean_activity_hours(self) -> None:
@@ -847,6 +863,13 @@ class TestIdentifierAssertionProperties:
         with pytest.raises(TypeError, match="k_tags must be a sequence of tag strings"):
             IdentifierAssertion(identifier="isbn:9780140328721", k_tags="isbn")  # type: ignore[arg-type]
 
+    def test_constructor_rejects_mapping_k_tags(self) -> None:
+        with pytest.raises(TypeError, match="k_tags must be a sequence of tag strings"):
+            IdentifierAssertion(
+                identifier="isbn:9780140328721",
+                k_tags={"isbn": "book"},  # type: ignore[arg-type]
+            )
+
     def test_constructor_rejects_non_string_k_tags(self) -> None:
         with pytest.raises(TypeError, match="k_tags must contain only strings"):
             IdentifierAssertion(
@@ -891,6 +914,15 @@ class TestIdentifierAssertionProperties:
         row = {
             "identifier": "isbn:9780140328721",
             "k_tags": "isbn",
+        }
+
+        with pytest.raises(TypeError, match="k_tags must be a sequence of tag strings"):
+            IdentifierAssertion.from_db_row(row)
+
+    def test_from_db_row_rejects_mapping_k_tags(self) -> None:
+        row = {
+            "identifier": "isbn:9780140328721",
+            "k_tags": {"isbn": "book"},
         }
 
         with pytest.raises(TypeError, match="k_tags must be a sequence of tag strings"):

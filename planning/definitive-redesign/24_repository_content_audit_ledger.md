@@ -2414,3 +2414,13 @@ Use this section during execution for:
   - added paired model and `validator` coverage proving the default relay
     timestamp now rounds fractional current time up, including along the
     real promotion path that persists new canonical relay rows.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-tenth remediation
+  slice:
+  - tightened the leaf `NIP-85` sequence boundary so mapping payloads can
+    no longer masquerade as valid `activity_hours`, `top_topics`, or
+    `k_tags` sequences by leaking their keys through tuple coercion; the
+    affected model constructors and `from_db_row()` paths now reject mapping
+    inputs instead of silently reinterpreting them as canonical content;
+  - added paired `NIP-85` coverage proving both direct constructors and
+    database-row hydration now fail fast on malformed mapping payloads for
+    `activity_hours`, `top_topics`, and `k_tags`.

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -251,7 +252,12 @@ def _require_text_sequence(value: Any, field_name: str, *, noun: str) -> tuple[s
         raise TypeError(f"{field_name} must be a sequence of {noun}")
     if isinstance(value, (str, bytes)):
         raise TypeError(f"{field_name} must be a sequence of {noun}, not a scalar string")
-    items = tuple(value)
+    if isinstance(value, Mapping):
+        raise TypeError(f"{field_name} must be a sequence of {noun}, not a mapping")
+    try:
+        items = tuple(value)
+    except TypeError as exc:
+        raise TypeError(f"{field_name} must be a sequence of {noun}") from exc
     if any(not isinstance(item, str) for item in items):
         raise TypeError(f"{field_name} must contain only strings")
     return items
@@ -281,9 +287,19 @@ def _require_optional_non_negative_int(value: Any, field_name: str) -> int | Non
     return _require_non_negative_int(value, field_name)
 
 
-def _normalize_activity_hours(value: tuple[int, ...]) -> tuple[int, ...]:
+def _normalize_activity_hours(value: Any) -> tuple[int, ...]:
     """Validate and normalize the 24-slot UTC activity heatmap."""
-    normalized = tuple(_require_non_negative_int(hour, "activity_hours entries") for hour in value)
+    if isinstance(value, (str, bytes)):
+        raise TypeError("activity_hours must be a sequence of hourly buckets, not a scalar string")
+    if isinstance(value, Mapping):
+        raise TypeError("activity_hours must be a sequence of hourly buckets, not a mapping")
+    try:
+        raw_values = tuple(value)
+    except TypeError as exc:
+        raise TypeError("activity_hours must be a sequence of hourly buckets") from exc
+    normalized = tuple(
+        _require_non_negative_int(hour, "activity_hours entries") for hour in raw_values
+    )
     if len(normalized) != _ACTIVITY_HOURS_BUCKETS:
         raise ValueError(
             f"activity_hours must contain exactly {_ACTIVITY_HOURS_BUCKETS} hourly buckets"
@@ -456,8 +472,7 @@ class UserAssertion:
             5 if raw_top_n is _MISSING else _require_non_negative_int(raw_top_n, "top_topics_limit")
         )
 
-        hours_raw = row.get("activity_hours")
-        hours = tuple(hours_raw) if hours_raw is not None else (0,) * 24
+        hours = row.get("activity_hours", (0,) * 24)
 
         return cls(
             pubkey=row["pubkey"],
