@@ -236,6 +236,19 @@ class TestClearnetConfigCustomValues:
         with pytest.raises(ValidationError, match=r"enabled: expected boolean, got"):
             ClearnetConfig(enabled=value)
 
+    @pytest.mark.parametrize(
+        "value", [True, "", "   ", "garbage", "socks5://:9050", "socks5://x:0"]
+    )
+    def test_rejects_invalid_proxy_url(self, value: object) -> None:
+        with pytest.raises(
+            ValidationError, match="proxy_url must be a valid proxy URL with scheme and hostname"
+        ):
+            ClearnetConfig(proxy_url=value)  # type: ignore[arg-type]
+
+    def test_trims_valid_proxy_url(self) -> None:
+        config = ClearnetConfig(proxy_url=" socks5://127.0.0.1:9050 ")
+        assert config.proxy_url == "socks5://127.0.0.1:9050"
+
 
 # =============================================================================
 # TorConfig Tests
@@ -302,6 +315,19 @@ class TestTorConfigCustomValues:
         assert config.max_tasks == 20
         assert config.timeout == 45.0
 
+    @pytest.mark.parametrize(
+        "value", [True, "", "   ", "garbage", "socks5://:9050", "socks5://x:0"]
+    )
+    def test_rejects_invalid_proxy_url(self, value: object) -> None:
+        with pytest.raises(
+            ValidationError, match="proxy_url must be a valid proxy URL with scheme and hostname"
+        ):
+            TorConfig(proxy_url=value)  # type: ignore[arg-type]
+
+    def test_trims_valid_proxy_url(self) -> None:
+        config = TorConfig(proxy_url=" socks5://localhost:9050 ")
+        assert config.proxy_url == "socks5://localhost:9050"
+
 
 # =============================================================================
 # I2pConfig Tests
@@ -347,6 +373,19 @@ class TestI2pConfigCustomValues:
         assert config.proxy_url == "socks5://i2p:4447"
         assert config.timeout == 45.0
 
+    @pytest.mark.parametrize(
+        "value", [True, "", "   ", "garbage", "socks5://:9050", "socks5://x:0"]
+    )
+    def test_rejects_invalid_proxy_url(self, value: object) -> None:
+        with pytest.raises(
+            ValidationError, match="proxy_url must be a valid proxy URL with scheme and hostname"
+        ):
+            I2pConfig(proxy_url=value)  # type: ignore[arg-type]
+
+    def test_trims_valid_proxy_url(self) -> None:
+        config = I2pConfig(proxy_url=" socks5://i2p:4447 ")
+        assert config.proxy_url == "socks5://i2p:4447"
+
 
 # =============================================================================
 # LokiConfig Tests
@@ -389,6 +428,19 @@ class TestLokiConfigCustomValues:
         """Test partial override inherits proxy_url default."""
         config = LokiConfig(enabled=True)
         assert config.enabled is True
+        assert config.proxy_url == "socks5://lokinet:1080"
+
+    @pytest.mark.parametrize(
+        "value", [True, "", "   ", "garbage", "socks5://:9050", "socks5://x:0"]
+    )
+    def test_rejects_invalid_proxy_url(self, value: object) -> None:
+        with pytest.raises(
+            ValidationError, match="proxy_url must be a valid proxy URL with scheme and hostname"
+        ):
+            LokiConfig(proxy_url=value)  # type: ignore[arg-type]
+
+    def test_trims_valid_proxy_url(self) -> None:
+        config = LokiConfig(proxy_url=" socks5://lokinet:1080 ")
         assert config.proxy_url == "socks5://lokinet:1080"
 
 

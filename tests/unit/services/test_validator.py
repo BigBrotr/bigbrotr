@@ -12,6 +12,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models.constants import NetworkType, ServiceName
@@ -1307,6 +1308,27 @@ class TestNetworkRouting:
         )
         assert proxy == "socks5://lokinet:1080"
         assert timeout == 30.0
+
+    async def test_nested_proxy_url_is_trimmed(self, validator_brotr: Brotr) -> None:
+        cfg = ValidatorConfig(
+            networks={"tor": {"enabled": True, "proxy_url": " socks5://tor:9050 ", "timeout": 45.0}}
+        )
+        proxy, timeout = await self._run(
+            validator_brotr,
+            cfg,
+            _candidate(f"ws://{'a' * 56}.onion", NetworkType.TOR),
+        )
+        assert proxy == "socks5://tor:9050"
+        assert timeout == 45.0
+
+    @pytest.mark.parametrize(
+        "value", [True, "", "   ", "garbage", "socks5://:9050", "socks5://x:0"]
+    )
+    async def test_nested_proxy_url_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(
+            ValidationError, match="proxy_url must be a valid proxy URL with scheme and hostname"
+        ):
+            ValidatorConfig(networks={"tor": {"enabled": True, "proxy_url": value}})
 
     async def test_allow_insecure_passed(self, validator_brotr: Brotr) -> None:
         cfg = ValidatorConfig(processing=ProcessingConfig(allow_insecure=True))

@@ -58,6 +58,7 @@ from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.utils.keys import load_keys_from_env
+from bigbrotr.utils.protocol_proxy import normalize_proxy_url
 
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,11 @@ def _require_bool(value: Any, field_name: str) -> bool:
     if not isinstance(value, bool):
         raise ValueError(f"{field_name}: expected boolean, got {type(value).__name__}")
     return value
+
+
+def _normalize_optional_proxy_url(value: Any) -> str | None:
+    """Normalize optional authored proxy URLs against the shared protocol contract."""
+    return normalize_proxy_url(value)
 
 
 def parse_relay_list_fail_soft(raw: object) -> list[Relay] | None:
@@ -300,6 +306,11 @@ class ClearnetConfig(BaseModel):
         field_name = info.field_name or "enabled"
         return _require_bool(value, field_name)
 
+    @field_validator("proxy_url", mode="before")
+    @classmethod
+    def normalize_proxy_url(cls, value: Any) -> str | None:
+        return _normalize_optional_proxy_url(value)
+
 
 class TorConfig(BaseModel):
     """Configuration for Tor (.onion) relays.
@@ -334,6 +345,11 @@ class TorConfig(BaseModel):
         field_name = info.field_name or "enabled"
         return _require_bool(value, field_name)
 
+    @field_validator("proxy_url", mode="before")
+    @classmethod
+    def normalize_proxy_url(cls, value: Any) -> str | None:
+        return _normalize_optional_proxy_url(value)
+
 
 class I2pConfig(BaseModel):
     """Configuration for I2P (.i2p) relays.
@@ -367,6 +383,11 @@ class I2pConfig(BaseModel):
     def require_boolean_enabled(cls, value: Any, info: ValidationInfo) -> bool:
         field_name = info.field_name or "enabled"
         return _require_bool(value, field_name)
+
+    @field_validator("proxy_url", mode="before")
+    @classmethod
+    def normalize_proxy_url(cls, value: Any) -> str | None:
+        return _normalize_optional_proxy_url(value)
 
 
 class LokiConfig(BaseModel):
@@ -404,6 +425,11 @@ class LokiConfig(BaseModel):
     def require_boolean_enabled(cls, value: Any, info: ValidationInfo) -> bool:
         field_name = info.field_name or "enabled"
         return _require_bool(value, field_name)
+
+    @field_validator("proxy_url", mode="before")
+    @classmethod
+    def normalize_proxy_url(cls, value: Any) -> str | None:
+        return _normalize_optional_proxy_url(value)
 
 
 # Union type for any network-specific configuration

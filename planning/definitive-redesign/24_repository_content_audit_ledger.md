@@ -3851,3 +3851,16 @@ Use this section during execution for:
     `services.test_validator` proving malformed nested network `enabled`
     aliases now fail fast in both the shared model layer and a concrete
     service config consumer.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-twenty-fifth
+  remediation slice:
+  - tightened the shared network config boundaries in
+    `services.common.configs` so `proxy_url` now reuses the canonical
+    protocol proxy validator for `ClearnetConfig`, `TorConfig`, `I2pConfig`,
+    and `LokiConfig`;
+  - closed the drift where authored service configs could still carry blank,
+    malformed, or untrimmed proxy URLs until runtime routing, even though the
+    downstream protocol helpers already enforce one canonical proxy contract;
+  - added paired coverage in `services.common.test_configs` and
+    `services.test_validator` proving malformed nested network `proxy_url`
+    payloads now fail fast and valid padded URLs are normalized at config
+    load time.
