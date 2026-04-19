@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import math
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, NamedTuple
@@ -71,6 +72,16 @@ class SharedSessionDependencies(NamedTuple):
     shutdown_client: Callable[[Client], Awaitable[None]]
 
 
+def _normalize_session_timeout(timeout: object) -> float:
+    """Return one canonical positive finite session timeout budget."""
+    if isinstance(timeout, bool) or not isinstance(timeout, int | float):
+        raise ValueError("timeout must be a positive finite number")
+    normalized = float(timeout)
+    if not math.isfinite(normalized) or normalized <= 0:
+        raise ValueError("timeout must be a positive finite number")
+    return normalized
+
+
 def _deduplicate_relays(relays: list[Relay]) -> list[Relay]:
     """Return relays with duplicate URLs removed, preserving first-seen order."""
     deduplicated: list[Relay] = []
@@ -118,11 +129,12 @@ async def connect_client_relays(
     returned connect result stays stable across SDK iteration order. Failed
     relay maps are also returned in stable lexical relay-url order.
     """
+    normalized_timeout = _normalize_session_timeout(timeout)
     _validate_session_relays(relays)
     for relay in _deduplicate_relays(relays):
         await client.add_relay(RelayUrl.parse(relay.url))
 
-    output = await client.try_connect(timedelta(seconds=timeout))
+    output = await client.try_connect(timedelta(seconds=normalized_timeout))
     connected, failed = normalize_relay_outcomes(output)
     return ClientConnectResult(connected=connected, failed=failed)
 
@@ -141,11 +153,12 @@ async def create_connected_client(
     multi-relay session cannot express per-network proxy policy and should not
     allocate client resources for an unsupported contract.
     """
+    normalized_timeout = _normalize_session_timeout(timeout)
     _validate_session_relays(relays)
     client = await dependencies.create_client(keys=keys, allow_insecure=allow_insecure)
     connect_result_ready = False
     try:
-        result = await connect_client_relays(client, relays, timeout=timeout)
+        result = await connect_client_relays(client, relays, timeout=normalized_timeout)
         connect_result_ready = True
         return client, result
     finally:

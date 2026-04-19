@@ -532,6 +532,32 @@ class TestNostrClientManagerSessions:
         mock_client.try_connect.assert_not_awaited()
         assert manager._sessions == {}
 
+    @pytest.mark.parametrize("timeout", [True, 0, -1.0, float("nan")])
+    async def test_connect_session_rejects_invalid_timeout_before_client_creation(
+        self,
+        timeout: object,
+    ) -> None:
+        manager = NostrClientManager(keys=MagicMock())
+        mock_client = AsyncMock()
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol.create_client",
+                new=AsyncMock(return_value=mock_client),
+            ) as mock_create,
+            pytest.raises(ValueError, match="timeout must be a positive finite number"),
+        ):
+            await manager.connect_session(
+                "read-session",
+                [Relay("wss://relay.example.com")],
+                timeout=timeout,  # type: ignore[arg-type]
+            )
+
+        mock_create.assert_not_awaited()
+        mock_client.add_relay.assert_not_awaited()
+        mock_client.try_connect.assert_not_awaited()
+        assert manager._sessions == {}
+
     async def test_connect_session_creates_and_caches_named_session(self) -> None:
         relays = [Relay("wss://relay1.example.com"), Relay("wss://relay2.example.com")]
         mock_client = MagicMock()

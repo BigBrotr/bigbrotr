@@ -2588,3 +2588,16 @@ Use this section during execution for:
   - added paired `utils.protocol_validation` and `utils.protocol` coverage
     proving invalid validation budgets are rejected at construction time and
     never invoke the underlying protocol validator.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-twenty-sixth remediation
+  slice:
+  - tightened the shared-session `utils.protocol_sessions` timeout boundary so
+    `connect_client_relays()` and `create_connected_client()` no longer accept
+    boolean aliases, non-finite values, or non-positive timeout budgets that
+    would otherwise leak impossible deadlines into shared relay registration
+    and connect attempts;
+  - aligned `NostrClientManager.connect_session()` with that stricter contract
+    so malformed named-session time budgets now fail before the manager
+    allocates a client or mutates cached session state;
+  - added paired `utils.protocol_sessions` and `utils.protocol` coverage
+    proving invalid session time budgets are rejected before any shared client
+    creation, relay registration, or connect work starts.

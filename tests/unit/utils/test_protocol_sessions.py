@@ -37,6 +37,21 @@ class TestConnectClientRelays:
         client.add_relay.assert_not_awaited()
         client.try_connect.assert_not_awaited()
 
+    @pytest.mark.parametrize("timeout", [True, 0, -1.0, float("nan")])
+    async def test_rejects_invalid_timeout_before_registration(self, timeout: object) -> None:
+        """Malformed timeout budgets fail fast before any relay registration."""
+        client = AsyncMock()
+
+        with pytest.raises(ValueError, match="timeout must be a positive finite number"):
+            await connect_client_relays(
+                client,
+                [Relay("wss://relay.example.com")],
+                timeout=timeout,  # type: ignore[arg-type]
+            )
+
+        client.add_relay.assert_not_awaited()
+        client.try_connect.assert_not_awaited()
+
     async def test_normalizes_connected_relays_to_stable_order(self) -> None:
         """Connected relay URLs are deduplicated and sorted in the normalized result."""
         client = AsyncMock()
@@ -121,6 +136,26 @@ class TestCreateConnectedClient:
                     shutdown_client=AsyncMock(),
                 ),
                 timeout=15.0,
+            )
+
+        create_client_func.assert_not_awaited()
+        client.add_relay.assert_not_awaited()
+        client.try_connect.assert_not_awaited()
+
+    @pytest.mark.parametrize("timeout", [True, 0, -1.0, float("inf")])
+    async def test_rejects_invalid_timeout_before_client_creation(self, timeout: object) -> None:
+        """Malformed timeout budgets fail fast before allocating a shared client."""
+        client = AsyncMock()
+        create_client_func = AsyncMock(return_value=client)
+
+        with pytest.raises(ValueError, match="timeout must be a positive finite number"):
+            await create_connected_client(
+                [Relay("wss://relay.example.com")],
+                dependencies=SharedSessionDependencies(
+                    create_client=create_client_func,
+                    shutdown_client=AsyncMock(),
+                ),
+                timeout=timeout,  # type: ignore[arg-type]
             )
 
         create_client_func.assert_not_awaited()

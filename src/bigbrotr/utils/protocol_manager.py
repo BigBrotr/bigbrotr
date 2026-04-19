@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 from nostr_sdk import NostrSdkError
 
-from .protocol_sessions import ClientSession, _deduplicate_relays, _validate_session_relays
+from .protocol_sessions import (
+    ClientSession,
+    _deduplicate_relays,
+    _normalize_session_timeout,
+    _validate_session_relays,
+)
 from .transport import DEFAULT_TIMEOUT
 
 
@@ -152,6 +157,7 @@ class NostrClientManager:
         session identity is keyed by the normalized relay set, not by caller
         input order.
         """
+        normalized_timeout = _normalize_session_timeout(timeout)
         relay_urls = tuple(sorted({relay.url for relay in relays}))
         normalized_relays = _deduplicate_relays(relays)
         existing = self._sessions.get(session_id)
@@ -170,7 +176,7 @@ class NostrClientManager:
             result = await self._dependencies.connect_client_relays(
                 client,
                 normalized_relays,
-                timeout=timeout,
+                timeout=normalized_timeout,
             )
             session = ClientSession(
                 session_id=session_id,
