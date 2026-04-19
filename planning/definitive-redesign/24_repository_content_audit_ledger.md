@@ -2292,3 +2292,13 @@ Use this section during execution for:
     corrected;
   - added `monitor` coverage proving live page processing now persists relay
     checkpoints rounded up instead of truncating fractional completion time.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-ninety-eighth remediation
+  slice:
+  - tightened the `monitor` document-generation boundary so relay document
+    `associated_at` markers no longer inherit a floored per-check timestamp,
+    which previously let freshly generated relay documents fall on the wrong
+    side of the refresher's strict `associated_at > checkpoint` incremental
+    watermark and wait for a later cycle to become visible;
+  - added `monitor` coverage proving live `check_relay()` wiring now rounds
+    fractional `generated_at` up instead of truncating it before the result
+    feeds stored relay-document associations.

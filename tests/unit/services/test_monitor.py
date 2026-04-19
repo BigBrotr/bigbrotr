@@ -3308,6 +3308,27 @@ class TestCheckRelay:
         assert not result.has_data
         assert result.generated_at == 0
 
+    async def test_check_relay_rounds_fractional_generated_at_up(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        config = self._cfg(nip11_info=True)
+        monitor = Monitor(brotr=mock_brotr, config=config)
+        relay = Relay("wss://relay.example.com")
+        nip11_meta = _make_nip11_meta(name="Test")
+
+        with (
+            patch(
+                "bigbrotr.services.monitor.service.retry_fetch",
+                new_callable=AsyncMock,
+                return_value=nip11_meta,
+            ),
+            patch("bigbrotr.services.monitor.service.time.time", return_value=10_000.2),
+        ):
+            result = await monitor.check_relay(relay)
+
+        assert result.generated_at == 10_001
+
     async def test_check_relay_rtt_skips_pow_when_nip11_absent(self, mock_brotr: Brotr) -> None:
         config = self._cfg(nip11_info=True, nip66_rtt=True)
         monitor = Monitor(brotr=mock_brotr, config=config)

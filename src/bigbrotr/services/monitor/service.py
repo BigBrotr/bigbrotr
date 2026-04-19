@@ -359,7 +359,7 @@ class Monitor(
             metadata for each completed check (``None`` if skipped/failed).
         """
         return await run_monitor_check_relay(
-            self._check_context(relay, generated_at=int(time.time())),
+            self._check_context(relay, generated_at=math.ceil(time.time())),
             self._check_dependencies(),
         )
 
