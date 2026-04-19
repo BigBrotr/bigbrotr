@@ -86,6 +86,37 @@ def _drop_out_of_range_number_fields(
             )
 
 
+def _drop_blank_string_list_entries(
+    parsed: dict[str, Any],
+    issues: list[ParseIssue],
+    field_names: tuple[str, ...],
+    *,
+    path: str,
+) -> None:
+    for key in field_names:
+        value = parsed.get(key)
+        if not isinstance(value, list):
+            continue
+
+        valid_entries: list[str] = []
+        for index, entry in enumerate(value):
+            if entry.strip() == "":
+                issues.append(
+                    ParseIssue(
+                        kind="invalid_value",
+                        path=join_parse_path(path, f"{key}[{index}]"),
+                        detail="expected non-empty str",
+                    )
+                )
+                continue
+            valid_entries.append(entry)
+
+        if valid_entries:
+            parsed[key] = sorted(set(valid_entries))
+        else:
+            del parsed[key]
+
+
 class Nip66RttData(BaseData):
     """Round-trip time measurements in milliseconds.
 
@@ -205,9 +236,12 @@ class Nip66SslData(BaseData):
 
     @field_validator("ssl_san")
     @classmethod
-    def _normalize_san_list(cls, value: list[str] | None) -> list[str] | None:
+    def _normalize_san_list(cls, value: list[str] | None, info: Any) -> list[str] | None:
         if value is None:
             return None
+        for entry in value:
+            if entry.strip() == "":
+                raise ValueError(f"{info.field_name} entries must be non-empty strings")
         return sorted(set(value))
 
     @classmethod
@@ -216,6 +250,7 @@ class Nip66SslData(BaseData):
         report = super().parse_report(data, path=path)
         parsed = dict(report.parsed)
         issues = list(report.issues)
+        _drop_blank_string_list_entries(parsed, issues, ("ssl_san",), path=path)
         _drop_negative_int_fields(
             parsed,
             issues,
@@ -432,14 +467,23 @@ class Nip66DnsData(BaseData):
         report = super().parse_report(data, path=path)
         parsed = dict(report.parsed)
         issues = list(report.issues)
+        _drop_blank_string_list_entries(
+            parsed,
+            issues,
+            ("dns_ips", "dns_ips_v6", "dns_ns"),
+            path=path,
+        )
         _drop_negative_int_fields(parsed, issues, ("dns_ttl",), path=path)
         return ParseReport(parsed=parsed, issues=tuple(issues))
 
     @field_validator("dns_ips", "dns_ips_v6", "dns_ns")
     @classmethod
-    def _normalize_set_like_lists(cls, value: list[str] | None) -> list[str] | None:
+    def _normalize_set_like_lists(cls, value: list[str] | None, info: Any) -> list[str] | None:
         if value is None:
             return None
+        for entry in value:
+            if entry.strip() == "":
+                raise ValueError(f"{info.field_name} entries must be non-empty strings")
         return sorted(set(value))
 
 

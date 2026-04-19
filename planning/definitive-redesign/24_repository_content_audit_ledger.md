@@ -3271,3 +3271,16 @@ Use this section during execution for:
   - added paired `nips.nip11.test_data` coverage proving blank string-list
     entries now fail fast at construction time and are filtered from parse
     output.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-seventy-ninth
+  remediation slice:
+  - tightened the `nips.nip66.data` set-like string-list boundary so
+    `ssl_san`, `dns_ips`, `dns_ips_v6`, and `dns_ns` now reject blank or
+    whitespace-only entries both at direct model construction and during
+    permissive parse/report sanitization;
+  - closed the drift where semantically empty NIP-66 SAN or DNS list entries
+    could survive as canonical monitoring metadata and later flow into
+    shared result containers, persisted documents, and public builder
+    output;
+  - added paired `nips.nip66.test_data` coverage proving blank set-like list
+    entries now fail fast at construction time and are filtered from parse
+    output.

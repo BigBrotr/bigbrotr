@@ -147,6 +147,11 @@ class TestNip66SslData:
         )
         assert data.ssl_san == ["*.example.com", "relay.example.com"]
 
+    def test_construction_rejects_blank_san_entries(self) -> None:
+        """Constructor rejects blank or whitespace-only SAN entries."""
+        with pytest.raises(ValidationError, match="ssl_san entries must be non-empty strings"):
+            Nip66SslData(ssl_san=[" ", "relay.example.com"])
+
     @pytest.mark.parametrize(
         "kwargs",
         [
@@ -224,6 +229,12 @@ class TestNip66SslData:
     def test_parse_filters_invalid_san_elements(self) -> None:
         """parse() filters invalid elements in SAN list."""
         raw = {"ssl_san": ["relay.example.com", 123, None, "*.example.com", "relay.example.com"]}
+        parsed = Nip66SslData.parse(raw)
+        assert parsed == {"ssl_san": ["*.example.com", "relay.example.com"]}
+
+    def test_parse_filters_blank_san_entries(self) -> None:
+        """parse() filters blank or whitespace-only SAN entries."""
+        raw = {"ssl_san": [" ", "relay.example.com", "", "*.example.com"]}
         parsed = Nip66SslData.parse(raw)
         assert parsed == {"ssl_san": ["*.example.com", "relay.example.com"]}
 
@@ -430,6 +441,24 @@ class TestNip66DnsData:
         assert data.dns_ips_v6 == ["2001:4860:4860::8844", "2001:4860:4860::8888"]
         assert data.dns_ns == ["ns1.google.com", "ns2.google.com"]
 
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"dns_ips": ["", "8.8.8.8"]}, "dns_ips entries must be non-empty strings"),
+            (
+                {"dns_ips_v6": [" ", "2001:4860:4860::8888"]},
+                "dns_ips_v6 entries must be non-empty strings",
+            ),
+            ({"dns_ns": [" ", "ns1.google.com"]}, "dns_ns entries must be non-empty strings"),
+        ],
+    )
+    def test_construction_rejects_blank_dns_list_entries(
+        self, kwargs: dict[str, list[str]], message: str
+    ) -> None:
+        """Constructor rejects blank or whitespace-only DNS list entries."""
+        with pytest.raises(ValidationError, match=message):
+            Nip66DnsData(**kwargs)
+
     def test_parse_filters_empty_lists(self) -> None:
         """parse() filters empty lists."""
         raw = {
@@ -451,6 +480,20 @@ class TestNip66DnsData:
         assert parsed == {
             "dns_ips": ["8.8.4.4", "8.8.8.8"],
             "dns_ns": ["ns1.google.com", "ns2.google.com"],
+        }
+
+    def test_parse_filters_blank_dns_list_entries(self) -> None:
+        """parse() filters blank or whitespace-only DNS list entries."""
+        raw = {
+            "dns_ips": [" ", "8.8.8.8", ""],
+            "dns_ips_v6": ["", "2001:4860:4860::8888", " "],
+            "dns_ns": [" ", "ns1.google.com", ""],
+        }
+        parsed = Nip66DnsData.parse(raw)
+        assert parsed == {
+            "dns_ips": ["8.8.8.8"],
+            "dns_ips_v6": ["2001:4860:4860::8888"],
+            "dns_ns": ["ns1.google.com"],
         }
 
     def test_parse_list_all_invalid_becomes_none(self) -> None:
