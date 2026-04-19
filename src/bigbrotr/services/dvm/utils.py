@@ -132,6 +132,13 @@ def normalize_job_params(params: Mapping[Any, Any]) -> dict[str, Any]:
     return normalized
 
 
+def normalize_requested_resource_id(requested_resource_id: Any) -> str:
+    """Normalize the public read-model selector to the live NIP-90 contract."""
+    if not isinstance(requested_resource_id, str):
+        raise ReadModelQueryError("Invalid query parameter")
+    return requested_resource_id.strip()
+
+
 def _normalize_bid(raw_bid: Any) -> int:
     """Normalize optional pre-parsed bid values to the live transport contract."""
     if isinstance(raw_bid, bool):
@@ -156,13 +163,9 @@ def prepare_job_request(
     """Resolve exposure, pricing, and query parsing for one NIP-90 job request."""
     try:
         params = normalize_job_params(params)
+        requested_resource_id = normalize_requested_resource_id(requested_resource_id)
     except ReadModelQueryError as e:
         return RejectedJobRequest(error_message=e.client_message)
-    requested_resource_id = (
-        requested_resource_id.strip()
-        if isinstance(requested_resource_id, str)
-        else str(requested_resource_id).strip()
-    )
     resolved_resource = context.read_core.resolve_resource("dvm", requested_resource_id)
     if resolved_resource is None:
         return RejectedJobRequest(

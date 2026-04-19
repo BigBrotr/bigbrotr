@@ -458,7 +458,7 @@ class TestPrepareJobRequest:
         )
 
         assert isinstance(rejected, RejectedJobRequest)
-        assert rejected.error_message == "Invalid or disabled read model: 123"
+        assert rejected.error_message == "Invalid query parameter"
         assert rejected.required_price is None
 
     def test_requires_payment_when_bid_too_low(

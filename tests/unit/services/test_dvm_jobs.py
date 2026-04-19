@@ -460,12 +460,7 @@ class TestProcessRequestEvent:
         assert result == (1, 0, 1, 0)
         query_resource.assert_not_awaited()
         send_event.assert_awaited_once()
-        logger.info.assert_any_call(
-            "job_received",
-            event_id="job-invalid-read-model-type",
-            requested_read_model_id="123",
-            customer="author_pubkey_hex",
-        )
+        logger.info.assert_not_called()
 
     @patch("bigbrotr.services.dvm.jobs.parse_job_params")
     async def test_rejects_invalid_cursor_type_from_preparsed_job_params(

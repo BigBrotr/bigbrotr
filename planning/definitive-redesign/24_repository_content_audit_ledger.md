@@ -2302,3 +2302,13 @@ Use this section during execution for:
   - added `monitor` coverage proving live `check_relay()` wiring now rounds
     fractional `generated_at` up instead of truncating it before the result
     feeds stored relay-document associations.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-ninety-ninth remediation
+  slice:
+  - tightened the `DVM` public request boundary so pre-parsed `read_model`
+    payloads must still be real strings, which prevents malformed job params
+    like `123` from being coerced into fake readable-resource IDs and logged
+    as ordinary unknown-model requests instead of failing fast as invalid
+    input;
+  - added paired `DVM` coverage proving both direct job preparation and live
+    job execution now reject non-string read-model selectors before the
+    request is logged or resolved through the shared read core.
