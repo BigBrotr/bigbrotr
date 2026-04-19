@@ -3938,3 +3938,13 @@ Use this section during execution for:
   - added paired coverage in `services.test_api` and `services.test_dvm`
     proving malformed timeout aliases now fail fast in both public adapter
     consumers.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-thirty-second
+  remediation slice:
+  - tightened the public-adapter config boundary in
+    `services.api.configs.ApiConfig` so `port` now requires a canonical
+    integer instead of accepting numeric strings or floats;
+  - closed the drift where authored API port payloads like `"8000"` or
+    `8000.0` could silently coerce into a valid bind port and change runtime
+    listener behavior without passing through an explicit integer boundary;
+  - added coverage in `services.test_api` proving malformed port aliases now
+    fail fast at API config load time.

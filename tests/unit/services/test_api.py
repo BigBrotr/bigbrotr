@@ -208,6 +208,11 @@ class TestApiConfig:
         with pytest.raises(ValueError, match="port: expected integer, got bool"):
             ApiConfig(port=True)
 
+    @pytest.mark.parametrize("value", ["8000", 8000.0])
+    def test_rejects_non_integer_port_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"port: expected integer, got"):
+            ApiConfig(port=value)
+
     def test_empty_host_rejected(self) -> None:
         with pytest.raises(ValueError):
             ApiConfig(host="")

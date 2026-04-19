@@ -23,6 +23,12 @@ def _require_number(value: Any, field_name: str) -> int | float:
     return cast("int | float", value)
 
 
+def _require_int(value: Any, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name}: expected integer, got {type(value).__name__}")
+    return cast("int", value)
+
+
 class ApiConfig(PublicReadAdapterConfig):
     """Configuration for the API service.
 
@@ -80,10 +86,9 @@ class ApiConfig(PublicReadAdapterConfig):
 
     @field_validator("port", mode="before")
     @classmethod
-    def _reject_boolean_port(cls, value: Any) -> Any:
-        if isinstance(value, bool):
-            raise ValueError("port: expected integer, got bool")
-        return value
+    def _require_integer_port(cls, value: Any, info: ValidationInfo) -> int:
+        field_name = info.field_name or "value"
+        return _require_int(value, field_name)
 
     @field_validator("route_prefix")
     @classmethod
