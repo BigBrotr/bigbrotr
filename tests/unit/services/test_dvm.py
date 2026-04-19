@@ -213,6 +213,14 @@ class TestDvmConfig:
         assert config.fetch_timeout == 30.0
         assert config.allow_insecure is False
 
+    def test_nested_keys_env_is_trimmed(self) -> None:
+        config = DvmConfig(
+            relays=["wss://relay.example.com"],
+            keys={"keys_env": " NOSTR_PRIVATE_KEY_DVM "},
+        )
+        assert config.keys.keys_env == "NOSTR_PRIVATE_KEY_DVM"
+        assert config.keys.keys.secret_key().to_hex() == VALID_HEX_KEY
+
     def test_custom_branding(self) -> None:
         config = DvmConfig(
             relays=["wss://relay.example.com"],

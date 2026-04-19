@@ -144,14 +144,20 @@ class NostrKeysConfig(BaseModel):
         if not isinstance(data, dict):
             return data
 
+        data = dict(data)
+
+        env_var = data.get("keys_env")
+        if isinstance(env_var, str):
+            normalized_env_var = env_var.strip()
+            data["keys_env"] = normalized_env_var or None
+
         if data.get("keys") is not None:
             return data
 
-        data = dict(data)
         data.pop("keys", None)
 
         env_var = data.get("keys_env")
-        if not isinstance(env_var, str) or not env_var.strip():
+        if not isinstance(env_var, str):
             return data
 
         keys = load_keys_from_env(env_var)

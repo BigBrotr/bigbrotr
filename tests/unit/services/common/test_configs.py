@@ -55,16 +55,33 @@ class TestNostrKeysConfig:
             config = NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
         assert isinstance(config.keys, Keys)
 
+    def test_blank_keys_env_collapses_to_none(self) -> None:
+        config = NostrKeysConfig(keys_env="   ")
+        assert config.keys_env is None
+        assert isinstance(config.keys, Keys)
+
     def test_loads_hex_key_from_env(self) -> None:
         with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": VALID_HEX_KEY}):
             config = NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
         assert isinstance(config.keys, Keys)
         assert config.keys.secret_key().to_hex() == VALID_HEX_KEY
 
+    def test_trimmed_keys_env_loads_key_from_env(self) -> None:
+        with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": VALID_HEX_KEY}):
+            config = NostrKeysConfig(keys_env=" NOSTR_PRIVATE_KEY_MONITOR ")
+        assert config.keys_env == "NOSTR_PRIVATE_KEY_MONITOR"
+        assert config.keys.secret_key().to_hex() == VALID_HEX_KEY
+
     def test_explicit_keys_override_env(self) -> None:
         explicit_keys = Keys.generate()
         with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": VALID_HEX_KEY}):
             config = NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR", keys=explicit_keys)
+        assert config.keys is explicit_keys
+
+    def test_trimmed_keys_env_is_preserved_when_explicit_keys_override_env(self) -> None:
+        explicit_keys = Keys.generate()
+        config = NostrKeysConfig(keys_env=" CUSTOM_KEY ", keys=explicit_keys)
+        assert config.keys_env == "CUSTOM_KEY"
         assert config.keys is explicit_keys
 
     def test_model_validate_uses_custom_env(self) -> None:

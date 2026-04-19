@@ -3864,3 +3864,16 @@ Use this section during execution for:
     `services.test_validator` proving malformed nested network `proxy_url`
     payloads now fail fast and valid padded URLs are normalized at config
     load time.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-twenty-sixth
+  remediation slice:
+  - tightened the shared `services.common.configs.NostrKeysConfig`
+    environment-variable boundary so `keys_env` now trims surrounding
+    whitespace and collapses blank-only payloads to `None` before key loading;
+  - closed the drift where authored service configs could silently miss the
+    intended environment variable and generate ephemeral keys just because the
+    variable name was padded in YAML, even though the operator meant to bind a
+    stable Nostr identity;
+  - added paired coverage in `services.common.test_configs` and
+    `services.test_dvm` proving padded nested `keys_env` payloads now
+    canonicalize at config load time and still resolve the expected signing
+    key.
