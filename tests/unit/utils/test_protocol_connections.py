@@ -35,6 +35,27 @@ def _context(
     )
 
 
+class TestRelayConnectOptions:
+    @pytest.mark.parametrize("timeout", [True, 0, -1.0, float("nan"), float("inf")])
+    def test_rejects_invalid_timeout(self, timeout: object) -> None:
+        with pytest.raises(ValueError, match="timeout must be a positive finite number"):
+            RelayConnectOptions(
+                keys=None,
+                proxy_url=None,
+                timeout=timeout,  # type: ignore[arg-type]
+                allow_insecure=False,
+            )
+
+    def test_rejects_non_bool_allow_insecure(self) -> None:
+        with pytest.raises(ValueError, match="allow_insecure must be a bool"):
+            RelayConnectOptions(
+                keys=None,
+                proxy_url=None,
+                timeout=5.0,
+                allow_insecure=1,  # type: ignore[arg-type]
+            )
+
+
 class TestProtocolConnections:
     async def test_overlay_connection_uses_proxy_client(self) -> None:
         relay = Relay(f"ws://{'a' * 56}.onion")

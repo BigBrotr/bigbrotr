@@ -924,6 +924,24 @@ class TestConnectRelayClearnet:
 
         mock_connect.assert_not_awaited()
 
+    @pytest.mark.parametrize("timeout", [0, float("nan")])
+    async def test_rejects_invalid_timeout_before_runtime_connect(self, timeout: float) -> None:
+        """Invalid time budgets fail fast before the runtime connect helper starts."""
+        relay = Relay("wss://relay.example.com")
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol._protocol_connections.connect_relay",
+                new_callable=AsyncMock,
+            ) as mock_connect,
+            pytest.raises(ValueError, match="timeout must be a positive finite number"),
+        ):
+            from bigbrotr.utils.protocol import connect_relay
+
+            await connect_relay(relay, timeout=timeout)
+
+        mock_connect.assert_not_awaited()
+
     async def test_ssl_error_fallback_disabled_raises(self) -> None:
         """Test SSL errors raise when allow_insecure=False."""
         relay = Relay("wss://relay.example.com")

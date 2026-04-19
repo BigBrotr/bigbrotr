@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import math
 import ssl
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -35,13 +37,25 @@ class RelayConnectContext(NamedTuple):
     logger: logging.Logger
 
 
-class RelayConnectOptions(NamedTuple):
+@dataclass(frozen=True, slots=True)
+class RelayConnectOptions:
     """Parameters controlling how a relay connection is established."""
 
     keys: Keys | None
     proxy_url: str | None
     timeout: float
     allow_insecure: bool
+
+    def __post_init__(self) -> None:
+        if isinstance(self.timeout, bool) or not isinstance(self.timeout, int | float):
+            raise ValueError("timeout must be a positive finite number")
+        normalized_timeout = float(self.timeout)
+        if not math.isfinite(normalized_timeout) or normalized_timeout <= 0:
+            raise ValueError("timeout must be a positive finite number")
+        object.__setattr__(self, "timeout", normalized_timeout)
+
+        if not isinstance(self.allow_insecure, bool):
+            raise ValueError("allow_insecure must be a bool")
 
 
 async def _try_connect_single_relay(

@@ -2601,3 +2601,16 @@ Use this section during execution for:
   - added paired `utils.protocol_sessions` and `utils.protocol` coverage
     proving invalid session time budgets are rejected before any shared client
     creation, relay registration, or connect work starts.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-twenty-seventh remediation
+  slice:
+  - tightened the single-relay `utils.protocol_connections` option boundary so
+    `RelayConnectOptions` no longer accepts boolean aliases, non-finite values,
+    or non-positive `timeout` budgets, and no longer accepts non-bool
+    `allow_insecure` values that could otherwise leak impossible deadlines or
+    insecure-fallback policy into the direct relay connect helper;
+  - aligned the public `connect_relay()` facade with that stricter leaf
+    contract, so malformed single-relay time budgets now fail before the
+    runtime connect helper starts;
+  - added paired `utils.protocol_connections` and `utils.protocol` coverage
+    proving invalid option payloads are rejected at construction time and do
+    not invoke the underlying single-relay connect flow.
