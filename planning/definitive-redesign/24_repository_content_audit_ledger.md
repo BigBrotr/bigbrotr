@@ -2384,3 +2384,13 @@ Use this section during execution for:
   - added paired `synchronizer` coverage proving the runtime worker now uses
     the plan-frozen `end_time` when provided, and the service wrapper passes
     that same cutoff through to worker execution for each cursor page.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-seventh remediation
+  slice:
+  - tightened the `finder` API cooldown seam so sequential source fetching no
+    longer freezes all cooldown eligibility from a single cycle-start time
+    snapshot, which previously let a later source remain skipped for the
+    whole cycle even when its cooldown expired while earlier sources were
+    being fetched behind `request_delay` pacing;
+  - added paired `finder` coverage proving the runtime worker now reevaluates
+    cooldown eligibility at each source attempt, and the service wiring
+    passes a live clock through that path instead of a one-shot timestamp.

@@ -231,7 +231,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
             context=ApiDiscoveryWorkerContext(
                 brotr=self._brotr,
                 cooldown=self._config.api.cooldown,
-                now=time.time(),
+                current_time=time.time,
                 max_response_size=self._config.api.max_response_size,
                 request_delay=self._config.api.request_delay,
                 is_running=lambda: self.is_running,

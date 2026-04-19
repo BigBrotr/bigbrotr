@@ -1486,6 +1486,67 @@ class TestFinderFindFromApi:
             mock_session.get.assert_called_once()
             mock_save.assert_awaited_once()
 
+    async def test_later_source_becomes_due_after_request_delay(self, mock_brotr: Brotr) -> None:
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                cooldown=10.0,
+                sources=[
+                    ApiSourceConfig(url="https://api1.example.com", expression="[*]"),
+                    ApiSourceConfig(url="https://api2.example.com", expression="[*]"),
+                ],
+                request_delay=1.0,
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.fetch_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value=[
+                    ApiCheckpoint(key="https://api1.example.com", timestamp=0),
+                    ApiCheckpoint(key="https://api2.example.com", timestamp=95),
+                ],
+            ),
+            patch(
+                "bigbrotr.services.finder.service.upsert_api_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
+            patch("aiohttp.ClientSession") as mock_session_cls,
+            patch(
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
+                return_value=2,
+            ),
+            patch(
+                "bigbrotr.services.finder.service.time.time",
+                side_effect=[100.0, 100.1, 106.0, 106.1],
+            ),
+        ):
+            mock_session = MagicMock()
+            mock_session.get = MagicMock(
+                side_effect=[
+                    _mock_api_response(["wss://relay1.com"]),
+                    _mock_api_response(["wss://relay1.com"]),
+                ]
+            )
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_session_cls.return_value = mock_session
+            finder.wait = AsyncMock(return_value=False)  # type: ignore[method-assign]
+
+            result = await finder.find_from_api()
+
+        assert result == 2
+        assert mock_session.get.call_count == 2
+        finder.wait.assert_awaited_once_with(1.0)
+        mock_save.assert_awaited_once()
+        assert mock_save.await_args.args[1] == [
+            ApiCheckpoint(key="https://api1.example.com", timestamp=101),
+            ApiCheckpoint(key="https://api2.example.com", timestamp=107),
+        ]
+
     async def test_shutdown_during_iteration_stops(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(
             api=ApiConfig(

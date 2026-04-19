@@ -66,7 +66,7 @@ class TestFindFromApiWorker:
                 context=ApiDiscoveryWorkerContext(
                     brotr=runtime_brotr,
                     cooldown=0,
-                    now=1_000,
+                    current_time=lambda: 1_000,
                     max_response_size=1024,
                     request_delay=0.0,
                     is_running=lambda: True,
@@ -83,6 +83,61 @@ class TestFindFromApiWorker:
 
         assert items == [([relay], ApiCheckpoint(key=source.url, timestamp=456))]
         fetch_checkpoints.assert_awaited_once_with(runtime_brotr, [source.url])
+
+    async def test_later_source_can_become_due_during_request_delay(
+        self,
+        runtime_brotr: MagicMock,
+    ) -> None:
+        sources = [
+            ApiSourceConfig(url="https://api1.example.com", expression="[*]"),
+            ApiSourceConfig(url="https://api2.example.com", expression="[*]"),
+        ]
+        relay = Relay("wss://relay.example.com")
+        fetch_checkpoints = AsyncMock(
+            return_value=[
+                ApiCheckpoint(key="https://api1.example.com", timestamp=0),
+                ApiCheckpoint(key="https://api2.example.com", timestamp=95),
+            ]
+        )
+        fetch_api_fn = AsyncMock(return_value=[relay])
+        wait = AsyncMock(return_value=False)
+        current_times = iter((100.0, 106.0))
+
+        class _Session:
+            async def __aenter__(self) -> _Session:
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                return None
+
+        items = [
+            item
+            async for item in find_from_api_worker(
+                sources=sources,
+                context=ApiDiscoveryWorkerContext(
+                    brotr=runtime_brotr,
+                    cooldown=10.0,
+                    current_time=lambda: next(current_times),
+                    max_response_size=1024,
+                    request_delay=1.0,
+                    is_running=lambda: True,
+                    wait=wait,
+                    fetch_api_fn=fetch_api_fn,
+                    client_session_factory=_Session,
+                    recoverable_errors=(TimeoutError, OSError, ValueError),
+                    checkpoint_timestamp=lambda: 456,
+                    logger=MagicMock(),
+                    fetch_api_checkpoints_fn=fetch_checkpoints,
+                ),
+            )
+        ]
+
+        assert items == [
+            ([relay], ApiCheckpoint(key="https://api1.example.com", timestamp=456)),
+            ([relay], ApiCheckpoint(key="https://api2.example.com", timestamp=456)),
+        ]
+        assert fetch_api_fn.await_count == 2
+        wait.assert_awaited_once_with(1.0)
 
     async def test_stops_when_wait_requests_shutdown(self, runtime_brotr: MagicMock) -> None:
         sources = [
@@ -110,7 +165,7 @@ class TestFindFromApiWorker:
                 context=ApiDiscoveryWorkerContext(
                     brotr=runtime_brotr,
                     cooldown=0,
-                    now=1_000,
+                    current_time=lambda: 1_000,
                     max_response_size=1024,
                     request_delay=1.0,
                     is_running=lambda: True,

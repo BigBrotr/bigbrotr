@@ -40,7 +40,7 @@ class ApiDiscoveryWorkerContext:
 
     brotr: Brotr
     cooldown: float
-    now: float
+    current_time: Callable[[], float]
     max_response_size: int
     request_delay: float
     is_running: Callable[[], bool]
@@ -91,7 +91,7 @@ async def stream_api_discovery_attempts(  # noqa: PLR0913
     checkpoint_map: Mapping[str, ApiCheckpoint],
     *,
     cooldown: float,
-    now: float,
+    current_time: Callable[[], float],
     max_response_size: int,
     request_delay: float,
     is_running: Callable[[], bool],
@@ -102,20 +102,26 @@ async def stream_api_discovery_attempts(  # noqa: PLR0913
     checkpoint_timestamp: Callable[[], int],
     logger: Logger,
 ) -> AsyncGenerator[tuple[list[Relay], ApiCheckpoint], None]:
-    """Fetch all API sources whose cooldown has elapsed and yield discovered relays."""
-    attempts = build_api_source_attempts(
-        sources,
-        checkpoint_map,
-        cooldown=cooldown,
-        now=now,
-        logger=logger,
-    )
+    """Fetch all API sources whose cooldown has elapsed and yield discovered relays.
 
+    Cooldown eligibility is evaluated lazily per source so a later source can
+    become due while earlier sources are still being fetched with
+    ``request_delay`` pacing inside the same cycle.
+    """
     async with client_session_factory() as session:
-        for i, attempt in enumerate(attempts):
-            source = attempt.source
+        for i, source in enumerate(sources):
             if not is_running():
                 return
+
+            attempt_now = current_time()
+            last_checked = checkpoint_map[source.url].timestamp
+            if attempt_now - last_checked < cooldown:
+                logger.debug(
+                    "api_skipped",
+                    url=source.url,
+                    seconds_left=cooldown - (attempt_now - last_checked),
+                )
+                continue
 
             try:
                 relays = await fetch_api_fn(session, source, max_response_size)
@@ -129,7 +135,7 @@ async def stream_api_discovery_attempts(  # noqa: PLR0913
                     url=source.url,
                 )
 
-            if request_delay > 0 and i < len(attempts) - 1 and await wait(request_delay):
+            if request_delay > 0 and i < len(sources) - 1 and await wait(request_delay):
                 return
 
 
@@ -146,7 +152,7 @@ async def find_from_api_worker(
         sources,
         checkpoint_map,
         cooldown=context.cooldown,
-        now=context.now,
+        current_time=context.current_time,
         max_response_size=context.max_response_size,
         request_delay=context.request_delay,
         is_running=context.is_running,
