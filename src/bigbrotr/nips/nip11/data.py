@@ -140,6 +140,26 @@ def _parse_strict_int_fields(
     return result, issues
 
 
+def _drop_negative_int_fields(
+    parsed: dict[str, Any],
+    issues: list[ParseIssue],
+    field_names: tuple[str, ...],
+    *,
+    path: str,
+) -> None:
+    for key in field_names:
+        value = parsed.get(key)
+        if isinstance(value, int) and value < 0:
+            del parsed[key]
+            issues.append(
+                ParseIssue(
+                    kind="invalid_value",
+                    path=join_parse_path(path, key),
+                    detail="expected non-negative int",
+                )
+            )
+
+
 def _parse_supported_nips(raw_nips: Any, *, path: str) -> tuple[list[int] | None, list[ParseIssue]]:
     issues: list[ParseIssue] = []
     if not isinstance(raw_nips, list):
@@ -450,6 +470,13 @@ class Nip11InfoDataRetentionEntry(BaseData):
                     raise ValueError("kinds must contain only non-negative values")
         return _normalize_retention_kinds(value)
 
+    @field_validator("time", "count")
+    @classmethod
+    def _require_non_negative_fields(cls, value: int | None, info: Any) -> int | None:
+        if value is not None and value < 0:
+            raise ValueError(f"{info.field_name} must be non-negative")
+        return value
+
     @classmethod
     def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
         """Parse a retention entry, handling mixed int/range kinds lists.
@@ -477,6 +504,7 @@ class Nip11InfoDataRetentionEntry(BaseData):
         int_fields, int_issues = _parse_strict_int_fields(data, ("time", "count"), path=path)
         result.update(int_fields)
         issues.extend(int_issues)
+        _drop_negative_int_fields(result, issues, ("time", "count"), path=path)
         return ParseReport(parsed=result, issues=tuple(issues))
 
     def to_dict(self) -> dict[str, Any]:
@@ -519,12 +547,20 @@ class Nip11InfoDataFeeEntry(BaseData):
                 raise ValueError("kinds must contain only non-negative values")
         return sorted(set(value))
 
+    @field_validator("amount", "period")
+    @classmethod
+    def _require_non_negative_fields(cls, value: int | None, info: Any) -> int | None:
+        if value is not None and value < 0:
+            raise ValueError(f"{info.field_name} must be non-negative")
+        return value
+
     @classmethod
     def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
         """Parse a fee entry and normalize its kind scope."""
         report = super().parse_report(data, path=path)
         parsed = dict(report.parsed)
         issues = list(report.issues)
+        _drop_negative_int_fields(parsed, issues, ("amount", "period"), path=path)
 
         if isinstance(data, dict) and data.get("kinds") == [] and "kinds" not in parsed:
             parsed["kinds"] = []

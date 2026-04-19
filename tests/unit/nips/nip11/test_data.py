@@ -251,6 +251,12 @@ class TestNip11InfoDataRetentionEntryConstructor:
         with pytest.raises(ValidationError):
             Nip11InfoDataRetentionEntry(time=True)
 
+    @pytest.mark.parametrize("kwargs", [{"time": -1}, {"count": -1}])
+    def test_constructor_rejects_negative_time_and_count(self, kwargs: dict[str, int]):
+        """Constructor raises ValidationError for negative retention budgets."""
+        with pytest.raises(ValidationError):
+            Nip11InfoDataRetentionEntry(**kwargs)
+
     def test_constructor_rejects_bool_in_kinds(self):
         """Constructor raises ValidationError for bool in kinds list."""
         with pytest.raises(ValidationError):
@@ -325,6 +331,12 @@ class TestNip11InfoDataRetentionEntryParse:
         data = {"kinds": [[10, 20], -1, [-1, 2], 3]}
         result = Nip11InfoDataRetentionEntry.parse(data)
         assert result == {"kinds": [3, (10, 20)]}
+
+    def test_parse_negative_time_and_count_filtered(self):
+        """Negative retention budgets are filtered out."""
+        data = {"kinds": [1], "time": -1, "count": -2}
+        result = Nip11InfoDataRetentionEntry.parse(data)
+        assert result == {"kinds": [1]}
 
     def test_parse_preserves_explicit_empty_kinds(self):
         """Explicit empty kinds list is preserved because the constructor accepts it."""
@@ -408,6 +420,12 @@ class TestNip11InfoDataFeeEntryConstructor:
         with pytest.raises(ValidationError):
             Nip11InfoDataFeeEntry(amount=True, unit="sats")
 
+    @pytest.mark.parametrize("kwargs", [{"amount": -1}, {"period": -1}])
+    def test_constructor_rejects_negative_amount_and_period(self, kwargs: dict[str, int]):
+        """Constructor raises ValidationError for negative fee budgets."""
+        with pytest.raises(ValidationError):
+            Nip11InfoDataFeeEntry(**kwargs)
+
     def test_constructor_rejects_bool_in_kinds(self):
         """Constructor raises ValidationError for bool in kinds list."""
         with pytest.raises(ValidationError):
@@ -461,6 +479,12 @@ class TestNip11InfoDataFeeEntryParse:
         data = {"amount": 100, "unit": "sats", "kinds": [3, -1, 1]}
         result = Nip11InfoDataFeeEntry.parse(data)
         assert result == {"amount": 100, "unit": "sats", "kinds": [1, 3]}
+
+    def test_parse_filters_negative_amount_and_period(self):
+        """Negative fee budgets are filtered out."""
+        data = {"amount": -100, "unit": "sats", "period": -30, "kinds": [3]}
+        result = Nip11InfoDataFeeEntry.parse(data)
+        assert result == {"unit": "sats", "kinds": [3]}
 
 
 class TestNip11InfoDataFeeEntryToDict:

@@ -3154,3 +3154,14 @@ Use this section during execution for:
     path with low-signal errors unrelated to the actual parser contract;
   - added paired `nips.test_parsing` coverage proving malformed field-name
     containers now fail fast at `FieldSpec` construction time.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-sixty-ninth
+  remediation slice:
+  - tightened the `nips.nip11.data` budget boundary so retention `time/count`
+    plus fee `amount/period` must now be non-negative both at direct model
+    construction and during permissive parse/report sanitization;
+  - closed the drift where semantically impossible negative retention windows
+    or fee budgets could survive as canonical NIP-11 leaf data and later be
+    serialized back out through shared result containers and event builders;
+  - added paired `nips.nip11.test_data` coverage proving negative retention
+    and fee budgets now fail fast at the constructor and are filtered out by
+    permissive parse paths.
