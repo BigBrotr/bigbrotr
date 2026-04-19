@@ -115,6 +115,10 @@ class TestNipRegistry:
         assert nips_for_event_kind(99999) == ()
         assert nips_for_capability("nope") == ()
 
+    def test_lookup_helpers_reject_boolean_event_kind_aliases(self) -> None:
+        assert nips_for_event_kind(True) == ()
+        assert nips_for_event_kind(False) == ()
+
     def test_lookup_helpers_use_canonical_nip_order_not_registry_insertion_order(self) -> None:
         scrambled_registry = {
             85: NIP_REGISTRY[85],

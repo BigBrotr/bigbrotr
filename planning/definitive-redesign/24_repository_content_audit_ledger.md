@@ -2330,3 +2330,13 @@ Use this section during execution for:
   - added `assertor` coverage proving cleanup now deletes non-canonical keys
     even when they belong to a different algorithm namespace, while still
     preserving canonical foreign-algorithm checkpoints.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-second remediation
+  slice:
+  - tightened the static `NIP` registry event-kind boundary so boolean
+    aliases no longer pass through the shared lookup helper as if they were
+    ordinary integers, which keeps the registry contract aligned with the
+    rest of the typed event-kind seams that reject `bool` masquerading as an
+    integer kind;
+  - added paired registry coverage proving `nips_for_event_kind()` now
+    rejects `True` and `False` as invalid lookup inputs instead of silently
+    normalizing them through the integer path.

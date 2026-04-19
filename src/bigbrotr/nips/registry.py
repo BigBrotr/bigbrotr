@@ -216,6 +216,8 @@ def _normalize_document_type(document_type: DocumentType | str) -> DocumentType 
 def _normalize_event_kind(event_kind: EventKind | int) -> int | None:
     if isinstance(event_kind, EventKind):
         return int(event_kind)
+    if isinstance(event_kind, bool):
+        return None
     if isinstance(event_kind, int):
         return event_kind
     return None
