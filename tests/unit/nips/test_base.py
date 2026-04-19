@@ -701,6 +701,14 @@ class TestBaseNipOptions:
         options = BaseNipOptions(allow_insecure=True)
         assert options.allow_insecure is True
 
+    def test_rejects_boolean_alias_inputs(self):
+        """allow_insecure rejects non-bool aliases instead of coercing them."""
+        with pytest.raises(ValidationError):
+            BaseNipOptions(allow_insecure=1)
+
+        with pytest.raises(ValidationError):
+            BaseNipOptions(allow_insecure="true")
+
     def test_is_base_model(self):
         """BaseNipOptions is a Pydantic BaseModel."""
         from pydantic import BaseModel
@@ -822,6 +830,14 @@ class TestSelectionInheritance:
         assert issubclass(Nip66Selection, BaseNipSelection)
         selection = Nip66Selection()
         assert isinstance(selection, BaseNipSelection)
+
+    def test_concrete_selections_reject_boolean_aliases(self):
+        """Concrete NIP selections reject integer aliases for booleans."""
+        with pytest.raises(ValidationError):
+            Nip11Selection(info=1)
+
+        with pytest.raises(ValidationError):
+            Nip66Selection(rtt=1)
 
 
 # =============================================================================

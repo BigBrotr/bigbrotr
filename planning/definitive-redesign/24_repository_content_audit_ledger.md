@@ -2497,3 +2497,13 @@ Use this section during execution for:
     containers now fail fast on invalid direct inputs while the canonical
     relay/event-id fixtures used by runtime and service harnesses continue to
     pass through unchanged.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-eighteenth remediation
+  slice:
+  - tightened the public `NIP` option/selection boundary so `allow_insecure`,
+    `Nip11Selection.info`, `Nip66Selection` flags, and `Nip11Options.max_size`
+    no longer accept coerced aliases like `1`, `"true"`, or `True` as if
+    they were already-canonical typed inputs;
+  - added paired `NIP` coverage proving the shared base models plus the
+    concrete `NIP-11` and `NIP-66` option/selection models now fail fast on
+    coerced boolean aliases instead of silently changing runtime probe/fetch
+    behavior.

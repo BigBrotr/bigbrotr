@@ -308,6 +308,8 @@ class BaseNipSelection(BaseModel):
             NIP-66 selection (``rtt``, ``ssl``, ``geo``, ``net``, ``dns``, ``http``).
     """
 
+    model_config = ConfigDict(strict=True)
+
 
 class BaseNipOptions(BaseModel):
     """How to execute NIP retrieval or probe work.
@@ -328,6 +330,8 @@ class BaseNipOptions(BaseModel):
         [bigbrotr.nips.nip66.nip66.Nip66Options][bigbrotr.nips.nip66.nip66.Nip66Options]:
             NIP-66 options (inherits only ``allow_insecure``).
     """
+
+    model_config = ConfigDict(strict=True)
 
     allow_insecure: bool = Field(
         default=False,

@@ -16,6 +16,7 @@ from time import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from bigbrotr.models import Relay, RelayDocument
 from bigbrotr.models.document import DocumentType
@@ -31,6 +32,7 @@ from bigbrotr.nips.nip66 import (
     Nip66NetData,
     Nip66NetLogs,
     Nip66NetMetadata,
+    Nip66Options,
     Nip66RttData,
     Nip66RttMetadata,
     Nip66RttMultiPhaseLogs,
@@ -118,6 +120,20 @@ class TestNip66Construction:
         assert nip66.net.data.net_ip == "8.8.8.8"
         assert nip66.net.data.net_asn == 15169
         assert nip66.rtt is None
+
+
+class TestNip66SelectionOptions:
+    """Test strict selection/options boundaries for NIP-66."""
+
+    def test_selection_rejects_boolean_aliases(self) -> None:
+        """Selection flags reject integer aliases instead of coercing them."""
+        with pytest.raises(ValidationError):
+            Nip66Selection(rtt=1)
+
+    def test_options_reject_boolean_aliases(self) -> None:
+        """allow_insecure rejects string/integer aliases."""
+        with pytest.raises(ValidationError):
+            Nip66Options(allow_insecure="true")
 
     def test_with_dns_only(
         self,

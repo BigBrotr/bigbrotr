@@ -784,6 +784,11 @@ class TestNip11Selection:
         selection = Nip11Selection(info=False)
         assert selection.info is False
 
+    def test_rejects_boolean_alias_info(self):
+        """Selection rejects integer aliases for info."""
+        with pytest.raises(ValidationError):
+            Nip11Selection(info=1)
+
     def test_frozen(self):
         """Nip11Selection is a Pydantic model."""
         selection = Nip11Selection()
@@ -813,6 +818,16 @@ class TestNip11Options:
         """Custom max_size is preserved."""
         options = Nip11Options(max_size=1024)
         assert options.max_size == 1024
+
+    def test_rejects_boolean_alias_allow_insecure(self):
+        """allow_insecure rejects integer aliases instead of coercing them."""
+        with pytest.raises(ValidationError):
+            Nip11Options(allow_insecure=1)
+
+    def test_rejects_boolean_alias_max_size(self):
+        """max_size rejects bool aliases instead of degrading to 1."""
+        with pytest.raises(ValidationError):
+            Nip11Options(max_size=True)
 
     def test_combined_options(self):
         """Multiple options can be set together."""
