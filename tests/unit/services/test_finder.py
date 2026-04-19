@@ -281,6 +281,23 @@ class TestApiSourceConfig:
         with pytest.raises(ValueError, match=rf"{field_name}: expected number, got bool"):
             ApiSourceConfig(url="https://api.com", expression="[*]", **kwargs)
 
+    @pytest.mark.parametrize(
+        ("field_name", "kwargs"),
+        [
+            ("timeout", {"timeout": "30", "connect_timeout": 0.5}),
+            ("timeout", {"timeout": "30.5", "connect_timeout": 0.5}),
+            ("connect_timeout", {"timeout": 10.0, "connect_timeout": "10"}),
+            ("connect_timeout", {"timeout": 10.0, "connect_timeout": "10.5"}),
+        ],
+    )
+    def test_rejects_non_numeric_timeout_aliases(
+        self,
+        field_name: str,
+        kwargs: dict[str, object],
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
+            ApiSourceConfig(url="https://api.com", expression="[*]", **kwargs)
+
     def test_allow_insecure_enabled(self) -> None:
         config = ApiSourceConfig(
             url="https://internal.api.com", expression="[*]", allow_insecure=True
@@ -397,6 +414,27 @@ class TestApiConfig:
         self, field_name: str, field_value: object
     ) -> None:
         with pytest.raises(ValueError, match=rf"{field_name}: expected bool, got"):
+            ApiConfig(
+                sources=[
+                    {
+                        "url": "https://api.example.com",
+                        "expression": "[*]",
+                        field_name: field_value,
+                    }
+                ]
+            )
+
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("timeout", "30"),
+            ("connect_timeout", "10.5"),
+        ],
+    )
+    def test_nested_sources_reject_non_numeric_timeout_aliases(
+        self, field_name: str, field_value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
             ApiConfig(
                 sources=[
                     {

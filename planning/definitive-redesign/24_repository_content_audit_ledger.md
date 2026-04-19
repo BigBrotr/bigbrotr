@@ -4087,3 +4087,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_finder` proving malformed phase
     budgets now fail fast both on `EventsConfig` and through nested
     `FinderConfig.events` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-forty-sixth
+  remediation slice:
+  - tightened the `services.finder.configs.ApiSourceConfig` numeric boundary
+    so `timeout` and `connect_timeout` now require canonical numeric values
+    instead of accepting numeric strings;
+  - closed the drift where authored payloads like `"30"`, `"30.5"`,
+    `"10"` or `"10.5"` could silently become valid HTTP timeout budgets
+    without crossing an explicit numeric boundary;
+  - added paired coverage in `services.test_finder` proving malformed timeout
+    payloads now fail fast both on `ApiSourceConfig` and through nested
+    `ApiConfig.sources` parsing.

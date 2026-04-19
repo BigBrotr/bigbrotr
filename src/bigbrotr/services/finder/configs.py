@@ -152,10 +152,10 @@ class ApiSourceConfig(BaseModel):
 
     @field_validator("timeout", "connect_timeout", mode="before")
     @classmethod
-    def reject_boolean_timeout_aliases(cls, v: Any, info: ValidationInfo) -> Any:
-        """Reject boolean aliases for HTTP timeout controls."""
+    def require_numeric_timeout_controls(cls, v: Any, info: ValidationInfo) -> int | float:
+        """Require canonical numeric types for HTTP timeout controls."""
         field_name = info.field_name or "value"
-        return _reject_bool_alias(v, field_name, "number")
+        return _require_number(v, field_name)
 
     @field_validator("enabled", "allow_insecure", mode="before")
     @classmethod
