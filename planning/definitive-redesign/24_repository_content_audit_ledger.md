@@ -3247,3 +3247,15 @@ Use this section during execution for:
   - added paired `nips.nip66.test_data` coverage proving out-of-range
     coordinates now fail fast at construction time and are filtered from
     parse output.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-seventy-seventh
+  remediation slice:
+  - tightened the `nips.nip11.data.Nip11InfoDataRetentionEntry` range
+    boundary so `kinds` intervals must now be ascending as well as
+    non-negative, both at direct model construction and during permissive
+    parse/report sanitization;
+  - closed the drift where semantically impossible descending kind ranges
+    could survive as canonical NIP-11 retention data and later flow into
+    shared result containers and public serialization;
+  - added paired `nips.nip11.test_data` coverage proving descending
+    retention ranges now fail fast at construction time and are filtered from
+    parse output.

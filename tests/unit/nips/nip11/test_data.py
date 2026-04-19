@@ -283,6 +283,11 @@ class TestNip11InfoDataRetentionEntryConstructor:
         with pytest.raises(ValidationError):
             Nip11InfoDataRetentionEntry(kinds=[(-1, 2)])
 
+    def test_constructor_rejects_descending_kind_range(self):
+        """Constructor raises ValidationError for descending range bounds."""
+        with pytest.raises(ValidationError, match="kind ranges must be ascending"):
+            Nip11InfoDataRetentionEntry(kinds=[(10, 1)])
+
     def test_constructor_rejects_non_list_kinds(self):
         """Constructor raises ValidationError for non-list kinds."""
         with pytest.raises(ValidationError):
@@ -335,6 +340,12 @@ class TestNip11InfoDataRetentionEntryParse:
     def test_parse_negative_kinds_filtered(self):
         """Negative kinds and ranges are filtered out."""
         data = {"kinds": [[10, 20], -1, [-1, 2], 3]}
+        result = Nip11InfoDataRetentionEntry.parse(data)
+        assert result == {"kinds": [3, (10, 20)]}
+
+    def test_parse_descending_kind_ranges_filtered(self):
+        """Descending kind ranges are filtered out."""
+        data = {"kinds": [[10, 20], [10, 1], 3]}
         result = Nip11InfoDataRetentionEntry.parse(data)
         assert result == {"kinds": [3, (10, 20)]}
 

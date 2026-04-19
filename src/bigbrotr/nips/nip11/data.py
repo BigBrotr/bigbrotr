@@ -49,6 +49,16 @@ def _is_non_negative_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
+def _is_valid_kind_range(value: Any) -> bool:
+    return (
+        isinstance(value, (list, tuple))
+        and len(value) == 2  # noqa: PLR2004 - [min, max] range pair
+        and _is_non_negative_int(value[0])
+        and _is_non_negative_int(value[1])
+        and value[0] <= value[1]
+    )
+
+
 def _invalid_input_report(path: str, fallback: str) -> ParseReport:
     return ParseReport(
         parsed={},
@@ -216,19 +226,14 @@ def _parse_retention_kinds(
         if _is_non_negative_int(item):
             kinds.append(item)
             continue
-        if (
-            isinstance(item, list)
-            and len(item) == 2  # noqa: PLR2004 - [min, max] range pair
-            and _is_non_negative_int(item[0])
-            and _is_non_negative_int(item[1])
-        ):
+        if _is_valid_kind_range(item):
             kinds.append((item[0], item[1]))
             continue
         issues.append(
             ParseIssue(
                 kind="invalid_value",
                 path=item_path,
-                detail="expected int or [int, int] range",
+                detail="expected int or ascending [int, int] range",
             )
         )
 
@@ -512,6 +517,8 @@ class Nip11InfoDataRetentionEntry(BaseData):
                     continue
                 if kind[0] < 0 or kind[1] < 0:
                     raise ValueError("kinds must contain only non-negative values")
+                if kind[0] > kind[1]:
+                    raise ValueError("kind ranges must be ascending")
         return _normalize_retention_kinds(value)
 
     @field_validator("time", "count")
