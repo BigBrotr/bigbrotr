@@ -245,6 +245,11 @@ class PeriodicRefreshConfig(BaseModel):
         description="Recompute NIP-85 follower/following counts",
     )
 
+    @field_validator("rolling_windows", "relay_stats_document", "nip85_followers", mode="before")
+    @classmethod
+    def require_boolean_toggles(cls, value: Any, info: ValidationInfo) -> bool:
+        return _require_bool(value, str(info.field_name))
+
     def enabled_targets(self) -> list[PeriodicRefreshTarget]:
         """Return enabled periodic tasks in canonical execution order."""
         return [target for target in DEFAULT_PERIODIC_TARGETS if getattr(self, target.value)]

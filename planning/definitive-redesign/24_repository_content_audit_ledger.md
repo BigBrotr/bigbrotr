@@ -4264,3 +4264,15 @@ Use this section during execution for:
   - added paired coverage in `services.test_refresher` proving malformed
     boolean aliases now fail fast both on the leaf cleanup model and
     through nested `RefresherConfig.cleanup` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-sixty-second
+  remediation slice:
+  - tightened the authored boolean boundaries in
+    `services.refresher.configs.PeriodicRefreshConfig` so
+    `rolling_windows`, `relay_stats_document`, and `nip85_followers` now
+    require canonical `bool` values;
+  - closed the drift where payloads like `"false"`, `1`, or `0` could
+    silently change which periodic refresher tasks are enabled at config load
+    time;
+  - added paired coverage in `services.test_refresher` proving malformed
+    boolean aliases now fail fast both on the leaf periodic config model and
+    through nested `RefresherConfig.periodic` parsing.

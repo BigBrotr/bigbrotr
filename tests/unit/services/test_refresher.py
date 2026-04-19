@@ -28,6 +28,7 @@ from bigbrotr.services.refresher.configs import (
     DEFAULT_ANALYTICS_TARGETS,
     DEFAULT_CURRENT_TARGETS,
     CleanupConfig,
+    PeriodicRefreshConfig,
     ProcessingConfig,
     validate_refresh_dependencies,
 )
@@ -142,6 +143,32 @@ class TestRefreshTargetConfig:
     def test_nested_cleanup_enabled_aliases_rejected(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
             RefresherConfig.model_validate({"cleanup": {"enabled": value}})
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("rolling_windows", "false"),
+            ("relay_stats_document", 1),
+            ("nip85_followers", 0),
+        ],
+    )
+    def test_rejects_non_boolean_periodic_toggle_aliases(
+        self, field_name: str, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected bool, got"):
+            PeriodicRefreshConfig(**{field_name: value})
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("rolling_windows", "false"),
+            ("relay_stats_document", 1),
+            ("nip85_followers", 0),
+        ],
+    )
+    def test_nested_periodic_toggle_aliases_rejected(self, field_name: str, value: object) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected bool, got"):
+            RefresherConfig.model_validate({"periodic": {field_name: value}})
 
     def test_empty_targets_are_allowed(self) -> None:
         config = _refresher_config()
