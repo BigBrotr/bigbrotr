@@ -239,6 +239,15 @@ def _normalize_optional_nip66_ssl_data(ssl_data: object) -> Nip66SslData | None:
     return cast("Nip66SslData", ssl_data)
 
 
+def _normalize_optional_nip66_net_data(net_data: object) -> Nip66NetData | None:
+    if net_data is None:
+        return None
+    net_data_type = importlib.import_module("bigbrotr.nips.nip66.data").Nip66NetData
+    if not isinstance(net_data, net_data_type):
+        raise ValueError("net_data must be a Nip66NetData or None")
+    return cast("Nip66NetData", net_data)
+
+
 def _normalize_supported_nips_for_type_tags(supported_nips: object) -> tuple[int, ...] | None:
     if supported_nips is None:
         return None
@@ -468,6 +477,7 @@ def add_net_tags(tags: list[Tag], net_data: Nip66NetData | None) -> None:
     Also emits NIP-32 ``l`` labels for ASN and ASN org, making them
     relay-filterable via ``#l`` subscription filters.
     """
+    net_data = _normalize_optional_nip66_net_data(net_data)
     if net_data is None:
         return
     if net_data.net_ip:

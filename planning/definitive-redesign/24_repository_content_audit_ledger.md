@@ -2981,3 +2981,16 @@ Use this section during execution for:
     sanitize the public argument first;
   - added paired `nips.event_builders` coverage proving corrupted `ssl_data`
     inputs are rejected before any `Tag.parse()` work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-fifty-fifth remediation
+  slice:
+  - tightened the direct public helper boundary of
+    `nips.event_builders.add_net_tags()` so malformed `net_data` payloads no
+    longer degrade into late attribute errors or partial network tag mutation
+    while the public NIP-66 helper assembles `net-ip`, `net-ipv6`,
+    `net-asn`, and `net-asn-org` tags;
+  - centralized typed normalization of the optional `Nip66NetData` input
+    inside the leaf helper itself so direct callers now enforce a real
+    network metadata boundary instead of relying on higher-level discovery
+    flows to sanitize the public argument first;
+  - added paired `nips.event_builders` coverage proving corrupted `net_data`
+    inputs are rejected before any `Tag.parse()` work begins.

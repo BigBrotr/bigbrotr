@@ -686,6 +686,19 @@ class TestAddNetTags:
         add_net_tags(tags, None)
         assert tags == []
 
+    @pytest.mark.parametrize("value", [True, "not-net-data", object()])
+    def test_rejects_invalid_net_data_before_tag_build(self, value: object) -> None:
+        """Malformed net data fails before any net tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="net_data must be a Nip66NetData or None"),
+        ):
+            add_net_tags(tags, value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        assert tags == []
+
 
 # ============================================================================
 # add_geo_tags
