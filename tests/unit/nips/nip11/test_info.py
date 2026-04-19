@@ -272,7 +272,7 @@ class TestNip11InfoMetadataSuccess:
 
         payload = dict(complete_nip11_data)
         payload["relay_countries"] = ["us", "DE", "us", "USA"]
-        payload["language_tags"] = ["en-US", "en", "en-US"]
+        payload["language_tags"] = ["EN-us", "en", "zh-hant-tw", "en-US"]
         payload["tags"] = ["bitcoin-only", "sfw-only", "bitcoin-only"]
         payload["attributes"] = ["Search", "Community", "Search"]
 
@@ -290,7 +290,7 @@ class TestNip11InfoMetadataSuccess:
 
         assert result.logs.success is True
         assert result.data.relay_countries == ["DE", "US"]
-        assert result.data.language_tags == ["en", "en-US"]
+        assert result.data.language_tags == ["en", "en-US", "zh-Hant-TW"]
         assert result.data.tags == ["bitcoin-only", "sfw-only"]
         assert result.data.attributes == ["Community", "Search"]
 

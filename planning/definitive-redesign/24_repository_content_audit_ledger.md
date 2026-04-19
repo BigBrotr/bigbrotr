@@ -3531,3 +3531,16 @@ Use this section during execution for:
     proving valid lowercase country codes now canonicalize to uppercase at
     construction and fetch time, and malformed entries are removed from parse
     output before the public container is built.
+- `2.1` models/utils/NIPs leaf audit, three-hundredth remediation slice:
+  - tightened the `nips.nip11.data.Nip11InfoData` language-tag boundary so
+    `language_tags` now canonicalizes case-insensitive subtags to one stable
+    representation and collapses any mixed payload containing `*` to the
+    single wildcard value that already dominates consumer behavior;
+  - closed the drift where semantically identical language tags like
+    `EN-us` and `en-US` could survive as different canonical `NIP-11`
+    values, while wildcard payloads like `["*", "en"]` kept redundant
+    specific tags even though the public builder already treats `*` as
+    “all languages”;
+  - added paired `nips.nip11.test_data` and `nips.nip11.test_info` coverage
+    proving language tags now canonicalize to stable case at construction and
+    fetch time, and wildcard payloads collapse to a single canonical value.

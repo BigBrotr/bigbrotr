@@ -45,6 +45,8 @@ KindRange = tuple[StrictInt, StrictInt]
 _RetentionEntryT = TypeVar("_RetentionEntryT")
 _FeeEntryT = TypeVar("_FeeEntryT")
 _HEX_32_TEXT_LENGTH = 64
+_BCP47_SCRIPT_SUBTAG_LENGTH = 4
+_BCP47_REGION_SUBTAG_LENGTH = 2
 _COUNTRY_CODE_RE = re.compile(r"^[A-Z]{2}$", re.IGNORECASE)
 _PASCAL_CASE_ATTRIBUTE_RE = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 
@@ -69,6 +71,21 @@ def _is_valid_pascal_case_attribute(value: str) -> bool:
 
 def _is_valid_country_code(value: str) -> bool:
     return bool(_COUNTRY_CODE_RE.fullmatch(value))
+
+
+def _canonicalize_language_tag(value: str) -> str:
+    if value == "*":
+        return value
+    primary, *subtags = value.split("-")
+    normalized = [primary.lower()]
+    for subtag in subtags:
+        if len(subtag) == _BCP47_SCRIPT_SUBTAG_LENGTH and subtag.isalpha():
+            normalized.append(subtag.title())
+        elif len(subtag) == _BCP47_REGION_SUBTAG_LENGTH and subtag.isalpha():
+            normalized.append(subtag.upper())
+        else:
+            normalized.append(subtag.lower())
+    return "-".join(normalized)
 
 
 def _is_valid_kind_range(value: Any) -> bool:
@@ -995,6 +1012,16 @@ class Nip11InfoData(BaseData):
             if not _is_valid_country_code(entry):
                 raise ValueError("relay_countries entries must be ISO 3166-1 alpha-2 codes")
             normalized.append(entry.upper())
+        return sorted(set(normalized))
+
+    @field_validator("language_tags")
+    @classmethod
+    def _normalize_language_tags(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized = [_canonicalize_language_tag(entry) for entry in value]
+        if "*" in normalized:
+            return ["*"]
         return sorted(set(normalized))
 
     @field_validator("attributes")

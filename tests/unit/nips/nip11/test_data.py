@@ -737,14 +737,19 @@ class TestNip11InfoDataConstructor:
         """Constructor deduplicates and sorts set-like string list fields."""
         data = Nip11InfoData(
             relay_countries=["us", "DE", "us"],
-            language_tags=["en-US", "en", "en-US"],
+            language_tags=["EN-us", "en", "zh-hant-tw", "en-US"],
             tags=["bitcoin-only", "sfw-only", "bitcoin-only"],
             attributes=["Search", "Community", "Search"],
         )
         assert data.relay_countries == ["DE", "US"]
-        assert data.language_tags == ["en", "en-US"]
+        assert data.language_tags == ["en", "en-US", "zh-Hant-TW"]
         assert data.tags == ["bitcoin-only", "sfw-only"]
         assert data.attributes == ["Community", "Search"]
+
+    def test_constructor_canonicalizes_language_tag_wildcard(self) -> None:
+        """Wildcard language support collapses mixed language tag payloads to one canonical value."""
+        data = Nip11InfoData(language_tags=["EN-us", "*", "zh-hant-tw"])
+        assert data.language_tags == ["*"]
 
     @pytest.mark.parametrize(
         ("kwargs", "message"),
@@ -875,7 +880,7 @@ class TestNip11InfoDataParse:
             "supported_nips": [1, 11, 42],
             "limitation": {"max_message_length": 65535},
             "relay_countries": ["us", "DE", "us"],
-            "language_tags": ["en-US", "en", "en-US"],
+            "language_tags": ["EN-us", "en", "zh-hant-tw", "en-US"],
             "tags": ["bitcoin-only", "sfw-only", "bitcoin-only"],
             "attributes": ["Search", "Community", "Search"],
         }
@@ -885,9 +890,14 @@ class TestNip11InfoDataParse:
         assert result["supported_nips"] == [1, 11, 42]
         assert result["limitation"] == {"max_message_length": 65535}
         assert result["relay_countries"] == ["DE", "US"]
-        assert result["language_tags"] == ["en", "en-US"]
+        assert result["language_tags"] == ["en", "en-US", "zh-Hant-TW"]
         assert result["tags"] == ["bitcoin-only", "sfw-only"]
         assert result["attributes"] == ["Community", "Search"]
+
+    def test_parse_canonicalizes_language_tag_wildcard(self) -> None:
+        """Wildcard language tags dominate mixed payloads during parse()."""
+        result = Nip11InfoData.parse({"language_tags": ["EN-us", "*", "zh-hant-tw"]})
+        assert result == {"language_tags": ["*"]}
 
     def test_parse_invalid_types_ignored(self):
         """Invalid types are ignored."""
