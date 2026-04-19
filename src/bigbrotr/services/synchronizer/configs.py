@@ -43,13 +43,6 @@ def _parse_filter(raw: Any, index: int) -> Filter:
         raise ValueError(f"filters[{index}]: {e}") from e
 
 
-def _reject_bool_alias(value: Any, field_name: str) -> Any:
-    """Reject boolean aliases for integer synchronizer config fields."""
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name}: expected integer, got bool")
-    return value
-
-
 def _require_bool(value: Any, field_name: str) -> bool:
     """Require canonical booleans for authored synchronizer config boundaries."""
     if not isinstance(value, bool):
@@ -174,12 +167,12 @@ class ProcessingConfig(BaseModel):
 
     @field_validator("since", "until", "end_lag", mode="before")
     @classmethod
-    def reject_boolean_temporal_aliases(cls, v: Any, info: ValidationInfo) -> Any:
-        """Reject boolean aliases that would otherwise coerce to temporal integers."""
+    def require_integer_temporal_bounds(cls, v: Any, info: ValidationInfo) -> Any:
+        """Require canonical integers for temporal sync bounds."""
         if v is None:
             return v
         field_name = info.field_name or "value"
-        return _reject_bool_alias(v, field_name)
+        return _require_int(v, field_name)
 
     @field_validator("limit", "batch_size", mode="before")
     @classmethod

@@ -4232,3 +4232,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_synchronizer` proving malformed
     integer aliases now fail fast both on the leaf processing model and
     through nested `SynchronizerConfig.processing` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-fifty-ninth
+  remediation slice:
+  - tightened the authored integer boundaries in
+    `services.synchronizer.configs.ProcessingConfig` so `since`, `until`, and
+    `end_lag` now require canonical `int` values;
+  - closed the drift where payloads like `"100"`, `100.0`, `"200"`,
+    `200.0`, `"600"`, or `600.0` could silently become valid synchronizer
+    temporal bounds at config load time;
+  - added paired coverage in `services.test_synchronizer` proving malformed
+    temporal aliases now fail fast both on the leaf processing model and
+    through nested `SynchronizerConfig.processing` parsing.
