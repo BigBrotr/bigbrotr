@@ -529,6 +529,30 @@ class TestNip66Probe:
         mock_ssl.assert_not_awaited()
         mock_http.assert_not_awaited()
 
+    @pytest.mark.parametrize("value", [True, "", "   ", "garbage", "socks5://:9050"])
+    async def test_rejects_invalid_proxy_url_before_probe_tasks(
+        self,
+        relay: Relay,
+        value: object,
+    ) -> None:
+        """Malformed proxy URLs fail before any child probe starts."""
+        selection = Nip66Selection(rtt=False, geo=False, net=False)
+
+        with (
+            patch.object(Nip66DnsMetadata, "probe", new_callable=AsyncMock) as mock_dns,
+            patch.object(Nip66SslMetadata, "probe", new_callable=AsyncMock) as mock_ssl,
+            patch.object(Nip66HttpMetadata, "probe", new_callable=AsyncMock) as mock_http,
+            pytest.raises(
+                ValueError,
+                match="proxy_url must be a valid proxy URL with scheme and hostname",
+            ),
+        ):
+            await Nip66.probe(relay, proxy_url=value, selection=selection)  # type: ignore[arg-type]
+
+        mock_dns.assert_not_awaited()
+        mock_ssl.assert_not_awaited()
+        mock_http.assert_not_awaited()
+
     async def test_passes_proxy_url(
         self,
         relay: Relay,

@@ -39,6 +39,7 @@ from bigbrotr.models.constants import EventKind
 from bigbrotr.models.document import Document, DocumentType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.models.relay_document import RelayDocument
+from bigbrotr.nips._validation import normalize_proxy_url
 from bigbrotr.nips.base import (
     BaseNip,
     BaseNipDependencies,
@@ -287,6 +288,7 @@ class Nip66(BaseNip):
         options = options or Nip66Options()
         deps = deps or Nip66Dependencies()
         timeout = normalize_timeout_budget(timeout)
+        proxy_url = normalize_proxy_url(proxy_url)
         logger.debug("probe_started relay=%s timeout_s=%s", relay.url, timeout)
 
         tasks: list[Any] = []

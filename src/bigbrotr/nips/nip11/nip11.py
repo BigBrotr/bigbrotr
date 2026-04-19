@@ -31,6 +31,7 @@ from pydantic import Field
 from bigbrotr.models.document import Document, DocumentType
 from bigbrotr.models.relay import Relay  # noqa: TC001
 from bigbrotr.models.relay_document import RelayDocument
+from bigbrotr.nips._validation import normalize_proxy_url
 from bigbrotr.nips.base import (
     BaseNip,
     BaseNipDependencies,
@@ -220,6 +221,7 @@ class Nip11(BaseNip):
         options = options or Nip11Options()
         deps = deps or Nip11Dependencies()
         timeout = Nip11InfoMetadata._normalize_timeout(timeout)
+        proxy_url = normalize_proxy_url(proxy_url)
         logger.debug("fetch_started relay=%s timeout_s=%s", relay.url, timeout)
 
         info = None

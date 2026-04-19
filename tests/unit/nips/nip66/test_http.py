@@ -152,6 +152,20 @@ class TestNip66HttpMetadataHttp:
 
         mock_http.assert_not_awaited()
 
+    @pytest.mark.parametrize("value", [True, "", "   ", "garbage", "socks5://:9050"])
+    async def test_rejects_invalid_proxy_url_before_http(self, relay: Relay, value: object) -> None:
+        """Malformed proxy URLs fail before opening any HTTP state."""
+        with (
+            patch.object(Nip66HttpMetadata, "_http", new_callable=AsyncMock) as mock_http,
+            pytest.raises(
+                ValueError,
+                match="proxy_url must be a valid proxy URL with scheme and hostname",
+            ),
+        ):
+            await Nip66HttpMetadata.probe(relay, 10.0, proxy_url=value)  # type: ignore[arg-type]
+
+        mock_http.assert_not_awaited()
+
     async def test_passes_proxy_url_to_http(self, relay: Relay) -> None:
         """Passes proxy_url to _http method."""
         http_result = {"http_server": "nginx/1.24.0"}

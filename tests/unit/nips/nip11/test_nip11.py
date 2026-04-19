@@ -720,6 +720,24 @@ class TestNip11FetchParameters:
 
         mock_fetch.assert_not_awaited()
 
+    @pytest.mark.parametrize("value", [True, "", "   ", "garbage", "socks5://:9050"])
+    async def test_fetch_rejects_invalid_proxy_url_before_info_fetch(
+        self,
+        relay: Relay,
+        value: object,
+    ) -> None:
+        """Top-level fetch rejects malformed proxy URLs before child retrieval."""
+        with (
+            patch.object(Nip11InfoMetadata, "fetch", new_callable=AsyncMock) as mock_fetch,
+            pytest.raises(
+                ValueError,
+                match="proxy_url must be a valid proxy URL with scheme and hostname",
+            ),
+        ):
+            await Nip11.fetch(relay, proxy_url=value)  # type: ignore[arg-type]
+
+        mock_fetch.assert_not_awaited()
+
 
 # =============================================================================
 # Integration Tests

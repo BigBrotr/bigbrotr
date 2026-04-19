@@ -915,6 +915,24 @@ class TestNip11InfoMetadataTimeout:
 
         mock_info.assert_not_awaited()
 
+    @pytest.mark.parametrize("value", [True, "", "   ", "garbage", "socks5://:9050"])
+    async def test_info_rejects_invalid_proxy_url_before_http(
+        self,
+        relay: Relay,
+        value: object,
+    ) -> None:
+        """Retrieval rejects malformed proxy URLs before opening HTTP state."""
+        with (
+            patch.object(Nip11InfoMetadata, "_info", new_callable=AsyncMock) as mock_info,
+            pytest.raises(
+                ValueError,
+                match="proxy_url must be a valid proxy URL with scheme and hostname",
+            ),
+        ):
+            await Nip11InfoMetadata.fetch(relay, proxy_url=value)  # type: ignore[arg-type]
+
+        mock_info.assert_not_awaited()
+
 
 # =============================================================================
 # fetch() Method - Data Parsing with Invalid Fields

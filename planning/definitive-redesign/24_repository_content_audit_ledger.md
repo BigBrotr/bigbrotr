@@ -2627,3 +2627,18 @@ Use this section during execution for:
   - added paired `utils.protocol_factory` and `utils.protocol` coverage
     proving malformed proxy payloads and insecure-policy aliases now fail fast
     and do not invoke the underlying client builder.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-twenty-ninth remediation
+  slice:
+  - tightened the public HTTP-facing `NIP-11` and `NIP-66` proxy boundaries
+    so `Nip11InfoMetadata.fetch()`, `Nip11.fetch()`,
+    `Nip66HttpMetadata.probe()`, and `Nip66.probe()` no longer accept
+    malformed `proxy_url` payloads that would otherwise degrade through
+    Python truthiness into direct non-proxied transport or into late connector
+    failures as if the caller had supplied a canonical overlay proxy policy;
+  - preserved the existing semantic distinction between `proxy_url=None`
+    (missing proxy policy, which still returns the overlay-specific failure
+    result) and malformed proxy inputs (which now fail fast as invalid public
+    arguments before any HTTP session or child probe starts);
+  - added paired `NIP-11` and `NIP-66` coverage proving malformed proxy URLs
+    are rejected before any child fetch/probe work begins, while canonical
+    proxy URLs keep using the existing proxy connector flow.
