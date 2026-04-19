@@ -563,6 +563,28 @@ class TestNip66DnsData:
         with pytest.raises(ValidationError, match=message):
             Nip66DnsData(**kwargs)
 
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"dns_ips": ["not-an-ip", "8.8.8.8"]}, "dns_ips entries must be valid IPv4 addresses"),
+            (
+                {"dns_ips": ["2001:4860:4860::8888"]},
+                "dns_ips entries must be valid IPv4 addresses",
+            ),
+            (
+                {"dns_ips_v6": ["not-an-ipv6", "2001:4860:4860::8888"]},
+                "dns_ips_v6 entries must be valid IPv6 addresses",
+            ),
+            ({"dns_ips_v6": ["8.8.8.8"]}, "dns_ips_v6 entries must be valid IPv6 addresses"),
+        ],
+    )
+    def test_construction_rejects_invalid_dns_address_entries(
+        self, kwargs: dict[str, list[str]], message: str
+    ) -> None:
+        """Constructor rejects malformed A and AAAA record strings."""
+        with pytest.raises(ValidationError, match=message):
+            Nip66DnsData(**kwargs)
+
     def test_construction_normalizes_set_like_dns_lists(self) -> None:
         """Constructed DNS set-like lists are deduplicated and sorted."""
         data = Nip66DnsData(
@@ -622,6 +644,20 @@ class TestNip66DnsData:
             "dns_ips": [" ", "8.8.8.8", ""],
             "dns_ips_v6": ["", "2001:4860:4860::8888", " "],
             "dns_ns": [" ", "ns1.google.com", ""],
+        }
+        parsed = Nip66DnsData.parse(raw)
+        assert parsed == {
+            "dns_ips": ["8.8.8.8"],
+            "dns_ips_v6": ["2001:4860:4860::8888"],
+            "dns_ns": ["ns1.google.com"],
+        }
+
+    def test_parse_filters_invalid_dns_address_entries(self) -> None:
+        """parse() filters malformed A and AAAA record strings."""
+        raw = {
+            "dns_ips": ["not-an-ip", "8.8.8.8", "2001:4860:4860::8888"],
+            "dns_ips_v6": ["bad-v6", "2001:4860:4860::8888", "8.8.8.8"],
+            "dns_ns": ["ns1.google.com"],
         }
         parsed = Nip66DnsData.parse(raw)
         assert parsed == {

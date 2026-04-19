@@ -122,6 +122,37 @@ def _drop_blank_string_list_entries(
             del parsed[key]
 
 
+def _drop_invalid_string_list_entries(
+    parsed: dict[str, Any],
+    issues: list[ParseIssue],
+    field_validators: tuple[tuple[str, Callable[[str], bool], str], ...],
+    *,
+    path: str,
+) -> None:
+    for key, validator, detail in field_validators:
+        value = parsed.get(key)
+        if not isinstance(value, list):
+            continue
+
+        valid_entries: list[str] = []
+        for index, entry in enumerate(value):
+            if not validator(entry):
+                issues.append(
+                    ParseIssue(
+                        kind="invalid_value",
+                        path=join_parse_path(path, f"{key}[{index}]"),
+                        detail=detail,
+                    )
+                )
+                continue
+            valid_entries.append(entry)
+
+        if valid_entries:
+            parsed[key] = sorted(set(valid_entries))
+        else:
+            del parsed[key]
+
+
 def _drop_blank_string_fields(
     parsed: dict[str, Any],
     issues: list[ParseIssue],
@@ -659,9 +690,43 @@ class Nip66DnsData(BaseData):
             raise ValueError(f"{info.field_name} must be a non-empty string")
         return value
 
+    @field_validator("dns_ips")
+    @classmethod
+    def _normalize_ipv4_records(cls, value: list[str] | None, info: Any) -> list[str] | None:
+        if value is None:
+            return None
+        for entry in value:
+            if entry.strip() == "":
+                raise ValueError(f"{info.field_name} entries must be non-empty strings")
+            if not _is_valid_ipv4_address(entry):
+                raise ValueError(f"{info.field_name} entries must be valid IPv4 addresses")
+        return sorted(set(value))
+
+    @field_validator("dns_ips_v6")
+    @classmethod
+    def _normalize_ipv6_records(cls, value: list[str] | None, info: Any) -> list[str] | None:
+        if value is None:
+            return None
+        for entry in value:
+            if entry.strip() == "":
+                raise ValueError(f"{info.field_name} entries must be non-empty strings")
+            if not _is_valid_ipv6_address(entry):
+                raise ValueError(f"{info.field_name} entries must be valid IPv6 addresses")
+        return sorted(set(value))
+
+    @field_validator("dns_ns")
+    @classmethod
+    def _normalize_nameserver_lists(cls, value: list[str] | None, info: Any) -> list[str] | None:
+        if value is None:
+            return None
+        for entry in value:
+            if entry.strip() == "":
+                raise ValueError(f"{info.field_name} entries must be non-empty strings")
+        return sorted(set(value))
+
     @classmethod
     def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
-        """Parse DNS data while rejecting negative TTL values."""
+        """Parse DNS data while rejecting malformed address records and TTL values."""
         report = super().parse_report(data, path=path)
         parsed = dict(report.parsed)
         issues = list(report.issues)
@@ -672,18 +737,17 @@ class Nip66DnsData(BaseData):
             ("dns_ips", "dns_ips_v6", "dns_ns"),
             path=path,
         )
+        _drop_invalid_string_list_entries(
+            parsed,
+            issues,
+            (
+                ("dns_ips", _is_valid_ipv4_address, "expected valid IPv4 address"),
+                ("dns_ips_v6", _is_valid_ipv6_address, "expected valid IPv6 address"),
+            ),
+            path=path,
+        )
         _drop_negative_int_fields(parsed, issues, ("dns_ttl",), path=path)
         return ParseReport(parsed=parsed, issues=tuple(issues))
-
-    @field_validator("dns_ips", "dns_ips_v6", "dns_ns")
-    @classmethod
-    def _normalize_set_like_lists(cls, value: list[str] | None, info: Any) -> list[str] | None:
-        if value is None:
-            return None
-        for entry in value:
-            if entry.strip() == "":
-                raise ValueError(f"{info.field_name} entries must be non-empty strings")
-        return sorted(set(value))
 
 
 class Nip66HttpData(BaseData):

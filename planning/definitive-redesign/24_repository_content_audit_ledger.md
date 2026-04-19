@@ -3331,3 +3331,15 @@ Use this section during execution for:
   - added paired `nips.nip66.test_data` coverage proving malformed IPv4,
     IPv6, and CIDR strings now fail fast at construction time and are
     removed from parse output.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-eighty-fifth
+  remediation slice:
+  - tightened the `nips.nip66.data.Nip66DnsData` address-record boundary so
+    malformed `dns_ips` and `dns_ips_v6` entries now reject at direct model
+    construction and are filtered from permissive parse/report
+    sanitization;
+  - closed the drift where non-IP A/AAAA record strings could survive as
+    canonical NIP-66 DNS data and later flow into shared result containers,
+    persisted documents, and public builder output;
+  - added paired `nips.nip66.test_data` coverage proving malformed IPv4 and
+    IPv6 DNS address entries now fail fast at construction time and are
+    removed from parse output.
