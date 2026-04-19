@@ -61,6 +61,14 @@ class TestSeedConfig:
         with pytest.raises(ValueError):
             SeedConfig(file_path="")
 
+    def test_whitespace_only_path_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"file_path must not be blank"):
+            SeedConfig(file_path="   ")
+
+    def test_padded_path_is_trimmed(self) -> None:
+        config = SeedConfig(file_path="  custom.txt  ")
+        assert config.file_path == "custom.txt"
+
 
 class TestSeederConfig:
     def test_defaults(self) -> None:
@@ -222,6 +230,23 @@ class TestSeed:
         config = SeederConfig(seed=SeedConfig(file_path=str(f)))
         seeder = Seeder(brotr=seeder_brotr, config=config)
         assert await seeder.seed() == 0
+
+    async def test_padded_file_path_is_canonicalized(
+        self, seeder_brotr: Brotr, tmp_path: Path
+    ) -> None:
+        f = tmp_path / "seed.txt"
+        f.write_text("wss://r1.example.com\n")
+        config = SeederConfig(seed=SeedConfig(file_path=f"  {f}  ", to_validate=False))
+        seeder = Seeder(brotr=seeder_brotr, config=config)
+
+        with patch(
+            "bigbrotr.services.seeder.service.insert_relays",
+            new_callable=AsyncMock,
+            return_value=1,
+        ) as mock_insert:
+            assert await seeder.seed() == 1
+            mock_insert.assert_awaited_once()
+            assert seeder.config.seed.file_path == str(f)
 
     async def test_as_candidates(self, seeder_brotr: Brotr, tmp_path: Path) -> None:
         f = tmp_path / "seed.txt"

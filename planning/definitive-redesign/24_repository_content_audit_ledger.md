@@ -4010,3 +4010,13 @@ Use this section during execution for:
     middleware unchanged;
   - added paired coverage in `services.test_api` proving equivalent origins
     now deduplicate both at config load and at middleware construction time.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-thirty-ninth
+  remediation slice:
+  - tightened the `services.seeder.configs.SeedConfig` file-path boundary so
+    authored values now trim surrounding whitespace and reject blank-only
+    payloads;
+  - closed the drift where payloads like `" static/seed_relays.txt "` or
+    `"   "` could survive config load as malformed or semantically empty seed
+    file paths and then flow into `Path(...)` resolution unchanged;
+  - added paired coverage in `services.test_seeder` proving padded paths now
+    canonicalize both at config load and when `Seeder.seed()` opens the file.
