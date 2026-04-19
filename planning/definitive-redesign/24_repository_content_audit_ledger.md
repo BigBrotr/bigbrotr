@@ -3084,3 +3084,16 @@ Use this section during execution for:
     to sanitize the public argument first;
   - added paired `nips.event_builders` coverage proving corrupted network
     inputs are rejected before any `Tag.parse()` work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-sixty-third remediation
+  slice:
+  - tightened the direct public builder boundary of
+    `nips.event_builders.build_profile_event()` so malformed `extra_fields`
+    values no longer degrade into late `json.dumps()` serialization errors
+    while the public Kind 0 builder assembles profile metadata content;
+  - reused the repository-wide JSON normalization contract to validate nested
+    `extra_fields` payloads inside the leaf builder itself, so direct callers
+    now enforce real JSON-compatible metadata values instead of relying on
+    downstream serialization to reject corrupted content;
+  - added paired `nips.event_builders` coverage proving unsupported object
+    values, tuple payloads, and non-finite floats are rejected before any
+    `NostrMetadata.from_json()` work begins.

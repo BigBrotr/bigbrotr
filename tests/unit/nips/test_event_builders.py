@@ -196,6 +196,31 @@ class TestBuildProfileEvent:
 
         mock_from_json.assert_not_called()
 
+    @pytest.mark.parametrize(
+        ("value", "message"),
+        [
+            (
+                {"algorithm_id": object()},
+                r"extra_fields\['algorithm_id'\] contains unsupported type object",
+            ),
+            ({"topic_counts": (1, 2)}, r"extra_fields\['topic_counts'\] contains a tuple"),
+            ({"weights": float("nan")}, r"extra_fields\['weights'\] contains a non-finite float"),
+        ],
+    )
+    def test_rejects_non_json_extra_field_values_before_metadata_build(
+        self,
+        value: object,
+        message: str,
+    ) -> None:
+        """Malformed extra_fields values fail before metadata serialization."""
+        with (
+            patch("bigbrotr.nips.event_builders.NostrMetadata.from_json") as mock_from_json,
+            pytest.raises(ValueError, match=message),
+        ):
+            build_profile_event(extra_fields=value)  # type: ignore[arg-type]
+
+        mock_from_json.assert_not_called()
+
 
 # ============================================================================
 # build_relay_list_event (Kind 10002)

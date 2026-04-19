@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, NamedTuple, TypeGuard, cast
 from nostr_sdk import EventBuilder, Kind, Tag
 from nostr_sdk import Metadata as NostrMetadata
 
+from bigbrotr.models._validation import normalize_json_data
 from bigbrotr.models.constants import EventKind, NetworkType
 from bigbrotr.models.document import Document, DocumentType
 from bigbrotr.models.relay import Relay
@@ -95,7 +96,13 @@ def _normalize_extra_profile_fields(extra_fields: object) -> dict[str, object]:
             continue
         if canonical_key in normalized:
             raise ValueError("extra_fields contains duplicate normalized keys")
-        normalized[canonical_key] = value
+        try:
+            normalized[canonical_key] = normalize_json_data(
+                value,
+                f"extra_fields[{canonical_key!r}]",
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(str(exc)) from exc
     return normalized
 
 
