@@ -60,6 +60,7 @@ Examples:
 
 from __future__ import annotations
 
+import math
 import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -523,7 +524,10 @@ class Monitor(
     ) -> MonitorProgress:
         """Process one relay page and return updated cycle progress."""
         chunk_outcome = await self._monitor_chunk(relays, plan)
-        await self._persist_chunk_outcome(chunk_outcome, checked_at=int(time.time()))
+        await self._persist_chunk_outcome(
+            chunk_outcome,
+            checked_at=math.ceil(time.time()),
+        )
         await self._publish_chunk_discoveries(
             chunk_outcome,
             max_concurrency=plan.max_concurrency,

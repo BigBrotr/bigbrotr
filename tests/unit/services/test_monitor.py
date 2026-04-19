@@ -2092,6 +2092,52 @@ class TestMonitorRun:
         mock_publish.assert_awaited_once_with(outcome, max_concurrency=5)
         mock_log.assert_called_once_with(outcome, total=4, succeeded=1, failed=0)
 
+    async def test_process_monitor_page_rounds_fractional_checkpoint_timestamp_up(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        monitor = Monitor(brotr=mock_brotr, config=_make_config())
+        relay = Relay("wss://relay.example.com")
+        outcome = MonitorChunkOutcome(
+            successful=((relay, _make_check_result()),),
+            failed=(),
+        )
+
+        with (
+            patch.object(
+                monitor,
+                "_monitor_chunk",
+                new_callable=AsyncMock,
+                return_value=outcome,
+            ),
+            patch.object(
+                monitor,
+                "_persist_chunk_outcome",
+                new_callable=AsyncMock,
+            ) as mock_persist,
+            patch.object(
+                monitor,
+                "_publish_chunk_discoveries",
+                new_callable=AsyncMock,
+            ),
+            patch.object(monitor, "_log_chunk_outcome"),
+            patch("bigbrotr.services.monitor.service.time.time", return_value=10_000.2),
+        ):
+            await monitor._process_monitor_page(
+                [relay],
+                MonitorCyclePlan(
+                    networks=(NetworkType.CLEARNET,),
+                    monitored_before=0,
+                    max_relays=None,
+                    total=1,
+                    max_concurrency=5,
+                    chunk_size=1,
+                ),
+                MonitorProgress(total=1),
+            )
+
+        mock_persist.assert_awaited_once_with(outcome, checked_at=10_001)
+
     async def test_process_monitor_page_persists_before_discovery_publication(
         self,
         mock_brotr: Brotr,

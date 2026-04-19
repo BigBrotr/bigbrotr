@@ -2283,3 +2283,12 @@ Use this section during execution for:
   - added `monitor` coverage proving both the helper and the live service
     wiring now use the precise current time when evaluating fractional due
     cutoffs.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-ninety-seventh remediation
+  slice:
+  - tightened the `monitor` relay-checkpoint persistence boundary so
+    fractional discovery intervals no longer get measured from a floored
+    checked-at marker, which previously let a relay become eligible again up
+    to almost one second too early even after due planning itself had been
+    corrected;
+  - added `monitor` coverage proving live page processing now persists relay
+    checkpoints rounded up instead of truncating fractional completion time.
