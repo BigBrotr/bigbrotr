@@ -2159,3 +2159,12 @@ Use this section during execution for:
     service's failure budget to a single bad cycle;
   - added paired `core` coverage proving that boolean alias now fails fast at
     config load instead of mutating shared service shutdown behavior.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-eighty-third remediation
+  slice:
+  - tightened the `ranker` budget-config boundary so cycle, sync, staging,
+    export, cleanup, and iteration numerics no longer accept boolean aliases,
+    which previously let values like `True` coerce to `1` or `1.0` and
+    silently collapse throughput budgets or retention to one unit;
+  - added paired `ranker` coverage proving those boolean aliases now fail
+    fast at config load instead of mutating private DuckDB and export
+    scheduling behavior.

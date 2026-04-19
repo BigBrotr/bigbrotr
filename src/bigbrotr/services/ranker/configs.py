@@ -4,14 +4,22 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 
 
 _ALGORITHM_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 _DEFAULT_ALGORITHM_ID = "global-pagerank"
+
+
+def _reject_bool_alias(value: Any, field_name: str, expected_type: str) -> Any:
+    """Reject bool aliases before Pydantic coerces them into numeric budgets."""
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected {expected_type}, got bool")
+    return value
 
 
 class RankerStorageConfig(BaseModel):
@@ -41,6 +49,11 @@ class RankerProcessingConfig(BaseModel):
         description="Maximum seconds for one ranker cycle (None = unbounded)",
     )
 
+    @field_validator("max_duration", mode="before")
+    @classmethod
+    def reject_boolean_max_duration(cls, value: Any, info: ValidationInfo) -> Any:
+        return _reject_bool_alias(value, str(info.field_name), "number")
+
 
 class RankerGraphConfig(BaseModel):
     """Graph-ranking parameters for the 30382 PageRank computation."""
@@ -64,6 +77,11 @@ class RankerGraphConfig(BaseModel):
         description="Ignore self-follow edges when computing PageRank",
     )
 
+    @field_validator("iterations", mode="before")
+    @classmethod
+    def reject_boolean_iterations(cls, value: Any, info: ValidationInfo) -> Any:
+        return _reject_bool_alias(value, str(info.field_name), "integer")
+
 
 class RankerSyncConfig(BaseModel):
     """Incremental PostgreSQL -> DuckDB sync settings."""
@@ -86,6 +104,11 @@ class RankerSyncConfig(BaseModel):
         ge=1,
         description="Maximum changed followers to sync per cycle (None = unbounded)",
     )
+
+    @field_validator("batch_size", "max_batches", "max_followers_per_cycle", mode="before")
+    @classmethod
+    def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
+        return _reject_bool_alias(value, str(info.field_name), "integer")
 
 
 class RankerFactsStageConfig(BaseModel):
@@ -115,6 +138,17 @@ class RankerFactsStageConfig(BaseModel):
         description="Maximum identifier fact rows to stage per cycle (None = unbounded)",
     )
 
+    @field_validator(
+        "batch_size",
+        "max_event_rows",
+        "max_addressable_rows",
+        "max_identifier_rows",
+        mode="before",
+    )
+    @classmethod
+    def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
+        return _reject_bool_alias(value, str(info.field_name), "integer")
+
 
 class RankerExportConfig(BaseModel):
     """PostgreSQL batch settings for public score export."""
@@ -133,6 +167,11 @@ class RankerExportConfig(BaseModel):
         description="Maximum export batches per score subject per cycle (None = unbounded)",
     )
 
+    @field_validator("batch_size", "max_batches_per_subject", mode="before")
+    @classmethod
+    def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
+        return _reject_bool_alias(value, str(info.field_name), "integer")
+
 
 class RankerCleanupConfig(BaseModel):
     """DuckDB-local cleanup settings for ranker bookkeeping."""
@@ -144,6 +183,11 @@ class RankerCleanupConfig(BaseModel):
         ge=1,
         description="Rank run records to keep in DuckDB (None = keep all)",
     )
+
+    @field_validator("rank_runs_retention", mode="before")
+    @classmethod
+    def reject_boolean_rank_runs_retention(cls, value: Any, info: ValidationInfo) -> Any:
+        return _reject_bool_alias(value, str(info.field_name), "integer")
 
 
 class RankerConfig(BaseServiceConfig):

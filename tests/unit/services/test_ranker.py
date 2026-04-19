@@ -777,6 +777,44 @@ class TestRankerConfig:
         with pytest.raises(ValueError, match="algorithm_id must match"):
             RankerConfig(algorithm_id="Global PageRank")
 
+    @pytest.mark.parametrize(
+        ("payload", "field_name", "expected_type"),
+        [
+            ({"processing": {"max_duration": True}}, "max_duration", "number"),
+            ({"graph": {"iterations": True}}, "iterations", "integer"),
+            ({"sync": {"batch_size": True}}, "batch_size", "integer"),
+            ({"sync": {"max_batches": True}}, "max_batches", "integer"),
+            ({"sync": {"max_followers_per_cycle": True}}, "max_followers_per_cycle", "integer"),
+            ({"facts_stage": {"batch_size": True}}, "batch_size", "integer"),
+            ({"facts_stage": {"max_event_rows": True}}, "max_event_rows", "integer"),
+            (
+                {"facts_stage": {"max_addressable_rows": True}},
+                "max_addressable_rows",
+                "integer",
+            ),
+            (
+                {"facts_stage": {"max_identifier_rows": True}},
+                "max_identifier_rows",
+                "integer",
+            ),
+            ({"export": {"batch_size": True}}, "batch_size", "integer"),
+            (
+                {"export": {"max_batches_per_subject": True}},
+                "max_batches_per_subject",
+                "integer",
+            ),
+            ({"cleanup": {"rank_runs_retention": True}}, "rank_runs_retention", "integer"),
+        ],
+    )
+    def test_rejects_boolean_budget_aliases(
+        self,
+        payload: dict[str, object],
+        field_name: str,
+        expected_type: str,
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected {expected_type}, got bool"):
+            RankerConfig.model_validate(payload)
+
 
 class TestRankerStore:
     @pytest.mark.parametrize(
