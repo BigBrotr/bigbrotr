@@ -240,7 +240,9 @@ def _normalize_event_address(value: Any) -> str:
 
 def _normalize_nip73_identifier(value: Any) -> str:
     """Return a canonical `scheme:value` NIP-73 identifier string."""
-    identifier = _require_non_empty_text(value, "identifier")
+    identifier = _require_text(value, "identifier").strip()
+    if not identifier:
+        raise ValueError("identifier must not be empty")
     scheme, separator, subject = identifier.partition(":")
     if separator == "":
         raise ValueError("identifier must be a canonical NIP-73 scheme:value string")

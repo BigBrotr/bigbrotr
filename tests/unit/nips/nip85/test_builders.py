@@ -298,7 +298,7 @@ class TestBuildIdentifierAssertion:
 
     def test_d_i_and_k_tags_included(self) -> None:
         a = IdentifierAssertion(
-            identifier="isbn:9780140328721",
+            identifier="  isbn:9780140328721\t",
             score=55,
             comment_count=3,
             reaction_count=4,

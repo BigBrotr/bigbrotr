@@ -913,6 +913,11 @@ class TestIdentifierAssertionProperties:
         )
         assert a.k_tags == ("book", "isbn")
 
+    def test_constructor_normalizes_whitespace_padded_identifier(self) -> None:
+        assertion = IdentifierAssertion(identifier="  isbn:9780140328721\t")
+
+        assert assertion.identifier == "isbn:9780140328721"
+
     def test_constructor_normalizes_whitespace_padded_k_tags(self) -> None:
         a = IdentifierAssertion(
             identifier="isbn:9780140328721",
@@ -928,6 +933,10 @@ class TestIdentifierAssertionProperties:
     def test_constructor_rejects_empty_identifier(self) -> None:
         with pytest.raises(ValueError, match="identifier must not be empty"):
             IdentifierAssertion(identifier="")
+
+    def test_constructor_rejects_whitespace_only_identifier(self) -> None:
+        with pytest.raises(ValueError, match="identifier must not be empty"):
+            IdentifierAssertion(identifier="   ")
 
     @pytest.mark.parametrize(
         ("identifier", "message"),
@@ -954,6 +963,11 @@ class TestIdentifierAssertionProperties:
         a = IdentifierAssertion.from_db_row(row)
 
         assert a.k_tags == ("book", "isbn")
+
+    def test_from_db_row_normalizes_whitespace_padded_identifier(self) -> None:
+        assertion = IdentifierAssertion.from_db_row({"identifier": "  isbn:9780140328721\t"})
+
+        assert assertion.identifier == "isbn:9780140328721"
 
     def test_constructor_rejects_scalar_string_k_tags(self) -> None:
         with pytest.raises(TypeError, match="k_tags must be a sequence of tag strings"):
@@ -1076,6 +1090,10 @@ class TestIdentifierAssertionProperties:
     def test_from_db_row_rejects_empty_identifier(self) -> None:
         with pytest.raises(ValueError, match="identifier must not be empty"):
             IdentifierAssertion.from_db_row({"identifier": ""})
+
+    def test_from_db_row_rejects_whitespace_only_identifier(self) -> None:
+        with pytest.raises(ValueError, match="identifier must not be empty"):
+            IdentifierAssertion.from_db_row({"identifier": "   "})
 
     @pytest.mark.parametrize(
         ("row", "message"),

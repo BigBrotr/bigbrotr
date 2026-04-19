@@ -3606,3 +3606,14 @@ Use this section during execution for:
   - added paired `nips.nip85.test_data` and `nips.nip85.test_builders`
     coverage proving constructor input and DB rows now collapse whitespace
     variants to one canonical `k` tag set and builder output stays trimmed.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-sixth remediation
+  slice:
+  - tightened the `nips.nip85.data.IdentifierAssertion` identifier boundary so
+    `NIP-73` identifiers now canonicalize outer whitespace at construction and
+    DB-row parse time, while whitespace-only payloads fail fast as empty;
+  - closed the drift where inputs like `" isbn:9780140328721 "` could survive
+    as padded canonical values and then emit malformed public `d` and `i` tags
+    even though the underlying identifier subject was otherwise valid;
+  - added paired `nips.nip85.test_data` and `nips.nip85.test_builders`
+    coverage proving identifier inputs now trim to one canonical value and
+    builder output emits the cleaned public coordinate.
