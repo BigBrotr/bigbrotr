@@ -3133,3 +3133,14 @@ Use this section during execution for:
   - added paired `nips.nip85.test_data` coverage proving duck-typed
     `topic_counts` payloads are rejected before any key/value coercion or
     topic sorting starts.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-sixty-seventh
+  remediation slice:
+  - tightened the shared `nips.base.BaseNipMetadata.to_dict()` boundary so
+    nested `to_dict()` delegation now applies only to real Pydantic/NIP model
+    objects instead of any arbitrary duck-typed value exposing a method with
+    that name;
+  - closed the bypass where non-model payloads could smuggle arbitrary nested
+    serialized content through historical-name NIP result containers even
+    though the repository contract expects typed data/logs models there;
+  - added paired `nips.test_base` coverage proving duck-typed nested values
+    now fail fast instead of being trusted as serializer-compatible payloads.

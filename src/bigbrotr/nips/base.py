@@ -206,8 +206,9 @@ class BaseNipMetadata(BaseModel):
         """Serialize to a dictionary, delegating to nested ``to_dict()`` methods.
 
         Iterates over model fields and calls ``to_dict()`` on any nested
-        object that supports it (e.g., data and logs sub-models).
-        ``None`` values are excluded.
+        NIP model object (e.g., data and logs sub-models). ``None`` values are
+        excluded. Arbitrary duck-typed objects exposing ``to_dict()`` are
+        rejected instead of being trusted implicitly.
 
         Returns:
             A dictionary suitable for JSON serialization or database storage.
@@ -217,10 +218,17 @@ class BaseNipMetadata(BaseModel):
             value = getattr(self, key)
             if value is None:
                 continue
+            if isinstance(value, BaseModel):
+                if hasattr(value, "to_dict"):
+                    result[key] = value.to_dict()
+                else:
+                    result[key] = value.model_dump(exclude_none=True)
+                continue
             if hasattr(value, "to_dict"):
-                result[key] = value.to_dict()
-            else:
-                result[key] = value
+                raise TypeError(
+                    f"{type(self).__name__}.{key} must be a BaseModel to use to_dict serialization"
+                )
+            result[key] = value
         return result
 
     @property

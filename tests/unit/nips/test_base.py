@@ -357,6 +357,24 @@ class TestBaseNipMetadata:
         d = model.to_dict()
         assert d == {"value": "test", "count": 10}
 
+    def test_to_dict_rejects_duck_typed_nested_values(self):
+        """to_dict() rejects arbitrary non-model objects that only mimic nested serializers."""
+
+        class DuckTypedValue:
+            def to_dict(self):
+                return {"forged": True}
+
+        class SimpleMetadata(BaseNipMetadata):
+            value: object
+
+        model = SimpleMetadata(value=DuckTypedValue())
+
+        with pytest.raises(
+            TypeError,
+            match=r"SimpleMetadata.value must be a BaseModel to use to_dict serialization",
+        ):
+            model.to_dict()
+
     def test_model_is_frozen(self, metadata_subclass):
         """BaseNipMetadata models are immutable."""
         TestMetadata, TestData, TestLogs = metadata_subclass
