@@ -123,6 +123,37 @@ def _normalize_explicit_empty_string_lists(
             result[field_name] = sorted(set(result[field_name]))
 
 
+def _drop_blank_string_list_entries(
+    parsed: dict[str, Any],
+    issues: list[ParseIssue],
+    field_names: tuple[str, ...],
+    *,
+    path: str,
+) -> None:
+    for field_name in field_names:
+        value = parsed.get(field_name)
+        if not isinstance(value, list):
+            continue
+
+        valid_entries: list[str] = []
+        for index, entry in enumerate(value):
+            if entry.strip() == "":
+                issues.append(
+                    ParseIssue(
+                        kind="invalid_value",
+                        path=join_parse_path(path, f"{field_name}[{index}]"),
+                        detail="expected non-empty str",
+                    )
+                )
+                continue
+            valid_entries.append(entry)
+
+        if valid_entries:
+            parsed[field_name] = sorted(set(valid_entries))
+        else:
+            del parsed[field_name]
+
+
 def _parse_strict_int_fields(
     data: dict[str, Any],
     field_names: tuple[str, ...],
@@ -817,9 +848,12 @@ class Nip11InfoData(BaseData):
 
     @field_validator("relay_countries", "language_tags", "tags", "attributes")
     @classmethod
-    def _normalize_string_lists(cls, value: list[str] | None) -> list[str] | None:
+    def _normalize_string_lists(cls, value: list[str] | None, info: Any) -> list[str] | None:
         if value is None:
             return None
+        for entry in value:
+            if entry.strip() == "":
+                raise ValueError(f"{info.field_name} entries must be non-empty strings")
         return sorted(set(value))
 
     @field_validator("retention")
@@ -878,6 +912,12 @@ class Nip11InfoData(BaseData):
         result = dict(report.parsed)
         issues = list(report.issues)
 
+        _drop_blank_string_list_entries(
+            result,
+            issues,
+            ("relay_countries", "language_tags", "tags", "attributes"),
+            path=path,
+        )
         _normalize_explicit_empty_string_lists(data, result, issues, path=path)
 
         if "supported_nips" in data:

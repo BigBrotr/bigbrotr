@@ -689,6 +689,22 @@ class TestNip11InfoDataConstructor:
         assert data.tags == ["bitcoin-only", "sfw-only"]
         assert data.attributes == ["Community", "Search"]
 
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"relay_countries": ["", "US"]}, "relay_countries entries must be non-empty strings"),
+            ({"language_tags": [" ", "en"]}, "language_tags entries must be non-empty strings"),
+            ({"tags": ["", "relay"]}, "tags entries must be non-empty strings"),
+            ({"attributes": ["  ", "Search"]}, "attributes entries must be non-empty strings"),
+        ],
+    )
+    def test_constructor_rejects_blank_string_list_entries(
+        self, kwargs: dict[str, list[str]], message: str
+    ) -> None:
+        """Constructor rejects blank or whitespace-only string list entries."""
+        with pytest.raises(ValidationError, match=message):
+            Nip11InfoData(**kwargs)
+
     def test_constructor_rejects_non_str_name(self):
         """Constructor raises ValidationError for non-str name."""
         with pytest.raises(ValidationError):
@@ -856,6 +872,22 @@ class TestNip11InfoDataParse:
         data = {"tags": ["valid", 42, "also valid", None, "valid"]}
         result = Nip11InfoData.parse(data)
         assert result["tags"] == ["also valid", "valid"]
+
+    def test_parse_filters_blank_string_list_entries(self):
+        """Blank string entries are filtered from NIP-11 string lists."""
+        data = {
+            "relay_countries": ["", "US"],
+            "language_tags": [" ", "en"],
+            "tags": ["", "relay"],
+            "attributes": ["  ", "Search"],
+        }
+        result = Nip11InfoData.parse(data)
+        assert result == {
+            "relay_countries": ["US"],
+            "language_tags": ["en"],
+            "tags": ["relay"],
+            "attributes": ["Search"],
+        }
 
     def test_parse_self_field(self):
         """parse() returns the constructor-ready internal field name for ``self``."""

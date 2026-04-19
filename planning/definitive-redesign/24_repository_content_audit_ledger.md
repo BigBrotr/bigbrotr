@@ -3259,3 +3259,15 @@ Use this section during execution for:
   - added paired `nips.nip11.test_data` coverage proving descending
     retention ranges now fail fast at construction time and are filtered from
     parse output.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-seventy-eighth
+  remediation slice:
+  - tightened the `nips.nip11.data.Nip11InfoData` string-list boundary so
+    `relay_countries`, `language_tags`, `tags`, and `attributes` now reject
+    blank or whitespace-only entries both at direct model construction and
+    during permissive parse/report sanitization;
+  - closed the drift where semantically empty NIP-11 descriptor entries
+    could survive as canonical relay metadata and later flow into shared
+    result containers and public serialization;
+  - added paired `nips.nip11.test_data` coverage proving blank string-list
+    entries now fail fast at construction time and are filtered from parse
+    output.
