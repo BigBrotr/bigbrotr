@@ -230,6 +230,15 @@ def _normalize_optional_nip66_rtt_data(rtt_data: object) -> Nip66RttData | None:
     return cast("Nip66RttData", rtt_data)
 
 
+def _normalize_optional_nip66_ssl_data(ssl_data: object) -> Nip66SslData | None:
+    if ssl_data is None:
+        return None
+    ssl_data_type = importlib.import_module("bigbrotr.nips.nip66.data").Nip66SslData
+    if not isinstance(ssl_data, ssl_data_type):
+        raise ValueError("ssl_data must be a Nip66SslData or None")
+    return cast("Nip66SslData", ssl_data)
+
+
 def _normalize_supported_nips_for_type_tags(supported_nips: object) -> tuple[int, ...] | None:
     if supported_nips is None:
         return None
@@ -442,6 +451,7 @@ def add_rtt_tags(tags: list[Tag], rtt_data: Nip66RttData | None) -> None:
 
 def add_ssl_tags(tags: list[Tag], ssl_data: Nip66SslData | None) -> None:
     """Add SSL certificate tags: ``ssl``, ``ssl-expires``, ``ssl-issuer``."""
+    ssl_data = _normalize_optional_nip66_ssl_data(ssl_data)
     if ssl_data is None:
         return
     if ssl_data.ssl_valid is not None:
