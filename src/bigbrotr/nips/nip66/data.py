@@ -294,11 +294,15 @@ def _is_valid_dns_hostname(value: str) -> bool:
     return _is_valid_hostname(_canonicalize_dns_hostname(value))
 
 
+def _canonicalize_ssl_dns_name(value: str) -> str:
+    return value.rstrip(".").lower()
+
+
 def _is_valid_ssl_dns_name(value: str) -> bool:
-    lowered = value.lower()
-    if lowered.startswith("*."):
-        return _is_valid_hostname(lowered[2:])
-    return _is_valid_hostname(lowered)
+    canonical = _canonicalize_ssl_dns_name(value)
+    if canonical.startswith("*."):
+        return _is_valid_hostname(canonical[2:])
+    return _is_valid_hostname(canonical)
 
 
 def _is_valid_timezone_name(value: str) -> bool:
@@ -487,7 +491,7 @@ class Nip66SslData(BaseData):
                 raise ValueError(f"{info.field_name} entries must be non-empty strings")
             if not _is_valid_ssl_dns_name(entry):
                 raise ValueError(f"{info.field_name} entries must be valid hostnames")
-            normalized.append(entry.lower())
+            normalized.append(_canonicalize_ssl_dns_name(entry))
         return sorted(set(normalized))
 
     @classmethod

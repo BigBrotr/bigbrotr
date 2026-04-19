@@ -3488,3 +3488,18 @@ Use this section during execution for:
     proving valid FQDN inputs now normalize to one canonical representation
     at both direct model construction time and through the public `probe()`
     container.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-ninety-seventh
+  remediation slice:
+  - tightened the `nips.nip66.data.Nip66SslData` SAN hostname boundary so
+    canonical DNS SAN values now accept valid FQDN inputs with a trailing
+    dot, normalize them by stripping the terminal dot and lowercasing, and
+    keep that normalization consistent for both plain and wildcard SAN
+    entries;
+  - closed the drift where semantically identical SAN values like
+    `relay.example.com` and `relay.example.com.` were treated as different
+    validity cases across direct model construction versus the live SSL probe
+    path;
+  - added paired `nips.nip66.test_data` and `nips.nip66.test_ssl` coverage
+    proving valid FQDN SAN inputs now normalize to one canonical
+    representation at both direct model construction time and through the
+    public `probe()` container.

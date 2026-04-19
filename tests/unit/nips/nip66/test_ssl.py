@@ -216,7 +216,11 @@ class TestNip66SslMetadataSslAsync:
         """Probe output normalizes SAN values before building the model."""
         ssl_result = {
             "ssl_valid": True,
-            "ssl_san": ["RELAY.EXAMPLE.COM", "*.EXAMPLE.COM", "relay.example.com"],
+            "ssl_san": [
+                "RELAY.EXAMPLE.COM.",
+                "*.EXAMPLE.COM.",
+                "relay.example.com",
+            ],
         }
 
         with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result):

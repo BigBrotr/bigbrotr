@@ -151,7 +151,11 @@ class TestNip66SslData:
     def test_construction_normalizes_san_list(self) -> None:
         """Constructor deduplicates and sorts SAN values."""
         data = Nip66SslData(
-            ssl_san=["RELAY.EXAMPLE.COM", "*.EXAMPLE.COM", "relay.example.com"],
+            ssl_san=[
+                "RELAY.EXAMPLE.COM.",
+                "*.EXAMPLE.COM.",
+                "relay.example.com",
+            ],
         )
         assert data.ssl_san == ["*.example.com", "relay.example.com"]
 
@@ -290,7 +294,13 @@ class TestNip66SslData:
 
     def test_parse_handles_san_list(self) -> None:
         """parse() normalizes valid SAN lists."""
-        raw = {"ssl_san": ["RELAY.EXAMPLE.COM", "*.EXAMPLE.COM", "relay.example.com"]}
+        raw = {
+            "ssl_san": [
+                "RELAY.EXAMPLE.COM.",
+                "*.EXAMPLE.COM.",
+                "relay.example.com",
+            ]
+        }
         parsed = Nip66SslData.parse(raw)
         assert parsed == {"ssl_san": ["*.example.com", "relay.example.com"]}
 
