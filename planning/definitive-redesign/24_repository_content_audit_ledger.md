@@ -3978,3 +3978,13 @@ Use this section during execution for:
     then flow into uvicorn startup unchanged;
   - added coverage in `services.test_api` proving padded hosts now
     canonicalize and blank-only hosts fail fast.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-thirty-sixth
+  remediation slice:
+  - tightened the `services.api.configs.ApiConfig` title boundary so
+    authored values now trim surrounding whitespace and reject blank-only
+    payloads;
+  - closed the drift where payloads like `"  BigBrotr API  "` or `"   "`
+    could survive config load as malformed or semantically empty FastAPI
+    application titles and then flow into the HTTP adapter unchanged;
+  - added paired coverage in `services.test_api` proving padded titles now
+    canonicalize both at config load and at FastAPI app construction time.

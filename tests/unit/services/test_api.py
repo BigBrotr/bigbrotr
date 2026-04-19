@@ -138,6 +138,14 @@ class TestApiConfig:
         assert config.request_timeout == 60.0
         assert config.read_models["events"].enabled is True
 
+    def test_whitespace_only_title_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"title must not be blank"):
+            ApiConfig(title="   ")
+
+    def test_padded_title_is_trimmed(self) -> None:
+        config = ApiConfig(title="  LilBrotr API  ")
+        assert config.title == "LilBrotr API"
+
     def test_exposure_policy_aliases_read_models(self) -> None:
         config = ApiConfig(read_models={"relays": ReadModelPolicy(enabled=True)})
         assert config.exposure_policy == config.read_models
@@ -280,6 +288,18 @@ class TestApiBuildApp:
     def test_app_title_from_config(self, mock_brotr: Brotr, sample_catalog: Catalog) -> None:
         config = ApiConfig(
             title="LilBrotr API",
+            read_models={"relays": ReadModelPolicy(enabled=True)},
+        )
+        service = Api(brotr=mock_brotr, config=config)
+        service._read_core.catalog = sample_catalog
+        app = service._build_app()
+        assert app.title == "LilBrotr API"
+
+    def test_app_title_uses_canonicalized_config(
+        self, mock_brotr: Brotr, sample_catalog: Catalog
+    ) -> None:
+        config = ApiConfig(
+            title="  LilBrotr API  ",
             read_models={"relays": ReadModelPolicy(enabled=True)},
         )
         service = Api(brotr=mock_brotr, config=config)

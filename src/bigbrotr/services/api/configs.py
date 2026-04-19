@@ -105,6 +105,12 @@ class ApiConfig(PublicReadAdapterConfig):
         field_name = info.field_name or "value"
         return _normalize_non_blank_string(value, field_name)
 
+    @field_validator("title", mode="before")
+    @classmethod
+    def _normalize_title(cls, value: Any, info: ValidationInfo) -> str:
+        field_name = info.field_name or "value"
+        return _normalize_non_blank_string(value, field_name)
+
     @field_validator("route_prefix")
     @classmethod
     def _normalize_route_prefix(cls, v: str) -> str:
