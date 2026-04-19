@@ -56,6 +56,13 @@ def _normalize_optional_profile_text(value: Any, field_name: str) -> str | None:
     return normalized or None
 
 
+def _require_boolean(value: Any, field_name: str) -> bool:
+    """Require canonical booleans for public monitor config boundaries."""
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected boolean, got {type(value).__name__}")
+    return value
+
+
 class MetadataFlags(BaseModel):
     """Boolean flags controlling which metadata types to compute, store, or publish.
 
@@ -90,10 +97,8 @@ class MetadataFlags(BaseModel):
     @classmethod
     def reject_boolean_flag_aliases(cls, value: Any, info: ValidationInfo) -> bool:
         """Require canonical booleans for monitor metadata flag boundaries."""
-        if not isinstance(value, bool):
-            field_name = info.field_name or "value"
-            raise ValueError(f"{field_name}: expected boolean, got {type(value).__name__}")
-        return value
+        field_name = info.field_name or "value"
+        return _require_boolean(value, field_name)
 
     def get_missing_from(self, superset: MetadataFlags) -> list[str]:
         """Return field names that are enabled in self but disabled in superset."""
@@ -235,6 +240,13 @@ class ProcessingConfig(BaseModel):
         field_name = info.field_name or "max_relays"
         return _reject_bool_alias(v, field_name, "integer")
 
+    @field_validator("allow_insecure", mode="before")
+    @classmethod
+    def reject_non_boolean_allow_insecure(cls, v: Any, info: ValidationInfo) -> bool:
+        """Require an explicit boolean for the insecure transport policy."""
+        field_name = info.field_name or "allow_insecure"
+        return _require_boolean(v, field_name)
+
 
 class GeoConfig(BaseModel):
     """GeoLite2 database paths, download URLs, and staleness settings.
@@ -343,6 +355,13 @@ class DiscoveryConfig(BaseModel):
         BeforeValidator(parse_relay_list_fail_soft),
     ] = Field(default=None, description="Override relay list (None = use publishing default)")
 
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def reject_non_boolean_enabled(cls, value: Any, info: ValidationInfo) -> bool:
+        """Require a canonical boolean for discovery publish toggles."""
+        field_name = info.field_name or "enabled"
+        return _require_boolean(value, field_name)
+
 
 class AnnouncementConfig(BaseModel):
     """Kind 10166 monitor announcement settings (NIP-66).
@@ -371,6 +390,13 @@ class AnnouncementConfig(BaseModel):
         list[Relay] | None,
         BeforeValidator(parse_relay_list_fail_soft),
     ] = Field(default=None, description="Override relay list (None = use publishing default)")
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def reject_non_boolean_enabled(cls, value: Any, info: ValidationInfo) -> bool:
+        """Require a canonical boolean for announcement publish toggles."""
+        field_name = info.field_name or "enabled"
+        return _require_boolean(value, field_name)
 
 
 class ProfileConfig(BaseModel):
@@ -418,6 +444,13 @@ class ProfileConfig(BaseModel):
     def profile_text_fields_valid(cls, value: Any, info: ValidationInfo) -> str | None:
         return _normalize_optional_profile_text(value, str(info.field_name))
 
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def reject_non_boolean_enabled(cls, value: Any, info: ValidationInfo) -> bool:
+        """Require a canonical boolean for profile publish toggles."""
+        field_name = info.field_name or "enabled"
+        return _require_boolean(value, field_name)
+
 
 class RelayListConfig(BaseModel):
     """Kind 10002 relay list metadata settings (NIP-65)."""
@@ -433,6 +466,13 @@ class RelayListConfig(BaseModel):
         list[Relay] | None,
         BeforeValidator(parse_relay_list_fail_soft),
     ] = Field(default=None, description="Override relay list (None = use publishing default)")
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def reject_non_boolean_enabled(cls, value: Any, info: ValidationInfo) -> bool:
+        """Require a canonical boolean for relay-list publish toggles."""
+        field_name = info.field_name or "enabled"
+        return _require_boolean(value, field_name)
 
 
 class MonitorConfig(BaseServiceConfig):

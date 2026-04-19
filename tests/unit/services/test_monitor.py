@@ -438,6 +438,13 @@ class TestProcessingConfig:
         with pytest.raises(ValueError, match="max_relays: expected integer, got bool"):
             ProcessingConfig(max_relays=True)
 
+    def test_rejects_non_boolean_allow_insecure(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"allow_insecure: expected boolean, got str",
+        ):
+            ProcessingConfig(allow_insecure="true")
+
 
 class TestRetryConfig:
     def test_defaults(self) -> None:
@@ -616,6 +623,13 @@ class TestDiscoveryConfig:
         ):
             DiscoveryConfig(include={"nip11_info": "true"})
 
+    def test_enabled_rejects_boolean_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"enabled: expected boolean, got str",
+        ):
+            DiscoveryConfig(enabled="false")
+
 
 class TestAnnouncementConfig:
     def test_default_values(self) -> None:
@@ -646,6 +660,13 @@ class TestAnnouncementConfig:
             match=r"nip66_http: expected boolean, got str",
         ):
             AnnouncementConfig(include={"nip66_http": "false"})
+
+    def test_enabled_rejects_boolean_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"enabled: expected boolean, got int",
+        ):
+            AnnouncementConfig(enabled=1)
 
 
 class TestProfileConfig:
@@ -710,6 +731,29 @@ class TestProfileConfig:
         assert config.website is None
         assert config.banner is None
         assert config.lud16 is None
+
+    def test_enabled_rejects_boolean_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"enabled: expected boolean, got str",
+        ):
+            ProfileConfig(enabled="false")
+
+
+class TestRelayListConfig:
+    def test_default_values(self) -> None:
+        config = RelayListConfig()
+
+        assert config.enabled is True
+        assert config.interval == 86400
+        assert config.relays is None
+
+    def test_enabled_rejects_boolean_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"enabled: expected boolean, got int",
+        ):
+            RelayListConfig(enabled=0)
 
 
 class TestMonitorConfig:

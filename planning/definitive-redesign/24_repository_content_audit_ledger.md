@@ -3748,3 +3748,17 @@ Use this section during execution for:
     rejects non-boolean aliases directly and `DiscoveryConfig` /
     `AnnouncementConfig` now fail fast before any publish planning uses those
     coerced flags.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-seventeenth remediation
+  slice:
+  - tightened the remaining public boolean config boundaries in
+    `services.monitor.configs`, so publish toggles
+    (`discovery.enabled`, `announcement.enabled`, `profile.enabled`,
+    `relay_list.enabled`) and `processing.allow_insecure` now require
+    canonical `bool` values instead of relying on Pydantic coercion;
+  - closed the drift where payloads like `"false"`, `0`, or `1` could
+    silently disable publish paths or enable insecure transport policy at
+    monitor config load time without ever crossing an explicit boolean
+    boundary;
+  - added paired `services.test_monitor` coverage proving each affected
+    config now fails fast on non-boolean aliases before runtime planning or
+    publish orchestration begins.
