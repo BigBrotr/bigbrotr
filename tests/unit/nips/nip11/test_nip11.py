@@ -705,6 +705,21 @@ class TestNip11FetchParameters:
         timeout = call_args[1]["timeout"]
         assert timeout.total == pytest.approx(10.0, abs=0.02)
 
+    @pytest.mark.parametrize("value", [True, 0, -1, float("nan")])
+    async def test_fetch_rejects_invalid_timeout_before_info_fetch(
+        self,
+        relay: Relay,
+        value: object,
+    ) -> None:
+        """Top-level fetch rejects invalid timeout budgets before child retrieval."""
+        with (
+            patch.object(Nip11InfoMetadata, "fetch", new_callable=AsyncMock) as mock_fetch,
+            pytest.raises(ValueError, match="timeout must be a positive finite number"),
+        ):
+            await Nip11.fetch(relay, timeout=value)
+
+        mock_fetch.assert_not_awaited()
+
 
 # =============================================================================
 # Integration Tests

@@ -904,6 +904,17 @@ class TestNip11InfoMetadataTimeout:
         timeout = call_args[1]["timeout"]
         assert timeout.total == pytest.approx(30.0, abs=0.02)
 
+    @pytest.mark.parametrize("value", [True, 0, -1, float("nan")])
+    async def test_info_rejects_invalid_timeout_before_http(self, relay: Relay, value: object):
+        """Retrieval rejects invalid timeout budgets before opening HTTP state."""
+        with (
+            patch.object(Nip11InfoMetadata, "_info", new_callable=AsyncMock) as mock_info,
+            pytest.raises(ValueError, match="timeout must be a positive finite number"),
+        ):
+            await Nip11InfoMetadata.fetch(relay, timeout=value)
+
+        mock_info.assert_not_awaited()
+
 
 # =============================================================================
 # fetch() Method - Data Parsing with Invalid Fields

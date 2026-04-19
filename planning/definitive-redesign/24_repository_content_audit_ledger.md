@@ -2516,3 +2516,13 @@ Use this section during execution for:
   - added paired `NIP-11` coverage proving invalid `max_size` values now fail
     fast before any HTTP work starts, while canonical positive budgets still
     preserve the existing fetch contract.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-twentieth remediation
+  slice:
+  - tightened the public `NIP-11` timeout boundary so both direct
+    `Nip11InfoMetadata.fetch(timeout=...)` calls and the top-level
+    `Nip11.fetch(timeout=...)` entrypoint now reject bool aliases, non-finite
+    values, and non-positive budgets instead of leaking impossible timeout
+    values into the HTTP client/deadline logic;
+  - added paired `NIP-11` coverage proving invalid timeout inputs now fail
+    fast before any child fetch or HTTP work starts, while canonical positive
+    time budgets still preserve the existing runtime contract.

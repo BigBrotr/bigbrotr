@@ -37,7 +37,6 @@ from bigbrotr.nips.base import (
     BaseNipOptions,
     BaseNipSelection,
 )
-from bigbrotr.utils.transport import DEFAULT_TIMEOUT
 
 from .info import Nip11InfoMetadata
 
@@ -220,7 +219,7 @@ class Nip11(BaseNip):
         selection = selection or Nip11Selection()
         options = options or Nip11Options()
         deps = deps or Nip11Dependencies()
-        timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
+        timeout = Nip11InfoMetadata._normalize_timeout(timeout)
         logger.debug("fetch_started relay=%s timeout_s=%s", relay.url, timeout)
 
         info = None

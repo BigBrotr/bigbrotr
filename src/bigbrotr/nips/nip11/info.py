@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import ssl
 import time
 from http import HTTPStatus
@@ -80,6 +81,18 @@ class Nip11InfoMetadata(BaseNipMetadata):
     logs: Nip11InfoLogs
 
     _INFO_MAX_SIZE: ClassVar[int] = 65_536  # 64 KB
+
+    @classmethod
+    def _normalize_timeout(cls, timeout: float | None) -> float:
+        """Return a canonical positive finite timeout budget."""
+        if timeout is None:
+            return DEFAULT_TIMEOUT
+        if isinstance(timeout, bool) or not isinstance(timeout, int | float):
+            raise ValueError("timeout must be a positive finite number")
+        normalized = float(timeout)
+        if not math.isfinite(normalized) or normalized <= 0:
+            raise ValueError("timeout must be a positive finite number")
+        return normalized
 
     @classmethod
     def _normalize_max_size(cls, max_size: int | None) -> int:
@@ -239,7 +252,7 @@ class Nip11InfoMetadata(BaseNipMetadata):
         Returns:
             An ``Nip11InfoMetadata`` instance with data and logs.
         """
-        timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
+        timeout = cls._normalize_timeout(timeout)
         max_size = cls._normalize_max_size(max_size)
 
         # Build the HTTP URL from the relay's WebSocket URL components
