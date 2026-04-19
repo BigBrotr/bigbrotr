@@ -589,6 +589,30 @@ class TestNip66RttMetadataRtt:
 
         mock_open.assert_not_awaited()
 
+    @pytest.mark.parametrize("value", [True, "", "   ", "garbage", "socks5://:9050"])
+    async def test_rejects_invalid_proxy_url_before_open_phase(
+        self,
+        relay: Relay,
+        mock_keys: MagicMock,
+        mock_event_builder: MagicMock,
+        mock_read_filter: MagicMock,
+        value: object,
+    ) -> None:
+        """Malformed proxy URLs fail before the open phase starts."""
+        deps = Nip66RttDependencies(
+            keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
+        )
+
+        with (
+            patch.object(Nip66RttMetadata, "_test_open", new_callable=AsyncMock) as mock_open,
+            pytest.raises(
+                ValueError, match="proxy_url must be a valid proxy URL with scheme and hostname"
+            ),
+        ):
+            await Nip66RttMetadata.probe(relay, deps, timeout=10.0, proxy_url=value)  # type: ignore[arg-type]
+
+        mock_open.assert_not_awaited()
+
     async def test_cleanup_called_after_phases(
         self,
         relay: Relay,

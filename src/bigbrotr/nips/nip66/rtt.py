@@ -46,7 +46,7 @@ from nostr_sdk import Filter, NostrSdkError, RelayUrl
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.nips._validation import normalize_allow_insecure
+from bigbrotr.nips._validation import normalize_allow_insecure, normalize_proxy_url
 from bigbrotr.nips.base import BaseNipMetadata
 
 from ._validation import normalize_timeout_budget
@@ -130,6 +130,7 @@ class Nip66RttMetadata(BaseNipMetadata):
             An ``Nip66RttMetadata`` instance with measurement data and logs.
         """
         timeout = normalize_timeout_budget(timeout)
+        proxy_url = normalize_proxy_url(proxy_url)
         allow_insecure = normalize_allow_insecure(allow_insecure)
         logger.debug("rtt_started relay=%s timeout_s=%s proxy=%s", relay.url, timeout, proxy_url)
 

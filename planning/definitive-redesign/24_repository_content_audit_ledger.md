@@ -2669,3 +2669,16 @@ Use this section during execution for:
   - added leaf coverage proving malformed `allow_insecure` inputs are rejected
     before any child HTTP request, proxy connector setup, or RTT open phase
     starts.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-thirty-second remediation
+  slice:
+  - tightened the direct public `proxy_url` boundary for
+    `Nip66RttMetadata.probe()` so that RTT leaf calls no longer accept
+    malformed proxy payloads that would otherwise leak into the open-phase
+    runtime or blur the semantic difference between a missing overlay proxy
+    policy and an invalid public argument;
+  - aligned that leaf entrypoint with the already-hardened `NIP-11`,
+    `NIP-66 HTTP`, and higher-level `Nip66.probe()` proxy normalization so the
+    shared `nips` proxy contract is enforced consistently across direct and
+    orchestrated probe paths;
+  - added paired RTT coverage proving malformed proxy URLs are rejected before
+    any child open-phase work starts.
