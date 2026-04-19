@@ -282,6 +282,14 @@ class TestDvmConfig:
                 relays=["wss://relay.example.com"], read_models={"relays": {"enabled": value}}
             )
 
+    @pytest.mark.parametrize("value", ["1000", 1000.0, 0.0])
+    def test_rejects_non_integer_read_model_price_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"price: expected integer, got"):
+            DvmConfig(
+                relays=["wss://relay.example.com"],
+                read_models={"relays": {"enabled": True, "price": value}},
+            )
+
     def test_read_models_require_canonical_names(self) -> None:
         with pytest.raises(
             ValueError,

@@ -149,9 +149,10 @@ class TestReadModelPolicy:
         assert config.enabled is False
         assert config.price == 100
 
-    def test_rejects_boolean_price_alias(self) -> None:
-        with pytest.raises(ValidationError, match="price: expected integer, got bool"):
-            ReadModelPolicy(price=True)
+    @pytest.mark.parametrize("value", ["1000", 1000.0, 0.0, True])
+    def test_rejects_non_integer_price_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"price: expected integer, got"):
+            ReadModelPolicy(price=value)
 
 
 class TestRelayListParsing:

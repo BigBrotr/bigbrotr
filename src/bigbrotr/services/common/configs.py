@@ -82,6 +82,13 @@ def _require_bool(value: Any, field_name: str) -> bool:
     return value
 
 
+def _require_int(value: Any, field_name: str) -> int:
+    """Require canonical integers for authored config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name}: expected integer, got {type(value).__name__}")
+    return cast("int", value)
+
+
 def _normalize_optional_proxy_url(value: Any) -> str | None:
     """Normalize optional authored proxy URLs against the shared protocol contract."""
     return normalize_proxy_url(value)
@@ -197,9 +204,9 @@ class ReadModelPolicy(BaseModel):
 
     @field_validator("price", mode="before")
     @classmethod
-    def _reject_boolean_price(cls, value: Any, info: ValidationInfo) -> Any:
+    def _require_integer_price(cls, value: Any, info: ValidationInfo) -> int:
         field_name = info.field_name or "value"
-        return _reject_bool_alias(value, field_name, "integer")
+        return _require_int(value, field_name)
 
 
 def normalize_protocol_exposure_policy(

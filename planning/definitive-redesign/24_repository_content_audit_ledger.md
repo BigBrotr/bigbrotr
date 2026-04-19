@@ -3877,3 +3877,15 @@ Use this section during execution for:
     `services.test_dvm` proving padded nested `keys_env` payloads now
     canonicalize at config load time and still resolve the expected signing
     key.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-twenty-seventh
+  remediation slice:
+  - tightened the shared public-adapter boundary in
+    `services.common.configs.ReadModelPolicy` so `price` now requires a
+    canonical integer instead of accepting numeric strings or floats;
+  - closed the drift where authored `read_models.*.price` payloads like
+    `"1000"` or `1000.0` could silently coerce into valid millisat prices and
+    change DVM `payment-required` behavior without passing through an explicit
+    integer boundary;
+  - added paired coverage in `services.common.test_configs` and
+    `services.test_dvm` proving malformed nested `price` payloads now fail
+    fast at config load time.
