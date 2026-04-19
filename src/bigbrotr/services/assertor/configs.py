@@ -42,6 +42,13 @@ def _reject_bool_alias(value: Any, field_name: str, expected_type: str) -> Any:
     return value
 
 
+def _require_bool(value: Any, field_name: str) -> bool:
+    """Require a real bool instead of allowing truthy/falsy aliases."""
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected bool, got {type(value).__name__}")
+    return value
+
+
 class ProviderProfileKind0Content(BaseModel):
     """Kind 0 metadata content for the optional NIP-85 provider profile."""
 
@@ -85,6 +92,11 @@ class ProviderProfileConfig(BaseModel):
         default_factory=ProviderProfileKind0Content,
         description="Kind 0 metadata content for the provider profile",
     )
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def enabled_is_bool(cls, value: Any, info: ValidationInfo) -> bool:
+        return _require_bool(value, str(info.field_name))
 
 
 class TrustedProviderListConfig(BaseModel):
@@ -137,6 +149,11 @@ class TrustedProviderListConfig(BaseModel):
             return Relay.parse(value).url
         except ValueError as exc:
             raise ValueError("relay_hint must be a valid relay URL") from exc
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def enabled_is_bool(cls, value: Any, info: ValidationInfo) -> bool:
+        return _require_bool(value, str(info.field_name))
 
 
 class AssertorSelectionConfig(BaseModel):
@@ -211,6 +228,11 @@ class AssertorPublishingConfig(BaseModel):
         description="Allow insecure SSL connections to relays",
     )
 
+    @field_validator("allow_insecure", mode="before")
+    @classmethod
+    def allow_insecure_is_bool(cls, value: Any, info: ValidationInfo) -> bool:
+        return _require_bool(value, str(info.field_name))
+
 
 class AssertorCleanupConfig(BaseModel):
     """Checkpoint cleanup behavior for assertor state."""
@@ -221,6 +243,11 @@ class AssertorCleanupConfig(BaseModel):
         default=True,
         description="Delete stale or non-canonical checkpoints after each cycle",
     )
+
+    @field_validator("remove_stale_checkpoints", mode="before")
+    @classmethod
+    def remove_stale_checkpoints_is_bool(cls, value: Any, info: ValidationInfo) -> bool:
+        return _require_bool(value, str(info.field_name))
 
 
 class AssertorConfig(BaseServiceConfig):

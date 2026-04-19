@@ -3655,3 +3655,17 @@ Use this section during execution for:
   - added paired `services.test_assertor` coverage proving trusted-provider
     config input now rejects invalid relay hints early and normalizes valid
     ones before any declarations are built.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-tenth remediation
+  slice:
+  - tightened the `services.assertor.configs` boolean flag boundaries so
+    `provider_profile.enabled`, `trusted_provider_list.enabled`,
+    `publishing.allow_insecure`, and
+    `cleanup.remove_stale_checkpoints` now require real bools instead of
+    accepting truthy/falsy aliases at config load;
+  - closed the drift where string payloads like `"true"` or `"false"` could
+    silently enable Kind `0` / Kind `10040` publishing, relax insecure relay
+    policy, or disable checkpoint cleanup without crossing an explicit typed
+    boundary;
+  - added paired `services.test_assertor` coverage proving those feature and
+    policy flags now fail fast on string aliases before any runtime publish,
+    TLS, or cleanup behavior is selected.

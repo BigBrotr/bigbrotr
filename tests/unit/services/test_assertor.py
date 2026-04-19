@@ -194,6 +194,22 @@ class TestAssertorConfig:
         with pytest.raises(ValidationError, match="relay_hint must be a valid relay URL"):
             AssertorConfig(trusted_provider_list={"relay_hint": "not-a-relay"})
 
+    @pytest.mark.parametrize(
+        ("config", "message"),
+        [
+            ({"provider_profile": {"enabled": "true"}}, "enabled: expected bool, got str"),
+            ({"trusted_provider_list": {"enabled": "true"}}, "enabled: expected bool, got str"),
+            ({"publishing": {"allow_insecure": "true"}}, "allow_insecure: expected bool, got str"),
+            (
+                {"cleanup": {"remove_stale_checkpoints": "false"}},
+                "remove_stale_checkpoints: expected bool, got str",
+            ),
+        ],
+    )
+    def test_rejects_boolean_flag_aliases(self, config: dict[str, object], message: str) -> None:
+        with pytest.raises(ValidationError, match=message):
+            AssertorConfig(**config)
+
 
 class TestAssertorInit:
     def test_service_name(self) -> None:
