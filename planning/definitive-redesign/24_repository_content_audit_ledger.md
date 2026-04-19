@@ -3735,3 +3735,16 @@ Use this section during execution for:
   - added paired `services.test_monitor` coverage proving profile config text
     now canonicalizes up front and `publish_profile()` forwards the cleaned
     values to `build_profile_event()`.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-sixteenth remediation
+  slice:
+  - tightened the shared `services.monitor.configs.MetadataFlags` boolean
+    boundary so metadata flag payloads now require canonical `bool` values
+    instead of relying on Pydantic truthy/falsey coercions;
+  - closed the drift where config payloads like `{"nip11_info": "true"}` or
+    `{"nip66_http": "false"}` could silently cross into
+    `discovery.include`, `announcement.include`, or other monitor metadata
+    consumers as if they were explicit operator booleans;
+  - added paired `services.test_monitor` coverage proving `MetadataFlags`
+    rejects non-boolean aliases directly and `DiscoveryConfig` /
+    `AnnouncementConfig` now fail fast before any publish planning uses those
+    coerced flags.

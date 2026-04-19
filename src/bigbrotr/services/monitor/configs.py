@@ -77,6 +77,24 @@ class MetadataFlags(BaseModel):
     nip66_dns: bool = Field(default=True, description="NIP-66 DNS resolution")
     nip66_http: bool = Field(default=True, description="NIP-66 HTTP server headers")
 
+    @field_validator(
+        "nip11_info",
+        "nip66_rtt",
+        "nip66_ssl",
+        "nip66_geo",
+        "nip66_net",
+        "nip66_dns",
+        "nip66_http",
+        mode="before",
+    )
+    @classmethod
+    def reject_boolean_flag_aliases(cls, value: Any, info: ValidationInfo) -> bool:
+        """Require canonical booleans for monitor metadata flag boundaries."""
+        if not isinstance(value, bool):
+            field_name = info.field_name or "value"
+            raise ValueError(f"{field_name}: expected boolean, got {type(value).__name__}")
+        return value
+
     def get_missing_from(self, superset: MetadataFlags) -> list[str]:
         """Return field names that are enabled in self but disabled in superset."""
         return [

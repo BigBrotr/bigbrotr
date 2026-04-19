@@ -354,6 +354,25 @@ class TestMetadataFlags:
         assert flags.nip66_dns is False
         assert flags.nip66_http is False
 
+    @pytest.mark.parametrize(
+        ("field_name", "value", "expected_type"),
+        [
+            ("nip11_info", "true", "str"),
+            ("nip66_rtt", 1, "int"),
+        ],
+    )
+    def test_rejects_non_boolean_flag_aliases(
+        self,
+        field_name: str,
+        value: object,
+        expected_type: str,
+    ) -> None:
+        with pytest.raises(
+            ValueError,
+            match=rf"{field_name}: expected boolean, got {expected_type}",
+        ):
+            MetadataFlags(**{field_name: value})
+
     def test_get_missing_from_no_missing(self) -> None:
         subset = MetadataFlags(nip66_geo=True, nip66_net=True)
         superset = MetadataFlags()
@@ -590,6 +609,13 @@ class TestDiscoveryConfig:
         with pytest.raises(ValueError):
             DiscoveryConfig(interval=604801.0)
 
+    def test_include_rejects_boolean_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"nip11_info: expected boolean, got str",
+        ):
+            DiscoveryConfig(include={"nip11_info": "true"})
+
 
 class TestAnnouncementConfig:
     def test_default_values(self) -> None:
@@ -613,6 +639,13 @@ class TestAnnouncementConfig:
     def test_interval_upper_bound_rejected(self) -> None:
         with pytest.raises(ValueError):
             AnnouncementConfig(interval=604801.0)
+
+    def test_include_rejects_boolean_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"nip66_http: expected boolean, got str",
+        ):
+            AnnouncementConfig(include={"nip66_http": "false"})
 
 
 class TestProfileConfig:
