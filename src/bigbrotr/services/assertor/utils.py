@@ -25,12 +25,17 @@ def build_state_key(*, algorithm_id: str, kind: int, subject_id: str) -> str:
 
 def parse_state_key(state_key: str) -> tuple[str, int, str] | None:
     """Parse ``<algorithm_id>:<kind>:<subject_id>`` checkpoint keys."""
+    if not isinstance(state_key, str):
+        return None
     parts = state_key.split(":", 2)
     if len(parts) != CHECKPOINT_PARTS:
         return None
+    kind_text = parts[1]
     try:
-        kind = int(parts[1])
+        kind = int(kind_text)
     except ValueError:
+        return None
+    if kind < 0 or str(kind) != kind_text:
         return None
     return parts[0], kind, parts[2]
 

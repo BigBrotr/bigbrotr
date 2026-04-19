@@ -2321,3 +2321,12 @@ Use this section during execution for:
   - added shared candidate-insert coverage proving rediscovery now repairs an
     invalid persisted candidate row in place instead of skipping the relay
     until a later validator cleanup pass happens to remove the tombstone.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-first remediation
+  slice:
+  - tightened the `assertor` checkpoint-key parser so only canonical
+    non-negative kind encodings remain valid, which prevents parseable-but-
+    malformed keys such as zero-padded or signed kinds from escaping the
+    cleanup path that is supposed to remove non-canonical checkpoints;
+  - added `assertor` coverage proving cleanup now deletes non-canonical keys
+    even when they belong to a different algorithm namespace, while still
+    preserving canonical foreign-algorithm checkpoints.

@@ -1125,6 +1125,10 @@ class TestAssertorUtils:
 
         assert parse_state_key("user:" + ("aa" * 32)) is None
         assert parse_state_key("global-pagerank:not-a-kind:subject") is None
+        assert parse_state_key("global-pagerank:030382:subject") is None
+        assert parse_state_key("global-pagerank:+30382:subject") is None
+        assert parse_state_key("global-pagerank: 30382 :subject") is None
+        assert parse_state_key("global-pagerank:-30382:subject") is None
 
     def test_content_hash_is_stable_for_json_key_order(self) -> None:
         from bigbrotr.services.assertor.utils import content_hash
@@ -1479,6 +1483,7 @@ class TestAssertorCheckpointCleanup:
         stale_key = "global-pagerank:30382:" + ("bb" * 32)
         disabled_kind_key = "global-pagerank:30383:" + ("cc" * 32)
         other_algorithm_key = "other-algo:30382:" + ("dd" * 32)
+        other_algorithm_noncanonical_key = "other-algo:030382:" + ("ff" * 32)
         profile_key = "global-pagerank:0:provider_profile"
         trusted_provider_list_key = "global-pagerank:10040:trusted_provider_list"
         noncanonical_key = "user:" + ("ee" * 32)
@@ -1519,6 +1524,7 @@ class TestAssertorCheckpointCleanup:
                             _state(stale_key),
                             _state(disabled_kind_key),
                             _state(other_algorithm_key),
+                            _state(other_algorithm_noncanonical_key),
                             _state(profile_key),
                             _state(trusted_provider_list_key),
                             _state(noncanonical_key),
@@ -1528,16 +1534,21 @@ class TestAssertorCheckpointCleanup:
                 patch.object(
                     ServiceStateStore,
                     "delete_states",
-                    AsyncMock(return_value=3),
+                    AsyncMock(return_value=4),
                 ) as mock_delete,
             ):
                 removed = await svc._delete_stale_checkpoints()
 
-            assert removed == 3
+            assert removed == 4
             mock_get.assert_awaited_once_with(ServiceName.ASSERTOR, ServiceStateType.CHECKPOINT)
             deleted_states = mock_delete.await_args.args[0]
             deleted_keys = [state.state_key for state in deleted_states]
-            assert deleted_keys == [stale_key, disabled_kind_key, noncanonical_key]
+            assert deleted_keys == [
+                stale_key,
+                disabled_kind_key,
+                other_algorithm_noncanonical_key,
+                noncanonical_key,
+            ]
 
 
 # ============================================================================
