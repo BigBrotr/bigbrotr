@@ -195,6 +195,20 @@ class TestBuildEventAssertion:
         }
         assert expected_keys.issubset(set(tags.keys()))
 
+    @pytest.mark.parametrize("value", [True, "ee" * 32, object()])
+    def test_rejects_invalid_event_assertion_before_tag_build(self, value: object) -> None:
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.identifier") as mock_identifier,
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            patch("bigbrotr.nips.event_builders.EventBuilder") as mock_builder,
+            pytest.raises(ValueError, match="assertion must be an EventAssertion"),
+        ):
+            build_event_assertion(value)  # type: ignore[arg-type]
+
+        mock_identifier.assert_not_called()
+        mock_parse.assert_not_called()
+        mock_builder.assert_not_called()
+
 
 class TestBuildAddressableAssertion:
     def test_kind(self) -> None:

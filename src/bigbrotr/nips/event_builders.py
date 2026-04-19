@@ -151,6 +151,13 @@ def _normalize_identifier_assertion(assertion: object) -> IdentifierAssertion:
     return cast("IdentifierAssertion", assertion)
 
 
+def _normalize_event_assertion(assertion: object) -> EventAssertion:
+    event_assertion_type = importlib.import_module("bigbrotr.nips.nip85.data").EventAssertion
+    if not isinstance(assertion, event_assertion_type):
+        raise ValueError("assertion must be an EventAssertion")
+    return cast("EventAssertion", assertion)
+
+
 def _normalize_relay_list_urls(relays: Sequence[Relay]) -> tuple[str, ...]:
     """Return a stable deduplicated relay-url ordering for set-like relay lists."""
     return tuple(sorted({relay.url for relay in relays}))
@@ -642,6 +649,7 @@ def build_event_assertion(assertion: EventAssertion) -> EventBuilder:
     Returns:
         An unsigned ``EventBuilder`` ready for signing by the service key.
     """
+    assertion = _normalize_event_assertion(assertion)
     tags: list[Tag] = [
         Tag.identifier(assertion.event_id),
         Tag.parse(["e", assertion.event_id]),
