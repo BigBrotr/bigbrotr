@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 
 from nostr_sdk import Filter, Kind, KindStandard, NostrSdkError
 
+from .protocol_proxy import normalize_proxy_url
+
 
 if TYPE_CHECKING:
     import logging
@@ -58,6 +60,7 @@ class RelayValidationOptions:
     allow_insecure: bool = False
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "proxy_url", normalize_proxy_url(self.proxy_url))
         object.__setattr__(
             self,
             "connect_timeout",

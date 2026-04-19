@@ -2642,3 +2642,17 @@ Use this section during execution for:
   - added paired `NIP-11` and `NIP-66` coverage proving malformed proxy URLs
     are rejected before any child fetch/probe work begins, while canonical
     proxy URLs keep using the existing proxy connector flow.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-thirtieth remediation
+  slice:
+  - tightened the protocol runtime proxy boundary so
+    `RelayConnectOptions` and `RelayValidationOptions` no longer accept
+    malformed `proxy_url` payloads that would otherwise leak through the
+    public `connect_relay()` / `is_nostr_relay()` facades and only fail later
+    inside client construction or be silently ignored on clearnet paths;
+  - centralized that normalization in a shared protocol helper so
+    `protocol_factory`, `protocol_connections`, and `protocol_validation`
+    enforce the same canonical proxy contract across client creation,
+    single-relay connect, and protocol validation flows;
+  - added paired `utils.protocol_connections`, `utils.protocol_validation`,
+    and `utils.protocol` coverage proving malformed proxy inputs now fail fast
+    before runtime connect or validation helpers start.

@@ -15,6 +15,7 @@ from nostr_sdk import NostrSdkError
 from bigbrotr.models.constants import NetworkType
 
 from .protocol_outcomes import normalize_relay_outcomes
+from .protocol_proxy import normalize_proxy_url
 
 
 if TYPE_CHECKING:
@@ -47,6 +48,8 @@ class RelayConnectOptions:
     allow_insecure: bool
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "proxy_url", normalize_proxy_url(self.proxy_url))
+
         if isinstance(self.timeout, bool) or not isinstance(self.timeout, int | float):
             raise ValueError("timeout must be a positive finite number")
         normalized_timeout = float(self.timeout)

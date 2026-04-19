@@ -921,6 +921,29 @@ class TestConnectRelayOverlayNetworks:
 class TestConnectRelayClearnet:
     """Tests for connect_relay() with clearnet relays."""
 
+    @pytest.mark.parametrize("proxy_url", [True, "garbage"])
+    async def test_rejects_invalid_proxy_url_before_runtime_connect(
+        self, proxy_url: object
+    ) -> None:
+        """Malformed proxy URLs fail fast before the runtime connect helper starts."""
+        relay = Relay("wss://relay.example.com")
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol._protocol_connections.connect_relay",
+                new_callable=AsyncMock,
+            ) as mock_connect,
+            pytest.raises(
+                ValueError,
+                match="proxy_url must be a valid proxy URL with scheme and hostname",
+            ),
+        ):
+            from bigbrotr.utils.protocol import connect_relay
+
+            await connect_relay(relay, proxy_url=proxy_url)  # type: ignore[arg-type]
+
+        mock_connect.assert_not_awaited()
+
     async def test_rejects_non_bool_allow_insecure_before_runtime_connect(self) -> None:
         """Non-bool aliases fail fast before the runtime connect helper starts."""
         relay = Relay("wss://relay.example.com")
@@ -1777,6 +1800,27 @@ class TestIsNostrRelayAdditional:
             from bigbrotr.utils.protocol import is_nostr_relay
 
             await is_nostr_relay(relay, allow_insecure=1)  # type: ignore[arg-type]
+
+        mock_validate.assert_not_awaited()
+
+    @pytest.mark.parametrize("proxy_url", [True, "garbage"])
+    async def test_rejects_invalid_proxy_url_before_validation(self, proxy_url: object) -> None:
+        """Malformed proxy URLs fail fast before relay validation starts."""
+        relay = Relay("wss://relay.example.com")
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol._validate_relay_protocol",
+                new_callable=AsyncMock,
+            ) as mock_validate,
+            pytest.raises(
+                ValueError,
+                match="proxy_url must be a valid proxy URL with scheme and hostname",
+            ),
+        ):
+            from bigbrotr.utils.protocol import is_nostr_relay
+
+            await is_nostr_relay(relay, proxy_url=proxy_url)  # type: ignore[arg-type]
 
         mock_validate.assert_not_awaited()
 

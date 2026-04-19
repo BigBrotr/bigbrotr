@@ -36,6 +36,18 @@ def _context(
 
 
 class TestRelayConnectOptions:
+    @pytest.mark.parametrize("proxy_url", [True, "", "   ", "garbage", "socks5://:9050"])
+    def test_rejects_invalid_proxy_url(self, proxy_url: object) -> None:
+        with pytest.raises(
+            ValueError, match="proxy_url must be a valid proxy URL with scheme and hostname"
+        ):
+            RelayConnectOptions(
+                keys=None,
+                proxy_url=proxy_url,  # type: ignore[arg-type]
+                timeout=5.0,
+                allow_insecure=False,
+            )
+
     @pytest.mark.parametrize("timeout", [True, 0, -1.0, float("nan"), float("inf")])
     def test_rejects_invalid_timeout(self, timeout: object) -> None:
         with pytest.raises(ValueError, match="timeout must be a positive finite number"):

@@ -18,6 +18,7 @@ from nostr_sdk import (
     NostrSigner,
 )
 
+from .protocol_proxy import normalize_proxy_url
 from .transport import InsecureWebSocketTransport
 
 
@@ -30,33 +31,6 @@ def _normalize_allow_insecure(allow_insecure: object) -> bool:
     if not isinstance(allow_insecure, bool):
         raise ValueError("allow_insecure must be a bool")
     return allow_insecure
-
-
-def _normalize_proxy_url(proxy_url: object) -> str | None:
-    """Return one canonical proxy URL or ``None``."""
-    if proxy_url is None:
-        return None
-    if not isinstance(proxy_url, str):
-        raise ValueError("proxy_url must be a valid proxy URL with scheme and hostname")
-
-    normalized_proxy_url = proxy_url.strip()
-    if not normalized_proxy_url:
-        raise ValueError("proxy_url must be a valid proxy URL with scheme and hostname")
-
-    parsed = urlparse(normalized_proxy_url)
-    try:
-        proxy_port = parsed.port
-    except ValueError as exc:
-        raise ValueError("proxy_url must be a valid proxy URL with scheme and hostname") from exc
-
-    if (
-        parsed.scheme == ""
-        or parsed.hostname is None
-        or (proxy_port is not None and proxy_port < 1)
-    ):
-        raise ValueError("proxy_url must be a valid proxy URL with scheme and hostname")
-
-    return normalized_proxy_url
 
 
 async def _resolve_proxy_host(proxy_host: str) -> str:
@@ -105,7 +79,7 @@ async def build_client(
     stay onion-specific.
     """
     normalized_allow_insecure = _normalize_allow_insecure(allow_insecure)
-    normalized_proxy_url = _normalize_proxy_url(proxy_url)
+    normalized_proxy_url = normalize_proxy_url(proxy_url)
 
     builder = ClientBuilder()
 
