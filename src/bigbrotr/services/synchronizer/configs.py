@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import Any, cast
 
 from nostr_sdk import Filter
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
@@ -57,6 +57,13 @@ def _require_bool(value: Any, field_name: str) -> bool:
     return value
 
 
+def _require_number(value: Any, field_name: str) -> int | float:
+    """Require canonical numeric types for authored synchronizer config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name}: expected number, got {type(value).__name__}")
+    return cast("int | float", value)
+
+
 class TimeoutsConfig(BaseModel):
     """Sync timeout limits: idle progress check and phase-level cap.
 
@@ -86,6 +93,13 @@ class TimeoutsConfig(BaseModel):
         le=86_400.0,
         description="Maximum seconds for the entire sync phase",
     )
+
+    @field_validator("idle", "max_duration", mode="before")
+    @classmethod
+    def require_numeric_timeouts(cls, v: Any, info: ValidationInfo) -> int | float:
+        """Require canonical numeric types for synchronizer timeout budgets."""
+        field_name = info.field_name or "value"
+        return _require_number(v, field_name)
 
 
 class ProcessingConfig(BaseModel):

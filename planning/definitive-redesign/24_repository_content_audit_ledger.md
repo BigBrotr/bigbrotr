@@ -4210,3 +4210,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_synchronizer` proving malformed
     boolean aliases now fail fast both on the leaf processing model and
     through nested `SynchronizerConfig.processing` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-fifty-seventh
+  remediation slice:
+  - tightened the authored numeric boundary in
+    `services.synchronizer.configs.TimeoutsConfig` so `idle` and
+    `max_duration` now require canonical numeric types;
+  - closed the drift where payloads like `"60"`, `"60.0"`, `"3600"`, or
+    `"3600.0"` could silently become valid synchronizer timeout budgets at
+    config load time;
+  - added paired coverage in `services.test_synchronizer` proving malformed
+    timeout aliases now fail fast both on the leaf timeout model and through
+    nested `SynchronizerConfig.timeouts` parsing.

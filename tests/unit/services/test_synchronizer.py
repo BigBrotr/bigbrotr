@@ -176,6 +176,19 @@ class TestTimeoutsConfig:
         with pytest.raises(ValueError, match="less than or equal to 86400"):
             SyncTimeoutsConfig(max_duration=100_000.0)
 
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("idle", "60"),
+            ("idle", "60.0"),
+            ("max_duration", "3600"),
+            ("max_duration", "3600.0"),
+        ],
+    )
+    def test_rejects_non_numeric_timeout_aliases(self, field_name: str, value: object) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
+            SyncTimeoutsConfig(**{field_name: value})
+
 
 class TestSynchronizerConfig:
     def test_default_values(self) -> None:
@@ -246,6 +259,17 @@ class TestSynchronizerConfig:
     def test_nested_allow_insecure_aliases_rejected(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"allow_insecure: expected bool, got"):
             SynchronizerConfig(processing={"allow_insecure": value})
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("idle", "90"),
+            ("max_duration", "1800.0"),
+        ],
+    )
+    def test_nested_timeout_aliases_rejected(self, field_name: str, value: object) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
+            SynchronizerConfig(timeouts={field_name: value})
 
 
 # ============================================================================
