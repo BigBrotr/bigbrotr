@@ -213,6 +213,55 @@ class TestSynchronizeCursorPage:
         assert pending_cursors == {}
         logger.info.assert_not_called()
 
+    async def test_rounds_up_event_observation_timestamp(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        event = MagicMock(created_at=123, id="ab" * 32)
+
+        async def iter_concurrent(
+            items: list[SyncCursor],
+            worker: object,
+            *,
+            max_concurrency: int,
+        ):
+            yield event, relay
+
+        event_observation = MagicMock()
+
+        with (
+            patch(
+                "bigbrotr.services.synchronizer.runtime.EventObservation",
+                return_value=event_observation,
+            ) as mock_event_observation,
+            patch(
+                "bigbrotr.services.synchronizer.runtime.time.time",
+                return_value=1_000.1,
+            ),
+        ):
+            synced, timed_out = await synchronize_cursor_page(
+                cursors=[SyncCursor(key=relay.url, timestamp=100, id="cd" * 32)],
+                batch_state=SyncBatchState(buffer=[], pending_cursors={}),
+                plan=SyncCyclePlan(
+                    networks=(NetworkType.CLEARNET,),
+                    end_time=456,
+                    total_relays=1,
+                    batch_size=2,
+                    max_concurrency=1,
+                    page_size=2,
+                    deadline=time.monotonic() + 60.0,
+                ),
+                context=SyncPageContext(
+                    iter_concurrent=iter_concurrent,
+                    worker=MagicMock(),
+                    flush_batch=AsyncMock(return_value=0),
+                    inc_gauge=MagicMock(),
+                    logger=MagicMock(),
+                ),
+            )
+
+        assert synced == 0
+        assert timed_out is False
+        mock_event_observation.assert_called_once_with(event, relay, observed_at=1001)
+
     async def test_logs_timeout_after_flush(self) -> None:
         relay = Relay("wss://relay.timeout.example")
         event = MagicMock(created_at=123, id="ef" * 32)

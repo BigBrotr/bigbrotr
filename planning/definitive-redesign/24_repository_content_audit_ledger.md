@@ -2340,3 +2340,14 @@ Use this section during execution for:
   - added paired registry coverage proving `nips_for_event_kind()` now
     rejects `True` and `False` as invalid lookup inputs instead of silently
     normalizing them through the integer path.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-third remediation
+  slice:
+  - tightened the live `synchronizer -> event_observation -> refresher`
+    seam so newly observed events no longer inherit a floored
+    `observed_at` timestamp from the synchronizer runtime, which previously
+    let rows created late in a second land exactly on an already-consumed
+    incremental watermark and miss the refresher's strict
+    `observed_at > checkpoint` window until a later cycle;
+  - added `synchronizer` runtime coverage proving event observations are now
+    created with their timestamp rounded up before they enter the persisted
+    incremental source boundary.

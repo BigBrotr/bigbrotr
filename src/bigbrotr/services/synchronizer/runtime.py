@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
@@ -166,7 +167,13 @@ async def synchronize_cursor_page(
         context.worker,
         max_concurrency=plan.max_concurrency,
     ):
-        batch_state.buffer.append(EventObservation(event, relay))
+        batch_state.buffer.append(
+            EventObservation(
+                event,
+                relay,
+                observed_at=math.ceil(time.time()),
+            )
+        )
         batch_state.pending_cursors[relay.url] = SyncCursor(
             key=relay.url,
             timestamp=event.created_at,

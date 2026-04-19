@@ -804,12 +804,17 @@ class TestSynchronize:
             for event in events:
                 yield event, relay
 
+        def build_observation(
+            event: object, relay: object, *, observed_at: int
+        ) -> tuple[object, object, int]:
+            return event, relay, observed_at
+
         with (
             patch.object(sync, "_iter_concurrent", side_effect=fake_iter_concurrent),
             patch.object(type(sync.network_semaphores), "max_concurrency", return_value=5),
             patch(
                 "bigbrotr.services.synchronizer.runtime.EventObservation",
-                side_effect=lambda event, relay: (event, relay),
+                side_effect=build_observation,
             ),
             patch.object(
                 sync,
@@ -837,7 +842,9 @@ class TestSynchronize:
 
         assert synced == 2
         assert timed_out is False
-        assert buffer == [(event, relay) for event in events]
+        assert [(event, relay) for event, relay, _observed_at in buffer] == [
+            (event, relay) for event in events
+        ]
         assert pending_cursors == {
             relay.url: SyncCursor(key=relay.url, timestamp=events[-1].created_at, id=events[-1].id),
         }
