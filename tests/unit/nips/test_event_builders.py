@@ -1089,6 +1089,21 @@ class TestAddAttributesTags:
         add_attributes_tags(tags, Nip11InfoData())
         assert tags == []
 
+    def test_parse_filtered_attributes_emit_only_canonical_w_tags(self) -> None:
+        """Only canonical PascalCase attributes survive into public W tags."""
+        tags: list[Tag] = []
+        parsed = Nip11InfoData.parse(
+            {"attributes": ["Search", "search", "Public Inbox", "PrivateStorage"]}
+        )
+
+        add_attributes_tags(tags, Nip11InfoData(**parsed))
+
+        pairs = _extract_tag_pairs(tags)
+        assert ("W", "Search") in pairs
+        assert ("W", "PrivateStorage") in pairs
+        assert ("W", "search") not in pairs
+        assert ("W", "Public Inbox") not in pairs
+
     @pytest.mark.parametrize("value", [True, "not-a-nip11-data", object()])
     def test_rejects_invalid_nip11_data_before_attribute_tag_build(self, value: object) -> None:
         """Malformed nip11_data fails before any W tag work starts."""

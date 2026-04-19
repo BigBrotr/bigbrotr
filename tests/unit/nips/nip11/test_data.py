@@ -762,6 +762,19 @@ class TestNip11InfoDataConstructor:
         with pytest.raises(ValidationError, match=message):
             Nip11InfoData(**kwargs)
 
+    @pytest.mark.parametrize(
+        "value",
+        [
+            ["search", "Search"],
+            ["Public Inbox"],
+            ["public-inbox"],
+        ],
+    )
+    def test_constructor_rejects_non_pascal_case_attributes(self, value: list[str]) -> None:
+        """Constructor rejects malformed attribute labels that are not PascalCase."""
+        with pytest.raises(ValidationError, match="attributes entries must be PascalCase strings"):
+            Nip11InfoData(attributes=value)
+
     def test_constructor_rejects_non_str_name(self):
         """Constructor raises ValidationError for non-str name."""
         with pytest.raises(ValidationError):
@@ -945,6 +958,14 @@ class TestNip11InfoDataParse:
             "tags": ["relay"],
             "attributes": ["Search"],
         }
+
+    def test_parse_filters_non_pascal_case_attributes(self):
+        """Malformed attribute labels are filtered from parse output."""
+        data = {
+            "attributes": ["Search", "search", "Public Inbox", "PrivateStorage"],
+        }
+        result = Nip11InfoData.parse(data)
+        assert result == {"attributes": ["PrivateStorage", "Search"]}
 
     def test_parse_filters_blank_scalar_string_entries(self):
         """Blank scalar strings are filtered from NIP-11 descriptor fields."""

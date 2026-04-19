@@ -26,6 +26,7 @@ See Also:
 
 from __future__ import annotations
 
+import re
 from typing import Any, ClassVar, TypeVar
 
 from pydantic import ConfigDict, Field, StrictBool, StrictInt, field_validator
@@ -44,6 +45,7 @@ KindRange = tuple[StrictInt, StrictInt]
 _RetentionEntryT = TypeVar("_RetentionEntryT")
 _FeeEntryT = TypeVar("_FeeEntryT")
 _HEX_32_TEXT_LENGTH = 64
+_PASCAL_CASE_ATTRIBUTE_RE = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 
 
 def _is_non_negative_int(value: Any) -> bool:
@@ -58,6 +60,10 @@ def _is_hex32_text(value: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _is_valid_pascal_case_attribute(value: str) -> bool:
+    return bool(_PASCAL_CASE_ATTRIBUTE_RE.fullmatch(value))
 
 
 def _is_valid_kind_range(value: Any) -> bool:
@@ -154,6 +160,37 @@ def _drop_blank_string_list_entries(
                         kind="invalid_value",
                         path=join_parse_path(path, f"{field_name}[{index}]"),
                         detail="expected non-empty str",
+                    )
+                )
+                continue
+            valid_entries.append(entry)
+
+        if valid_entries:
+            parsed[field_name] = sorted(set(valid_entries))
+        else:
+            del parsed[field_name]
+
+
+def _drop_invalid_string_list_entries(
+    parsed: dict[str, Any],
+    issues: list[ParseIssue],
+    field_validators: tuple[tuple[str, Any, str], ...],
+    *,
+    path: str,
+) -> None:
+    for field_name, validator, detail in field_validators:
+        value = parsed.get(field_name)
+        if not isinstance(value, list):
+            continue
+
+        valid_entries: list[str] = []
+        for index, entry in enumerate(value):
+            if not validator(entry):
+                issues.append(
+                    ParseIssue(
+                        kind="invalid_value",
+                        path=join_parse_path(path, f"{field_name}[{index}]"),
+                        detail=detail,
                     )
                 )
                 continue
@@ -943,6 +980,16 @@ class Nip11InfoData(BaseData):
                 raise ValueError(f"{info.field_name} entries must be non-empty strings")
         return sorted(set(value))
 
+    @field_validator("attributes")
+    @classmethod
+    def _require_pascal_case_attributes(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        for entry in value:
+            if not _is_valid_pascal_case_attribute(entry):
+                raise ValueError("attributes entries must be PascalCase strings")
+        return value
+
     @field_validator("retention")
     @classmethod
     def _normalize_retention(
@@ -1032,6 +1079,12 @@ class Nip11InfoData(BaseData):
             result,
             issues,
             ("relay_countries", "language_tags", "tags", "attributes"),
+            path=path,
+        )
+        _drop_invalid_string_list_entries(
+            result,
+            issues,
+            (("attributes", _is_valid_pascal_case_attribute, "expected PascalCase str"),),
             path=path,
         )
         _normalize_explicit_empty_string_lists(data, result, issues, path=path)

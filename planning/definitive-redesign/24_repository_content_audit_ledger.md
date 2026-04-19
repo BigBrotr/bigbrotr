@@ -3503,3 +3503,17 @@ Use this section during execution for:
     proving valid FQDN SAN inputs now normalize to one canonical
     representation at both direct model construction time and through the
     public `probe()` container.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-ninety-eighth
+  remediation slice:
+  - tightened the `nips.nip11.data.Nip11InfoData` attribute boundary so
+    `attributes` now require canonical PascalCase labels instead of any
+    non-empty string, and permissive parse/report sanitization filters
+    malformed entries rather than preserving them as canonical relay
+    metadata;
+  - closed the drift where malformed attribute labels such as lowercase or
+    spaced tokens could survive as canonical `NIP-11` data and later flow
+    into public `W` tags emitted by the relay-discovery builder;
+  - added paired `nips.nip11.test_data` and `nips.test_event_builders`
+    coverage proving malformed attribute values now fail fast at
+    construction time, are removed from parse output, and only canonical
+    PascalCase attributes survive into public builder output.
