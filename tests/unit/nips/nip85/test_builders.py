@@ -365,13 +365,13 @@ class TestBuildTrustedProviderList:
     def test_normalizes_public_declaration_order_and_duplicates(self) -> None:
         declaration_b = TrustedProviderDeclaration(
             result_kind=EventKind.NIP85_EVENT_ASSERTION,
-            tag_name="rank",
+            tag_name="Rank",
             service_pubkey="5f" * 32,
             relay_hint="wss://b.example.com",
         )
         declaration_a = TrustedProviderDeclaration(
             result_kind=EventKind.NIP85_USER_ASSERTION,
-            tag_name="rank",
+            tag_name=" rank ",
             service_pubkey="4f" * 32,
             relay_hint="wss://a.example.com",
         )
@@ -386,6 +386,31 @@ class TestBuildTrustedProviderList:
         assert tag_vecs == [
             [f"{EventKind.NIP85_USER_ASSERTION}:rank", "4f" * 32, "wss://a.example.com"],
             [f"{EventKind.NIP85_EVENT_ASSERTION}:rank", "5f" * 32, "wss://b.example.com"],
+        ]
+
+    def test_normalizes_case_variant_duplicate_declaration_tags(self) -> None:
+        canonical = TrustedProviderDeclaration(
+            result_kind=EventKind.NIP85_USER_ASSERTION,
+            tag_name="rank",
+            service_pubkey="4f" * 32,
+            relay_hint="wss://a.example.com",
+        )
+        padded_case_variant = TrustedProviderDeclaration(
+            result_kind=EventKind.NIP85_USER_ASSERTION,
+            tag_name=" Rank ",
+            service_pubkey="4f" * 32,
+            relay_hint="wss://a.example.com",
+        )
+
+        tag_vecs = _extract_tag_vectors(
+            build_trusted_provider_list(
+                [padded_case_variant, canonical],
+                content="encrypted-private-tags",
+            )
+        )
+
+        assert tag_vecs == [
+            [f"{EventKind.NIP85_USER_ASSERTION}:rank", "4f" * 32, "wss://a.example.com"],
         ]
 
     @pytest.mark.parametrize("value", [True, 1, b"ciphertext"])

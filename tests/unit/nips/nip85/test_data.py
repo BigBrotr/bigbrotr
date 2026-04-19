@@ -1177,7 +1177,7 @@ class TestTrustedProviderDeclaration:
     def test_tag_shape_matches_kind_10040_spec(self) -> None:
         declaration = TrustedProviderDeclaration(
             result_kind=EventKind.NIP85_USER_ASSERTION,
-            tag_name=" rank ",
+            tag_name=" Rank ",
             service_pubkey="4F" * 32,
             relay_hint="wss://nip85.nostr.band:443",
         )
@@ -1189,6 +1189,17 @@ class TestTrustedProviderDeclaration:
             "4f" * 32,
             "wss://nip85.nostr.band",
         ]
+
+    def test_tag_name_canonicalizes_case(self) -> None:
+        declaration = TrustedProviderDeclaration(
+            result_kind=EventKind.NIP85_IDENTIFIER_ASSERTION,
+            tag_name="Comment_Cnt",
+            service_pubkey="4F" * 32,
+            relay_hint="wss://nip85.nostr.band",
+        )
+
+        assert declaration.tag_name == "comment_cnt"
+        assert declaration.kind_tag == "30385:comment_cnt"
 
     @pytest.mark.parametrize(
         ("kwargs", "message"),

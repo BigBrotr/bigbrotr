@@ -192,7 +192,7 @@ def _normalize_tag_name(value: Any) -> str:
         raise ValueError("tag_name must not be empty")
     if ":" in tag_name:
         raise ValueError("tag_name must not contain ':'")
-    return tag_name
+    return tag_name.lower()
 
 
 def _normalize_relay_hint(value: Any) -> str:

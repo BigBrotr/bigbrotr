@@ -3617,3 +3617,15 @@ Use this section during execution for:
   - added paired `nips.nip85.test_data` and `nips.nip85.test_builders`
     coverage proving identifier inputs now trim to one canonical value and
     builder output emits the cleaned public coordinate.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-seventh remediation
+  slice:
+  - tightened the `nips.nip85.data.TrustedProviderDeclaration` boundary so
+    public declaration `tag_name` values now canonicalize to lowercase after
+    trim, keeping Kind `10040` provider tags aligned with the lowercase public
+    assertion tag names already emitted elsewhere in the repo;
+  - closed the drift where semantically identical declaration tags like
+    `Rank` and `rank` could survive as different canonical values and then
+    emit duplicate or mixed-case provider declarations for the same subject;
+  - added paired `nips.nip85.test_data` and `nips.nip85.test_builders`
+    coverage proving declaration tags now canonicalize to one lowercase value
+    and builder output collapses case-variant duplicates.
