@@ -139,6 +139,15 @@ class TestUserAssertionProperties:
         with pytest.raises(ValueError, match="top_topics must not contain duplicate topics"):
             UserAssertion(pubkey="aa" * 32, top_topics=("nostr", "nostr"))
 
+    def test_constructor_canonicalizes_top_topics_to_lowercase(self) -> None:
+        assertion = UserAssertion(pubkey="aa" * 32, top_topics=("Bitcoin", "Nostr"))
+
+        assert assertion.top_topics == ("bitcoin", "nostr")
+
+    def test_constructor_rejects_case_only_duplicate_top_topics(self) -> None:
+        with pytest.raises(ValueError, match="top_topics must not contain duplicate topics"):
+            UserAssertion(pubkey="aa" * 32, top_topics=("Bitcoin", "bitcoin"))
+
     def test_constructor_rejects_mapping_top_topics(self) -> None:
         with pytest.raises(TypeError, match="top_topics must be a sequence of topic strings"):
             UserAssertion(pubkey="aa" * 32, top_topics={"nostr": 7})  # type: ignore[arg-type]
@@ -307,6 +316,28 @@ class TestUserAssertionFromDbRow:
         }
         a = UserAssertion.from_db_row(row)
         assert a.top_topics == ("nostr", "apple", "beta", "zebra")
+
+    def test_from_db_row_canonicalizes_topic_counts_to_lowercase(self) -> None:
+        row = {
+            "pubkey": "cc" * 32,
+            "topic_counts": {"Bitcoin": 7, "Nostr": 5},
+            "top_topics_limit": 2,
+        }
+
+        a = UserAssertion.from_db_row(row)
+
+        assert a.top_topics == ("bitcoin", "nostr")
+
+    def test_from_db_row_merges_case_variant_topic_counts_before_ranking(self) -> None:
+        row = {
+            "pubkey": "cc" * 32,
+            "topic_counts": {"Bitcoin": 4, "bitcoin": 3, "nostr": 5},
+            "top_topics_limit": 2,
+        }
+
+        a = UserAssertion.from_db_row(row)
+
+        assert a.top_topics == ("bitcoin", "nostr")
 
     def test_from_db_row_rejects_non_mapping_topic_counts(self) -> None:
         row = {

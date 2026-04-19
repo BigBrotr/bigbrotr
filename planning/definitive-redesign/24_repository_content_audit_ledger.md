@@ -3557,3 +3557,17 @@ Use this section during execution for:
     `nips.test_event_builders` coverage proving topic tags now collapse to a
     stable lowercase set at construction and fetch time, and public builder
     output no longer duplicates case-only variants.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-second remediation
+  slice:
+  - tightened the `nips.nip85.data.UserAssertion` top-topic boundary so
+    `top_topics` now canonicalize case-insensitive topic labels to lowercase,
+    while `from_db_row()` also merges case-variant `topic_counts` keys before
+    ranking the public top-N output;
+  - closed the drift where semantically identical topics like `Bitcoin` and
+    `bitcoin` could survive as distinct `NIP-85` counts, skew top-topic
+    ranking, and then emit duplicate lowercase `t` tags in the public user
+    assertion builder;
+  - added paired `nips.nip85.test_data` and `nips.nip85.test_builders`
+    coverage proving constructor input now canonicalizes to lowercase,
+    case-only duplicates are rejected, DB rows merge case-variant counts
+    before ranking, and builder output stays lowercase-stable.

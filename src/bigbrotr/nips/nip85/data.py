@@ -97,6 +97,11 @@ def _normalize_topic_count(value: Any) -> int:
     raise TypeError("topic_counts values must be non-negative integers")
 
 
+def _canonicalize_topic(value: str) -> str:
+    """Return the canonical lowercase representation for one public topic tag."""
+    return value.lower()
+
+
 def _coerce_topic_count_mapping(value: Any) -> dict[str, int]:
     """Return topic counts as a mapping, preserving ``None`` as an empty mapping."""
     if value is None:
@@ -107,7 +112,10 @@ def _coerce_topic_count_mapping(value: Any) -> dict[str, int]:
     for key, raw_count in value.items():
         if not isinstance(key, str):
             raise TypeError("topic_counts keys must be strings")
-        topic_counts[key] = _normalize_topic_count(raw_count)
+        canonical_key = _canonicalize_topic(key)
+        topic_counts[canonical_key] = topic_counts.get(canonical_key, 0) + _normalize_topic_count(
+            raw_count
+        )
     return topic_counts
 
 
@@ -239,11 +247,12 @@ def _normalize_nip73_identifier(value: Any) -> str:
 def _normalize_top_topics(value: Any) -> tuple[str, ...]:
     """Return ordered top-topic strings without duplicates or empty values."""
     topics = _require_text_sequence(value, "top_topics", noun="topic strings")
-    if any(not topic for topic in topics):
+    normalized = tuple(_canonicalize_topic(topic) for topic in topics)
+    if any(not topic for topic in normalized):
         raise ValueError("top_topics must not contain empty topic strings")
-    if len(set(topics)) != len(topics):
+    if len(set(normalized)) != len(normalized):
         raise ValueError("top_topics must not contain duplicate topics")
-    return topics
+    return normalized
 
 
 def _require_text_sequence(value: Any, field_name: str, *, noun: str) -> tuple[str, ...]:

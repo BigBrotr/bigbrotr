@@ -82,7 +82,7 @@ class TestBuildUserAssertion:
         assert "first_created_at" not in tags
 
     def test_topics_as_t_tags(self) -> None:
-        a = UserAssertion(pubkey="aa" * 32, top_topics=("bitcoin", "nostr"))
+        a = UserAssertion(pubkey="aa" * 32, top_topics=("Bitcoin", "Nostr"))
         tags = _extract_tags(build_user_assertion(a))
         assert "bitcoin" in tags["t"]
         assert "nostr" in tags["t"]
