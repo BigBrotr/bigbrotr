@@ -61,6 +61,16 @@ def _normalize_optional_geohash(value: Any, field_name: str) -> str | None:
     return _normalize_optional_profile_text(value, field_name)
 
 
+def _normalize_config_string(value: Any, field_name: str, *, allow_blank: bool = False) -> str:
+    """Trim config strings while optionally preserving the empty-string unset sentinel."""
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name}: expected string, got {type(value).__name__}")
+    normalized = value.strip()
+    if normalized or allow_blank:
+        return normalized
+    raise ValueError(f"{field_name}: expected non-empty string")
+
+
 def _require_boolean(value: Any, field_name: str) -> bool:
     """Require canonical booleans for public monitor config boundaries."""
     if not isinstance(value, bool):
@@ -301,6 +311,20 @@ class GeoConfig(BaseModel):
     geohash_precision: int = Field(
         default=9, ge=1, le=12, description="Geohash precision (9=~4.77m)"
     )
+
+    @field_validator("city_database_path", "asn_database_path", mode="before")
+    @classmethod
+    def normalize_database_paths(cls, value: Any, info: ValidationInfo) -> str:
+        """Trim GeoLite database paths and reject blank payloads."""
+        field_name = info.field_name or "value"
+        return _normalize_config_string(value, field_name)
+
+    @field_validator("city_download_url", "asn_download_url", mode="before")
+    @classmethod
+    def normalize_download_urls(cls, value: Any, info: ValidationInfo) -> str:
+        """Trim download URLs while preserving the empty-string unset sentinel."""
+        field_name = info.field_name or "value"
+        return _normalize_config_string(value, field_name, allow_blank=True)
 
     @field_validator("max_age_days", "geohash_precision", mode="before")
     @classmethod

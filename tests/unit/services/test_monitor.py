@@ -530,6 +530,25 @@ class TestGeoConfig:
         assert config.asn_database_path == "/custom/path/asn.mmdb"
         assert config.max_age_days == 7
 
+    def test_string_fields_are_canonicalized(self) -> None:
+        config = GeoConfig(
+            city_database_path=" /custom/path/city.mmdb ",
+            asn_database_path=" /custom/path/asn.mmdb ",
+            city_download_url=" https://example.com/city.mmdb ",
+            asn_download_url=" https://example.com/asn.mmdb ",
+        )
+
+        assert config.city_database_path == "/custom/path/city.mmdb"
+        assert config.asn_database_path == "/custom/path/asn.mmdb"
+        assert config.city_download_url == "https://example.com/city.mmdb"
+        assert config.asn_download_url == "https://example.com/asn.mmdb"
+
+    def test_blank_download_urls_collapse_to_empty_string(self) -> None:
+        config = GeoConfig(city_download_url="   ", asn_download_url="   ")
+
+        assert config.city_download_url == ""
+        assert config.asn_download_url == ""
+
     def test_max_age_days_validation(self) -> None:
         config = GeoConfig(max_age_days=1)
         assert config.max_age_days == 1
@@ -559,6 +578,14 @@ class TestGeoConfig:
     def test_empty_asn_path_rejected(self) -> None:
         with pytest.raises(ValueError):
             GeoConfig(asn_database_path="")
+
+    def test_blank_city_path_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"city_database_path: expected non-empty string"):
+            GeoConfig(city_database_path="   ")
+
+    def test_blank_asn_path_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"asn_database_path: expected non-empty string"):
+            GeoConfig(asn_database_path="   ")
 
 
 class TestPublishingConfig:
@@ -866,6 +893,20 @@ class TestMonitorConfigValidateGeoDatabases:
             pytest.raises(ValueError, match="GeoLite2 ASN database not found"),
         ):
             MonitorConfig(geo=GeoConfig(asn_download_url=""))
+
+    def test_geo_missing_city_whitespace_url_raises(self) -> None:
+        with (
+            patch("bigbrotr.services.monitor.configs.Path.exists", return_value=False),
+            pytest.raises(ValueError, match="GeoLite2 City database not found"),
+        ):
+            MonitorConfig(geo=GeoConfig(city_download_url="   "))
+
+    def test_geo_missing_asn_whitespace_url_raises(self) -> None:
+        with (
+            patch("bigbrotr.services.monitor.configs.Path.exists", return_value=False),
+            pytest.raises(ValueError, match="GeoLite2 ASN database not found"),
+        ):
+            MonitorConfig(geo=GeoConfig(asn_download_url="   "))
 
     def test_geo_check_skipped_when_compute_disabled(self) -> None:
         config = MonitorConfig(

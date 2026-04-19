@@ -3776,3 +3776,16 @@ Use this section during execution for:
   - added paired `services.test_monitor` coverage proving announcement config
     geohash now canonicalizes up front and `publish_announcement()` forwards
     the cleaned value to `build_monitor_announcement()`.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-nineteenth remediation
+  slice:
+  - tightened the `services.monitor.configs.GeoConfig` string boundaries so
+    database paths now trim and reject blank payloads, while download URLs
+    trim but preserve `""` as the existing unset sentinel used by
+    `MonitorConfig.validate_geo_databases`;
+  - closed the drift where whitespace-only download URLs like `"   "` could
+    bypass the missing-database guard in `validate_geo_databases`, and padded
+    path / URL values could survive inside config even though filesystem and
+    download consumers would only ever treat the trimmed forms as meaningful;
+  - added paired `services.test_monitor` coverage proving Geo config strings
+    canonicalize up front and whitespace-only download URLs no longer bypass
+    the missing GeoLite database validation path.
