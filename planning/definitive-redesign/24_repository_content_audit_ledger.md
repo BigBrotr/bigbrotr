@@ -3594,3 +3594,15 @@ Use this section during execution for:
   - added paired `nips.nip85.test_data` and `nips.nip85.test_builders`
     coverage proving constructor input and DB rows now collapse whitespace
     variants to one canonical topic and builder output stays trim+lowercase.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-fifth remediation
+  slice:
+  - tightened the `nips.nip85.data.IdentifierAssertion` `k_tags` boundary so
+    identifier kind tags now canonicalize with trim before dedupe, and DB-row
+    parsing rejects whitespace-only entries instead of preserving padded raw
+    strings;
+  - closed the drift where semantically identical `k` tags like `" isbn "` and
+    `isbn` could survive as different canonical `NIP-85` values and then emit
+    padded or duplicate public `k` tags in the identifier assertion builder;
+  - added paired `nips.nip85.test_data` and `nips.nip85.test_builders`
+    coverage proving constructor input and DB rows now collapse whitespace
+    variants to one canonical `k` tag set and builder output stays trimmed.

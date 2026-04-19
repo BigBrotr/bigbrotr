@@ -102,6 +102,11 @@ def _canonicalize_topic(value: str) -> str:
     return value.strip().lower()
 
 
+def _canonicalize_k_tag(value: str) -> str:
+    """Return the canonical trimmed representation for one identifier ``k`` tag."""
+    return value.strip()
+
+
 def _coerce_topic_count_mapping(value: Any) -> dict[str, int]:
     """Return topic counts as a mapping, preserving ``None`` as an empty mapping."""
     if value is None:
@@ -128,9 +133,10 @@ def _normalize_tag_set(value: tuple[str, ...]) -> tuple[str, ...]:
         "k_tags",
         noun="tag strings",
     )
-    if any(not tag for tag in tag_values):
+    normalized = tuple(_canonicalize_k_tag(tag) for tag in tag_values)
+    if any(not tag for tag in normalized):
         raise ValueError("k_tags must not contain empty tag strings")
-    return tuple(sorted(set(tag_values)))
+    return tuple(sorted(set(normalized)))
 
 
 def _coerce_tag_sequence(value: Any) -> tuple[str, ...]:
@@ -138,9 +144,10 @@ def _coerce_tag_sequence(value: Any) -> tuple[str, ...]:
     if value is None:
         return ()
     tags = _require_text_sequence(value, "k_tags", noun="tag strings")
-    if any(not tag for tag in tags):
+    normalized = tuple(_canonicalize_k_tag(tag) for tag in tags)
+    if any(not tag for tag in normalized):
         raise ValueError("k_tags must not contain empty tag strings")
-    return tags
+    return normalized
 
 
 def _require_text(value: Any, field_name: str) -> str:

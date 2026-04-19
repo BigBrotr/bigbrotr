@@ -913,6 +913,14 @@ class TestIdentifierAssertionProperties:
         )
         assert a.k_tags == ("book", "isbn")
 
+    def test_constructor_normalizes_whitespace_padded_k_tags(self) -> None:
+        a = IdentifierAssertion(
+            identifier="isbn:9780140328721",
+            k_tags=(" isbn ", "\tbook", "book\t"),
+        )
+
+        assert a.k_tags == ("book", "isbn")
+
     def test_constructor_rejects_non_string_identifier(self) -> None:
         with pytest.raises(TypeError, match="identifier must be a string"):
             IdentifierAssertion(identifier=None)  # type: ignore[arg-type]
@@ -968,6 +976,10 @@ class TestIdentifierAssertionProperties:
     def test_constructor_rejects_empty_k_tags(self) -> None:
         with pytest.raises(ValueError, match="k_tags must not contain empty tag strings"):
             IdentifierAssertion(identifier="isbn:9780140328721", k_tags=("isbn", ""))
+
+    def test_constructor_rejects_whitespace_only_k_tags(self) -> None:
+        with pytest.raises(ValueError, match="k_tags must not contain empty tag strings"):
+            IdentifierAssertion(identifier="isbn:9780140328721", k_tags=("isbn", "   "))
 
     def test_tags_hash_distinguishes_delimited_k_tags(self) -> None:
         with_comma = IdentifierAssertion(
@@ -1029,6 +1041,25 @@ class TestIdentifierAssertionProperties:
         row = {
             "identifier": "isbn:9780140328721",
             "k_tags": ["isbn", ""],
+        }
+
+        with pytest.raises(ValueError, match="k_tags must not contain empty tag strings"):
+            IdentifierAssertion.from_db_row(row)
+
+    def test_from_db_row_normalizes_whitespace_padded_k_tags(self) -> None:
+        row = {
+            "identifier": "isbn:9780140328721",
+            "k_tags": [" isbn ", "\tbook", "book\t"],
+        }
+
+        assertion = IdentifierAssertion.from_db_row(row)
+
+        assert assertion.k_tags == ("book", "isbn")
+
+    def test_from_db_row_rejects_whitespace_only_k_tags(self) -> None:
+        row = {
+            "identifier": "isbn:9780140328721",
+            "k_tags": ["isbn", "   "],
         }
 
         with pytest.raises(ValueError, match="k_tags must not contain empty tag strings"):
