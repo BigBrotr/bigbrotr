@@ -3969,3 +3969,12 @@ Use this section during execution for:
     canonical API route roots;
   - added paired coverage in `services.test_api` proving padded prefixes now
     canonicalize to stable routes and whitespace-only payloads fail fast.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-thirty-fifth
+  remediation slice:
+  - tightened the `services.api.configs.ApiConfig` host boundary so authored
+    values now trim surrounding whitespace and reject blank-only payloads;
+  - closed the drift where payloads like `" 127.0.0.1 "` or `"   "` could
+    survive config load as malformed or semantically empty bind addresses and
+    then flow into uvicorn startup unchanged;
+  - added coverage in `services.test_api` proving padded hosts now
+    canonicalize and blank-only hosts fail fast.

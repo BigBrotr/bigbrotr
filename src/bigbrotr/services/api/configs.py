@@ -29,6 +29,15 @@ def _require_int(value: Any, field_name: str) -> int:
     return cast("int", value)
 
 
+def _normalize_non_blank_string(value: Any, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name}: expected string, got {type(value).__name__}")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{field_name} must not be blank")
+    return normalized
+
+
 class ApiConfig(PublicReadAdapterConfig):
     """Configuration for the API service.
 
@@ -89,6 +98,12 @@ class ApiConfig(PublicReadAdapterConfig):
     def _require_integer_port(cls, value: Any, info: ValidationInfo) -> int:
         field_name = info.field_name or "value"
         return _require_int(value, field_name)
+
+    @field_validator("host", mode="before")
+    @classmethod
+    def _normalize_host(cls, value: Any, info: ValidationInfo) -> str:
+        field_name = info.field_name or "value"
+        return _normalize_non_blank_string(value, field_name)
 
     @field_validator("route_prefix")
     @classmethod

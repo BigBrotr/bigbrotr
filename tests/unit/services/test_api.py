@@ -217,6 +217,14 @@ class TestApiConfig:
         with pytest.raises(ValueError):
             ApiConfig(host="")
 
+    def test_whitespace_only_host_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"host must not be blank"):
+            ApiConfig(host="   ")
+
+    def test_padded_host_is_trimmed(self) -> None:
+        config = ApiConfig(host=" 127.0.0.1 ")
+        assert config.host == "127.0.0.1"
+
     def test_port_conflict_with_metrics_rejected(self) -> None:
         with pytest.raises(ValueError, match=r"metrics\.port.*must differ.*HTTP port"):
             ApiConfig(port=8000, metrics={"enabled": True, "port": 8000})
