@@ -255,6 +255,22 @@ class Nip66GeoData(BaseData):
         ),
     )
 
+    @field_validator("geo_accuracy", "geo_geoname_id")
+    @classmethod
+    def _require_non_negative_geo_ints(cls, value: int | None, info: Any) -> int | None:
+        if value is not None and value < 0:
+            raise ValueError(f"{info.field_name} must be non-negative")
+        return value
+
+    @classmethod
+    def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
+        """Parse geo data while rejecting negative integer metadata."""
+        report = super().parse_report(data, path=path)
+        parsed = dict(report.parsed)
+        issues = list(report.issues)
+        _drop_negative_int_fields(parsed, issues, ("geo_accuracy", "geo_geoname_id"), path=path)
+        return ParseReport(parsed=parsed, issues=tuple(issues))
+
 
 class Nip66NetData(BaseData):
     """Network and ASN information from GeoIP ASN database lookups.
@@ -299,6 +315,22 @@ class Nip66NetData(BaseData):
         ),
     )
 
+    @field_validator("net_asn")
+    @classmethod
+    def _require_non_negative_asn(cls, value: int | None) -> int | None:
+        if value is not None and value < 0:
+            raise ValueError("net_asn must be non-negative")
+        return value
+
+    @classmethod
+    def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
+        """Parse network data while rejecting negative ASN values."""
+        report = super().parse_report(data, path=path)
+        parsed = dict(report.parsed)
+        issues = list(report.issues)
+        _drop_negative_int_fields(parsed, issues, ("net_asn",), path=path)
+        return ParseReport(parsed=parsed, issues=tuple(issues))
+
 
 class Nip66DnsData(BaseData):
     """DNS resolution results for a relay hostname.
@@ -333,6 +365,22 @@ class Nip66DnsData(BaseData):
         str_fields=frozenset({"dns_cname", "dns_reverse"}),
         str_list_fields=frozenset({"dns_ips", "dns_ips_v6", "dns_ns"}),
     )
+
+    @field_validator("dns_ttl")
+    @classmethod
+    def _require_non_negative_ttl(cls, value: int | None) -> int | None:
+        if value is not None and value < 0:
+            raise ValueError("dns_ttl must be non-negative")
+        return value
+
+    @classmethod
+    def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
+        """Parse DNS data while rejecting negative TTL values."""
+        report = super().parse_report(data, path=path)
+        parsed = dict(report.parsed)
+        issues = list(report.issues)
+        _drop_negative_int_fields(parsed, issues, ("dns_ttl",), path=path)
+        return ParseReport(parsed=parsed, issues=tuple(issues))
 
     @field_validator("dns_ips", "dns_ips_v6", "dns_ns")
     @classmethod

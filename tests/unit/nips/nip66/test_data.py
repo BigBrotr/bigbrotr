@@ -254,6 +254,18 @@ class TestNip66GeoData:
         assert data.geo_is_eu is False
         assert data.geo_geoname_id == 5375480
 
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"geo_accuracy": -1},
+            {"geo_geoname_id": -1},
+        ],
+    )
+    def test_construction_rejects_negative_geo_ints(self, kwargs: dict[str, int]) -> None:
+        """Constructor rejects negative integer geo metadata."""
+        with pytest.raises(ValidationError):
+            Nip66GeoData(**kwargs)
+
     def test_parse_filters_invalid_float_types(self) -> None:
         """parse() filters invalid float values."""
         raw = {
@@ -300,6 +312,12 @@ class TestNip66GeoData:
         assert data.geo_accuracy is None
         assert data.geo_geoname_id is None
 
+    def test_parse_filters_negative_geo_ints(self) -> None:
+        """parse() filters negative integer geo metadata."""
+        raw = {"geo_accuracy": -1, "geo_geoname_id": -2, "geo_country": "US"}
+        parsed = Nip66GeoData.parse(raw)
+        assert parsed == {"geo_country": "US"}
+
 
 class TestNip66NetData:
     """Test Nip66NetData model."""
@@ -317,6 +335,11 @@ class TestNip66NetData:
         assert data.net_ip == "8.8.8.8"
         assert data.net_asn == 15169
         assert data.net_network_v6 == "2001:4860::/32"
+
+    def test_construction_rejects_negative_asn(self) -> None:
+        """Constructor rejects negative ASN values."""
+        with pytest.raises(ValidationError):
+            Nip66NetData(net_asn=-1)
 
     def test_parse_filters_invalid_ip_types(self) -> None:
         """parse() filters invalid IP string types."""
@@ -340,6 +363,12 @@ class TestNip66NetData:
         assert data.net_asn is None
         assert data.net_asn_org == "GOOGLE"
 
+    def test_parse_filters_negative_asn(self) -> None:
+        """parse() filters negative ASN values."""
+        raw = {"net_asn": -1, "net_asn_org": "GOOGLE"}
+        parsed = Nip66NetData.parse(raw)
+        assert parsed == {"net_asn_org": "GOOGLE"}
+
 
 class TestNip66DnsData:
     """Test Nip66DnsData model."""
@@ -357,6 +386,11 @@ class TestNip66DnsData:
         assert data.dns_ips == ["8.8.4.4", "8.8.8.8"]
         assert data.dns_ttl == 300
         assert len(data.dns_ns) == 2
+
+    def test_construction_rejects_negative_ttl(self) -> None:
+        """Constructor rejects negative DNS TTL values."""
+        with pytest.raises(ValidationError):
+            Nip66DnsData(dns_ttl=-1)
 
     def test_construction_normalizes_set_like_dns_lists(self) -> None:
         """Constructed DNS set-like lists are deduplicated and sorted."""
@@ -403,6 +437,12 @@ class TestNip66DnsData:
         data = Nip66DnsData(**parsed)
         assert data.dns_ips is None
         assert data.dns_ns is None
+
+    def test_parse_filters_negative_ttl(self) -> None:
+        """parse() filters negative DNS TTL values."""
+        raw = {"dns_ttl": -1, "dns_cname": "dns.google"}
+        parsed = Nip66DnsData.parse(raw)
+        assert parsed == {"dns_cname": "dns.google"}
 
 
 class TestNip66HttpData:
