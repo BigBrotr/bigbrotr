@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from dataclasses import dataclass
 from datetime import timedelta
@@ -34,6 +35,43 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_timestamp(value: object, field_name: str) -> int:
+    """Return one canonical non-negative Unix timestamp."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name} must be a non-negative int")
+    if value < 0:
+        raise ValueError(f"{field_name} must be a non-negative int")
+    return value
+
+
+def _normalize_positive_limit(limit: object) -> int:
+    """Return one canonical positive event-limit budget."""
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+        raise ValueError("limit must be a positive int")
+    return limit
+
+
+def _normalize_timeout(value: object, field_name: str, *, allow_zero: bool) -> float:
+    """Return one canonical finite timeout budget."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        qualifier = "non-negative" if allow_zero else "positive"
+        raise ValueError(f"{field_name} must be a {qualifier} finite number")
+    normalized = float(value)
+    if not math.isfinite(normalized) or normalized < 0 or (not allow_zero and normalized == 0):
+        qualifier = "non-negative" if allow_zero else "positive"
+        raise ValueError(f"{field_name} must be a {qualifier} finite number")
+    return normalized
+
+
+def _normalize_max_event_size(value: object) -> int | None:
+    """Return one canonical optional max-event-size budget."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError("max_event_size must be a positive int or None")
+    return value
 
 
 # ── Event conversion ──────────────────────────────────────────────
@@ -219,6 +257,21 @@ async def stream_events(  # noqa: PLR0913
     Yields:
         Domain ``Event`` objects in ascending ``(created_at, id)`` order.
     """
+    start_time = _normalize_timestamp(start_time, "start_time")
+    end_time = _normalize_timestamp(end_time, "end_time")
+    limit = _normalize_positive_limit(limit)
+    request_timeout = _normalize_timeout(
+        request_timeout,
+        "request_timeout",
+        allow_zero=False,
+    )
+    idle_timeout = _normalize_timeout(
+        idle_timeout,
+        "idle_timeout",
+        allow_zero=True,
+    )
+    max_event_size = _normalize_max_event_size(max_event_size)
+
     if start_time > end_time:
         return
 

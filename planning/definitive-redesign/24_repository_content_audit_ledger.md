@@ -2720,3 +2720,16 @@ Use this section during execution for:
   - added paired `utils.http` coverage proving malformed `timeout` and
     `max_size` inputs are rejected before any HTTP session or response read
     starts.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-thirty-sixth remediation
+  slice:
+  - tightened the direct public runtime boundary of `utils.streaming.stream_events()`
+    so malformed timestamps, `limit`, timeout budgets, and `max_event_size`
+    no longer degrade through Python coercion into one-event windows, one-second
+    request budgets, or impossible temporal ranges before the streaming
+    algorithm begins;
+  - centralized that normalization inside the leaf utility itself so direct
+    callers now enforce the same semantic contract already implied by
+    synchronizer-side config validation instead of relying on upstream call
+    sites to sanitize inputs first;
+  - added paired `utils.streaming` coverage proving corrupted public
+    arguments are rejected before any fetch or verification pass starts.
