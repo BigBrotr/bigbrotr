@@ -297,6 +297,27 @@ class TestNip66GeoData:
     @pytest.mark.parametrize(
         ("kwargs", "message"),
         [
+            ({"geo_country": " "}, "geo_country must be a non-empty string"),
+            ({"geo_country_name": ""}, "geo_country_name must be a non-empty string"),
+            ({"geo_continent": " "}, "geo_continent must be a non-empty string"),
+            ({"geo_continent_name": ""}, "geo_continent_name must be a non-empty string"),
+            ({"geo_region": " "}, "geo_region must be a non-empty string"),
+            ({"geo_city": ""}, "geo_city must be a non-empty string"),
+            ({"geo_postal": " "}, "geo_postal must be a non-empty string"),
+            ({"geo_tz": ""}, "geo_tz must be a non-empty string"),
+            ({"geo_hash": " "}, "geo_hash must be a non-empty string"),
+        ],
+    )
+    def test_construction_rejects_blank_scalar_geo_strings(
+        self, kwargs: dict[str, str], message: str
+    ) -> None:
+        """Constructor rejects blank or whitespace-only scalar geo strings."""
+        with pytest.raises(ValidationError, match=message):
+            Nip66GeoData(**kwargs)
+
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
             ({"geo_lat": 91.0}, "geo_lat must be between -90 and 90"),
             ({"geo_lat": -91.0}, "geo_lat must be between -90 and 90"),
             ({"geo_lon": 181.0}, "geo_lon must be between -180 and 180"),
@@ -384,6 +405,16 @@ class TestNip66GeoData:
         parsed = Nip66GeoData.parse(raw)
         assert parsed == {"geo_country": "US"}
 
+    def test_parse_filters_blank_scalar_geo_strings(self) -> None:
+        """parse() filters blank or whitespace-only scalar geo strings."""
+        raw = {
+            "geo_country": "US",
+            "geo_city": " ",
+            "geo_tz": "",
+        }
+        parsed = Nip66GeoData.parse(raw)
+        assert parsed == {"geo_country": "US"}
+
 
 class TestNip66NetData:
     """Test Nip66NetData model."""
@@ -401,6 +432,23 @@ class TestNip66NetData:
         assert data.net_ip == "8.8.8.8"
         assert data.net_asn == 15169
         assert data.net_network_v6 == "2001:4860::/32"
+
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"net_ip": " "}, "net_ip must be a non-empty string"),
+            ({"net_ipv6": ""}, "net_ipv6 must be a non-empty string"),
+            ({"net_asn_org": " "}, "net_asn_org must be a non-empty string"),
+            ({"net_network": ""}, "net_network must be a non-empty string"),
+            ({"net_network_v6": " "}, "net_network_v6 must be a non-empty string"),
+        ],
+    )
+    def test_construction_rejects_blank_scalar_net_strings(
+        self, kwargs: dict[str, str], message: str
+    ) -> None:
+        """Constructor rejects blank or whitespace-only scalar net strings."""
+        with pytest.raises(ValidationError, match=message):
+            Nip66NetData(**kwargs)
 
     def test_construction_rejects_negative_asn(self) -> None:
         """Constructor rejects negative ASN values."""
@@ -434,6 +482,16 @@ class TestNip66NetData:
         raw = {"net_asn": -1, "net_asn_org": "GOOGLE"}
         parsed = Nip66NetData.parse(raw)
         assert parsed == {"net_asn_org": "GOOGLE"}
+
+    def test_parse_filters_blank_scalar_net_strings(self) -> None:
+        """parse() filters blank or whitespace-only scalar net strings."""
+        raw = {
+            "net_asn": 15169,
+            "net_asn_org": " ",
+            "net_network": "",
+        }
+        parsed = Nip66NetData.parse(raw)
+        assert parsed == {"net_asn": 15169}
 
 
 class TestNip66DnsData:

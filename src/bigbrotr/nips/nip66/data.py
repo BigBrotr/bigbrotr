@@ -376,6 +376,23 @@ class Nip66GeoData(BaseData):
             raise ValueError(f"{info.field_name} must be non-negative")
         return value
 
+    @field_validator(
+        "geo_country",
+        "geo_country_name",
+        "geo_continent",
+        "geo_continent_name",
+        "geo_region",
+        "geo_city",
+        "geo_postal",
+        "geo_tz",
+        "geo_hash",
+    )
+    @classmethod
+    def _require_non_blank_geo_strings(cls, value: str | None, info: Any) -> str | None:
+        if value is not None and value.strip() == "":
+            raise ValueError(f"{info.field_name} must be a non-empty string")
+        return value
+
     @field_validator("geo_lat")
     @classmethod
     def _require_valid_latitude(cls, value: float | None) -> float | None:
@@ -396,6 +413,22 @@ class Nip66GeoData(BaseData):
         report = super().parse_report(data, path=path)
         parsed = dict(report.parsed)
         issues = list(report.issues)
+        _drop_blank_string_fields(
+            parsed,
+            issues,
+            (
+                "geo_country",
+                "geo_country_name",
+                "geo_continent",
+                "geo_continent_name",
+                "geo_region",
+                "geo_city",
+                "geo_postal",
+                "geo_tz",
+                "geo_hash",
+            ),
+            path=path,
+        )
         _drop_negative_int_fields(parsed, issues, ("geo_accuracy", "geo_geoname_id"), path=path)
         _drop_out_of_range_number_fields(
             parsed,
@@ -459,12 +492,25 @@ class Nip66NetData(BaseData):
             raise ValueError("net_asn must be non-negative")
         return value
 
+    @field_validator("net_ip", "net_ipv6", "net_asn_org", "net_network", "net_network_v6")
+    @classmethod
+    def _require_non_blank_net_strings(cls, value: str | None, info: Any) -> str | None:
+        if value is not None and value.strip() == "":
+            raise ValueError(f"{info.field_name} must be a non-empty string")
+        return value
+
     @classmethod
     def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
         """Parse network data while rejecting negative ASN values."""
         report = super().parse_report(data, path=path)
         parsed = dict(report.parsed)
         issues = list(report.issues)
+        _drop_blank_string_fields(
+            parsed,
+            issues,
+            ("net_ip", "net_ipv6", "net_asn_org", "net_network", "net_network_v6"),
+            path=path,
+        )
         _drop_negative_int_fields(parsed, issues, ("net_asn",), path=path)
         return ParseReport(parsed=parsed, issues=tuple(issues))
 
