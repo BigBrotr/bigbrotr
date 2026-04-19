@@ -2562,3 +2562,17 @@ Use this section during execution for:
   - added paired `NIP-66` geo coverage proving invalid precision inputs now
     fail before any geohash generation, GeoIP reader lookup, or hostname
     resolution starts.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-twenty-fourth remediation
+  slice:
+  - tightened the public `utils.protocol` insecure-transport boundary so
+    `create_client()`, `create_connected_client()`, `connect_relay()`,
+    `is_nostr_relay()`, and `NostrClientManager(...)` no longer accept
+    non-bool `allow_insecure` aliases that would otherwise enable insecure
+    fallback through Python truthiness as if the caller had passed a canonical
+    transport policy;
+  - centralized that runtime normalization inside the public protocol facade so
+    malformed `allow_insecure` inputs now fail before any client factory,
+    relay connection, session setup, or validation work starts;
+  - added paired `utils.protocol` coverage proving those public entrypoints now
+    reject malformed aliases like `1` without invoking child helpers, while
+    canonical boolean inputs preserve the existing relay/session behavior.

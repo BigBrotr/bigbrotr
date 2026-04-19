@@ -239,6 +239,19 @@ class TestCreateClientInsecure:
         client = await create_client(keys=keys, allow_insecure=True)
         assert client is not None
 
+    async def test_rejects_non_bool_allow_insecure_before_factory(self) -> None:
+        """Non-bool aliases fail fast before client factory work starts."""
+        with (
+            patch(
+                "bigbrotr.utils.protocol._protocol_factory.build_client",
+                new_callable=AsyncMock,
+            ) as mock_build_client,
+            pytest.raises(ValueError, match="allow_insecure must be a bool"),
+        ):
+            await create_client(allow_insecure=1)  # type: ignore[arg-type]
+
+        mock_build_client.assert_not_awaited()
+
 
 class TestCreateConnectedClient:
     async def test_rejects_overlay_relays_before_client_creation(self) -> None:
@@ -364,6 +377,21 @@ class TestCreateConnectedClient:
         mock_create_client.assert_awaited_once_with(keys=None, allow_insecure=False)
         mock_shutdown_client.assert_awaited_once_with(mock_client)
 
+    async def test_rejects_non_bool_allow_insecure_before_session_setup(self) -> None:
+        """Non-bool aliases fail fast before shared client setup starts."""
+        relay = Relay("wss://relay.example.com")
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol._create_connected_client",
+                new_callable=AsyncMock,
+            ) as mock_create_connected,
+            pytest.raises(ValueError, match="allow_insecure must be a bool"),
+        ):
+            await create_connected_client([relay], allow_insecure=1)  # type: ignore[arg-type]
+
+        mock_create_connected.assert_not_awaited()
+
 
 @dataclass(frozen=True, slots=True)
 class _StubNetworkConfig:
@@ -383,6 +411,11 @@ class _StubNetworkPolicy:
 
 
 class TestNostrClientManagerRelayClients:
+    def test_constructor_rejects_non_bool_allow_insecure(self) -> None:
+        """Manager config rejects non-bool aliases before storing policy state."""
+        with pytest.raises(ValueError, match="allow_insecure must be a bool"):
+            NostrClientManager(keys=MagicMock(), allow_insecure=1)  # type: ignore[arg-type]
+
     async def test_get_relay_client_caches_successful_connections(self) -> None:
         networks = _StubNetworkPolicy(timeout=12.0)
         relay = Relay("wss://relay.example.com")
@@ -847,6 +880,23 @@ class TestConnectRelayOverlayNetworks:
 
 class TestConnectRelayClearnet:
     """Tests for connect_relay() with clearnet relays."""
+
+    async def test_rejects_non_bool_allow_insecure_before_runtime_connect(self) -> None:
+        """Non-bool aliases fail fast before the runtime connect helper starts."""
+        relay = Relay("wss://relay.example.com")
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol._protocol_connections.connect_relay",
+                new_callable=AsyncMock,
+            ) as mock_connect,
+            pytest.raises(ValueError, match="allow_insecure must be a bool"),
+        ):
+            from bigbrotr.utils.protocol import connect_relay
+
+            await connect_relay(relay, allow_insecure=1)  # type: ignore[arg-type]
+
+        mock_connect.assert_not_awaited()
 
     async def test_ssl_error_fallback_disabled_raises(self) -> None:
         """Test SSL errors raise when allow_insecure=False."""
@@ -1654,3 +1704,20 @@ class TestIsNostrRelayAdditional:
 
             call_kwargs = mock_connect.call_args[1]
             assert call_kwargs["allow_insecure"] is True
+
+    async def test_rejects_non_bool_allow_insecure_before_validation(self) -> None:
+        """Non-bool aliases fail fast before relay validation starts."""
+        relay = Relay("wss://relay.example.com")
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol._validate_relay_protocol",
+                new_callable=AsyncMock,
+            ) as mock_validate,
+            pytest.raises(ValueError, match="allow_insecure must be a bool"),
+        ):
+            from bigbrotr.utils.protocol import is_nostr_relay
+
+            await is_nostr_relay(relay, allow_insecure=1)  # type: ignore[arg-type]
+
+        mock_validate.assert_not_awaited()

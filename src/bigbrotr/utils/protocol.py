@@ -127,6 +127,13 @@ _SSL_ERROR_PATTERNS: tuple[str, ...] = (
 )
 
 
+def _normalize_allow_insecure(allow_insecure: object) -> bool:
+    """Return one canonical insecure-transport toggle."""
+    if not isinstance(allow_insecure, bool):
+        raise ValueError("allow_insecure must be a bool")
+    return allow_insecure
+
+
 def _is_ssl_error(error_message: str) -> bool:
     """Check if an error message indicates an SSL/TLS certificate error."""
     error_lower = error_message.lower()
@@ -143,6 +150,8 @@ class NostrClientManager(_protocol_manager.NostrClientManager):
         networks: _protocol_manager.RelayNetworkPolicy | None = None,
         allow_insecure: bool = False,
     ) -> None:
+        normalized_allow_insecure = _normalize_allow_insecure(allow_insecure)
+
         async def _shutdown_client(client: Client) -> None:
             await shutdown_client(client)
 
@@ -171,7 +180,7 @@ class NostrClientManager(_protocol_manager.NostrClientManager):
             ),
             keys=keys,
             networks=networks,
-            allow_insecure=allow_insecure,
+            allow_insecure=normalized_allow_insecure,
         )
 
 
@@ -214,10 +223,11 @@ async def create_client(
             function that handles connection and automatic SSL fallback.
     """
     install_nostr_sdk_stderr_filter()
+    normalized_allow_insecure = _normalize_allow_insecure(allow_insecure)
     return await _protocol_factory.build_client(
         keys=keys,
         proxy_url=proxy_url,
-        allow_insecure=allow_insecure,
+        allow_insecure=normalized_allow_insecure,
     )
 
 
@@ -234,6 +244,7 @@ async def create_connected_client(
     require per-network proxy policy and therefore cannot share the same
     session-oriented client contract.
     """
+    normalized_allow_insecure = _normalize_allow_insecure(allow_insecure)
     return await _create_connected_client(
         relays,
         dependencies=SharedSessionDependencies(
@@ -242,7 +253,7 @@ async def create_connected_client(
         ),
         keys=keys,
         timeout=timeout,
-        allow_insecure=allow_insecure,
+        allow_insecure=normalized_allow_insecure,
     )
 
 
@@ -287,6 +298,7 @@ async def connect_relay(
         [is_nostr_relay][bigbrotr.utils.protocol.is_nostr_relay]: Higher-level
             validation that uses this function internally.
     """
+    normalized_allow_insecure = _normalize_allow_insecure(allow_insecure)
     return await _protocol_connections.connect_relay(
         relay,
         _protocol_connections.RelayConnectContext(
@@ -301,7 +313,7 @@ async def connect_relay(
             keys=keys,
             proxy_url=proxy_url,
             timeout=timeout,
-            allow_insecure=allow_insecure,
+            allow_insecure=normalized_allow_insecure,
         ),
     )
 
@@ -340,6 +352,7 @@ async def is_nostr_relay(
         [bigbrotr.services.validator.Validator][bigbrotr.services.validator.Validator]:
             Service that calls this function to promote candidates to relays.
     """
+    normalized_allow_insecure = _normalize_allow_insecure(allow_insecure)
     return await _validate_relay_protocol(
         relay,
         RelayValidationContext(
@@ -352,6 +365,6 @@ async def is_nostr_relay(
             connect_timeout=timeout,
             proxy_url=proxy_url,
             overall_timeout=overall_timeout,
-            allow_insecure=allow_insecure,
+            allow_insecure=normalized_allow_insecure,
         ),
     )
