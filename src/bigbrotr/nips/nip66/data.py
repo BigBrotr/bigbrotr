@@ -28,12 +28,32 @@ See Also:
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from pydantic import Field, StrictBool, StrictFloat, StrictInt, field_validator
 
 from bigbrotr.nips.base import BaseData
-from bigbrotr.nips.parsing import FieldSpec
+from bigbrotr.nips.parsing import FieldSpec, ParseIssue, ParseReport, join_parse_path
+
+
+def _drop_negative_int_fields(
+    parsed: dict[str, Any],
+    issues: list[ParseIssue],
+    field_names: tuple[str, ...],
+    *,
+    path: str,
+) -> None:
+    for key in field_names:
+        value = parsed.get(key)
+        if isinstance(value, int) and value < 0:
+            del parsed[key]
+            issues.append(
+                ParseIssue(
+                    kind="invalid_value",
+                    path=join_parse_path(path, key),
+                    detail="expected non-negative int",
+                )
+            )
 
 
 class Nip66RttData(BaseData):
@@ -59,9 +79,25 @@ class Nip66RttData(BaseData):
     rtt_read: StrictInt | None = Field(default=None, description="Event read latency in ms")
     rtt_write: StrictInt | None = Field(default=None, description="Event write latency in ms")
 
+    @field_validator("rtt_open", "rtt_read", "rtt_write")
+    @classmethod
+    def _require_non_negative_rtts(cls, value: int | None, info: Any) -> int | None:
+        if value is not None and value < 0:
+            raise ValueError(f"{info.field_name} must be non-negative")
+        return value
+
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         int_fields=frozenset({"rtt_open", "rtt_read", "rtt_write"}),
     )
+
+    @classmethod
+    def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
+        """Parse RTT data while rejecting negative latency values."""
+        report = super().parse_report(data, path=path)
+        parsed = dict(report.parsed)
+        issues = list(report.issues)
+        _drop_negative_int_fields(parsed, issues, ("rtt_open", "rtt_read", "rtt_write"), path=path)
+        return ParseReport(parsed=parsed, issues=tuple(issues))
 
 
 class Nip66SslData(BaseData):

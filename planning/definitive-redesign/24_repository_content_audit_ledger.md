@@ -3177,3 +3177,13 @@ Use this section during execution for:
   - added paired `nips.nip11.test_data` coverage proving negative limitation
     budgets now fail fast at construction time and are filtered from parse
     output while valid zero values remain accepted.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-seventy-first
+  remediation slice:
+  - tightened the `nips.nip66.data.Nip66RttData` latency boundary so RTT
+    fields must now be non-negative both at direct model construction and
+    during permissive parse/report sanitization;
+  - closed the drift where semantically impossible negative relay latencies
+    could survive as canonical NIP-66 RTT data and later flow into shared
+    result containers, documents, and public builder output;
+  - added paired `nips.nip66.test_data` coverage proving negative RTT values
+    now fail fast at construction time and are filtered from parse output.

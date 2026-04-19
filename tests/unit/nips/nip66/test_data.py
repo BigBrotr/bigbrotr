@@ -13,6 +13,9 @@ Tests:
 
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from bigbrotr.nips.nip66.data import (
     Nip66DnsData,
     Nip66GeoData,
@@ -47,6 +50,12 @@ class TestNip66RttData:
         assert data.rtt_read is None
         assert data.rtt_write is None
 
+    @pytest.mark.parametrize("kwargs", [{"rtt_open": -1}, {"rtt_read": -1}, {"rtt_write": -1}])
+    def test_construction_rejects_negative_rtts(self, kwargs: dict[str, int]) -> None:
+        """Constructor rejects negative RTT measurements."""
+        with pytest.raises(ValidationError):
+            Nip66RttData(**kwargs)
+
     def test_parse_filters_invalid_types(self) -> None:
         """parse() filters non-integer values for RTT fields."""
         raw = {
@@ -68,6 +77,12 @@ class TestNip66RttData:
         assert data.rtt_open == 100
         assert data.rtt_read == 150
         assert data.rtt_write == 200
+
+    def test_parse_filters_negative_rtts(self) -> None:
+        """parse() filters negative RTT values instead of canonicalizing them."""
+        raw = {"rtt_open": -1, "rtt_read": -2, "rtt_write": 200}
+        parsed = Nip66RttData.parse(raw)
+        assert parsed == {"rtt_write": 200}
 
     def test_parse_ignores_unknown_fields(self) -> None:
         """parse() ignores fields not in spec."""
