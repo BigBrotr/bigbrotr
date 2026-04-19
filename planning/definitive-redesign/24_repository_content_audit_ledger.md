@@ -3901,3 +3901,15 @@ Use this section during execution for:
   - added paired coverage in `services.test_api` and `services.test_dvm`
     proving malformed page-size aliases now fail fast in both public adapter
     consumers.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-twenty-ninth
+  remediation slice:
+  - tightened the shared network-config boundary in
+    `services.common.configs.{ClearnetConfig,TorConfig,I2pConfig,LokiConfig}`
+    so `max_tasks` now requires a canonical integer instead of accepting
+    numeric strings or floats;
+  - closed the drift where authored nested network payloads like `"10"` or
+    `10.0` could silently coerce into valid concurrency budgets and change
+    semaphore sizing without passing through an explicit integer boundary;
+  - added paired coverage in `services.common.test_configs` and
+    `services.test_validator` proving malformed nested `max_tasks` payloads
+    now fail fast at config load time.

@@ -512,10 +512,11 @@ class TestMaxTasksValidation:
         "config_class",
         [ClearnetConfig, TorConfig, I2pConfig, LokiConfig],
     )
-    def test_rejects_boolean_aliases(self, config_class: type) -> None:
-        """Test bool aliases do not coerce into a one-task concurrency budget."""
-        with pytest.raises(ValidationError, match="max_tasks: expected integer, got bool"):
-            config_class(max_tasks=True)
+    @pytest.mark.parametrize("value", [True, "10", 10.0])
+    def test_rejects_non_integer_aliases(self, config_class: type, value: object) -> None:
+        """Test non-integer aliases do not coerce into a concurrency budget."""
+        with pytest.raises(ValidationError, match="max_tasks: expected integer, got"):
+            config_class(max_tasks=value)
 
 
 class TestTimeoutValidation:

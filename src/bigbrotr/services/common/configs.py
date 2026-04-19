@@ -306,12 +306,17 @@ class ClearnetConfig(BaseModel):
         default=10.0, ge=1.0, le=120.0, description="Connection timeout in seconds"
     )
 
-    @field_validator("max_tasks", "timeout", mode="before")
+    @field_validator("max_tasks", mode="before")
     @classmethod
-    def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
+    def require_integer_max_tasks(cls, value: Any, info: ValidationInfo) -> int:
         field_name = info.field_name or "value"
-        expected = "integer" if field_name == "max_tasks" else "number"
-        return _reject_bool_alias(value, field_name, expected)
+        return _require_int(value, field_name)
+
+    @field_validator("timeout", mode="before")
+    @classmethod
+    def reject_boolean_timeout_aliases(cls, value: Any, info: ValidationInfo) -> Any:
+        field_name = info.field_name or "value"
+        return _reject_bool_alias(value, field_name, "number")
 
     @field_validator("enabled", mode="before")
     @classmethod
@@ -345,12 +350,17 @@ class TorConfig(BaseModel):
         default=30.0, ge=1.0, le=120.0, description="Connection timeout in seconds"
     )
 
-    @field_validator("max_tasks", "timeout", mode="before")
+    @field_validator("max_tasks", mode="before")
     @classmethod
-    def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
+    def require_integer_max_tasks(cls, value: Any, info: ValidationInfo) -> int:
         field_name = info.field_name or "value"
-        expected = "integer" if field_name == "max_tasks" else "number"
-        return _reject_bool_alias(value, field_name, expected)
+        return _require_int(value, field_name)
+
+    @field_validator("timeout", mode="before")
+    @classmethod
+    def reject_boolean_timeout_aliases(cls, value: Any, info: ValidationInfo) -> Any:
+        field_name = info.field_name or "value"
+        return _reject_bool_alias(value, field_name, "number")
 
     @field_validator("enabled", mode="before")
     @classmethod
@@ -384,12 +394,17 @@ class I2pConfig(BaseModel):
         default=45.0, ge=1.0, le=120.0, description="Connection timeout in seconds"
     )
 
-    @field_validator("max_tasks", "timeout", mode="before")
+    @field_validator("max_tasks", mode="before")
     @classmethod
-    def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
+    def require_integer_max_tasks(cls, value: Any, info: ValidationInfo) -> int:
         field_name = info.field_name or "value"
-        expected = "integer" if field_name == "max_tasks" else "number"
-        return _reject_bool_alias(value, field_name, expected)
+        return _require_int(value, field_name)
+
+    @field_validator("timeout", mode="before")
+    @classmethod
+    def reject_boolean_timeout_aliases(cls, value: Any, info: ValidationInfo) -> Any:
+        field_name = info.field_name or "value"
+        return _reject_bool_alias(value, field_name, "number")
 
     @field_validator("enabled", mode="before")
     @classmethod
@@ -426,12 +441,17 @@ class LokiConfig(BaseModel):
         default=30.0, ge=1.0, le=120.0, description="Connection timeout in seconds"
     )
 
-    @field_validator("max_tasks", "timeout", mode="before")
+    @field_validator("max_tasks", mode="before")
     @classmethod
-    def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
+    def require_integer_max_tasks(cls, value: Any, info: ValidationInfo) -> int:
         field_name = info.field_name or "value"
-        expected = "integer" if field_name == "max_tasks" else "number"
-        return _reject_bool_alias(value, field_name, expected)
+        return _require_int(value, field_name)
+
+    @field_validator("timeout", mode="before")
+    @classmethod
+    def reject_boolean_timeout_aliases(cls, value: Any, info: ValidationInfo) -> Any:
+        field_name = info.field_name or "value"
+        return _reject_bool_alias(value, field_name, "number")
 
     @field_validator("enabled", mode="before")
     @classmethod

@@ -206,6 +206,11 @@ class TestValidatorConfig:
         with pytest.raises(ValueError, match=r"enabled: expected boolean, got"):
             ValidatorConfig(networks={"tor": {"enabled": value}})
 
+    @pytest.mark.parametrize("value", ["10", 10.0])
+    def test_nested_network_max_tasks_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_tasks: expected integer, got"):
+            ValidatorConfig(networks={"tor": {"max_tasks": value}})
+
     def test_processing_validation_propagated(self) -> None:
         with pytest.raises(ValueError):
             ValidatorConfig(processing={"chunk_size": 5})
