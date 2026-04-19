@@ -147,6 +147,20 @@ class TestNip66SslData:
         )
         assert data.ssl_san == ["*.example.com", "relay.example.com"]
 
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"ssl_expires": -1},
+            {"ssl_not_before": -1},
+            {"ssl_version": -1},
+            {"ssl_cipher_bits": -1},
+        ],
+    )
+    def test_construction_rejects_negative_ssl_ints(self, kwargs: dict[str, int]) -> None:
+        """Constructor rejects negative numeric SSL metadata."""
+        with pytest.raises(ValidationError):
+            Nip66SslData(**kwargs)
+
     def test_parse_filters_invalid_bool(self) -> None:
         """parse() filters invalid boolean values."""
         raw = {
@@ -170,6 +184,18 @@ class TestNip66SslData:
         assert data.ssl_expires is None
         assert data.ssl_version == 3
         assert data.ssl_cipher_bits is None
+
+    def test_parse_filters_negative_ssl_ints(self) -> None:
+        """parse() filters negative numeric SSL metadata."""
+        raw = {
+            "ssl_valid": True,
+            "ssl_expires": -1,
+            "ssl_not_before": -2,
+            "ssl_version": -3,
+            "ssl_cipher_bits": -4,
+        }
+        parsed = Nip66SslData.parse(raw)
+        assert parsed == {"ssl_valid": True}
 
     def test_parse_filters_invalid_str_types(self) -> None:
         """parse() filters invalid string values."""

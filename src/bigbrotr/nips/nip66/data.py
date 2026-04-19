@@ -142,6 +142,13 @@ class Nip66SslData(BaseData):
     ssl_cipher: str | None = Field(default=None, description="Negotiated cipher suite")
     ssl_cipher_bits: StrictInt | None = Field(default=None, description="Cipher key size in bits")
 
+    @field_validator("ssl_expires", "ssl_not_before", "ssl_version", "ssl_cipher_bits")
+    @classmethod
+    def _require_non_negative_ssl_ints(cls, value: int | None, info: Any) -> int | None:
+        if value is not None and value < 0:
+            raise ValueError(f"{info.field_name} must be non-negative")
+        return value
+
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         bool_fields=frozenset({"ssl_valid"}),
         int_fields=frozenset(
@@ -172,6 +179,20 @@ class Nip66SslData(BaseData):
         if value is None:
             return None
         return sorted(set(value))
+
+    @classmethod
+    def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
+        """Parse SSL data while rejecting negative numeric certificate metadata."""
+        report = super().parse_report(data, path=path)
+        parsed = dict(report.parsed)
+        issues = list(report.issues)
+        _drop_negative_int_fields(
+            parsed,
+            issues,
+            ("ssl_expires", "ssl_not_before", "ssl_version", "ssl_cipher_bits"),
+            path=path,
+        )
+        return ParseReport(parsed=parsed, issues=tuple(issues))
 
 
 class Nip66GeoData(BaseData):

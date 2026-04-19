@@ -3187,3 +3187,15 @@ Use this section during execution for:
     result containers, documents, and public builder output;
   - added paired `nips.nip66.test_data` coverage proving negative RTT values
     now fail fast at construction time and are filtered from parse output.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-seventy-second
+  remediation slice:
+  - tightened the `nips.nip66.data.Nip66SslData` numeric boundary so
+    certificate timestamps, version, and cipher-bit fields must now be
+    non-negative both at direct model construction and during permissive
+    parse/report sanitization;
+  - closed the drift where semantically impossible negative SSL metadata
+    could survive as canonical NIP-66 leaf data and later flow into shared
+    result containers, persisted documents, and public builder output;
+  - added paired `nips.nip66.test_data` coverage proving negative SSL
+    numeric fields now fail fast at construction time and are filtered from
+    parse output.
