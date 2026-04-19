@@ -2759,3 +2759,17 @@ Use this section during execution for:
     connection logic starts;
   - added paired `utils.transport` coverage proving corrupted timeout inputs
     are rejected before adapter or transport state is created.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-thirty-ninth remediation
+  slice:
+  - tightened the direct public builder boundary of
+    `nips.event_builders.build_monitor_announcement()` so malformed
+    `interval`, `timeout_ms`, and `geohash` inputs no longer degrade into
+    fake `Kind 10166` frequency/timeout tags or blank geolocation tags via
+    raw stringification inside the public NIP-66 announcement builder;
+  - centralized announcement argument normalization inside the leaf builder
+    itself so direct callers now enforce the same positive integer and
+    non-empty geohash contract already implied by monitor-side config and
+    publication flows, instead of relying on upstream call sites to sanitize
+    the public arguments first;
+  - added paired `nips.event_builders` coverage proving corrupted builder
+    inputs are rejected before any `Tag.parse()` work begins.

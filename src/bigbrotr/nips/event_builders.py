@@ -68,6 +68,25 @@ class AccessFlags(NamedTuple):
     read_auth: bool
 
 
+def _normalize_positive_int(value: object, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name} must be a positive integer")
+    if value <= 0:
+        raise ValueError(f"{field_name} must be a positive integer")
+    return value
+
+
+def _normalize_geohash(geohash: object) -> str | None:
+    if geohash is None:
+        return None
+    if not isinstance(geohash, str):
+        raise ValueError("geohash must be a non-empty string")
+    normalized = geohash.strip()
+    if not normalized:
+        raise ValueError("geohash must be a non-empty string")
+    return normalized
+
+
 def _normalize_relay_list_urls(relays: Sequence[Relay]) -> tuple[str, ...]:
     """Return a stable deduplicated relay-url ordering for set-like relay lists."""
     return tuple(sorted({relay.url for relay in relays}))
@@ -171,6 +190,10 @@ def build_monitor_announcement(  # noqa: PLR0913
     geohash: str | None = None,
 ) -> EventBuilder:
     """Build a Kind 10166 monitor announcement event per NIP-66."""
+    interval = _normalize_positive_int(interval, "interval")
+    timeout_ms = _normalize_positive_int(timeout_ms, "timeout_ms")
+    geohash = _normalize_geohash(geohash)
+
     tags = [Tag.parse(["frequency", str(interval)])]
     if geohash:
         tags.append(Tag.parse(["g", geohash]))

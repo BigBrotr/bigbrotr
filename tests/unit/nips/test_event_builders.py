@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
+import pytest
 from nostr_sdk import Keys
 
 from bigbrotr.models.constants import NetworkType
@@ -295,6 +297,79 @@ class TestBuildMonitorAnnouncement:
             ["n", "i2p"],
             ["n", "tor"],
         ]
+
+    @pytest.mark.parametrize("value", [True, 0, -1])
+    def test_rejects_invalid_interval_before_tag_build(self, value: object) -> None:
+        """Invalid frequency budgets fail before any announcement tags are built."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="interval must be a positive integer"),
+        ):
+            build_monitor_announcement(
+                interval=value,  # type: ignore[arg-type]
+                timeout_ms=10000,
+                enabled_networks=[NetworkType.CLEARNET],
+                nip11_selection=Nip11Selection(info=False),
+                nip66_selection=Nip66Selection(
+                    rtt=False,
+                    ssl=False,
+                    geo=False,
+                    net=False,
+                    dns=False,
+                    http=False,
+                ),
+            )
+
+        mock_parse.assert_not_called()
+
+    @pytest.mark.parametrize("value", [True, 0, -1])
+    def test_rejects_invalid_timeout_before_tag_build(self, value: object) -> None:
+        """Invalid timeout budgets fail before any announcement tags are built."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="timeout_ms must be a positive integer"),
+        ):
+            build_monitor_announcement(
+                interval=3600,
+                timeout_ms=value,  # type: ignore[arg-type]
+                enabled_networks=[NetworkType.CLEARNET],
+                nip11_selection=Nip11Selection(info=False),
+                nip66_selection=Nip66Selection(
+                    rtt=False,
+                    ssl=False,
+                    geo=False,
+                    net=False,
+                    dns=False,
+                    http=False,
+                ),
+            )
+
+        mock_parse.assert_not_called()
+
+    @pytest.mark.parametrize("value", [True, "", "   "])
+    def test_rejects_invalid_geohash_before_tag_build(self, value: object) -> None:
+        """Malformed geohash inputs fail before any announcement tags are built."""
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="geohash must be a non-empty string"),
+        ):
+            build_monitor_announcement(
+                interval=3600,
+                timeout_ms=10000,
+                enabled_networks=[NetworkType.CLEARNET],
+                nip11_selection=Nip11Selection(info=False),
+                nip66_selection=Nip66Selection(
+                    rtt=False,
+                    ssl=False,
+                    geo=False,
+                    net=False,
+                    dns=False,
+                    http=False,
+                ),
+                geohash=value,  # type: ignore[arg-type]
+            )
+
+        mock_parse.assert_not_called()
 
 
 # ============================================================================
