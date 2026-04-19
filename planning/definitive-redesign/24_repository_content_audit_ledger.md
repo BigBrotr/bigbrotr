@@ -3814,3 +3814,16 @@ Use this section during execution for:
     class of boolean alias;
   - added paired `services.test_dvm` coverage proving malformed boolean flag
     aliases are now rejected at config load time.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-twenty-second
+  remediation slice:
+  - tightened the public `services.dvm.configs.DvmConfig` text boundaries so
+    `name`, `about`, and `d_tag` now trim surrounding whitespace and reject
+    blank-only payloads instead of passing raw strings through to published
+    NIP-89 metadata;
+  - closed the drift where padded or whitespace-only announcement text could
+    survive config load and then be emitted verbatim in the public DVM handler
+    profile, even though these fields are authored by the service itself and
+    should already be canonical at the config boundary;
+  - added paired `services.test_dvm` coverage proving the config normalizes the
+    three text fields up front and `publish_announcement()` emits the cleaned
+    values in the final event.

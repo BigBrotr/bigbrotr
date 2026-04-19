@@ -24,6 +24,15 @@ from bigbrotr.services.common.configs import (
 )
 
 
+def _normalize_required_text(value: Any, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name}: expected string, got {type(value).__name__}")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{field_name} must not be blank")
+    return normalized
+
+
 class DvmConfig(PublicReadAdapterConfig):
     """Configuration for the DVM service.
 
@@ -105,6 +114,12 @@ class DvmConfig(PublicReadAdapterConfig):
         if not isinstance(value, bool):
             raise ValueError(f"{field_name}: expected bool, got {type(value).__name__}")
         return value
+
+    @field_validator("name", "about", "d_tag", mode="before")
+    @classmethod
+    def _normalize_announcement_text_fields(cls, value: Any, info: ValidationInfo) -> str:
+        field_name = info.field_name or "value"
+        return _normalize_required_text(value, field_name)
 
     @field_validator("fetch_timeout", mode="before")
     @classmethod

@@ -223,9 +223,25 @@ class TestDvmConfig:
         assert config.about == "LilBrotr relay data"
         assert config.d_tag == "lilbrotr-dvm"
 
+    def test_canonicalizes_announcement_text_fields(self) -> None:
+        config = DvmConfig(
+            relays=["wss://relay.example.com"],
+            name="  LilBrotr DVM  ",
+            about="  LilBrotr relay data  ",
+            d_tag="  lilbrotr-dvm  ",
+        )
+        assert config.name == "LilBrotr DVM"
+        assert config.about == "LilBrotr relay data"
+        assert config.d_tag == "lilbrotr-dvm"
+
     def test_custom_fetch_timeout(self) -> None:
         config = DvmConfig(relays=["wss://relay.example.com"], fetch_timeout=60.0)
         assert config.fetch_timeout == 60.0
+
+    @pytest.mark.parametrize("field_name", ["name", "about", "d_tag"])
+    def test_rejects_blank_announcement_text_fields(self, field_name: str) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name} must not be blank"):
+            DvmConfig(relays=["wss://relay.example.com"], **{field_name: "   "})
 
     def test_requires_relays(self) -> None:
         with pytest.raises(ValueError):
@@ -1417,6 +1433,35 @@ class TestDvmPublishingGuards:
         await dvm_service._publish_announcement()
 
         mock_client.send_event_builder.assert_called_once()
+
+    async def test_publish_announcement_uses_canonicalized_config_text(
+        self,
+        mock_brotr: Brotr,
+        sample_dvm_catalog: Catalog,
+    ) -> None:
+        service = Dvm(
+            brotr=mock_brotr,
+            config=DvmConfig(
+                relays=["wss://relay.example.com"],
+                name="  My DVM  ",
+                about="  Read-only relay data  ",
+                d_tag="  my-dvm  ",
+                read_models={"relays": ReadModelPolicy(enabled=True)},
+            ),
+        )
+        service._read_core.catalog = sample_dvm_catalog
+        mock_client = MagicMock()
+        mock_client.send_event_builder = AsyncMock(return_value=_make_send_output())
+        service._client = mock_client
+
+        await service._publish_announcement()
+
+        builder = mock_client.send_event_builder.await_args.args[0]
+        published = builder.sign_with_keys(_KEYS)
+        content = json.loads(published.content())
+        assert content["name"] == "My DVM"
+        assert content["about"] == "Read-only relay data"
+        assert _tags_dict(published)["d"] == [["d", "my-dvm"]]
 
     def test_enabled_read_model_names_follow_registry(self, dvm_service: Dvm) -> None:
         assert dvm_service._read_core.enabled_resource_ids("dvm") == ["events", "relays"]
