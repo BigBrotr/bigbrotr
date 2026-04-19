@@ -93,7 +93,7 @@ class ApiConfig(PublicReadAdapterConfig):
     @field_validator("route_prefix")
     @classmethod
     def _normalize_route_prefix(cls, v: str) -> str:
-        v = v.strip("/")
+        v = v.strip().strip("/")
         if not v:
             msg = "route_prefix must not be empty"
             raise ValueError(msg)

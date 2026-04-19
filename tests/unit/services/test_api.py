@@ -251,9 +251,16 @@ class TestApiConfigRoutePrefix:
     def test_both_slashes_normalized(self) -> None:
         assert ApiConfig(route_prefix="api/v2/").route_prefix == "/api/v2"
 
+    def test_whitespace_is_trimmed_before_slash_normalization(self) -> None:
+        assert ApiConfig(route_prefix=" /api/v2/ ").route_prefix == "/api/v2"
+
     def test_slash_only_rejected(self) -> None:
         with pytest.raises(ValueError, match=r"route_prefix must not be empty"):
             ApiConfig(route_prefix="/")
+
+    def test_whitespace_only_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"route_prefix must not be empty"):
+            ApiConfig(route_prefix="   ")
 
 
 # ============================================================================
@@ -309,6 +316,20 @@ class TestApiBuildApp:
         assert client.get("/api/v2/read-models").status_code == 200
         assert client.get("/api/v2/relays").status_code == 200
         assert client.get("/v1/read-models").status_code in (404, 405)
+
+    def test_routes_use_canonicalized_custom_prefix(
+        self, mock_brotr: Brotr, sample_catalog: Catalog
+    ) -> None:
+        config = ApiConfig(
+            route_prefix=" /api/v2/ ",
+            read_models={"relays": ReadModelPolicy(enabled=True)},
+        )
+        service = Api(brotr=mock_brotr, config=config)
+        service._read_core.catalog = sample_catalog
+        client = TestClient(service._build_app())
+
+        assert client.get("/api/v2/read-models").status_code == 200
+        assert client.get("/api/v2/relays").status_code == 200
 
     def test_composite_pk_route_generated(
         self, mock_brotr: Brotr, composite_pk_catalog: Catalog

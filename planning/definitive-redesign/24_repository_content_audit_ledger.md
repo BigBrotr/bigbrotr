@@ -3959,3 +3959,13 @@ Use this section during execution for:
     boundary;
   - added coverage in `services.test_dvm` proving malformed `kind` aliases
     now fail fast at DVM config load time.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-thirty-fourth
+  remediation slice:
+  - tightened the `services.api.configs.ApiConfig` route-prefix boundary so
+    authored values now trim surrounding whitespace before slash
+    normalization;
+  - closed the drift where payloads like `" /api/v2/ "` or whitespace-only
+    prefixes could survive config load as malformed mounted paths instead of
+    canonical API route roots;
+  - added paired coverage in `services.test_api` proving padded prefixes now
+    canonicalize to stable routes and whitespace-only payloads fail fast.
