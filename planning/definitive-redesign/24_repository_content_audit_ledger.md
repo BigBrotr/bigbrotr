@@ -3144,3 +3144,13 @@ Use this section during execution for:
     though the repository contract expects typed data/logs models there;
   - added paired `nips.test_base` coverage proving duck-typed nested values
     now fail fast instead of being trusted as serializer-compatible payloads.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-sixty-eighth
+  remediation slice:
+  - tightened the leaf `nips.parsing.FieldSpec` constructor boundary so each
+    parser category must now be declared as a real `frozenset[str]` instead of
+    arbitrary containers or mixed-type name sets;
+  - closed the drift where malformed specs such as `set(...)` payloads could
+    survive construction and then explode later inside the dispatch-cache hash
+    path with low-signal errors unrelated to the actual parser contract;
+  - added paired `nips.test_parsing` coverage proving malformed field-name
+    containers now fail fast at `FieldSpec` construction time.

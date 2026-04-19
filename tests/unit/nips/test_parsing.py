@@ -83,6 +83,16 @@ class TestFieldSpecConstruction:
                 str_fields=frozenset({"count"}),
             )
 
+    def test_non_frozenset_field_container_is_rejected(self):
+        """Malformed container types fail at FieldSpec construction instead of cache-time."""
+        with pytest.raises(TypeError, match=r"int_fields must be a frozenset\[str\]"):
+            FieldSpec(int_fields={"count"})  # type: ignore[arg-type]
+
+    def test_non_string_field_names_are_rejected(self):
+        """Field names must be strings in every parser category."""
+        with pytest.raises(TypeError, match="bool_fields must contain only str field names"):
+            FieldSpec(bool_fields=frozenset({"enabled", 1}))  # type: ignore[arg-type]
+
 
 class TestFieldSpecImmutability:
     """Test FieldSpec is immutable (frozen=True)."""

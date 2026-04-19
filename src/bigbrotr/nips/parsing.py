@@ -153,6 +153,14 @@ def _normalize_field_spec(spec: object) -> FieldSpec:
     return spec
 
 
+def _require_field_name_set(value: object, field_name: str) -> frozenset[str]:
+    if not isinstance(value, frozenset):
+        raise TypeError(f"{field_name} must be a frozenset[str]")
+    if any(not isinstance(name, str) for name in value):
+        raise TypeError(f"{field_name} must contain only str field names")
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class FieldSpec:
     """Declarative specification of expected field types for parsing.
@@ -175,6 +183,8 @@ class FieldSpec:
         Python's ``bool`` is a subclass of ``int``, so ``int_fields`` parsing
         explicitly excludes ``bool`` values to prevent ``True``/``False``
         from being accepted as integers.
+        Each field category must be declared as ``frozenset[str]`` so the
+        spec remains immutable and hashable for the dispatch cache.
 
     See Also:
         [parse_fields_report][bigbrotr.nips.parsing.parse_fields_report]:
@@ -196,7 +206,8 @@ class FieldSpec:
 
         for attr_name, _parser in _FIELD_PARSERS:
             label = attr_name.removesuffix("_fields")
-            for name in getattr(self, attr_name):
+            names = _require_field_name_set(getattr(self, attr_name), attr_name)
+            for name in names:
                 previous = seen.get(name)
                 if previous is None:
                     seen[name] = label
