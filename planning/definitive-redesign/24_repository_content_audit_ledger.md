@@ -4065,3 +4065,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_finder` proving malformed phase
     enablement aliases now fail fast both on the leaf configs and through
     nested `FinderConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-forty-fourth
+  remediation slice:
+  - tightened the `services.finder.configs.EventsConfig` integer boundary so
+    `scan_size`, `batch_size`, and `parallel_relays` now require canonical
+    `int` values instead of accepting numeric strings or integral floats;
+  - closed the drift where authored payloads like `"500"`, `500.0`, `"60"`
+    or `60.0` could silently become valid event-scan paging, buffering, or
+    concurrency controls without crossing an explicit integer boundary;
+  - added paired coverage in `services.test_finder` proving malformed scan
+    controls now fail fast both on `EventsConfig` and through nested
+    `FinderConfig.events` parsing.

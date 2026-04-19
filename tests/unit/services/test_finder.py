@@ -158,6 +158,23 @@ class TestEventsConfig:
         with pytest.raises(ValueError, match="parallel_relays: expected integer, got bool"):
             EventsConfig(parallel_relays=True)
 
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("scan_size", "500"),
+            ("scan_size", 500.0),
+            ("scan_size", True),
+            ("batch_size", "500"),
+            ("batch_size", 500.0),
+            ("batch_size", False),
+            ("parallel_relays", "60"),
+            ("parallel_relays", 60.0),
+        ],
+    )
+    def test_rejects_non_integer_scan_controls(self, field_name: str, field_value: object) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected integer, got"):
+            EventsConfig(**{field_name: field_value})
+
 
 class TestApiSourceConfig:
     def test_default_values(self) -> None:
@@ -457,6 +474,20 @@ class TestFinderConfig:
     ) -> None:
         with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
             FinderConfig(**{field_name: field_value})
+
+    @pytest.mark.parametrize(
+        ("field_name", "field_value"),
+        [
+            ("scan_size", "500"),
+            ("batch_size", 500.0),
+            ("parallel_relays", "60"),
+        ],
+    )
+    def test_nested_events_reject_non_integer_scan_controls(
+        self, field_name: str, field_value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected integer, got"):
+            FinderConfig(events={field_name: field_value})
 
 
 # ============================================================================

@@ -32,6 +32,13 @@ def _require_bool(value: Any, field_name: str) -> bool:
     return value
 
 
+def _require_int(value: Any, field_name: str) -> int:
+    """Require canonical integers for authored finder config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name}: expected integer, got {type(value).__name__}")
+    return int(value)
+
+
 def _normalize_non_blank_string(value: Any, field_name: str) -> str:
     """Normalize authored string config values that must not be blank."""
     if not isinstance(value, str):
@@ -77,12 +84,12 @@ class EventsConfig(BaseModel):
         description="Maximum seconds for the entire event scanning phase",
     )
 
-    @field_validator("parallel_relays", mode="before")
+    @field_validator("scan_size", "batch_size", "parallel_relays", mode="before")
     @classmethod
-    def reject_boolean_parallel_relays(cls, v: Any, info: ValidationInfo) -> Any:
-        """Reject boolean aliases that would otherwise coerce to 1/0 workers."""
+    def require_integer_scan_controls(cls, v: Any, info: ValidationInfo) -> int:
+        """Require canonical integers for paging, buffering, and concurrency controls."""
         field_name = info.field_name or "parallel_relays"
-        return _reject_bool_alias(v, field_name, "integer")
+        return _require_int(v, field_name)
 
     @field_validator("enabled", mode="before")
     @classmethod
