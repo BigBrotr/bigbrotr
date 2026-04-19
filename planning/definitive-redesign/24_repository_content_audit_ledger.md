@@ -2695,3 +2695,15 @@ Use this section during execution for:
   - added paired `utils.protocol_sessions` coverage proving malformed
     `allow_insecure` inputs are rejected before client creation or relay
     registration starts.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-thirty-fourth remediation
+  slice:
+  - tightened the direct public constructor boundary for
+    `utils.protocol_manager.NostrClientManager()` so callers importing the
+    leaf manager directly can no longer pass truthy non-bool
+    `allow_insecure` aliases that would otherwise persist as shared insecure
+    transport policy across relay-scoped and session-scoped clients;
+  - aligned that leaf constructor with the already-hardened public facade
+    `utils.protocol.NostrClientManager()` by reusing the same strict bool
+    normalization path instead of maintaining a second permissive entrypoint;
+  - added paired coverage proving malformed `allow_insecure` values are
+    rejected before the leaf manager stores policy state.

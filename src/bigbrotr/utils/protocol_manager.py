@@ -10,6 +10,7 @@ from nostr_sdk import NostrSdkError
 from .protocol_sessions import (
     ClientSession,
     _deduplicate_relays,
+    _normalize_allow_insecure,
     _normalize_session_timeout,
     _validate_session_relays,
 )
@@ -84,7 +85,7 @@ class NostrClientManager:
         self._dependencies = dependencies
         self._keys = keys
         self._networks = networks
-        self._allow_insecure = allow_insecure
+        self._allow_insecure = _normalize_allow_insecure(allow_insecure)
         self._relay_clients: dict[str, Client] = {}
         self._failed_relays: set[str] = set()
         self._sessions: dict[str, ClientSession] = {}

@@ -20,6 +20,7 @@ from nostr_sdk import NostrSdkError
 
 from bigbrotr.models.constants import NetworkType
 from bigbrotr.models.relay import Relay
+from bigbrotr.utils import protocol_manager as leaf_protocol_manager
 from bigbrotr.utils.protocol import (
     ClientConnectResult,
     ClientSession,
@@ -429,6 +430,21 @@ class TestNostrClientManagerRelayClients:
         """Manager config rejects non-bool aliases before storing policy state."""
         with pytest.raises(ValueError, match="allow_insecure must be a bool"):
             NostrClientManager(keys=MagicMock(), allow_insecure=1)  # type: ignore[arg-type]
+
+    def test_leaf_constructor_rejects_non_bool_allow_insecure(self) -> None:
+        """Leaf manager rejects non-bool aliases before storing policy state."""
+        with pytest.raises(ValueError, match="allow_insecure must be a bool"):
+            leaf_protocol_manager.NostrClientManager(
+                dependencies=leaf_protocol_manager.ProtocolManagerDependencies(
+                    connect_relay=AsyncMock(),
+                    create_client=AsyncMock(),
+                    connect_client_relays=AsyncMock(),
+                    shutdown_client=AsyncMock(),
+                    logger=logging.getLogger(__name__),
+                ),
+                keys=MagicMock(),
+                allow_insecure=1,  # type: ignore[arg-type]
+            )
 
     async def test_get_relay_client_caches_successful_connections(self) -> None:
         networks = _StubNetworkPolicy(timeout=12.0)
