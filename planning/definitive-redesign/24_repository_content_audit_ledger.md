@@ -2264,3 +2264,13 @@ Use this section during execution for:
   - added `finder` coverage proving successful API discovery now persists its
     checkpoint timestamp rounded up instead of truncating fractional
     completion time.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-ninety-fifth remediation
+  slice:
+  - tightened the `finder` API cooldown-planning boundary so fractional
+    source cooldowns no longer get measured from a floored current-time
+    snapshot, which previously kept eligible sources blocked for up to almost
+    one second even after the persisted checkpoint itself had already been
+    rounded correctly;
+  - added `finder` coverage proving both the helper and the live service
+    wiring now use the precise current time when evaluating fractional
+    cooldown expiry.

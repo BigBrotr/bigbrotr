@@ -1175,6 +1175,33 @@ class TestFinderFindFromApi:
 
         assert attempts == ()
 
+    def test_build_api_source_attempts_uses_precise_current_time_for_fractional_cooldown(
+        self,
+        mock_brotr: Brotr,
+    ) -> None:
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                cooldown=3600.9,
+                sources=[ApiSourceConfig(url="https://api.example.com", expression="[*]")],
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+
+        attempts = finder._build_api_source_attempts(
+            list(config.api.sources),
+            checkpoint_map={
+                "https://api.example.com": ApiCheckpoint(
+                    key="https://api.example.com",
+                    timestamp=6_400,
+                ),
+            },
+            now=10_000.91,
+        )
+
+        assert len(attempts) == 1
+        assert attempts[0].source.url == "https://api.example.com"
+
     async def test_all_sources_disabled(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(
             api=ApiConfig(
@@ -1416,6 +1443,48 @@ class TestFinderFindFromApi:
             assert saved_checkpoints == [
                 ApiCheckpoint(key="https://api.example.com", timestamp=7201)
             ]
+
+    async def test_fetches_source_once_fractional_cooldown_elapsed(self, mock_brotr: Brotr) -> None:
+        config = FinderConfig(
+            api=ApiConfig(
+                enabled=True,
+                cooldown=3600.9,
+                sources=[ApiSourceConfig(url="https://api.example.com", expression="[*]")],
+                request_delay=0,
+            )
+        )
+        finder = Finder(brotr=mock_brotr, config=config)
+        mock_response = _mock_api_response(["wss://relay1.com"])
+
+        with (
+            patch(
+                "bigbrotr.services.finder.service.fetch_api_checkpoints",
+                new_callable=AsyncMock,
+                return_value=[ApiCheckpoint(key="https://api.example.com", timestamp=6_400)],
+            ),
+            patch(
+                "bigbrotr.services.finder.service.upsert_api_checkpoints",
+                new_callable=AsyncMock,
+            ) as mock_save,
+            patch("aiohttp.ClientSession") as mock_session_cls,
+            patch(
+                "bigbrotr.services.finder.service.insert_relays_as_candidates",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+            patch("bigbrotr.services.finder.service.time.time", return_value=10_000.91),
+        ):
+            mock_session = MagicMock()
+            mock_session.get = MagicMock(return_value=mock_response)
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_session_cls.return_value = mock_session
+
+            result = await finder.find_from_api()
+
+            assert result == 1
+            mock_session.get.assert_called_once()
+            mock_save.assert_awaited_once()
 
     async def test_shutdown_during_iteration_stops(self, mock_brotr: Brotr) -> None:
         config = FinderConfig(

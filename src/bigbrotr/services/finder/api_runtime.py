@@ -40,7 +40,7 @@ class ApiDiscoveryWorkerContext:
 
     brotr: Brotr
     cooldown: float
-    now: int
+    now: float
     max_response_size: int
     request_delay: float
     is_running: Callable[[], bool]
@@ -68,7 +68,7 @@ def build_api_source_attempts(
     checkpoint_map: Mapping[str, ApiCheckpoint],
     *,
     cooldown: float,
-    now: int,
+    now: float,
     logger: Logger,
 ) -> tuple[ApiSourceAttempt, ...]:
     """Return the enabled API sources whose cooldown has elapsed for this cycle."""
@@ -91,7 +91,7 @@ async def stream_api_discovery_attempts(  # noqa: PLR0913
     checkpoint_map: Mapping[str, ApiCheckpoint],
     *,
     cooldown: float,
-    now: int,
+    now: float,
     max_response_size: int,
     request_delay: float,
     is_running: Callable[[], bool],

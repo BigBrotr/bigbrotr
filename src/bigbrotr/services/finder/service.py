@@ -231,7 +231,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
             context=ApiDiscoveryWorkerContext(
                 brotr=self._brotr,
                 cooldown=self._config.api.cooldown,
-                now=int(time.time()),
+                now=time.time(),
                 max_response_size=self._config.api.max_response_size,
                 request_delay=self._config.api.request_delay,
                 is_running=lambda: self.is_running,
@@ -250,7 +250,7 @@ class Finder(ConcurrentStreamMixin, BaseService[FinderConfig]):
         self,
         sources: list[ApiSourceConfig],
         checkpoint_map: dict[str, ApiCheckpoint],
-        now: int,
+        now: float,
     ) -> tuple[ApiSourceAttempt, ...]:
         """Return the enabled API sources whose cooldown has elapsed for this cycle."""
         return build_api_source_attempts(
