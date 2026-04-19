@@ -656,12 +656,20 @@ class Nip11InfoDataFeeEntry(BaseData):
             raise ValueError(f"{info.field_name} must be non-negative")
         return value
 
+    @field_validator("unit")
+    @classmethod
+    def _require_non_blank_unit(cls, value: str | None) -> str | None:
+        if value is not None and value.strip() == "":
+            raise ValueError("unit must be a non-empty string")
+        return value
+
     @classmethod
     def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
         """Parse a fee entry and normalize its kind scope."""
         report = super().parse_report(data, path=path)
         parsed = dict(report.parsed)
         issues = list(report.issues)
+        _drop_blank_string_fields(parsed, issues, ("unit",), path=path)
         _drop_negative_int_fields(parsed, issues, ("amount", "period"), path=path)
 
         if isinstance(data, dict) and data.get("kinds") == [] and "kinds" not in parsed:

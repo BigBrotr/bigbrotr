@@ -453,6 +453,12 @@ class TestNip11InfoDataFeeEntryConstructor:
         with pytest.raises(ValidationError):
             Nip11InfoDataFeeEntry(amount=1000, unit=42)
 
+    @pytest.mark.parametrize("unit", ["", " ", "\n\t"])
+    def test_constructor_rejects_blank_unit(self, unit: str):
+        """Constructor rejects blank or whitespace-only fee units."""
+        with pytest.raises(ValidationError, match="unit must be a non-empty string"):
+            Nip11InfoDataFeeEntry(amount=1000, unit=unit)
+
     def test_constructor_rejects_invalid_kinds_element(self):
         """Constructor raises ValidationError for non-int in kinds."""
         with pytest.raises(ValidationError):
@@ -502,6 +508,12 @@ class TestNip11InfoDataFeeEntryParse:
         data = {"amount": -100, "unit": "sats", "period": -30, "kinds": [3]}
         result = Nip11InfoDataFeeEntry.parse(data)
         assert result == {"unit": "sats", "kinds": [3]}
+
+    def test_parse_filters_blank_unit(self):
+        """Blank or whitespace-only fee units are filtered out."""
+        data = {"amount": 100, "unit": " ", "period": 30, "kinds": [3]}
+        result = Nip11InfoDataFeeEntry.parse(data)
+        assert result == {"amount": 100, "period": 30, "kinds": [3]}
 
 
 class TestNip11InfoDataFeeEntryToDict:
