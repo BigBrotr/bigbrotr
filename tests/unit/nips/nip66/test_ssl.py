@@ -237,6 +237,19 @@ class TestNip66SslMetadataSslAsync:
         assert result.data.ssl_san == ["*.example.com", "relay.example.com"]
         assert result.logs.success is True
 
+    async def test_probe_filters_invalid_ssl_protocol_value(self, relay: Relay) -> None:
+        """Probe drops malformed TLS protocol names while preserving success."""
+        ssl_result = {
+            "ssl_valid": True,
+            "ssl_protocol": "TLS1.3",
+        }
+
+        with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result):
+            result = await Nip66SslMetadata.probe(relay, 10.0)
+
+        assert result.data.ssl_protocol is None
+        assert result.logs.success is True
+
     async def test_ssl_failure_returns_result_container_with_failure(self, relay: Relay) -> None:
         """SSL check failure returns a result container with success=False."""
         with patch.object(Nip66SslMetadata, "_ssl", return_value={}):

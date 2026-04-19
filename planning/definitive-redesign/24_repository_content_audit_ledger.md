@@ -3431,3 +3431,17 @@ Use this section during execution for:
     proving malformed SAN values now fail fast at construction time, are
     removed from parse output, and that valid canonical SAN hostnames still
     flow through the public SSL probe container.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-ninety-third
+  remediation slice:
+  - tightened the `nips.nip66.data.Nip66SslData` protocol boundary so
+    `ssl_protocol` now accepts only canonical TLS/SSL version names,
+    normalizes valid aliases to the runtime form used by Python `ssl`, and
+    filters malformed protocol strings from permissive parse/report
+    sanitization;
+  - closed the drift where arbitrary non-protocol strings could survive as
+    canonical NIP-66 SSL metadata and later flow into shared result
+    containers, persisted documents, and SSL probe outputs;
+  - added paired `nips.nip66.test_data` and `nips.nip66.test_ssl` coverage
+    proving malformed protocol values now fail fast at construction time,
+    are removed from parse output, and that valid canonical protocol names
+    still flow through the public SSL probe container.

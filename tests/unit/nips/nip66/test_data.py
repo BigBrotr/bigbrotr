@@ -143,6 +143,11 @@ class TestNip66SslData:
         assert data.ssl_issuer == "Let's Encrypt"
         assert data.ssl_cipher_bits == 256
 
+    def test_construction_normalizes_ssl_protocol_alias_to_canonical_case(self) -> None:
+        """Constructor canonicalizes valid TLS protocol names."""
+        data = Nip66SslData(ssl_protocol="tlsv1.3")
+        assert data.ssl_protocol == "TLSv1.3"
+
     def test_construction_normalizes_san_list(self) -> None:
         """Constructor deduplicates and sorts SAN values."""
         data = Nip66SslData(
@@ -205,6 +210,14 @@ class TestNip66SslData:
         """Constructor rejects malformed SSL serial and fingerprint values."""
         with pytest.raises(ValidationError, match=message):
             Nip66SslData(**kwargs)
+
+    @pytest.mark.parametrize("value", ["TLS1.3", "DTLSv1.2", "bogus"])
+    def test_construction_rejects_invalid_ssl_protocol(self, value: str) -> None:
+        """Constructor rejects malformed TLS protocol names."""
+        with pytest.raises(
+            ValidationError, match="ssl_protocol must be a valid TLS/SSL protocol version"
+        ):
+            Nip66SslData(ssl_protocol=value)
 
     @pytest.mark.parametrize(
         "kwargs",
@@ -320,6 +333,18 @@ class TestNip66SslData:
         }
         parsed = Nip66SslData.parse(raw)
         assert parsed == {"ssl_protocol": "TLSv1.3"}
+
+    def test_parse_normalizes_ssl_protocol_alias_to_canonical_case(self) -> None:
+        """parse() preserves valid TLS protocol names in canonical case."""
+        raw = {"ssl_protocol": "tlsv1.2"}
+        parsed = Nip66SslData.parse(raw)
+        assert parsed == {"ssl_protocol": "TLSv1.2"}
+
+    def test_parse_filters_invalid_ssl_protocol(self) -> None:
+        """parse() filters malformed TLS protocol names."""
+        raw = {"ssl_protocol": "TLS1.3", "ssl_cipher": "TLS_AES_256_GCM_SHA384"}
+        parsed = Nip66SslData.parse(raw)
+        assert parsed == {"ssl_cipher": "TLS_AES_256_GCM_SHA384"}
 
 
 class TestNip66GeoData:

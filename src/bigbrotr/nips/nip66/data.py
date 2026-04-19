@@ -53,6 +53,14 @@ _GEO_CONTINENT_CODES = frozenset({"AF", "AN", "AS", "EU", "NA", "OC", "SA"})
 _GEOHASH_RE = re.compile(r"^[0123456789bcdefghjkmnpqrstuvwxyz]{1,12}$", re.IGNORECASE)
 _SSL_SERIAL_RE = re.compile(r"^[0-9A-F]+$", re.IGNORECASE)
 _SSL_FINGERPRINT_RE = re.compile(r"^SHA256:(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$", re.IGNORECASE)
+_SSL_PROTOCOL_CANONICAL = {
+    "sslv2": "SSLv2",
+    "sslv3": "SSLv3",
+    "tlsv1": "TLSv1",
+    "tlsv1.1": "TLSv1.1",
+    "tlsv1.2": "TLSv1.2",
+    "tlsv1.3": "TLSv1.3",
+}
 
 
 def _drop_negative_int_fields(
@@ -241,6 +249,10 @@ def _is_valid_ssl_fingerprint(value: str) -> bool:
     return bool(_SSL_FINGERPRINT_RE.fullmatch(value))
 
 
+def _normalize_ssl_protocol_name(value: str) -> str | None:
+    return _SSL_PROTOCOL_CANONICAL.get(value.lower())
+
+
 def _is_valid_geohash(value: str) -> bool:
     return bool(_GEOHASH_RE.fullmatch(value))
 
@@ -398,6 +410,16 @@ class Nip66SslData(BaseData):
             return value.upper()
         return value
 
+    @field_validator("ssl_protocol")
+    @classmethod
+    def _normalize_ssl_protocol(cls, value: str | None) -> str | None:
+        if value is not None:
+            normalized = _normalize_ssl_protocol_name(value)
+            if normalized is None:
+                raise ValueError("ssl_protocol must be a valid TLS/SSL protocol version")
+            return normalized
+        return value
+
     _FIELD_SPEC: ClassVar[FieldSpec] = FieldSpec(
         bool_fields=frozenset({"ssl_valid"}),
         int_fields=frozenset(
@@ -462,6 +484,11 @@ class Nip66SslData(BaseData):
             (
                 ("ssl_serial", _is_valid_ssl_serial, "expected hexadecimal string"),
                 ("ssl_fingerprint", _is_valid_ssl_fingerprint, "expected SHA256 fingerprint"),
+                (
+                    "ssl_protocol",
+                    lambda value: _normalize_ssl_protocol_name(value) is not None,
+                    "expected valid TLS/SSL protocol version",
+                ),
             ),
             path=path,
         )
