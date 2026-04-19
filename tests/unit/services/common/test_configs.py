@@ -569,10 +569,11 @@ class TestTimeoutValidation:
         "config_class",
         [ClearnetConfig, TorConfig, I2pConfig, LokiConfig],
     )
-    def test_rejects_boolean_aliases(self, config_class: type) -> None:
-        """Test bool aliases do not coerce into a one-second timeout."""
-        with pytest.raises(ValidationError, match="timeout: expected number, got bool"):
-            config_class(timeout=True)
+    @pytest.mark.parametrize("value", [True, "30", "30.0"])
+    def test_rejects_non_numeric_aliases(self, config_class: type, value: object) -> None:
+        """Test non-numeric aliases do not coerce into timeout budgets."""
+        with pytest.raises(ValidationError, match="timeout: expected number, got"):
+            config_class(timeout=value)
 
 
 # =============================================================================

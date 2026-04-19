@@ -3913,3 +3913,15 @@ Use this section during execution for:
   - added paired coverage in `services.common.test_configs` and
     `services.test_validator` proving malformed nested `max_tasks` payloads
     now fail fast at config load time.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-thirtieth
+  remediation slice:
+  - tightened the shared network-config boundary in
+    `services.common.configs.{ClearnetConfig,TorConfig,I2pConfig,LokiConfig}`
+    so `timeout` now requires a canonical numeric type instead of accepting
+    numeric strings;
+  - closed the drift where authored nested network payloads like `"30"` or
+    `"30.0"` could silently coerce into valid timeout budgets and change
+    runtime dial behavior without passing through an explicit numeric boundary;
+  - added paired coverage in `services.common.test_configs` and
+    `services.test_validator` proving malformed nested `timeout` payloads now
+    fail fast at config load time.

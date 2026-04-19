@@ -89,6 +89,13 @@ def _require_int(value: Any, field_name: str) -> int:
     return cast("int", value)
 
 
+def _require_number(value: Any, field_name: str) -> int | float:
+    """Require canonical numeric types for authored config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name}: expected number, got {type(value).__name__}")
+    return cast("int | float", value)
+
+
 def _normalize_optional_proxy_url(value: Any) -> str | None:
     """Normalize optional authored proxy URLs against the shared protocol contract."""
     return normalize_proxy_url(value)
@@ -314,9 +321,9 @@ class ClearnetConfig(BaseModel):
 
     @field_validator("timeout", mode="before")
     @classmethod
-    def reject_boolean_timeout_aliases(cls, value: Any, info: ValidationInfo) -> Any:
+    def require_numeric_timeout(cls, value: Any, info: ValidationInfo) -> int | float:
         field_name = info.field_name or "value"
-        return _reject_bool_alias(value, field_name, "number")
+        return _require_number(value, field_name)
 
     @field_validator("enabled", mode="before")
     @classmethod
@@ -358,9 +365,9 @@ class TorConfig(BaseModel):
 
     @field_validator("timeout", mode="before")
     @classmethod
-    def reject_boolean_timeout_aliases(cls, value: Any, info: ValidationInfo) -> Any:
+    def require_numeric_timeout(cls, value: Any, info: ValidationInfo) -> int | float:
         field_name = info.field_name or "value"
-        return _reject_bool_alias(value, field_name, "number")
+        return _require_number(value, field_name)
 
     @field_validator("enabled", mode="before")
     @classmethod
@@ -402,9 +409,9 @@ class I2pConfig(BaseModel):
 
     @field_validator("timeout", mode="before")
     @classmethod
-    def reject_boolean_timeout_aliases(cls, value: Any, info: ValidationInfo) -> Any:
+    def require_numeric_timeout(cls, value: Any, info: ValidationInfo) -> int | float:
         field_name = info.field_name or "value"
-        return _reject_bool_alias(value, field_name, "number")
+        return _require_number(value, field_name)
 
     @field_validator("enabled", mode="before")
     @classmethod
@@ -449,9 +456,9 @@ class LokiConfig(BaseModel):
 
     @field_validator("timeout", mode="before")
     @classmethod
-    def reject_boolean_timeout_aliases(cls, value: Any, info: ValidationInfo) -> Any:
+    def require_numeric_timeout(cls, value: Any, info: ValidationInfo) -> int | float:
         field_name = info.field_name or "value"
-        return _reject_bool_alias(value, field_name, "number")
+        return _require_number(value, field_name)
 
     @field_validator("enabled", mode="before")
     @classmethod
