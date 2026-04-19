@@ -2912,3 +2912,17 @@ Use this section during execution for:
   - added paired `nips.event_builders` coverage proving mismatched discovery
     metadata is rejected before any `Document`, `EventBuilder`, or
     `Tag.identifier()` work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-fiftieth remediation
+  slice:
+  - tightened the direct public helper boundary of
+    `nips.event_builders.add_nip11_tags()` so malformed `nip11_data` and
+    `rtt_logs` payloads no longer degrade into late attribute errors or
+    partial tag mutation while the public NIP-11 tag helper assembles `N`,
+    `t`, `l`, `R`, `T`, and `W` tags;
+  - centralized typed normalization of the optional `Nip11InfoData` and
+    `Nip66RttMultiPhaseLogs` inputs inside the leaf helper itself so direct
+    callers now enforce real metadata boundaries instead of relying on
+    higher-level discovery flows to sanitize the public arguments first;
+  - added paired `nips.event_builders` coverage proving corrupted `nip11_data`
+    and `rtt_logs` inputs are rejected before any `Tag.parse()` or
+    `Tag.hashtag()` work begins.

@@ -196,6 +196,24 @@ def _normalize_optional_nip66(nip66: object, relay: Relay) -> Nip66 | None:
     return cast("Nip66", nip66)
 
 
+def _normalize_optional_nip11_data(nip11_data: object) -> Nip11InfoData | None:
+    if nip11_data is None:
+        return None
+    nip11_data_type = importlib.import_module("bigbrotr.nips.nip11.data").Nip11InfoData
+    if not isinstance(nip11_data, nip11_data_type):
+        raise ValueError("nip11_data must be a Nip11InfoData or None")
+    return cast("Nip11InfoData", nip11_data)
+
+
+def _normalize_optional_rtt_logs(rtt_logs: object) -> Nip66RttMultiPhaseLogs | None:
+    if rtt_logs is None:
+        return None
+    rtt_logs_type = importlib.import_module("bigbrotr.nips.nip66.logs").Nip66RttMultiPhaseLogs
+    if not isinstance(rtt_logs, rtt_logs_type):
+        raise ValueError("rtt_logs must be a Nip66RttMultiPhaseLogs or None")
+    return cast("Nip66RttMultiPhaseLogs", rtt_logs)
+
+
 def _normalize_relay_list_urls(relays: Sequence[Relay]) -> tuple[str, ...]:
     """Return a stable deduplicated relay-url ordering for set-like relay lists."""
     return tuple(sorted({relay.url for relay in relays}))
@@ -579,8 +597,10 @@ def add_nip11_tags(
     rtt_logs: Nip66RttMultiPhaseLogs | None = None,
 ) -> None:
     """Add NIP-11-derived tags: ``N``, ``t``, ``l``, ``R``, ``T``, ``W``."""
+    nip11_data = _normalize_optional_nip11_data(nip11_data)
     if nip11_data is None:
         return
+    rtt_logs = _normalize_optional_rtt_logs(rtt_logs)
 
     if nip11_data.supported_nips:
         tags.extend(Tag.parse(["N", str(nip)]) for nip in nip11_data.supported_nips)
