@@ -13,12 +13,14 @@ See Also:
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping as MappingABC
 from typing import Annotated, Any
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationInfo, field_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
+from bigbrotr.models._validation import normalize_json_data
 from bigbrotr.models.constants import EventKind
 from bigbrotr.services.common.configs import NostrKeysConfig, parse_relay_list_fail_soft
 
@@ -49,6 +51,32 @@ def _require_bool(value: Any, field_name: str) -> bool:
     return value
 
 
+def _normalize_profile_extra_fields(value: Any) -> dict[str, object]:
+    """Normalize provider-profile extras to the same JSON contract used by the Kind 0 builder."""
+    if value is None:
+        return {}
+    if not isinstance(value, MappingABC):
+        raise ValueError("extra_fields must be a mapping")
+
+    normalized: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise ValueError("extra_fields keys must be strings")
+        canonical_key = key.strip()
+        if not canonical_key or item is None:
+            continue
+        if canonical_key in normalized:
+            raise ValueError("extra_fields contains duplicate normalized keys")
+        try:
+            normalized[canonical_key] = normalize_json_data(
+                item,
+                f"extra_fields[{canonical_key!r}]",
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(str(exc)) from exc
+    return normalized
+
+
 class ProviderProfileKind0Content(BaseModel):
     """Kind 0 metadata content for the optional NIP-85 provider profile."""
 
@@ -73,10 +101,15 @@ class ProviderProfileKind0Content(BaseModel):
     nip05: str | None = Field(default=None, description="NIP-05 identifier")
     banner: str | None = Field(default=None, description="Banner image URL")
     lud16: str | None = Field(default=None, description="Lightning address (LNURL)")
-    extra_fields: dict[str, str | int | float | bool | None] = Field(
+    extra_fields: dict[str, object] = Field(
         default_factory=dict,
         description="Additional JSON metadata to merge into the Kind 0 content",
     )
+
+    @field_validator("extra_fields", mode="before")
+    @classmethod
+    def extra_fields_valid(cls, value: Any) -> dict[str, object]:
+        return _normalize_profile_extra_fields(value)
 
 
 class ProviderProfileConfig(BaseModel):

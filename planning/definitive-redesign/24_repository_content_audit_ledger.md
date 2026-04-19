@@ -3681,3 +3681,17 @@ Use this section during execution for:
   - added paired `services.test_assertor` coverage proving selection kinds now
     fail fast on non-integer aliases before duplicate/unsupported-kind logic
     or runtime publish planning runs.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-twelfth remediation
+  slice:
+  - tightened the `services.assertor.configs.ProviderProfileKind0Content`
+    `extra_fields` boundary so provider-profile extras now normalize with the
+    same JSON contract as the public Kind `0` builder: keys trim, blank and
+    `None` entries drop, normalized-key collisions fail fast, and non-finite
+    JSON payloads are rejected at config load;
+  - closed the drift where config payloads like `{"weights": nan}` or
+    `{ " a ": 1, "a": 2 }` could survive through content hashing and only fail
+    later during provider-profile publish when `build_profile_event()`
+    normalized the same extras more strictly;
+  - added paired `services.test_assertor` coverage proving provider-profile
+    config input now canonicalizes safe extras up front and rejects malformed
+    or colliding extras before Kind `0` publish planning begins.

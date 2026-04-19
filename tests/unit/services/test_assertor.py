@@ -223,6 +223,42 @@ class TestAssertorConfig:
         with pytest.raises(ValidationError, match=message):
             AssertorConfig(**config)
 
+    def test_provider_profile_extra_fields_are_canonicalized(self) -> None:
+        config = AssertorConfig(
+            provider_profile={
+                "kind0_content": {
+                    "extra_fields": {
+                        " software ": "bigbrotr",
+                        "hidden": None,
+                        "   ": "ignored",
+                    }
+                }
+            }
+        )
+
+        assert config.provider_profile.kind0_content.extra_fields == {"software": "bigbrotr"}
+
+    @pytest.mark.parametrize(
+        ("value", "message"),
+        [
+            (
+                {" a ": 1, "a": 2},
+                "extra_fields contains duplicate normalized keys",
+            ),
+            (
+                {"weights": float("nan")},
+                r"extra_fields\['weights'\] contains a non-finite float",
+            ),
+        ],
+    )
+    def test_rejects_invalid_provider_profile_extra_fields(
+        self,
+        value: dict[str, object],
+        message: str,
+    ) -> None:
+        with pytest.raises(ValidationError, match=message):
+            AssertorConfig(provider_profile={"kind0_content": {"extra_fields": value}})
+
 
 class TestAssertorInit:
     def test_service_name(self) -> None:
@@ -1184,10 +1220,11 @@ class TestAssertorUtils:
                 website="https://bigbrotr.com",
                 picture="https://bigbrotr.com/avatar.png",
                 extra_fields={
-                    "name": "ignored",
-                    "algorithm_id": "ignored",
-                    "software": "bigbrotr",
+                    " name ": "ignored",
+                    " algorithm_id ": "ignored",
+                    " software ": "bigbrotr",
                     "hidden": None,
+                    "   ": "ignored",
                 },
             ),
         )
