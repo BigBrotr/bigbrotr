@@ -318,6 +318,20 @@ class TestUserAssertionFromDbRow:
         ):
             UserAssertion.from_db_row(row)
 
+    def test_from_db_row_rejects_duck_typed_topic_counts(self) -> None:
+        class DuckTypedTopicCounts:
+            def items(self) -> list[tuple[str, int]]:
+                return [("nostr", 7)]
+
+        row = {
+            "pubkey": "cc" * 32,
+            "topic_counts": DuckTypedTopicCounts(),
+        }
+        with pytest.raises(
+            TypeError, match="topic_counts must be a mapping of topic strings to counts"
+        ):
+            UserAssertion.from_db_row(row)
+
     def test_from_db_row_rejects_non_string_topic_count_keys(self) -> None:
         row = {
             "pubkey": "cc" * 32,

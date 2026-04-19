@@ -101,7 +101,7 @@ def _coerce_topic_count_mapping(value: Any) -> dict[str, int]:
     """Return topic counts as a mapping, preserving ``None`` as an empty mapping."""
     if value is None:
         return {}
-    if not hasattr(value, "items"):
+    if not isinstance(value, Mapping):
         raise TypeError("topic_counts must be a mapping of topic strings to counts")
     topic_counts: dict[str, int] = {}
     for key, raw_count in value.items():

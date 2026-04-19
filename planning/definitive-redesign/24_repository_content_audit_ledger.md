@@ -3122,3 +3122,14 @@ Use this section during execution for:
   - added paired `nips.nip85.test_builders` coverage proving duck-typed
     declaration payloads are rejected before any tag parsing or
     `EventBuilder` assembly starts.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-sixty-sixth remediation
+  slice:
+  - tightened the `nips.nip85.data.UserAssertion.from_db_row()` topic-count
+    seam so `topic_counts` must now be a real `Mapping` instead of any
+    duck-typed object exposing `.items()`;
+  - closed the bypass where fake mapping-like payloads could enter the
+    top-topics normalization path without satisfying the leaf model's actual
+    mapping contract;
+  - added paired `nips.nip85.test_data` coverage proving duck-typed
+    `topic_counts` payloads are rejected before any key/value coercion or
+    topic sorting starts.
