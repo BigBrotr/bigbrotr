@@ -3582,3 +3582,15 @@ Use this section during execution for:
   - added `nips.nip85.test_data` coverage proving constructor input rejects
     whitespace-only top topics and DB rows reject whitespace-only topic-count
     keys before any public assertion is built.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-fourth remediation
+  slice:
+  - tightened the `nips.nip85.data.UserAssertion` topic canonicalization so
+    public topics now normalize with trim+lowercase, and `from_db_row()` also
+    merges whitespace-padded `topic_counts` keys before ranking the top-N
+    output;
+  - closed the drift where semantically identical topics like `" Nostr "` and
+    `nostr` could survive as different `NIP-85` values, skew ranking, or emit
+    padded `t` tags in the public assertion builder;
+  - added paired `nips.nip85.test_data` and `nips.nip85.test_builders`
+    coverage proving constructor input and DB rows now collapse whitespace
+    variants to one canonical topic and builder output stays trim+lowercase.

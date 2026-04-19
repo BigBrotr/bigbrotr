@@ -148,9 +148,18 @@ class TestUserAssertionProperties:
 
         assert assertion.top_topics == ("bitcoin", "nostr")
 
+    def test_constructor_canonicalizes_top_topics_with_whitespace(self) -> None:
+        assertion = UserAssertion(pubkey="aa" * 32, top_topics=("  Bitcoin  ", "\tNostr "))
+
+        assert assertion.top_topics == ("bitcoin", "nostr")
+
     def test_constructor_rejects_case_only_duplicate_top_topics(self) -> None:
         with pytest.raises(ValueError, match="top_topics must not contain duplicate topics"):
             UserAssertion(pubkey="aa" * 32, top_topics=("Bitcoin", "bitcoin"))
+
+    def test_constructor_rejects_whitespace_padded_duplicate_top_topics(self) -> None:
+        with pytest.raises(ValueError, match="top_topics must not contain duplicate topics"):
+            UserAssertion(pubkey="aa" * 32, top_topics=(" Nostr ", "nostr"))
 
     def test_constructor_rejects_mapping_top_topics(self) -> None:
         with pytest.raises(TypeError, match="top_topics must be a sequence of topic strings"):
@@ -332,10 +341,32 @@ class TestUserAssertionFromDbRow:
 
         assert a.top_topics == ("bitcoin", "nostr")
 
+    def test_from_db_row_canonicalizes_whitespace_padded_topic_counts(self) -> None:
+        row = {
+            "pubkey": "cc" * 32,
+            "topic_counts": {"  Bitcoin  ": 7, "\tNostr ": 5},
+            "top_topics_limit": 2,
+        }
+
+        a = UserAssertion.from_db_row(row)
+
+        assert a.top_topics == ("bitcoin", "nostr")
+
     def test_from_db_row_merges_case_variant_topic_counts_before_ranking(self) -> None:
         row = {
             "pubkey": "cc" * 32,
             "topic_counts": {"Bitcoin": 4, "bitcoin": 3, "nostr": 5},
+            "top_topics_limit": 2,
+        }
+
+        a = UserAssertion.from_db_row(row)
+
+        assert a.top_topics == ("bitcoin", "nostr")
+
+    def test_from_db_row_merges_whitespace_padded_topic_counts_before_ranking(self) -> None:
+        row = {
+            "pubkey": "cc" * 32,
+            "topic_counts": {"  Bitcoin": 4, "bitcoin  ": 3, "nostr": 5},
             "top_topics_limit": 2,
         }
 
