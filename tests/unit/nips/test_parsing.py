@@ -149,6 +149,12 @@ class TestParseFieldsEmpty:
         spec = FieldSpec(int_fields=frozenset({"count"}))
         assert parse_fields("not a dict", spec) == {}
 
+    @pytest.mark.parametrize("value", [True, {"count": "int"}, object()])
+    def test_invalid_spec_raises_type_error(self, value: object):
+        """Malformed parser specs fail fast instead of breaking on attribute lookups."""
+        with pytest.raises(TypeError, match="spec must be a FieldSpec"):
+            parse_fields({"count": 10}, value)  # type: ignore[arg-type]
+
 
 # =============================================================================
 # parse_fields: int_fields Tests
@@ -714,6 +720,12 @@ class TestParseFieldsRealWorld:
 
 class TestParseFieldsReport:
     """Test parse_fields_report issue collection."""
+
+    @pytest.mark.parametrize("value", [True, {"count": "int"}, object()])
+    def test_invalid_spec_raises_type_error(self, value: object) -> None:
+        """Report entrypoint rejects malformed specs before payload handling starts."""
+        with pytest.raises(TypeError, match="spec must be a FieldSpec"):
+            parse_fields_report({"count": 10}, value)  # type: ignore[arg-type]
 
     def test_report_marks_non_dict_input_as_invalid(self):
         """Report-oriented parsing records invalid top-level input explicitly."""

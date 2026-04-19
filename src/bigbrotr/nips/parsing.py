@@ -147,6 +147,12 @@ def _invalid_value_issue(path: str, detail: str) -> ParseIssue:
     return ParseIssue(kind="invalid_value", path=path, detail=detail)
 
 
+def _normalize_field_spec(spec: object) -> FieldSpec:
+    if not isinstance(spec, FieldSpec):
+        raise TypeError("spec must be a FieldSpec")
+    return spec
+
+
 @dataclass(frozen=True, slots=True)
 class FieldSpec:
     """Declarative specification of expected field types for parsing.
@@ -240,6 +246,7 @@ def parse_fields_report(
     extra_known_fields: frozenset[str] = frozenset(),
 ) -> ParseReport:
     """Parse a dictionary according to a ``FieldSpec`` and record dropped data."""
+    spec = _normalize_field_spec(spec)
     if not isinstance(data, dict):
         target = path or "payload"
         return ParseReport(
@@ -335,6 +342,7 @@ def parse_fields(data: Any, spec: FieldSpec) -> dict[str, Any]:
         [bigbrotr.nips.base.BaseData.parse][bigbrotr.nips.base.BaseData.parse]:
             Class method that delegates to this function.
     """
+    spec = _normalize_field_spec(spec)
     return parse_fields_report(data, spec).parsed
 
 

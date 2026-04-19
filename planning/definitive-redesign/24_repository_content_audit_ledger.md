@@ -3097,3 +3097,15 @@ Use this section during execution for:
   - added paired `nips.event_builders` coverage proving unsupported object
     values, tuple payloads, and non-finite floats are rejected before any
     `NostrMetadata.from_json()` work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-sixty-fourth remediation
+  slice:
+  - tightened the direct public parser boundary of `nips.parsing.parse_fields()`
+    and `nips.parsing.parse_fields_report()` so malformed `spec` payloads no
+    longer degrade into late attribute lookup errors while the permissive NIP
+    parsing helpers sanitize untrusted relay dictionaries;
+  - centralized typed normalization of the required `FieldSpec` argument
+    inside the leaf parsing helpers themselves so callers now fail fast on a
+    real parser-contract violation instead of relying on implicit dataclass
+    attributes to explode later;
+  - added paired `nips.parsing` coverage proving corrupted `spec` inputs are
+    rejected before any payload parsing or issue-collection work begins.
