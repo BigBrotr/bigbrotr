@@ -6,6 +6,7 @@ Covers configuration models, database queries, utility functions, and service lo
 from __future__ import annotations
 
 import asyncio
+import math
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -923,10 +924,22 @@ class TestValidationPlanning:
 
         assert plan is not None
         assert plan.networks == (NetworkType.CLEARNET, NetworkType.TOR)
-        assert plan.attempted_before == 880
+        assert plan.attempted_before == math.ceil(1_000 - cfg.processing.interval)
         assert plan.chunk_size == 250
         assert plan.max_candidates == 500
         assert plan.max_concurrency == 12
+
+    def test_build_validation_cycle_plan_rounds_fractional_retry_cutoff_up(
+        self,
+        validator_brotr: Brotr,
+    ) -> None:
+        cfg = ValidatorConfig(processing={"interval": 120.9})
+        validator = Validator(validator_brotr, config=cfg)
+
+        plan = validator._build_validation_cycle_plan(now=1_000)
+
+        assert plan is not None
+        assert plan.attempted_before == 880
 
 
 # ============================================================================

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
@@ -78,7 +79,9 @@ def build_validation_cycle_plan(
     if not networks:
         return None
 
-    attempted_before = int((now if now is not None else time.time()) - config.processing.interval)
+    attempted_before = math.ceil(
+        (now if now is not None else time.time()) - config.processing.interval
+    )
     return ValidationCyclePlan(
         networks=networks,
         attempted_before=attempted_before,

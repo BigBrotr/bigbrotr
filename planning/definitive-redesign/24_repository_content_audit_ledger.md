@@ -2228,3 +2228,11 @@ Use this section during execution for:
     selector compares persisted checkpoints with a strict `<` cutoff;
   - added `monitor` coverage proving the planner now rounds the due cutoff up
     before counting and paging relay work.
+- `2.1` models/utils/NIPs leaf audit, hundred-and-ninety-first remediation
+  slice:
+  - tightened the `validator` cycle-planning boundary so fractional retry
+    intervals no longer get truncated before the candidate-selection query,
+    which previously delayed revalidation by up to almost one second because
+    the SQL selector compares failed-at timestamps with a strict `<` cutoff;
+  - added `validator` coverage proving the planner now rounds that retry
+    cutoff up before counting and fetching candidate work.
