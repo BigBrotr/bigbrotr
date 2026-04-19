@@ -45,7 +45,7 @@ import aiohttp
 from aiohttp_socks import ProxyConnector
 
 from bigbrotr.models.relay import Relay  # noqa: TC001
-from bigbrotr.nips._validation import normalize_proxy_url
+from bigbrotr.nips._validation import normalize_allow_insecure, normalize_proxy_url
 from bigbrotr.nips.base import BaseNipMetadata
 from bigbrotr.utils.http import read_bounded_json
 from bigbrotr.utils.transport import DEFAULT_TIMEOUT
@@ -256,6 +256,7 @@ class Nip11InfoMetadata(BaseNipMetadata):
         timeout = cls._normalize_timeout(timeout)
         max_size = cls._normalize_max_size(max_size)
         proxy_url = normalize_proxy_url(proxy_url)
+        allow_insecure = normalize_allow_insecure(allow_insecure)
 
         # Build the HTTP URL from the relay's WebSocket URL components
         protocol = "https" if relay.scheme == "wss" else "http"

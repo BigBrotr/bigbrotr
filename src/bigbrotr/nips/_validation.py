@@ -3,6 +3,12 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 
+def normalize_allow_insecure(allow_insecure: object) -> bool:
+    if not isinstance(allow_insecure, bool):
+        raise ValueError("allow_insecure must be a bool")
+    return allow_insecure
+
+
 def normalize_proxy_url(proxy_url: object) -> str | None:
     if proxy_url is None:
         return None

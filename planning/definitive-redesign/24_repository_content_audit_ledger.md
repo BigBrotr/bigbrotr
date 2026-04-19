@@ -2656,3 +2656,16 @@ Use this section during execution for:
   - added paired `utils.protocol_connections`, `utils.protocol_validation`,
     and `utils.protocol` coverage proving malformed proxy inputs now fail fast
     before runtime connect or validation helpers start.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-thirty-first remediation
+  slice:
+  - tightened the direct public `allow_insecure` boundaries for
+    `Nip11InfoMetadata.fetch()`, `Nip66HttpMetadata.probe()`, and
+    `Nip66RttMetadata.probe()` so those leaf entrypoints no longer accept
+    truthy non-bool aliases that would otherwise trigger insecure transport
+    or SSL fallback as if the caller had passed a canonical policy;
+  - centralized that validation in shared `nips` helpers so the direct `NIP`
+    leaf entrypoints now enforce the same strict bool contract already used by
+    the higher-level `Nip11Options` and `Nip66Options` containers;
+  - added leaf coverage proving malformed `allow_insecure` inputs are rejected
+    before any child HTTP request, proxy connector setup, or RTT open phase
+    starts.

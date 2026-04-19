@@ -152,6 +152,16 @@ class TestNip66HttpMetadataHttp:
 
         mock_http.assert_not_awaited()
 
+    async def test_rejects_non_bool_allow_insecure_before_http(self, relay: Relay) -> None:
+        """Non-bool insecure aliases fail before opening any HTTP state."""
+        with (
+            patch.object(Nip66HttpMetadata, "_http", new_callable=AsyncMock) as mock_http,
+            pytest.raises(ValueError, match="allow_insecure must be a bool"),
+        ):
+            await Nip66HttpMetadata.probe(relay, 10.0, allow_insecure=1)  # type: ignore[arg-type]
+
+        mock_http.assert_not_awaited()
+
     @pytest.mark.parametrize("value", [True, "", "   ", "garbage", "socks5://:9050"])
     async def test_rejects_invalid_proxy_url_before_http(self, relay: Relay, value: object) -> None:
         """Malformed proxy URLs fail before opening any HTTP state."""

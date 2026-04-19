@@ -915,6 +915,16 @@ class TestNip11InfoMetadataTimeout:
 
         mock_info.assert_not_awaited()
 
+    async def test_info_rejects_non_bool_allow_insecure_before_http(self, relay: Relay) -> None:
+        """Retrieval rejects non-bool insecure aliases before opening HTTP state."""
+        with (
+            patch.object(Nip11InfoMetadata, "_info", new_callable=AsyncMock) as mock_info,
+            pytest.raises(ValueError, match="allow_insecure must be a bool"),
+        ):
+            await Nip11InfoMetadata.fetch(relay, allow_insecure=1)  # type: ignore[arg-type]
+
+        mock_info.assert_not_awaited()
+
     @pytest.mark.parametrize("value", [True, "", "   ", "garbage", "socks5://:9050"])
     async def test_info_rejects_invalid_proxy_url_before_http(
         self,

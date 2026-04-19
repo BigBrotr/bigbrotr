@@ -569,6 +569,26 @@ class TestNip66RttMetadataRtt:
 
         mock_open.assert_not_awaited()
 
+    async def test_rejects_non_bool_allow_insecure_before_open_phase(
+        self,
+        relay: Relay,
+        mock_keys: MagicMock,
+        mock_event_builder: MagicMock,
+        mock_read_filter: MagicMock,
+    ) -> None:
+        """Non-bool insecure aliases fail before the open phase starts."""
+        deps = Nip66RttDependencies(
+            keys=mock_keys, event_builder=mock_event_builder, read_filter=mock_read_filter
+        )
+
+        with (
+            patch.object(Nip66RttMetadata, "_test_open", new_callable=AsyncMock) as mock_open,
+            pytest.raises(ValueError, match="allow_insecure must be a bool"),
+        ):
+            await Nip66RttMetadata.probe(relay, deps, timeout=10.0, allow_insecure=1)  # type: ignore[arg-type]
+
+        mock_open.assert_not_awaited()
+
     async def test_cleanup_called_after_phases(
         self,
         relay: Relay,
