@@ -3007,3 +3007,16 @@ Use this section during execution for:
     discovery flows to sanitize the public argument first;
   - added paired `nips.event_builders` coverage proving corrupted `geo_data`
     inputs are rejected before any `Tag.parse()` work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-fifty-seventh remediation
+  slice:
+  - tightened the direct public helper boundary of
+    `nips.event_builders.add_dns_tags()` so malformed `dns_data` payloads no
+    longer degrade into late attribute errors or partial DNS tag mutation
+    while the public NIP-66 helper assembles `dns-ip`, `dns-ip6`,
+    `dns-cname`, and `dns-ttl` tags;
+  - centralized typed normalization of the optional `Nip66DnsData` input
+    inside the leaf helper itself so direct callers now enforce a real DNS
+    metadata boundary instead of relying on higher-level discovery flows to
+    sanitize the public argument first;
+  - added paired `nips.event_builders` coverage proving corrupted `dns_data`
+    inputs are rejected before any `Tag.parse()` work begins.

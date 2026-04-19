@@ -257,6 +257,15 @@ def _normalize_optional_nip66_geo_data(geo_data: object) -> Nip66GeoData | None:
     return cast("Nip66GeoData", geo_data)
 
 
+def _normalize_optional_nip66_dns_data(dns_data: object) -> Nip66DnsData | None:
+    if dns_data is None:
+        return None
+    dns_data_type = importlib.import_module("bigbrotr.nips.nip66.data").Nip66DnsData
+    if not isinstance(dns_data, dns_data_type):
+        raise ValueError("dns_data must be a Nip66DnsData or None")
+    return cast("Nip66DnsData", dns_data)
+
+
 def _normalize_supported_nips_for_type_tags(supported_nips: object) -> tuple[int, ...] | None:
     if supported_nips is None:
         return None
@@ -533,6 +542,7 @@ def add_geo_tags(tags: list[Tag], geo_data: Nip66GeoData | None) -> None:
 
 def add_dns_tags(tags: list[Tag], dns_data: Nip66DnsData | None) -> None:
     """Add DNS resolution tags: ``dns-ip``, ``dns-ip6``, ``dns-cname``, ``dns-ttl``."""
+    dns_data = _normalize_optional_nip66_dns_data(dns_data)
     if dns_data is None:
         return
     if dns_data.dns_ips:

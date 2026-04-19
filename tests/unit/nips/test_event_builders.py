@@ -856,6 +856,19 @@ class TestAddDnsTags:
         add_dns_tags(tags, None)
         assert tags == []
 
+    @pytest.mark.parametrize("value", [True, "not-dns-data", object()])
+    def test_rejects_invalid_dns_data_before_tag_build(self, value: object) -> None:
+        """Malformed DNS data fails before any DNS tag work starts."""
+        tags: list[Tag] = []
+        with (
+            patch("bigbrotr.nips.event_builders.Tag.parse") as mock_parse,
+            pytest.raises(ValueError, match="dns_data must be a Nip66DnsData or None"),
+        ):
+            add_dns_tags(tags, value)  # type: ignore[arg-type]
+
+        mock_parse.assert_not_called()
+        assert tags == []
+
 
 # ============================================================================
 # add_http_tags
