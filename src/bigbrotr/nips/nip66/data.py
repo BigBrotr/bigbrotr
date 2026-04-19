@@ -257,6 +257,13 @@ def _is_valid_dns_hostname(value: str) -> bool:
     return _is_valid_hostname(value.lower())
 
 
+def _is_valid_ssl_dns_name(value: str) -> bool:
+    lowered = value.lower()
+    if lowered.startswith("*."):
+        return _is_valid_hostname(lowered[2:])
+    return _is_valid_hostname(lowered)
+
+
 def _is_valid_timezone_name(value: str) -> bool:
     try:
         ZoneInfo(value)
@@ -420,10 +427,14 @@ class Nip66SslData(BaseData):
     def _normalize_san_list(cls, value: list[str] | None, info: Any) -> list[str] | None:
         if value is None:
             return None
+        normalized: list[str] = []
         for entry in value:
             if entry.strip() == "":
                 raise ValueError(f"{info.field_name} entries must be non-empty strings")
-        return sorted(set(value))
+            if not _is_valid_ssl_dns_name(entry):
+                raise ValueError(f"{info.field_name} entries must be valid hostnames")
+            normalized.append(entry.lower())
+        return sorted(set(normalized))
 
     @classmethod
     def parse_report(cls, data: Any, *, path: str = "") -> ParseReport:
@@ -455,6 +466,12 @@ class Nip66SslData(BaseData):
             path=path,
         )
         _drop_blank_string_list_entries(parsed, issues, ("ssl_san",), path=path)
+        _drop_invalid_string_list_entries(
+            parsed,
+            issues,
+            (("ssl_san", _is_valid_ssl_dns_name, "expected valid hostname"),),
+            path=path,
+        )
         _drop_negative_int_fields(
             parsed,
             issues,

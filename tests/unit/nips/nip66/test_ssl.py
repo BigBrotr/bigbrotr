@@ -215,7 +215,20 @@ class TestNip66SslMetadataSslAsync:
         """Probe output normalizes SAN values before building the model."""
         ssl_result = {
             "ssl_valid": True,
-            "ssl_san": ["relay.example.com", "*.example.com", "relay.example.com"],
+            "ssl_san": ["RELAY.EXAMPLE.COM", "*.EXAMPLE.COM", "relay.example.com"],
+        }
+
+        with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result):
+            result = await Nip66SslMetadata.probe(relay, 10.0)
+
+        assert result.data.ssl_san == ["*.example.com", "relay.example.com"]
+        assert result.logs.success is True
+
+    async def test_probe_filters_invalid_san_values(self, relay: Relay) -> None:
+        """Probe drops malformed SAN values while preserving valid DNS names."""
+        ssl_result = {
+            "ssl_valid": True,
+            "ssl_san": ["RELAY.EXAMPLE.COM", "*.EXAMPLE.COM", "singlehost"],
         }
 
         with patch.object(Nip66SslMetadata, "_ssl", return_value=ssl_result):

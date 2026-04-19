@@ -146,7 +146,7 @@ class TestNip66SslData:
     def test_construction_normalizes_san_list(self) -> None:
         """Constructor deduplicates and sorts SAN values."""
         data = Nip66SslData(
-            ssl_san=["relay.example.com", "*.example.com", "relay.example.com"],
+            ssl_san=["RELAY.EXAMPLE.COM", "*.EXAMPLE.COM", "relay.example.com"],
         )
         assert data.ssl_san == ["*.example.com", "relay.example.com"]
 
@@ -154,6 +154,19 @@ class TestNip66SslData:
         """Constructor rejects blank or whitespace-only SAN entries."""
         with pytest.raises(ValidationError, match="ssl_san entries must be non-empty strings"):
             Nip66SslData(ssl_san=[" ", "relay.example.com"])
+
+    @pytest.mark.parametrize(
+        ("value", "message"),
+        [
+            (["singlehost", "*.example.com"], "ssl_san entries must be valid hostnames"),
+            (["*.singlehost"], "ssl_san entries must be valid hostnames"),
+            (["*.*.example.com"], "ssl_san entries must be valid hostnames"),
+        ],
+    )
+    def test_construction_rejects_invalid_san_entries(self, value: list[str], message: str) -> None:
+        """Constructor rejects malformed DNS SAN values."""
+        with pytest.raises(ValidationError, match=message):
+            Nip66SslData(ssl_san=value)
 
     @pytest.mark.parametrize(
         ("kwargs", "message"),
@@ -256,7 +269,7 @@ class TestNip66SslData:
 
     def test_parse_handles_san_list(self) -> None:
         """parse() normalizes valid SAN lists."""
-        raw = {"ssl_san": ["relay.example.com", "*.example.com", "relay.example.com"]}
+        raw = {"ssl_san": ["RELAY.EXAMPLE.COM", "*.EXAMPLE.COM", "relay.example.com"]}
         parsed = Nip66SslData.parse(raw)
         assert parsed == {"ssl_san": ["*.example.com", "relay.example.com"]}
 
@@ -269,7 +282,16 @@ class TestNip66SslData:
 
     def test_parse_filters_invalid_san_elements(self) -> None:
         """parse() filters invalid elements in SAN list."""
-        raw = {"ssl_san": ["relay.example.com", 123, None, "*.example.com", "relay.example.com"]}
+        raw = {
+            "ssl_san": [
+                "RELAY.EXAMPLE.COM",
+                123,
+                None,
+                "*.EXAMPLE.COM",
+                "singlehost",
+                "relay.example.com",
+            ]
+        }
         parsed = Nip66SslData.parse(raw)
         assert parsed == {"ssl_san": ["*.example.com", "relay.example.com"]}
 
