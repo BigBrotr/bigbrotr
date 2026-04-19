@@ -17,6 +17,7 @@ See Also:
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import InitVar, dataclass, field
 from typing import ClassVar, NamedTuple
 
@@ -144,7 +145,15 @@ class Event:
         tags_list: list[tuple[str, ...]] = []
         for tag in event.tags().to_vec():
             values = tag.as_vec()
+            if not isinstance(values, Sequence) or isinstance(values, Mapping | str | bytes):
+                raise TypeError(
+                    f"Event {event_id[:16]}... tag values must be a sequence of strings"
+                )
             for value in values:
+                if not isinstance(value, str):
+                    raise TypeError(
+                        f"Event {event_id[:16]}... tag values must contain only strings"
+                    )
                 if "\x00" in value:
                     raise ValueError(f"Event {event_id[:16]}... tags contain null bytes")
                 if len(value) > Event._MAX_TAG_VALUE_LENGTH:

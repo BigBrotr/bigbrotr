@@ -164,6 +164,22 @@ class TestNullByteValidation:
         mock = _make_mock_nostr_event(tags=[["r", value]])
         Event(mock)
 
+    def test_rejects_tag_values_mapping(self):
+        mock = _make_mock_nostr_event()
+        bad_tag = MagicMock()
+        bad_tag.as_vec.return_value = {"e": "c" * 64, "p": "d" * 64}
+        mock.tags.return_value.to_vec.return_value = [bad_tag]
+        with pytest.raises(TypeError, match="tag values must be a sequence of strings"):
+            Event(mock)
+
+    def test_rejects_non_string_tag_value(self):
+        mock = _make_mock_nostr_event(tags=[["t", "ok"]])
+        bad_tag = MagicMock()
+        bad_tag.as_vec.return_value = ["t", 123]
+        mock.tags.return_value.to_vec.return_value = [bad_tag]
+        with pytest.raises(TypeError, match="tag values must contain only strings"):
+            Event(mock)
+
 
 # =============================================================================
 # Immutability Tests

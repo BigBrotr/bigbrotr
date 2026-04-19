@@ -2433,3 +2433,13 @@ Use this section during execution for:
   - added paired shared-parser and `NIP-66` coverage proving non-finite
     float inputs are now dropped and reported as invalid instead of leaking
     through `BaseData.parse()` into typed geo models.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-twelfth remediation
+  slice:
+  - tightened the leaf `Event` tag boundary so malformed `tag.as_vec()`
+    payloads can no longer masquerade as canonical tags by leaking mapping
+    keys or non-string items through tuple coercion; the constructor now
+    requires one real sequence of strings before serializing tags to the
+    database contract;
+  - added model coverage proving `Event` now fails fast on mapping-backed and
+    mixed-type tag payloads instead of silently emitting corrupted JSON tag
+    arrays.
