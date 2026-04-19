@@ -2475,3 +2475,15 @@ Use this section during execution for:
   - added paired `utils.protocol` coverage proving malformed builder event ids
     now drop partial client publish state, while healthy detailed results keep
     canonical event ids end-to-end.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-sixteenth remediation
+  slice:
+  - tightened the shared single-relay `utils.protocol` connect boundary so
+    clearnet `connect_relay()` no longer decides success/failure from raw
+    SDK object identity; connect outcomes are now normalized through the same
+    canonical relay-url contract used by the other protocol helpers, and a
+    malformed SDK relay outcome triggers best-effort client shutdown instead
+    of leaking a half-initialized client;
+  - added paired `utils.protocol` and `protocol_connections` coverage proving
+    canonical stringifiable SDK relay outputs still connect successfully,
+    while malformed relay outcomes now fail fast and release the partial
+    client on the single-relay path.

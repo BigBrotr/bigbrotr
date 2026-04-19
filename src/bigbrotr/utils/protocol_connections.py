@@ -12,6 +12,8 @@ from nostr_sdk import NostrSdkError
 
 from bigbrotr.models.constants import NetworkType
 
+from .protocol_outcomes import normalize_relay_outcomes
+
 
 if TYPE_CHECKING:
     import logging
@@ -45,15 +47,17 @@ class RelayConnectOptions(NamedTuple):
 async def _try_connect_single_relay(
     client: Client,
     relay_url: RelayUrl,
+    relay_url_text: str,
     *,
     connect_timeout: float,
 ) -> str | None:
     """Try one single-relay client connection and return the failure message, if any."""
     await client.add_relay(relay_url)
     output = await client.try_connect(timedelta(seconds=connect_timeout))
-    if relay_url in output.success:
+    successful_relays, failed_relays = normalize_relay_outcomes(output)
+    if relay_url_text in successful_relays:
         return None
-    return str(output.failed.get(relay_url, "Unknown error"))
+    return failed_relays.get(relay_url_text, "Unknown error")
 
 
 async def _connect_overlay_relay(
@@ -118,11 +122,16 @@ async def connect_relay(
     context.logger.debug("ssl_connecting relay=%s", relay.url)
 
     client = await context.create_client(options.keys)
-    error_message = await _try_connect_single_relay(
-        client,
-        relay_url,
-        connect_timeout=options.timeout,
-    )
+    try:
+        error_message = await _try_connect_single_relay(
+            client,
+            relay_url,
+            relay.url,
+            connect_timeout=options.timeout,
+        )
+    except ValueError:
+        await _best_effort_shutdown_client(context, client)
+        raise
     if error_message is None:
         context.logger.debug("ssl_connected relay=%s", relay.url)
         return client
@@ -142,11 +151,16 @@ async def connect_relay(
     context.set_event_loop(asyncio.get_running_loop())
 
     client = await context.create_client(options.keys, allow_insecure=True)
-    error_message = await _try_connect_single_relay(
-        client,
-        relay_url,
-        connect_timeout=options.timeout,
-    )
+    try:
+        error_message = await _try_connect_single_relay(
+            client,
+            relay_url,
+            relay.url,
+            connect_timeout=options.timeout,
+        )
+    except ValueError:
+        await _best_effort_shutdown_client(context, client)
+        raise
     if error_message is not None:
         await _best_effort_shutdown_client(context, client)
         raise OSError(f"Connection failed (insecure): {relay.url} ({error_message})")

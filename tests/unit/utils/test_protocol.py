@@ -853,6 +853,7 @@ class TestConnectRelayClearnet:
         relay = Relay("wss://relay.example.com")
 
         mock_url = MagicMock()
+        mock_url.__str__.return_value = relay.url
         mock_output = MagicMock()
         mock_output.success = []
         mock_output.failed = {mock_url: "SSL certificate verify failed"}
@@ -882,6 +883,7 @@ class TestConnectRelayClearnet:
         assert relay.network == NetworkType.CLEARNET
 
         mock_url = MagicMock()
+        mock_url.__str__.return_value = relay.url
         mock_output = MagicMock()
         mock_output.success = [mock_url]
         mock_output.failed = {}
@@ -1381,6 +1383,7 @@ class TestConnectRelayClearnetAdditional:
         relay = Relay("wss://relay.example.com")
 
         mock_url = MagicMock()
+        mock_url.__str__.return_value = relay.url
         mock_output = MagicMock()
         mock_output.success = []
         mock_output.failed = {mock_url: "Connection refused"}
@@ -1408,6 +1411,7 @@ class TestConnectRelayClearnetAdditional:
         relay = Relay("wss://relay.example.com")
 
         mock_url = MagicMock()
+        mock_url.__str__.return_value = relay.url
         ssl_output = MagicMock()
         ssl_output.success = []
         ssl_output.failed = {mock_url: "SSL certificate verify failed"}
@@ -1447,6 +1451,7 @@ class TestConnectRelayClearnetAdditional:
         relay = Relay("wss://relay.example.com")
 
         mock_url = MagicMock()
+        mock_url.__str__.return_value = relay.url
         ssl_output = MagicMock()
         ssl_output.success = []
         ssl_output.failed = {mock_url: "SSL certificate verify failed"}
@@ -1478,6 +1483,33 @@ class TestConnectRelayClearnetAdditional:
 
             with pytest.raises(OSError, match="Connection failed \\(insecure\\)"):
                 await connect_relay(relay, allow_insecure=True)
+
+    async def test_malformed_connect_output_raises_value_error(self) -> None:
+        """Malformed SDK relay outcomes fail fast instead of degrading to generic connect errors."""
+        relay = Relay("wss://relay.example.com")
+
+        mock_url = MagicMock()
+        mock_output = MagicMock()
+        mock_output.success = [1]
+        mock_output.failed = {}
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol.create_client",
+                new_callable=AsyncMock,
+            ) as mock_create,
+            patch("bigbrotr.utils.protocol.RelayUrl") as mock_relay_url,
+        ):
+            mock_client = AsyncMock()
+            mock_client.try_connect = AsyncMock(return_value=mock_output)
+            mock_client.disconnect = AsyncMock()
+            mock_create.return_value = mock_client
+            mock_relay_url.parse.return_value = mock_url
+
+            from bigbrotr.utils.protocol import connect_relay
+
+            with pytest.raises(ValueError, match="relay output contained invalid relay URL"):
+                await connect_relay(relay)
 
 
 class TestConnectRelayOverlaySuccess:

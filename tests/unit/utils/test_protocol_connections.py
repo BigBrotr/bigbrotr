@@ -156,6 +156,7 @@ class TestProtocolConnections:
     async def test_ssl_failure_falls_back_to_insecure_client(self) -> None:
         relay = Relay("wss://relay.example.com")
         relay_url = MagicMock()
+        relay_url.__str__.return_value = relay.url
         ssl_output = MagicMock()
         ssl_output.success = []
         ssl_output.failed = {relay_url: "SSL certificate verify failed"}
@@ -199,6 +200,7 @@ class TestProtocolConnections:
     async def test_non_ssl_failure_raises_os_error(self) -> None:
         relay = Relay("wss://relay.example.com")
         relay_url = MagicMock()
+        relay_url.__str__.return_value = relay.url
         output = MagicMock()
         output.success = []
         output.failed = {relay_url: "Connection refused"}
@@ -231,6 +233,7 @@ class TestProtocolConnections:
     ) -> None:
         relay = Relay("wss://relay.example.com")
         relay_url = MagicMock()
+        relay_url.__str__.return_value = relay.url
         output = MagicMock()
         output.success = []
         output.failed = {relay_url: "Connection refused"}
@@ -263,6 +266,7 @@ class TestProtocolConnections:
     ) -> None:
         relay = Relay("wss://relay.example.com")
         relay_url = MagicMock()
+        relay_url.__str__.return_value = relay.url
         ssl_output = MagicMock()
         ssl_output.success = []
         ssl_output.failed = {relay_url: "SSL certificate verify failed"}
@@ -300,3 +304,32 @@ class TestProtocolConnections:
             )
 
         shutdown_client.assert_has_awaits([call(ssl_client), call(insecure_client)])
+
+    async def test_malformed_connect_output_shuts_down_partial_client(self) -> None:
+        relay = Relay("wss://relay.example.com")
+        relay_url = MagicMock()
+        client = AsyncMock()
+        output = MagicMock()
+        output.success = [1]
+        output.failed = {}
+        client.try_connect = AsyncMock(return_value=output)
+        shutdown_client = AsyncMock()
+        context = _context(
+            create_client=AsyncMock(return_value=client),
+            shutdown_client=shutdown_client,
+            parse_relay_url=MagicMock(return_value=relay_url),
+        )
+
+        with pytest.raises(ValueError, match="relay output contained invalid relay URL"):
+            await connect_relay(
+                relay,
+                context,
+                RelayConnectOptions(
+                    keys=None,
+                    proxy_url=None,
+                    timeout=7.0,
+                    allow_insecure=False,
+                ),
+            )
+
+        shutdown_client.assert_awaited_once_with(client)
