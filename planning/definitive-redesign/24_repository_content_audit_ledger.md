@@ -3033,3 +3033,15 @@ Use this section during execution for:
     sanitize the public argument first;
   - added paired `nips.event_builders` coverage proving corrupted
     `http_data` inputs are rejected before any `Tag.parse()` work begins.
+- `2.1` models/utils/NIPs leaf audit, two-hundred-and-fifty-ninth remediation
+  slice:
+  - tightened the direct public helper boundary of
+    `nips.event_builders.add_attributes_tags()` so malformed `nip11_data`
+    payloads no longer degrade into late attribute errors or partial `W` tag
+    mutation while the public NIP-11 helper assembles relay attribute tags;
+  - centralized typed normalization of the required `Nip11InfoData` input
+    inside the leaf helper itself so direct callers now enforce a real NIP-11
+    metadata boundary instead of relying on higher-level discovery flows to
+    sanitize the public argument first;
+  - added paired `nips.event_builders` coverage proving corrupted
+    `nip11_data` inputs are rejected before any `Tag.parse()` work begins.

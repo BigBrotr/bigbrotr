@@ -577,6 +577,7 @@ def add_http_tags(tags: list[Tag], http_data: Nip66HttpData | None) -> None:
 
 def add_attributes_tags(tags: list[Tag], nip11_data: Nip11InfoData) -> None:
     """Add relay attribute tags (``W``) from NIP-11 ``attributes`` field."""
+    nip11_data = _normalize_required_nip11_data(nip11_data)
     attributes = nip11_data.attributes
     if not attributes:
         return
