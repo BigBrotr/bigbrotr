@@ -32,6 +32,16 @@ def _require_bool(value: Any, field_name: str) -> bool:
     return value
 
 
+def _normalize_non_blank_string(value: Any, field_name: str) -> str:
+    """Normalize authored string config values that must not be blank."""
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name}: expected string, got {type(value).__name__}")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{field_name} must not be blank")
+    return normalized
+
+
 class EventsConfig(BaseModel):
     """Event scanning configuration for discovering relay URLs from stored events.
 
@@ -137,12 +147,13 @@ class ApiSourceConfig(BaseModel):
     @field_validator("expression")
     @classmethod
     def _validate_expression(cls, v: str) -> str:
+        normalized = _normalize_non_blank_string(v, "expression")
         try:
-            jmespath.compile(v)
+            jmespath.compile(normalized)
         except jmespath.exceptions.ParseError as e:
             msg = f"invalid JMESPath expression: {e}"
             raise ValueError(msg) from e
-        return v
+        return normalized
 
     @field_validator("url")
     @classmethod

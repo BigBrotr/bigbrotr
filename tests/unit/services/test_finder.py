@@ -196,6 +196,20 @@ class TestApiSourceConfig:
         )
         assert config.expression == "data.relays[*].url"
 
+    def test_expression_is_stripped(self) -> None:
+        config = ApiSourceConfig(
+            url="https://api.example.com",
+            expression=" data.relays[*].url ",
+        )
+        assert config.expression == "data.relays[*].url"
+
+    def test_blank_expression_rejected(self) -> None:
+        with pytest.raises(ValueError, match="expression must not be blank"):
+            ApiSourceConfig(
+                url="https://api.example.com",
+                expression="   ",
+            )
+
     def test_invalid_expression_rejected(self) -> None:
         with pytest.raises(ValueError, match="invalid JMESPath expression"):
             ApiSourceConfig(
@@ -316,6 +330,17 @@ class TestApiConfig:
                     ApiSourceConfig(url="https://dup.api.com", expression="data.relays"),
                 ]
             )
+
+    def test_nested_source_expression_is_canonicalized(self) -> None:
+        config = ApiConfig(
+            sources=[
+                {
+                    "url": "https://api.example.com",
+                    "expression": " data.relays[*].url ",
+                }
+            ]
+        )
+        assert config.sources[0].expression == "data.relays[*].url"
 
     @pytest.mark.parametrize(
         ("field_name", "field_value"),
@@ -1873,6 +1898,17 @@ class TestFetchApi:
 
         with pytest.raises(ValueError, match="expected list"):
             await fetch_api(mock_session, source, 5_242_880)
+
+    async def test_uses_canonicalized_expression(self) -> None:
+        source = ApiSourceConfig(url="https://api.example.com", expression=" relays ")
+
+        mock_response = _mock_api_response({"relays": ["wss://relay1.com"]})
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(return_value=mock_response)
+
+        result = await fetch_api(mock_session, source, 5_242_880)
+
+        assert [relay.url for relay in result] == ["wss://relay1.com"]
 
     async def test_rejects_oversized_response(self) -> None:
         source = ApiSourceConfig(url="https://api.example.com", expression="[*]")

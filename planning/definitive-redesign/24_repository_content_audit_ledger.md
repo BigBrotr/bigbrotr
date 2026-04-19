@@ -4042,3 +4042,15 @@ Use this section during execution for:
   - added paired coverage in `services.test_finder` proving malformed source
     flag aliases now fail fast both on `ApiSourceConfig` and through nested
     `ApiConfig.sources` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-forty-second
+  remediation slice:
+  - tightened the `services.finder.configs.ApiSourceConfig` expression
+    boundary so authored JMESPath values now trim surrounding whitespace and
+    reject blank-only payloads before compilation;
+  - closed the drift where payloads like `" [*] "` or
+    `" data.relays[*].url "` could survive config load as non-canonical
+    expressions and then flow into runtime `jmespath.search(...)`
+    unchanged;
+  - added paired coverage in `services.test_finder` proving padded
+    expressions now canonicalize both through nested `ApiConfig.sources`
+    parsing and at runtime in `fetch_api()`.
