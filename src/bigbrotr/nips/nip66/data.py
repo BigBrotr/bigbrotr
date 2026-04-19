@@ -31,6 +31,7 @@ from __future__ import annotations
 import re
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import TYPE_CHECKING, Any, ClassVar
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, StrictBool, StrictFloat, StrictInt, field_validator
 
@@ -239,6 +240,14 @@ def _is_valid_ssl_fingerprint(value: str) -> bool:
 
 def _is_valid_geohash(value: str) -> bool:
     return bool(_GEOHASH_RE.fullmatch(value))
+
+
+def _is_valid_timezone_name(value: str) -> bool:
+    try:
+        ZoneInfo(value)
+    except (ValueError, ZoneInfoNotFoundError):
+        return False
+    return True
 
 
 class Nip66RttData(BaseData):
@@ -533,6 +542,13 @@ class Nip66GeoData(BaseData):
             raise ValueError("geo_hash must be a valid geohash with precision 1 to 12")
         return value.lower()
 
+    @field_validator("geo_tz")
+    @classmethod
+    def _require_valid_timezone(cls, value: str | None) -> str | None:
+        if value is not None and not _is_valid_timezone_name(value):
+            raise ValueError("geo_tz must be a valid IANA timezone identifier")
+        return value
+
     @field_validator("geo_lat")
     @classmethod
     def _require_valid_latitude(cls, value: float | None) -> float | None:
@@ -572,7 +588,10 @@ class Nip66GeoData(BaseData):
         _drop_invalid_string_fields(
             parsed,
             issues,
-            (("geo_hash", _is_valid_geohash, "expected valid geohash with precision 1 to 12"),),
+            (
+                ("geo_tz", _is_valid_timezone_name, "expected valid IANA timezone identifier"),
+                ("geo_hash", _is_valid_geohash, "expected valid geohash with precision 1 to 12"),
+            ),
             path=path,
         )
         _drop_negative_int_fields(parsed, issues, ("geo_accuracy", "geo_geoname_id"), path=path)

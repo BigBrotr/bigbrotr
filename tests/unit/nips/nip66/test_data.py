@@ -360,6 +360,13 @@ class TestNip66GeoData:
         ):
             Nip66GeoData(geo_hash=value)
 
+    def test_construction_rejects_invalid_timezone_identifier(self) -> None:
+        """Constructor rejects malformed IANA timezone identifiers."""
+        with pytest.raises(
+            ValidationError, match="geo_tz must be a valid IANA timezone identifier"
+        ):
+            Nip66GeoData(geo_tz="Mars/Phobos")
+
     @pytest.mark.parametrize(
         ("kwargs", "message"),
         [
@@ -439,6 +446,15 @@ class TestNip66GeoData:
         parsed = Nip66GeoData.parse(raw)
         data = Nip66GeoData(**parsed)
         assert data.geo_hash == "u33dc"
+
+    def test_parse_filters_invalid_timezone_identifier(self) -> None:
+        """parse() filters malformed IANA timezone identifiers."""
+        raw = {
+            "geo_country": "US",
+            "geo_tz": "Mars/Phobos",
+        }
+        parsed = Nip66GeoData.parse(raw)
+        assert parsed == {"geo_country": "US"}
 
     def test_parse_filters_invalid_bool_types(self) -> None:
         """parse() filters invalid boolean values."""
