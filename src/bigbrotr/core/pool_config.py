@@ -156,6 +156,15 @@ class TimeoutsConfig(BaseModel):
 
     acquisition: float = Field(default=10.0, ge=0.1, description="Connection acquisition timeout")
 
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            invalid_key = next((key for key in data if not isinstance(key, str)), None)
+            if invalid_key is not None:
+                raise ValueError(f"config: expected string keys, got {type(invalid_key).__name__}")
+        return data
+
     @field_validator("acquisition", mode="before")
     @classmethod
     def reject_boolean_acquisition(cls, value: Any) -> Any:

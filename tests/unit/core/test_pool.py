@@ -469,6 +469,11 @@ class TestTimeoutsConfig:
         ):
             TimeoutsConfig(acquisition=value)
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        """Test raw timeout field keys must already be canonical strings."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            TimeoutsConfig.model_validate({b"acquisition": 30.0})
+
 
 class TestRetryConfig:
     """Tests for RetryConfig Pydantic model."""
@@ -803,6 +808,14 @@ class TestPoolConfig:
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         with pytest.raises(ValidationError, match="acquisition: expected number, got str"):
             PoolConfig(timeouts={"acquisition": "30.0"})
+
+    def test_nested_timeouts_reject_non_string_field_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested timeout field keys fail fast through PoolConfig."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            PoolConfig.model_validate({"timeouts": {b"acquisition": 30.0}})
 
     def test_nested_limits_reject_non_string_field_keys(
         self, monkeypatch: pytest.MonkeyPatch

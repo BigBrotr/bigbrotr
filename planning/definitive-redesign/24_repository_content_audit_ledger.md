@@ -5270,3 +5270,15 @@ Use this section during execution for:
   - added paired coverage in `core.test_pool` proving those raw key
     boundaries now fail fast both on direct `DatabaseConfig`
     construction and through nested `PoolConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-fiftieth
+  remediation slice:
+  - tightened the shared mapping boundary in
+    `core.pool_config.TimeoutsConfig` so raw config payloads now
+    require canonical string keys before timeout field parsing;
+  - closed the drift where authored field keys like `b"acquisition"`
+    could be ignored silently at config load time, leaving pool
+    acquisition timeouts at defaults instead of applying the intended
+    overlay;
+  - added paired coverage in `core.test_pool` proving those raw key
+    boundaries now fail fast both on direct `TimeoutsConfig`
+    construction and through nested `PoolConfig` parsing.
