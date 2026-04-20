@@ -829,6 +829,13 @@ class TestRankerConfig:
         with pytest.raises(ValueError, match=r"batch_size: expected integer, got"):
             RankerFactsStageConfig(batch_size=value)
 
+    @pytest.mark.parametrize("value", ["1000", 1000.0])
+    def test_ranker_facts_stage_rejects_non_integer_max_event_rows_aliases(
+        self, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=r"max_event_rows: expected integer, got"):
+            RankerFactsStageConfig(max_event_rows=value)
+
     @pytest.mark.parametrize(
         ("payload", "field_name", "expected_type"),
         [
@@ -912,6 +919,13 @@ class TestRankerConfig:
     def test_nested_facts_stage_rejects_non_integer_batch_size_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"batch_size: expected integer, got"):
             RankerConfig.model_validate({"facts_stage": {"batch_size": value}})
+
+    @pytest.mark.parametrize("value", ["1000", 1000.0])
+    def test_nested_facts_stage_rejects_non_integer_max_event_rows_aliases(
+        self, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=r"max_event_rows: expected integer, got"):
+            RankerConfig.model_validate({"facts_stage": {"max_event_rows": value}})
 
 
 class TestRankerStore:

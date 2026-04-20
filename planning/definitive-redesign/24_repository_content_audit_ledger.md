@@ -4641,3 +4641,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_ranker` proving
     `batch_size` now fails fast both on the leaf facts-stage config and
     through nested `RankerConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-ninety-sixth
+  remediation slice:
+  - tightened the authored integer boundary in
+    `services.ranker.configs.RankerFactsStageConfig` so
+    `max_event_rows` now requires a canonical integer value or `None`;
+  - closed the drift where authored aliases like `"1000"` or `1000.0`
+    could silently change the event fact staging cap at config load
+    time;
+  - added paired coverage in `services.test_ranker` proving
+    `max_event_rows` now fails fast both on the leaf facts-stage config
+    and through nested `RankerConfig` parsing.
