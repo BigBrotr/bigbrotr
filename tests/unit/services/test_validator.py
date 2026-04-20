@@ -152,6 +152,10 @@ class TestProcessingConfig:
         with pytest.raises(ValueError, match=r"allow_insecure: expected bool, got"):
             ProcessingConfig(allow_insecure=value)
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            ProcessingConfig.model_validate({b"chunk_size": 200})
+
 
 # ============================================================================
 # CleanupConfig
@@ -230,6 +234,10 @@ class TestValidatorConfig:
         cfg = ValidatorConfig(processing={"chunk_size": 200, "max_candidates": 5000})
         assert cfg.processing.chunk_size == 200
         assert cfg.processing.max_candidates == 5000
+
+    def test_nested_processing_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            ValidatorConfig.model_validate({"processing": {b"chunk_size": 200}})
 
     @pytest.mark.parametrize("value", ["120", "120.5"])
     def test_nested_processing_interval_aliases_rejected(self, value: object) -> None:

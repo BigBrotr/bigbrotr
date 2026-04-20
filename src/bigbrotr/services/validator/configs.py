@@ -73,6 +73,15 @@ class ProcessingConfig(BaseModel):
         description="Fall back to insecure transport on SSL certificate failure",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            invalid_key = next((key for key in data if not isinstance(key, str)), None)
+            if invalid_key is not None:
+                raise ValueError(f"config: expected string keys, got {type(invalid_key).__name__}")
+        return data
+
     @field_validator("chunk_size", mode="before")
     @classmethod
     def require_integer_chunk_size(cls, v: Any, info: ValidationInfo) -> int:
