@@ -5293,3 +5293,16 @@ Use this section during execution for:
   - added paired coverage in `core.test_pool` proving those raw key
     boundaries now fail fast both on direct `RetryConfig`
     construction and through nested `PoolConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-fifty-second
+  remediation slice:
+  - tightened the shared mapping boundary in
+    `core.pool_config.ServerSettingsConfig` so raw config payloads now
+    require canonical string keys before server-setting field parsing;
+  - closed the drift where authored field keys like
+    `b"application_name"` could be ignored silently at config load
+    time, leaving server settings at defaults instead of applying the
+    intended overlay;
+  - added paired coverage in `core.test_pool` proving those raw key
+    boundaries now fail fast both on direct
+    `ServerSettingsConfig` construction and through nested
+    `PoolConfig` parsing.

@@ -659,6 +659,11 @@ class TestServerSettingsConfig:
         with pytest.raises(ValidationError, match="timezone must not be blank"):
             ServerSettingsConfig(timezone="   ")
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        """Test raw server-setting field keys must already be canonical strings."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            ServerSettingsConfig.model_validate({b"application_name": "custom_app"})
+
 
 class TestPoolConfig:
     """Tests for PoolConfig composite model."""
@@ -915,6 +920,14 @@ class TestPoolConfig:
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         with pytest.raises(ValidationError, match="timezone must not be blank"):
             PoolConfig(server_settings={"timezone": "   "})
+
+    def test_nested_server_settings_reject_non_string_field_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested server-setting field keys fail fast through PoolConfig."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            PoolConfig.model_validate({"server_settings": {b"application_name": "custom_app"}})
 
     @pytest.mark.parametrize("port", ["5432", 5432.0])
     def test_nested_database_port_requires_canonical_int(self, port: object) -> None:
