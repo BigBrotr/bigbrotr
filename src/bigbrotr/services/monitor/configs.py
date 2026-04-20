@@ -747,6 +747,12 @@ class MonitorConfig(BaseServiceConfig):
         default_factory=RelayListConfig, description="Kind 10002 relay list metadata settings"
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        """Reject raw monitor payloads with non-string mapping keys."""
+        return _require_string_mapping_keys(data, "config")
+
     @model_validator(mode="after")
     def validate_geo_databases(self) -> MonitorConfig:
         """Validate GeoLite2 database paths have download URLs if files are missing.

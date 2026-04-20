@@ -1005,6 +1005,23 @@ class TestMonitorConfig:
         assert config.processing.compute.nip66_geo is False
         assert config.processing.compute.nip66_net is False
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    b"processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
     def test_store_requires_compute_validation(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="Cannot store metadata that is not computed"):
             MonitorConfig(

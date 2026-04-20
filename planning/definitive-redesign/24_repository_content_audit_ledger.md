@@ -5181,3 +5181,13 @@ Use this section during execution for:
   - added paired coverage in `services.test_monitor` proving those raw
     key boundaries now fail fast both on direct `ProcessingConfig`
     construction and through root-level `MonitorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-forty-second
+  remediation slice:
+  - tightened the authored mapping boundary in
+    `services.monitor.configs.MonitorConfig` so raw config payloads now
+    require canonical string keys before root-level field parsing;
+  - closed the drift where authored field keys like `b"processing"`
+    could be ignored silently at config load time, leaving monitor
+    subconfigs at defaults instead of applying the intended overlay;
+  - added coverage in `services.test_monitor` proving those raw key
+    boundaries now fail fast on root-level `MonitorConfig` parsing.
