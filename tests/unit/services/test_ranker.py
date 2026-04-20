@@ -21,7 +21,11 @@ from bigbrotr.services.ranker import (
     store_graph,
     store_non_user,
 )
-from bigbrotr.services.ranker.configs import RankerGraphConfig, RankerProcessingConfig
+from bigbrotr.services.ranker.configs import (
+    RankerGraphConfig,
+    RankerProcessingConfig,
+    RankerSyncConfig,
+)
 from bigbrotr.services.ranker.queries import (
     AddressableStatFact,
     ContactListFact,
@@ -802,6 +806,11 @@ class TestRankerConfig:
         with pytest.raises(ValueError, match=r"max_duration: expected number, got str"):
             RankerProcessingConfig(max_duration=value)
 
+    @pytest.mark.parametrize("value", ["1000", 1000.0])
+    def test_ranker_sync_rejects_non_integer_batch_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"batch_size: expected integer, got"):
+            RankerSyncConfig(batch_size=value)
+
     @pytest.mark.parametrize(
         ("payload", "field_name", "expected_type"),
         [
@@ -863,6 +872,11 @@ class TestRankerConfig:
     ) -> None:
         with pytest.raises(ValueError, match=r"max_duration: expected number, got str"):
             RankerConfig.model_validate({"processing": {"max_duration": value}})
+
+    @pytest.mark.parametrize("value", ["1000", 1000.0])
+    def test_nested_sync_rejects_non_integer_batch_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"batch_size: expected integer, got"):
+            RankerConfig.model_validate({"sync": {"batch_size": value}})
 
 
 class TestRankerStore:
