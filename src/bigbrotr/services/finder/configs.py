@@ -197,6 +197,12 @@ class ApiSourceConfig(BaseModel):
         description="Allow insecure connections without TLS certificate verification",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        """Reject raw authored mapping keys before API-source field parsing."""
+        return _require_string_mapping_keys(data, "config")
+
     @field_validator("timeout", "connect_timeout", mode="before")
     @classmethod
     def require_numeric_timeout_controls(cls, v: Any, info: ValidationInfo) -> int | float:

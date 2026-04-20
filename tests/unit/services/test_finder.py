@@ -205,6 +205,16 @@ class TestApiSourceConfig:
         assert config.expression == "[*]"
         assert config.allow_insecure is False
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            ApiSourceConfig.model_validate(
+                {
+                    "url": "https://api.example.com",
+                    "expression": "[*]",
+                    b"enabled": False,
+                }
+            )
+
     def test_expression_required(self) -> None:
         with pytest.raises(ValidationError):
             ApiSourceConfig(url="https://api.example.com")
@@ -653,6 +663,22 @@ class TestFinderConfig:
     def test_nested_api_reject_non_integer_max_response_size_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"max_response_size: expected integer, got"):
             FinderConfig(api={"max_response_size": value})
+
+    def test_nested_api_sources_reject_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            FinderConfig.model_validate(
+                {
+                    "api": {
+                        "sources": [
+                            {
+                                "url": "https://api.example.com",
+                                "expression": "[*]",
+                                b"enabled": False,
+                            }
+                        ]
+                    }
+                }
+            )
 
 
 # ============================================================================

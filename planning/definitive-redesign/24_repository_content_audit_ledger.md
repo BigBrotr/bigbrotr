@@ -5044,3 +5044,15 @@ Use this section during execution for:
   - added paired coverage in `services.test_finder` proving those raw
     key boundaries now fail fast both on direct `EventsConfig`
     construction and through root-level `FinderConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-thirtieth
+  remediation slice:
+  - tightened the authored mapping boundary in
+    `services.finder.configs.ApiSourceConfig` so raw config payloads now
+    require canonical string keys before API-source field parsing;
+  - closed the drift where authored field keys like `b"enabled"`
+    inside API source payloads could be ignored silently at config load
+    time, leaving the default source enablement in place instead of
+    applying the intended overlay;
+  - added paired coverage in `services.test_finder` proving those raw
+    key boundaries now fail fast both on direct `ApiSourceConfig`
+    construction and through root-level `FinderConfig` parsing.
