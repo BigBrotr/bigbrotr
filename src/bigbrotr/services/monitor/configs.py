@@ -398,6 +398,8 @@ class GeoConfig(BaseModel):
             NIP-66 check that reads the ASN database.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     city_database_path: str = Field(
         default="static/GeoLite2-City.mmdb",
         min_length=1,
