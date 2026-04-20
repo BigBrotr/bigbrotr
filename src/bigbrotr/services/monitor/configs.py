@@ -17,6 +17,7 @@ from typing import Annotated, Any, Final, cast
 from pydantic import (
     BaseModel,
     BeforeValidator,
+    ConfigDict,
     Field,
     ValidationInfo,
     field_validator,
@@ -207,6 +208,8 @@ class RetryConfig(BaseModel):
         [retry_fetch][bigbrotr.services.monitor.utils.retry_fetch]:
             The function that consumes these settings.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     max_attempts: int = Field(
         default=0, ge=0, le=10, description="Maximum retry attempts (0 = no retries)"

@@ -541,6 +541,10 @@ class TestRetryConfig:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             RetryConfig.model_validate({b"max_attempts": 2})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            RetryConfig.model_validate({"backoff": 2.0})
+
 
 class TestRetriesConfig:
     def test_defaults(self) -> None:
@@ -1221,6 +1225,24 @@ class TestMonitorConfig:
                         "compute": {"nip66_geo": False, "nip66_net": False},
                         "store": {"nip66_geo": False, "nip66_net": False},
                         "retries": {b"nip11_info": {"max_attempts": 2}},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    def test_nested_retry_config_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                        "retries": {"nip11_info": {"backoff": 2.0}},
                     },
                     "discovery": {
                         "include": {"nip66_geo": False, "nip66_net": False},
