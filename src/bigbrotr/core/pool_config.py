@@ -114,6 +114,15 @@ class LimitsConfig(BaseModel):
         default=300.0, ge=0.0, description="Idle timeout (seconds)"
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            invalid_key = next((key for key in data if not isinstance(key, str)), None)
+            if invalid_key is not None:
+                raise ValueError(f"config: expected string keys, got {type(invalid_key).__name__}")
+        return data
+
     @field_validator(
         "min_size",
         "max_size",

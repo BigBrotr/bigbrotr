@@ -417,6 +417,11 @@ class TestLimitsConfig:
         ):
             LimitsConfig(max_inactive_connection_lifetime=value)
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        """Test raw limit field keys must already be canonical strings."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            LimitsConfig.model_validate({b"max_size": 50})
+
 
 class TestTimeoutsConfig:
     """Tests for TimeoutsConfig Pydantic model."""
@@ -779,6 +784,14 @@ class TestPoolConfig:
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         with pytest.raises(ValidationError, match="acquisition: expected number, got str"):
             PoolConfig(timeouts={"acquisition": "30.0"})
+
+    def test_nested_limits_reject_non_string_field_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested limits field keys fail fast through PoolConfig."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            PoolConfig.model_validate({"limits": {b"max_size": 50}})
 
     @pytest.mark.parametrize("value", ["5", 5.0])
     def test_nested_retry_requires_canonical_max_attempts(
