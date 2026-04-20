@@ -5515,3 +5515,16 @@ Use this section during execution for:
   - added coverage in `services.test_synchronizer` proving those
     unknown field names now fail fast on root-level
     `SynchronizerConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-seventieth
+  remediation slice:
+  - tightened the authored field-name boundary in
+    `services.refresher.configs.ProcessingConfig` so unknown
+    processing keys are now rejected instead of being ignored silently
+    at config load time;
+  - closed the drift where stale payloads like `sync_window: 3600`
+    could be accepted while leaving refresher processing settings at
+    defaults instead of applying the intended overlay;
+  - added paired coverage in `services.test_refresher` proving those
+    unknown field names now fail fast both on direct
+    `ProcessingConfig` parsing and through nested
+    `RefresherConfig` parsing.

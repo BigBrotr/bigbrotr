@@ -128,9 +128,17 @@ class TestRefreshTargetConfig:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             ProcessingConfig.model_validate({b"max_source_window": 3600})
 
+    def test_processing_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ProcessingConfig.model_validate({"sync_window": 3600})
+
     def test_nested_processing_raw_field_keys_rejected(self) -> None:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             RefresherConfig.model_validate({"processing": {b"max_source_window": 3600}})
+
+    def test_nested_processing_unknown_field_names_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            RefresherConfig.model_validate({"processing": {"sync_window": 3600}})
 
     @pytest.mark.parametrize(
         ("field_name", "value"),

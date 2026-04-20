@@ -167,6 +167,8 @@ def _require_number(value: Any, field_name: str) -> int | float:
 class ProcessingConfig(BaseModel):
     """Refresher cycle processing budgets and failure policy."""
 
+    model_config = ConfigDict(extra="forbid")
+
     @model_validator(mode="before")
     @classmethod
     def require_string_field_keys(cls, data: Any) -> Any:
