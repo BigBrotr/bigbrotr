@@ -500,6 +500,20 @@ class TestRetryConfig:
         with pytest.raises(ValueError, match=r"max_attempts: expected integer, got"):
             RetryConfig(max_attempts=value)
 
+    @pytest.mark.parametrize(
+        ("field_name", "kwargs"),
+        [
+            ("initial_delay", {"initial_delay": "1.5"}),
+            ("max_delay", {"max_delay": "10.0"}),
+            ("jitter", {"jitter": "0.5"}),
+        ],
+    )
+    def test_rejects_non_numeric_retry_timing_aliases(
+        self, field_name: str, kwargs: dict[str, object]
+    ) -> None:
+        with pytest.raises(ValueError, match=rf"{field_name}: expected number, got str"):
+            RetryConfig(**kwargs)
+
 
 class TestRetriesConfig:
     def test_defaults(self) -> None:
@@ -925,6 +939,34 @@ class TestMonitorConfig:
                 {
                     "processing": {
                         "retries": {"nip11_info": {"max_attempts": value}},
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("initial_delay", "1.5"),
+            ("max_delay", "10.0"),
+            ("jitter", "0.5"),
+        ],
+    )
+    def test_nested_retries_reject_non_numeric_timing_aliases(
+        self, field_name: str, value: object
+    ) -> None:
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected number, got str"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "retries": {"nip11_info": {field_name: value}},
                         "compute": {"nip66_geo": False, "nip66_net": False},
                         "store": {"nip66_geo": False, "nip66_net": False},
                     },

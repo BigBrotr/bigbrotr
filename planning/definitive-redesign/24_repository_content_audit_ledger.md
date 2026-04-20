@@ -4809,3 +4809,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_monitor` proving
     `max_attempts` now fails fast both on direct `RetryConfig`
     construction and through root-level `MonitorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-eleventh
+  remediation slice:
+  - tightened the authored numeric boundaries in
+    `services.monitor.configs.RetryConfig` so `initial_delay`,
+    `max_delay`, and `jitter` now require canonical numeric values;
+  - closed the drift where authored aliases like `"1.5"`, `"10.0"`,
+    or `"0.5"` could silently coerce into valid retry-timing budgets at
+    config load time;
+  - added paired coverage in `services.test_monitor` proving those
+    retry timings now fail fast both on direct `RetryConfig`
+    construction and through root-level `MonitorConfig` parsing.

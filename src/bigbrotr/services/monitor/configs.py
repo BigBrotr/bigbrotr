@@ -79,6 +79,13 @@ def _require_boolean(value: Any, field_name: str) -> bool:
     return value
 
 
+def _require_number(value: Any, field_name: str) -> int | float:
+    """Require canonical numeric types for authored monitor config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name}: expected number, got {type(value).__name__}")
+    return cast("int | float", value)
+
+
 def _validate_nonempty_raw_relay_list(data: Any) -> Any:
     """Reject non-empty relay overrides when no valid relay survives normalization."""
     if not isinstance(data, dict) or "relays" not in data:
@@ -190,10 +197,10 @@ class RetryConfig(BaseModel):
 
     @field_validator("initial_delay", "max_delay", "jitter", mode="before")
     @classmethod
-    def reject_boolean_retry_timings(cls, v: Any, info: ValidationInfo) -> Any:
-        """Reject boolean aliases for retry timing controls."""
+    def require_numeric_retry_timings(cls, v: Any, info: ValidationInfo) -> int | float:
+        """Require canonical numeric types for retry timing controls."""
         field_name = info.field_name or "value"
-        return _reject_bool_alias(v, field_name, "number")
+        return _require_number(v, field_name)
 
     @field_validator("max_delay")
     @classmethod
