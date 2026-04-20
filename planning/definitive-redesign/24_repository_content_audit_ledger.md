@@ -5032,3 +5032,15 @@ Use this section during execution for:
   - added paired coverage in `services.test_seeder` proving those raw
     key boundaries now fail fast both on direct `SeedConfig`
     construction and through root-level `SeederConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-twenty-ninth
+  remediation slice:
+  - tightened the authored mapping boundary in
+    `services.finder.configs.EventsConfig` so raw config payloads now
+    require canonical string keys before event-scan field parsing;
+  - closed the drift where authored field keys like `b"enabled"`
+    inside event-scan config payloads could be ignored silently at
+    config load time, leaving the default scan phase enabled instead of
+    applying the intended overlay;
+  - added paired coverage in `services.test_finder` proving those raw
+    key boundaries now fail fast both on direct `EventsConfig`
+    construction and through root-level `FinderConfig` parsing.

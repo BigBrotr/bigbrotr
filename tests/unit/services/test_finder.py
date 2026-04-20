@@ -116,6 +116,10 @@ class TestEventsConfig:
         config = EventsConfig(enabled=False)
         assert config.enabled is False
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            EventsConfig.model_validate({b"enabled": False})
+
     @pytest.mark.parametrize("value", ["true", 1, 0])
     def test_rejects_non_boolean_enabled_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
@@ -627,6 +631,10 @@ class TestFinderConfig:
     ) -> None:
         with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
             FinderConfig(events={field_name: field_value})
+
+    def test_nested_events_reject_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            FinderConfig.model_validate({"events": {b"enabled": False}})
 
     @pytest.mark.parametrize(
         ("field_name", "field_value"),

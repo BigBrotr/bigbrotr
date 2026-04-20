@@ -9,6 +9,7 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, cast
 from urllib.parse import urlsplit, urlunsplit
 
@@ -54,6 +55,16 @@ def _normalize_non_blank_string(value: Any, field_name: str) -> str:
     if not normalized:
         raise ValueError(f"{field_name} must not be blank")
     return normalized
+
+
+def _require_string_mapping_keys(value: Any, field_name: str) -> Any:
+    """Require canonical string keys for authored finder mapping boundaries."""
+    if not isinstance(value, Mapping):
+        return value
+    for key in value:
+        if not isinstance(key, str):
+            raise ValueError(f"{field_name}: expected string keys, got {type(key).__name__}")
+    return value
 
 
 def _normalize_api_source_url(value: str) -> str:
@@ -120,6 +131,12 @@ class EventsConfig(BaseModel):
         le=86_400.0,
         description="Maximum seconds for the entire event scanning phase",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        """Reject raw authored mapping keys before event-scan field parsing."""
+        return _require_string_mapping_keys(data, "config")
 
     @field_validator("scan_size", "batch_size", "parallel_relays", mode="before")
     @classmethod
