@@ -669,7 +669,14 @@ class TestPublishingConfig:
             ValidationError,
             match=r"relays: expected at least one valid relay",
         ):
-            PublishingConfig(relays=[True, "bad relay"])
+            PublishingConfig(relays=["bad relay", "still bad"])
+
+    def test_rejects_non_string_relay_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays\[1\]: expected string or Relay, got bytes",
+        ):
+            PublishingConfig(relays=["wss://relay.example.com", b"wss://relay.damus.io"])
 
 
 class TestDiscoveryConfig:
@@ -729,7 +736,14 @@ class TestDiscoveryConfig:
             ValidationError,
             match=r"relays: expected at least one valid relay",
         ):
-            DiscoveryConfig(relays=[True, "bad relay"])
+            DiscoveryConfig(relays=["bad relay", "still bad"])
+
+    def test_rejects_non_string_relay_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays\[1\]: expected string or Relay, got bytes",
+        ):
+            DiscoveryConfig(relays=["wss://relay.example.com", b"wss://relay.damus.io"])
 
 
 class TestAnnouncementConfig:
@@ -796,7 +810,14 @@ class TestAnnouncementConfig:
             ValidationError,
             match=r"relays: expected at least one valid relay",
         ):
-            AnnouncementConfig(relays=[True, "bad relay"])
+            AnnouncementConfig(relays=["bad relay", "still bad"])
+
+    def test_rejects_non_string_relay_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays\[1\]: expected string or Relay, got bytes",
+        ):
+            AnnouncementConfig(relays=["wss://relay.example.com", b"wss://relay.damus.io"])
 
 
 class TestProfileConfig:
@@ -879,7 +900,14 @@ class TestProfileConfig:
             ValidationError,
             match=r"relays: expected at least one valid relay",
         ):
-            ProfileConfig(relays=[True, "bad relay"])
+            ProfileConfig(relays=["bad relay", "still bad"])
+
+    def test_rejects_non_string_relay_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays\[1\]: expected string or Relay, got bytes",
+        ):
+            ProfileConfig(relays=["wss://relay.example.com", b"wss://relay.damus.io"])
 
 
 class TestRelayListConfig:
@@ -907,7 +935,14 @@ class TestRelayListConfig:
             ValidationError,
             match=r"relays: expected at least one valid relay",
         ):
-            RelayListConfig(relays=[True, "bad relay"])
+            RelayListConfig(relays=["bad relay", "still bad"])
+
+    def test_rejects_non_string_relay_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays\[1\]: expected string or Relay, got bytes",
+        ):
+            RelayListConfig(relays=["wss://relay.example.com", b"wss://relay.damus.io"])
 
 
 class TestMonitorConfig:
@@ -1097,6 +1132,19 @@ class TestMonitorConfig:
     ) -> None:
         with pytest.raises(ValidationError, match=r"interval: expected number, got str"):
             MonitorConfig.model_validate({field_name: {"interval": value}})
+
+    @pytest.mark.parametrize(
+        "field_name",
+        ["publishing", "discovery", "announcement", "profile", "relay_list"],
+    )
+    def test_nested_publish_relays_reject_non_string_aliases(self, field_name: str) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays\[1\]: expected string or Relay, got bytes",
+        ):
+            MonitorConfig.model_validate(
+                {field_name: {"relays": ["wss://relay.example.com", b"wss://relay.damus.io"]}}
+            )
 
     @pytest.mark.parametrize(
         ("field_name", "value"),

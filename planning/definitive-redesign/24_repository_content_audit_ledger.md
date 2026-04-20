@@ -4920,3 +4920,18 @@ Use this section during execution for:
     publishing relay entry boundaries now fail fast both on direct
     `AssertorConfig` construction and through root-level
     `AssertorConfig.model_validate` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-twentieth
+  remediation slice:
+  - tightened the authored relay-list boundaries in
+    `services.monitor.configs` so `PublishingConfig.relays`,
+    `DiscoveryConfig.relays`, `AnnouncementConfig.relays`,
+    `ProfileConfig.relays`, and `RelayListConfig.relays` now require
+    canonical string or `Relay` entries instead of silently tolerating
+    non-string aliases inside mixed lists;
+  - closed the drift where authored payloads like
+    `["wss://relay.example.com", b"wss://relay.damus.io"]` could
+    silently drop the `bytes` item and continue with the surviving relay
+    set at config load time across monitor publishing surfaces;
+  - added paired coverage in `services.test_monitor` proving those relay
+    entry boundaries now fail fast both on direct subconfig
+    construction and through root-level `MonitorConfig` parsing.

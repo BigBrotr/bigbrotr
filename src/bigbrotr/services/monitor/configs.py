@@ -113,6 +113,25 @@ def _validate_nonempty_raw_relay_list(data: Any) -> Any:
     raise ValueError("relays: expected at least one valid relay")
 
 
+def _reject_non_string_raw_relay_entries(data: Any) -> Any:
+    """Reject relay override entries that are neither canonical strings nor Relay objects."""
+    if not isinstance(data, dict) or "relays" not in data:
+        return data
+
+    raw = data.get("relays")
+    if raw is None or isinstance(raw, Relay):
+        return data
+    if isinstance(raw, (str, bytes, bytearray)) or not isinstance(raw, SequenceABC):
+        return data
+
+    for index, item in enumerate(raw):
+        if not isinstance(item, (str, Relay)):
+            raise ValueError(
+                f"relays[{index}]: expected string or Relay, got {type(item).__name__}"
+            )
+    return data
+
+
 class MetadataFlags(BaseModel):
     """Boolean flags controlling which metadata types to compute, store, or publish.
 
@@ -422,7 +441,7 @@ class PublishingConfig(BaseModel):
     @classmethod
     def reject_invalid_nonempty_relays(cls, data: Any) -> Any:
         """Reject non-empty publishing relay overrides when nothing valid remains."""
-        return _validate_nonempty_raw_relay_list(data)
+        return _validate_nonempty_raw_relay_list(_reject_non_string_raw_relay_entries(data))
 
 
 class DiscoveryConfig(BaseModel):
@@ -453,7 +472,7 @@ class DiscoveryConfig(BaseModel):
     @classmethod
     def reject_invalid_nonempty_relays(cls, data: Any) -> Any:
         """Reject non-empty discovery relay overrides when nothing valid remains."""
-        return _validate_nonempty_raw_relay_list(data)
+        return _validate_nonempty_raw_relay_list(_reject_non_string_raw_relay_entries(data))
 
     @field_validator("enabled", mode="before")
     @classmethod
@@ -502,7 +521,7 @@ class AnnouncementConfig(BaseModel):
     @classmethod
     def reject_invalid_nonempty_relays(cls, data: Any) -> Any:
         """Reject non-empty announcement relay overrides when nothing valid remains."""
-        return _validate_nonempty_raw_relay_list(data)
+        return _validate_nonempty_raw_relay_list(_reject_non_string_raw_relay_entries(data))
 
     @field_validator("enabled", mode="before")
     @classmethod
@@ -561,7 +580,7 @@ class ProfileConfig(BaseModel):
     @classmethod
     def reject_invalid_nonempty_relays(cls, data: Any) -> Any:
         """Reject non-empty profile relay overrides when nothing valid remains."""
-        return _validate_nonempty_raw_relay_list(data)
+        return _validate_nonempty_raw_relay_list(_reject_non_string_raw_relay_entries(data))
 
     @field_validator(
         "name",
@@ -611,7 +630,7 @@ class RelayListConfig(BaseModel):
     @classmethod
     def reject_invalid_nonempty_relays(cls, data: Any) -> Any:
         """Reject non-empty relay-list overrides when nothing valid remains."""
-        return _validate_nonempty_raw_relay_list(data)
+        return _validate_nonempty_raw_relay_list(_reject_non_string_raw_relay_entries(data))
 
     @field_validator("enabled", mode="before")
     @classmethod
