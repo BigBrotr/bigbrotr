@@ -334,6 +334,8 @@ class FinderConfig(BaseServiceConfig):
             Base class providing ``interval``, ``max_consecutive_failures``, and ``metrics`` fields.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     api: ApiConfig = Field(default_factory=ApiConfig, description="API fetching settings")
     events: EventsConfig = Field(
         default_factory=EventsConfig, description="Event scanning settings"

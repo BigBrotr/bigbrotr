@@ -598,6 +598,10 @@ class TestFinderConfig:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             FinderConfig.model_validate({b"api": {"enabled": False}})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            FinderConfig.model_validate({"event_scan": {"enabled": False}})
+
     def test_custom_nested_config(self) -> None:
         config = FinderConfig(
             interval=7200.0,

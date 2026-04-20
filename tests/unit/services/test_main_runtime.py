@@ -105,7 +105,7 @@ class TestRunService:
         service_dict = {
             "interval": 60.0,
             "max_consecutive_failures": 5,
-            "discovery": {"enabled_sources": []},
+            "api": {"sources": []},
         }
 
         with patch.object(Finder, "run_forever", AsyncMock()):
@@ -125,7 +125,7 @@ class TestRunService:
         service_dict = {
             "interval": 60.0,
             "max_consecutive_failures": 5,
-            "discovery": {"enabled_sources": []},
+            "api": {"sources": []},
         }
 
         with patch.object(Finder, "run_forever", AsyncMock(side_effect=Exception("Test error"))):
@@ -147,7 +147,7 @@ class TestRunService:
         service_dict = {
             "interval": 60.0,
             "max_consecutive_failures": 5,
-            "discovery": {"enabled_sources": []},
+            "api": {"sources": []},
             "metrics": {"enabled": True, "host": "127.0.0.1", "port": 9999},
         }
 
@@ -177,7 +177,7 @@ class TestRunService:
         service_dict = {
             "interval": 60.0,
             "max_consecutive_failures": 5,
-            "discovery": {"enabled_sources": []},
+            "api": {"sources": []},
         }
 
         removed: list[signal.Signals] = []
@@ -211,7 +211,7 @@ class TestRunService:
         service_dict = {
             "interval": 60.0,
             "max_consecutive_failures": 5,
-            "discovery": {"enabled_sources": []},
+            "api": {"sources": []},
             "metrics": {"enabled": True},
         }
 
@@ -261,7 +261,7 @@ class TestSignalHandling:
         service_dict = {
             "interval": 60.0,
             "max_consecutive_failures": 5,
-            "discovery": {"enabled_sources": []},
+            "api": {"sources": []},
         }
 
         registered_signals: list[signal.Signals] = []
@@ -301,7 +301,7 @@ class TestSignalHandling:
         service_dict = {
             "interval": 60.0,
             "max_consecutive_failures": 5,
-            "discovery": {"enabled_sources": []},
+            "api": {"sources": []},
         }
 
         captured_callbacks: list[

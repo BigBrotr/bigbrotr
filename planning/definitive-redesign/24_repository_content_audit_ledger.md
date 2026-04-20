@@ -5466,3 +5466,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_finder` proving those
     unknown field names now fail fast both on direct `EventsConfig`
     parsing and through nested `FinderConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-sixty-sixth
+  remediation slice:
+  - tightened the authored field-name boundary in
+    `services.finder.configs.FinderConfig` so unknown top-level keys
+    are now rejected instead of being ignored silently at config load
+    time;
+  - closed the drift where stale payloads like `event_scan: {...}`
+    could be accepted while leaving finder root settings at defaults
+    instead of applying the intended overlay;
+  - added coverage in `services.test_finder` proving those unknown
+    field names now fail fast on root-level `FinderConfig` parsing.
