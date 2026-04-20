@@ -4798,3 +4798,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_assertor` proving those
     selection budgets now fail fast both on nested config construction
     and through root-level `AssertorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-tenth
+  remediation slice:
+  - tightened the authored integer boundary in
+    `services.monitor.configs.RetryConfig` so `max_attempts` now
+    requires a canonical `int`;
+  - closed the drift where authored aliases like `"2"` or `2.0` could
+    silently coerce into valid retry-attempt budgets at config load
+    time;
+  - added paired coverage in `services.test_monitor` proving
+    `max_attempts` now fails fast both on direct `RetryConfig`
+    construction and through root-level `MonitorConfig` parsing.

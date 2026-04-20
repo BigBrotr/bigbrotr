@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence as SequenceABC
 from pathlib import Path
-from typing import Annotated, Any, Final
+from typing import Annotated, Any, Final, cast
 
 from pydantic import (
     BaseModel,
@@ -181,10 +181,12 @@ class RetryConfig(BaseModel):
 
     @field_validator("max_attempts", mode="before")
     @classmethod
-    def reject_boolean_max_attempts(cls, v: Any, info: ValidationInfo) -> Any:
-        """Reject boolean aliases that would otherwise coerce to retry counts."""
+    def require_integer_max_attempts(cls, v: Any, info: ValidationInfo) -> int:
+        """Require canonical integers for retry-attempt authored boundaries."""
         field_name = info.field_name or "max_attempts"
-        return _reject_bool_alias(v, field_name, "integer")
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError(f"{field_name}: expected integer, got {type(v).__name__}")
+        return cast("int", v)
 
     @field_validator("initial_delay", "max_delay", "jitter", mode="before")
     @classmethod

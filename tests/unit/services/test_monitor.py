@@ -495,6 +495,11 @@ class TestRetryConfig:
         with pytest.raises(ValueError, match=rf"{field_name}: expected {expected}, got bool"):
             RetryConfig(**kwargs)
 
+    @pytest.mark.parametrize("value", ["2", 2.0])
+    def test_rejects_non_integer_max_attempts_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_attempts: expected integer, got"):
+            RetryConfig(max_attempts=value)
+
 
 class TestRetriesConfig:
     def test_defaults(self) -> None:
@@ -912,6 +917,25 @@ class TestMonitorConfig:
         )
 
         assert config.interval == 600.0
+
+    @pytest.mark.parametrize("value", ["2", 2.0])
+    def test_nested_retries_reject_non_integer_max_attempts_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"max_attempts: expected integer, got"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "retries": {"nip11_info": {"max_attempts": value}},
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
 
 
 class TestMonitorConfigValidateGeoDatabases:
