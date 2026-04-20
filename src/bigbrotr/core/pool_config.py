@@ -27,6 +27,16 @@ def _require_number(value: Any, field_name: str) -> int | float:
     return cast("int | float", value)
 
 
+def _normalize_string(value: Any, field_name: str) -> str:
+    """Normalize authored string config values and reject blank payloads."""
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name}: expected string, got {type(value).__name__}")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{field_name} must not be blank")
+    return normalized
+
+
 class DatabaseConfig(BaseModel):
     """PostgreSQL connection parameters."""
 
@@ -143,6 +153,12 @@ class ServerSettingsConfig(BaseModel):
             "PgBouncer in transaction mode, as it is stripped by ignore_startup_parameters."
         ),
     )
+
+    @field_validator("application_name", "timezone", mode="before")
+    @classmethod
+    def normalize_string_fields(cls, value: Any, info: ValidationInfo) -> str:
+        field_name = info.field_name or "value"
+        return _normalize_string(value, field_name)
 
     @field_validator("statement_timeout", mode="before")
     @classmethod

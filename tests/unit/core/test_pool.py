@@ -506,6 +506,16 @@ class TestServerSettingsConfig:
         assert config.timezone == "America/New_York"
         assert config.statement_timeout == 600000
 
+    def test_string_fields_trim_whitespace(self) -> None:
+        """Test application_name and timezone canonicalize padded strings."""
+        config = ServerSettingsConfig(
+            application_name=" custom_app ",
+            timezone=" America/New_York ",
+        )
+
+        assert config.application_name == "custom_app"
+        assert config.timezone == "America/New_York"
+
     def test_statement_timeout_zero_allowed(self) -> None:
         """Test that statement_timeout of 0 (unlimited) is allowed."""
         config = ServerSettingsConfig(statement_timeout=0)
@@ -530,10 +540,20 @@ class TestServerSettingsConfig:
         with pytest.raises(ValidationError):
             ServerSettingsConfig(application_name="")
 
+    def test_blank_application_name_rejected(self) -> None:
+        """Test that whitespace-only application_name is rejected."""
+        with pytest.raises(ValidationError, match="application_name must not be blank"):
+            ServerSettingsConfig(application_name="   ")
+
     def test_empty_timezone_rejected(self) -> None:
         """Test that empty timezone is rejected."""
         with pytest.raises(ValidationError):
             ServerSettingsConfig(timezone="")
+
+    def test_blank_timezone_rejected(self) -> None:
+        """Test that whitespace-only timezone is rejected."""
+        with pytest.raises(ValidationError, match="timezone must not be blank"):
+            ServerSettingsConfig(timezone="   ")
 
 
 class TestPoolConfig:
@@ -669,6 +689,29 @@ class TestPoolConfig:
             ValidationError, match=rf"statement_timeout: expected integer, got {expected_type}"
         ):
             PoolConfig(server_settings={"statement_timeout": value})
+
+    def test_nested_server_settings_trim_string_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested server settings canonicalize padded string fields."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        config = PoolConfig(
+            server_settings={
+                "application_name": " custom_app ",
+                "timezone": " America/New_York ",
+            }
+        )
+
+        assert config.server_settings.application_name == "custom_app"
+        assert config.server_settings.timezone == "America/New_York"
+
+    def test_nested_server_settings_reject_blank_timezone(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested server settings reject whitespace-only timezone values."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="timezone must not be blank"):
+            PoolConfig(server_settings={"timezone": "   "})
 
     @pytest.mark.parametrize("port", ["5432", 5432.0])
     def test_nested_database_port_requires_canonical_int(self, port: object) -> None:

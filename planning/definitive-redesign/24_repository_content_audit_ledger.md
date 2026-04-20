@@ -4483,3 +4483,14 @@ Use this section during execution for:
   - added paired coverage in `core.test_pool` proving malformed integer
     aliases now fail fast both on the leaf server-settings config and
     through nested `PoolConfig.server_settings` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-eighty-second
+  remediation slice:
+  - tightened the shared authored string boundary in
+    `core.pool_config.ServerSettingsConfig` so `application_name` and
+    `timezone` now trim padded values and reject whitespace-only payloads;
+  - closed the drift where authored values like `" custom_app "` or
+    `"   "` could survive as non-canonical or semantically blank session
+    settings at config load time;
+  - added paired coverage in `core.test_pool` proving those string fields
+    now canonicalize or fail fast both on the leaf server-settings config
+    and through nested `PoolConfig.server_settings` parsing.
