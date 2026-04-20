@@ -4710,3 +4710,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_ranker` proving
     `rank_runs_retention` now fails fast both on the leaf cleanup
     config and through nested `RankerConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-second
+  remediation slice:
+  - tightened the authored string boundary in
+    `services.ranker.configs.RankerConfig` so `algorithm_id` now
+    requires a canonical `str` before regex validation;
+  - closed the drift where authored aliases like
+    `b"global-pagerank"` could silently decode into a valid algorithm
+    namespace at config load time;
+  - added paired coverage in `services.test_ranker` proving
+    `algorithm_id` now fails fast both on direct config construction and
+    through nested `RankerConfig` parsing.

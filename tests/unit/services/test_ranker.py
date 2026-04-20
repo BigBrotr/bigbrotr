@@ -785,6 +785,10 @@ class TestRankerConfig:
         with pytest.raises(ValueError, match="algorithm_id must match"):
             RankerConfig(algorithm_id="Global PageRank")
 
+    def test_ranker_rejects_non_string_algorithm_id_alias(self) -> None:
+        with pytest.raises(ValueError, match=r"algorithm_id: expected str, got bytes"):
+            RankerConfig(algorithm_id=b"global-pagerank")
+
     @pytest.mark.parametrize("value", ["false", 0, 1])
     def test_ranker_graph_rejects_non_boolean_ignore_self_follows_aliases(
         self, value: object
@@ -915,6 +919,10 @@ class TestRankerConfig:
     ) -> None:
         with pytest.raises(ValueError, match=r"ignore_self_follows: expected bool, got"):
             RankerConfig.model_validate({"graph": {"ignore_self_follows": value}})
+
+    def test_nested_rejects_non_string_algorithm_id_alias(self) -> None:
+        with pytest.raises(ValueError, match=r"algorithm_id: expected str, got bytes"):
+            RankerConfig.model_validate({"algorithm_id": b"global-pagerank"})
 
     @pytest.mark.parametrize("value", ["0.9", "0.85"])
     def test_nested_graph_rejects_non_numeric_damping_aliases(self, value: object) -> None:
