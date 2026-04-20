@@ -70,10 +70,11 @@ class LimitsConfig(BaseModel):
         mode="before",
     )
     @classmethod
-    def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
+    def require_canonical_numerics(cls, value: Any, info: ValidationInfo) -> Any:
         field_name = info.field_name or "value"
-        expected = "number" if field_name == "max_inactive_connection_lifetime" else "integer"
-        return _reject_bool_alias(value, field_name, expected)
+        if field_name in {"min_size", "max_size", "max_queries"}:
+            return _require_int(value, field_name)
+        return _reject_bool_alias(value, field_name, "number")
 
     @field_validator("max_size")
     @classmethod

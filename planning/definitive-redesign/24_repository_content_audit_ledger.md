@@ -4420,3 +4420,14 @@ Use this section during execution for:
   - added paired coverage in `core.test_pool` proving malformed integer
     aliases now fail fast both on the leaf database config and through
     nested `PoolConfig.database` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-seventy-sixth
+  remediation slice:
+  - tightened the shared authored integer boundary in
+    `core.pool_config.LimitsConfig` so `min_size`, `max_size`, and
+    `max_queries` now require canonical `int` values;
+  - closed the drift where payloads like `"5"`, `10.0`, or `"100"` could
+    silently become valid pool-size and recycle budgets at config load
+    time;
+  - added paired coverage in `core.test_pool` proving malformed integer
+    aliases now fail fast both on the leaf limits config and through
+    nested `PoolConfig.limits` parsing.

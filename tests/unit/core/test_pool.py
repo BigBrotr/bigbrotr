@@ -315,6 +315,25 @@ class TestLimitsConfig:
         with pytest.raises(ValidationError, match=rf"{field_name}: expected {expected}, got bool"):
             LimitsConfig(**{field_name: True})
 
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("min_size", "5"),
+            ("min_size", 5.0),
+            ("max_size", "10"),
+            ("max_size", 10.0),
+            ("max_queries", "100"),
+            ("max_queries", 100.0),
+        ],
+    )
+    def test_rejects_non_integer_aliases(self, field_name: str, value: object) -> None:
+        """Test string and float aliases do not coerce into integer pool limits."""
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"{field_name}: expected integer, got {expected_type}"
+        ):
+            LimitsConfig(**{field_name: value})
+
 
 class TestTimeoutsConfig:
     """Tests for TimeoutsConfig Pydantic model."""
@@ -519,6 +538,25 @@ class TestPoolConfig:
         assert "password" not in dump["database"]
         assert dump["database"]["host"] == "db.host"
         assert dump["database"]["password_env"] == "DB_ADMIN_PASSWORD"  # pragma: allowlist secret
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("min_size", "5"),
+            ("max_size", 10.0),
+            ("max_queries", "100"),
+        ],
+    )
+    def test_nested_limits_require_canonical_ints(
+        self, field_name: str, value: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested limits config rejects non-integer aliases."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"{field_name}: expected integer, got {expected_type}"
+        ):
+            PoolConfig(limits={field_name: value})
 
     @pytest.mark.parametrize("port", ["5432", 5432.0])
     def test_nested_database_port_requires_canonical_int(self, port: object) -> None:
