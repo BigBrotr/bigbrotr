@@ -4378,3 +4378,14 @@ Use this section during execution for:
     proving malformed or padded path values now fail fast or canonicalize
     both on the shared metrics config and through a concrete service config
     that embeds it.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-seventy-second
+  remediation slice:
+  - tightened the shared authored HTTP-path boundary in
+    `core.metrics.MetricsConfig` so `path` now canonicalizes authored values
+    to a leading-slash route form;
+  - closed the drift where payloads like `"metrics"` or `"custom/prom"`
+    could reach the `aiohttp` router without a canonical absolute path;
+  - added paired coverage in `core.test_metrics` and `services.test_api`
+    proving slashless metrics paths now canonicalize consistently both on
+    the shared metrics config and through a concrete service config that
+    embeds it.

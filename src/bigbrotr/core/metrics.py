@@ -107,6 +107,8 @@ class MetricsConfig(BaseModel):
         normalized = value.strip()
         if not normalized:
             raise ValueError(f"{info.field_name} must not be blank")
+        if not normalized.startswith("/"):
+            normalized = f"/{normalized}"
         return normalized
 
 

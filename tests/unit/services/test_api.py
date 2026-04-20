@@ -294,6 +294,10 @@ class TestApiConfig:
         config = ApiConfig(metrics={"path": "  /custom/prom  "})
         assert config.metrics.path == "/custom/prom"
 
+    def test_metrics_path_without_leading_slash_is_prefixed(self) -> None:
+        config = ApiConfig(metrics={"path": "custom/prom"})
+        assert config.metrics.path == "/custom/prom"
+
     def test_internal_read_model_rejected(self) -> None:
         with pytest.raises(ValueError, match=r"non-public API read models: service_state"):
             ApiConfig(read_models={"service_state": ReadModelPolicy(enabled=True)})

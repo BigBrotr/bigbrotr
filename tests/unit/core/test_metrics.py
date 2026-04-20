@@ -153,6 +153,11 @@ class TestMetricsConfigPaths:
         config = MetricsConfig(path="  /prometheus/metrics  ")
         assert config.path == "/prometheus/metrics"
 
+    def test_path_without_leading_slash_is_prefixed(self) -> None:
+        """Test that authored metrics paths gain the required leading slash."""
+        config = MetricsConfig(path="prometheus/metrics")
+        assert config.path == "/prometheus/metrics"
+
     def test_root_path(self) -> None:
         """Test root path is valid."""
         config = MetricsConfig(path="/")
