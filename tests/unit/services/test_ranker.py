@@ -816,6 +816,13 @@ class TestRankerConfig:
         with pytest.raises(ValueError, match=r"max_batches: expected integer, got"):
             RankerSyncConfig(max_batches=value)
 
+    @pytest.mark.parametrize("value", ["750", 750.0])
+    def test_ranker_sync_rejects_non_integer_max_followers_per_cycle_aliases(
+        self, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=r"max_followers_per_cycle: expected integer, got"):
+            RankerSyncConfig(max_followers_per_cycle=value)
+
     @pytest.mark.parametrize(
         ("payload", "field_name", "expected_type"),
         [
@@ -887,6 +894,13 @@ class TestRankerConfig:
     def test_nested_sync_rejects_non_integer_max_batches_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"max_batches: expected integer, got"):
             RankerConfig.model_validate({"sync": {"max_batches": value}})
+
+    @pytest.mark.parametrize("value", ["750", 750.0])
+    def test_nested_sync_rejects_non_integer_max_followers_per_cycle_aliases(
+        self, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=r"max_followers_per_cycle: expected integer, got"):
+            RankerConfig.model_validate({"sync": {"max_followers_per_cycle": value}})
 
 
 class TestRankerStore:
