@@ -332,6 +332,22 @@ class TestDvmConfig:
         assert len(config.relays) == 2
         assert all(isinstance(r, Relay) for r in config.relays)
 
+    def test_rejects_non_string_relay_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays\[1\]: expected string or Relay, got bytes",
+        ):
+            DvmConfig(relays=["wss://relay.example.com", b"wss://relay.damus.io"])
+
+    def test_root_level_parse_rejects_non_string_relay_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays\[1\]: expected string or Relay, got bytes",
+        ):
+            DvmConfig.model_validate(
+                {"relays": ["wss://relay.example.com", b"wss://relay.damus.io"]}
+            )
+
     def test_default_page_size_exceeds_max_rejected(self) -> None:
         with pytest.raises(ValueError, match="default_page_size"):
             DvmConfig(

@@ -12,6 +12,7 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Sequence as SequenceABC
 from typing import Annotated, Any, ClassVar, cast
 
 from pydantic import BeforeValidator, Field, ValidationInfo, field_validator
@@ -118,6 +119,19 @@ class DvmConfig(PublicReadAdapterConfig):
         default=False,
         description="Fall back to insecure transport on SSL certificate failure",
     )
+
+    @field_validator("relays", mode="before")
+    @classmethod
+    def _require_string_relay_entries(cls, value: Any, info: ValidationInfo) -> Any:
+        field_name = info.field_name or "value"
+        if isinstance(value, (str, bytes, bytearray)) or not isinstance(value, SequenceABC):
+            return value
+        for index, item in enumerate(value):
+            if not isinstance(item, (str, Relay)):
+                raise ValueError(
+                    f"{field_name}[{index}]: expected string or Relay, got {type(item).__name__}"
+                )
+        return value
 
     @field_validator("announce", "allow_insecure", mode="before")
     @classmethod

@@ -4892,3 +4892,17 @@ Use this section during execution for:
     string boundaries now fail fast both on direct `ApiConfig`
     construction and through root-level `ApiConfig.model_validate`
     parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-eighteenth
+  remediation slice:
+  - tightened the authored relay-list boundary in
+    `services.dvm.configs.DvmConfig` so `relays` now requires canonical
+    string or `Relay` entries instead of silently tolerating non-string
+    aliases inside mixed lists;
+  - closed the drift where authored payloads like
+    `["wss://relay.example.com", b"wss://relay.damus.io"]` could
+    silently drop the `bytes` item and continue with the surviving relay
+    set at config load time;
+  - added paired coverage in `services.test_dvm` proving those relay
+    entry boundaries now fail fast both on direct `DvmConfig`
+    construction and through root-level `DvmConfig.model_validate`
+    parsing.
