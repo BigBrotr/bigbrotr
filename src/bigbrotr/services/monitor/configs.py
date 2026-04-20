@@ -659,7 +659,9 @@ class RelayListConfig(BaseModel):
     @classmethod
     def reject_invalid_nonempty_relays(cls, data: Any) -> Any:
         """Reject non-empty relay-list overrides when nothing valid remains."""
-        return _validate_nonempty_raw_relay_list(_reject_non_string_raw_relay_entries(data))
+        return _validate_nonempty_raw_relay_list(
+            _reject_non_string_raw_relay_entries(_require_string_mapping_keys(data, "config"))
+        )
 
     @field_validator("enabled", mode="before")
     @classmethod

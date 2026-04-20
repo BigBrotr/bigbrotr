@@ -5137,3 +5137,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_monitor` proving those raw
     key boundaries now fail fast both on direct `ProfileConfig`
     construction and through root-level `MonitorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-thirty-eighth
+  remediation slice:
+  - tightened the authored mapping boundary in
+    `services.monitor.configs.RelayListConfig` so raw config payloads
+    now require canonical string keys before relay-list field parsing;
+  - closed the drift where authored field keys like `b"enabled"` could
+    be ignored silently at config load time, leaving relay-list
+    publishing enabled instead of applying the intended overlay;
+  - added paired coverage in `services.test_monitor` proving those raw
+    key boundaries now fail fast both on direct `RelayListConfig`
+    construction and through root-level `MonitorConfig` parsing.
