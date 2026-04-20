@@ -211,9 +211,19 @@ class TestAssertorConfig:
         with pytest.raises(ValidationError, match="relay_hint must be a valid relay URL"):
             AssertorConfig(trusted_provider_list={"relay_hint": "not-a-relay"})
 
+    def test_rejects_non_string_trusted_provider_relay_hint_alias(self) -> None:
+        with pytest.raises(ValidationError, match=r"relay_hint: expected string, got bytes"):
+            AssertorConfig(trusted_provider_list={"relay_hint": b"wss://relay.damus.io"})
+
     def test_nested_rejects_non_string_algorithm_id_alias(self) -> None:
         with pytest.raises(ValidationError, match=r"algorithm_id: expected str, got bytes"):
             AssertorConfig.model_validate({"algorithm_id": b"global-pagerank"})
+
+    def test_nested_rejects_non_string_trusted_provider_relay_hint_alias(self) -> None:
+        with pytest.raises(ValidationError, match=r"relay_hint: expected string, got bytes"):
+            AssertorConfig.model_validate(
+                {"trusted_provider_list": {"relay_hint": b"wss://relay.damus.io"}}
+            )
 
     @pytest.mark.parametrize(
         ("config", "message"),

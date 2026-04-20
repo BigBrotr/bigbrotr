@@ -4752,3 +4752,15 @@ Use this section during execution for:
   - added paired coverage in `services.test_assertor` proving
     `algorithm_id` now fails fast both on direct config construction and
     through root-level `AssertorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-sixth remediation
+  slice:
+  - tightened the authored string boundary in
+    `services.assertor.configs.TrustedProviderListConfig` so
+    `relay_hint` now requires a canonical `str | None` before relay URL
+    parsing and canonicalization;
+  - closed the drift where authored aliases like
+    `b"wss://relay.damus.io"` could silently decode into a valid relay
+    hint at config load time;
+  - added paired coverage in `services.test_assertor` proving
+    `relay_hint` now fails fast both on nested config construction and
+    through root-level `AssertorConfig` parsing.

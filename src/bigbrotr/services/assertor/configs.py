@@ -210,6 +210,15 @@ class TrustedProviderListConfig(BaseModel):
             raise ValueError("duplicate trusted-provider tag names are not allowed")
         return normalized
 
+    @field_validator("relay_hint", mode="before")
+    @classmethod
+    def relay_hint_is_string(cls, value: Any, info: ValidationInfo) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError(f"{info.field_name}: expected string, got {type(value).__name__}")
+        return value
+
     @field_validator("relay_hint")
     @classmethod
     def relay_hint_valid(cls, value: str | None) -> str | None:
