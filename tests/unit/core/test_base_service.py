@@ -134,6 +134,11 @@ class TestBaseServiceConfig:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             BaseServiceConfig.model_validate({"metrics": {b"enabled": True}})
 
+    def test_nested_metrics_unknown_field_names_rejected(self) -> None:
+        """Test nested metrics payloads reject stale field names."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            BaseServiceConfig.model_validate({"metrics": {"bind_host": "127.0.0.1"}})
+
     def test_subclass_root_raw_field_keys_rejected(self) -> None:
         """Test subclasses inherit the shared root raw-key boundary."""
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):

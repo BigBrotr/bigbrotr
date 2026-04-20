@@ -67,6 +67,11 @@ class TestMetricsConfig:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             MetricsConfig.model_validate({b"enabled": True})
 
+    def test_rejects_unknown_field_names(self) -> None:
+        """Test authored metrics payloads reject stale field names."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MetricsConfig.model_validate({"bind_host": "127.0.0.1"})
+
     @pytest.mark.parametrize("value", ["true", 1, 0])
     def test_rejects_non_boolean_enabled_aliases(self, value: object) -> None:
         """Test authored metrics toggles require canonical booleans."""

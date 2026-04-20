@@ -44,7 +44,7 @@ from prometheus_client import (
     Info,
     generate_latest,
 )
-from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 
 class MetricsConfig(BaseModel):
@@ -60,6 +60,8 @@ class MetricsConfig(BaseModel):
         [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
             Parent configuration that embeds this model.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="before")
     @classmethod
