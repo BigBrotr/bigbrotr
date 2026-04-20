@@ -269,6 +269,8 @@ class RetriesConfig(BaseModel):
             Parent config that embeds this model.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     nip11_info: RetryConfig = Field(
         default_factory=RetryConfig, description="Retry settings for NIP-11 info fetch"
     )
