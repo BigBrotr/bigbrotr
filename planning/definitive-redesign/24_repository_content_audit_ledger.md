@@ -4431,3 +4431,13 @@ Use this section during execution for:
   - added paired coverage in `core.test_pool` proving malformed integer
     aliases now fail fast both on the leaf limits config and through
     nested `PoolConfig.limits` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-seventy-seventh
+  remediation slice:
+  - tightened the shared authored numeric boundary in
+    `core.pool_config.LimitsConfig` so `max_inactive_connection_lifetime`
+    now requires a canonical numeric type;
+  - closed the drift where payloads like `"300"` or `"300.0"` could
+    silently become valid idle-lifetime budgets at config load time;
+  - added paired coverage in `core.test_pool` proving malformed numeric
+    aliases now fail fast both on the leaf limits config and through
+    nested `PoolConfig.limits` parsing.

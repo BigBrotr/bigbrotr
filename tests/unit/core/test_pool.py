@@ -334,6 +334,16 @@ class TestLimitsConfig:
         ):
             LimitsConfig(**{field_name: value})
 
+    @pytest.mark.parametrize("value", ["300.0", "300"])
+    def test_rejects_non_numeric_idle_lifetime_aliases(self, value: object) -> None:
+        """Test string aliases do not coerce into idle lifetime budgets."""
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError,
+            match=rf"max_inactive_connection_lifetime: expected number, got {expected_type}",
+        ):
+            LimitsConfig(max_inactive_connection_lifetime=value)
+
 
 class TestTimeoutsConfig:
     """Tests for TimeoutsConfig Pydantic model."""
@@ -557,6 +567,16 @@ class TestPoolConfig:
             ValidationError, match=rf"{field_name}: expected integer, got {expected_type}"
         ):
             PoolConfig(limits={field_name: value})
+
+    def test_nested_limits_require_canonical_idle_lifetime(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested limits config rejects string idle lifetime aliases."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(
+            ValidationError, match="max_inactive_connection_lifetime: expected number, got str"
+        ):
+            PoolConfig(limits={"max_inactive_connection_lifetime": "300.0"})
 
     @pytest.mark.parametrize("port", ["5432", 5432.0])
     def test_nested_database_port_requires_canonical_int(self, port: object) -> None:

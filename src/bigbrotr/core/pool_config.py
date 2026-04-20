@@ -1,7 +1,7 @@
 """Configuration models for the async PostgreSQL pool."""
 
 import os
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, Field, SecretStr, ValidationInfo, field_validator, model_validator
 
@@ -18,6 +18,13 @@ def _require_int(value: Any, field_name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{field_name}: expected integer, got {type(value).__name__}")
     return int(value)
+
+
+def _require_number(value: Any, field_name: str) -> int | float:
+    """Require canonical numeric types for authored pool config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name}: expected number, got {type(value).__name__}")
+    return cast("int | float", value)
 
 
 class DatabaseConfig(BaseModel):
@@ -74,7 +81,7 @@ class LimitsConfig(BaseModel):
         field_name = info.field_name or "value"
         if field_name in {"min_size", "max_size", "max_queries"}:
             return _require_int(value, field_name)
-        return _reject_bool_alias(value, field_name, "number")
+        return _require_number(value, field_name)
 
     @field_validator("max_size")
     @classmethod
