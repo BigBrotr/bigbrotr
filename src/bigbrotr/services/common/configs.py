@@ -349,6 +349,11 @@ class ClearnetConfig(BaseModel):
         default=10.0, ge=1.0, le=120.0, description="Connection timeout in seconds"
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _require_string_field_keys(cls, data: Any) -> Any:
+        return _require_string_mapping_keys(data, "config")
+
     @field_validator("max_tasks", mode="before")
     @classmethod
     def require_integer_max_tasks(cls, value: Any, info: ValidationInfo) -> int:
@@ -393,6 +398,11 @@ class TorConfig(BaseModel):
         default=30.0, ge=1.0, le=120.0, description="Connection timeout in seconds"
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _require_string_field_keys(cls, data: Any) -> Any:
+        return _require_string_mapping_keys(data, "config")
+
     @field_validator("max_tasks", mode="before")
     @classmethod
     def require_integer_max_tasks(cls, value: Any, info: ValidationInfo) -> int:
@@ -436,6 +446,11 @@ class I2pConfig(BaseModel):
     timeout: float = Field(
         default=45.0, ge=1.0, le=120.0, description="Connection timeout in seconds"
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _require_string_field_keys(cls, data: Any) -> Any:
+        return _require_string_mapping_keys(data, "config")
 
     @field_validator("max_tasks", mode="before")
     @classmethod
@@ -483,6 +498,11 @@ class LokiConfig(BaseModel):
     timeout: float = Field(
         default=30.0, ge=1.0, le=120.0, description="Connection timeout in seconds"
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _require_string_field_keys(cls, data: Any) -> Any:
+        return _require_string_mapping_keys(data, "config")
 
     @field_validator("max_tasks", mode="before")
     @classmethod

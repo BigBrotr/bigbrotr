@@ -486,6 +486,28 @@ class TestLokiConfigCustomValues:
 
 
 # =============================================================================
+# Network Config Field-Key Validation Tests
+# =============================================================================
+
+
+class TestNetworkConfigFieldKeys:
+    @pytest.mark.parametrize(
+        ("config_class", "payload"),
+        [
+            (ClearnetConfig, {b"timeout": 5.0}),
+            (TorConfig, {b"enabled": True}),
+            (I2pConfig, {b"max_tasks": 7}),
+            (LokiConfig, {b"proxy_url": "socks5://lokinet:1080"}),
+        ],
+    )
+    def test_model_validate_rejects_non_string_field_keys(
+        self, config_class: type, payload: dict[object, object]
+    ) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            config_class.model_validate(payload)
+
+
+# =============================================================================
 # Validation Tests (max_tasks and timeout constraints)
 # =============================================================================
 

@@ -1019,6 +1019,35 @@ class TestMonitorConfig:
                 }
             )
 
+    @pytest.mark.parametrize(
+        ("network_name", "payload"),
+        [
+            ("clearnet", {b"timeout": 5.0}),
+            ("tor", {b"enabled": True}),
+            ("i2p", {b"max_tasks": 7}),
+            ("loki", {b"proxy_url": "socks5://lokinet:1080"}),
+        ],
+    )
+    def test_nested_network_configs_reject_non_string_field_keys(
+        self, network_name: str, payload: dict[object, object]
+    ) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "networks": {network_name: payload},
+                }
+            )
+
     def test_interval_config(self) -> None:
         config = MonitorConfig(
             interval=600.0,
