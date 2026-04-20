@@ -143,7 +143,14 @@ class RankerSyncConfig(BaseModel):
     def require_integer_batch_size(cls, value: Any, info: ValidationInfo) -> int:
         return _require_integer(value, str(info.field_name))
 
-    @field_validator("max_batches", "max_followers_per_cycle", mode="before")
+    @field_validator("max_batches", mode="before")
+    @classmethod
+    def require_integer_max_batches(cls, value: Any, info: ValidationInfo) -> int | None:
+        if value is None:
+            return None
+        return _require_integer(value, str(info.field_name))
+
+    @field_validator("max_followers_per_cycle", mode="before")
     @classmethod
     def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
         return _reject_bool_alias(value, str(info.field_name), "integer")

@@ -811,6 +811,11 @@ class TestRankerConfig:
         with pytest.raises(ValueError, match=r"batch_size: expected integer, got"):
             RankerSyncConfig(batch_size=value)
 
+    @pytest.mark.parametrize("value", ["3", 3.0])
+    def test_ranker_sync_rejects_non_integer_max_batches_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_batches: expected integer, got"):
+            RankerSyncConfig(max_batches=value)
+
     @pytest.mark.parametrize(
         ("payload", "field_name", "expected_type"),
         [
@@ -877,6 +882,11 @@ class TestRankerConfig:
     def test_nested_sync_rejects_non_integer_batch_size_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"batch_size: expected integer, got"):
             RankerConfig.model_validate({"sync": {"batch_size": value}})
+
+    @pytest.mark.parametrize("value", ["3", 3.0])
+    def test_nested_sync_rejects_non_integer_max_batches_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_batches: expected integer, got"):
+            RankerConfig.model_validate({"sync": {"max_batches": value}})
 
 
 class TestRankerStore:

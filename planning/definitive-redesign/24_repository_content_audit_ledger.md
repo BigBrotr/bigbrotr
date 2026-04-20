@@ -4608,3 +4608,13 @@ Use this section during execution for:
   - added paired coverage in `services.test_ranker` proving
     `batch_size` now fails fast both on the leaf sync config and through
     nested `RankerConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-ninety-third
+  remediation slice:
+  - tightened the authored integer boundary in
+    `services.ranker.configs.RankerSyncConfig` so `max_batches` now
+    requires a canonical integer value or `None`;
+  - closed the drift where authored aliases like `"3"` or `3.0` could
+    silently change the follow-graph batch cap at config load time;
+  - added paired coverage in `services.test_ranker` proving
+    `max_batches` now fails fast both on the leaf sync config and
+    through nested `RankerConfig` parsing.
