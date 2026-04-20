@@ -399,6 +399,8 @@ class TorConfig(BaseModel):
             The enum member this config maps to.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = Field(default=False, description="Enable Tor relay processing")
     proxy_url: str | None = Field(
         default="socks5://tor:9050", description="SOCKS5 proxy URL for Tor"

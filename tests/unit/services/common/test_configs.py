@@ -528,6 +528,10 @@ class TestNetworkConfigFieldKeys:
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
             ClearnetConfig.model_validate({"retries": 3})
 
+    def test_tor_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            TorConfig.model_validate({"retries": 3})
+
 
 # =============================================================================
 # Validation Tests (max_tasks and timeout constraints)
@@ -958,3 +962,7 @@ class TestNetworksConfigYamlConstruction:
     def test_model_validate_rejects_unknown_clearnet_field_names(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
             NetworksConfig.model_validate({"clearnet": {"retries": 3}})
+
+    def test_model_validate_rejects_unknown_tor_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            NetworksConfig.model_validate({"tor": {"retries": 3}})
