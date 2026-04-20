@@ -202,6 +202,10 @@ class TestCleanupConfig:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             CleanupConfig.model_validate({b"max_failures": 50})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            CleanupConfig.model_validate({"retry_limit": 5})
+
 
 # ============================================================================
 # ValidatorConfig
@@ -280,6 +284,10 @@ class TestValidatorConfig:
     def test_nested_cleanup_rejects_non_string_field_keys(self) -> None:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             ValidatorConfig.model_validate({"cleanup": {b"max_failures": 50}})
+
+    def test_nested_cleanup_unknown_field_names_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ValidatorConfig.model_validate({"cleanup": {"retry_limit": 5}})
 
     def test_model_validate_rejects_non_string_field_keys(self) -> None:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
