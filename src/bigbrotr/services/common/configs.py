@@ -101,6 +101,16 @@ def _normalize_optional_proxy_url(value: Any) -> str | None:
     return normalize_proxy_url(value)
 
 
+def _normalize_optional_env_name(value: Any, field_name: str) -> str | None:
+    """Normalize optional authored environment-variable names."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name}: expected string, got {type(value).__name__}")
+    normalized = value.strip()
+    return normalized or None
+
+
 def parse_relay_list_fail_soft(raw: object) -> list[Relay] | None:
     """Parse one config value into canonical relays, skipping invalid entries."""
     if raw is None:
@@ -151,6 +161,13 @@ class NostrKeysConfig(BaseModel):
         """Redact private key material — show only the public key."""
         return self.__repr__()
 
+    @field_validator("keys_env", mode="before")
+    @classmethod
+    def normalize_keys_env(cls, value: Any, info: ValidationInfo) -> str | None:
+        """Canonicalize optional env-var names and reject non-string aliases."""
+        field_name = info.field_name or "value"
+        return _normalize_optional_env_name(value, field_name)
+
     @model_validator(mode="before")
     @classmethod
     def _load_keys_from_env(cls, data: Any) -> Any:
@@ -160,10 +177,7 @@ class NostrKeysConfig(BaseModel):
 
         data = dict(data)
 
-        env_var = data.get("keys_env")
-        if isinstance(env_var, str):
-            normalized_env_var = env_var.strip()
-            data["keys_env"] = normalized_env_var or None
+        data["keys_env"] = _normalize_optional_env_name(data.get("keys_env"), "keys_env")
 
         if data.get("keys") is not None:
             return data

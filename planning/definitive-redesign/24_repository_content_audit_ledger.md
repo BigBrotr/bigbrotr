@@ -4540,3 +4540,16 @@ Use this section during execution for:
     fail fast both on the leaf database config and through nested
     `PoolConfig.database` parsing, while preserving intentional
     surrounding spaces for non-blank secrets.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-eighty-seventh
+  remediation slice:
+  - tightened the shared authored string boundary in
+    `services.common.configs.NostrKeysConfig` so `keys_env` now requires
+    a real string or `None`, while preserving the existing `blank ->
+    None` contract;
+  - closed the drift where authored aliases like
+    `b"NOSTR_PRIVATE_KEY_DVM"` could silently coerce into env-var names
+    and alter key-loading behavior at config load time;
+  - added paired coverage in `services.common.test_configs` and
+    `services.test_dvm` proving non-string `keys_env` payloads now fail
+    fast both on the leaf shared config and through nested `DvmConfig`
+    parsing.

@@ -221,6 +221,13 @@ class TestDvmConfig:
         assert config.keys.keys_env == "NOSTR_PRIVATE_KEY_DVM"
         assert config.keys.keys.secret_key().to_hex() == VALID_HEX_KEY
 
+    def test_nested_keys_env_rejects_non_string_alias(self) -> None:
+        with pytest.raises(ValidationError, match=r"keys_env: expected string, got bytes"):
+            DvmConfig(
+                relays=["wss://relay.example.com"],
+                keys={"keys_env": b"NOSTR_PRIVATE_KEY_DVM"},
+            )
+
     def test_custom_branding(self) -> None:
         config = DvmConfig(
             relays=["wss://relay.example.com"],

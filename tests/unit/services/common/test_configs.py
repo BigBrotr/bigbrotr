@@ -60,6 +60,10 @@ class TestNostrKeysConfig:
         assert config.keys_env is None
         assert isinstance(config.keys, Keys)
 
+    def test_rejects_non_string_keys_env_alias(self) -> None:
+        with pytest.raises(ValidationError, match=r"keys_env: expected string, got bytes"):
+            NostrKeysConfig(keys_env=b"NOSTR_PRIVATE_KEY_MONITOR")
+
     def test_loads_hex_key_from_env(self) -> None:
         with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": VALID_HEX_KEY}):
             config = NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")
