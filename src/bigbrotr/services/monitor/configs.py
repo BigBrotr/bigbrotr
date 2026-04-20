@@ -472,6 +472,8 @@ class PublishingConfig(BaseModel):
             can override this list with their own ``relays`` field.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     relays: Annotated[
         list[Relay],
         BeforeValidator(parse_relay_list_fail_soft),

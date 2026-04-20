@@ -718,6 +718,10 @@ class TestPublishingConfig:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             PublishingConfig.model_validate({b"relays": ["wss://relay.example.com"]})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            PublishingConfig.model_validate({"publish_relays": ["wss://relay.example.com"]})
+
 
 class TestDiscoveryConfig:
     def test_default_values(self) -> None:
@@ -1136,6 +1140,24 @@ class TestMonitorConfig:
                         "include": {"nip66_geo": False, "nip66_net": False},
                     },
                     "publishing": {b"relays": ["wss://relay.example.com"]},
+                }
+            )
+
+    def test_nested_publishing_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "publishing": {"publish_relays": ["wss://relay.example.com"]},
                 }
             )
 
