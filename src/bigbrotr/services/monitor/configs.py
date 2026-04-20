@@ -221,6 +221,12 @@ class RetryConfig(BaseModel):
         default=0.5, ge=0.0, le=2.0, description="Random jitter factor for retry delay"
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        """Reject raw retry payloads with non-string mapping keys."""
+        return _require_string_mapping_keys(data, "config")
+
     @field_validator("max_attempts", mode="before")
     @classmethod
     def require_integer_max_attempts(cls, v: Any, info: ValidationInfo) -> int:

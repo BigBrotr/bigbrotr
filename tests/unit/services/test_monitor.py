@@ -533,6 +533,10 @@ class TestRetryConfig:
         with pytest.raises(ValueError, match=rf"{field_name}: expected number, got str"):
             RetryConfig(**kwargs)
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            RetryConfig.model_validate({b"max_attempts": 2})
+
 
 class TestRetriesConfig:
     def test_defaults(self) -> None:
@@ -1163,6 +1167,24 @@ class TestMonitorConfig:
                         "include": {"nip66_geo": False, "nip66_net": False},
                     },
                     "relay_list": {b"enabled": False},
+                }
+            )
+
+    def test_nested_retry_config_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                        "retries": {"nip11_info": {b"max_attempts": 2}},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
                 }
             )
 

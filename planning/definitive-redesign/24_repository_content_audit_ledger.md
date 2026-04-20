@@ -5148,3 +5148,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_monitor` proving those raw
     key boundaries now fail fast both on direct `RelayListConfig`
     construction and through root-level `MonitorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-thirty-ninth
+  remediation slice:
+  - tightened the authored mapping boundary in
+    `services.monitor.configs.RetryConfig` so raw config payloads now
+    require canonical string keys before retry field parsing;
+  - closed the drift where authored field keys like `b"max_attempts"`
+    could be ignored silently at config load time, leaving retry
+    budgets at defaults instead of applying the intended overlay;
+  - added paired coverage in `services.test_monitor` proving those raw
+    key boundaries now fail fast both on direct `RetryConfig`
+    construction and through root-level `MonitorConfig` parsing.
