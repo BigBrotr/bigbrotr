@@ -4308,3 +4308,15 @@ Use this section during execution for:
   - added paired coverage in `services.test_refresher` proving malformed
     numeric aliases now fail fast both on direct config construction and
     through root-level payload parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-sixty-sixth
+  remediation slice:
+  - tightened the shared authored integer boundary in
+    `core.base_service.BaseServiceConfig` so `max_consecutive_failures` now
+    requires a canonical `int` value;
+  - closed the drift where payloads like `"5"` or `5.0` could silently
+    become valid shutdown budgets across service configs that inherit the
+    shared base model;
+  - added paired coverage in `core.test_base_service` and
+    `services.test_validator` proving malformed integer aliases now fail
+    fast both on the shared base config and through a concrete service
+    config that inherits it.

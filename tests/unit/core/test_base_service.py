@@ -125,6 +125,14 @@ class TestBaseServiceConfig:
         ):
             BaseServiceConfig(max_consecutive_failures=True)
 
+    @pytest.mark.parametrize("value", ["5", 5.0])
+    def test_rejects_non_integer_max_consecutive_failures_aliases(self, value: object) -> None:
+        """Test non-integer aliases do not coerce into a valid shutdown budget."""
+        with pytest.raises(
+            ValidationError, match=r"max_consecutive_failures: expected integer, got"
+        ):
+            BaseServiceConfig(max_consecutive_failures=value)
+
     def test_max_consecutive_failures_negative_not_allowed(self) -> None:
         """Test that negative max_consecutive_failures is not allowed."""
         with pytest.raises(ValidationError):

@@ -73,11 +73,13 @@ class BaseServiceConfig(BaseModel):
 
     @field_validator("max_consecutive_failures", mode="before")
     @classmethod
-    def reject_boolean_max_consecutive_failures(cls, value: Any) -> Any:
-        """Reject bool aliases before they coerce into a one-failure budget."""
-        if isinstance(value, bool):
-            raise ValueError("max_consecutive_failures: expected integer, got bool")
-        return value
+    def require_integer_max_consecutive_failures(cls, value: Any) -> int:
+        """Require canonical integers for the shared consecutive-failure budget."""
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(
+                f"max_consecutive_failures: expected integer, got {type(value).__name__}"
+            )
+        return int(value)
 
 
 # Bound TypeVar ensuring all service configs inherit from BaseServiceConfig

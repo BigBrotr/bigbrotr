@@ -217,6 +217,11 @@ class TestValidatorConfig:
         with pytest.raises(ValueError):
             ValidatorConfig(max_consecutive_failures=101)
 
+    @pytest.mark.parametrize("value", ["5", 5.0])
+    def test_max_consecutive_failures_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"max_consecutive_failures: expected integer, got"):
+            ValidatorConfig(max_consecutive_failures=value)
+
     def test_nested_processing_via_dict(self) -> None:
         cfg = ValidatorConfig(processing={"chunk_size": 200, "max_candidates": 5000})
         assert cfg.processing.chunk_size == 200
