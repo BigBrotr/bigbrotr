@@ -345,6 +345,10 @@ class TestSynchronizerConfig:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             SynchronizerConfig.model_validate({"processing": {b"limit": 50}})
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            SynchronizerConfig.model_validate({b"timeouts": {"idle": 60.0}})
+
 
 # ============================================================================
 # Queries
