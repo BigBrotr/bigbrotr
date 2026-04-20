@@ -27,6 +27,7 @@ from bigbrotr.services.ranker.configs import (
     RankerFactsStageConfig,
     RankerGraphConfig,
     RankerProcessingConfig,
+    RankerStorageConfig,
     RankerSyncConfig,
 )
 from bigbrotr.services.ranker.queries import (
@@ -735,6 +736,14 @@ class TestRankerConfig:
         assert config.cleanup.rank_runs_retention == 100
         assert config.interval == 3600.0
 
+    def test_ranker_storage_rejects_blank_path(self) -> None:
+        with pytest.raises(ValueError, match=r"path must not be blank"):
+            RankerStorageConfig(path="   ")
+
+    def test_ranker_storage_canonicalizes_padded_path(self, tmp_path: Path) -> None:
+        config = RankerStorageConfig(path=f"  {tmp_path / 'graph.duckdb'}  ")
+        assert config.path == tmp_path / "graph.duckdb"
+
     def test_custom_nested_values(self, tmp_path: Path) -> None:
         config = RankerConfig.model_validate(
             {
@@ -919,6 +928,10 @@ class TestRankerConfig:
     ) -> None:
         with pytest.raises(ValueError, match=r"ignore_self_follows: expected bool, got"):
             RankerConfig.model_validate({"graph": {"ignore_self_follows": value}})
+
+    def test_nested_storage_rejects_blank_path(self) -> None:
+        with pytest.raises(ValueError, match=r"path must not be blank"):
+            RankerConfig.model_validate({"storage": {"path": "   "}})
 
     def test_nested_rejects_non_string_algorithm_id_alias(self) -> None:
         with pytest.raises(ValueError, match=r"algorithm_id: expected str, got bytes"):

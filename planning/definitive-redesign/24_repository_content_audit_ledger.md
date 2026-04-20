@@ -4721,3 +4721,12 @@ Use this section during execution for:
   - added paired coverage in `services.test_ranker` proving
     `algorithm_id` now fails fast both on direct config construction and
     through nested `RankerConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-third remediation
+  slice:
+  - tightened the authored path boundary in
+    `services.ranker.configs.RankerStorageConfig` so `path` now trims
+    string input and rejects blank values before `Path` construction;
+  - closed the drift where authored payloads like `"   "` could survive
+    as meaningless DuckDB storage paths at config load time;
+  - added paired coverage in `services.test_ranker` proving `path` now
+    rejects blank nested config and canonicalizes padded direct input.

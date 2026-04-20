@@ -43,6 +43,19 @@ def _require_integer(value: Any, field_name: str) -> int:
     return cast("int", value)
 
 
+def _normalize_non_blank_path(value: Any, field_name: str) -> Path:
+    """Require a canonical non-blank path for authored ranker config boundaries."""
+    if isinstance(value, Path):
+        normalized = str(value).strip()
+    elif isinstance(value, str):
+        normalized = value.strip()
+    else:
+        raise ValueError(f"{field_name}: expected path, got {type(value).__name__}")
+    if not normalized:
+        raise ValueError(f"{field_name} must not be blank")
+    return Path(normalized)
+
+
 class RankerStorageConfig(BaseModel):
     """DuckDB and checkpoint storage paths for the ranker."""
 
@@ -56,6 +69,11 @@ class RankerStorageConfig(BaseModel):
         default=Path("/app/data/ranker.checkpoint.json"),
         description="Optional legacy JSON checkpoint import path for the follow-graph cursor",
     )
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def require_non_blank_path(cls, value: Any, info: ValidationInfo) -> Path:
+        return _normalize_non_blank_path(value, str(info.field_name))
 
 
 class RankerProcessingConfig(BaseModel):
