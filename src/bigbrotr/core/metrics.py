@@ -79,6 +79,14 @@ class MetricsConfig(BaseModel):
             raise ValueError(f"{info.field_name}: expected bool, got {type(value).__name__}")
         return value
 
+    @field_validator("port", mode="before")
+    @classmethod
+    def require_integer_port(cls, value: Any, info: ValidationInfo) -> int:
+        """Require canonical integers for the shared metrics port."""
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"{info.field_name}: expected integer, got {type(value).__name__}")
+        return int(value)
+
 
 # Static service metadata (set once at startup)
 SERVICE_INFO = Info(

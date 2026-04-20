@@ -72,6 +72,12 @@ class TestMetricsConfig:
 class TestMetricsConfigPortValidation:
     """Tests for port validation in MetricsConfig."""
 
+    @pytest.mark.parametrize("value", ["9090", 9090.0, True])
+    def test_rejects_non_integer_port_aliases(self, value: object) -> None:
+        """Test authored metrics ports require canonical integers."""
+        with pytest.raises(ValidationError, match=r"port: expected integer, got"):
+            MetricsConfig(port=value)
+
     def test_port_minimum_validation(self) -> None:
         """Test port minimum validation (>= 1024)."""
         with pytest.raises(ValidationError) as exc_info:

@@ -273,6 +273,11 @@ class TestApiConfig:
         with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
             ApiConfig(metrics={"enabled": value})
 
+    @pytest.mark.parametrize("value", ["9090", 9090.0, True])
+    def test_metrics_port_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"port: expected integer, got"):
+            ApiConfig(metrics={"port": value})
+
     def test_internal_read_model_rejected(self) -> None:
         with pytest.raises(ValueError, match=r"non-public API read models: service_state"):
             ApiConfig(read_models={"service_state": ReadModelPolicy(enabled=True)})
