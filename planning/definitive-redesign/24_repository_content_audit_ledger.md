@@ -5227,3 +5227,13 @@ Use this section during execution for:
   - added paired coverage in `core.test_brotr` proving those raw key
     boundaries now fail fast both on direct `TimeoutsConfig`
     construction and through nested `BrotrConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-forty-sixth
+  remediation slice:
+  - tightened the shared mapping boundary in
+    `core.brotr_config.BrotrConfig` so raw config payloads now require
+    canonical string keys before root-level field parsing;
+  - closed the drift where authored field keys like `b"batch"` could
+    be ignored silently at config load time, leaving Brotr subconfigs
+    at defaults instead of applying the intended overlay;
+  - added coverage in `core.test_brotr` proving those raw key
+    boundaries now fail fast on root-level `BrotrConfig` parsing.

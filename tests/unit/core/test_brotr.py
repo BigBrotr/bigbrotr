@@ -224,6 +224,11 @@ class TestBrotrConfig:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             BrotrConfig.model_validate({"timeouts": {b"query": 30.0}})
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        """Test root field keys fail fast through BrotrConfig."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            BrotrConfig.model_validate({b"batch": {"max_size": 5000}})
+
 
 # ============================================================================
 # Brotr Initialization Tests
