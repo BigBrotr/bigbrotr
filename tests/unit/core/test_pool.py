@@ -209,6 +209,13 @@ class TestDatabaseConfig:
         with pytest.raises(ValidationError, match="password: expected string, got bytes"):
             DatabaseConfig(password=b"abc")
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        """Test raw database field keys must already be canonical strings."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            DatabaseConfig.model_validate(
+                {b"host": "db.example.com", "password": "test_pass"}  # pragma: allowlist secret
+            )
+
     @pytest.mark.parametrize(
         ("port", "expected_error"),
         [
@@ -747,6 +754,18 @@ class TestPoolConfig:
         """Test nested database config rejects byte password aliases."""
         with pytest.raises(ValidationError, match="password: expected string, got bytes"):
             PoolConfig(database={"password": b"abc"})
+
+    def test_nested_database_rejects_non_string_field_keys(self) -> None:
+        """Test nested database field keys fail fast through PoolConfig."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            PoolConfig.model_validate(
+                {
+                    "database": {
+                        b"host": "db.example.com",
+                        "password": "test_pass",  # pragma: allowlist secret
+                    }
+                }
+            )
 
     @pytest.mark.parametrize(
         ("field_name", "value"),

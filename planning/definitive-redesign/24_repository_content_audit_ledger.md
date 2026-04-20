@@ -5258,3 +5258,15 @@ Use this section during execution for:
   - added paired coverage in `core.test_pool` proving those raw key
     boundaries now fail fast both on direct `LimitsConfig`
     construction and through nested `PoolConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-forty-ninth
+  remediation slice:
+  - tightened the shared mapping boundary in
+    `core.pool_config.DatabaseConfig` so raw config payloads now require
+    canonical string keys before database field parsing and password
+    resolution;
+  - closed the drift where authored field keys like `b"host"` could be
+    ignored silently at config load time, leaving database connection
+    settings at defaults instead of applying the intended overlay;
+  - added paired coverage in `core.test_pool` proving those raw key
+    boundaries now fail fast both on direct `DatabaseConfig`
+    construction and through nested `PoolConfig` parsing.

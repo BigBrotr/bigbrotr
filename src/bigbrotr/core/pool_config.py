@@ -89,18 +89,22 @@ class DatabaseConfig(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def resolve_password(cls, data: dict[str, Any]) -> dict[str, Any]:
+    def resolve_password(cls, data: Any) -> Any:
         """Resolve the database password from the environment variable."""
-        if isinstance(data, dict) and "password" not in data:
-            env_var = _normalize_string(
-                data.get("password_env", "DB_ADMIN_PASSWORD"),  # pragma: allowlist secret
-                "password_env",
-            )
-            value = os.getenv(env_var)
-            if value is None:
-                raise ValueError(f"{env_var} environment variable not set")
-            data["password_env"] = env_var
-            data["password"] = SecretStr(_require_secret_string(value, "password"))
+        if isinstance(data, dict):
+            invalid_key = next((key for key in data if not isinstance(key, str)), None)
+            if invalid_key is not None:
+                raise ValueError(f"config: expected string keys, got {type(invalid_key).__name__}")
+            if "password" not in data:
+                env_var = _normalize_string(
+                    data.get("password_env", "DB_ADMIN_PASSWORD"),  # pragma: allowlist secret
+                    "password_env",
+                )
+                value = os.getenv(env_var)
+                if value is None:
+                    raise ValueError(f"{env_var} environment variable not set")
+                data["password_env"] = env_var
+                data["password"] = SecretStr(_require_secret_string(value, "password"))
         return data
 
 
