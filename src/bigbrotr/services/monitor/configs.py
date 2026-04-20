@@ -292,6 +292,15 @@ class ProcessingConfig(BaseModel):
             raise ValueError(f"{field_name}: expected integer, got {type(v).__name__}")
         return cast("int", v)
 
+    @field_validator("nip11_info_max_size", mode="before")
+    @classmethod
+    def require_integer_nip11_info_max_size(cls, v: Any, info: ValidationInfo) -> int:
+        """Require canonical integers for the authored NIP-11 body-size cap."""
+        field_name = info.field_name or "nip11_info_max_size"
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError(f"{field_name}: expected integer, got {type(v).__name__}")
+        return cast("int", v)
+
     @field_validator("max_relays", mode="before")
     @classmethod
     def require_integer_max_relays(cls, v: Any, info: ValidationInfo) -> int | None:

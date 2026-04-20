@@ -4842,3 +4842,15 @@ Use this section during execution for:
   - added paired coverage in `services.test_monitor` proving
     `chunk_size` now fails fast both on direct `ProcessingConfig`
     construction and through root-level `MonitorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-fourteenth
+  remediation slice:
+  - tightened the authored integer boundary in
+    `services.monitor.configs.ProcessingConfig` so
+    `nip11_info_max_size` now requires a canonical `int`;
+  - closed the drift where authored aliases like `"1048576"` or
+    `1048576.0` could silently coerce into a valid NIP-11 body-size cap
+    at config load time;
+  - added paired coverage in `services.test_monitor` proving
+    `nip11_info_max_size` now fails fast both on direct
+    `ProcessingConfig` construction and through root-level
+    `MonitorConfig` parsing.

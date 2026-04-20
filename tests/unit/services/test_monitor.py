@@ -439,6 +439,11 @@ class TestProcessingConfig:
         config = ProcessingConfig(nip11_info_max_size=2097152)  # 2MB
         assert config.nip11_info_max_size == 2097152
 
+    @pytest.mark.parametrize("value", ["1048576", 1048576.0])
+    def test_rejects_non_integer_nip11_info_max_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"nip11_info_max_size: expected integer, got"):
+            ProcessingConfig(nip11_info_max_size=value)
+
     def test_rejects_boolean_max_relays_alias(self) -> None:
         with pytest.raises(ValueError, match="max_relays: expected integer, got bool"):
             ProcessingConfig(max_relays=True)
@@ -968,6 +973,27 @@ class TestMonitorConfig:
                 {
                     "processing": {
                         "max_relays": value,
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    @pytest.mark.parametrize("value", ["1048576", 1048576.0])
+    def test_nested_processing_rejects_non_integer_nip11_info_max_size_aliases(
+        self, value: object
+    ) -> None:
+        with pytest.raises(ValidationError, match=r"nip11_info_max_size: expected integer, got"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "nip11_info_max_size": value,
                         "compute": {"nip66_geo": False, "nip66_net": False},
                         "store": {"nip66_geo": False, "nip66_net": False},
                     },
