@@ -147,7 +147,7 @@ class ServerSettingsConfig(BaseModel):
     @field_validator("statement_timeout", mode="before")
     @classmethod
     def reject_boolean_statement_timeout(cls, value: Any) -> Any:
-        return _reject_bool_alias(value, "statement_timeout", "integer")
+        return _require_int(value, "statement_timeout")
 
 
 class PoolConfig(BaseModel):

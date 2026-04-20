@@ -516,6 +516,15 @@ class TestServerSettingsConfig:
         with pytest.raises(ValidationError, match="statement_timeout: expected integer, got bool"):
             ServerSettingsConfig(statement_timeout=True)
 
+    @pytest.mark.parametrize("value", ["600000", 600000.0])
+    def test_rejects_non_integer_statement_timeout_aliases(self, value: object) -> None:
+        """Test string and float aliases do not coerce into statement timeout budgets."""
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"statement_timeout: expected integer, got {expected_type}"
+        ):
+            ServerSettingsConfig(statement_timeout=value)
+
     def test_empty_application_name_rejected(self) -> None:
         """Test that empty application_name is rejected."""
         with pytest.raises(ValidationError):
@@ -648,6 +657,18 @@ class TestPoolConfig:
             ValidationError, match=rf"{field_name}: expected number, got {expected_type}"
         ):
             PoolConfig(retry={field_name: value})
+
+    @pytest.mark.parametrize("value", ["600000", 600000.0])
+    def test_nested_server_settings_require_canonical_statement_timeout(
+        self, value: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested server settings reject non-integer statement timeout aliases."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"statement_timeout: expected integer, got {expected_type}"
+        ):
+            PoolConfig(server_settings={"statement_timeout": value})
 
     @pytest.mark.parametrize("port", ["5432", 5432.0])
     def test_nested_database_port_requires_canonical_int(self, port: object) -> None:

@@ -4472,3 +4472,14 @@ Use this section during execution for:
   - added paired coverage in `core.test_pool` proving malformed numeric
     aliases now fail fast both on the leaf retry config and through
     nested `PoolConfig.retry` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-eighty-first
+  remediation slice:
+  - tightened the shared authored integer boundary in
+    `core.pool_config.ServerSettingsConfig` so `statement_timeout` now
+    requires a canonical `int` value;
+  - closed the drift where payloads like `"600000"` or `600000.0` could
+    silently become valid server-side statement-timeout budgets at config
+    load time;
+  - added paired coverage in `core.test_pool` proving malformed integer
+    aliases now fail fast both on the leaf server-settings config and
+    through nested `PoolConfig.server_settings` parsing.
