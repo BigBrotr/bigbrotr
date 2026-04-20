@@ -148,7 +148,7 @@ def parse_relay_list_fail_soft(raw: object) -> list[Relay] | None:
 class NostrKeysConfig(BaseModel):
     """Shared Nostr signing-key config for services that publish or authenticate."""
 
-    model_config = {"arbitrary_types_allowed": True}
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
     keys_env: str | None = Field(
         default=None,

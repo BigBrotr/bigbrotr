@@ -73,6 +73,12 @@ class TestNostrKeysConfig:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             NostrKeysConfig.model_validate({b"keys_env": "NOSTR_PRIVATE_KEY_MONITOR"})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            NostrKeysConfig.model_validate(
+                {"private_key_env": "NOSTR_PRIVATE_KEY_MONITOR"}  # pragma: allowlist secret
+            )
+
     def test_loads_hex_key_from_env(self) -> None:
         with patch.dict(os.environ, {"NOSTR_PRIVATE_KEY_MONITOR": VALID_HEX_KEY}):
             config = NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_MONITOR")

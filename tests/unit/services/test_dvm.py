@@ -365,6 +365,12 @@ class TestDvmConfig:
                 {b"name": "LilBrotr DVM", "relays": ["wss://relay.example.com"]}
             )
 
+    def test_model_validate_rejects_unknown_keys_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            DvmConfig.model_validate(
+                {"keys": {"private_key_env": "NOSTR_PRIVATE_KEY_DVM"}}  # pragma: allowlist secret
+            )
+
     def test_default_page_size_exceeds_max_rejected(self) -> None:
         with pytest.raises(ValueError, match="default_page_size"):
             DvmConfig(
