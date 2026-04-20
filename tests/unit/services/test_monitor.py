@@ -875,6 +875,10 @@ class TestAnnouncementConfig:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             AnnouncementConfig.model_validate({b"enabled": False})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            AnnouncementConfig.model_validate({"announce_interval": 60.0})
+
 
 class TestProfileConfig:
     def test_default_values(self) -> None:
@@ -1214,6 +1218,24 @@ class TestMonitorConfig:
                     },
                     "announcement": {
                         b"enabled": False,
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    def test_nested_announcement_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "announce_interval": 60.0,
                         "include": {"nip66_geo": False, "nip66_net": False},
                     },
                 }

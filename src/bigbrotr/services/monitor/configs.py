@@ -553,6 +553,8 @@ class AnnouncementConfig(BaseModel):
             Builds the announcement event with frequency and timeout tags.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = Field(default=True, description="Enable Kind 10166 monitor announcement")
     interval: float = Field(
         default=86_400.0,
