@@ -4410,3 +4410,13 @@ Use this section during execution for:
   - added paired coverage in `core.test_brotr` proving malformed numeric
     aliases now fail fast both on the leaf timeout config and through
     nested `BrotrConfig.timeouts` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-seventy-fifth
+  remediation slice:
+  - tightened the shared authored integer boundary in
+    `core.pool_config.DatabaseConfig` so `port` now requires a canonical
+    `int` value;
+  - closed the drift where payloads like `"5432"` or `5432.0` could
+    silently become valid database ports at config load time;
+  - added paired coverage in `core.test_pool` proving malformed integer
+    aliases now fail fast both on the leaf database config and through
+    nested `PoolConfig.database` parsing.

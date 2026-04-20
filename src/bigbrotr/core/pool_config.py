@@ -13,6 +13,13 @@ def _reject_bool_alias(value: Any, field_name: str, expected: str) -> Any:
     return value
 
 
+def _require_int(value: Any, field_name: str) -> int:
+    """Require canonical integers for authored pool config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name}: expected integer, got {type(value).__name__}")
+    return int(value)
+
+
 class DatabaseConfig(BaseModel):
     """PostgreSQL connection parameters."""
 
@@ -30,7 +37,7 @@ class DatabaseConfig(BaseModel):
     @field_validator("port", mode="before")
     @classmethod
     def reject_boolean_port(cls, value: Any) -> Any:
-        return _reject_bool_alias(value, "port", "integer")
+        return _require_int(value, "port")
 
     @model_validator(mode="before")
     @classmethod

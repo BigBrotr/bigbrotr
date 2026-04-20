@@ -197,6 +197,17 @@ class TestDatabaseConfig:
         with pytest.raises(ValidationError, match="port: expected integer, got bool"):
             DatabaseConfig(port=True)
 
+    @pytest.mark.parametrize("port", ["5432", 5432.0])
+    def test_rejects_non_integer_port_aliases(
+        self, port: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test string and float aliases do not coerce into valid database ports."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+
+        expected_type = type(port).__name__
+        with pytest.raises(ValidationError, match=rf"port: expected integer, got {expected_type}"):
+            DatabaseConfig(port=port)
+
     def test_empty_host_raises_validation_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that empty host raises ValidationError."""
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
@@ -508,6 +519,15 @@ class TestPoolConfig:
         assert "password" not in dump["database"]
         assert dump["database"]["host"] == "db.host"
         assert dump["database"]["password_env"] == "DB_ADMIN_PASSWORD"  # pragma: allowlist secret
+
+    @pytest.mark.parametrize("port", ["5432", 5432.0])
+    def test_nested_database_port_requires_canonical_int(self, port: object) -> None:
+        """Test nested database config rejects non-integer port aliases."""
+        expected_type = type(port).__name__
+        with pytest.raises(ValidationError, match=rf"port: expected integer, got {expected_type}"):
+            PoolConfig(
+                database={"port": port, "password": "test_pass"}  # pragma: allowlist secret
+            )
 
 
 # ============================================================================
