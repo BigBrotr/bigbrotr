@@ -87,6 +87,17 @@ class MetricsConfig(BaseModel):
             raise ValueError(f"{info.field_name}: expected integer, got {type(value).__name__}")
         return int(value)
 
+    @field_validator("host", mode="before")
+    @classmethod
+    def normalize_host(cls, value: Any, info: ValidationInfo) -> str:
+        """Normalize the shared metrics bind host and reject blank values."""
+        if not isinstance(value, str):
+            raise ValueError(f"{info.field_name}: expected string, got {type(value).__name__}")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError(f"{info.field_name} must not be blank")
+        return normalized
+
 
 # Static service metadata (set once at startup)
 SERVICE_INFO = Info(

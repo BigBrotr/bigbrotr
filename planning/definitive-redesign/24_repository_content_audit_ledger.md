@@ -4354,3 +4354,15 @@ Use this section during execution for:
   - added paired coverage in `core.test_metrics` and `services.test_api`
     proving malformed integer aliases now fail fast both on the shared
     metrics config and through a concrete service config that embeds it.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-seventieth
+  remediation slice:
+  - tightened the shared authored string boundary in
+    `core.metrics.MetricsConfig` so `host` now trims surrounding whitespace
+    and rejects blank values;
+  - closed the drift where payloads like `"   "` could survive as
+    semantically empty metrics bind hosts inside nested service configs at
+    load time;
+  - added paired coverage in `core.test_metrics` and `services.test_api`
+    proving malformed or padded host values now fail fast or canonicalize
+    both on the shared metrics config and through a concrete service config
+    that embeds it.

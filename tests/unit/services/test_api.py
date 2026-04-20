@@ -278,6 +278,14 @@ class TestApiConfig:
         with pytest.raises(ValueError, match=r"port: expected integer, got"):
             ApiConfig(metrics={"port": value})
 
+    def test_metrics_whitespace_only_host_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"host must not be blank"):
+            ApiConfig(metrics={"host": "   "})
+
+    def test_metrics_padded_host_is_trimmed(self) -> None:
+        config = ApiConfig(metrics={"host": " 127.0.0.1 "})
+        assert config.metrics.host == "127.0.0.1"
+
     def test_internal_read_model_rejected(self) -> None:
         with pytest.raises(ValueError, match=r"non-public API read models: service_state"):
             ApiConfig(read_models={"service_state": ReadModelPolicy(enabled=True)})

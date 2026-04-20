@@ -123,6 +123,16 @@ class TestMetricsConfigPaths:
         with pytest.raises(ValidationError):
             MetricsConfig(host="")
 
+    def test_whitespace_only_host_rejected(self) -> None:
+        """Test that whitespace-only host strings are rejected."""
+        with pytest.raises(ValidationError, match=r"host must not be blank"):
+            MetricsConfig(host="   ")
+
+    def test_padded_host_is_trimmed(self) -> None:
+        """Test that padded host values are canonicalized."""
+        config = MetricsConfig(host=" 127.0.0.1 ")
+        assert config.host == "127.0.0.1"
+
     def test_empty_path_rejected(self) -> None:
         """Test that empty path string is rejected."""
         with pytest.raises(ValidationError):
