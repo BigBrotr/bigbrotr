@@ -93,6 +93,11 @@ class RankerGraphConfig(BaseModel):
         description="Ignore self-follow edges when computing PageRank",
     )
 
+    @field_validator("damping", mode="before")
+    @classmethod
+    def require_numeric_damping(cls, value: Any, info: ValidationInfo) -> int | float:
+        return _require_number(value, str(info.field_name))
+
     @field_validator("iterations", mode="before")
     @classmethod
     def reject_boolean_iterations(cls, value: Any, info: ValidationInfo) -> Any:

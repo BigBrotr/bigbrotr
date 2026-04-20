@@ -4575,3 +4575,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_ranker` proving
     `max_duration` now fails fast both on the leaf processing config and
     through nested `RankerConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-ninetieth
+  remediation slice:
+  - tightened the authored numeric boundary in
+    `services.ranker.configs.RankerGraphConfig` so `damping` now
+    requires a canonical numeric value;
+  - closed the drift where authored aliases like `"0.9"` or `"0.85"`
+    could silently change the PageRank damping factor at config load
+    time;
+  - added paired coverage in `services.test_ranker` proving `damping`
+    now fails fast both on the leaf graph config and through nested
+    `RankerConfig` parsing.
