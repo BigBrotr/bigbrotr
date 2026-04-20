@@ -144,6 +144,10 @@ class TestFilterParsing:
         config = ProcessingConfig(filters=[f])
         assert config.filters[0] is f
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            ProcessingConfig.model_validate({b"limit": 50})
+
 
 class TestTimeoutsConfig:
     def test_default_values(self) -> None:
@@ -336,6 +340,10 @@ class TestSynchronizerConfig:
     def test_nested_timeouts_reject_non_string_field_keys(self) -> None:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             SynchronizerConfig.model_validate({"timeouts": {b"idle": 60.0}})
+
+    def test_nested_processing_reject_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            SynchronizerConfig.model_validate({"processing": {b"limit": 50}})
 
 
 # ============================================================================
