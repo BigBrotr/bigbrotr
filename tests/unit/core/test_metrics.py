@@ -138,9 +138,19 @@ class TestMetricsConfigPaths:
         with pytest.raises(ValidationError):
             MetricsConfig(path="")
 
+    def test_whitespace_only_path_rejected(self) -> None:
+        """Test that whitespace-only path strings are rejected."""
+        with pytest.raises(ValidationError, match=r"path must not be blank"):
+            MetricsConfig(path="   ")
+
     def test_custom_path(self) -> None:
         """Test custom metrics path."""
         config = MetricsConfig(path="/prometheus/metrics")
+        assert config.path == "/prometheus/metrics"
+
+    def test_padded_path_is_trimmed(self) -> None:
+        """Test that padded path values are canonicalized."""
+        config = MetricsConfig(path="  /prometheus/metrics  ")
         assert config.path == "/prometheus/metrics"
 
     def test_root_path(self) -> None:
