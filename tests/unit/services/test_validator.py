@@ -156,6 +156,10 @@ class TestProcessingConfig:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             ProcessingConfig.model_validate({b"chunk_size": 200})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ProcessingConfig.model_validate({"max_relays": 5})
+
 
 # ============================================================================
 # CleanupConfig
@@ -238,6 +242,10 @@ class TestValidatorConfig:
     def test_nested_processing_rejects_non_string_field_keys(self) -> None:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             ValidatorConfig.model_validate({"processing": {b"chunk_size": 200}})
+
+    def test_nested_processing_unknown_field_names_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ValidatorConfig.model_validate({"processing": {"max_relays": 5}})
 
     @pytest.mark.parametrize("value", ["120", "120.5"])
     def test_nested_processing_interval_aliases_rejected(self, value: object) -> None:

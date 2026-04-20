@@ -5541,3 +5541,16 @@ Use this section during execution for:
   - added coverage in `services.test_refresher` proving those unknown
     field names now fail fast on root-level `RefresherConfig`
     parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-seventy-second
+  remediation slice:
+  - tightened the authored field-name boundary in
+    `services.validator.configs.ProcessingConfig` so unknown
+    processing keys are now rejected instead of being ignored silently
+    at config load time;
+  - closed the drift where stale payloads like `max_relays: 5` could
+    be accepted while leaving validator processing settings at
+    defaults instead of applying the intended overlay;
+  - added paired coverage in `services.test_validator` proving those
+    unknown field names now fail fast both on direct
+    `ProcessingConfig` parsing and through nested
+    `ValidatorConfig` parsing.

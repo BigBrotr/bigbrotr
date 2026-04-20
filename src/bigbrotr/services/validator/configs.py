@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.services.common.configs import NetworksConfig
@@ -55,6 +55,8 @@ class ProcessingConfig(BaseModel):
         [ValidatorConfig][bigbrotr.services.validator.ValidatorConfig]:
             Parent config that embeds this model.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     chunk_size: int = Field(
         default=100, ge=10, le=1000, description="Candidates to fetch and validate per iteration"
