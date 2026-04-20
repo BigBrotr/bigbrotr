@@ -21,6 +21,7 @@ from bigbrotr.services.ranker import (
     store_graph,
     store_non_user,
 )
+from bigbrotr.services.ranker.configs import RankerGraphConfig
 from bigbrotr.services.ranker.queries import (
     AddressableStatFact,
     ContactListFact,
@@ -777,6 +778,13 @@ class TestRankerConfig:
         with pytest.raises(ValueError, match="algorithm_id must match"):
             RankerConfig(algorithm_id="Global PageRank")
 
+    @pytest.mark.parametrize("value", ["false", 0, 1])
+    def test_ranker_graph_rejects_non_boolean_ignore_self_follows_aliases(
+        self, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=r"ignore_self_follows: expected bool, got"):
+            RankerGraphConfig(ignore_self_follows=value)
+
     @pytest.mark.parametrize(
         ("payload", "field_name", "expected_type"),
         [
@@ -814,6 +822,13 @@ class TestRankerConfig:
     ) -> None:
         with pytest.raises(ValueError, match=rf"{field_name}: expected {expected_type}, got bool"):
             RankerConfig.model_validate(payload)
+
+    @pytest.mark.parametrize("value", ["false", 0, 1])
+    def test_nested_graph_rejects_non_boolean_ignore_self_follows_aliases(
+        self, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=r"ignore_self_follows: expected bool, got"):
+            RankerConfig.model_validate({"graph": {"ignore_self_follows": value}})
 
 
 class TestRankerStore:

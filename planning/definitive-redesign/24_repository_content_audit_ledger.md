@@ -4553,3 +4553,14 @@ Use this section during execution for:
     `services.test_dvm` proving non-string `keys_env` payloads now fail
     fast both on the leaf shared config and through nested `DvmConfig`
     parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-eighty-eighth
+  remediation slice:
+  - tightened the authored boolean boundary in
+    `services.ranker.configs.RankerGraphConfig` so
+    `ignore_self_follows` now requires a canonical `bool` value;
+  - closed the drift where authored aliases like `"false"`, `0`, or `1`
+    could silently change PageRank self-edge handling at config load
+    time;
+  - added paired coverage in `services.test_ranker` proving
+    `ignore_self_follows` now fails fast both on the leaf graph config
+    and through nested `RankerConfig` parsing.

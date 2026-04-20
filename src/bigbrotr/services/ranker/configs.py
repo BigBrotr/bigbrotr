@@ -22,6 +22,13 @@ def _reject_bool_alias(value: Any, field_name: str, expected_type: str) -> Any:
     return value
 
 
+def _require_bool(value: Any, field_name: str) -> bool:
+    """Require canonical booleans for authored ranker config boundaries."""
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected bool, got {type(value).__name__}")
+    return value
+
+
 class RankerStorageConfig(BaseModel):
     """DuckDB and checkpoint storage paths for the ranker."""
 
@@ -81,6 +88,11 @@ class RankerGraphConfig(BaseModel):
     @classmethod
     def reject_boolean_iterations(cls, value: Any, info: ValidationInfo) -> Any:
         return _reject_bool_alias(value, str(info.field_name), "integer")
+
+    @field_validator("ignore_self_follows", mode="before")
+    @classmethod
+    def require_boolean_ignore_self_follows(cls, value: Any, info: ValidationInfo) -> bool:
+        return _require_bool(value, str(info.field_name))
 
 
 class RankerSyncConfig(BaseModel):
