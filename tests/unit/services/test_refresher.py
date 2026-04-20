@@ -237,6 +237,10 @@ class TestRefreshTargetConfig:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             RefresherConfig.model_validate({b"processing": {"max_source_window": 3600}})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            RefresherConfig.model_validate({"processing_window": {"max_source_window": 3600}})
+
     def test_empty_targets_are_allowed(self) -> None:
         config = _refresher_config()
 
