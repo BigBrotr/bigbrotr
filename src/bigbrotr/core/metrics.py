@@ -33,6 +33,8 @@ See Also:
 
 from __future__ import annotations
 
+from typing import Any
+
 from aiohttp import web
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
@@ -42,7 +44,7 @@ from prometheus_client import (
     Info,
     generate_latest,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 
 class MetricsConfig(BaseModel):
@@ -68,6 +70,14 @@ class MetricsConfig(BaseModel):
         "(relies on Docker network isolation for access control)",
     )
     path: str = Field(default="/metrics", min_length=1, description="Metrics endpoint path")
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def require_boolean_enabled(cls, value: Any, info: ValidationInfo) -> bool:
+        """Require canonical booleans for the shared metrics toggle."""
+        if not isinstance(value, bool):
+            raise ValueError(f"{info.field_name}: expected bool, got {type(value).__name__}")
+        return value
 
 
 # Static service metadata (set once at startup)

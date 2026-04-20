@@ -4332,3 +4332,14 @@ Use this section during execution for:
     `services.test_seeder` proving malformed interval aliases now fail fast
     both on the shared base config and through a concrete service config
     that inherits it.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-sixty-eighth
+  remediation slice:
+  - tightened the shared authored boolean boundary in
+    `core.metrics.MetricsConfig` so `enabled` now requires a canonical
+    `bool` value;
+  - closed the drift where payloads like `"true"`, `1`, or `0` could
+    silently enable or disable the Prometheus endpoint inside nested service
+    configs at load time;
+  - added paired coverage in `core.test_metrics` and `services.test_api`
+    proving malformed boolean aliases now fail fast both on the shared
+    metrics config and through a concrete service config that embeds it.

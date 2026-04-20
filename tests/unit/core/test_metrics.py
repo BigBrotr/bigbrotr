@@ -62,6 +62,12 @@ class TestMetricsConfig:
         config = MetricsConfig()
         assert config.enabled is False
 
+    @pytest.mark.parametrize("value", ["true", 1, 0])
+    def test_rejects_non_boolean_enabled_aliases(self, value: object) -> None:
+        """Test authored metrics toggles require canonical booleans."""
+        with pytest.raises(ValidationError, match=r"enabled: expected bool, got"):
+            MetricsConfig(enabled=value)
+
 
 class TestMetricsConfigPortValidation:
     """Tests for port validation in MetricsConfig."""
