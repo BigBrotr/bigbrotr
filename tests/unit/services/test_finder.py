@@ -386,6 +386,10 @@ class TestApiConfig:
         assert config.request_delay == 1.0
         assert config.max_response_size == 5_242_880
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            ApiConfig.model_validate({b"enabled": False})
+
     @pytest.mark.parametrize("value", ["false", 1, 0])
     def test_rejects_non_boolean_enabled_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
@@ -663,6 +667,10 @@ class TestFinderConfig:
     def test_nested_api_reject_non_integer_max_response_size_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"max_response_size: expected integer, got"):
             FinderConfig(api={"max_response_size": value})
+
+    def test_nested_api_reject_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            FinderConfig.model_validate({"api": {b"enabled": False}})
 
     def test_nested_api_sources_reject_non_string_field_keys(self) -> None:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):

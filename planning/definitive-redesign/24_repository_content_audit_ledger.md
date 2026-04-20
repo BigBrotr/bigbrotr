@@ -5056,3 +5056,15 @@ Use this section during execution for:
   - added paired coverage in `services.test_finder` proving those raw
     key boundaries now fail fast both on direct `ApiSourceConfig`
     construction and through root-level `FinderConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-thirty-first
+  remediation slice:
+  - tightened the authored mapping boundary in
+    `services.finder.configs.ApiConfig` so raw config payloads now
+    require canonical string keys before API-phase field parsing;
+  - closed the drift where authored field keys like `b"enabled"` or
+    `b"cooldown"` inside API config payloads could be ignored silently
+    at config load time, leaving the default API phase behavior in place
+    instead of applying the intended overlay;
+  - added paired coverage in `services.test_finder` proving those raw
+    key boundaries now fail fast both on direct `ApiConfig`
+    construction and through root-level `FinderConfig` parsing.
