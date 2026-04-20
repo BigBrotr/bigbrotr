@@ -836,6 +836,13 @@ class TestRankerConfig:
         with pytest.raises(ValueError, match=r"max_event_rows: expected integer, got"):
             RankerFactsStageConfig(max_event_rows=value)
 
+    @pytest.mark.parametrize("value", ["2000", 2000.0])
+    def test_ranker_facts_stage_rejects_non_integer_max_addressable_rows_aliases(
+        self, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=r"max_addressable_rows: expected integer, got"):
+            RankerFactsStageConfig(max_addressable_rows=value)
+
     @pytest.mark.parametrize(
         ("payload", "field_name", "expected_type"),
         [
@@ -926,6 +933,13 @@ class TestRankerConfig:
     ) -> None:
         with pytest.raises(ValueError, match=r"max_event_rows: expected integer, got"):
             RankerConfig.model_validate({"facts_stage": {"max_event_rows": value}})
+
+    @pytest.mark.parametrize("value", ["2000", 2000.0])
+    def test_nested_facts_stage_rejects_non_integer_max_addressable_rows_aliases(
+        self, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=r"max_addressable_rows: expected integer, got"):
+            RankerConfig.model_validate({"facts_stage": {"max_addressable_rows": value}})
 
 
 class TestRankerStore:

@@ -199,7 +199,14 @@ class RankerFactsStageConfig(BaseModel):
             return None
         return _require_integer(value, str(info.field_name))
 
-    @field_validator("max_addressable_rows", "max_identifier_rows", mode="before")
+    @field_validator("max_addressable_rows", mode="before")
+    @classmethod
+    def require_integer_max_addressable_rows(cls, value: Any, info: ValidationInfo) -> int | None:
+        if value is None:
+            return None
+        return _require_integer(value, str(info.field_name))
+
+    @field_validator("max_identifier_rows", mode="before")
     @classmethod
     def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
         return _reject_bool_alias(value, str(info.field_name), "integer")

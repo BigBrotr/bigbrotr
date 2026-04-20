@@ -4652,3 +4652,15 @@ Use this section during execution for:
   - added paired coverage in `services.test_ranker` proving
     `max_event_rows` now fails fast both on the leaf facts-stage config
     and through nested `RankerConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-ninety-seventh
+  remediation slice:
+  - tightened the authored integer boundary in
+    `services.ranker.configs.RankerFactsStageConfig` so
+    `max_addressable_rows` now requires a canonical integer value or
+    `None`;
+  - closed the drift where authored aliases like `"2000"` or `2000.0`
+    could silently change the addressable fact staging cap at config
+    load time;
+  - added paired coverage in `services.test_ranker` proving
+    `max_addressable_rows` now fails fast both on the leaf facts-stage
+    config and through nested `RankerConfig` parsing.
