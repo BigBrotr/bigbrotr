@@ -5441,3 +5441,16 @@ Use this section during execution for:
   - added paired coverage in `services.test_finder` proving those
     unknown field names now fail fast both on direct `ApiConfig`
     parsing and through nested `FinderConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-sixty-fourth
+  remediation slice:
+  - tightened the authored field-name boundary in
+    `services.finder.configs.ApiSourceConfig` so unknown source keys
+    are now rejected instead of being ignored silently at config load
+    time;
+  - closed the drift where stale payloads like `name: "nostr_wine"`
+    could be accepted while leaving finder API source settings at
+    defaults instead of applying the intended overlay;
+  - added paired coverage in `services.test_finder` proving those
+    unknown field names now fail fast both on direct
+    `ApiSourceConfig` parsing and through nested `FinderConfig`
+    source-list parsing.

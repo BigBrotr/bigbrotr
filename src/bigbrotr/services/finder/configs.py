@@ -180,6 +180,8 @@ class ApiSourceConfig(BaseModel):
             The extraction function driven by this field.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     url: str = Field(description="API endpoint URL")
     enabled: bool = Field(default=True, description="Enable this source")
     timeout: float = Field(default=30.0, ge=0.1, le=120.0, description="Request timeout")

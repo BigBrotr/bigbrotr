@@ -215,6 +215,16 @@ class TestApiSourceConfig:
                 }
             )
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ApiSourceConfig.model_validate(
+                {
+                    "url": "https://api.example.com",
+                    "expression": "[*]",
+                    "name": "nostr_wine",
+                }
+            )
+
     def test_expression_required(self) -> None:
         with pytest.raises(ValidationError):
             ApiSourceConfig(url="https://api.example.com")
@@ -694,6 +704,22 @@ class TestFinderConfig:
                                 "url": "https://api.example.com",
                                 "expression": "[*]",
                                 b"enabled": False,
+                            }
+                        ]
+                    }
+                }
+            )
+
+    def test_nested_api_sources_reject_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            FinderConfig.model_validate(
+                {
+                    "api": {
+                        "sources": [
+                            {
+                                "url": "https://api.example.com",
+                                "expression": "[*]",
+                                "name": "nostr_wine",
                             }
                         ]
                     }
