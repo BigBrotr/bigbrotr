@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
@@ -27,6 +27,13 @@ def _require_bool(value: Any, field_name: str) -> bool:
     if not isinstance(value, bool):
         raise ValueError(f"{field_name}: expected bool, got {type(value).__name__}")
     return value
+
+
+def _require_number(value: Any, field_name: str) -> int | float:
+    """Require canonical numeric values for authored ranker config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name}: expected number, got {type(value).__name__}")
+    return cast("int | float", value)
 
 
 class RankerStorageConfig(BaseModel):
@@ -58,8 +65,10 @@ class RankerProcessingConfig(BaseModel):
 
     @field_validator("max_duration", mode="before")
     @classmethod
-    def reject_boolean_max_duration(cls, value: Any, info: ValidationInfo) -> Any:
-        return _reject_bool_alias(value, str(info.field_name), "number")
+    def require_numeric_max_duration(cls, value: Any, info: ValidationInfo) -> int | float | None:
+        if value is None:
+            return None
+        return _require_number(value, str(info.field_name))
 
 
 class RankerGraphConfig(BaseModel):

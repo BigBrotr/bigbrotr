@@ -4564,3 +4564,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_ranker` proving
     `ignore_self_follows` now fails fast both on the leaf graph config
     and through nested `RankerConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-eighty-ninth
+  remediation slice:
+  - tightened the authored numeric boundary in
+    `services.ranker.configs.RankerProcessingConfig` so `max_duration`
+    now requires a canonical numeric value or `None`;
+  - closed the drift where authored aliases like `"3600"` or
+    `"3600.0"` could silently change the ranker cycle budget at config
+    load time;
+  - added paired coverage in `services.test_ranker` proving
+    `max_duration` now fails fast both on the leaf processing config and
+    through nested `RankerConfig` parsing.

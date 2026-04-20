@@ -21,7 +21,7 @@ from bigbrotr.services.ranker import (
     store_graph,
     store_non_user,
 )
-from bigbrotr.services.ranker.configs import RankerGraphConfig
+from bigbrotr.services.ranker.configs import RankerGraphConfig, RankerProcessingConfig
 from bigbrotr.services.ranker.queries import (
     AddressableStatFact,
     ContactListFact,
@@ -785,6 +785,13 @@ class TestRankerConfig:
         with pytest.raises(ValueError, match=r"ignore_self_follows: expected bool, got"):
             RankerGraphConfig(ignore_self_follows=value)
 
+    @pytest.mark.parametrize("value", ["3600", "3600.0"])
+    def test_ranker_processing_rejects_non_numeric_max_duration_aliases(
+        self, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=r"max_duration: expected number, got str"):
+            RankerProcessingConfig(max_duration=value)
+
     @pytest.mark.parametrize(
         ("payload", "field_name", "expected_type"),
         [
@@ -829,6 +836,13 @@ class TestRankerConfig:
     ) -> None:
         with pytest.raises(ValueError, match=r"ignore_self_follows: expected bool, got"):
             RankerConfig.model_validate({"graph": {"ignore_self_follows": value}})
+
+    @pytest.mark.parametrize("value", ["3600", "3600.0"])
+    def test_nested_processing_rejects_non_numeric_max_duration_aliases(
+        self, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=r"max_duration: expected number, got str"):
+            RankerConfig.model_validate({"processing": {"max_duration": value}})
 
 
 class TestRankerStore:
