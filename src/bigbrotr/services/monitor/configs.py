@@ -678,6 +678,8 @@ class ProfileConfig(BaseModel):
 class RelayListConfig(BaseModel):
     """Kind 10002 relay list metadata settings (NIP-65)."""
 
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = Field(default=True, description="Enable Kind 10002 relay list publishing")
     interval: float = Field(
         default=86_400.0,

@@ -1016,6 +1016,10 @@ class TestRelayListConfig:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             RelayListConfig.model_validate({b"enabled": False})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            RelayListConfig.model_validate({"publish_interval": 60.0})
+
 
 class TestMonitorConfig:
     def test_default_values_with_geo_disabled(self, tmp_path: Path) -> None:
@@ -1296,6 +1300,24 @@ class TestMonitorConfig:
                         "include": {"nip66_geo": False, "nip66_net": False},
                     },
                     "relay_list": {b"enabled": False},
+                }
+            )
+
+    def test_nested_relay_list_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "relay_list": {"publish_interval": 60.0},
                 }
             )
 
