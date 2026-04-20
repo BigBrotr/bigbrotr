@@ -576,6 +576,10 @@ class TestFinderConfig:
         assert config.events.enabled is True
         assert config.api.enabled is True
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            FinderConfig.model_validate({b"api": {"enabled": False}})
+
     def test_custom_nested_config(self) -> None:
         config = FinderConfig(
             interval=7200.0,

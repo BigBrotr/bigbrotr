@@ -332,3 +332,9 @@ class FinderConfig(BaseServiceConfig):
     events: EventsConfig = Field(
         default_factory=EventsConfig, description="Event scanning settings"
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        """Reject raw authored mapping keys before root-level finder field parsing."""
+        return _require_string_mapping_keys(data, "config")
