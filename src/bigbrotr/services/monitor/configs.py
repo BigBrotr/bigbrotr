@@ -285,12 +285,14 @@ class ProcessingConfig(BaseModel):
 
     @field_validator("max_relays", mode="before")
     @classmethod
-    def reject_boolean_max_relays(cls, v: Any, info: ValidationInfo) -> Any:
-        """Reject boolean aliases that would otherwise cap the cycle budget to 1/0."""
+    def require_integer_max_relays(cls, v: Any, info: ValidationInfo) -> int | None:
+        """Require canonical integers for the authored per-cycle relay cap."""
         if v is None:
             return v
         field_name = info.field_name or "max_relays"
-        return _reject_bool_alias(v, field_name, "integer")
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError(f"{field_name}: expected integer, got {type(v).__name__}")
+        return cast("int", v)
 
     @field_validator("allow_insecure", mode="before")
     @classmethod

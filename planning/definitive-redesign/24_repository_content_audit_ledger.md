@@ -4820,3 +4820,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_monitor` proving those
     retry timings now fail fast both on direct `RetryConfig`
     construction and through root-level `MonitorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-twelfth
+  remediation slice:
+  - tightened the authored integer boundary in
+    `services.monitor.configs.ProcessingConfig` so `max_relays` now
+    requires a canonical `int | None`;
+  - closed the drift where authored aliases like `"100"` or `100.0`
+    could silently coerce into a valid per-cycle relay cap at config
+    load time;
+  - added paired coverage in `services.test_monitor` proving
+    `max_relays` now fails fast both on direct `ProcessingConfig`
+    construction and through root-level `MonitorConfig` parsing.
