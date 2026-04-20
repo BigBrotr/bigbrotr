@@ -4320,3 +4320,15 @@ Use this section during execution for:
     `services.test_validator` proving malformed integer aliases now fail
     fast both on the shared base config and through a concrete service
     config that inherits it.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-sixty-seventh
+  remediation slice:
+  - tightened the shared authored numeric boundary in
+    `core.base_service.BaseServiceConfig` so `interval` now requires a
+    canonical numeric type;
+  - closed the drift where payloads like `"300"` or `"300.0"` could
+    silently become valid service intervals across configs that inherit the
+    shared base model;
+  - added paired coverage in `core.test_base_service` and
+    `services.test_seeder` proving malformed interval aliases now fail fast
+    both on the shared base config and through a concrete service config
+    that inherits it.

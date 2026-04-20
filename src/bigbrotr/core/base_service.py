@@ -71,6 +71,14 @@ class BaseServiceConfig(BaseModel):
         description="Prometheus metrics configuration",
     )
 
+    @field_validator("interval", mode="before")
+    @classmethod
+    def require_numeric_base_interval(cls, value: Any) -> int | float:
+        """Require canonical numeric types for the shared service interval."""
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"interval: expected number, got {type(value).__name__}")
+        return cast("int | float", value)
+
     @field_validator("max_consecutive_failures", mode="before")
     @classmethod
     def require_integer_max_consecutive_failures(cls, value: Any) -> int:

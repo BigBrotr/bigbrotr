@@ -93,6 +93,11 @@ class TestSeederConfig:
         assert config.seed.file_path == "t.txt"
         assert config.interval == 120.0
 
+    @pytest.mark.parametrize("value", [True, "120", "120.5"])
+    def test_interval_aliases_rejected(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"interval: expected number, got"):
+            SeederConfig(seed=SeedConfig(file_path="seed.txt"), interval=value)
+
     @pytest.mark.parametrize("value", ["true", "false", 1, 0])
     def test_nested_seed_rejects_non_boolean_to_validate_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"to_validate: expected bool, got"):

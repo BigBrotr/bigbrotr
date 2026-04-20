@@ -113,6 +113,17 @@ class TestBaseServiceConfig:
         with pytest.raises(ValidationError):
             BaseServiceConfig(interval=604_801.0)
 
+    def test_rejects_boolean_interval_alias(self) -> None:
+        """Test bool aliases do not coerce into a valid service interval."""
+        with pytest.raises(ValidationError, match="interval: expected number, got bool"):
+            BaseServiceConfig(interval=True)
+
+    @pytest.mark.parametrize("value", ["300", "300.0"])
+    def test_rejects_non_numeric_interval_aliases(self, value: object) -> None:
+        """Test string aliases do not coerce into a valid service interval."""
+        with pytest.raises(ValidationError, match=r"interval: expected number, got"):
+            BaseServiceConfig(interval=value)
+
     def test_max_consecutive_failures_zero_allowed(self) -> None:
         """Test that max_consecutive_failures=0 (unlimited) is allowed."""
         config = BaseServiceConfig(max_consecutive_failures=0)
