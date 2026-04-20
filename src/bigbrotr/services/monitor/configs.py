@@ -504,6 +504,8 @@ class DiscoveryConfig(BaseModel):
             Builds the event from check results using ``include`` flags.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = Field(default=True, description="Enable Kind 30166 relay discovery publishing")
     interval: float = Field(
         default=14_400.0,

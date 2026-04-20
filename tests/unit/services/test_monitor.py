@@ -793,6 +793,10 @@ class TestDiscoveryConfig:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             DiscoveryConfig.model_validate({b"enabled": False})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            DiscoveryConfig.model_validate({"publish_interval": 60.0})
+
 
 class TestAnnouncementConfig:
     def test_default_values(self) -> None:
@@ -1171,6 +1175,24 @@ class TestMonitorConfig:
                     },
                     "discovery": {
                         b"enabled": False,
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    def test_nested_discovery_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "publish_interval": 60.0,
                         "include": {"nip66_geo": False, "nip66_net": False},
                     },
                     "announcement": {
