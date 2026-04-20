@@ -96,6 +96,10 @@ class TestSeederConfig:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             SeederConfig.model_validate({b"seed": {"file_path": "custom.txt"}})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            SeederConfig.model_validate({"seed_source": {"file_path": "custom.txt"}})
+
     def test_custom_nested(self) -> None:
         config = SeederConfig(seed=SeedConfig(file_path="x.txt", to_validate=False))
         assert config.seed.file_path == "x.txt"

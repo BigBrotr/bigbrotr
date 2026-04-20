@@ -84,6 +84,8 @@ class SeederConfig(BaseServiceConfig):
             Base class providing ``interval``, ``max_consecutive_failures``, and ``metrics`` fields.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     seed: SeedConfig = Field(default_factory=SeedConfig, description="Seed data source settings")
 
     @model_validator(mode="before")
