@@ -215,6 +215,10 @@ class TestAssertorConfig:
         with pytest.raises(ValidationError, match=r"relay_hint: expected string, got bytes"):
             AssertorConfig(trusted_provider_list={"relay_hint": b"wss://relay.damus.io"})
 
+    def test_rejects_non_string_trusted_provider_content_alias(self) -> None:
+        with pytest.raises(ValidationError, match=r"content: expected string, got bytes"):
+            AssertorConfig(trusted_provider_list={"content": b"hello"})
+
     def test_nested_rejects_non_string_algorithm_id_alias(self) -> None:
         with pytest.raises(ValidationError, match=r"algorithm_id: expected str, got bytes"):
             AssertorConfig.model_validate({"algorithm_id": b"global-pagerank"})
@@ -224,6 +228,10 @@ class TestAssertorConfig:
             AssertorConfig.model_validate(
                 {"trusted_provider_list": {"relay_hint": b"wss://relay.damus.io"}}
             )
+
+    def test_nested_rejects_non_string_trusted_provider_content_alias(self) -> None:
+        with pytest.raises(ValidationError, match=r"content: expected string, got bytes"):
+            AssertorConfig.model_validate({"trusted_provider_list": {"content": b"hello"}})
 
     @pytest.mark.parametrize(
         ("config", "message"),

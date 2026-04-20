@@ -219,6 +219,13 @@ class TrustedProviderListConfig(BaseModel):
             raise ValueError(f"{info.field_name}: expected string, got {type(value).__name__}")
         return value
 
+    @field_validator("content", mode="before")
+    @classmethod
+    def content_is_string(cls, value: Any, info: ValidationInfo) -> str:
+        if not isinstance(value, str):
+            raise ValueError(f"{info.field_name}: expected string, got {type(value).__name__}")
+        return value
+
     @field_validator("relay_hint")
     @classmethod
     def relay_hint_valid(cls, value: str | None) -> str | None:
