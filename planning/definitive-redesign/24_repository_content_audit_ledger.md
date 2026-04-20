@@ -4676,3 +4676,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_ranker` proving
     `max_identifier_rows` now fails fast both on the leaf facts-stage
     config and through nested `RankerConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-ninety-ninth
+  remediation slice:
+  - tightened the authored integer boundary in
+    `services.ranker.configs.RankerExportConfig` so `batch_size` now
+    requires a canonical integer value;
+  - closed the drift where authored aliases like `"500"` or `500.0`
+    could silently change the public score export batch budget at config
+    load time;
+  - added paired coverage in `services.test_ranker` proving
+    `batch_size` now fails fast both on the leaf export config and
+    through nested `RankerConfig` parsing.
