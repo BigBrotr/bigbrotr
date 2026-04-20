@@ -26,7 +26,7 @@ from abc import ABC, abstractmethod
 from types import TracebackType
 from typing import Any, ClassVar, Generic, Self, TypeVar, cast
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .brotr import Brotr
 from .logger import Logger
@@ -53,6 +53,15 @@ class BaseServiceConfig(BaseModel):
         [MetricsConfig][bigbrotr.core.metrics.MetricsConfig]: Embedded
             configuration for the Prometheus metrics endpoint.
     """
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            invalid_key = next((key for key in data if not isinstance(key, str)), None)
+            if invalid_key is not None:
+                raise ValueError(f"config: expected string keys, got {type(invalid_key).__name__}")
+        return data
 
     interval: float = Field(
         default=300.0,

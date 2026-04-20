@@ -5418,3 +5418,15 @@ Use this section during execution for:
     `core.test_base_service` proving those raw key boundaries now fail
     fast both on direct `MetricsConfig` construction and through nested
     `BaseServiceConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-sixty-second
+  remediation slice:
+  - tightened the shared mapping boundary in
+    `core.base_service.BaseServiceConfig` so raw config payloads now
+    require canonical string keys before root-level field parsing;
+  - closed the drift where authored field keys like `b"metrics"` could
+    be ignored silently at config load time, leaving shared service
+    loop settings at defaults instead of applying the intended overlay;
+  - added paired coverage in `core.test_base_service` proving those raw
+    key boundaries now fail fast both on direct
+    `BaseServiceConfig` parsing and through subclass
+    `ConcreteServiceConfig` parsing.

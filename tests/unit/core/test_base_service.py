@@ -124,10 +124,20 @@ class TestBaseServiceConfig:
         with pytest.raises(ValidationError, match=r"interval: expected number, got"):
             BaseServiceConfig(interval=value)
 
+    def test_rejects_non_string_root_field_keys(self) -> None:
+        """Test root payloads require canonical string keys."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            BaseServiceConfig.model_validate({b"metrics": {"enabled": True}})
+
     def test_nested_metrics_raw_field_keys_rejected(self) -> None:
         """Test nested metrics payloads require canonical string keys."""
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             BaseServiceConfig.model_validate({"metrics": {b"enabled": True}})
+
+    def test_subclass_root_raw_field_keys_rejected(self) -> None:
+        """Test subclasses inherit the shared root raw-key boundary."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            ConcreteServiceConfig.model_validate({b"metrics": {"enabled": True}})
 
     def test_max_consecutive_failures_zero_allowed(self) -> None:
         """Test that max_consecutive_failures=0 (unlimited) is allowed."""
