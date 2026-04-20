@@ -81,6 +81,8 @@ class TimeoutsConfig(BaseModel):
             Parent config that embeds this model.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     idle: float = Field(
         default=300.0,
         ge=10.0,

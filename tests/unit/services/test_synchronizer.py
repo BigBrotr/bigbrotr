@@ -202,6 +202,10 @@ class TestTimeoutsConfig:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             SyncTimeoutsConfig.model_validate({b"idle": 60.0})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            SyncTimeoutsConfig.model_validate({"max_relays": 100})
+
 
 class TestSynchronizerConfig:
     def test_default_values(self) -> None:
@@ -219,6 +223,10 @@ class TestSynchronizerConfig:
         assert config.processing.batch_size == 1000
         assert config.processing.allow_insecure is False
         assert config.interval == 300.0
+
+    def test_nested_timeouts_reject_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            SynchronizerConfig.model_validate({"timeouts": {"max_relays": 100}})
 
     def test_nested_processing_rejects_unknown_field_names(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
