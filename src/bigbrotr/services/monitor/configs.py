@@ -613,6 +613,8 @@ class ProfileConfig(BaseModel):
             Builds the profile event from these fields.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = Field(default=True, description="Enable Kind 0 profile publishing")
     interval: float = Field(
         default=86_400.0,
