@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 
@@ -43,6 +43,8 @@ class SeedConfig(BaseModel):
         [SeederConfig][bigbrotr.services.seeder.SeederConfig]: Parent
             config that embeds this model.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     file_path: str = Field(
         default="static/seed_relays.txt", min_length=1, description="Seed file path"

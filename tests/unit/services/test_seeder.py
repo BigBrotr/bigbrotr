@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
 import pytest
+from pydantic import ValidationError
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.core.brotr_config import BrotrConfig
@@ -73,6 +74,10 @@ class TestSeedConfig:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             SeedConfig.model_validate({b"file_path": "custom.txt"})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            SeedConfig.model_validate({"seed_path": "custom.txt"})
+
     @pytest.mark.parametrize("value", ["true", "false", 1, 0])
     def test_rejects_non_boolean_to_validate_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"to_validate: expected bool, got"):
@@ -114,6 +119,10 @@ class TestSeederConfig:
     def test_nested_seed_rejects_non_string_field_keys(self) -> None:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             SeederConfig.model_validate({"seed": {b"file_path": "custom.txt"}})
+
+    def test_nested_seed_unknown_field_names_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            SeederConfig.model_validate({"seed": {"seed_path": "custom.txt"}})
 
 
 # ============================================================================
