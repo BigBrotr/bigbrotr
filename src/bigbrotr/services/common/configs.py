@@ -450,6 +450,8 @@ class I2pConfig(BaseModel):
             The enum member this config maps to.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = Field(default=False, description="Enable I2P relay processing")
     proxy_url: str | None = Field(
         default="socks5://i2p:4447", description="SOCKS5 proxy URL for I2P"
