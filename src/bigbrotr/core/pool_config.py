@@ -179,6 +179,15 @@ class RetryConfig(BaseModel):
     max_delay: float = Field(default=10.0, ge=0.1, description="Maximum retry delay")
     exponential_backoff: bool = Field(default=True, description="Use exponential backoff")
 
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            invalid_key = next((key for key in data if not isinstance(key, str)), None)
+            if invalid_key is not None:
+                raise ValueError(f"config: expected string keys, got {type(invalid_key).__name__}")
+        return data
+
     @field_validator("max_attempts", "initial_delay", "max_delay", mode="before")
     @classmethod
     def require_canonical_numerics(cls, value: Any, info: ValidationInfo) -> Any:
