@@ -288,6 +288,12 @@ class RetriesConfig(BaseModel):
         default_factory=RetryConfig, description="Retry settings for HTTP header extraction"
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        """Reject raw retries payloads with non-string mapping keys."""
+        return _require_string_mapping_keys(data, "config")
+
 
 class ProcessingConfig(BaseModel):
     """Processing settings: chunk size, retry policies, and compute/store flags.

@@ -550,6 +550,10 @@ class TestRetriesConfig:
         assert config.nip66_dns.max_attempts == 0
         assert config.nip66_http.max_attempts == 0
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            RetriesConfig.model_validate({b"nip11_info": {"max_attempts": 2}})
+
 
 class TestGeoConfig:
     def test_default_values(self) -> None:
@@ -1178,6 +1182,24 @@ class TestMonitorConfig:
                         "compute": {"nip66_geo": False, "nip66_net": False},
                         "store": {"nip66_geo": False, "nip66_net": False},
                         "retries": {"nip11_info": {b"max_attempts": 2}},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    def test_nested_retries_reject_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                        "retries": {b"nip11_info": {"max_attempts": 2}},
                     },
                     "discovery": {
                         "include": {"nip66_geo": False, "nip66_net": False},
