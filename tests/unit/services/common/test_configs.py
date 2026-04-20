@@ -177,6 +177,10 @@ class TestPublicReadAdapterConfig:
         with pytest.raises(ValidationError, match=r"read_models: expected string keys, got bytes"):
             _DummyApiAdapterConfig(read_models={b"relays": {"enabled": True}})
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            _DummyApiAdapterConfig.model_validate({b"default_page_size": 10})
+
 
 class TestRelayListParsing:
     def test_parse_relay_list_fail_soft_normalizes_strings(

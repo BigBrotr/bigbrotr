@@ -355,6 +355,12 @@ class TestDvmConfig:
                 {"relays": ["wss://relay.example.com", b"wss://relay.damus.io"]}
             )
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            DvmConfig.model_validate(
+                {b"name": "LilBrotr DVM", "relays": ["wss://relay.example.com"]}
+            )
+
     def test_default_page_size_exceeds_max_rejected(self) -> None:
         with pytest.raises(ValueError, match="default_page_size"):
             DvmConfig(

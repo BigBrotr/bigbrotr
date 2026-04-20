@@ -5191,3 +5191,17 @@ Use this section during execution for:
     subconfigs at defaults instead of applying the intended overlay;
   - added coverage in `services.test_monitor` proving those raw key
     boundaries now fail fast on root-level `MonitorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-forty-third
+  remediation slice:
+  - tightened the shared mapping boundary in
+    `services.common.configs.PublicReadAdapterConfig` so raw config
+    payloads now require canonical string keys before adapter root field
+    parsing;
+  - closed the drift where authored field keys like `b"route_prefix"`
+    or `b"name"` could be ignored silently at config load time,
+    leaving `ApiConfig` and `DvmConfig` at defaults instead of applying
+    the intended overlay;
+  - added paired coverage in `services.common.test_configs`,
+    `services.test_api`, and `services.test_dvm` proving those raw key
+    boundaries now fail fast for the shared leaf and both protocol
+    adapters.

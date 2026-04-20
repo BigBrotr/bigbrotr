@@ -286,6 +286,11 @@ class PublicReadAdapterConfig(BaseServiceConfig):
         description="Adapter-local protocol exposure policy keyed by public readable-resource ID",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _require_string_field_keys(cls, data: Any) -> Any:
+        return _require_string_mapping_keys(data, "config")
+
     @field_validator("default_page_size", "max_page_size", mode="before")
     @classmethod
     def _require_integer_page_sizes(cls, value: Any, info: ValidationInfo) -> int:
