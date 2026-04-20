@@ -4906,3 +4906,17 @@ Use this section during execution for:
     entry boundaries now fail fast both on direct `DvmConfig`
     construction and through root-level `DvmConfig.model_validate`
     parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-nineteenth
+  remediation slice:
+  - tightened the authored relay-list boundary in
+    `services.assertor.configs.AssertorPublishingConfig` so `relays`
+    now requires canonical string or `Relay` entries instead of
+    silently tolerating non-string aliases inside mixed lists;
+  - closed the drift where authored payloads like
+    `["wss://relay.example.com", b"wss://relay.damus.io"]` could
+    silently drop the `bytes` item and continue with the surviving relay
+    set at config load time for assertion publishing;
+  - added paired coverage in `services.test_assertor` proving those
+    publishing relay entry boundaries now fail fast both on direct
+    `AssertorConfig` construction and through root-level
+    `AssertorConfig.model_validate` parsing.

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping as MappingABC
+from collections.abc import Sequence as SequenceABC
 from typing import Annotated, Any, cast
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationInfo, field_validator
@@ -339,6 +340,19 @@ class AssertorPublishingConfig(BaseModel):
         default=False,
         description="Allow insecure SSL connections to relays",
     )
+
+    @field_validator("relays", mode="before")
+    @classmethod
+    def relays_require_string_entries(cls, value: Any, info: ValidationInfo) -> Any:
+        field_name = info.field_name or "value"
+        if isinstance(value, (str, bytes, bytearray)) or not isinstance(value, SequenceABC):
+            return value
+        for index, item in enumerate(value):
+            if not isinstance(item, (str, Relay)):
+                raise ValueError(
+                    f"{field_name}[{index}]: expected string or Relay, got {type(item).__name__}"
+                )
+        return value
 
     @field_validator("allow_insecure", mode="before")
     @classmethod

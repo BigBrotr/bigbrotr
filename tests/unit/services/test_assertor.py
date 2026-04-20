@@ -173,6 +173,15 @@ class TestAssertorConfig:
         with pytest.raises(ValidationError):
             AssertorConfig(publishing={"relays": []})
 
+    def test_rejects_non_string_publishing_relay_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays\[1\]: expected string or Relay, got bytes",
+        ):
+            AssertorConfig(
+                publishing={"relays": ["wss://relay.example.com", b"wss://relay.damus.io"]}
+            )
+
     def test_unsupported_kind_rejected(self) -> None:
         with pytest.raises(ValidationError, match="unsupported assertion kinds"):
             AssertorConfig(selection={"kinds": [42]})
@@ -255,6 +264,15 @@ class TestAssertorConfig:
     def test_nested_rejects_non_string_trusted_provider_tag_name_alias(self) -> None:
         with pytest.raises(ValidationError, match=r"tag_names: expected strings, got mixed types"):
             AssertorConfig.model_validate({"trusted_provider_list": {"tag_names": [b"rank"]}})
+
+    def test_nested_rejects_non_string_publishing_relay_aliases(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"relays\[1\]: expected string or Relay, got bytes",
+        ):
+            AssertorConfig.model_validate(
+                {"publishing": {"relays": ["wss://relay.example.com", b"wss://relay.damus.io"]}}
+            )
 
     @pytest.mark.parametrize(
         ("field_name", "value"),
