@@ -929,6 +929,10 @@ class TestProfileConfig:
         ):
             ProfileConfig(relays=["wss://relay.example.com", b"wss://relay.damus.io"])
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            ProfileConfig.model_validate({b"enabled": False})
+
 
 class TestRelayListConfig:
     def test_default_values(self) -> None:
@@ -1119,6 +1123,24 @@ class TestMonitorConfig:
                         b"enabled": False,
                         "include": {"nip66_geo": False, "nip66_net": False},
                     },
+                }
+            )
+
+    def test_nested_profile_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "profile": {b"enabled": False},
                 }
             )
 
