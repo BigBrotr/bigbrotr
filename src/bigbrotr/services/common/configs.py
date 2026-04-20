@@ -111,6 +111,16 @@ def _normalize_optional_env_name(value: Any, field_name: str) -> str | None:
     return normalized or None
 
 
+def _require_string_mapping_keys(value: Any, field_name: str) -> Any:
+    """Require canonical string keys for authored mapping boundaries."""
+    if not isinstance(value, Mapping):
+        return value
+    for key in value:
+        if not isinstance(key, str):
+            raise ValueError(f"{field_name}: expected string keys, got {type(key).__name__}")
+    return value
+
+
 def parse_relay_list_fail_soft(raw: object) -> list[Relay] | None:
     """Parse one config value into canonical relays, skipping invalid entries."""
     if raw is None:
@@ -275,6 +285,12 @@ class PublicReadAdapterConfig(BaseServiceConfig):
     def _require_integer_page_sizes(cls, value: Any, info: ValidationInfo) -> int:
         field_name = info.field_name or "value"
         return _require_int(value, field_name)
+
+    @field_validator("read_models", mode="before")
+    @classmethod
+    def _require_string_read_model_keys(cls, value: Any, info: ValidationInfo) -> Any:
+        field_name = info.field_name or "value"
+        return _require_string_mapping_keys(value, field_name)
 
     @property
     def exposure_policy(self) -> dict[str, ReadModelPolicy]:

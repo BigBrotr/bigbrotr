@@ -179,6 +179,10 @@ class TestApiConfig:
         config = ApiConfig(read_models={"relays": ReadModelPolicy(enabled=True)})
         assert config.exposure_policy == config.read_models
 
+    def test_rejects_non_string_read_model_key_alias(self) -> None:
+        with pytest.raises(ValidationError, match=r"read_models: expected string keys, got bytes"):
+            ApiConfig(read_models={b"relays": {"enabled": True}})
+
     @pytest.mark.parametrize("value", ["true", 1])
     def test_rejects_boolean_read_model_enabled_aliases(self, value: object) -> None:
         with pytest.raises(ValidationError, match=r"enabled: expected boolean, got"):

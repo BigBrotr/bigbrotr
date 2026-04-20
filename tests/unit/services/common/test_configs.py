@@ -28,6 +28,7 @@ from bigbrotr.services.common.configs import (
     NetworksConfig,
     NetworkTypeConfig,
     NostrKeysConfig,
+    PublicReadAdapterConfig,
     ReadModelPolicy,
     TorConfig,
     parse_relay_list_fail_soft,
@@ -37,6 +38,10 @@ from bigbrotr.services.common.configs import (
 VALID_HEX_KEY = (
     "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"  # pragma: allowlist secret
 )
+
+
+class _DummyApiAdapterConfig(PublicReadAdapterConfig):
+    READ_SURFACE = "api"
 
 
 class TestNostrKeysConfig:
@@ -157,6 +162,12 @@ class TestReadModelPolicy:
     def test_rejects_non_integer_price_aliases(self, value: object) -> None:
         with pytest.raises(ValidationError, match=r"price: expected integer, got"):
             ReadModelPolicy(price=value)
+
+
+class TestPublicReadAdapterConfig:
+    def test_rejects_non_string_read_model_key_alias(self) -> None:
+        with pytest.raises(ValidationError, match=r"read_models: expected string keys, got bytes"):
+            _DummyApiAdapterConfig(read_models={b"relays": {"enabled": True}})
 
 
 class TestRelayListParsing:

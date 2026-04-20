@@ -4935,3 +4935,15 @@ Use this section during execution for:
   - added paired coverage in `services.test_monitor` proving those relay
     entry boundaries now fail fast both on direct subconfig
     construction and through root-level `MonitorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-twenty-first
+  remediation slice:
+  - tightened the authored mapping boundary in
+    `services.common.configs.PublicReadAdapterConfig` so `read_models`
+    now requires canonical string keys before resource-policy
+    normalization;
+  - closed the drift where authored `bytes` keys like `b"relays"`
+    could silently coerce into valid readable-resource IDs at config
+    load time for API/DVM-style adapters;
+  - added paired coverage in `services.common.test_configs` and
+    `services.test_api` proving those `read_models` key boundaries now
+    fail fast both at the shared leaf and through the real API consumer.
