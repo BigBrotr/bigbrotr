@@ -139,10 +139,20 @@ class TestBaseServiceConfig:
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
             BaseServiceConfig.model_validate({"metrics": {"bind_host": "127.0.0.1"}})
 
+    def test_rejects_unknown_root_field_names(self) -> None:
+        """Test root payloads reject stale shared field names."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            BaseServiceConfig.model_validate({"metrics_config": {"enabled": True}})
+
     def test_subclass_root_raw_field_keys_rejected(self) -> None:
         """Test subclasses inherit the shared root raw-key boundary."""
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             ConcreteServiceConfig.model_validate({b"metrics": {"enabled": True}})
+
+    def test_subclass_root_unknown_field_names_rejected(self) -> None:
+        """Test subclasses inherit the shared root extra-field boundary."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ConcreteServiceConfig.model_validate({"item_limit": 50})
 
     def test_max_consecutive_failures_zero_allowed(self) -> None:
         """Test that max_consecutive_failures=0 (unlimited) is allowed."""

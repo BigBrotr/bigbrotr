@@ -26,7 +26,7 @@ from abc import ABC, abstractmethod
 from types import TracebackType
 from typing import Any, ClassVar, Generic, Self, TypeVar, cast
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .brotr import Brotr
 from .logger import Logger
@@ -53,6 +53,8 @@ class BaseServiceConfig(BaseModel):
         [MetricsConfig][bigbrotr.core.metrics.MetricsConfig]: Embedded
             configuration for the Prometheus metrics endpoint.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="before")
     @classmethod
