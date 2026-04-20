@@ -4586,3 +4586,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_ranker` proving `damping`
     now fails fast both on the leaf graph config and through nested
     `RankerConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-ninety-first
+  remediation slice:
+  - tightened the authored integer boundary in
+    `services.ranker.configs.RankerGraphConfig` so `iterations` now
+    requires a canonical integer value;
+  - closed the drift where authored aliases like `"20"` or `20.0`
+    could silently change the PageRank iteration budget at config load
+    time;
+  - added paired coverage in `services.test_ranker` proving
+    `iterations` now fails fast both on the leaf graph config and
+    through nested `RankerConfig` parsing.

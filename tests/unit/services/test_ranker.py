@@ -790,6 +790,11 @@ class TestRankerConfig:
         with pytest.raises(ValueError, match=r"damping: expected number, got str"):
             RankerGraphConfig(damping=value)
 
+    @pytest.mark.parametrize("value", ["20", 20.0])
+    def test_ranker_graph_rejects_non_integer_iterations_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"iterations: expected integer, got"):
+            RankerGraphConfig(iterations=value)
+
     @pytest.mark.parametrize("value", ["3600", "3600.0"])
     def test_ranker_processing_rejects_non_numeric_max_duration_aliases(
         self, value: object
@@ -846,6 +851,11 @@ class TestRankerConfig:
     def test_nested_graph_rejects_non_numeric_damping_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"damping: expected number, got str"):
             RankerConfig.model_validate({"graph": {"damping": value}})
+
+    @pytest.mark.parametrize("value", ["20", 20.0])
+    def test_nested_graph_rejects_non_integer_iterations_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"iterations: expected integer, got"):
+            RankerConfig.model_validate({"graph": {"iterations": value}})
 
     @pytest.mark.parametrize("value", ["3600", "3600.0"])
     def test_nested_processing_rejects_non_numeric_max_duration_aliases(

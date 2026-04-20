@@ -36,6 +36,13 @@ def _require_number(value: Any, field_name: str) -> int | float:
     return cast("int | float", value)
 
 
+def _require_integer(value: Any, field_name: str) -> int:
+    """Require canonical integer values for authored ranker config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name}: expected integer, got {type(value).__name__}")
+    return cast("int", value)
+
+
 class RankerStorageConfig(BaseModel):
     """DuckDB and checkpoint storage paths for the ranker."""
 
@@ -100,8 +107,8 @@ class RankerGraphConfig(BaseModel):
 
     @field_validator("iterations", mode="before")
     @classmethod
-    def reject_boolean_iterations(cls, value: Any, info: ValidationInfo) -> Any:
-        return _reject_bool_alias(value, str(info.field_name), "integer")
+    def require_integer_iterations(cls, value: Any, info: ValidationInfo) -> int:
+        return _require_integer(value, str(info.field_name))
 
     @field_validator("ignore_self_follows", mode="before")
     @classmethod
