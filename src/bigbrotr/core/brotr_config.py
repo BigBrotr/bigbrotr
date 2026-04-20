@@ -2,7 +2,7 @@
 
 from typing import Any, cast
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 _MIN_TIMEOUT_SECONDS = 0.1
@@ -35,6 +35,15 @@ class BatchConfig(BaseModel):
     max_size: int = Field(
         default=1000, ge=1, le=100_000, description="Maximum items per batch operation"
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            invalid_key = next((key for key in data if not isinstance(key, str)), None)
+            if invalid_key is not None:
+                raise ValueError(f"config: expected string keys, got {type(invalid_key).__name__}")
+        return data
 
     @field_validator("max_size", mode="before")
     @classmethod

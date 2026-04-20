@@ -71,6 +71,11 @@ class TestBatchConfig:
         with pytest.raises(ValidationError, match=r"max_size: expected integer, got"):
             BatchConfig(max_size=value)
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        """Test raw field keys must already be canonical strings."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            BatchConfig.model_validate({b"max_size": 1000})
+
 
 class TestTimeoutsConfig:
     """Tests for TimeoutsConfig Pydantic model."""
@@ -203,6 +208,11 @@ class TestBrotrConfig:
         """Test nested batch size aliases fail fast through BrotrConfig."""
         with pytest.raises(ValidationError, match=r"max_size: expected integer, got"):
             BrotrConfig(batch={"max_size": value})
+
+    def test_nested_batch_rejects_non_string_field_keys(self) -> None:
+        """Test nested batch field keys fail fast through BrotrConfig."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            BrotrConfig.model_validate({"batch": {b"max_size": 1000}})
 
 
 # ============================================================================

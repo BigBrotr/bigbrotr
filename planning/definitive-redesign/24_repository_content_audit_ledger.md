@@ -5205,3 +5205,14 @@ Use this section during execution for:
     `services.test_api`, and `services.test_dvm` proving those raw key
     boundaries now fail fast for the shared leaf and both protocol
     adapters.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-forty-fourth
+  remediation slice:
+  - tightened the shared mapping boundary in
+    `core.brotr_config.BatchConfig` so raw config payloads now require
+    canonical string keys before batch field parsing;
+  - closed the drift where authored field keys like `b"max_size"`
+    could be ignored silently at config load time, leaving Brotr batch
+    sizing at defaults instead of applying the intended overlay;
+  - added paired coverage in `core.test_brotr` proving those raw key
+    boundaries now fail fast both on direct `BatchConfig`
+    construction and through nested `BrotrConfig` parsing.
