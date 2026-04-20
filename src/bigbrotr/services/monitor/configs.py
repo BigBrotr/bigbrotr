@@ -462,6 +462,13 @@ class DiscoveryConfig(BaseModel):
         field_name = info.field_name or "enabled"
         return _require_boolean(value, field_name)
 
+    @field_validator("interval", mode="before")
+    @classmethod
+    def require_numeric_interval(cls, value: Any, info: ValidationInfo) -> int | float:
+        """Require canonical numeric types for discovery publish intervals."""
+        field_name = info.field_name or "interval"
+        return _require_number(value, field_name)
+
 
 class AnnouncementConfig(BaseModel):
     """Kind 10166 monitor announcement settings (NIP-66).
@@ -503,6 +510,13 @@ class AnnouncementConfig(BaseModel):
         """Require a canonical boolean for announcement publish toggles."""
         field_name = info.field_name or "enabled"
         return _require_boolean(value, field_name)
+
+    @field_validator("interval", mode="before")
+    @classmethod
+    def require_numeric_interval(cls, value: Any, info: ValidationInfo) -> int | float:
+        """Require canonical numeric types for announcement publish intervals."""
+        field_name = info.field_name or "interval"
+        return _require_number(value, field_name)
 
     @field_validator("geohash", mode="before")
     @classmethod
@@ -570,6 +584,13 @@ class ProfileConfig(BaseModel):
         field_name = info.field_name or "enabled"
         return _require_boolean(value, field_name)
 
+    @field_validator("interval", mode="before")
+    @classmethod
+    def require_numeric_interval(cls, value: Any, info: ValidationInfo) -> int | float:
+        """Require canonical numeric types for profile publish intervals."""
+        field_name = info.field_name or "interval"
+        return _require_number(value, field_name)
+
 
 class RelayListConfig(BaseModel):
     """Kind 10002 relay list metadata settings (NIP-65)."""
@@ -598,6 +619,13 @@ class RelayListConfig(BaseModel):
         """Require a canonical boolean for relay-list publish toggles."""
         field_name = info.field_name or "enabled"
         return _require_boolean(value, field_name)
+
+    @field_validator("interval", mode="before")
+    @classmethod
+    def require_numeric_interval(cls, value: Any, info: ValidationInfo) -> int | float:
+        """Require canonical numeric types for relay-list publish intervals."""
+        field_name = info.field_name or "interval"
+        return _require_number(value, field_name)
 
 
 class MonitorConfig(BaseServiceConfig):

@@ -701,6 +701,11 @@ class TestDiscoveryConfig:
         config2 = DiscoveryConfig(interval=86400)
         assert config2.interval == 86400
 
+    @pytest.mark.parametrize("value", ["60", "60.0"])
+    def test_interval_rejects_non_numeric_aliases(self, value: str) -> None:
+        with pytest.raises(ValidationError, match=r"interval: expected number, got str"):
+            DiscoveryConfig(interval=value)
+
     def test_interval_upper_bound_rejected(self) -> None:
         with pytest.raises(ValueError):
             DiscoveryConfig(interval=604801.0)
@@ -749,6 +754,11 @@ class TestAnnouncementConfig:
     def test_interval_upper_bound_rejected(self) -> None:
         with pytest.raises(ValueError):
             AnnouncementConfig(interval=604801.0)
+
+    @pytest.mark.parametrize("value", ["60", "60.0"])
+    def test_interval_rejects_non_numeric_aliases(self, value: str) -> None:
+        with pytest.raises(ValidationError, match=r"interval: expected number, got str"):
+            AnnouncementConfig(interval=value)
 
     def test_include_rejects_boolean_aliases(self) -> None:
         with pytest.raises(
@@ -814,6 +824,11 @@ class TestProfileConfig:
         with pytest.raises(ValueError):
             ProfileConfig(interval=604801.0)
 
+    @pytest.mark.parametrize("value", ["60", "60.0"])
+    def test_interval_rejects_non_numeric_aliases(self, value: str) -> None:
+        with pytest.raises(ValidationError, match=r"interval: expected number, got str"):
+            ProfileConfig(interval=value)
+
     def test_text_fields_are_canonicalized(self) -> None:
         config = ProfileConfig(
             name=" BigBrotr Monitor ",
@@ -874,6 +889,11 @@ class TestRelayListConfig:
         assert config.enabled is True
         assert config.interval == 86400
         assert config.relays is None
+
+    @pytest.mark.parametrize("value", ["60", "60.0"])
+    def test_interval_rejects_non_numeric_aliases(self, value: str) -> None:
+        with pytest.raises(ValidationError, match=r"interval: expected number, got str"):
+            RelayListConfig(interval=value)
 
     def test_enabled_rejects_boolean_aliases(self) -> None:
         with pytest.raises(
@@ -1069,6 +1089,14 @@ class TestMonitorConfig:
                     },
                 }
             )
+
+    @pytest.mark.parametrize("field_name", ["discovery", "announcement", "profile", "relay_list"])
+    @pytest.mark.parametrize("value", ["60", "60.0"])
+    def test_nested_publish_intervals_reject_non_numeric_aliases(
+        self, field_name: str, value: str
+    ) -> None:
+        with pytest.raises(ValidationError, match=r"interval: expected number, got str"):
+            MonitorConfig.model_validate({field_name: {"interval": value}})
 
     @pytest.mark.parametrize(
         ("field_name", "value"),

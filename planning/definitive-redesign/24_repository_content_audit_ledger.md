@@ -4866,3 +4866,16 @@ Use this section during execution for:
   - added paired coverage in `services.test_monitor` proving those geo
     numeric bounds now fail fast both on direct `GeoConfig`
     construction and through root-level `MonitorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-sixteenth
+  remediation slice:
+  - tightened the authored numeric boundaries in
+    `services.monitor.configs.DiscoveryConfig.interval`,
+    `AnnouncementConfig.interval`, `ProfileConfig.interval`, and
+    `RelayListConfig.interval` so those publish cadence fields now
+    require canonical numeric values;
+  - closed the drift where authored aliases like `"60"` or `"60.0"`
+    could silently coerce into valid publish intervals at config load
+    time across the monitor publishing subconfigs;
+  - added paired coverage in `services.test_monitor` proving those
+    publish interval boundaries now fail fast both on direct subconfig
+    construction and through root-level `MonitorConfig` parsing.
