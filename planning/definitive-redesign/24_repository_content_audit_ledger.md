@@ -4831,3 +4831,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_monitor` proving
     `max_relays` now fails fast both on direct `ProcessingConfig`
     construction and through root-level `MonitorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-thirteenth
+  remediation slice:
+  - tightened the authored integer boundary in
+    `services.monitor.configs.ProcessingConfig` so `chunk_size` now
+    requires a canonical `int`;
+  - closed the drift where authored aliases like `"100"` or `100.0`
+    could silently coerce into a valid flush-batch size at config load
+    time;
+  - added paired coverage in `services.test_monitor` proving
+    `chunk_size` now fails fast both on direct `ProcessingConfig`
+    construction and through root-level `MonitorConfig` parsing.

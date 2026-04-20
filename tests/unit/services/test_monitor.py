@@ -430,6 +430,11 @@ class TestProcessingConfig:
         config_max = ProcessingConfig(chunk_size=1000)
         assert config_max.chunk_size == 1000
 
+    @pytest.mark.parametrize("value", ["100", 100.0])
+    def test_rejects_non_integer_chunk_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"chunk_size: expected integer, got"):
+            ProcessingConfig(chunk_size=value)
+
     def test_nip11_info_max_size_custom(self) -> None:
         config = ProcessingConfig(nip11_info_max_size=2097152)  # 2MB
         assert config.nip11_info_max_size == 2097152
@@ -936,6 +941,25 @@ class TestMonitorConfig:
         )
 
         assert config.interval == 600.0
+
+    @pytest.mark.parametrize("value", ["100", 100.0])
+    def test_nested_processing_rejects_non_integer_chunk_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValidationError, match=r"chunk_size: expected integer, got"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "chunk_size": value,
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
 
     @pytest.mark.parametrize("value", ["100", 100.0])
     def test_nested_processing_rejects_non_integer_max_relays_aliases(self, value: object) -> None:

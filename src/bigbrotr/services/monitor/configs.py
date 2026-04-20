@@ -283,6 +283,15 @@ class ProcessingConfig(BaseModel):
         default_factory=MetadataFlags, description="Which metadata types to persist"
     )
 
+    @field_validator("chunk_size", mode="before")
+    @classmethod
+    def require_integer_chunk_size(cls, v: Any, info: ValidationInfo) -> int:
+        """Require canonical integers for the authored flush-batch size."""
+        field_name = info.field_name or "chunk_size"
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError(f"{field_name}: expected integer, got {type(v).__name__}")
+        return cast("int", v)
+
     @field_validator("max_relays", mode="before")
     @classmethod
     def require_integer_max_relays(cls, v: Any, info: ValidationInfo) -> int | None:
