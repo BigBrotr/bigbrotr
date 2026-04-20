@@ -189,6 +189,10 @@ class TestTimeoutsConfig:
         with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
             SyncTimeoutsConfig(**{field_name: value})
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            SyncTimeoutsConfig.model_validate({b"idle": 60.0})
+
 
 class TestSynchronizerConfig:
     def test_default_values(self) -> None:
@@ -328,6 +332,10 @@ class TestSynchronizerConfig:
     def test_nested_timeout_aliases_rejected(self, field_name: str, value: object) -> None:
         with pytest.raises(ValueError, match=rf"{field_name}: expected number, got"):
             SynchronizerConfig(timeouts={field_name: value})
+
+    def test_nested_timeouts_reject_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            SynchronizerConfig.model_validate({"timeouts": {b"idle": 60.0}})
 
 
 # ============================================================================
