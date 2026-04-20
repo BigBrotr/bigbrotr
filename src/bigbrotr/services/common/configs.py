@@ -348,6 +348,8 @@ class ClearnetConfig(BaseModel):
             The enum member this config maps to.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = Field(default=True, description="Enable clearnet relay processing")
     proxy_url: str | None = Field(
         default=None, description="SOCKS5 proxy URL (None for direct connection)"
