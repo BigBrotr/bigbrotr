@@ -185,6 +185,7 @@ class NostrKeysConfig(BaseModel):
         if not isinstance(data, dict):
             return data
 
+        _require_string_mapping_keys(data, "config")
         data = dict(data)
 
         data["keys_env"] = _normalize_optional_env_name(data.get("keys_env"), "keys_env")

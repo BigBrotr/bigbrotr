@@ -4947,3 +4947,14 @@ Use this section during execution for:
   - added paired coverage in `services.common.test_configs` and
     `services.test_api` proving those `read_models` key boundaries now
     fail fast both at the shared leaf and through the real API consumer.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-twenty-second
+  remediation slice:
+  - tightened the authored mapping boundary in
+    `services.common.configs.NostrKeysConfig` so raw config payloads now
+    require canonical string keys before env-driven key resolution;
+  - closed the drift where authored field keys like `b"keys_env"`
+    could be ignored silently at config load time, causing ephemeral key
+    generation instead of loading the intended env-configured key;
+  - added paired coverage in `services.common.test_configs` and
+    `services.test_dvm` proving those raw key boundaries now fail fast
+    both at the shared leaf and through the real DVM consumer.

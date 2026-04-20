@@ -228,6 +228,13 @@ class TestDvmConfig:
                 keys={"keys_env": b"NOSTR_PRIVATE_KEY_DVM"},
             )
 
+    def test_nested_keys_reject_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            DvmConfig(
+                relays=["wss://relay.example.com"],
+                keys={b"keys_env": "NOSTR_PRIVATE_KEY_DVM"},
+            )
+
     def test_custom_branding(self) -> None:
         config = DvmConfig(
             relays=["wss://relay.example.com"],
