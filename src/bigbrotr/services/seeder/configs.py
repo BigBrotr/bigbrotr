@@ -83,3 +83,8 @@ class SeederConfig(BaseServiceConfig):
     """
 
     seed: SeedConfig = Field(default_factory=SeedConfig, description="Seed data source settings")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _require_string_field_keys(cls, data: Any) -> Any:
+        return _require_string_mapping_keys(data, "config")

@@ -5068,3 +5068,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_finder` proving those raw
     key boundaries now fail fast both on direct `ApiConfig`
     construction and through root-level `FinderConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-thirty-second
+  remediation slice:
+  - tightened the authored mapping boundary in
+    `services.seeder.configs.SeederConfig` so raw config payloads now
+    require canonical string keys before root-level seeder field
+    parsing;
+  - closed the drift where authored field keys like `b"seed"` could be
+    ignored silently at config load time, leaving the default seed
+    section in place instead of applying the intended overlay;
+  - added coverage in `services.test_seeder` proving those raw key
+    boundaries now fail fast on root-level `SeederConfig` parsing.

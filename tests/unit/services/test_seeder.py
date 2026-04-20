@@ -87,6 +87,10 @@ class TestSeederConfig:
         assert config.interval == 300.0
         assert config.max_consecutive_failures == 5
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            SeederConfig.model_validate({b"seed": {"file_path": "custom.txt"}})
+
     def test_custom_nested(self) -> None:
         config = SeederConfig(seed=SeedConfig(file_path="x.txt", to_validate=False))
         assert config.seed.file_path == "x.txt"
