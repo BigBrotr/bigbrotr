@@ -22,6 +22,7 @@ from bigbrotr.services.ranker import (
     store_non_user,
 )
 from bigbrotr.services.ranker.configs import (
+    RankerFactsStageConfig,
     RankerGraphConfig,
     RankerProcessingConfig,
     RankerSyncConfig,
@@ -823,6 +824,11 @@ class TestRankerConfig:
         with pytest.raises(ValueError, match=r"max_followers_per_cycle: expected integer, got"):
             RankerSyncConfig(max_followers_per_cycle=value)
 
+    @pytest.mark.parametrize("value", ["300", 300.0])
+    def test_ranker_facts_stage_rejects_non_integer_batch_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"batch_size: expected integer, got"):
+            RankerFactsStageConfig(batch_size=value)
+
     @pytest.mark.parametrize(
         ("payload", "field_name", "expected_type"),
         [
@@ -901,6 +907,11 @@ class TestRankerConfig:
     ) -> None:
         with pytest.raises(ValueError, match=r"max_followers_per_cycle: expected integer, got"):
             RankerConfig.model_validate({"sync": {"max_followers_per_cycle": value}})
+
+    @pytest.mark.parametrize("value", ["300", 300.0])
+    def test_nested_facts_stage_rejects_non_integer_batch_size_aliases(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"batch_size: expected integer, got"):
+            RankerConfig.model_validate({"facts_stage": {"batch_size": value}})
 
 
 class TestRankerStore:

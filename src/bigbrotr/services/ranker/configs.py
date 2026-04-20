@@ -187,13 +187,12 @@ class RankerFactsStageConfig(BaseModel):
         description="Maximum identifier fact rows to stage per cycle (None = unbounded)",
     )
 
-    @field_validator(
-        "batch_size",
-        "max_event_rows",
-        "max_addressable_rows",
-        "max_identifier_rows",
-        mode="before",
-    )
+    @field_validator("batch_size", mode="before")
+    @classmethod
+    def require_integer_batch_size(cls, value: Any, info: ValidationInfo) -> int:
+        return _require_integer(value, str(info.field_name))
+
+    @field_validator("max_event_rows", "max_addressable_rows", "max_identifier_rows", mode="before")
     @classmethod
     def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
         return _reject_bool_alias(value, str(info.field_name), "integer")

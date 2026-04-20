@@ -4630,3 +4630,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_ranker` proving
     `max_followers_per_cycle` now fails fast both on the leaf sync
     config and through nested `RankerConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-ninety-fifth
+  remediation slice:
+  - tightened the authored integer boundary in
+    `services.ranker.configs.RankerFactsStageConfig` so `batch_size`
+    now requires a canonical integer value;
+  - closed the drift where authored aliases like `"300"` or `300.0`
+    could silently change the non-user fact staging batch budget at
+    config load time;
+  - added paired coverage in `services.test_ranker` proving
+    `batch_size` now fails fast both on the leaf facts-stage config and
+    through nested `RankerConfig` parsing.
