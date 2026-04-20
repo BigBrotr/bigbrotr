@@ -4399,3 +4399,14 @@ Use this section during execution for:
   - added paired coverage in `core.test_brotr` proving malformed integer
     aliases now fail fast both on the leaf batch config and through nested
     `BrotrConfig.batch` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-seventy-fourth
+  remediation slice:
+  - tightened the shared authored numeric boundary in
+    `core.brotr_config.TimeoutsConfig` so `query`, `batch`, `cleanup`, and
+    `refresh` now require canonical numeric types when not `None`;
+  - closed the drift where payloads like `"30"`, `"60"`, `"45.0"`, or
+    `"300"` could silently become valid Brotr timeout budgets at config load
+    time;
+  - added paired coverage in `core.test_brotr` proving malformed numeric
+    aliases now fail fast both on the leaf timeout config and through
+    nested `BrotrConfig.timeouts` parsing.

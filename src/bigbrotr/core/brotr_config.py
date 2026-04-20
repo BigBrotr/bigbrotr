@@ -1,6 +1,6 @@
 """Configuration models for the Brotr database facade."""
 
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -20,6 +20,13 @@ def _require_int(value: Any, field_name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{field_name}: expected integer, got {type(value).__name__}")
     return int(value)
+
+
+def _require_number(value: Any, field_name: str) -> int | float:
+    """Require canonical numeric types for authored Brotr config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name}: expected number, got {type(value).__name__}")
+    return cast("int | float", value)
 
 
 class BatchConfig(BaseModel):
@@ -54,9 +61,11 @@ class TimeoutsConfig(BaseModel):
 
     @field_validator("query", "batch", "cleanup", "refresh", mode="before")
     @classmethod
-    def reject_boolean_timeouts(cls, value: Any, info: Any) -> Any:
+    def require_numeric_timeouts(cls, value: Any, info: Any) -> Any:
+        if value is None:
+            return value
         field_name = getattr(info, "field_name", None) or "timeout"
-        return _reject_bool_alias(value, field_name, "number")
+        return _require_number(value, field_name)
 
     @field_validator("query", "batch", "cleanup", "refresh", mode="after")
     @classmethod

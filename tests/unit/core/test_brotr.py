@@ -147,6 +147,20 @@ class TestTimeoutsConfig:
         with pytest.raises(ValidationError, match=rf"{field_name}: expected number, got bool"):
             TimeoutsConfig(**{field_name: True})
 
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("query", "30"),
+            ("batch", "60"),
+            ("cleanup", "45.0"),
+            ("refresh", "300"),
+        ],
+    )
+    def test_rejects_non_numeric_aliases(self, field_name: str, value: object) -> None:
+        """Test non-numeric aliases do not coerce into valid Brotr timeouts."""
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected number, got"):
+            TimeoutsConfig(**{field_name: value})
+
 
 class TestBrotrConfig:
     """Tests for BrotrConfig composite model."""
@@ -169,6 +183,20 @@ class TestBrotrConfig:
         assert config.batch.max_size == 5000
         assert config.timeouts.query == 30.0
         assert config.timeouts.batch == 60.0
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("query", "30"),
+            ("batch", "60"),
+            ("cleanup", "45.0"),
+            ("refresh", "300"),
+        ],
+    )
+    def test_nested_timeout_aliases_rejected(self, field_name: str, value: object) -> None:
+        """Test nested timeout aliases fail fast through BrotrConfig."""
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected number, got"):
+            BrotrConfig(timeouts={field_name: value})
 
     @pytest.mark.parametrize("value", ["1000", 1000.0])
     def test_nested_batch_aliases_rejected(self, value: object) -> None:
