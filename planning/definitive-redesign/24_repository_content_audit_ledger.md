@@ -5006,3 +5006,16 @@ Use this section during execution for:
   - added paired coverage in `services.test_monitor` proving those raw
     key boundaries now fail fast both on direct `MetadataFlags`
     construction and through root-level `MonitorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-twenty-seventh
+  remediation slice:
+  - tightened the authored mapping boundary in
+    `services.monitor.configs.GeoConfig` so raw config payloads now
+    require canonical string keys before geo-path and geo-budget
+    parsing;
+  - closed the drift where authored field keys like `b"max_age_days"`
+    inside geo config payloads could be ignored silently at config load
+    time, leaving default GeoLite staleness settings in place instead of
+    applying the intended overlay;
+  - added paired coverage in `services.test_monitor` proving those raw
+    key boundaries now fail fast both on direct `GeoConfig`
+    construction and through root-level `MonitorConfig` parsing.

@@ -587,6 +587,10 @@ class TestGeoConfig:
         assert config.city_download_url == ""
         assert config.asn_download_url == ""
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            GeoConfig.model_validate({b"max_age_days": 1})
+
     def test_max_age_days_validation(self) -> None:
         config = GeoConfig(max_age_days=1)
         assert config.max_age_days == 1
@@ -1171,6 +1175,24 @@ class TestMonitorConfig:
                         "include": {"nip66_geo": False, "nip66_net": False},
                     },
                     "geo": {field_name: value},
+                }
+            )
+
+    def test_nested_geo_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "geo": {b"max_age_days": 1},
                 }
             )
 

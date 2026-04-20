@@ -404,6 +404,11 @@ class GeoConfig(BaseModel):
         default=9, ge=1, le=12, description="Geohash precision (9=~4.77m)"
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _require_string_field_keys(cls, data: Any) -> Any:
+        return _require_string_mapping_keys(data, "config")
+
     @field_validator("city_database_path", "asn_database_path", mode="before")
     @classmethod
     def normalize_database_paths(cls, value: Any, info: ValidationInfo) -> str:
