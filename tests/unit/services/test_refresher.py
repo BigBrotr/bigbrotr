@@ -124,6 +124,14 @@ class TestRefreshTargetConfig:
         with pytest.raises(ValueError, match=rf"{field_name}: expected {expected_type}, got bool"):
             RefresherConfig.model_validate(payload)
 
+    def test_rejects_non_string_processing_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            ProcessingConfig.model_validate({b"max_source_window": 3600})
+
+    def test_nested_processing_raw_field_keys_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            RefresherConfig.model_validate({"processing": {b"max_source_window": 3600}})
+
     @pytest.mark.parametrize(
         ("field_name", "value"),
         [

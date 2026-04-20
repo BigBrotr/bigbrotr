@@ -5382,3 +5382,17 @@ Use this section during execution for:
   - added coverage in `services.test_synchronizer` proving those raw
     key boundaries now fail fast on root-level
     `SynchronizerConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-fifty-ninth
+  remediation slice:
+  - tightened the authored mapping boundary in
+    `services.refresher.configs.ProcessingConfig` so raw config
+    payloads now require canonical string keys before processing field
+    parsing;
+  - closed the drift where authored field keys like
+    `b"max_source_window"` could be ignored silently at config load
+    time, leaving refresher processing settings at defaults instead of
+    applying the intended overlay;
+  - added paired coverage in `services.test_refresher` proving those
+    raw key boundaries now fail fast both on direct
+    `ProcessingConfig` construction and through nested
+    `RefresherConfig` parsing.

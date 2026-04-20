@@ -167,6 +167,15 @@ def _require_number(value: Any, field_name: str) -> int | float:
 class ProcessingConfig(BaseModel):
     """Refresher cycle processing budgets and failure policy."""
 
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            invalid_key = next((key for key in data if not isinstance(key, str)), None)
+            if invalid_key is not None:
+                raise ValueError(f"config: expected string keys, got {type(invalid_key).__name__}")
+        return data
+
     max_source_window: int | None = Field(
         default=86_400,
         ge=1,
