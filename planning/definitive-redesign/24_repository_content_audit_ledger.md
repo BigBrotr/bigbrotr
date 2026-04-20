@@ -4854,3 +4854,15 @@ Use this section during execution for:
     `nip11_info_max_size` now fails fast both on direct
     `ProcessingConfig` construction and through root-level
     `MonitorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-fifteenth
+  remediation slice:
+  - tightened the authored integer boundaries in
+    `services.monitor.configs.GeoConfig` so `max_age_days`,
+    `max_download_size`, and `geohash_precision` now require canonical
+    integer values;
+  - closed the drift where authored aliases like `"30"`, `30.0`,
+    `"100000000"`, or `9.0` could silently coerce into valid geo
+    staleness, download-size, and precision budgets at config load time;
+  - added paired coverage in `services.test_monitor` proving those geo
+    numeric bounds now fail fast both on direct `GeoConfig`
+    construction and through root-level `MonitorConfig` parsing.

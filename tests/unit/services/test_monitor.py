@@ -598,11 +598,27 @@ class TestGeoConfig:
         ("field_name", "value"),
         [
             ("max_age_days", True),
+            ("max_download_size", True),
             ("geohash_precision", True),
         ],
     )
     def test_rejects_boolean_geo_aliases(self, field_name: str, value: bool) -> None:
         with pytest.raises(ValidationError, match=rf"{field_name}: expected integer, got bool"):
+            GeoConfig(**{field_name: value})
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("max_age_days", "30"),
+            ("max_age_days", 30.0),
+            ("max_download_size", "100000000"),
+            ("max_download_size", 100000000.0),
+            ("geohash_precision", "9"),
+            ("geohash_precision", 9.0),
+        ],
+    )
+    def test_rejects_non_integer_geo_aliases(self, field_name: str, value: object) -> None:
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected integer, got"):
             GeoConfig(**{field_name: value})
 
     def test_empty_city_path_rejected(self) -> None:
@@ -1003,6 +1019,35 @@ class TestMonitorConfig:
                     "announcement": {
                         "include": {"nip66_geo": False, "nip66_net": False},
                     },
+                }
+            )
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("max_age_days", "30"),
+            ("max_age_days", 30.0),
+            ("max_download_size", "100000000"),
+            ("max_download_size", 100000000.0),
+            ("geohash_precision", "9"),
+            ("geohash_precision", 9.0),
+        ],
+    )
+    def test_nested_geo_rejects_non_integer_aliases(self, field_name: str, value: object) -> None:
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected integer, got"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "geo": {field_name: value},
                 }
             )
 

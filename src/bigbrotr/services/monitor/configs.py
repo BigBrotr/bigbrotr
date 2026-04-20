@@ -383,14 +383,16 @@ class GeoConfig(BaseModel):
         field_name = info.field_name or "value"
         return _normalize_config_string(value, field_name, allow_blank=True)
 
-    @field_validator("max_age_days", "geohash_precision", mode="before")
+    @field_validator("max_age_days", "max_download_size", "geohash_precision", mode="before")
     @classmethod
-    def reject_boolean_geo_numerics(cls, v: Any, info: ValidationInfo) -> Any:
-        """Reject boolean aliases that would otherwise collapse geo settings to 1."""
+    def require_integer_geo_numerics(cls, v: Any, info: ValidationInfo) -> int | None:
+        """Require canonical integers for authored geo numeric boundaries."""
         if v is None:
             return v
         field_name = info.field_name or "value"
-        return _reject_bool_alias(v, field_name, "integer")
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError(f"{field_name}: expected integer, got {type(v).__name__}")
+        return cast("int", v)
 
 
 class PublishingConfig(BaseModel):
