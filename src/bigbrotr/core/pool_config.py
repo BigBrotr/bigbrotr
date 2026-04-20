@@ -114,10 +114,11 @@ class RetryConfig(BaseModel):
 
     @field_validator("max_attempts", "initial_delay", "max_delay", mode="before")
     @classmethod
-    def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
+    def require_canonical_numerics(cls, value: Any, info: ValidationInfo) -> Any:
         field_name = info.field_name or "value"
-        expected = "integer" if field_name == "max_attempts" else "number"
-        return _reject_bool_alias(value, field_name, expected)
+        if field_name == "max_attempts":
+            return _require_int(value, field_name)
+        return _reject_bool_alias(value, field_name, "number")
 
     @field_validator("max_delay")
     @classmethod

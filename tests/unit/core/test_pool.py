@@ -458,6 +458,15 @@ class TestRetryConfig:
         with pytest.raises(ValidationError, match=rf"{field_name}: expected {expected}, got bool"):
             RetryConfig(**{field_name: True})
 
+    @pytest.mark.parametrize("value", ["5", 5.0])
+    def test_rejects_non_integer_max_attempts_aliases(self, value: object) -> None:
+        """Test string and float aliases do not coerce into retry attempt counts."""
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"max_attempts: expected integer, got {expected_type}"
+        ):
+            RetryConfig(max_attempts=value)
+
 
 class TestServerSettingsConfig:
     """Tests for ServerSettingsConfig Pydantic model."""
@@ -594,6 +603,18 @@ class TestPoolConfig:
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         with pytest.raises(ValidationError, match="acquisition: expected number, got str"):
             PoolConfig(timeouts={"acquisition": "30.0"})
+
+    @pytest.mark.parametrize("value", ["5", 5.0])
+    def test_nested_retry_requires_canonical_max_attempts(
+        self, value: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested retry config rejects non-integer max_attempts aliases."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"max_attempts: expected integer, got {expected_type}"
+        ):
+            PoolConfig(retry={"max_attempts": value})
 
     @pytest.mark.parametrize("port", ["5432", 5432.0])
     def test_nested_database_port_requires_canonical_int(self, port: object) -> None:
