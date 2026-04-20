@@ -4527,3 +4527,16 @@ Use this section during execution for:
   - added paired coverage in `core.test_pool` proving
     `exponential_backoff` now fails fast both on the leaf retry config
     and through nested `PoolConfig.retry` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-eighty-sixth
+  remediation slice:
+  - tightened the shared authored secret-string boundary in
+    `core.pool_config.DatabaseConfig` so `password` now requires a real
+    non-blank string both for explicit config payloads and env-resolved
+    secrets;
+  - closed the drift where explicit values like `""`, `"   "`, or
+    `b"abc"` could survive as blank or coerced database passwords, and
+    where whitespace-only env secrets could still pass the resolver;
+  - added paired coverage in `core.test_pool` proving password values now
+    fail fast both on the leaf database config and through nested
+    `PoolConfig.database` parsing, while preserving intentional
+    surrounding spaces for non-blank secrets.

@@ -169,11 +169,26 @@ class TestDatabaseConfig:
         assert isinstance(config.password, SecretStr)
         assert config.password.get_secret_value() == "env_secret_password"
 
+    def test_password_preserves_meaningful_surrounding_spaces(self) -> None:
+        """Test explicit passwords preserve intentional surrounding spaces."""
+        config = DatabaseConfig(password="  padded secret  ")  # pragma: allowlist secret
+
+        assert config.password.get_secret_value() == "  padded secret  "  # pragma: allowlist secret
+
     def test_password_missing_raises_value_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that missing DB_ADMIN_PASSWORD raises ValueError."""
         monkeypatch.delenv("DB_ADMIN_PASSWORD", raising=False)
 
         with pytest.raises(ValueError, match="DB_ADMIN_PASSWORD"):
+            DatabaseConfig()
+
+    def test_blank_environment_password_raises_value_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that whitespace-only passwords loaded from env are rejected."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "   ")  # pragma: allowlist secret
+
+        with pytest.raises(ValueError, match="password must not be blank"):
             DatabaseConfig()
 
     def test_explicit_password_overrides_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -182,6 +197,17 @@ class TestDatabaseConfig:
         config = DatabaseConfig(password="explicit_password")
 
         assert config.password.get_secret_value() == "explicit_password"
+
+    @pytest.mark.parametrize("password", ["", "   "])
+    def test_blank_password_raises_validation_error(self, password: str) -> None:
+        """Test that blank explicit passwords are rejected."""
+        with pytest.raises(ValidationError, match="password must not be blank"):
+            DatabaseConfig(password=password)
+
+    def test_non_string_password_alias_rejected(self) -> None:
+        """Test byte payloads do not coerce into database passwords."""
+        with pytest.raises(ValidationError, match="password: expected string, got bytes"):
+            DatabaseConfig(password=b"abc")
 
     @pytest.mark.parametrize(
         ("port", "expected_error"),
@@ -705,6 +731,17 @@ class TestPoolConfig:
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         with pytest.raises(ValidationError, match="password_env must not be blank"):
             PoolConfig(database={"password_env": "   "})
+
+    @pytest.mark.parametrize("password", ["", "   "])
+    def test_nested_database_rejects_blank_password(self, password: str) -> None:
+        """Test nested database config rejects blank explicit passwords."""
+        with pytest.raises(ValidationError, match="password must not be blank"):
+            PoolConfig(database={"password": password})
+
+    def test_nested_database_rejects_non_string_password_alias(self) -> None:
+        """Test nested database config rejects byte password aliases."""
+        with pytest.raises(ValidationError, match="password: expected string, got bytes"):
+            PoolConfig(database={"password": b"abc"})
 
     @pytest.mark.parametrize(
         ("field_name", "value"),

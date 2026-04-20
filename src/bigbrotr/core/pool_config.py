@@ -44,6 +44,19 @@ def _normalize_string(value: Any, field_name: str) -> str:
     return normalized
 
 
+def _require_secret_string(value: Any, field_name: str) -> str:
+    """Require authored secret values to be real non-blank strings without trimming them."""
+    if isinstance(value, SecretStr):
+        secret = value.get_secret_value()
+    elif isinstance(value, str):
+        secret = value
+    else:
+        raise ValueError(f"{field_name}: expected string, got {type(value).__name__}")
+    if not secret.strip():
+        raise ValueError(f"{field_name} must not be blank")
+    return secret
+
+
 class DatabaseConfig(BaseModel):
     """PostgreSQL connection parameters."""
 
@@ -69,6 +82,11 @@ class DatabaseConfig(BaseModel):
     def reject_boolean_port(cls, value: Any) -> Any:
         return _require_int(value, "port")
 
+    @field_validator("password", mode="before")
+    @classmethod
+    def require_secret_password(cls, value: Any) -> str:
+        return _require_secret_string(value, "password")
+
     @model_validator(mode="before")
     @classmethod
     def resolve_password(cls, data: dict[str, Any]) -> dict[str, Any]:
@@ -79,10 +97,10 @@ class DatabaseConfig(BaseModel):
                 "password_env",
             )
             value = os.getenv(env_var)
-            if not value:
+            if value is None:
                 raise ValueError(f"{env_var} environment variable not set")
             data["password_env"] = env_var
-            data["password"] = SecretStr(value)
+            data["password"] = SecretStr(_require_secret_string(value, "password"))
         return data
 
 
