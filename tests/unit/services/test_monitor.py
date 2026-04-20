@@ -757,6 +757,10 @@ class TestDiscoveryConfig:
         ):
             DiscoveryConfig(relays=["wss://relay.example.com", b"wss://relay.damus.io"])
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            DiscoveryConfig.model_validate({b"enabled": False})
+
 
 class TestAnnouncementConfig:
     def test_default_values(self) -> None:
@@ -1075,6 +1079,24 @@ class TestMonitorConfig:
                         "include": {"nip66_geo": False, "nip66_net": False},
                     },
                     "publishing": {b"relays": ["wss://relay.example.com"]},
+                }
+            )
+
+    def test_nested_discovery_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        b"enabled": False,
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
                 }
             )
 
