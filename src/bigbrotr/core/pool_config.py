@@ -51,6 +51,12 @@ class DatabaseConfig(BaseModel):
     )
     password: SecretStr = Field(description="Database password (loaded from password_env)")
 
+    @field_validator("host", "database", "user", mode="before")
+    @classmethod
+    def normalize_string_fields(cls, value: Any, info: ValidationInfo) -> str:
+        field_name = info.field_name or "value"
+        return _normalize_string(value, field_name)
+
     @field_validator("port", mode="before")
     @classmethod
     def reject_boolean_port(cls, value: Any) -> Any:

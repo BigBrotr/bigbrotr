@@ -4494,3 +4494,14 @@ Use this section during execution for:
   - added paired coverage in `core.test_pool` proving those string fields
     now canonicalize or fail fast both on the leaf server-settings config
     and through nested `PoolConfig.server_settings` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-eighty-third
+  remediation slice:
+  - tightened the shared authored string boundary in
+    `core.pool_config.DatabaseConfig` so `host`, `database`, and `user`
+    now trim padded values and reject whitespace-only payloads;
+  - closed the drift where authored values like `" custom.host "` or
+    `"   "` could survive as non-canonical or semantically blank database
+    connection settings at config load time;
+  - added paired coverage in `core.test_pool` proving those string fields
+    now canonicalize or fail fast both on the leaf database config and
+    through nested `PoolConfig.database` parsing.

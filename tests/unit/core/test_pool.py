@@ -140,6 +140,19 @@ class TestDatabaseConfig:
         assert config.user == "myuser"
         assert config.password.get_secret_value() == "mypassword"
 
+    def test_string_fields_trim_whitespace(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test host, database, and user canonicalize padded strings."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        config = DatabaseConfig(
+            host=" custom.host.com ",
+            database=" mydb ",
+            user=" myuser ",
+        )
+
+        assert config.host == "custom.host.com"
+        assert config.database == "mydb"
+        assert config.user == "myuser"
+
     def test_password_from_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test password resolution from DB_ADMIN_PASSWORD environment variable."""
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "env_secret_password")
@@ -215,6 +228,13 @@ class TestDatabaseConfig:
         with pytest.raises(ValidationError):
             DatabaseConfig(host="")
 
+    def test_blank_host_raises_validation_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that whitespace-only host is rejected."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+
+        with pytest.raises(ValidationError, match="host must not be blank"):
+            DatabaseConfig(host="   ")
+
     def test_empty_database_raises_validation_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that empty database name raises ValidationError."""
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
@@ -222,12 +242,26 @@ class TestDatabaseConfig:
         with pytest.raises(ValidationError):
             DatabaseConfig(database="")
 
+    def test_blank_database_raises_validation_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that whitespace-only database name is rejected."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+
+        with pytest.raises(ValidationError, match="database must not be blank"):
+            DatabaseConfig(database="   ")
+
     def test_empty_user_raises_validation_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that empty user raises ValidationError."""
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
 
         with pytest.raises(ValidationError):
             DatabaseConfig(user="")
+
+    def test_blank_user_raises_validation_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that whitespace-only user is rejected."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+
+        with pytest.raises(ValidationError, match="user must not be blank"):
+            DatabaseConfig(user="   ")
 
 
 class TestLimitsConfig:
@@ -610,6 +644,27 @@ class TestPoolConfig:
         assert "password" not in dump["database"]
         assert dump["database"]["host"] == "db.host"
         assert dump["database"]["password_env"] == "DB_ADMIN_PASSWORD"  # pragma: allowlist secret
+
+    def test_nested_database_trim_string_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test nested database config canonicalizes padded strings."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        config = PoolConfig(
+            database={
+                "host": " custom.host ",
+                "database": " mydb ",
+                "user": " myuser ",
+            }
+        )
+
+        assert config.database.host == "custom.host"
+        assert config.database.database == "mydb"
+        assert config.database.user == "myuser"
+
+    def test_nested_database_rejects_blank_user(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test nested database config rejects whitespace-only user values."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="user must not be blank"):
+            PoolConfig(database={"user": "   "})
 
     @pytest.mark.parametrize(
         ("field_name", "value"),
