@@ -270,6 +270,7 @@ class PublicReadAdapterConfig(BaseServiceConfig):
     """
 
     READ_SURFACE: ClassVar[str]
+    model_config = ConfigDict(extra="forbid")
 
     default_page_size: int = Field(
         default=100,

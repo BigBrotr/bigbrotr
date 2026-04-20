@@ -326,6 +326,10 @@ class TestDvmConfig:
                 tables={"relay": ReadModelPolicy(enabled=True)},
             )
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            DvmConfig.model_validate({"page_limits": {"default_page_size": 10}})
+
     def test_inherits_base_service_config(self) -> None:
         config = DvmConfig(relays=["wss://relay.example.com"], interval=120.0)
         assert config.interval == 120.0
