@@ -190,6 +190,10 @@ class TestCleanupConfig:
         with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
             CleanupConfig(enabled=value)
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            CleanupConfig.model_validate({b"max_failures": 50})
+
 
 # ============================================================================
 # ValidatorConfig
@@ -256,6 +260,10 @@ class TestValidatorConfig:
     def test_nested_cleanup_max_failures_aliases_rejected(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"max_failures: expected integer, got"):
             ValidatorConfig(cleanup={"enabled": True, "max_failures": value})
+
+    def test_nested_cleanup_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            ValidatorConfig.model_validate({"cleanup": {b"max_failures": 50}})
 
     @pytest.mark.parametrize(
         ("section", "field_name", "field_value"),

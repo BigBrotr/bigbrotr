@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.services.common.configs import NetworksConfig
@@ -125,6 +125,15 @@ class CleanupConfig(BaseModel):
     max_failures: int = Field(
         default=720, ge=1, description="Failure threshold for candidate removal"
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            invalid_key = next((key for key in data if not isinstance(key, str)), None)
+            if invalid_key is not None:
+                raise ValueError(f"config: expected string keys, got {type(invalid_key).__name__}")
+        return data
 
     @field_validator("max_failures", mode="before")
     @classmethod

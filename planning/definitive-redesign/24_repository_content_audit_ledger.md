@@ -5306,3 +5306,15 @@ Use this section during execution for:
     boundaries now fail fast both on direct
     `ServerSettingsConfig` construction and through nested
     `PoolConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-fifty-third
+  remediation slice:
+  - tightened the authored mapping boundary in
+    `services.validator.configs.CleanupConfig` so raw config payloads
+    now require canonical string keys before cleanup field parsing;
+  - closed the drift where authored field keys like `b"max_failures"`
+    could be ignored silently at config load time, leaving validator
+    cleanup settings at defaults instead of applying the intended
+    overlay;
+  - added paired coverage in `services.test_validator` proving those
+    raw key boundaries now fail fast both on direct `CleanupConfig`
+    construction and through nested `ValidatorConfig` parsing.
