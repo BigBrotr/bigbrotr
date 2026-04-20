@@ -10,9 +10,10 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 
@@ -24,6 +25,15 @@ def _normalize_non_blank_string(value: Any, field_name: str) -> str:
     if not normalized:
         raise ValueError(f"{field_name} must not be blank")
     return normalized
+
+
+def _require_string_mapping_keys(value: Any, field_name: str) -> Any:
+    if not isinstance(value, Mapping):
+        return value
+    for key in value:
+        if not isinstance(key, str):
+            raise ValueError(f"{field_name}: expected string keys, got {type(key).__name__}")
+    return value
 
 
 class SeedConfig(BaseModel):
@@ -41,6 +51,11 @@ class SeedConfig(BaseModel):
         default=True,
         description="If True, add as candidates. If False, insert directly into relays.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _require_string_field_keys(cls, data: Any) -> Any:
+        return _require_string_mapping_keys(data, "config")
 
     @field_validator("file_path", mode="before")
     @classmethod

@@ -69,6 +69,10 @@ class TestSeedConfig:
         config = SeedConfig(file_path="  custom.txt  ")
         assert config.file_path == "custom.txt"
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            SeedConfig.model_validate({b"file_path": "custom.txt"})
+
     @pytest.mark.parametrize("value", ["true", "false", 1, 0])
     def test_rejects_non_boolean_to_validate_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"to_validate: expected bool, got"):
@@ -102,6 +106,10 @@ class TestSeederConfig:
     def test_nested_seed_rejects_non_boolean_to_validate_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"to_validate: expected bool, got"):
             SeederConfig(seed={"file_path": "seed.txt", "to_validate": value})
+
+    def test_nested_seed_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            SeederConfig.model_validate({"seed": {b"file_path": "custom.txt"}})
 
 
 # ============================================================================
