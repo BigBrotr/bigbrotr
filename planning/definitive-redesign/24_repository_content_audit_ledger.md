@@ -5503,3 +5503,15 @@ Use this section during execution for:
     those unknown field names now fail fast both on direct
     `TimeoutsConfig` parsing and through nested
     `SynchronizerConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-sixty-ninth
+  remediation slice:
+  - tightened the authored field-name boundary in
+    `services.synchronizer.configs.SynchronizerConfig` so unknown
+    top-level keys are now rejected instead of being ignored silently
+    at config load time;
+  - closed the drift where stale payloads like `sync_window: {...}`
+    could be accepted while leaving synchronizer root settings at
+    defaults instead of applying the intended overlay;
+  - added coverage in `services.test_synchronizer` proving those
+    unknown field names now fail fast on root-level
+    `SynchronizerConfig` parsing.

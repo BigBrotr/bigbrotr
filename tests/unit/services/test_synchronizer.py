@@ -224,6 +224,10 @@ class TestSynchronizerConfig:
         assert config.processing.allow_insecure is False
         assert config.interval == 300.0
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            SynchronizerConfig.model_validate({"sync_window": {"limit": 100}})
+
     def test_nested_timeouts_reject_unknown_field_names(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
             SynchronizerConfig.model_validate({"timeouts": {"max_relays": 100}})
