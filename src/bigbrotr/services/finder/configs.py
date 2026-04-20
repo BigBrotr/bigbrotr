@@ -111,6 +111,8 @@ class EventsConfig(BaseModel):
             config that embeds this model.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = Field(default=True, description="Enable event scanning")
     scan_size: int = Field(default=500, ge=10, le=10_000, description="Rows per paginated DB query")
     batch_size: int = Field(

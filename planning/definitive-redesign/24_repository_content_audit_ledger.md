@@ -5454,3 +5454,15 @@ Use this section during execution for:
     unknown field names now fail fast both on direct
     `ApiSourceConfig` parsing and through nested `FinderConfig`
     source-list parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-sixty-fifth
+  remediation slice:
+  - tightened the authored field-name boundary in
+    `services.finder.configs.EventsConfig` so unknown event-phase keys
+    are now rejected instead of being ignored silently at config load
+    time;
+  - closed the drift where stale payloads like `relay_scan: false`
+    could be accepted while leaving finder event-scan settings at
+    defaults instead of applying the intended overlay;
+  - added paired coverage in `services.test_finder` proving those
+    unknown field names now fail fast both on direct `EventsConfig`
+    parsing and through nested `FinderConfig` parsing.
