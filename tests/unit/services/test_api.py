@@ -154,6 +154,13 @@ class TestApiConfig:
         config = ApiConfig(cors_origins=[" https://example.com "])
         assert config.cors_origins == ["https://example.com"]
 
+    def test_cors_origin_bytes_item_rejected(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"cors_origins\[0\]: expected string, got bytes",
+        ):
+            ApiConfig(cors_origins=[b"https://example.com"])
+
     def test_duplicate_cors_origins_are_deduplicated(self) -> None:
         config = ApiConfig(
             cors_origins=[
@@ -329,6 +336,27 @@ class TestApiConfigRoutePrefix:
     def test_whitespace_only_rejected(self) -> None:
         with pytest.raises(ValueError, match=r"route_prefix must not be empty"):
             ApiConfig(route_prefix="   ")
+
+    def test_bytes_rejected(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"route_prefix: expected string, got bytes",
+        ):
+            ApiConfig(route_prefix=b"/api/v1")
+
+    def test_root_level_parse_rejects_bytes(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"route_prefix: expected string, got bytes",
+        ):
+            ApiConfig.model_validate({"route_prefix": b"/api/v1"})
+
+    def test_root_level_parse_rejects_cors_origin_bytes_item(self) -> None:
+        with pytest.raises(
+            ValidationError,
+            match=r"cors_origins\[0\]: expected string, got bytes",
+        ):
+            ApiConfig.model_validate({"cors_origins": [b"https://example.com"]})
 
 
 # ============================================================================

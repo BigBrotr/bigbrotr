@@ -4879,3 +4879,16 @@ Use this section during execution for:
   - added paired coverage in `services.test_monitor` proving those
     publish interval boundaries now fail fast both on direct subconfig
     construction and through root-level `MonitorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-seventeenth
+  remediation slice:
+  - tightened the authored string boundaries in
+    `services.api.configs.ApiConfig` so `route_prefix` and every
+    `cors_origins` item now require canonical string payloads before
+    normalization;
+  - closed the drift where authored `bytes` values like `b"/v1"` or
+    `b"https://example.com"` could silently coerce into valid API route
+    and CORS settings at config load time;
+  - added paired coverage in `services.test_api` proving those API
+    string boundaries now fail fast both on direct `ApiConfig`
+    construction and through root-level `ApiConfig.model_validate`
+    parsing.

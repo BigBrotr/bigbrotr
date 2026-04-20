@@ -38,10 +38,14 @@ def _normalize_non_blank_string(value: Any, field_name: str) -> str:
     return normalized
 
 
-def _normalize_non_blank_string_items(values: list[str], field_name: str) -> list[str]:
+def _normalize_non_blank_string_items(values: Any, field_name: str) -> list[str]:
+    if not isinstance(values, list | tuple):
+        raise ValueError(f"{field_name}: expected list of strings, got {type(values).__name__}")
     normalized_values: list[str] = []
     seen_values: set[str] = set()
     for index, value in enumerate(values):
+        if not isinstance(value, str):
+            raise ValueError(f"{field_name}[{index}]: expected string, got {type(value).__name__}")
         normalized = value.strip()
         if not normalized:
             raise ValueError(f"{field_name}[{index}] must not be blank")
@@ -125,16 +129,19 @@ class ApiConfig(PublicReadAdapterConfig):
         field_name = info.field_name or "value"
         return _normalize_non_blank_string(value, field_name)
 
-    @field_validator("cors_origins")
+    @field_validator("cors_origins", mode="before")
     @classmethod
-    def _normalize_cors_origins(cls, value: list[str], info: ValidationInfo) -> list[str]:
+    def _normalize_cors_origins(cls, value: Any, info: ValidationInfo) -> list[str]:
         field_name = info.field_name or "value"
         return _normalize_non_blank_string_items(value, field_name)
 
-    @field_validator("route_prefix")
+    @field_validator("route_prefix", mode="before")
     @classmethod
-    def _normalize_route_prefix(cls, v: str) -> str:
-        v = v.strip().strip("/")
+    def _normalize_route_prefix(cls, value: Any, info: ValidationInfo) -> str:
+        field_name = info.field_name or "value"
+        if not isinstance(value, str):
+            raise ValueError(f"{field_name}: expected string, got {type(value).__name__}")
+        v = value.strip().strip("/")
         if not v:
             msg = "route_prefix must not be empty"
             raise ValueError(msg)
