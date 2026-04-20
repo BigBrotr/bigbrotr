@@ -4698,3 +4698,15 @@ Use this section during execution for:
   - added paired coverage in `services.test_ranker` proving
     `max_batches_per_subject` now fails fast both on the leaf export
     config and through nested `RankerConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-first
+  remediation slice:
+  - tightened the authored integer boundary in
+    `services.ranker.configs.RankerCleanupConfig` so
+    `rank_runs_retention` now requires a canonical integer value or
+    `None`;
+  - closed the drift where authored aliases like `"100"` or `100.0`
+    could silently change the DuckDB rank-run retention cap at config
+    load time;
+  - added paired coverage in `services.test_ranker` proving
+    `rank_runs_retention` now fails fast both on the leaf cleanup
+    config and through nested `RankerConfig` parsing.

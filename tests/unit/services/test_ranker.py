@@ -22,6 +22,7 @@ from bigbrotr.services.ranker import (
     store_non_user,
 )
 from bigbrotr.services.ranker.configs import (
+    RankerCleanupConfig,
     RankerExportConfig,
     RankerFactsStageConfig,
     RankerGraphConfig,
@@ -863,6 +864,13 @@ class TestRankerConfig:
         with pytest.raises(ValueError, match=r"max_batches_per_subject: expected integer, got"):
             RankerExportConfig(max_batches_per_subject=value)
 
+    @pytest.mark.parametrize("value", ["100", 100.0])
+    def test_ranker_cleanup_rejects_non_integer_rank_runs_retention_aliases(
+        self, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=r"rank_runs_retention: expected integer, got"):
+            RankerCleanupConfig(rank_runs_retention=value)
+
     @pytest.mark.parametrize(
         ("payload", "field_name", "expected_type"),
         [
@@ -979,6 +987,13 @@ class TestRankerConfig:
     ) -> None:
         with pytest.raises(ValueError, match=r"max_batches_per_subject: expected integer, got"):
             RankerConfig.model_validate({"export": {"max_batches_per_subject": value}})
+
+    @pytest.mark.parametrize("value", ["100", 100.0])
+    def test_nested_cleanup_rejects_non_integer_rank_runs_retention_aliases(
+        self, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=r"rank_runs_retention: expected integer, got"):
+            RankerConfig.model_validate({"cleanup": {"rank_runs_retention": value}})
 
 
 class TestRankerStore:
