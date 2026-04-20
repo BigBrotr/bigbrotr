@@ -744,6 +744,14 @@ class TestRankerConfig:
         config = RankerStorageConfig(path=f"  {tmp_path / 'graph.duckdb'}  ")
         assert config.path == tmp_path / "graph.duckdb"
 
+    def test_ranker_storage_rejects_blank_checkpoint_path(self) -> None:
+        with pytest.raises(ValueError, match=r"checkpoint_path must not be blank"):
+            RankerStorageConfig(checkpoint_path="   ")
+
+    def test_ranker_storage_canonicalizes_padded_checkpoint_path(self, tmp_path: Path) -> None:
+        config = RankerStorageConfig(checkpoint_path=f"  {tmp_path / 'graph.checkpoint.json'}  ")
+        assert config.checkpoint_path == tmp_path / "graph.checkpoint.json"
+
     def test_custom_nested_values(self, tmp_path: Path) -> None:
         config = RankerConfig.model_validate(
             {
@@ -932,6 +940,10 @@ class TestRankerConfig:
     def test_nested_storage_rejects_blank_path(self) -> None:
         with pytest.raises(ValueError, match=r"path must not be blank"):
             RankerConfig.model_validate({"storage": {"path": "   "}})
+
+    def test_nested_storage_rejects_blank_checkpoint_path(self) -> None:
+        with pytest.raises(ValueError, match=r"checkpoint_path must not be blank"):
+            RankerConfig.model_validate({"storage": {"checkpoint_path": "   "}})
 
     def test_nested_rejects_non_string_algorithm_id_alias(self) -> None:
         with pytest.raises(ValueError, match=r"algorithm_id: expected str, got bytes"):

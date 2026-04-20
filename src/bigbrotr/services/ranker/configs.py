@@ -75,6 +75,11 @@ class RankerStorageConfig(BaseModel):
     def require_non_blank_path(cls, value: Any, info: ValidationInfo) -> Path:
         return _normalize_non_blank_path(value, str(info.field_name))
 
+    @field_validator("checkpoint_path", mode="before")
+    @classmethod
+    def require_non_blank_checkpoint_path(cls, value: Any, info: ValidationInfo) -> Path:
+        return _normalize_non_blank_path(value, str(info.field_name))
+
 
 class RankerProcessingConfig(BaseModel):
     """Whole-cycle processing budgets for one ranker run."""

@@ -4730,3 +4730,14 @@ Use this section during execution for:
     as meaningless DuckDB storage paths at config load time;
   - added paired coverage in `services.test_ranker` proving `path` now
     rejects blank nested config and canonicalizes padded direct input.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-fourth remediation
+  slice:
+  - tightened the authored path boundary in
+    `services.ranker.configs.RankerStorageConfig` so `checkpoint_path`
+    now trims string input and rejects blank values before `Path`
+    construction;
+  - closed the drift where authored payloads like `"   "` could survive
+    as meaningless checkpoint import paths at config load time;
+  - added paired coverage in `services.test_ranker` proving
+    `checkpoint_path` now rejects blank nested config and canonicalizes
+    padded direct input.
