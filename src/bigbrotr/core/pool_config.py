@@ -27,6 +27,13 @@ def _require_number(value: Any, field_name: str) -> int | float:
     return cast("int | float", value)
 
 
+def _require_bool(value: Any, field_name: str) -> bool:
+    """Require canonical booleans for authored pool config boundaries."""
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name}: expected bool, got {type(value).__name__}")
+    return value
+
+
 def _normalize_string(value: Any, field_name: str) -> str:
     """Normalize authored string config values and reject blank payloads."""
     if not isinstance(value, str):
@@ -139,6 +146,11 @@ class RetryConfig(BaseModel):
         if field_name == "max_attempts":
             return _require_int(value, field_name)
         return _require_number(value, field_name)
+
+    @field_validator("exponential_backoff", mode="before")
+    @classmethod
+    def require_boolean_exponential_backoff(cls, value: Any) -> bool:
+        return _require_bool(value, "exponential_backoff")
 
     @field_validator("max_delay")
     @classmethod

@@ -514,6 +514,15 @@ class TestRetryConfig:
         ):
             RetryConfig(max_attempts=value)
 
+    @pytest.mark.parametrize("value", ["false", 0, 1])
+    def test_rejects_non_boolean_exponential_backoff_aliases(self, value: object) -> None:
+        """Test non-bool aliases do not coerce into retry backoff toggles."""
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"exponential_backoff: expected bool, got {expected_type}"
+        ):
+            RetryConfig(exponential_backoff=value)
+
     @pytest.mark.parametrize(
         ("field_name", "value"),
         [
@@ -763,6 +772,19 @@ class TestPoolConfig:
             ValidationError, match=rf"{field_name}: expected number, got {expected_type}"
         ):
             PoolConfig(retry={field_name: value})
+
+    @pytest.mark.parametrize("value", ["false", 0, 1])
+    def test_nested_retry_requires_boolean_exponential_backoff(
+        self, value: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested retry config rejects non-bool exponential_backoff aliases."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError,
+            match=rf"exponential_backoff: expected bool, got {expected_type}",
+        ):
+            PoolConfig(retry={"exponential_backoff": value})
 
     @pytest.mark.parametrize("value", ["600000", 600000.0])
     def test_nested_server_settings_require_canonical_statement_timeout(

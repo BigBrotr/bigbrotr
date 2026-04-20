@@ -4516,3 +4516,14 @@ Use this section during execution for:
   - added paired coverage in `core.test_pool` proving `password_env` now
     canonicalizes or fails fast both on the leaf database config and
     through nested `PoolConfig.database` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-eighty-fifth
+  remediation slice:
+  - tightened the shared authored boolean boundary in
+    `core.pool_config.RetryConfig` so `exponential_backoff` now requires
+    a canonical `bool` value;
+  - closed the drift where authored aliases like `"false"`, `0`, or `1`
+    could silently become valid retry-backoff toggles at config load
+    time;
+  - added paired coverage in `core.test_pool` proving
+    `exponential_backoff` now fails fast both on the leaf retry config
+    and through nested `PoolConfig.retry` parsing.
