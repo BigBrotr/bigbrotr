@@ -225,6 +225,10 @@ class TestRefreshTargetConfig:
         with pytest.raises(ValueError, match=r"interval: expected number, got"):
             RefresherConfig.model_validate({"interval": value})
 
+    def test_rejects_non_string_refresher_root_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            RefresherConfig.model_validate({b"processing": {"max_source_window": 3600}})
+
     def test_empty_targets_are_allowed(self) -> None:
         config = _refresher_config()
 
