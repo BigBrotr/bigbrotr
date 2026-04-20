@@ -4505,3 +4505,14 @@ Use this section during execution for:
   - added paired coverage in `core.test_pool` proving those string fields
     now canonicalize or fail fast both on the leaf database config and
     through nested `PoolConfig.database` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-eighty-fourth
+  remediation slice:
+  - tightened the shared authored string boundary in
+    `core.pool_config.DatabaseConfig` so `password_env` now trims padded
+    env-var names and rejects whitespace-only payloads;
+  - closed the drift where authored values like
+    `" DB_ADMIN_PASSWORD_ALT "` or `"   "` could survive as non-canonical
+    or semantically blank password-env selectors at config load time;
+  - added paired coverage in `core.test_pool` proving `password_env` now
+    canonicalizes or fails fast both on the leaf database config and
+    through nested `PoolConfig.database` parsing.

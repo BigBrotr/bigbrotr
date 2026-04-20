@@ -51,7 +51,7 @@ class DatabaseConfig(BaseModel):
     )
     password: SecretStr = Field(description="Database password (loaded from password_env)")
 
-    @field_validator("host", "database", "user", mode="before")
+    @field_validator("host", "database", "user", "password_env", mode="before")
     @classmethod
     def normalize_string_fields(cls, value: Any, info: ValidationInfo) -> str:
         field_name = info.field_name or "value"
@@ -67,10 +67,14 @@ class DatabaseConfig(BaseModel):
     def resolve_password(cls, data: dict[str, Any]) -> dict[str, Any]:
         """Resolve the database password from the environment variable."""
         if isinstance(data, dict) and "password" not in data:
-            env_var = data.get("password_env", "DB_ADMIN_PASSWORD")  # pragma: allowlist secret
+            env_var = _normalize_string(
+                data.get("password_env", "DB_ADMIN_PASSWORD"),  # pragma: allowlist secret
+                "password_env",
+            )
             value = os.getenv(env_var)
             if not value:
                 raise ValueError(f"{env_var} environment variable not set")
+            data["password_env"] = env_var
             data["password"] = SecretStr(value)
         return data
 

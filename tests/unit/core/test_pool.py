@@ -153,6 +153,14 @@ class TestDatabaseConfig:
         assert config.database == "mydb"
         assert config.user == "myuser"
 
+    def test_password_env_trims_whitespace(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test password_env canonicalizes padded env-var names before lookup."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD_ALT", "test_pass")  # pragma: allowlist secret
+        config = DatabaseConfig(password_env=" DB_ADMIN_PASSWORD_ALT ")  # pragma: allowlist secret
+
+        assert config.password_env == "DB_ADMIN_PASSWORD_ALT"  # pragma: allowlist secret
+        assert config.password.get_secret_value() == "test_pass"
+
     def test_password_from_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test password resolution from DB_ADMIN_PASSWORD environment variable."""
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "env_secret_password")
@@ -262,6 +270,11 @@ class TestDatabaseConfig:
 
         with pytest.raises(ValidationError, match="user must not be blank"):
             DatabaseConfig(user="   ")
+
+    def test_blank_password_env_raises_validation_error(self) -> None:
+        """Test that whitespace-only password_env is rejected."""
+        with pytest.raises(ValidationError, match="password_env must not be blank"):
+            DatabaseConfig(password_env="   ", password="test_pass")  # pragma: allowlist secret
 
 
 class TestLimitsConfig:
@@ -660,11 +673,29 @@ class TestPoolConfig:
         assert config.database.database == "mydb"
         assert config.database.user == "myuser"
 
+    def test_nested_database_trims_password_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test nested database config canonicalizes padded password_env values."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD_ALT", "test_pass")  # pragma: allowlist secret
+        config = PoolConfig(
+            database={"password_env": " DB_ADMIN_PASSWORD_ALT "}
+        )  # pragma: allowlist secret
+
+        assert config.database.password_env == "DB_ADMIN_PASSWORD_ALT"  # pragma: allowlist secret
+        assert config.database.password.get_secret_value() == "test_pass"
+
     def test_nested_database_rejects_blank_user(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test nested database config rejects whitespace-only user values."""
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         with pytest.raises(ValidationError, match="user must not be blank"):
             PoolConfig(database={"user": "   "})
+
+    def test_nested_database_rejects_blank_password_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested database config rejects whitespace-only password_env values."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="password_env must not be blank"):
+            PoolConfig(database={"password_env": "   "})
 
     @pytest.mark.parametrize(
         ("field_name", "value"),
