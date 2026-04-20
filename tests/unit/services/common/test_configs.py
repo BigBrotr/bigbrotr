@@ -982,3 +982,7 @@ class TestNetworksConfigYamlConstruction:
     def test_model_validate_rejects_unknown_loki_field_names(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
             NetworksConfig.model_validate({"loki": {"retries": 3}})
+
+    def test_model_validate_rejects_unknown_root_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            NetworksConfig.model_validate({"tor_proxy": {"enabled": True}})

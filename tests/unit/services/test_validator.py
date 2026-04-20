@@ -316,6 +316,10 @@ class TestValidatorConfig:
         cfg = ValidatorConfig(networks=NetworksConfig(tor=TorConfig(enabled=True)))
         assert cfg.networks.tor.enabled is True
 
+    def test_nested_networks_unknown_root_field_names_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ValidatorConfig.model_validate({"networks": {"tor_proxy": {"enabled": True}}})
+
     @pytest.mark.parametrize("value", ["true", 1])
     def test_nested_network_enabled_aliases_rejected(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"enabled: expected boolean, got"):

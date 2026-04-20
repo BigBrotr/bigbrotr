@@ -575,6 +575,8 @@ class NetworksConfig(BaseModel):
         ```
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     clearnet: ClearnetConfig = Field(
         default_factory=ClearnetConfig, description="Clearnet relay settings"
     )
