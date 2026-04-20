@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping as MappingABC
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationInfo, field_validator
 
@@ -52,6 +52,13 @@ def _require_bool(value: Any, field_name: str) -> bool:
     if not isinstance(value, bool):
         raise ValueError(f"{field_name}: expected bool, got {type(value).__name__}")
     return value
+
+
+def _require_integer(value: Any, field_name: str) -> int:
+    """Require canonical integer values for authored assertor config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name}: expected integer, got {type(value).__name__}")
+    return cast("int", value)
 
 
 def _normalize_profile_extra_fields(value: Any) -> dict[str, object]:
@@ -284,8 +291,8 @@ class AssertorSelectionConfig(BaseModel):
 
     @field_validator("batch_size", "min_events", "top_topics", mode="before")
     @classmethod
-    def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
-        return _reject_bool_alias(value, str(info.field_name), "integer")
+    def require_integer_numerics(cls, value: Any, info: ValidationInfo) -> int:
+        return _require_integer(value, str(info.field_name))
 
     @field_validator("kinds", mode="before")
     @classmethod

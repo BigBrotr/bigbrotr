@@ -4787,3 +4787,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_assertor` proving
     `tag_names` now fails fast both on the leaf config and through
     root-level `AssertorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-ninth remediation
+  slice:
+  - tightened the authored integer boundaries in
+    `services.assertor.configs.AssertorSelectionConfig` so `batch_size`,
+    `min_events`, and `top_topics` now require canonical `int` values;
+  - closed the drift where authored aliases like `"500"`, `500.0`,
+    `"1"`, or `5.0` could silently coerce into valid selection budgets
+    at config load time;
+  - added paired coverage in `services.test_assertor` proving those
+    selection budgets now fail fast both on nested config construction
+    and through root-level `AssertorConfig` parsing.

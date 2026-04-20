@@ -146,6 +146,21 @@ class TestAssertorConfig:
         with pytest.raises(ValidationError, match=rf"{field_name}: expected integer, got bool"):
             AssertorConfig(selection={field_name: value})
 
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("batch_size", "500"),
+            ("batch_size", 500.0),
+            ("min_events", "1"),
+            ("min_events", 1.0),
+            ("top_topics", "5"),
+            ("top_topics", 5.0),
+        ],
+    )
+    def test_rejects_non_integer_selection_aliases(self, field_name: str, value: object) -> None:
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected integer, got"):
+            AssertorConfig(selection={field_name: value})
+
     def test_kinds_must_not_be_empty(
         self,
     ) -> None:
@@ -240,6 +255,23 @@ class TestAssertorConfig:
     def test_nested_rejects_non_string_trusted_provider_tag_name_alias(self) -> None:
         with pytest.raises(ValidationError, match=r"tag_names: expected strings, got mixed types"):
             AssertorConfig.model_validate({"trusted_provider_list": {"tag_names": [b"rank"]}})
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("batch_size", "500"),
+            ("batch_size", 500.0),
+            ("min_events", "1"),
+            ("min_events", 1.0),
+            ("top_topics", "5"),
+            ("top_topics", 5.0),
+        ],
+    )
+    def test_nested_rejects_non_integer_selection_aliases(
+        self, field_name: str, value: object
+    ) -> None:
+        with pytest.raises(ValidationError, match=rf"{field_name}: expected integer, got"):
+            AssertorConfig.model_validate({"selection": {field_name: value}})
 
     @pytest.mark.parametrize(
         ("config", "message"),
