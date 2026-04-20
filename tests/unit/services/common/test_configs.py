@@ -536,6 +536,10 @@ class TestNetworkConfigFieldKeys:
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
             I2pConfig.model_validate({"retries": 3})
 
+    def test_loki_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            LokiConfig.model_validate({"retries": 3})
+
 
 # =============================================================================
 # Validation Tests (max_tasks and timeout constraints)
@@ -974,3 +978,7 @@ class TestNetworksConfigYamlConstruction:
     def test_model_validate_rejects_unknown_i2p_field_names(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
             NetworksConfig.model_validate({"i2p": {"retries": 3}})
+
+    def test_model_validate_rejects_unknown_loki_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            NetworksConfig.model_validate({"loki": {"retries": 3}})
