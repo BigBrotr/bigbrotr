@@ -1001,6 +1001,24 @@ class TestMonitorConfig:
         assert config.networks.tor.enabled is True
         assert config.networks.tor.timeout == 30.0
 
+    def test_nested_networks_reject_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "networks": {b"tor": {"enabled": True}},
+                }
+            )
+
     def test_interval_config(self) -> None:
         config = MonitorConfig(
             interval=600.0,

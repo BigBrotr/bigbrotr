@@ -541,6 +541,11 @@ class NetworksConfig(BaseModel):
     i2p: I2pConfig = Field(default_factory=I2pConfig, description="I2P relay settings")
     loki: LokiConfig = Field(default_factory=LokiConfig, description="Lokinet relay settings")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _require_string_network_field_keys(cls, data: Any) -> Any:
+        return _require_string_mapping_keys(data, "config")
+
     def get(self, network: NetworkType) -> NetworkTypeConfig:
         """Get configuration for a specific network type.
 

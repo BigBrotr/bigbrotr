@@ -902,3 +902,7 @@ class TestNetworksConfigYamlConstruction:
         assert config.tor.enabled is False
         assert config.i2p.enabled is False
         assert config.loki.enabled is False
+
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            NetworksConfig.model_validate({b"tor": {"enabled": True}})
