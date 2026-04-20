@@ -372,6 +372,13 @@ class AssertorConfig(BaseServiceConfig):
         description="Checkpoint cleanup behavior",
     )
 
+    @field_validator("algorithm_id", mode="before")
+    @classmethod
+    def require_string_algorithm_id(cls, value: Any, info: ValidationInfo) -> str:
+        if not isinstance(value, str):
+            raise ValueError(f"{info.field_name}: expected str, got {type(value).__name__}")
+        return value
+
     @field_validator("algorithm_id")
     @classmethod
     def algorithm_id_valid(cls, v: str) -> str:

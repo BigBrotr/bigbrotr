@@ -187,6 +187,10 @@ class TestAssertorConfig:
         with pytest.raises(ValidationError, match="algorithm_id"):
             AssertorConfig(algorithm_id="Global PageRank")
 
+    def test_rejects_non_string_algorithm_id_alias(self) -> None:
+        with pytest.raises(ValidationError, match=r"algorithm_id: expected str, got bytes"):
+            AssertorConfig(algorithm_id=b"global-pagerank")
+
     def test_duplicate_kinds_rejected(self) -> None:
         with pytest.raises(ValidationError, match="duplicate assertion kinds"):
             AssertorConfig(selection={"kinds": [30382, 30382]})
@@ -206,6 +210,10 @@ class TestAssertorConfig:
     def test_invalid_trusted_provider_relay_hint_rejected(self) -> None:
         with pytest.raises(ValidationError, match="relay_hint must be a valid relay URL"):
             AssertorConfig(trusted_provider_list={"relay_hint": "not-a-relay"})
+
+    def test_nested_rejects_non_string_algorithm_id_alias(self) -> None:
+        with pytest.raises(ValidationError, match=r"algorithm_id: expected str, got bytes"):
+            AssertorConfig.model_validate({"algorithm_id": b"global-pagerank"})
 
     @pytest.mark.parametrize(
         ("config", "message"),

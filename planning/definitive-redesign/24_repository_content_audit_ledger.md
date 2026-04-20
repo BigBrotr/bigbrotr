@@ -4741,3 +4741,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_ranker` proving
     `checkpoint_path` now rejects blank nested config and canonicalizes
     padded direct input.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-fifth remediation
+  slice:
+  - tightened the authored string boundary in
+    `services.assertor.configs.AssertorConfig` so `algorithm_id` now
+    requires a canonical `str` before regex validation;
+  - closed the drift where authored aliases like
+    `b"global-pagerank"` could silently decode into a valid assertion
+    namespace at config load time;
+  - added paired coverage in `services.test_assertor` proving
+    `algorithm_id` now fails fast both on direct config construction and
+    through root-level `AssertorConfig` parsing.
