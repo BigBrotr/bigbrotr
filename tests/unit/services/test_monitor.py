@@ -1058,6 +1058,23 @@ class TestMonitorConfig:
                 }
             )
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MonitorConfig.model_validate(
+                {
+                    "processing_config": {
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
     def test_store_requires_compute_validation(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="Cannot store metadata that is not computed"):
             MonitorConfig(

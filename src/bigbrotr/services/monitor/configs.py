@@ -739,6 +739,8 @@ class MonitorConfig(BaseServiceConfig):
             management for event signing.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     networks: NetworksConfig = Field(
         default_factory=NetworksConfig, description="Per-network connection settings"
     )
