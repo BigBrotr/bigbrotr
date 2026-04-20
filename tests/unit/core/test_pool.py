@@ -867,6 +867,14 @@ class TestPoolConfig:
                 database={"port": port, "password": "test_pass"}  # pragma: allowlist secret
             )
 
+    def test_model_validate_rejects_non_string_field_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test root field keys fail fast through PoolConfig."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            PoolConfig.model_validate({b"limits": {"max_size": 50}})
+
 
 # ============================================================================
 # Pool Initialization Tests

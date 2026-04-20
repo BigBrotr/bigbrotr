@@ -5237,3 +5237,13 @@ Use this section during execution for:
     at defaults instead of applying the intended overlay;
   - added coverage in `core.test_brotr` proving those raw key
     boundaries now fail fast on root-level `BrotrConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-forty-seventh
+  remediation slice:
+  - tightened the shared mapping boundary in
+    `core.pool_config.PoolConfig` so raw config payloads now require
+    canonical string keys before root-level field parsing;
+  - closed the drift where authored field keys like `b"limits"` could
+    be ignored silently at config load time, leaving pool subconfigs at
+    defaults instead of applying the intended overlay;
+  - added coverage in `core.test_pool` proving those raw key
+    boundaries now fail fast on root-level `PoolConfig` parsing.
