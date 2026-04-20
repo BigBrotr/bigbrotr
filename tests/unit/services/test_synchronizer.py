@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from nostr_sdk import Filter, NostrSdkError
+from pydantic import ValidationError
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.core.brotr_config import BrotrConfig
@@ -148,6 +149,10 @@ class TestFilterParsing:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             ProcessingConfig.model_validate({b"limit": 50})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ProcessingConfig.model_validate({"max_relays": 100})
+
 
 class TestTimeoutsConfig:
     def test_default_values(self) -> None:
@@ -214,6 +219,10 @@ class TestSynchronizerConfig:
         assert config.processing.batch_size == 1000
         assert config.processing.allow_insecure is False
         assert config.interval == 300.0
+
+    def test_nested_processing_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            SynchronizerConfig.model_validate({"processing": {"max_relays": 100}})
 
     def test_get_end_time_default(self) -> None:
         config = ProcessingConfig()

@@ -129,7 +129,7 @@ class ProcessingConfig(BaseModel):
             Parent config that embeds this model.
     """
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
     filters: list[Filter] = Field(
         default_factory=lambda: [Filter()],

@@ -5477,3 +5477,16 @@ Use this section during execution for:
     instead of applying the intended overlay;
   - added coverage in `services.test_finder` proving those unknown
     field names now fail fast on root-level `FinderConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-sixty-seventh
+  remediation slice:
+  - tightened the authored field-name boundary in
+    `services.synchronizer.configs.ProcessingConfig` so unknown
+    processing keys are now rejected instead of being ignored silently
+    at config load time;
+  - closed the drift where stale payloads like `max_relays: 100` could
+    be accepted while leaving synchronizer processing settings at
+    defaults instead of applying the intended overlay;
+  - added paired coverage in `services.test_synchronizer` proving
+    those unknown field names now fail fast both on direct
+    `ProcessingConfig` parsing and through nested
+    `SynchronizerConfig` parsing.
