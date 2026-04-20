@@ -5332,3 +5332,13 @@ Use this section during execution for:
     raw key boundaries now fail fast both on direct
     `ProcessingConfig` construction and through nested
     `ValidatorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-fifty-fifth
+  remediation slice:
+  - tightened the authored mapping boundary in
+    `services.validator.configs.ValidatorConfig` so raw config payloads
+    now require canonical string keys before root-level field parsing;
+  - closed the drift where authored field keys like `b"cleanup"` could
+    be ignored silently at config load time, leaving validator
+    subconfigs at defaults instead of applying the intended overlay;
+  - added coverage in `services.test_validator` proving those raw key
+    boundaries now fail fast on root-level `ValidatorConfig` parsing.

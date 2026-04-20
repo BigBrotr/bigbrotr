@@ -273,6 +273,10 @@ class TestValidatorConfig:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             ValidatorConfig.model_validate({"cleanup": {b"max_failures": 50}})
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
+            ValidatorConfig.model_validate({b"cleanup": {"max_failures": 50}})
+
     @pytest.mark.parametrize(
         ("section", "field_name", "field_value"),
         [

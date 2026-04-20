@@ -172,6 +172,15 @@ class ValidatorConfig(BaseServiceConfig):
             Per-network timeout and proxy settings.
     """
 
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            invalid_key = next((key for key in data if not isinstance(key, str)), None)
+            if invalid_key is not None:
+                raise ValueError(f"config: expected string keys, got {type(invalid_key).__name__}")
+        return data
+
     networks: NetworksConfig = Field(
         default_factory=NetworksConfig, description="Per-network connection settings"
     )
