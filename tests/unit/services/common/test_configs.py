@@ -143,6 +143,10 @@ class TestReadModelPolicy:
         config = ReadModelPolicy.model_validate({"enabled": True})
         assert config.enabled is True
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            ReadModelPolicy.model_validate({b"enabled": True})
+
     @pytest.mark.parametrize("value", ["true", 1])
     def test_rejects_boolean_enabled_aliases(self, value: object) -> None:
         with pytest.raises(ValidationError, match=r"enabled: expected boolean, got"):

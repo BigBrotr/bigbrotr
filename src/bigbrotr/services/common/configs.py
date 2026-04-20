@@ -226,6 +226,11 @@ class ReadModelPolicy(BaseModel):
     enabled: bool = Field(default=False, description="Whether this readable resource is exposed")
     price: int = Field(default=0, ge=0, description="Price in millisats (0 = free)")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _require_string_field_keys(cls, data: Any) -> Any:
+        return _require_string_mapping_keys(data, "config")
+
     @field_validator("enabled", mode="before")
     @classmethod
     def _require_boolean_enabled(cls, value: Any, info: ValidationInfo) -> bool:

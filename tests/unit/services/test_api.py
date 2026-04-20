@@ -188,6 +188,10 @@ class TestApiConfig:
         with pytest.raises(ValidationError, match=r"enabled: expected boolean, got"):
             ApiConfig(read_models={"relays": {"enabled": value}})
 
+    def test_rejects_non_string_read_model_policy_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            ApiConfig.model_validate({"read_models": {"relays": {b"enabled": True}}})
+
     def test_read_models_require_canonical_names(self) -> None:
         with pytest.raises(
             ValueError,
