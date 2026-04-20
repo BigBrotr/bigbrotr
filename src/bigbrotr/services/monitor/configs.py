@@ -310,6 +310,8 @@ class ProcessingConfig(BaseModel):
             ``compute`` and ``store`` flag sets.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     chunk_size: int = Field(
         default=100, ge=10, le=1000, description="Relays to process before flushing results"
     )

@@ -468,6 +468,10 @@ class TestProcessingConfig:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             ProcessingConfig.model_validate({b"chunk_size": 50})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ProcessingConfig.model_validate({"batch_size": 50})
+
 
 class TestRetryConfig:
     def test_defaults(self) -> None:
@@ -1298,6 +1302,24 @@ class TestMonitorConfig:
                 {
                     "processing": {
                         b"chunk_size": 50,
+                        "compute": {"nip66_geo": False, "nip66_net": False},
+                        "store": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                }
+            )
+
+    def test_nested_processing_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "batch_size": 50,
                         "compute": {"nip66_geo": False, "nip66_net": False},
                         "store": {"nip66_geo": False, "nip66_net": False},
                     },
