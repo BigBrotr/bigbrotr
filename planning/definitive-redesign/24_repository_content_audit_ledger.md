@@ -5430,3 +5430,14 @@ Use this section during execution for:
     key boundaries now fail fast both on direct
     `BaseServiceConfig` parsing and through subclass
     `ConcreteServiceConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-sixty-third
+  remediation slice:
+  - tightened the authored field-name boundary in
+    `services.finder.configs.ApiConfig` so unknown top-level keys are
+    now rejected instead of being ignored silently at config load time;
+  - closed the drift where stale payloads like `nostr_wine: {...}`
+    could be accepted while leaving finder API settings at defaults
+    instead of applying the intended overlay;
+  - added paired coverage in `services.test_finder` proving those
+    unknown field names now fail fast both on direct `ApiConfig`
+    parsing and through nested `FinderConfig` parsing.

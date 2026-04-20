@@ -14,7 +14,7 @@ from typing import Any, cast
 from urllib.parse import urlsplit, urlunsplit
 
 import jmespath
-from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 
@@ -251,6 +251,8 @@ class ApiConfig(BaseModel):
         [FinderConfig][bigbrotr.services.finder.FinderConfig]: Parent
             config that embeds this model.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     enabled: bool = Field(default=True, description="Enable API fetching")
     cooldown: float = Field(

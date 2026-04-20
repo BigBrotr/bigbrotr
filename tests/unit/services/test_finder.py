@@ -390,6 +390,10 @@ class TestApiConfig:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             ApiConfig.model_validate({b"enabled": False})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ApiConfig.model_validate({"nostr_wine": {"enabled": False}})
+
     @pytest.mark.parametrize("value", ["false", 1, 0])
     def test_rejects_non_boolean_enabled_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"enabled: expected bool, got"):
@@ -675,6 +679,10 @@ class TestFinderConfig:
     def test_nested_api_reject_non_string_field_keys(self) -> None:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             FinderConfig.model_validate({"api": {b"enabled": False}})
+
+    def test_nested_api_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            FinderConfig.model_validate({"api": {"nostr_wine": {"enabled": False}}})
 
     def test_nested_api_sources_reject_non_string_field_keys(self) -> None:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
