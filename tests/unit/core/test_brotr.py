@@ -166,6 +166,11 @@ class TestTimeoutsConfig:
         with pytest.raises(ValidationError, match=rf"{field_name}: expected number, got"):
             TimeoutsConfig(**{field_name: value})
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        """Test raw timeout field keys must already be canonical strings."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            TimeoutsConfig.model_validate({b"query": 30.0})
+
 
 class TestBrotrConfig:
     """Tests for BrotrConfig composite model."""
@@ -213,6 +218,11 @@ class TestBrotrConfig:
         """Test nested batch field keys fail fast through BrotrConfig."""
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             BrotrConfig.model_validate({"batch": {b"max_size": 1000}})
+
+    def test_nested_timeouts_reject_non_string_field_keys(self) -> None:
+        """Test nested timeout field keys fail fast through BrotrConfig."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            BrotrConfig.model_validate({"timeouts": {b"query": 30.0}})
 
 
 # ============================================================================
