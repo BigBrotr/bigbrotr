@@ -238,8 +238,12 @@ class RankerExportConfig(BaseModel):
 
     @field_validator("max_batches_per_subject", mode="before")
     @classmethod
-    def reject_boolean_numerics(cls, value: Any, info: ValidationInfo) -> Any:
-        return _reject_bool_alias(value, str(info.field_name), "integer")
+    def require_integer_max_batches_per_subject(
+        cls, value: Any, info: ValidationInfo
+    ) -> int | None:
+        if value is None:
+            return None
+        return _require_integer(value, str(info.field_name))
 
 
 class RankerCleanupConfig(BaseModel):

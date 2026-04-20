@@ -856,6 +856,13 @@ class TestRankerConfig:
         with pytest.raises(ValueError, match=r"batch_size: expected integer, got"):
             RankerExportConfig(batch_size=value)
 
+    @pytest.mark.parametrize("value", ["4", 4.0])
+    def test_ranker_export_rejects_non_integer_max_batches_per_subject_aliases(
+        self, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=r"max_batches_per_subject: expected integer, got"):
+            RankerExportConfig(max_batches_per_subject=value)
+
     @pytest.mark.parametrize(
         ("payload", "field_name", "expected_type"),
         [
@@ -965,6 +972,13 @@ class TestRankerConfig:
     def test_nested_export_rejects_non_integer_batch_size_aliases(self, value: object) -> None:
         with pytest.raises(ValueError, match=r"batch_size: expected integer, got"):
             RankerConfig.model_validate({"export": {"batch_size": value}})
+
+    @pytest.mark.parametrize("value", ["4", 4.0])
+    def test_nested_export_rejects_non_integer_max_batches_per_subject_aliases(
+        self, value: object
+    ) -> None:
+        with pytest.raises(ValueError, match=r"max_batches_per_subject: expected integer, got"):
+            RankerConfig.model_validate({"export": {"max_batches_per_subject": value}})
 
 
 class TestRankerStore:
