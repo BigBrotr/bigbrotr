@@ -147,6 +147,10 @@ class TestReadModelPolicy:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             ReadModelPolicy.model_validate({b"enabled": True})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ReadModelPolicy.model_validate({"visibility": "public"})
+
     @pytest.mark.parametrize("value", ["true", 1])
     def test_rejects_boolean_enabled_aliases(self, value: object) -> None:
         with pytest.raises(ValidationError, match=r"enabled: expected boolean, got"):

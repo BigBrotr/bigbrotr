@@ -192,6 +192,10 @@ class TestApiConfig:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             ApiConfig.model_validate({"read_models": {"relays": {b"enabled": True}}})
 
+    def test_rejects_unknown_read_model_policy_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ApiConfig.model_validate({"read_models": {"relays": {"visibility": "public"}}})
+
     def test_model_validate_rejects_non_string_field_keys(self) -> None:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             ApiConfig.model_validate({b"route_prefix": "/api/v2"})

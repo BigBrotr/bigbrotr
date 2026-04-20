@@ -52,7 +52,7 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from nostr_sdk import Keys
-from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from bigbrotr.core.base_service import BaseServiceConfig
 from bigbrotr.models import Relay
@@ -222,6 +222,8 @@ class ReadModelPolicy(BaseModel):
         price: Price in millisats.  ``0`` means free (no payment required).
             Used by the DVM service for NIP-90 bid/payment-required.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     enabled: bool = Field(default=False, description="Whether this readable resource is exposed")
     price: int = Field(default=0, ge=0, description="Price in millisats (0 = free)")
