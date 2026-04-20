@@ -101,7 +101,7 @@ class TimeoutsConfig(BaseModel):
     @field_validator("acquisition", mode="before")
     @classmethod
     def reject_boolean_acquisition(cls, value: Any) -> Any:
-        return _reject_bool_alias(value, "acquisition", "number")
+        return _require_number(value, "acquisition")
 
 
 class RetryConfig(BaseModel):

@@ -375,6 +375,15 @@ class TestTimeoutsConfig:
         with pytest.raises(ValidationError, match="acquisition: expected number, got bool"):
             TimeoutsConfig(acquisition=True)
 
+    @pytest.mark.parametrize("value", ["30", "30.0"])
+    def test_rejects_non_numeric_acquisition_aliases(self, value: object) -> None:
+        """Test string aliases do not coerce into acquisition timeout budgets."""
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"acquisition: expected number, got {expected_type}"
+        ):
+            TimeoutsConfig(acquisition=value)
+
 
 class TestRetryConfig:
     """Tests for RetryConfig Pydantic model."""
@@ -577,6 +586,14 @@ class TestPoolConfig:
             ValidationError, match="max_inactive_connection_lifetime: expected number, got str"
         ):
             PoolConfig(limits={"max_inactive_connection_lifetime": "300.0"})
+
+    def test_nested_timeouts_require_canonical_acquisition(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested timeouts config rejects string acquisition aliases."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="acquisition: expected number, got str"):
+            PoolConfig(timeouts={"acquisition": "30.0"})
 
     @pytest.mark.parametrize("port", ["5432", 5432.0])
     def test_nested_database_port_requires_canonical_int(self, port: object) -> None:

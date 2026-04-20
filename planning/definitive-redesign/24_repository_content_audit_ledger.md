@@ -4441,3 +4441,14 @@ Use this section during execution for:
   - added paired coverage in `core.test_pool` proving malformed numeric
     aliases now fail fast both on the leaf limits config and through
     nested `PoolConfig.limits` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-seventy-eighth
+  remediation slice:
+  - tightened the shared authored numeric boundary in
+    `core.pool_config.TimeoutsConfig` so `acquisition` now requires a
+    canonical numeric type;
+  - closed the drift where payloads like `"30"` or `"30.0"` could
+    silently become valid pool acquisition timeout budgets at config load
+    time;
+  - added paired coverage in `core.test_pool` proving malformed numeric
+    aliases now fail fast both on the leaf timeout config and through
+    nested `PoolConfig.timeouts` parsing.
