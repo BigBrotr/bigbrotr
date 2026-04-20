@@ -4775,3 +4775,15 @@ Use this section during execution for:
   - added paired coverage in `services.test_assertor` proving `content`
     now fails fast both on nested config construction and through
     root-level `AssertorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-eighth
+  remediation slice:
+  - tightened the authored collection boundary in
+    `services.assertor.configs.TrustedProviderListConfig` so `tag_names`
+    now requires list or tuple entries that are already canonical
+    strings before normalization;
+  - closed the drift where authored aliases like `[b"rank"]` could
+    silently decode into valid trusted-provider tags at config load
+    time;
+  - added paired coverage in `services.test_assertor` proving
+    `tag_names` now fails fast both on the leaf config and through
+    root-level `AssertorConfig` parsing.

@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from bigbrotr.models.constants import EventKind, ServiceName
 from bigbrotr.models.service_state import ServiceStateType
-from bigbrotr.services.assertor.configs import AssertorConfig
+from bigbrotr.services.assertor.configs import AssertorConfig, TrustedProviderListConfig
 from bigbrotr.services.assertor.service import Assertor
 from bigbrotr.services.common.state_store import ServiceStateStore
 from bigbrotr.utils.protocol import (
@@ -219,6 +219,10 @@ class TestAssertorConfig:
         with pytest.raises(ValidationError, match=r"content: expected string, got bytes"):
             AssertorConfig(trusted_provider_list={"content": b"hello"})
 
+    def test_rejects_non_string_trusted_provider_tag_name_alias(self) -> None:
+        with pytest.raises(ValidationError, match=r"tag_names: expected strings, got mixed types"):
+            TrustedProviderListConfig(tag_names=[b"rank"])
+
     def test_nested_rejects_non_string_algorithm_id_alias(self) -> None:
         with pytest.raises(ValidationError, match=r"algorithm_id: expected str, got bytes"):
             AssertorConfig.model_validate({"algorithm_id": b"global-pagerank"})
@@ -232,6 +236,10 @@ class TestAssertorConfig:
     def test_nested_rejects_non_string_trusted_provider_content_alias(self) -> None:
         with pytest.raises(ValidationError, match=r"content: expected string, got bytes"):
             AssertorConfig.model_validate({"trusted_provider_list": {"content": b"hello"}})
+
+    def test_nested_rejects_non_string_trusted_provider_tag_name_alias(self) -> None:
+        with pytest.raises(ValidationError, match=r"tag_names: expected strings, got mixed types"):
+            AssertorConfig.model_validate({"trusted_provider_list": {"tag_names": [b"rank"]}})
 
     @pytest.mark.parametrize(
         ("config", "message"),

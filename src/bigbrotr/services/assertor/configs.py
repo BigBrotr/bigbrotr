@@ -198,6 +198,15 @@ class TrustedProviderListConfig(BaseModel):
         description="Optional event content for Kind 10040 publishing",
     )
 
+    @field_validator("tag_names", mode="before")
+    @classmethod
+    def tag_names_are_strings(cls, value: Any, info: ValidationInfo) -> Any:
+        if not isinstance(value, list | tuple):
+            return value
+        if any(not isinstance(tag, str) for tag in value):
+            raise ValueError(f"{info.field_name}: expected strings, got mixed types")
+        return value
+
     @field_validator("tag_names")
     @classmethod
     def tag_names_valid(cls, v: list[str]) -> list[str]:
