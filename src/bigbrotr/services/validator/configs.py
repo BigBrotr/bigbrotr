@@ -176,6 +176,8 @@ class ValidatorConfig(BaseServiceConfig):
             Per-network timeout and proxy settings.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     @model_validator(mode="before")
     @classmethod
     def require_string_field_keys(cls, data: Any) -> Any:

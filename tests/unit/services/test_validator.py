@@ -293,6 +293,10 @@ class TestValidatorConfig:
         with pytest.raises(ValueError, match=r"config: expected string keys, got bytes"):
             ValidatorConfig.model_validate({b"cleanup": {"max_failures": 50}})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ValidatorConfig.model_validate({"validator_limits": {"chunk_size": 200}})
+
     @pytest.mark.parametrize(
         ("section", "field_name", "field_value"),
         [
