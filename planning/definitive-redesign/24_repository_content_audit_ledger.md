@@ -4462,3 +4462,13 @@ Use this section during execution for:
   - added paired coverage in `core.test_pool` proving malformed integer
     aliases now fail fast both on the leaf retry config and through
     nested `PoolConfig.retry` parsing.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-eightieth
+  remediation slice:
+  - tightened the shared authored numeric boundary in
+    `core.pool_config.RetryConfig` so `initial_delay` and `max_delay` now
+    require canonical numeric types;
+  - closed the drift where payloads like `"0.5"` or `"10.0"` could
+    silently become valid retry-delay budgets at config load time;
+  - added paired coverage in `core.test_pool` proving malformed numeric
+    aliases now fail fast both on the leaf retry config and through
+    nested `PoolConfig.retry` parsing.

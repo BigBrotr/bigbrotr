@@ -467,6 +467,21 @@ class TestRetryConfig:
         ):
             RetryConfig(max_attempts=value)
 
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("initial_delay", "0.5"),
+            ("max_delay", "10.0"),
+        ],
+    )
+    def test_rejects_non_numeric_delay_aliases(self, field_name: str, value: object) -> None:
+        """Test string aliases do not coerce into retry delay budgets."""
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"{field_name}: expected number, got {expected_type}"
+        ):
+            RetryConfig(**{field_name: value})
+
 
 class TestServerSettingsConfig:
     """Tests for ServerSettingsConfig Pydantic model."""
@@ -615,6 +630,24 @@ class TestPoolConfig:
             ValidationError, match=rf"max_attempts: expected integer, got {expected_type}"
         ):
             PoolConfig(retry={"max_attempts": value})
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("initial_delay", "0.5"),
+            ("max_delay", "10.0"),
+        ],
+    )
+    def test_nested_retry_requires_canonical_delays(
+        self, field_name: str, value: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested retry config rejects string delay aliases."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        expected_type = type(value).__name__
+        with pytest.raises(
+            ValidationError, match=rf"{field_name}: expected number, got {expected_type}"
+        ):
+            PoolConfig(retry={field_name: value})
 
     @pytest.mark.parametrize("port", ["5432", 5432.0])
     def test_nested_database_port_requires_canonical_int(self, port: object) -> None:

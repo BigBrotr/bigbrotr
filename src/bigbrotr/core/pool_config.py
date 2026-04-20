@@ -118,7 +118,7 @@ class RetryConfig(BaseModel):
         field_name = info.field_name or "value"
         if field_name == "max_attempts":
             return _require_int(value, field_name)
-        return _reject_bool_alias(value, field_name, "number")
+        return _require_number(value, field_name)
 
     @field_validator("max_delay")
     @classmethod
