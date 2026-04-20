@@ -5406,3 +5406,15 @@ Use this section during execution for:
     subconfigs at defaults instead of applying the intended overlay;
   - added coverage in `services.test_refresher` proving those raw key
     boundaries now fail fast on root-level `RefresherConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-sixty-first
+  remediation slice:
+  - tightened the shared mapping boundary in `core.metrics.MetricsConfig`
+    so raw config payloads now require canonical string keys before
+    metrics field parsing;
+  - closed the drift where authored field keys like `b"enabled"` could
+    be ignored silently at config load time, leaving metrics settings
+    at defaults instead of applying the intended overlay;
+  - added paired coverage in `core.test_metrics` and
+    `core.test_base_service` proving those raw key boundaries now fail
+    fast both on direct `MetricsConfig` construction and through nested
+    `BaseServiceConfig` parsing.

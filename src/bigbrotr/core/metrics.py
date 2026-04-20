@@ -44,7 +44,7 @@ from prometheus_client import (
     Info,
     generate_latest,
 )
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 
 class MetricsConfig(BaseModel):
@@ -60,6 +60,15 @@ class MetricsConfig(BaseModel):
         [BaseServiceConfig][bigbrotr.core.base_service.BaseServiceConfig]:
             Parent configuration that embeds this model.
     """
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            invalid_key = next((key for key in data if not isinstance(key, str)), None)
+            if invalid_key is not None:
+                raise ValueError(f"config: expected string keys, got {type(invalid_key).__name__}")
+        return data
 
     enabled: bool = Field(default=False, description="Enable metrics collection")
     port: int = Field(default=8000, ge=1024, le=65535, description="Metrics HTTP port")

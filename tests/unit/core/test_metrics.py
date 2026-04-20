@@ -62,6 +62,11 @@ class TestMetricsConfig:
         config = MetricsConfig()
         assert config.enabled is False
 
+    def test_rejects_non_string_field_keys(self) -> None:
+        """Test raw metrics payloads require canonical string keys."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MetricsConfig.model_validate({b"enabled": True})
+
     @pytest.mark.parametrize("value", ["true", 1, 0])
     def test_rejects_non_boolean_enabled_aliases(self, value: object) -> None:
         """Test authored metrics toggles require canonical booleans."""

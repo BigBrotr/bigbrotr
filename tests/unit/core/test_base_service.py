@@ -124,6 +124,11 @@ class TestBaseServiceConfig:
         with pytest.raises(ValidationError, match=r"interval: expected number, got"):
             BaseServiceConfig(interval=value)
 
+    def test_nested_metrics_raw_field_keys_rejected(self) -> None:
+        """Test nested metrics payloads require canonical string keys."""
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            BaseServiceConfig.model_validate({"metrics": {b"enabled": True}})
+
     def test_max_consecutive_failures_zero_allowed(self) -> None:
         """Test that max_consecutive_failures=0 (unlimited) is allowed."""
         config = BaseServiceConfig(max_consecutive_failures=0)
