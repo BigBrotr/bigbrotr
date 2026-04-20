@@ -65,6 +65,12 @@ class TestBatchConfig:
         with pytest.raises(ValidationError, match="max_size: expected integer, got bool"):
             BatchConfig(max_size=True)
 
+    @pytest.mark.parametrize("value", ["1000", 1000.0])
+    def test_rejects_non_integer_aliases(self, value: object) -> None:
+        """Test non-integer aliases do not coerce into a valid batch size."""
+        with pytest.raises(ValidationError, match=r"max_size: expected integer, got"):
+            BatchConfig(max_size=value)
+
 
 class TestTimeoutsConfig:
     """Tests for TimeoutsConfig Pydantic model."""
@@ -163,6 +169,12 @@ class TestBrotrConfig:
         assert config.batch.max_size == 5000
         assert config.timeouts.query == 30.0
         assert config.timeouts.batch == 60.0
+
+    @pytest.mark.parametrize("value", ["1000", 1000.0])
+    def test_nested_batch_aliases_rejected(self, value: object) -> None:
+        """Test nested batch size aliases fail fast through BrotrConfig."""
+        with pytest.raises(ValidationError, match=r"max_size: expected integer, got"):
+            BrotrConfig(batch={"max_size": value})
 
 
 # ============================================================================

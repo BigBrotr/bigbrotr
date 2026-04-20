@@ -15,6 +15,13 @@ def _reject_bool_alias(value: Any, field_name: str, expected: str) -> Any:
     return value
 
 
+def _require_int(value: Any, field_name: str) -> int:
+    """Require canonical integers for authored Brotr config boundaries."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name}: expected integer, got {type(value).__name__}")
+    return int(value)
+
+
 class BatchConfig(BaseModel):
     """Controls the maximum number of records per bulk insert operation."""
 
@@ -24,8 +31,8 @@ class BatchConfig(BaseModel):
 
     @field_validator("max_size", mode="before")
     @classmethod
-    def reject_boolean_max_size(cls, value: Any) -> Any:
-        return _reject_bool_alias(value, "max_size", "integer")
+    def require_integer_max_size(cls, value: Any) -> int:
+        return _require_int(value, "max_size")
 
 
 class TimeoutsConfig(BaseModel):

@@ -4389,3 +4389,13 @@ Use this section during execution for:
     proving slashless metrics paths now canonicalize consistently both on
     the shared metrics config and through a concrete service config that
     embeds it.
+- `2.1` models/utils/NIPs leaf audit, three-hundred-and-seventy-third
+  remediation slice:
+  - tightened the shared authored integer boundary in
+    `core.brotr_config.BatchConfig` so `max_size` now requires a canonical
+    `int` value;
+  - closed the drift where payloads like `"1000"` or `1000.0` could
+    silently become valid Brotr batch-size limits at config load time;
+  - added paired coverage in `core.test_brotr` proving malformed integer
+    aliases now fail fast both on the leaf batch config and through nested
+    `BrotrConfig.batch` parsing.
