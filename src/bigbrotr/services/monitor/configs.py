@@ -330,6 +330,12 @@ class ProcessingConfig(BaseModel):
         default_factory=MetadataFlags, description="Which metadata types to persist"
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def require_string_field_keys(cls, data: Any) -> Any:
+        """Reject raw processing payloads with non-string mapping keys."""
+        return _require_string_mapping_keys(data, "config")
+
     @field_validator("chunk_size", mode="before")
     @classmethod
     def require_integer_chunk_size(cls, v: Any, info: ValidationInfo) -> int:

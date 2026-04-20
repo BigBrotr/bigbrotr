@@ -5170,3 +5170,14 @@ Use this section during execution for:
   - added paired coverage in `services.test_monitor` proving those raw
     key boundaries now fail fast both on direct `RetriesConfig`
     construction and through root-level `MonitorConfig` parsing.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-forty-first
+  remediation slice:
+  - tightened the authored mapping boundary in
+    `services.monitor.configs.ProcessingConfig` so raw config payloads
+    now require canonical string keys before processing field parsing;
+  - closed the drift where authored field keys like `b"chunk_size"`
+    could be ignored silently at config load time, leaving processing
+    controls at defaults instead of applying the intended overlay;
+  - added paired coverage in `services.test_monitor` proving those raw
+    key boundaries now fail fast both on direct `ProcessingConfig`
+    construction and through root-level `MonitorConfig` parsing.
