@@ -354,6 +354,10 @@ class TestMetadataFlags:
         assert flags.nip66_dns is False
         assert flags.nip66_http is False
 
+    def test_model_validate_rejects_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MetadataFlags.model_validate({b"nip11_info": False})
+
     @pytest.mark.parametrize(
         ("field_name", "value", "expected_type"),
         [
@@ -1045,6 +1049,23 @@ class TestMonitorConfig:
                         "include": {"nip66_geo": False, "nip66_net": False},
                     },
                     "networks": {network_name: payload},
+                }
+            )
+
+    def test_nested_compute_flags_reject_non_string_field_keys(self) -> None:
+        with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
+            MonitorConfig.model_validate(
+                {
+                    "processing": {
+                        "compute": {b"nip11_info": False, "nip66_geo": False, "nip66_net": False},
+                        "store": {"nip11_info": True, "nip66_geo": False, "nip66_net": False},
+                    },
+                    "discovery": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
+                    "announcement": {
+                        "include": {"nip66_geo": False, "nip66_net": False},
+                    },
                 }
             )
 

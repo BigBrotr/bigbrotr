@@ -4994,3 +4994,15 @@ Use this section during execution for:
   - added paired coverage in `services.common.test_configs` and
     `services.test_monitor` proving those raw key boundaries now fail
     fast both at the shared leaf and through the real Monitor consumer.
+- `2.1` models/utils/NIPs leaf audit, four-hundred-and-twenty-sixth
+  remediation slice:
+  - tightened the authored mapping boundary in
+    `services.monitor.configs.MetadataFlags` so raw config payloads now
+    require canonical string keys before metadata-flag parsing;
+  - closed the drift where authored field keys like `b"nip11_info"`
+    inside compute/store/include flag payloads could be ignored silently
+    at config load time, leaving default monitor metadata flags in
+    place instead of applying the intended overlay;
+  - added paired coverage in `services.test_monitor` proving those raw
+    key boundaries now fail fast both on direct `MetadataFlags`
+    construction and through root-level `MonitorConfig` parsing.

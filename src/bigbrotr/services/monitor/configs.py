@@ -9,6 +9,7 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Mapping as MappingABC
 from collections.abc import Sequence as SequenceABC
 from pathlib import Path
 from typing import Annotated, Any, Final, cast
@@ -76,6 +77,16 @@ def _require_boolean(value: Any, field_name: str) -> bool:
     """Require canonical booleans for public monitor config boundaries."""
     if not isinstance(value, bool):
         raise ValueError(f"{field_name}: expected boolean, got {type(value).__name__}")
+    return value
+
+
+def _require_string_mapping_keys(value: Any, field_name: str) -> Any:
+    """Require canonical string keys for authored monitor mapping boundaries."""
+    if not isinstance(value, MappingABC):
+        return value
+    for key in value:
+        if not isinstance(key, str):
+            raise ValueError(f"{field_name}: expected string keys, got {type(key).__name__}")
     return value
 
 
@@ -152,6 +163,11 @@ class MetadataFlags(BaseModel):
     nip66_net: bool = Field(default=True, description="NIP-66 network/ASN lookup")
     nip66_dns: bool = Field(default=True, description="NIP-66 DNS resolution")
     nip66_http: bool = Field(default=True, description="NIP-66 HTTP server headers")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _require_string_field_keys(cls, data: Any) -> Any:
+        return _require_string_mapping_keys(data, "config")
 
     @field_validator(
         "nip11_info",
