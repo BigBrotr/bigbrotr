@@ -8,13 +8,17 @@ from .compose import (
     parse_compose_ps,
 )
 from .faults import FaultControlPortPlan, ProxySpec, ToxicSpec, ToxiproxyClient
+from .observability import AlertmanagerApi, GrafanaApi, PrometheusApi
 
 
 __all__ = [
+    "AlertmanagerApi",
     "ArtifactRecord",
     "ComposeServiceStatus",
     "ComposeStack",
     "FaultControlPortPlan",
+    "GrafanaApi",
+    "PrometheusApi",
     "ProxySpec",
     "RuntimeAddressPlan",
     "RuntimePortPlan",
