@@ -303,6 +303,14 @@ def pytest_configure(config: pytest.Config) -> None:
     )
     config.addinivalue_line(
         "markers",
+        "system: marks tests as higher-band system tests requiring Docker Compose",
+    )
+    config.addinivalue_line(
+        "markers",
+        "live_smoke: marks tests as quarantined live-network smoke tests",
+    )
+    config.addinivalue_line(
+        "markers",
         "unit: marks tests as unit tests (no external dependencies)",
     )
     config.addinivalue_line("markers", "slow: marks tests as slow running")
@@ -313,5 +321,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     for item in items:
         if "integration" in str(item.fspath):
             item.add_marker(pytest.mark.integration)
+        elif "live_smoke" in str(item.fspath):
+            item.add_marker(pytest.mark.live_smoke)
+        elif "system" in str(item.fspath):
+            item.add_marker(pytest.mark.system)
         elif "unit" in str(item.fspath):
             item.add_marker(pytest.mark.unit)

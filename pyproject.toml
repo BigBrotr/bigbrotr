@@ -113,6 +113,8 @@ addopts = ["-v", "--strict-markers", "--strict-config", "-ra", "--tb=short", "--
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests requiring database",
+    "system: marks tests as higher-band system tests requiring Docker Compose",
+    "live_smoke: marks tests as quarantined live-network smoke tests",
     "unit: marks tests as unit tests (no external dependencies)",
 ]
 

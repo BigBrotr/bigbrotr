@@ -59,7 +59,7 @@ Use these statuses consistently:
 | Wave | Status | Notes |
 |------|--------|-------|
 | 0. Freeze the expanded test problem | done | The non-unit tracked baseline, the live deployment/monitoring inventory, the current-vs-required contract matrix, and the target taxonomy are now frozen explicitly; Wave 1 can start on a stable execution map instead of inventing structure on the fly |
-| 1. Higher-band harness foundation | not started | Compose lifecycle, artifact capture, network fault control, and observability API helpers |
+| 1. Higher-band harness foundation | in progress | The `tests/system/` and `tests/live_smoke/` bands now exist physically, the repo knows how to keep them out of the unit gate, and the first compose lifecycle helper slice is closed; artifact capture, stable addressing, fault control, observability APIs, and harness self-audit still remain |
 | 2. Real relay infrastructure | not started | Baseline relay, capture relay, fault-injected relay path, and optional secondary relay matrix |
 | 3. Deployment stack baseline | not started | Clean `bigbrotr` and `lilbrotr` startup, health, dependency ordering, and restart baseline |
 | 4. Service system certification | not started | Real runtime certification for all ten services |
@@ -87,7 +87,7 @@ Use these statuses consistently:
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 1.1 Compose lifecycle harness | not started |  | Deterministic compose up/down, env generation, readiness polling, cleanup |
+| 1.1 Compose lifecycle harness | done | `test: add system compose lifecycle harness` | Added the first higher-band runtime scaffold under `tests/system/` plus `tests/live_smoke/`, introduced explicit `system` and `live_smoke` markers/targets so the unit gate keeps excluding those bands, and added `tests/system/harness/compose.py` with deterministic env rendering from built-in `.env.example`, normalized `docker compose ps` parsing, compose command execution, and readiness polling covered by `tests/unit/test_system_compose_harness.py` |
 | 1.2 Artifact capture harness | not started |  | Container logs, Prometheus targets, Grafana provisioning responses, relay captures, DB snapshots |
 | 1.3 Stable runtime addressing | not started |  | Port, host, volume, and project-name discipline for repeatable runs |
 | 1.4 Network fault-control harness | not started |  | Deterministic TCP/WebSocket failure shaping for relay and selected service paths |

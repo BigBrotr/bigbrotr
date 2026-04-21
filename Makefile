@@ -3,7 +3,7 @@
 # ============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help install pre-commit lint format format-check typecheck test test-unit test-integration test-fast coverage audit sql-generate sql-check ci docs docs-serve build docker-build docker-up docker-down clean
+.PHONY: help install pre-commit lint format format-check typecheck test test-unit test-integration test-system test-live-smoke test-fast coverage audit sql-generate sql-check ci docs docs-serve build docker-build docker-up docker-down clean
 
 DEPLOYMENT ?= bigbrotr
 
@@ -41,16 +41,22 @@ typecheck: ## Run mypy type checker
 test: test-unit ## Run unit tests (alias for test-unit)
 
 test-unit: ## Run unit tests
-	uv run pytest tests/ --ignore=tests/integration/
+	uv run pytest tests/ --ignore=tests/integration/ --ignore=tests/system/ --ignore=tests/live_smoke/
 
 test-integration: ## Run integration tests (requires Docker)
 	uv run pytest tests/integration/
 
+test-system: ## Run higher-band system tests (requires Docker Compose)
+	uv run pytest tests/system/
+
+test-live-smoke: ## Run quarantined live-network smoke tests
+	uv run pytest tests/live_smoke/
+
 test-fast: ## Run unit tests without slow markers
-	uv run pytest tests/ --ignore=tests/integration/ -m "not slow"
+	uv run pytest tests/ --ignore=tests/integration/ --ignore=tests/system/ --ignore=tests/live_smoke/ -m "not slow"
 
 coverage: ## Run unit tests with coverage report
-	uv run pytest tests/ --ignore=tests/integration/ --cov=src/bigbrotr --cov-report=term-missing --cov-report=html
+	uv run pytest tests/ --ignore=tests/integration/ --ignore=tests/system/ --ignore=tests/live_smoke/ --cov=src/bigbrotr --cov-report=term-missing --cov-report=html
 
 # --------------------------------------------------------------------------
 # Quality
