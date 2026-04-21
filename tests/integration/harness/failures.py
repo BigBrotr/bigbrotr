@@ -84,7 +84,13 @@ def patched_assertor_publish_boundary(
     """Patch the Assertor publish boundary with explicit, reusable seams."""
     publish_client = client or FakePublishClient()
     connect_plan = connect_session or AsyncOutcomePlan(
-        [build_publish_session(publish_client)],
+        [
+            build_publish_session(
+                publish_client,
+                relay_urls=publish_client.relay_urls,
+                failed_relays=publish_client.failed_relays,
+            )
+        ],
         sticky_last=True,
     )
     broadcast_callable = broadcaster or FakeBroadcastRecorder()

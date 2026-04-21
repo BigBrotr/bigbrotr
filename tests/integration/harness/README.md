@@ -17,3 +17,4 @@ Deterministic support layer for the rebuilt integration suite.
 - keep support code here, not contract assertions;
 - prefer named helpers over ad hoc fixture logic in unrelated test files;
 - make setup/teardown behavior observable and testable directly.
+- keep the harness audit bundle in `tests/unit/test_integration_harness_audit.py` green across repeated reruns before closing harness work packages.
