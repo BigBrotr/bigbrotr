@@ -175,9 +175,9 @@ The remaining seven services handle monitoring, event archiving, analytics, rank
 - **Ranker** keeps a private DuckDB graph store, computes NIP-85 ranks, and snapshot-exports them back to PostgreSQL
 - **Assertor** publishes the NIP-85 provider package for users, events, addressables, and
   identifiers with its own service signing key
-- **Api** exposes enabled public readable resources over HTTP while preserving
+- **API** exposes enabled public readable resources over HTTP while preserving
   the stable `/read-models` transport contract
-- **Dvm** serves the same public readable resources over Nostr as a NIP-90 Data
+- **DVM** serves the same public readable resources over Nostr as a NIP-90 Data
   Vending Machine using its own service signing key
 
 ## Running All Services

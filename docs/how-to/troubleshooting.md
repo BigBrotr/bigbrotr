@@ -230,8 +230,8 @@ deployment:
 - **Assertor** -- publishes the NIP-85 provider package from those score
   outputs. Required if you want trusted assertions, provider profile data, or
   trusted-provider lists.
-- **Api** -- exposes deployment-approved readable resources over HTTP.
-- **Dvm** -- exposes deployment-approved readable resources over Nostr/NIP-90.
+- **API** -- exposes deployment-approved readable resources over HTTP.
+- **DVM** -- exposes deployment-approved readable resources over Nostr/NIP-90.
 
 ### How much disk space does BigBrotr use?
 

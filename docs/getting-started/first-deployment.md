@@ -138,8 +138,8 @@ endpoints should show a green `UP` state:
 | Synchronizer | `synchronizer:8000/metrics` |
 | Refresher | `refresher:8000/metrics` |
 | Ranker | `ranker:8000/metrics` |
-| Api | `api:8000/metrics` |
-| Dvm | `dvm:8000/metrics` |
+| API | `api:8000/metrics` |
+| DVM | `dvm:8000/metrics` |
 | Assertor | `assertor:8000/metrics` |
 
 !!! tip
@@ -222,9 +222,9 @@ All ports bind to `127.0.0.1` (localhost only) by default:
 | Monitor Metrics | 8003 |
 | Synchronizer Metrics | 8004 |
 | Refresher Metrics | 8005 |
-| Api HTTP | 8080 |
-| Api Metrics | 8006 |
-| Dvm Metrics | 8007 |
+| API HTTP | 8080 |
+| API Metrics | 8006 |
+| DVM Metrics | 8007 |
 | Assertor Metrics | 8008 |
 | Ranker Metrics | 8009 |
 | Alertmanager | 9093 |

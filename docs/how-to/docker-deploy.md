@@ -68,7 +68,7 @@ docker compose up -d
 ```
 
 This starts all containers: PostgreSQL, PgBouncer, Tor, Seeder, Finder,
-Validator, Monitor, Synchronizer, Refresher, Ranker, Assertor, Api, Dvm,
+Validator, Monitor, Synchronizer, Refresher, Ranker, Assertor, API, DVM,
 Prometheus, Alertmanager, Grafana, and postgres-exporter.
 
 ### 4. Verify deployment
@@ -98,8 +98,8 @@ graph TD
     Prometheus -->|scrapes /metrics| Synchronizer["Synchronizer :8004"]
     Prometheus -->|scrapes /metrics| Refresher["Refresher :8005"]
     Prometheus -->|scrapes /metrics| Ranker["Ranker :8009"]
-    Prometheus -->|scrapes /metrics| Api["Api :8006"]
-    Prometheus -->|scrapes /metrics| Dvm["Dvm :8007"]
+    Prometheus -->|scrapes /metrics| API["API :8006"]
+    Prometheus -->|scrapes /metrics| DVM["DVM :8007"]
     Prometheus -->|scrapes /metrics| Assertor["Assertor :8008"]
     Prometheus -->|scrapes /metrics| PGExporter["PG Exporter :9187"]
     Prometheus -->|routes alerts| Alertmanager["Alertmanager :9093"]
@@ -110,8 +110,8 @@ graph TD
     Refresher --> PGBouncer
     Ranker --> PGBouncer
     Assertor --> PGBouncer
-    Api --> PGBouncer
-    Dvm --> PGBouncer
+    API --> PGBouncer
+    DVM --> PGBouncer
     PGBouncer --> PostgreSQL["PostgreSQL :5432"]
     PGExporter --> PostgreSQL
     Validator --> Tor["Tor :9050"]
@@ -171,9 +171,9 @@ All ports bind to `127.0.0.1` (localhost only).
 | Synchronizer Metrics | 8004 | 9004 |
 | Refresher Metrics | 8005 | 9005 |
 | Ranker Metrics | 8009 | 9009 |
-| Api HTTP | 8080 | 8081 |
-| Api Metrics | 8006 | 9006 |
-| Dvm Metrics | 8007 | 9007 |
+| API HTTP | 8080 | 8081 |
+| API Metrics | 8006 | 9006 |
+| DVM Metrics | 8007 | 9007 |
 | Assertor Metrics | 8008 | 9008 |
 | Prometheus | 9090 | 9091 |
 | Alertmanager | 9093 | 9094 |

@@ -578,8 +578,8 @@ flowchart LR
     end
 
     subgraph "Reader Services"
-        API["Api"]
-        DVM["Dvm"]
+        API["API"]
+        DVM["DVM"]
     end
 
     subgraph "Per-Service asyncpg Pool"
@@ -610,7 +610,7 @@ flowchart LR
 
 ```
 
-Each service has its own asyncpg pool with per-service sizing (via pool overrides in service config). PGBouncer provides two database pools: **bigbrotr** (pool_size=10) for writer services, including Refresher's derived-table refreshes, and **bigbrotr_readonly** (pool_size=8) for read-only consumers (Api, Dvm, postgres-exporter).
+Each service has its own asyncpg pool with per-service sizing (via pool overrides in service config). PGBouncer provides two database pools: **bigbrotr** (pool_size=10) for writer services, including Refresher's derived-table refreshes, and **bigbrotr_readonly** (pool_size=8) for read-only consumers (API, DVM, postgres-exporter).
 
 ### Per-Network Semaphores
 
@@ -725,10 +725,10 @@ All configuration uses Pydantic v2 models with:
 | `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin, PGBouncer auth |
 | `DB_WRITER_PASSWORD` | Yes | Writer services (via per-service pool overrides) |
 | `DB_REFRESHER_PASSWORD` | Yes | Refresher derived-table and analytics refreshes |
-| `DB_READER_PASSWORD` | Yes | Read-only services (postgres-exporter, Api, Dvm) |
+| `DB_READER_PASSWORD` | Yes | Read-only services (postgres-exporter, API, DVM) |
 | `NOSTR_PRIVATE_KEY_MONITOR` | No | Monitor (publishing and NIP-66 write probes) |
 | `NOSTR_PRIVATE_KEY_SYNCHRONIZER` | No | Synchronizer (NIP-42-authenticated relay reads) |
-| `NOSTR_PRIVATE_KEY_DVM` | No | Dvm (NIP-89/NIP-90 signing) |
+| `NOSTR_PRIVATE_KEY_DVM` | No | DVM (NIP-89/NIP-90 signing) |
 | `NOSTR_PRIVATE_KEY_ASSERTOR` | No | Assertor (NIP-85 signing) |
 | `GRAFANA_PASSWORD` | No | Grafana (admin password) |
 

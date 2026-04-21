@@ -34,8 +34,8 @@ flowchart LR
         RE2["Refresher"]
         RA["Ranker"]
         AS["Assertor"]
-        AP["Api"]
-        DV["Dvm"]
+        AP["API"]
+        DV["DVM"]
     end
 
     subgraph Database
@@ -510,7 +510,7 @@ the shared score contract.
 
 ---
 
-## Api
+## API
 
 **Purpose**: Expose BigBrotr public readable resources as a read-only HTTP API via FastAPI.
 
@@ -563,11 +563,11 @@ For resources without a stable primary key, the API falls back to offset paginat
 | `request_timeout` | float | `30.0` | Timeout in seconds for each database query |
 
 !!! tip "API Reference"
-    See [`bigbrotr.services.api`](../reference/services/api/index.md) for the complete Api service API.
+    See [`bigbrotr.services.api`](../reference/services/api/index.md) for the complete API adapter reference.
 
 ---
 
-## Dvm
+## DVM
 
 **Purpose**: Serve public BigBrotr readable-resource queries over the Nostr protocol as a NIP-90 Data Vending Machine.
 
@@ -584,10 +584,10 @@ For resources without a stable primary key, the API falls back to offset paginat
 4. Each `run()` cycle drains buffered subscription notifications in cursor order
 5. Parse job parameters from event tags: `read_model`, `limit`, `sort`, `filter`,
    optional `cursor`, optional `include_total`, and `offset` only as a compatibility fallback
-6. Execute the query via the shared `ReadCore` (the same shared read engine used by the Api service)
+6. Execute the query via the shared `ReadCore` (the same shared read engine used by the API service)
 7. Publish the result as a kind 6050 event, or publish error/payment-required feedback (kind 7000)
 
-The Dvm supports protocol-specific pricing via `ReadModelPolicy.price`. When a
+The DVM supports protocol-specific pricing via `ReadModelPolicy.price`. When a
 job's bid is below the configured price for the requested public readable resource, a
 payment-required feedback event is published instead of the query result.
 
@@ -614,12 +614,12 @@ cursor-based contract as the API:
 | `fetch_timeout` | float | `30.0` | Timeout for relay subscription setup and initial request replay |
 
 !!! note "Nostr Keys"
-    The Dvm uses `NOSTR_PRIVATE_KEY_DVM` (secp256k1 hex or `nsec1...`). If the
+    The DVM uses `NOSTR_PRIVATE_KEY_DVM` (secp256k1 hex or `nsec1...`). If the
     variable is blank or unset, the config generates one ephemeral key once at
     startup. See [NostrKeysConfig](../reference/services/common/configs.md) for details.
 
 !!! tip "API Reference"
-    See [`bigbrotr.services.dvm`](../reference/services/dvm/index.md) for the complete Dvm service API.
+    See [`bigbrotr.services.dvm`](../reference/services/dvm/index.md) for the complete DVM adapter reference.
 
 ---
 
@@ -684,8 +684,8 @@ For complete configuration details including all fields, defaults, constraints, 
 | Refresher | `current.targets`, `analytics.targets`, `periodic.*`, `interval` | Which shared derivations run incrementally or periodically and how often |
 | Ranker | `algorithm_id`, `graph.*`, `export.batch_size` | PageRank namespace, graph behavior, and snapshot export throughput |
 | Assertor | `algorithm_id`, `selection.kinds`, `provider_profile.enabled`, `trusted_provider_list.enabled` | Assertion namespace, publish scope, and provider package identity |
-| Api | `read_models`, `max_page_size`, `cors_origins` | Adapter-local exposure policy and pagination limits |
-| Dvm | `relays`, `read_models`, `kind` | Relay set plus adapter-local exposure policy and pricing |
+| API | `read_models`, `max_page_size`, `cors_origins` | Adapter-local exposure policy and pagination limits |
+| DVM | `relays`, `read_models`, `kind` | Relay set plus adapter-local exposure policy and pricing |
 
 ---
 

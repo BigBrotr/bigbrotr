@@ -68,8 +68,8 @@ subset of that data is exposed and under what limits.
 
 Today the shipped adapters are:
 
-- `Api` for HTTP;
-- `Dvm` for NIP-90 over Nostr.
+- `API` for HTTP;
+- `DVM` for NIP-90 over Nostr.
 
 Each adapter has its own exposure policy, but both policies are normalized
 through the same shared contract.

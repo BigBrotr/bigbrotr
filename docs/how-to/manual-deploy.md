@@ -116,7 +116,7 @@ The Docker deployment normally executes `01_roles.sh` and `98_grants.sh` for
 you. In a manual deployment, mirror that contract by granting:
 
 - `writer`: DML + function execution on shared archive and writer-owned facts
-- `reader`: read-only access for Api, Dvm, and monitoring
+- `reader`: read-only access for API, DVM, and monitoring
 - `refresher`: read access to sources plus DML/EXECUTE on derived tables and
   refresh functions
 - `ranker`: read access to ranking inputs plus DML on public score tables

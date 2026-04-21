@@ -70,12 +70,12 @@ deployments/
 |----------|----------|---------|-------------|
 | `DB_ADMIN_PASSWORD` | Yes | PostgreSQL admin, PGBouncer | Admin user password for database initialization and PGBouncer auth |
 | `DB_WRITER_PASSWORD` | Yes | Writer services | Writer role password (seeder, finder, validator, monitor, synchronizer) |
-| `DB_READER_PASSWORD` | Yes | Read-only services | Reader role password (postgres-exporter, Api, Dvm) |
+| `DB_READER_PASSWORD` | Yes | Read-only services | Reader role password (postgres-exporter, API, DVM) |
 | `DB_REFRESHER_PASSWORD` | Yes | Refresher | Refresher role password for derived-table and analytics refreshes |
 | `DB_RANKER_PASSWORD` | Yes | Ranker | Ranker role password (read canonical facts, write public NIP-85 score outputs) |
 | `NOSTR_PRIVATE_KEY_MONITOR` | No | Monitor | Service-specific key used for Monitor publishing and NIP-66 write probes. Blank/unset generates one ephemeral key at config creation. |
 | `NOSTR_PRIVATE_KEY_SYNCHRONIZER` | No | Synchronizer | Service-specific key used for NIP-42-authenticated relay reads. Blank/unset generates one ephemeral key at config creation. |
-| `NOSTR_PRIVATE_KEY_DVM` | No | Dvm | Service-specific key used for NIP-89/NIP-90 signing. Blank/unset generates one ephemeral key at config creation. |
+| `NOSTR_PRIVATE_KEY_DVM` | No | DVM | Service-specific key used for NIP-89/NIP-90 signing. Blank/unset generates one ephemeral key at config creation. |
 | `NOSTR_PRIVATE_KEY_ASSERTOR` | No | Assertor | Service-specific key used for NIP-85 provider-package signing. Blank/unset generates one ephemeral key at config creation. |
 | `GRAFANA_PASSWORD` | Docker only | Grafana | Grafana admin password |
 
@@ -291,8 +291,8 @@ If no `pool:` section is present, the service uses the brotr.yaml defaults.
 | Monitor | writer | 1 | 3 | Health checks + document persistence |
 | Synchronizer | writer | 2 | 5 | Highest throughput service |
 | Refresher | refresher | 1 | 3 | Derived-table and analytics refreshes |
-| Api | reader | 1 | 3 | Read-only REST API queries |
-| Dvm | reader | 1 | 3 | Read-only Nostr DVM queries |
+| API | reader | 1 | 3 | Read-only REST API queries |
+| DVM | reader | 1 | 3 | Read-only Nostr DVM queries |
 
 ---
 
