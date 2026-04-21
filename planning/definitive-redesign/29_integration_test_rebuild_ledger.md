@@ -68,7 +68,7 @@ Fill this section when execution starts for real.
 | Wave | Status | Notes |
 |------|--------|-------|
 | 0. Baseline freeze and rebuild bootstrapping | done | Tracked inventory (`24` files), live contract matrix, and target taxonomy are now frozen explicitly; the rebuild starts from `base/` + `lilbrotr/` as reference-only historical subtrees and will move all new work into the new target topology |
-| 1. Harness redesign | not started | Rebuild container lifecycle, schema bootstrap, builders, named doubles, deterministic support utilities, and failure injection |
+| 1. Harness redesign | in progress | The harness now has an explicit bootstrap seam under `tests/integration/harness/`: container lifecycle, schema bootstrap, deployment-aware `Brotr` factory, and thin root/profile fixture entrypoints are in place; builder/double/failure support slices remain open |
 | 2. Shared PostgreSQL contract rebuild | not started | Rebuild shared storage and SQL-contract coverage from scratch |
 | 3. Core runtime integration rebuild | not started | Rebuild `Pool`, `Brotr`, and shared runtime boundary coverage |
 | 4. Service runtime rebuild | not started | Rebuild intentional integration coverage for all ten services |
@@ -94,7 +94,7 @@ Fill this section when execution starts for real.
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 1.1 Container lifecycle and schema bootstrap | not started |  | Rebuild deterministic PostgreSQL setup/reset behavior and deployment selection |
+| 1.1 Container lifecycle and schema bootstrap | done | `test: redesign integration harness bootstrap` | PostgreSQL lifecycle, Docker/testcontainers environment prep, deployment-aware schema reset/truncate logic, and the live `Brotr` factory were extracted from the monolithic root `conftest.py` into `tests/integration/harness/{postgres,schema,brotr,fixtures}.py`; `tests/integration/conftest.py` is now a thin fixture entrypoint, profile `conftest.py` files depend on the shared harness directly, and the new harness behavior is covered by `tests/unit/test_integration_harness.py` plus the full green integration rerun |
 | 1.2 Canonical data builders | not started |  | Centralize relay/event/document/service-state/score fixtures and prove their semantics |
 | 1.3 Named external doubles | not started |  | Replace opaque patch clouds with explicit protocol/network/storage doubles |
 | 1.4 Deterministic support utilities | not started |  | Normalize timestamps, temp paths, identifiers, and sequencing helpers |

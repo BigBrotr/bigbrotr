@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.integration.conftest import make_brotr
+from tests.integration.harness.brotr import PgDsn, make_deployment_brotr
 
 
 if TYPE_CHECKING:
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture
-async def brotr(pg_dsn: dict[str, str | int]) -> AsyncIterator[Brotr]:
+async def brotr(pg_dsn: PgDsn) -> AsyncIterator[Brotr]:
     """Provide a Brotr instance backed by the bigbrotr (base) schema."""
-    async for b in make_brotr(pg_dsn, "bigbrotr"):
+    async for b in make_deployment_brotr(pg_dsn, "bigbrotr"):
         yield b
