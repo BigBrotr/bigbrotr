@@ -16,7 +16,7 @@ It is the operator-facing home for:
 | --- | --- | --- |
 | [`bigbrotr/`](bigbrotr/README.md) | Full reference deployment | `full_archive` |
 | [`lilbrotr/`](lilbrotr/README.md) | Lightweight reference deployment | `lightweight_archive` |
-| `testbrotr/` | Fixture deployment for tests and tooling | internal-only |
+| [`testbrotr/`](testbrotr/README.md) | Fixture deployment for tests and tooling | internal-only |
 
 `bigbrotr` and `lilbrotr` are the two human-facing reference deployments. They
 should stay self-explanatory for operators and for authors creating custom
