@@ -7,15 +7,20 @@ from .compose import (
     ComposeStack,
     parse_compose_ps,
 )
+from .faults import FaultControlPortPlan, ProxySpec, ToxicSpec, ToxiproxyClient
 
 
 __all__ = [
     "ArtifactRecord",
     "ComposeServiceStatus",
     "ComposeStack",
+    "FaultControlPortPlan",
+    "ProxySpec",
     "RuntimeAddressPlan",
     "RuntimePortPlan",
     "SystemArtifactBundle",
+    "ToxicSpec",
+    "ToxiproxyClient",
     "build_project_name",
     "parse_compose_ps",
     "sanitize_artifact_component",
