@@ -121,6 +121,8 @@ class DatabaseConfig(BaseModel):
 class LimitsConfig(BaseModel):
     """Connection pool size and resource limits."""
 
+    model_config = ConfigDict(extra="forbid")
+
     min_size: int = Field(default=1, ge=1, le=100, description="Minimum connections")
     max_size: int = Field(default=5, ge=1, le=200, description="Maximum connections")
     max_queries: int = Field(default=50_000, ge=100, description="Queries before recycling")

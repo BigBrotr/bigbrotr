@@ -429,6 +429,11 @@ class TestLimitsConfig:
         ):
             LimitsConfig(max_inactive_connection_lifetime=value)
 
+    def test_extra_fields_forbidden(self) -> None:
+        """Test unexpected limits fields are rejected."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            LimitsConfig(extra_field="value")
+
     def test_model_validate_rejects_non_string_field_keys(self) -> None:
         """Test raw limit field keys must already be canonical strings."""
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
@@ -849,6 +854,12 @@ class TestPoolConfig:
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             PoolConfig.model_validate({"limits": {b"max_size": 50}})
+
+    def test_nested_limits_extra_fields_forbidden(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test nested limits config rejects unexpected fields."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            PoolConfig(limits={"extra_field": "value"})
 
     @pytest.mark.parametrize("value", ["5", 5.0])
     def test_nested_retry_requires_canonical_max_attempts(
