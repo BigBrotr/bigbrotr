@@ -316,6 +316,15 @@ program:
 - real relay/public-boundary requirements;
 - and operator/observability proof still missing at the higher band.
 
+### `38_system_test_and_observability_taxonomy.md`
+
+Frozen target tree for the broader certification band:
+
+- `tests/system/` runtime layout;
+- `tests/live_smoke/` quarantine layout;
+- compose overlay and relay asset placement;
+- and taxonomy rules for observability and resilience work.
+
 ### `99_definitive_master_plan.md`
 
 Final distilled plan resulting from the three iterations and their audits.
