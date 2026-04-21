@@ -1733,6 +1733,7 @@ class TestFinderFindFromApi:
             mock_save.assert_not_awaited()
 
     async def test_skips_source_within_fractional_cooldown(self, mock_brotr: Brotr) -> None:
+        now = 10_000.4
         config = FinderConfig(
             api=ApiConfig(
                 enabled=True,
@@ -1746,15 +1747,14 @@ class TestFinderFindFromApi:
             patch(
                 "bigbrotr.services.finder.service.fetch_api_checkpoints",
                 new_callable=AsyncMock,
-                return_value=[
-                    ApiCheckpoint(key="https://api.example.com", timestamp=int(time.time()) - 3600)
-                ],
+                return_value=[ApiCheckpoint(key="https://api.example.com", timestamp=6_400)],
             ),
             patch(
                 "bigbrotr.services.finder.service.upsert_api_checkpoints",
                 new_callable=AsyncMock,
             ) as mock_save,
             patch("aiohttp.ClientSession") as mock_session_cls,
+            patch("bigbrotr.services.finder.service.time.time", return_value=now),
         ):
             mock_session = MagicMock()
             mock_session.__aenter__ = AsyncMock(return_value=mock_session)
