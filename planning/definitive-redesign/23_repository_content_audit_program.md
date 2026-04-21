@@ -603,6 +603,26 @@ No wave is complete until the ledger is updated.
 
 ## Validation Gates
 
+## Execution Cadence
+
+Once a remediation slice has been:
+
+- implemented;
+- validated against the required gates;
+- committed;
+- and reflected in the audit ledger when the ledger state changed,
+
+execution should continue directly into the next pending slice without waiting
+for an operator confirmation checkpoint.
+
+Pause only when:
+
+- a real blocker is discovered;
+- the repository contains conflicting concurrent edits that materially affect
+  the current slice;
+- there is a non-obvious contract ambiguity with multiple incompatible fixes;
+- or the active wave or the full audit program has actually been completed.
+
 ### 1. Per-wave minimum
 
 After each remediation slice:
