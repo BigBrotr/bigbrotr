@@ -21,8 +21,8 @@ Use it when you want the fullest built-in storage profile:
   generated database bootstrap package for this deployment.
 - [`static/`](static/README.md) contains operator-managed static inputs such as
   the seed relay file and GeoIP assets.
-- [`monitoring/`](monitoring/) contains Prometheus, Alertmanager, Grafana, and
-  exporter configuration.
+- [`monitoring/`](monitoring/README.md) contains Prometheus, Alertmanager,
+  Grafana, and exporter configuration.
 - [`pgbouncer/`](pgbouncer/README.md) contains the connection-pooler
   configuration used by the services.
 

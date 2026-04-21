@@ -25,8 +25,8 @@ trades event-payload fidelity for a smaller archive footprint.
   generated database bootstrap package for the lightweight archive profile.
 - [`static/`](static/README.md) contains operator-managed static inputs such as
   the seed relay file.
-- [`monitoring/`](monitoring/) contains Prometheus, Alertmanager, Grafana, and
-  exporter configuration.
+- [`monitoring/`](monitoring/README.md) contains Prometheus, Alertmanager,
+  Grafana, and exporter configuration.
 - [`pgbouncer/`](pgbouncer/README.md) contains the connection-pooler
   configuration used by the services.
 
