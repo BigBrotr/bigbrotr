@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -17,7 +16,11 @@ from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.assertor import Assertor, AssertorConfig
 from bigbrotr.services.ranker import Ranker, RankerConfig
 from bigbrotr.services.refresher import Refresher, RefresherConfig
-from bigbrotr.utils.protocol import BroadcastClientResult, ClientConnectResult, ClientSession
+from tests.integration.harness.doubles import (
+    FakeBroadcastRecorder,
+    FakePublishClient,
+    build_publish_session,
+)
 
 
 if TYPE_CHECKING:
@@ -57,30 +60,6 @@ _SCORE_FETCH_QUERIES = {
         ORDER BY identifier
     """,
 }
-
-
-def _make_assertor_publish_session(client: MagicMock) -> ClientSession:
-    relay_url = "wss://publish-relay.example.com"
-    return ClientSession(
-        session_id="assertor-publish-relays",
-        client=client,
-        relay_urls=(relay_url,),
-        connect_result=ClientConnectResult(connected=(relay_url,), failed={}),
-    )
-
-
-def _broadcast_results(
-    *,
-    successful_relays: tuple[str, ...] = ("wss://publish-relay.example.com",),
-    failed_relays: dict[str, str] | None = None,
-) -> list[BroadcastClientResult]:
-    return [
-        BroadcastClientResult(
-            event_ids=(VALID_OUTPUT_EVENT_ID,),
-            successful_relays=successful_relays,
-            failed_relays=failed_relays or {},
-        )
-    ]
 
 
 def _make_mock_event(
@@ -318,20 +297,6 @@ def _make_assertor_config(algorithm_id: str) -> AssertorConfig:
     )
 
 
-def _make_mock_client() -> MagicMock:
-    client = MagicMock()
-    client.add_relay = AsyncMock()
-    client.connect = AsyncMock()
-    client.try_connect = AsyncMock(
-        return_value=SimpleNamespace(success={"wss://relay.damus.io"}, failed={})
-    )
-    client.unsubscribe_all = AsyncMock()
-    client.force_remove_all_relays = AsyncMock()
-    client.shutdown = AsyncMock()
-    client.database = MagicMock(return_value=SimpleNamespace(wipe=AsyncMock()))
-    return client
-
-
 async def _fetch_score_map(
     *,
     brotr: Brotr,
@@ -463,7 +428,7 @@ async def _run_assertor_smoke(
     *,
     brotr: Brotr,
     config: AssertorConfig,
-    client: MagicMock,
+    client: FakePublishClient,
     pubkey_scores: dict[str, int],
     event_scores: dict[str, int],
     addressable_scores: dict[str, int],
@@ -473,30 +438,23 @@ async def _run_assertor_smoke(
     event_address: str,
     identifier: str,
 ) -> None:
-    published_builders: list[Any] = []
-
-    async def _capture_broadcast(
-        builders: list[Any],
-        _clients: list[Any],
-    ) -> list[BroadcastClientResult]:
-        published_builders.extend(builders)
-        return _broadcast_results()
+    recorder = FakeBroadcastRecorder(event_id=VALID_OUTPUT_EVENT_ID)
 
     with (
         patch(
             "bigbrotr.services.assertor.service.NostrClientManager.connect_session",
-            new=AsyncMock(return_value=_make_assertor_publish_session(client)),
+            new=AsyncMock(return_value=build_publish_session(client)),
         ),
         patch(
             "bigbrotr.services.assertor.service.broadcast_events",
-            new=AsyncMock(side_effect=_capture_broadcast),
+            new=recorder,
         ),
     ):
         async with Assertor(brotr=brotr, config=config) as assertor:
             await assertor.run()
             _assert_published_events(
                 config=config,
-                published_builders=published_builders,
+                published_builders=recorder.published_builders,
                 pubkey_scores=pubkey_scores,
                 event_scores=event_scores,
                 addressable_scores=addressable_scores,
@@ -507,9 +465,9 @@ async def _run_assertor_smoke(
                 identifier=identifier,
             )
 
-            published_builders.clear()
+            recorder.calls.clear()
             await assertor.run()
-            assert published_builders == []
+            assert recorder.published_builders == []
 
 
 class TestNip85PipelineSmoke:
@@ -593,7 +551,7 @@ class TestNip85PipelineSmoke:
         )
 
         config = _make_assertor_config(algorithm_id)
-        client = _make_mock_client()
+        client = FakePublishClient()
         await _run_assertor_smoke(
             brotr=brotr,
             config=config,

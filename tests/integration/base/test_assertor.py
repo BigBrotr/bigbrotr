@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -16,7 +15,11 @@ from bigbrotr.models.event import Event
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.assertor.configs import AssertorConfig
 from bigbrotr.services.assertor.service import Assertor
-from bigbrotr.utils.protocol import BroadcastClientResult, ClientConnectResult, ClientSession
+from tests.integration.harness.doubles import (
+    FakeBroadcastRecorder,
+    FakePublishClient,
+    build_publish_session,
+)
 
 
 pytestmark = pytest.mark.integration
@@ -44,30 +47,6 @@ _SCORE_INSERT_QUERIES = {
         VALUES ($1, $2, $3)
     """,
 }
-
-
-def _make_publish_session(client: MagicMock) -> ClientSession:
-    relay_url = "wss://publish-relay.example.com"
-    return ClientSession(
-        session_id="assertor-publish-relays",
-        client=client,
-        relay_urls=(relay_url,),
-        connect_result=ClientConnectResult(connected=(relay_url,), failed={}),
-    )
-
-
-def _broadcast_results(
-    *,
-    successful_relays: tuple[str, ...] = ("wss://publish-relay.example.com",),
-    failed_relays: dict[str, str] | None = None,
-) -> list[BroadcastClientResult]:
-    return [
-        BroadcastClientResult(
-            event_ids=(VALID_OUTPUT_EVENT_ID,),
-            successful_relays=successful_relays,
-            failed_relays=failed_relays or {},
-        )
-    ]
 
 
 def _event_observation(
@@ -368,20 +347,6 @@ def _make_assertor_config(
     )
 
 
-def _make_mock_client() -> MagicMock:
-    client = MagicMock()
-    client.add_relay = AsyncMock()
-    client.connect = AsyncMock()
-    client.try_connect = AsyncMock(
-        return_value=SimpleNamespace(success={"wss://relay.damus.io"}, failed={})
-    )
-    client.unsubscribe_all = AsyncMock()
-    client.force_remove_all_relays = AsyncMock()
-    client.shutdown = AsyncMock()
-    client.database = MagicMock(return_value=SimpleNamespace(wipe=AsyncMock()))
-    return client
-
-
 def _assert_final_checkpoint_state(
     state_by_key: dict[str, ServiceState],
     *,
@@ -520,25 +485,17 @@ class TestAssertorIntegration:
         )
 
         config = _make_assertor_config(algorithm_id)
-        client = _make_mock_client()
-
-        published_builders: list[Any] = []
-
-        async def _capture_broadcast(
-            builders: list[Any],
-            _clients: list[Any],
-        ) -> list[BroadcastClientResult]:
-            published_builders.extend(builders)
-            return _broadcast_results()
+        client = FakePublishClient()
+        recorder = FakeBroadcastRecorder(event_id=VALID_OUTPUT_EVENT_ID)
 
         with (
             patch(
                 "bigbrotr.services.assertor.service.NostrClientManager.connect_session",
-                new=AsyncMock(return_value=_make_publish_session(client)),
+                new=AsyncMock(return_value=build_publish_session(client)),
             ),
             patch(
                 "bigbrotr.services.assertor.service.broadcast_events",
-                new=AsyncMock(side_effect=_capture_broadcast),
+                new=recorder,
             ),
         ):
             async with Assertor(brotr=brotr, config=config) as service:
@@ -572,30 +529,23 @@ class TestAssertorIntegration:
             other_algorithm_key=other_algorithm_key,
         )
         _assert_published_event_payloads(
-            published_builders,
+            recorder.published_builders,
             config=config,
             author_pubkey=author,
             event_address=event_address,
             identifier=identifier,
         )
 
-        second_published_builders: list[Any] = []
-
-        async def _capture_second_broadcast(
-            builders: list[Any],
-            _clients: list[Any],
-        ) -> list[BroadcastClientResult]:
-            second_published_builders.extend(builders)
-            return _broadcast_results()
+        second_recorder = FakeBroadcastRecorder(event_id=VALID_OUTPUT_EVENT_ID)
 
         with (
             patch(
                 "bigbrotr.services.assertor.service.NostrClientManager.connect_session",
-                new=AsyncMock(return_value=_make_publish_session(_make_mock_client())),
+                new=AsyncMock(return_value=build_publish_session(FakePublishClient())),
             ),
             patch(
                 "bigbrotr.services.assertor.service.broadcast_events",
-                new=AsyncMock(side_effect=_capture_second_broadcast),
+                new=second_recorder,
             ),
         ):
             async with Assertor(brotr=brotr, config=config) as service:
@@ -608,7 +558,7 @@ class TestAssertorIntegration:
         assert second_result.trusted_provider_lists_published == 0
         assert second_result.trusted_provider_lists_skipped == 1
         assert second_result.checkpoint_cleanup_removed == 0
-        assert second_published_builders == []
+        assert second_recorder.published_builders == []
 
     async def test_assertor_publish_noops_without_subjects_or_provider_profile(
         self,
@@ -621,16 +571,16 @@ class TestAssertorIntegration:
             provider_profile_enabled=False,
             trusted_provider_list_enabled=False,
         )
-        mock_broadcast = AsyncMock(return_value=1)
+        recorder = FakeBroadcastRecorder(event_id=VALID_OUTPUT_EVENT_ID)
 
         with (
             patch(
                 "bigbrotr.services.assertor.service.NostrClientManager.connect_session",
-                new=AsyncMock(return_value=_make_publish_session(_make_mock_client())),
+                new=AsyncMock(return_value=build_publish_session(FakePublishClient())),
             ),
             patch(
                 "bigbrotr.services.assertor.service.broadcast_events",
-                new=mock_broadcast,
+                new=recorder,
             ),
         ):
             async with Assertor(brotr=brotr, config=config) as service:
@@ -643,4 +593,4 @@ class TestAssertorIntegration:
         assert result.trusted_provider_lists_published == 0
         assert result.trusted_provider_lists_skipped == 0
         assert result.checkpoint_cleanup_removed == 0
-        mock_broadcast.assert_not_awaited()
+        assert recorder.calls == []
