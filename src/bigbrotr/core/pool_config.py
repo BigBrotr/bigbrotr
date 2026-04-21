@@ -267,6 +267,8 @@ class ServerSettingsConfig(BaseModel):
 class PoolConfig(BaseModel):
     """Aggregate configuration for the connection pool."""
 
+    model_config = ConfigDict(extra="forbid")
+
     @model_validator(mode="before")
     @classmethod
     def require_string_field_keys(cls, data: Any) -> Any:

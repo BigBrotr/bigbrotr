@@ -1007,6 +1007,12 @@ class TestPoolConfig:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             PoolConfig.model_validate({b"limits": {"max_size": 50}})
 
+    def test_extra_fields_forbidden(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test unexpected root pool fields are rejected."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            PoolConfig(extra_field="value")
+
 
 # ============================================================================
 # Pool Initialization Tests
@@ -1063,6 +1069,17 @@ class TestPoolFactoryMethods:
         assert pool.config.limits.min_size == 2
         assert pool.config.limits.max_size == 10
         assert pool.config.timeouts.acquisition == 5.0
+
+    def test_from_dict_rejects_extra_root_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test Pool.from_dict rejects unexpected root config fields."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            Pool.from_dict(
+                {
+                    "database": {"password": "test_pass"},  # pragma: allowlist secret
+                    "extra_field": "value",
+                }
+            )
 
     def test_from_yaml(
         self, pool_config_dict: dict[str, Any], tmp_path: Any, monkeypatch: pytest.MonkeyPatch
