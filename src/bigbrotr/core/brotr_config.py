@@ -2,7 +2,7 @@
 
 from typing import Any, cast
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 _MIN_TIMEOUT_SECONDS = 0.1
@@ -31,6 +31,8 @@ def _require_number(value: Any, field_name: str) -> int | float:
 
 class BatchConfig(BaseModel):
     """Controls the maximum number of records per bulk insert operation."""
+
+    model_config = ConfigDict(extra="forbid")
 
     max_size: int = Field(
         default=1000, ge=1, le=100_000, description="Maximum items per batch operation"

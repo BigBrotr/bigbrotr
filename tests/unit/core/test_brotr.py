@@ -76,6 +76,11 @@ class TestBatchConfig:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             BatchConfig.model_validate({b"max_size": 1000})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        """Test stale batch field names are rejected explicitly."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            BatchConfig.model_validate({"batch_size": 1000})
+
 
 class TestTimeoutsConfig:
     """Tests for TimeoutsConfig Pydantic model."""
@@ -218,6 +223,11 @@ class TestBrotrConfig:
         """Test nested batch field keys fail fast through BrotrConfig."""
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             BrotrConfig.model_validate({"batch": {b"max_size": 1000}})
+
+    def test_nested_batch_rejects_unknown_field_names(self) -> None:
+        """Test nested batch payloads reject stale field names."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            BrotrConfig.model_validate({"batch": {"batch_size": 1000}})
 
     def test_nested_timeouts_reject_non_string_field_keys(self) -> None:
         """Test nested timeout field keys fail fast through BrotrConfig."""
