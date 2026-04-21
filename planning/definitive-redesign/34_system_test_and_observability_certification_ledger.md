@@ -31,21 +31,26 @@ Use these statuses consistently:
 
 ## Baseline Freeze
 
-Fill this section when execution starts for real.
-
 - Current `tests/system/` tracked file count:
-  `TBD`
+  `0`
 - Current `tests/live_smoke/` tracked file count:
-  `TBD`
+  `0`
 - Frozen date:
-  `TBD`
+  `2026-04-21`
 - Frozen branch:
-  `TBD`
+  `refactor/definitive-redesign-execution`
 - Notes:
-  This baseline must freeze the live state of the current deployment, relay,
-  monitoring, and non-unit test surfaces before execution begins. It should
-  also record the exact tracked monitoring assets under
-  `deployments/{bigbrotr,lilbrotr}/monitoring/`.
+  The broader certification baseline starts from commit `601fb0b2` on branch
+  `refactor/definitive-redesign-execution`. The frozen non-unit tracked surface
+  now lives in
+  [35_system_test_and_observability_manifest.txt](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/35_system_test_and_observability_manifest.txt)
+  and currently contains `102` tracked files:
+  `45` under `tests/integration/`, `25` under
+  `deployments/bigbrotr/monitoring/`, `25` under
+  `deployments/lilbrotr/monitoring/`, `2` deployment compose files, `4`
+  operator-facing monitoring docs, and `1` metrics-specific unit suite.
+  `tests/system/` and `tests/live_smoke/` are still empty tracked surfaces at
+  this freeze point.
 
 ---
 
@@ -53,7 +58,7 @@ Fill this section when execution starts for real.
 
 | Wave | Status | Notes |
 |------|--------|-------|
-| 0. Freeze the expanded test problem | not started | Freeze current higher-band test, deployment, relay, and monitoring inventory before execution |
+| 0. Freeze the expanded test problem | in progress | The non-unit tracked baseline is now frozen explicitly; deployment/monitoring inventory, coverage matrix, and target taxonomy still need their own closing slices |
 | 1. Higher-band harness foundation | not started | Compose lifecycle, artifact capture, network fault control, and observability API helpers |
 | 2. Real relay infrastructure | not started | Baseline relay, capture relay, fault-injected relay path, and optional secondary relay matrix |
 | 3. Deployment stack baseline | not started | Clean `bigbrotr` and `lilbrotr` startup, health, dependency ordering, and restart baseline |
@@ -72,7 +77,7 @@ Fill this section when execution starts for real.
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 0.1 Freeze current non-unit test inventory | not started |  | Capture tracked `tests/integration/`, future `tests/system/`, future `tests/live_smoke/`, monitoring assets, and relevant current test helpers |
+| 0.1 Freeze current non-unit test inventory | done | `docs: freeze system test certification baseline` | The broader certification baseline is now frozen in `35_system_test_and_observability_manifest.txt` with `102` tracked files spanning `tests/integration/`, both deployment monitoring trees, both deployment compose files, operator-facing monitoring docs, and the metrics-specific unit suite; `tests/system/` and `tests/live_smoke/` are explicitly frozen at `0` tracked files |
 | 0.2 Freeze live deployment and monitoring inventory | not started |  | Capture compose services, metrics ports, Prometheus/Grafana/Alertmanager/exporter assets, and profile-specific differences |
 | 0.3 Freeze current-vs-required coverage matrix | not started |  | Record current proof vs required proof for services, pipelines, relays, and observability surfaces |
 | 0.4 Freeze target taxonomy | not started |  | Freeze the target tree for `tests/system/`, `tests/live_smoke/`, overlays, artifacts, and helper modules |

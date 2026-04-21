@@ -292,6 +292,11 @@ program:
 - per-section audit record requirements;
 - and closeout update rules.
 
+### `35_system_test_and_observability_manifest.txt`
+
+Exact tracked baseline manifest for the broader system-test and observability
+certification surface at execution start.
+
 ### `99_definitive_master_plan.md`
 
 Final distilled plan resulting from the three iterations and their audits.
