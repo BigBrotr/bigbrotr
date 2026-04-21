@@ -200,6 +200,10 @@ class TestApiConfig:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             ApiConfig.model_validate({b"route_prefix": "/api/v2"})
 
+    def test_extra_fields_forbidden(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ApiConfig(extra_field="value")
+
     def test_model_validate_rejects_unknown_field_names(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
             ApiConfig.model_validate({"page_limits": {"default_page_size": 10}})

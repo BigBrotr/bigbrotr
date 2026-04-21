@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, cast
 
-from pydantic import Field, ValidationInfo, field_validator, model_validator
+from pydantic import ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from bigbrotr.services.common.configs import PublicReadAdapterConfig
 
@@ -72,6 +72,7 @@ class ApiConfig(PublicReadAdapterConfig):
     """
 
     READ_SURFACE: ClassVar[str] = "api"
+    model_config = ConfigDict(extra="forbid")
 
     title: str = Field(
         default="BigBrotr API",
