@@ -9,6 +9,7 @@ import json
 import subprocess
 import time
 from dataclasses import dataclass, field
+from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
@@ -32,6 +33,14 @@ NOSTR_RS_RELAY_IMAGE = (
 NOSTR_RS_RELAY_PLATFORM = "linux/amd64"
 NOSTR_RS_RELAY_CONTAINER_PORT = 8080
 NOSTR_RS_RELAY_DATA_PATH = "/usr/src/app/db"
+RNOSTR_RELAY_IMAGE = (
+    "rnostr/rnostr@sha256:c05294ca8375e001c7f9fbcb2c39c385e0a66c48d684c9cacebab60e0a38c886"
+)
+RNOSTR_RELAY_PLATFORM = "linux/amd64"
+RNOSTR_RELAY_CONTAINER_PORT = 8080
+RNOSTR_RELAY_CONFIG_DIR = "/rnostr/config"
+RNOSTR_RELAY_CONFIG_FILE = "rnostr.toml"
+RNOSTR_RELAY_DATA_PATH = "/rnostr/data"
 DEFAULT_RELAY_READY_TIMEOUT = 20.0
 DEFAULT_RELAY_CONNECT_TIMEOUT = 5.0
 DEFAULT_RELAY_FRAME_TIMEOUT = 5.0
@@ -45,6 +54,58 @@ def build_relay_container_name(role: str, runtime_dir: Path) -> str:
     normalized_role = sanitize_artifact_component(role)
     digest = hashlib.sha256(str(runtime_dir.resolve()).encode()).hexdigest()[:12]
     return f"bigbrotr-relay-{normalized_role}-{digest}"
+
+
+def build_rnostr_container_name(role: str, runtime_dir: Path) -> str:
+    """Build a deterministic container name for one rnostr runtime root."""
+    normalized_role = sanitize_artifact_component(role)
+    digest = hashlib.sha256(str(runtime_dir.resolve()).encode()).hexdigest()[:12]
+    return f"bigbrotr-rnostr-{normalized_role}-{digest}"
+
+
+def _render_rnostr_config() -> str:
+    return dedent(
+        f"""
+        [information]
+        name = "bigbrotr system rnostr"
+        description = "Secondary relay contract"
+        software = "https://github.com/rnostr/rnostr"
+
+        [data]
+        path = "{RNOSTR_RELAY_DATA_PATH}"
+        db_query_timeout = "100ms"
+
+        [network]
+        host = "0.0.0.0"
+        port = {RNOSTR_RELAY_CONTAINER_PORT}
+
+        [limitation]
+        max_message_length = 524288
+        max_subscriptions = 20
+        max_filters = 10
+        max_limit = 300
+        max_subid_length = 100
+        min_prefix = 10
+        max_event_tags = 5000
+        max_event_time_older_than_now = 94608000
+        max_event_time_newer_than_now = 900
+
+        [metrics]
+        enabled = false
+
+        [auth]
+        enabled = false
+
+        [rate_limiter]
+        enabled = false
+
+        [count]
+        enabled = false
+
+        [search]
+        enabled = false
+        """
+    ).lstrip()
 
 
 @dataclass(frozen=True, slots=True)
@@ -360,6 +421,19 @@ def _ensure_relay_image(image: str, platform: str) -> None:
     _run_docker("pull", "--platform", platform, image)
 
 
+def _ensure_rnostr_image(image: str, platform: str) -> None:
+    inspect_result = subprocess.run(  # noqa: S603
+        _docker_command("image", "inspect", image),
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if inspect_result.returncode == 0:
+        return
+
+    _run_docker("pull", "--platform", platform, image)
+
+
 @dataclass(slots=True)
 class LocalRelayRuntime:
     """Lifecycle wrapper around a real local relay container."""
@@ -486,7 +560,7 @@ class LocalRelayRuntime:
         """Return the relay data files created in the mounted runtime directory."""
         if not self.data_dir.exists():
             return ()
-        return tuple(sorted(path for path in self.data_dir.iterdir() if path.is_file()))
+        return tuple(sorted(path for path in self.data_dir.rglob("*") if path.is_file()))
 
     def stop(self) -> None:
         """Force-remove the relay container if it is still present."""
@@ -505,6 +579,171 @@ class LocalRelayRuntime:
             self.host_port = None
 
     def __enter__(self) -> LocalRelayRuntime:
+        self.start()
+        return self
+
+    def __exit__(self, *_exc_info: object) -> None:
+        self.stop()
+
+
+@dataclass(slots=True)
+class LocalRnostrRuntime:
+    """Lifecycle wrapper around a local rnostr relay container."""
+
+    role: str
+    runtime_dir: Path
+    image: str = RNOSTR_RELAY_IMAGE
+    platform: str = RNOSTR_RELAY_PLATFORM
+    host: str = "127.0.0.1"
+    network_name: str | None = None
+    network_aliases: tuple[str, ...] = ()
+    ready_timeout: float = DEFAULT_RELAY_READY_TIMEOUT
+    poll_interval: float = DEFAULT_RELAY_POLL_INTERVAL
+    container_id: str | None = field(init=False, default=None)
+    host_port: int | None = field(init=False, default=None)
+
+    def __post_init__(self) -> None:
+        if not self.role.strip():
+            raise ValueError("rnostr runtime role must not be blank")
+        if self.ready_timeout <= 0:
+            raise ValueError("rnostr ready_timeout must be positive")
+        if self.poll_interval <= 0:
+            raise ValueError("rnostr poll_interval must be positive")
+
+    @property
+    def container_name(self) -> str:
+        return build_rnostr_container_name(self.role, self.runtime_dir)
+
+    @property
+    def config_dir(self) -> Path:
+        return self.runtime_dir / "config"
+
+    @property
+    def config_file(self) -> Path:
+        return self.config_dir / RNOSTR_RELAY_CONFIG_FILE
+
+    @property
+    def data_dir(self) -> Path:
+        return self.runtime_dir / "data"
+
+    @property
+    def ws_url(self) -> str:
+        if self.host_port is None:
+            raise RuntimeError("rnostr runtime has not been started yet")
+        return f"ws://{self.host}:{self.host_port}"
+
+    def _write_config(self) -> None:
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        self.config_file.write_text(_render_rnostr_config(), encoding="utf-8")
+
+    def start(self) -> None:
+        """Start the rnostr container and resolve its mapped host port."""
+        if self.container_id is not None:
+            raise RuntimeError("rnostr runtime is already running")
+
+        ensure_docker_available()
+        ensure_testcontainers_environment()
+        _ensure_rnostr_image(self.image, self.platform)
+
+        self.runtime_dir.mkdir(parents=True, exist_ok=True)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self._write_config()
+
+        try:
+            command = [
+                "run",
+                "-d",
+                "--platform",
+                self.platform,
+                "--name",
+                self.container_name,
+            ]
+            if self.network_name is not None:
+                command.extend(("--network", self.network_name))
+                for alias in self.network_aliases:
+                    command.extend(("--network-alias", alias))
+            command.extend(
+                (
+                    "-p",
+                    f"{self.host}::{RNOSTR_RELAY_CONTAINER_PORT}",
+                    "-v",
+                    f"{self.config_dir}:{RNOSTR_RELAY_CONFIG_DIR}",
+                    "-v",
+                    f"{self.data_dir}:{RNOSTR_RELAY_DATA_PATH}",
+                    self.image,
+                )
+            )
+            result = _run_docker(*command)
+            self.container_id = result.stdout.strip()
+            if not self.container_id:
+                raise RuntimeError("rnostr container did not return a container id")
+
+            inspect_payload = self.inspect()
+            port_bindings = (
+                inspect_payload.get("NetworkSettings", {})
+                .get("Ports", {})
+                .get(f"{RNOSTR_RELAY_CONTAINER_PORT}/tcp")
+            )
+            if not isinstance(port_bindings, list) or not port_bindings:
+                raise RuntimeError("rnostr container did not expose the expected TCP port")
+
+            binding = port_bindings[0]
+            if not isinstance(binding, dict):
+                raise RuntimeError("rnostr container port binding payload is invalid")
+
+            host_port = binding.get("HostPort")
+            if not isinstance(host_port, str) or not host_port:
+                raise RuntimeError("rnostr container did not report a mapped host port")
+            self.host_port = int(host_port)
+        except Exception:
+            self.stop()
+            raise
+
+    async def wait_until_ready(self) -> None:
+        """Wait until rnostr accepts a simple REQ/EOSE cycle."""
+        await wait_until_relay_ready(
+            self.ws_url,
+            timeout=self.ready_timeout,
+            poll_interval=self.poll_interval,
+        )
+
+    def inspect(self) -> dict[str, Any]:
+        """Return the raw `docker inspect` payload for the running container."""
+        container_ref = self.container_id or self.container_name
+        result = _run_docker("inspect", container_ref)
+        payload = json.loads(result.stdout)
+        if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
+            raise RuntimeError("rnostr inspect payload was not a single JSON object")
+        return payload[0]
+
+    def logs(self) -> str:
+        """Return the current rnostr container logs."""
+        container_ref = self.container_id or self.container_name
+        return _run_docker("logs", container_ref).stdout
+
+    def data_files(self) -> tuple[Path, ...]:
+        """Return the rnostr data files created in the mounted runtime directory."""
+        if not self.data_dir.exists():
+            return ()
+        return tuple(sorted(path for path in self.data_dir.rglob("*") if path.is_file()))
+
+    def stop(self) -> None:
+        """Force-remove the rnostr container if it is still present."""
+        if self.container_id is None:
+            return
+
+        try:
+            subprocess.run(  # noqa: S603
+                _docker_command("rm", "-f", self.container_id),
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+        finally:
+            self.container_id = None
+            self.host_port = None
+
+    def __enter__(self) -> LocalRnostrRuntime:
         self.start()
         return self
 

@@ -22,13 +22,16 @@ from .faults import (
 from .observability import AlertmanagerApi, GrafanaApi, PrometheusApi
 from .relay import (
     NOSTR_RS_RELAY_IMAGE,
+    RNOSTR_RELAY_IMAGE,
     LocalRelayRuntime,
+    LocalRnostrRuntime,
     RelayEoseFrame,
     RelayEventFrame,
     RelayOkFrame,
     RelaySession,
     SignedRelayEvent,
     build_relay_container_name,
+    build_rnostr_container_name,
     build_signed_event,
     build_text_note_event,
     parse_relay_frame,
@@ -40,6 +43,7 @@ from .relay import (
 
 __all__ = [
     "NOSTR_RS_RELAY_IMAGE",
+    "RNOSTR_RELAY_IMAGE",
     "TOXIPROXY_IMAGE",
     "AlertmanagerApi",
     "ArtifactRecord",
@@ -50,6 +54,7 @@ __all__ = [
     "FaultControlPortPlan",
     "GrafanaApi",
     "LocalRelayRuntime",
+    "LocalRnostrRuntime",
     "LocalToxiproxyRuntime",
     "PrometheusApi",
     "ProxySpec",
@@ -67,6 +72,7 @@ __all__ = [
     "build_fault_network_name",
     "build_project_name",
     "build_relay_container_name",
+    "build_rnostr_container_name",
     "build_signed_event",
     "build_text_note_event",
     "parse_compose_ps",
