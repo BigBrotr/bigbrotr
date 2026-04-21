@@ -25,6 +25,10 @@ trades event-payload fidelity for a smaller archive footprint.
   generated database bootstrap package for the lightweight archive profile.
 - [`static/`](static/README.md) contains operator-managed static inputs such as
   the seed relay file.
+- [`data/`](data/README.md) reserves the bind-mount roots for persistent
+  PostgreSQL and Ranker runtime state.
+- [`dumps/`](dumps/README.md) is the operator-managed target for compressed
+  backup outputs.
 - [`monitoring/`](monitoring/README.md) contains Prometheus, Alertmanager,
   Grafana, and exporter configuration.
 - [`pgbouncer/`](pgbouncer/README.md) contains the connection-pooler
