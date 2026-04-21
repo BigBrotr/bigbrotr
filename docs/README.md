@@ -11,7 +11,7 @@ This folder contains the MkDocs site for BigBrotr.
 - `_snippets/` contains reusable markdown fragments intentionally included by
   multiple pages.
 - `assets/` contains tracked documentation assets such as the logo, favicon,
-  and custom styles.
+  and custom styles; see `assets/README.md` for the support-surface contract.
 - `overrides/` only exists when the site genuinely needs MkDocs theme
   overrides.
 
