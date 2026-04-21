@@ -105,7 +105,7 @@ bigbrotr/
 |   +-- lilbrotr/                     # Lightweight reference deployment
 +-- tools/
 |   +-- generate_sql.py              # SQL template generator
-|   +-- templates/sql/               # Jinja2 SQL templates (base + overrides)
+|   +-- templates/sql/               # Jinja2 SQL templates (base + profile/test overrides)
 +-- docs/                             # Documentation (MkDocs Material)
 +-- .github/                          # CI/CD workflows
 +-- Makefile                          # Development commands

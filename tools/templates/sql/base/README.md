@@ -1,6 +1,6 @@
 # sql/base
 
-Shared SQL templates used by all deployment profiles.
+Shared SQL templates used by all built-in storage profiles.
 
 ## What Lives Here
 

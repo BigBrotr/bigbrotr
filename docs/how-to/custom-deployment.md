@@ -115,29 +115,38 @@ For most custom deployments, the right move is simply:
 - start from `deployments/lilbrotr` if you want the lightweight archive profile;
 - keep the copied `postgres/init/` package as your deployment's SQL package.
 
-If you need to customize the schema itself, make the change in the SQL template
-system:
+If you need to customize the schema itself, you are no longer just maintaining
+an operator-local deployment copy. At that point, either keep a manually
+maintained `postgres/init/` package in your custom deployment, or extend the
+repository's built-in SQL generation contract:
 
-1. add or update deployment-specific templates under
-   `tools/templates/sql/<deployment>/`;
-2. register that deployment name in `tools/generate_sql.py`;
-3. regenerate the SQL package with:
+1. add or update shared templates under `tools/templates/sql/base/`, plus a
+   storage-profile override namespace such as
+   `tools/templates/sql/<sql_template_namespace>/` when a profile needs one;
+2. register the built-in deployment/storage-profile contract in
+   `src/bigbrotr/core/deployments.py`;
+3. add deployment-local skip/rename entries to `OUTPUT_OVERRIDES` in
+   `tools/generate_sql.py` only if the generated file map must diverge;
+4. regenerate the built-in SQL packages with:
 
 ```bash
 python tools/generate_sql.py
 ```
 
-The generator renders the deployment-local files in:
+The generator only renders built-in deployment packages such as:
 
-- `deployments/<deployment>/postgres/init/*.sql`
+- `deployments/bigbrotr/postgres/init/*.sql`
+- `deployments/lilbrotr/postgres/init/*.sql`
 
 This keeps the checked-in SQL package aligned with the actual template source
 of truth.
 
 !!! note
-    The built-in SQL generator currently knows the shipped deployment names
-    `bigbrotr` and `lilbrotr`. A custom deployment that needs its own SQL
-    generation path must be added explicitly to `tools/generate_sql.py`.
+    A copied custom deployment like `deployments/myproject/` is not a first-class
+    SQL generation target. If you need generated SQL for a new built-in
+    deployment, add the canonical deployment/storage-profile metadata in
+    `bigbrotr.core.deployments` and then let `tools/generate_sql.py` pick it up
+    through `GENERATED_DEPLOYMENTS`.
 
 ## Step 6: Set Up the Seed File
 
