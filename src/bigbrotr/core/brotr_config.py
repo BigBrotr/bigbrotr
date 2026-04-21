@@ -56,6 +56,8 @@ class BatchConfig(BaseModel):
 class TimeoutsConfig(BaseModel):
     """Timeout settings for Brotr operations (in seconds)."""
 
+    model_config = ConfigDict(extra="forbid")
+
     query: float | None = Field(
         default=60.0, le=3600.0, description="Query timeout (seconds, None=infinite)"
     )

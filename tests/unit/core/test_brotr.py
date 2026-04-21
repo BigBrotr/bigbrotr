@@ -176,6 +176,11 @@ class TestTimeoutsConfig:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             TimeoutsConfig.model_validate({b"query": 30.0})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        """Test stale timeout field names are rejected explicitly."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            TimeoutsConfig.model_validate({"query_timeout": 30.0})
+
 
 class TestBrotrConfig:
     """Tests for BrotrConfig composite model."""
@@ -233,6 +238,11 @@ class TestBrotrConfig:
         """Test nested timeout field keys fail fast through BrotrConfig."""
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             BrotrConfig.model_validate({"timeouts": {b"query": 30.0}})
+
+    def test_nested_timeouts_reject_unknown_field_names(self) -> None:
+        """Test nested timeout payloads reject stale field names."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            BrotrConfig.model_validate({"timeouts": {"query_timeout": 30.0}})
 
     def test_model_validate_rejects_non_string_field_keys(self) -> None:
         """Test root field keys fail fast through BrotrConfig."""
