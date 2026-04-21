@@ -15,6 +15,7 @@ from bigbrotr.models.event import Event
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.assertor.configs import AssertorConfig
 from bigbrotr.services.assertor.service import Assertor
+from tests.integration.harness.deterministic import DEFAULT_OUTPUT_EVENT_ID, DEFAULT_STORED_AT
 from tests.integration.harness.doubles import (
     FakeBroadcastRecorder,
     FakePublishClient,
@@ -27,7 +28,6 @@ pytestmark = pytest.mark.integration
 VALID_HEX_KEY = (
     "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"  # pragma: allowlist secret
 )
-VALID_OUTPUT_EVENT_ID = "aa" * 32
 
 _SCORE_INSERT_QUERIES = {
     "pubkey_score": """
@@ -55,7 +55,7 @@ def _event_observation(
     *,
     kind: int = 1,
     pubkey: str = "bb" * 32,
-    created_at: int = 1_700_000_000,
+    created_at: int = DEFAULT_STORED_AT,
     tags: list[list[str]] | None = None,
 ) -> EventObservation:
     mock = _make_mock_event(
@@ -66,7 +66,7 @@ def _event_observation(
         sig="ee" * 64,
         tags=tags or [],
     )
-    relay = Relay(relay_url, stored_at=1_700_000_000)
+    relay = Relay(relay_url, stored_at=DEFAULT_STORED_AT)
     return EventObservation(event=Event(mock), relay=relay, observed_at=created_at + 1)
 
 
@@ -486,7 +486,7 @@ class TestAssertorIntegration:
 
         config = _make_assertor_config(algorithm_id)
         client = FakePublishClient()
-        recorder = FakeBroadcastRecorder(event_id=VALID_OUTPUT_EVENT_ID)
+        recorder = FakeBroadcastRecorder(event_id=DEFAULT_OUTPUT_EVENT_ID)
 
         with (
             patch(
@@ -536,7 +536,7 @@ class TestAssertorIntegration:
             identifier=identifier,
         )
 
-        second_recorder = FakeBroadcastRecorder(event_id=VALID_OUTPUT_EVENT_ID)
+        second_recorder = FakeBroadcastRecorder(event_id=DEFAULT_OUTPUT_EVENT_ID)
 
         with (
             patch(
@@ -571,7 +571,7 @@ class TestAssertorIntegration:
             provider_profile_enabled=False,
             trusted_provider_list_enabled=False,
         )
-        recorder = FakeBroadcastRecorder(event_id=VALID_OUTPUT_EVENT_ID)
+        recorder = FakeBroadcastRecorder(event_id=DEFAULT_OUTPUT_EVENT_ID)
 
         with (
             patch(

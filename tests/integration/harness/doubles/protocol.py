@@ -8,10 +8,10 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from bigbrotr.utils.protocol import BroadcastClientResult, ClientConnectResult, ClientSession
+from tests.integration.harness.deterministic import DEFAULT_OUTPUT_EVENT_ID
 
 
 DEFAULT_PUBLISH_RELAY_URL = "wss://publish-relay.example.com"
-DEFAULT_OUTPUT_EVENT_ID = "aa" * 32
 
 
 @dataclass(slots=True)

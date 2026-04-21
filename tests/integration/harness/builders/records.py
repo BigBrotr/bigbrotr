@@ -10,11 +10,9 @@ from bigbrotr.models.document import Document, DocumentType
 from bigbrotr.models.event import Event
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from tests.conftest import make_mock_event
+from tests.integration.harness.deterministic import DEFAULT_ASSOCIATED_AT, DEFAULT_STORED_AT
 
 
-DEFAULT_STORED_AT = 1_700_000_000
-DEFAULT_OBSERVED_AT = 1_700_000_001
-DEFAULT_ASSOCIATED_AT = 1_700_000_001
 DEFAULT_SIG = "ee" * 64
 
 

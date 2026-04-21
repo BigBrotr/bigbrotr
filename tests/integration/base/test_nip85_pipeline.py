@@ -16,6 +16,11 @@ from bigbrotr.models.service_state import ServiceStateType
 from bigbrotr.services.assertor import Assertor, AssertorConfig
 from bigbrotr.services.ranker import Ranker, RankerConfig
 from bigbrotr.services.refresher import Refresher, RefresherConfig
+from tests.integration.harness.deterministic import (
+    DEFAULT_OUTPUT_EVENT_ID,
+    DEFAULT_STORED_AT,
+    ranker_storage_paths,
+)
 from tests.integration.harness.doubles import (
     FakeBroadcastRecorder,
     FakePublishClient,
@@ -32,7 +37,6 @@ pytestmark = pytest.mark.integration
 VALID_HEX_KEY = (
     "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"  # pragma: allowlist secret
 )
-VALID_OUTPUT_EVENT_ID = "aa" * 32
 
 _SCORE_FETCH_QUERIES = {
     "pubkey_score": """
@@ -97,7 +101,7 @@ def _event_observation(
     *,
     kind: int = 1,
     pubkey: str = "bb" * 32,
-    created_at: int = 1_700_000_000,
+    created_at: int = DEFAULT_STORED_AT,
     tags: list[list[str]] | None = None,
     content: str = "",
 ) -> EventObservation:
@@ -110,7 +114,7 @@ def _event_observation(
         tags=tags or [],
         content=content,
     )
-    relay = Relay(relay_url, stored_at=1_700_000_000)
+    relay = Relay(relay_url, stored_at=DEFAULT_STORED_AT)
     return EventObservation(event=Event(mock), relay=relay, observed_at=created_at + 1)
 
 
@@ -258,13 +262,14 @@ def _make_refresher_config() -> RefresherConfig:
 
 
 def _make_ranker_config(tmp_path: Path, algorithm_id: str) -> RankerConfig:
+    db_path, checkpoint_path = ranker_storage_paths(tmp_path)
     return RankerConfig.model_validate(
         {
             "metrics": {"enabled": False},
             "algorithm_id": algorithm_id,
             "storage": {
-                "path": tmp_path / "ranker.duckdb",
-                "checkpoint_path": tmp_path / "ranker.checkpoint.json",
+                "path": db_path,
+                "checkpoint_path": checkpoint_path,
             },
             "sync": {"batch_size": 100},
             "export": {"batch_size": 100},
@@ -438,7 +443,7 @@ async def _run_assertor_smoke(
     event_address: str,
     identifier: str,
 ) -> None:
-    recorder = FakeBroadcastRecorder(event_id=VALID_OUTPUT_EVENT_ID)
+    recorder = FakeBroadcastRecorder(event_id=DEFAULT_OUTPUT_EVENT_ID)
 
     with (
         patch(

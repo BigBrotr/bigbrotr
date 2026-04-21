@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from bigbrotr.core.brotr import Brotr
 from bigbrotr.models import Relay
 from tests.integration.harness.builders import build_event_observation
+from tests.integration.harness.deterministic import (
+    DEFAULT_STORED_AT,
+    deterministic_hex_ids,
+    monotonic_unix_timestamps,
+)
 
 
 pytestmark = pytest.mark.integration
@@ -71,15 +74,17 @@ class TestPartitionDistribution:
     """Verify data distributes across multiple partitions."""
 
     async def test_events_span_multiple_partitions(self, brotr: Brotr) -> None:
-        relay = Relay("wss://part-dist.example.com", stored_at=1700000000)
+        relay = Relay("wss://part-dist.example.com", stored_at=DEFAULT_STORED_AT)
+        event_ids = deterministic_hex_ids("partition-distribution", count=50)
+        observed_at_values = monotonic_unix_timestamps(start=DEFAULT_STORED_AT, count=50)
         events = [
             build_event_observation(
-                os.urandom(32).hex(),
+                event_id,
                 relay.url,
-                observed_at=1700000000 + i,
+                observed_at=observed_at,
                 stored_at=relay.stored_at,
             )
-            for i in range(50)
+            for event_id, observed_at in zip(event_ids, observed_at_values, strict=True)
         ]
         await brotr.insert_event_observation(events, cascade=True)
 
@@ -95,15 +100,17 @@ class TestPartitionColocation:
     """Verify event and event_observation with the same id hash to the same partition."""
 
     async def test_same_id_colocated(self, brotr: Brotr) -> None:
-        relay = Relay("wss://coloc.example.com", stored_at=1700000000)
+        relay = Relay("wss://coloc.example.com", stored_at=DEFAULT_STORED_AT)
+        event_ids = deterministic_hex_ids("partition-colocation", count=30)
+        observed_at_values = monotonic_unix_timestamps(start=DEFAULT_STORED_AT, count=30)
         events = [
             build_event_observation(
-                os.urandom(32).hex(),
+                event_id,
                 relay.url,
-                observed_at=1700000000 + i,
+                observed_at=observed_at,
                 stored_at=relay.stored_at,
             )
-            for i in range(30)
+            for event_id, observed_at in zip(event_ids, observed_at_values, strict=True)
         ]
         await brotr.insert_event_observation(events, cascade=True)
 

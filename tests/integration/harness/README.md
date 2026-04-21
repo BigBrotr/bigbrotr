@@ -8,7 +8,9 @@ Deterministic support layer for the rebuilt integration suite.
 - deployment-aware schema bootstrap helpers;
 - shared `Brotr` factory fixtures;
 - canonical record builders;
-- later builder, double, and failure-injection support surfaces.
+- named external doubles;
+- deterministic timestamps, identifiers, and temp-storage helpers;
+- later failure-injection support surfaces.
 
 ## Rules
 

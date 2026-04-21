@@ -9,6 +9,7 @@ import pytest
 from bigbrotr.services.ranker import Ranker, RankerConfig
 from bigbrotr.services.ranker.queries import GraphSyncCheckpoint
 from bigbrotr.services.ranker.utils import RankerStore
+from tests.integration.harness.deterministic import ranker_storage_paths
 
 
 pytestmark = pytest.mark.integration
@@ -214,6 +215,7 @@ async def test_ranker_syncs_graph_and_exports_pubkey_scores(  # noqa: PLR0915
     brotr: Brotr,
     tmp_path: Path,
 ) -> None:
+    db_path, checkpoint_path = ranker_storage_paths(tmp_path)
     pubkey_a = "a" * 64
     pubkey_b = "b" * 64
     pubkey_c = "c" * 64
@@ -304,8 +306,8 @@ async def test_ranker_syncs_graph_and_exports_pubkey_scores(  # noqa: PLR0915
     config = RankerConfig.model_validate(
         {
             "storage": {
-                "path": tmp_path / "ranker.duckdb",
-                "checkpoint_path": tmp_path / "ranker.checkpoint.json",
+                "path": db_path,
+                "checkpoint_path": checkpoint_path,
             },
             "metrics": {"enabled": False},
             "sync": {"batch_size": 10},
@@ -546,6 +548,7 @@ async def test_ranker_sync_budget_resumes_from_checkpoint(
     brotr: Brotr,
     tmp_path: Path,
 ) -> None:
+    db_path, checkpoint_path = ranker_storage_paths(tmp_path)
     pubkey_a = "a" * 64
     pubkey_b = "b" * 64
 
@@ -586,8 +589,8 @@ async def test_ranker_sync_budget_resumes_from_checkpoint(
         {
             "algorithm_id": "bounded-pagerank",
             "storage": {
-                "path": tmp_path / "ranker.duckdb",
-                "checkpoint_path": tmp_path / "ranker.checkpoint.json",
+                "path": db_path,
+                "checkpoint_path": checkpoint_path,
             },
             "metrics": {"enabled": False},
             "sync": {"batch_size": 1, "max_batches": 1},
