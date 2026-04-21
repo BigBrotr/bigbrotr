@@ -10,10 +10,12 @@ surface. It exists to hold deterministic fixture assets for internal workflows.
 
 - [`.env`](.env): committed fixture credentials and service keys used by
   internal test/tool runs.
-- [`data/postgres/`](data/postgres/): reserved PostgreSQL fixture state for the
-  internal deployment snapshot.
-- [`data/ranker/`](data/ranker/): Ranker fixture state, including the committed
-  checkpoint JSON and DuckDB snapshot.
+- [`data/README.md`](data/README.md): support index for the committed internal
+  fixture snapshot.
+- [`data/postgres/README.md`](data/postgres/README.md): reserved PostgreSQL
+  fixture state for the internal deployment snapshot.
+- [`data/ranker/README.md`](data/ranker/README.md): Ranker fixture state,
+  including the committed checkpoint JSON and DuckDB snapshot.
 
 ## Rules
 
