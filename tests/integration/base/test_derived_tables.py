@@ -7,24 +7,25 @@ import time
 import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import EventObservation, Relay, RelayDocument
-from bigbrotr.models.document import Document, DocumentType
-from bigbrotr.models.event import Event
-from tests.conftest import make_mock_event
+from bigbrotr.models.document import DocumentType
+from tests.integration.harness.builders import (
+    build_event_address as _event_address,
+)
+from tests.integration.harness.builders import (
+    build_event_observation as _event_observation,
+)
+from tests.integration.harness.builders import (
+    build_nip11_relay_document as _nip11_document,
+)
+from tests.integration.harness.builders import (
+    build_nip66_relay_document as _nip66_document,
+)
+from tests.integration.harness.builders import (
+    build_relay_document as _rm,
+)
 
 
 pytestmark = pytest.mark.integration
-
-
-def _rm(
-    relay_url: str,
-    data: dict,
-    document_type: DocumentType = DocumentType.NIP11_INFO,
-    associated_at: int = 1700000001,
-) -> RelayDocument:
-    relay = Relay(relay_url, stored_at=1700000000)
-    document = Document(type=document_type, data=data)
-    return RelayDocument(relay=relay, document=document, associated_at=associated_at)
 
 
 async def _refresh_document_current(
@@ -78,49 +79,6 @@ class TestRelayDocumentCurrent:
 # ============================================================================
 # Helpers for current-state and analytics tables
 # ============================================================================
-
-
-def _event_observation(
-    event_id: str,
-    relay_url: str,
-    kind: int = 1,
-    pubkey: str = "bb" * 32,
-    created_at: int = 1700000000,
-    observed_at: int | None = None,
-    tags: list[list[str]] | None = None,
-) -> EventObservation:
-    mock = make_mock_event(
-        event_id=event_id,
-        pubkey=pubkey,
-        kind=kind,
-        created_at=created_at,
-        sig="ee" * 64,
-        tags=tags,
-    )
-    relay = Relay(relay_url, stored_at=1700000000)
-    return EventObservation(
-        event=Event(mock), relay=relay, observed_at=observed_at or created_at + 1
-    )
-
-
-def _nip11_document(relay_url: str, data: dict, associated_at: int = 1700000001) -> RelayDocument:
-    relay = Relay(relay_url, stored_at=1700000000)
-    envelope = {"data": data, "logs": {"success": True}}
-    document = Document(type=DocumentType.NIP11_INFO, data=envelope)
-    return RelayDocument(relay=relay, document=document, associated_at=associated_at)
-
-
-def _nip66_document(
-    relay_url: str, document_type: DocumentType, data: dict, associated_at: int = 1700000001
-) -> RelayDocument:
-    relay = Relay(relay_url, stored_at=1700000000)
-    envelope = {"data": data, "logs": {"success": True}}
-    document = Document(type=document_type, data=envelope)
-    return RelayDocument(relay=relay, document=document, associated_at=associated_at)
-
-
-def _event_address(kind: int, pubkey: str, d_value: str) -> str:
-    return f"{kind}:{pubkey.lower()}:{d_value}"
 
 
 async def _refresh_summaries(brotr: Brotr, after: int = 0, until: int = 2000000000) -> None:

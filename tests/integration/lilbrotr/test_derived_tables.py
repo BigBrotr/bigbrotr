@@ -5,40 +5,15 @@ from __future__ import annotations
 import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import EventObservation, Relay
-from bigbrotr.models.event import Event
-from tests.conftest import make_mock_event
+from tests.integration.harness.builders import (
+    build_event_address as _event_address,
+)
+from tests.integration.harness.builders import (
+    build_event_observation as _event_observation,
+)
 
 
 pytestmark = pytest.mark.integration
-
-
-def _event_observation(
-    event_id: str,
-    relay_url: str,
-    *,
-    kind: int = 1,
-    pubkey: str = "bb" * 32,
-    created_at: int = 1700000000,
-    observed_at: int | None = None,
-    tags: list[list[str]] | None = None,
-) -> EventObservation:
-    mock = make_mock_event(
-        event_id=event_id,
-        pubkey=pubkey,
-        kind=kind,
-        created_at=created_at,
-        sig="ee" * 64,
-        tags=tags,
-    )
-    relay = Relay(relay_url, stored_at=1700000000)
-    return EventObservation(
-        event=Event(mock), relay=relay, observed_at=observed_at or created_at + 1
-    )
-
-
-def _event_address(kind: int, pubkey: str, d_value: str) -> str:
-    return f"{kind}:{pubkey.lower()}:{d_value}"
 
 
 async def _refresh_nip85(brotr: Brotr, after: int = 0, until: int = 2_000_000_000) -> None:

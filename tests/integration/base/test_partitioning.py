@@ -7,20 +7,13 @@ import os
 import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import EventObservation, Relay
-from bigbrotr.models.event import Event
-from tests.conftest import make_mock_event
+from bigbrotr.models import Relay
+from tests.integration.harness.builders import build_event_observation
 
 
 pytestmark = pytest.mark.integration
 
 PARTITIONS = 16
-
-
-def _make_event_observation(relay: Relay, index: int) -> EventObservation:
-    event_id = os.urandom(32).hex()
-    mock = make_mock_event(event_id=event_id, sig="ee" * 64)
-    return EventObservation(event=Event(mock), relay=relay, observed_at=1700000000 + index)
 
 
 class TestPartitionStructure:
@@ -79,7 +72,15 @@ class TestPartitionDistribution:
 
     async def test_events_span_multiple_partitions(self, brotr: Brotr) -> None:
         relay = Relay("wss://part-dist.example.com", stored_at=1700000000)
-        events = [_make_event_observation(relay, i) for i in range(50)]
+        events = [
+            build_event_observation(
+                os.urandom(32).hex(),
+                relay.url,
+                observed_at=1700000000 + i,
+                stored_at=relay.stored_at,
+            )
+            for i in range(50)
+        ]
         await brotr.insert_event_observation(events, cascade=True)
 
         event_parts = await brotr.fetchval("SELECT COUNT(DISTINCT tableoid::regclass) FROM event")
@@ -95,7 +96,15 @@ class TestPartitionColocation:
 
     async def test_same_id_colocated(self, brotr: Brotr) -> None:
         relay = Relay("wss://coloc.example.com", stored_at=1700000000)
-        events = [_make_event_observation(relay, i) for i in range(30)]
+        events = [
+            build_event_observation(
+                os.urandom(32).hex(),
+                relay.url,
+                observed_at=1700000000 + i,
+                stored_at=relay.stored_at,
+            )
+            for i in range(30)
+        ]
         await brotr.insert_event_observation(events, cascade=True)
 
         mismatches = await brotr.fetchval(

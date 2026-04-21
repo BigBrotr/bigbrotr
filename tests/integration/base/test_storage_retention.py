@@ -5,30 +5,16 @@ from __future__ import annotations
 import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import EventObservation, Relay, RelayDocument
-from bigbrotr.models.document import Document, DocumentType
-from bigbrotr.models.event import Event
-from tests.conftest import make_mock_event
+from bigbrotr.models import Relay, RelayDocument
+from tests.integration.harness.builders import (
+    build_event_observation as _event_observation,
+)
+from tests.integration.harness.builders import (
+    build_relay_document as _relay_document,
+)
 
 
 pytestmark = pytest.mark.integration
-
-
-def _event_observation(event_id: str, relay_url: str) -> EventObservation:
-    mock = make_mock_event(event_id=event_id, sig="ee" * 64)
-    relay = Relay(relay_url, stored_at=1_700_000_000)
-    return EventObservation(event=Event(mock), relay=relay, observed_at=1_700_000_001)
-
-
-def _relay_document(
-    relay_url: str,
-    data: dict[str, object],
-    doc_type: DocumentType = DocumentType.NIP11_INFO,
-    associated_at: int = 1_700_000_001,
-) -> RelayDocument:
-    relay = Relay(relay_url, stored_at=1_700_000_000)
-    document = Document(type=doc_type, data=data)
-    return RelayDocument(relay=relay, document=document, associated_at=associated_at)
 
 
 class TestSharedStorageRetention:

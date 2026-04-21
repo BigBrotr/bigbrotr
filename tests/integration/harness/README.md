@@ -7,6 +7,7 @@ Deterministic support layer for the rebuilt integration suite.
 - PostgreSQL container lifecycle helpers;
 - deployment-aware schema bootstrap helpers;
 - shared `Brotr` factory fixtures;
+- canonical record builders;
 - later builder, double, and failure-injection support surfaces.
 
 ## Rules

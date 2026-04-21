@@ -10,29 +10,15 @@ from bigbrotr.models import EventObservation, Relay, RelayDocument
 from bigbrotr.models.document import Document, DocumentType
 from bigbrotr.models.event import Event
 from tests.conftest import make_mock_event
+from tests.integration.harness.builders import (
+    build_event_observation as _event_observation,
+)
+from tests.integration.harness.builders import (
+    build_relay_document as _relay_document,
+)
 
 
 pytestmark = pytest.mark.integration
-
-
-def _event_observation(
-    event_id: str, relay_url: str, observed_at: int = 1700000001
-) -> EventObservation:
-    mock = make_mock_event(event_id=event_id, sig="ee" * 64)
-    relay = Relay(relay_url, stored_at=1700000000)
-    return EventObservation(event=Event(mock), relay=relay, observed_at=observed_at)
-
-
-def _relay_document(
-    relay_url: str,
-    data: dict,
-    document_type: DocumentType = DocumentType.NIP11_INFO,
-    associated_at: int = 1700000001,
-) -> RelayDocument:
-    relay = Relay(relay_url, stored_at=1700000000)
-    document = Document(type=document_type, data=data)
-    return RelayDocument(relay=relay, document=document, associated_at=associated_at)
-
 
 # =============================================================================
 # Relay Cascade Delete → event_observation

@@ -5,40 +5,19 @@ from __future__ import annotations
 import pytest
 
 from bigbrotr.core.brotr import Brotr
-from bigbrotr.models import EventObservation, Relay, RelayDocument
 from bigbrotr.models.constants import ServiceName
-from bigbrotr.models.document import Document, DocumentType
-from bigbrotr.models.event import Event
+from bigbrotr.models.document import DocumentType
 from bigbrotr.models.service_state import ServiceState, ServiceStateType
 from bigbrotr.services.refresher import Refresher, RefresherConfig
-from tests.conftest import make_mock_event
+from tests.integration.harness.builders import (
+    build_event_observation as _event_observation,
+)
+from tests.integration.harness.builders import (
+    build_relay_document as _relay_document,
+)
 
 
 pytestmark = pytest.mark.integration
-
-
-def _event_observation(
-    event_id: str,
-    relay_url: str,
-    *,
-    kind: int = 1,
-    pubkey: str = "aa" * 32,
-    created_at: int = 1700000000,
-    observed_at: int | None = None,
-    tags: list[list[str]] | None = None,
-) -> EventObservation:
-    event = Event(
-        make_mock_event(
-            event_id=event_id,
-            pubkey=pubkey,
-            kind=kind,
-            created_at=created_at,
-            sig="ee" * 64,
-            tags=tags,
-        )
-    )
-    relay = Relay(relay_url, stored_at=1700000000)
-    return EventObservation(event=event, relay=relay, observed_at=observed_at or created_at + 1)
 
 
 def _config(
@@ -61,18 +40,6 @@ def _config(
             },
         }
     )
-
-
-def _relay_document(
-    relay_url: str,
-    data: dict,
-    *,
-    document_type: DocumentType = DocumentType.NIP11_INFO,
-    associated_at: int = 1700000001,
-) -> RelayDocument:
-    relay = Relay(relay_url, stored_at=1700000000)
-    document = Document(type=document_type, data=data)
-    return RelayDocument(relay=relay, document=document, associated_at=associated_at)
 
 
 class TestRefresherIntegration:
