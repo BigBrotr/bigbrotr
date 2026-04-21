@@ -1,9 +1,14 @@
 """HTTP adapter for public readable-resource exposure.
 
-See Also:
-    [Api][bigbrotr.services.api.service.Api]: The service class.
-    [ApiConfig][bigbrotr.services.api.configs.ApiConfig]: Adapter configuration,
-        including pagination and exposure policy.
+Exports the package-level HTTP adapter surface:
+
+- [Api][bigbrotr.services.api.service.Api]: FastAPI lifecycle and route
+  registration over the shared read core.
+- [ApiConfig][bigbrotr.services.api.configs.ApiConfig]: Adapter-local exposure
+  and pagination policy.
+
+The package preserves the stable ``/read-models`` transport contract while
+keeping HTTP concerns thin over ``bigbrotr.services.common``.
 """
 
 from .configs import ApiConfig

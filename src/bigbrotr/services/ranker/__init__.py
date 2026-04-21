@@ -1,8 +1,18 @@
-"""Ranker service package.
+"""Private ranking service that exports public score outputs.
 
-Re-exports the public package symbols::
+Exports the package-level ranking surface:
 
-    from bigbrotr.services.ranker import Ranker, RankerConfig
+- [Ranker][bigbrotr.services.ranker.service.Ranker]: Cycle runner that syncs
+  canonical facts into the private DuckDB store and exports public scores.
+- [RankerConfig][bigbrotr.services.ranker.configs.RankerConfig]: Algorithm,
+  storage, batching, and cleanup policy.
+- [RankCycleResult][bigbrotr.services.ranker.runtime.RankCycleResult],
+  [RankPhaseDurations][bigbrotr.services.ranker.runtime.RankPhaseDurations],
+  and [RankRowCounts][bigbrotr.services.ranker.runtime.RankRowCounts]: typed
+  runtime results for one ranking cycle.
+
+Private ranking state stays in this package; the public contract exported from
+here is score data, not internal run bookkeeping.
 """
 
 from .configs import RankerConfig

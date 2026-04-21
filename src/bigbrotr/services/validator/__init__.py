@@ -1,8 +1,15 @@
-"""Validator service package.
+"""Candidate-relay validation and promotion service.
 
-Re-exports the public package symbols::
+Exports the package-level validation surface:
 
-    from bigbrotr.services.validator import Validator, ValidatorConfig
+- [Validator][bigbrotr.services.validator.service.Validator]: Relay handshake
+  validation and promotion flow.
+- [ValidatorConfig][bigbrotr.services.validator.configs.ValidatorConfig] plus
+  the processing and cleanup config models: concurrency, retry, and stale
+  candidate cleanup policy.
+
+Discovery and promotion stay separate by contract: finder discovers candidate
+URLs, while validator decides whether they become canonical relays.
 """
 
 from .configs import CleanupConfig, ProcessingConfig, ValidatorConfig
