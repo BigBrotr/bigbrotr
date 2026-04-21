@@ -261,6 +261,11 @@ class TestDvmConfig:
         config = DvmConfig(relays=["wss://relay.example.com"], fetch_timeout=60.0)
         assert config.fetch_timeout == 60.0
 
+    def test_accepts_local_runtime_relay_urls(self) -> None:
+        config = DvmConfig(relays=["ws://172.31.0.10:8080"])
+
+        assert [relay.url for relay in config.relays] == ["ws://172.31.0.10:8080"]
+
     @pytest.mark.parametrize("field_name", ["name", "about", "d_tag"])
     def test_rejects_blank_announcement_text_fields(self, field_name: str) -> None:
         with pytest.raises(ValueError, match=rf"{field_name} must not be blank"):

@@ -31,11 +31,31 @@ class TestConnectClientRelays:
         """Shared client sessions reject overlay relays that need proxy policy."""
         client = AsyncMock()
 
-        with pytest.raises(ValueError, match="clearnet relays only"):
+        with pytest.raises(ValueError, match="direct relays only"):
             await connect_client_relays(client, [Relay(f"ws://{'a' * 56}.onion")], timeout=15.0)
 
         client.add_relay.assert_not_awaited()
         client.try_connect.assert_not_awaited()
+
+    async def test_accepts_local_relays_for_shared_session(self) -> None:
+        """Shared client sessions accept direct local relays without proxy policy."""
+        client = AsyncMock()
+        output = MagicMock()
+        output.success = ["ws://172.31.0.10:8080"]
+        output.failed = {}
+        client.try_connect = AsyncMock(return_value=output)
+
+        result = await connect_client_relays(
+            client,
+            [Relay("ws://172.31.0.10:8080")],
+            timeout=15.0,
+        )
+
+        assert result == ClientConnectResult(
+            connected=("ws://172.31.0.10:8080",),
+            failed={},
+        )
+        client.add_relay.assert_awaited_once()
 
     @pytest.mark.parametrize("timeout", [True, 0, -1.0, float("nan")])
     async def test_rejects_invalid_timeout_before_registration(self, timeout: object) -> None:
@@ -210,6 +230,32 @@ class TestCreateConnectedClient:
             failed={"wss://relay.failed": "timeout"},
         )
         assert list(result.failed) == ["wss://relay.failed"]
+
+    async def test_keeps_local_sessions_supported(self) -> None:
+        """Local multi-relay sessions still normalize the connect result."""
+        client = AsyncMock()
+        relay_url = MagicMock()
+        relay_url.__str__.return_value = "ws://172.31.0.10:8080"
+        output = MagicMock()
+        output.success = [relay_url]
+        output.failed = {}
+        client.try_connect = AsyncMock(return_value=output)
+        create_client_func = AsyncMock(return_value=client)
+
+        result_client, result = await create_connected_client(
+            [Relay("ws://172.31.0.10:8080")],
+            dependencies=SharedSessionDependencies(
+                create_client=create_client_func,
+                shutdown_client=AsyncMock(),
+            ),
+            timeout=15.0,
+        )
+
+        assert result_client is client
+        assert result == ClientConnectResult(
+            connected=("ws://172.31.0.10:8080",),
+            failed={},
+        )
 
     async def test_preserves_connect_error_when_shutdown_reports_expected_noise(self) -> None:
         """Shared-session helper keeps the connect failure as the public outcome."""

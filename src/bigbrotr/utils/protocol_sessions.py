@@ -104,20 +104,25 @@ def _deduplicate_relays(relays: list[Relay]) -> list[Relay]:
 def _validate_session_relays(relays: list[Relay]) -> None:
     """Reject relay sets that need per-network proxy policy.
 
-    Session helpers build one shared client and therefore require at least one
-    clearnet relay. They cannot express the per-network proxy configuration
-    required by overlay relays.
+    Session helpers build one shared client and therefore only support relay
+    families that can connect directly without per-network proxy policy:
+    clearnet and local. Overlay relays still require per-network proxy
+    configuration and cannot share this session contract.
     """
     if not relays:
         raise ValueError("multi-relay client sessions require at least one relay")
 
     unsupported = sorted(
-        {relay.network.display_name for relay in relays if relay.network != NetworkType.CLEARNET}
+        {
+            relay.network.display_name
+            for relay in relays
+            if relay.network not in (NetworkType.CLEARNET, NetworkType.LOCAL)
+        }
     )
     if unsupported:
         names = ", ".join(unsupported)
         raise ValueError(
-            "multi-relay client sessions support clearnet relays only; "
+            "multi-relay client sessions support direct relays only; "
             f"unsupported overlay networks: {names}"
         )
 
@@ -130,11 +135,12 @@ async def connect_client_relays(
 ) -> ClientConnectResult:
     """Register relays on one shared client and normalize the connection outcome.
 
-    This helper is intentionally limited to clearnet relays because one shared
-    client cannot carry the per-network proxy policy required by overlay relay
-    families. Successful relay URLs are deduplicated and sorted so the
-    returned connect result stays stable across SDK iteration order. Failed
-    relay maps are also returned in stable lexical relay-url order.
+    This helper is intentionally limited to direct relay families
+    (clearnet/local) because one shared client cannot carry the per-network
+    proxy policy required by overlay relay families. Successful relay URLs are
+    deduplicated and sorted so the returned connect result stays stable across
+    SDK iteration order. Failed relay maps are also returned in stable lexical
+    relay-url order.
     """
     normalized_timeout = _normalize_session_timeout(timeout)
     _validate_session_relays(relays)
@@ -154,7 +160,7 @@ async def create_connected_client(
     timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
     allow_insecure: bool = False,
 ) -> tuple[Client, ClientConnectResult]:
-    """Create a shared client, register clearnet relays, and normalize the result.
+    """Create a shared client, register direct relays, and normalize the result.
 
     Overlay relay sets are rejected before client creation because a shared
     multi-relay session cannot express per-network proxy policy and should not

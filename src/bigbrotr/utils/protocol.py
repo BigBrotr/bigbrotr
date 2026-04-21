@@ -238,11 +238,11 @@ async def create_connected_client(
     timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
     allow_insecure: bool = False,
 ) -> tuple[Client, ClientConnectResult]:
-    """Create one shared client, register clearnet relays, and normalize the result.
+    """Create one shared client, register direct relays, and normalize the result.
 
-    This helper is intentionally limited to clearnet relay sets. Overlay relays
-    require per-network proxy policy and therefore cannot share the same
-    session-oriented client contract.
+    This helper is intentionally limited to direct relay sets
+    (clearnet/local). Overlay relays require per-network proxy policy and
+    therefore cannot share the same session-oriented client contract.
     """
     normalized_allow_insecure = _normalize_allow_insecure(allow_insecure)
     return await _create_connected_client(

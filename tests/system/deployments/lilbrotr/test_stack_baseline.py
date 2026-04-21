@@ -79,9 +79,9 @@ def _capture_stack_artifacts(
 
 
 @pytest.mark.timeout(900)
-def test_bigbrotr_stack_reaches_expected_baseline(tmp_path: Path) -> None:
-    bundle = _create_bundle(tmp_path, "bigbrotr-stack-baseline")
-    plan = RuntimeAddressPlan.create("bigbrotr", tmp_path / "runtime", "bigbrotr-stack-baseline")
+def test_lilbrotr_stack_reaches_expected_baseline(tmp_path: Path) -> None:
+    bundle = _create_bundle(tmp_path, "lilbrotr-stack-baseline")
+    plan = RuntimeAddressPlan.create("lilbrotr", tmp_path / "runtime", "lilbrotr-stack-baseline")
     prepare_runtime_compose_config(plan)
     stack = ComposeStack(
         profile=plan.profile,

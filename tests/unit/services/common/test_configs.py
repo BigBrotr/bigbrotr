@@ -236,6 +236,11 @@ class TestRelayListParsing:
     def test_parse_relay_list_fail_soft_preserves_none(self) -> None:
         assert parse_relay_list_fail_soft(None) is None
 
+    def test_parse_relay_list_fail_soft_accepts_local_private_relays(self) -> None:
+        relays = parse_relay_list_fail_soft(["ws://172.31.0.10:8080"])
+
+        assert [relay.url for relay in relays] == ["ws://172.31.0.10:8080"]
+
 
 # =============================================================================
 # ClearnetConfig Tests

@@ -139,7 +139,7 @@ def parse_relay_list_fail_soft(raw: object) -> list[Relay] | None:
             logger.warning("invalid_relay_config_entry item_type=%s", type(item).__name__)
             continue
         try:
-            relays.append(Relay.parse(item))
+            relays.append(Relay.parse(item, allow_local=True))
         except (TypeError, ValueError) as e:
             logger.warning("invalid_relay_config_entry relay=%s error=%s", item, e)
     return relays

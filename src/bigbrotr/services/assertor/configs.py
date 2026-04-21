@@ -249,7 +249,7 @@ class TrustedProviderListConfig(BaseModel):
         if value is None:
             return None
         try:
-            return Relay.parse(value).url
+            return Relay.parse(value, allow_local=True).url
         except ValueError as exc:
             raise ValueError("relay_hint must be a valid relay URL") from exc
 

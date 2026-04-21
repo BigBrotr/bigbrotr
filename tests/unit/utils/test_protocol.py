@@ -762,6 +762,33 @@ class TestNostrClientManagerSessions:
         mock_client.try_connect.assert_not_awaited()
         assert manager._sessions == {}
 
+    async def test_connect_session_accepts_local_relays_for_shared_clients(self) -> None:
+        manager = NostrClientManager(keys=MagicMock())
+        mock_client = AsyncMock()
+        relays = [Relay("ws://172.31.0.10:8080")]
+        result = ClientConnectResult(connected=("ws://172.31.0.10:8080",), failed={})
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol.create_client",
+                new=AsyncMock(return_value=mock_client),
+            ) as mock_create,
+            patch(
+                "bigbrotr.utils.protocol._connect_client_relays",
+                new=AsyncMock(return_value=result),
+            ) as mock_connect,
+        ):
+            session = await manager.connect_session("read-session", relays, timeout=15.0)
+
+        assert session == ClientSession(
+            session_id="read-session",
+            client=mock_client,
+            relay_urls=("ws://172.31.0.10:8080",),
+            connect_result=result,
+        )
+        mock_create.assert_awaited_once_with(keys=manager._keys, allow_insecure=False)
+        mock_connect.assert_awaited_once_with(mock_client, relays, timeout=15.0)
+
     async def test_connect_session_cleans_up_failed_client_and_preserves_original_error(
         self,
     ) -> None:

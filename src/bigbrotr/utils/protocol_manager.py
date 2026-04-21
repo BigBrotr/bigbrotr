@@ -151,12 +151,13 @@ class NostrClientManager:
         *,
         timeout: float = DEFAULT_TIMEOUT,  # noqa: ASYNC109
     ) -> ClientSession:
-        """Create or reuse a named clearnet multi-relay session.
+        """Create or reuse a named direct multi-relay session.
 
         Session helpers intentionally reject overlay relays because one shared
-        client cannot encode the per-network proxy policy they require. Named
-        session identity is keyed by the normalized relay set, not by caller
-        input order.
+        client cannot encode the per-network proxy policy they require.
+        Clearnet and local relays are allowed because they share the same
+        direct-connection contract. Named session identity is keyed by the
+        normalized relay set, not by caller input order.
         """
         normalized_timeout = _normalize_session_timeout(timeout)
         relay_urls = tuple(sorted({relay.url for relay in relays}))

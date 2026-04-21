@@ -235,6 +235,15 @@ class TestAssertorConfig:
         with pytest.raises(ValidationError, match="relay_hint must be a valid relay URL"):
             AssertorConfig(trusted_provider_list={"relay_hint": "not-a-relay"})
 
+    def test_accepts_local_runtime_relay_urls(self) -> None:
+        config = AssertorConfig(
+            publishing={"relays": ["ws://172.31.0.10:8080"]},
+            trusted_provider_list={"relay_hint": "ws://172.31.0.10:8080"},
+        )
+
+        assert [relay.url for relay in config.publishing.relays] == ["ws://172.31.0.10:8080"]
+        assert config.trusted_provider_list.relay_hint == "ws://172.31.0.10:8080"
+
     def test_rejects_non_string_trusted_provider_relay_hint_alias(self) -> None:
         with pytest.raises(ValidationError, match=r"relay_hint: expected string, got bytes"):
             AssertorConfig(trusted_provider_list={"relay_hint": b"wss://relay.damus.io"})
