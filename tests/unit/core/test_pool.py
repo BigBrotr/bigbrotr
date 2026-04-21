@@ -209,6 +209,11 @@ class TestDatabaseConfig:
         with pytest.raises(ValidationError, match="password: expected string, got bytes"):
             DatabaseConfig(password=b"abc")
 
+    def test_extra_fields_forbidden(self) -> None:
+        """Test unexpected database fields are rejected."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            DatabaseConfig(password="test_pass", extra_field="value")  # pragma: allowlist secret
+
     def test_model_validate_rejects_non_string_field_keys(self) -> None:
         """Test raw database field keys must already be canonical strings."""
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
@@ -769,6 +774,16 @@ class TestPoolConfig:
         """Test nested database config rejects byte password aliases."""
         with pytest.raises(ValidationError, match="password: expected string, got bytes"):
             PoolConfig(database={"password": b"abc"})
+
+    def test_nested_database_extra_fields_forbidden(self) -> None:
+        """Test nested database config rejects unexpected fields."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            PoolConfig(
+                database={
+                    "password": "test_pass",  # pragma: allowlist secret
+                    "extra_field": "value",
+                }
+            )
 
     def test_nested_database_rejects_non_string_field_keys(self) -> None:
         """Test nested database field keys fail fast through PoolConfig."""

@@ -3,7 +3,15 @@
 import os
 from typing import Any, cast
 
-from pydantic import BaseModel, Field, SecretStr, ValidationInfo, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 
 def _reject_bool_alias(value: Any, field_name: str, expected: str) -> Any:
@@ -59,6 +67,8 @@ def _require_secret_string(value: Any, field_name: str) -> str:
 
 class DatabaseConfig(BaseModel):
     """PostgreSQL connection parameters."""
+
+    model_config = ConfigDict(extra="forbid")
 
     host: str = Field(default="localhost", min_length=1, description="Database hostname")
     port: int = Field(default=5432, ge=1, le=65535, description="Database port")
