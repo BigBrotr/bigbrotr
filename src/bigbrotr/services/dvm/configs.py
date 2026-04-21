@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Sequence as SequenceABC
 from typing import Annotated, Any, ClassVar, cast
 
-from pydantic import BeforeValidator, Field, ValidationInfo, field_validator
+from pydantic import BeforeValidator, ConfigDict, Field, ValidationInfo, field_validator
 
 from bigbrotr.models import Relay
 from bigbrotr.services.common.configs import (
@@ -64,6 +64,7 @@ class DvmConfig(PublicReadAdapterConfig):
     """
 
     READ_SURFACE: ClassVar[str] = "dvm"
+    model_config = ConfigDict(extra="forbid")
 
     keys: NostrKeysConfig = Field(
         default_factory=lambda: NostrKeysConfig(keys_env="NOSTR_PRIVATE_KEY_DVM"),

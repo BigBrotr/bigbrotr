@@ -330,6 +330,10 @@ class TestDvmConfig:
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
             DvmConfig.model_validate({"page_limits": {"default_page_size": 10}})
 
+    def test_extra_fields_forbidden(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            DvmConfig(relays=["wss://relay.example.com"], extra_field="value")
+
     def test_inherits_base_service_config(self) -> None:
         config = DvmConfig(relays=["wss://relay.example.com"], interval=120.0)
         assert config.interval == 120.0
