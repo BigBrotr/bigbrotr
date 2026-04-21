@@ -21,8 +21,8 @@ trades event-payload fidelity for a smaller archive footprint.
   composition for this reference deployment.
 - [`config/`](config/README.md) contains the shared Brotr config and the
   per-service YAML files.
-- [`postgres/init/`](postgres/init/) contains the generated SQL package for
-  the lightweight archive profile.
+- [`postgres/`](postgres/README.md) contains `postgresql.conf` plus the
+  generated database bootstrap package for the lightweight archive profile.
 - [`static/`](static/) contains operator-managed static inputs such as the seed
   relay file.
 - [`monitoring/`](monitoring/) contains Prometheus, Alertmanager, Grafana, and

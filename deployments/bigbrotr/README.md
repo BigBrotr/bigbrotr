@@ -17,8 +17,8 @@ Use it when you want the fullest built-in storage profile:
   composition for this reference deployment.
 - [`config/`](config/README.md) contains the shared Brotr config and the
   per-service YAML files.
-- [`postgres/init/`](postgres/init/) contains the generated SQL package for
-  this deployment.
+- [`postgres/`](postgres/README.md) contains `postgresql.conf` plus the
+  generated database bootstrap package for this deployment.
 - [`static/`](static/) contains operator-managed static inputs such as the seed
   relay file and GeoIP assets.
 - [`monitoring/`](monitoring/) contains Prometheus, Alertmanager, Grafana, and
