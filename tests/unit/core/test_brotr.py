@@ -249,6 +249,11 @@ class TestBrotrConfig:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             BrotrConfig.model_validate({b"batch": {"max_size": 5000}})
 
+    def test_model_validate_rejects_unknown_field_names(self) -> None:
+        """Test stale root field names fail fast through BrotrConfig."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            BrotrConfig.model_validate({"batch_config": {"max_size": 5000}})
+
 
 # ============================================================================
 # Brotr Initialization Tests
