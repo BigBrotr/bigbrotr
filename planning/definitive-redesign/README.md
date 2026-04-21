@@ -230,6 +230,25 @@ Concrete wave-by-wave traversal map for the whole-repository content audit:
 - exact folder scopes by wave;
 - paired-surface watch points.
 
+### `28_integration_test_rebuild_program.md`
+
+Normative rebuild program for the full integration test layer:
+
+- from-scratch redesign of the suite shape;
+- coverage matrix across shared DB, services, pipelines, profiles, and failure
+  contracts;
+- section-by-section audit loop;
+- explicit commit discipline and closeout gates.
+
+### `29_integration_test_rebuild_ledger.md`
+
+Operational ledger for the integration test rebuild:
+
+- wave-by-wave status;
+- section checklist;
+- commit slots and audit notes;
+- deferred watch-point tracking.
+
 ### `99_definitive_master_plan.md`
 
 Final distilled plan resulting from the three iterations and their audits.
@@ -255,6 +274,8 @@ Recommended order:
 15. `25_repository_content_audit_manifest.txt`
 16. `26_repository_content_audit_untouched_manifest.txt`
 17. `27_repository_content_audit_traversal_map.md`
+18. `28_integration_test_rebuild_program.md`
+19. `29_integration_test_rebuild_ledger.md`
 
 The iteration files are intentionally more verbose and analytical. The final
 plan is intentionally more decisive and executable.
