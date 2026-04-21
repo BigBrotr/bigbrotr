@@ -1,1 +1,1 @@
-"""Unit tests for the :mod:`bigbrotr.nips.nip11` package."""
+"""Unit tests for ``bigbrotr.nips.nip11`` fetch, parsing, data, and logs."""

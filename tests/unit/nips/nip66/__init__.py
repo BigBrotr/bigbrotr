@@ -1,1 +1,1 @@
-"""Unit tests for the :mod:`bigbrotr.nips.nip66` package."""
+"""Unit tests for ``bigbrotr.nips.nip66`` probe families and typed outputs."""

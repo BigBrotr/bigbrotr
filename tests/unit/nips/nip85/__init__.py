@@ -1,1 +1,1 @@
-"""Unit tests for the :mod:`bigbrotr.nips.nip85` package."""
+"""Unit tests for ``bigbrotr.nips.nip85`` data models and builder exports."""
