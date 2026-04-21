@@ -60,7 +60,7 @@ Use these statuses consistently:
 |------|--------|-------|
 | 0. Freeze the expanded test problem | done | The non-unit tracked baseline, the live deployment/monitoring inventory, the current-vs-required contract matrix, and the target taxonomy are now frozen explicitly; Wave 1 can start on a stable execution map instead of inventing structure on the fly |
 | 1. Higher-band harness foundation | done | The higher-band harness foundation is now closed: `tests/system/`/`tests/live_smoke/` exist physically, compose lifecycle, artifact capture, runtime addressing, fault control, and observability API helpers are all in place, and the self-audit now proves deterministic repeated cycles without mutating the shipped compose assets |
-| 2. Real relay infrastructure | not started | Baseline relay, capture relay, fault-injected relay path, and optional secondary relay matrix |
+| 2. Real relay infrastructure | in progress | The baseline relay is now pinned and proven against a real containerized `nostr-rs-relay` contract with startup/readiness, publish, query, live-subscribe, SQLite inspectability, and per-run artifacts; capture relay, fault-injected path, secondary matrix, and relay self-audit remain open |
 | 3. Deployment stack baseline | not started | Clean `bigbrotr` and `lilbrotr` startup, health, dependency ordering, and restart baseline |
 | 4. Service system certification | not started | Real runtime certification for all ten services |
 | 5. Cross-service system pipelines | not started | Discovery, archive, derivation, public-read, and restart pipelines |
@@ -98,7 +98,7 @@ Use these statuses consistently:
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 2.1 Baseline relay selection and contract | not started |  | Select first relay implementation and prove baseline local contract |
+| 2.1 Baseline relay selection and contract | done | `test: add relay baseline contract` | Selected digest-pinned `nostr-rs-relay` as the baseline relay and added `tests/system/harness/relay.py` plus unit coverage and real `tests/system/relay/test_nostr_rs_relay.py` proof for startup, REQ/EOSE readiness, publish `OK`, query replay, live subscribe after initial `EOSE`, container log capture, `docker inspect` evidence, and mounted SQLite file inspectability; the local audit loop reran `tests/unit/test_system_relay_harness.py tests/system/relay/test_nostr_rs_relay.py -q` `3x` green before the enclosing `tests/system/` rerun |
 | 2.2 Capture relay | not started |  | Exact publication-capture path for `Assertor` and `DVM` |
 | 2.3 Fault-injected relay path | not started |  | Controlled latency/disconnect/reset path through the selected proxy mechanism |
 | 2.4 Secondary relay matrix | not started |  | Add a second relay implementation only after baseline proof is green |
