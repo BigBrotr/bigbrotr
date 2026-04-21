@@ -4,11 +4,12 @@ Source of truth for generated PostgreSQL bootstrap SQL.
 
 ## Subfolders
 
-- `base/`: shared templates used by all built-in storage profiles.
-- `lilbrotr/`: lightweight-archive storage-profile overrides used by the
-  built-in `lilbrotr` deployment.
-- `testbrotr/`: test-fixture SQL overrides used by tooling/tests, not by the
-  built-in deployment generator.
+- [`base/`](base/README.md): shared templates used by all built-in storage
+  profiles.
+- [`lilbrotr/`](lilbrotr/README.md): lightweight-archive storage-profile
+  overrides used by the built-in `lilbrotr` deployment.
+- [`testbrotr/`](testbrotr/README.md): test-fixture SQL overrides used by
+  tooling/tests, not by the built-in deployment generator.
 
 ## Workflow
 
