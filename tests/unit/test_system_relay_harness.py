@@ -1,6 +1,6 @@
 from pathlib import Path
 from subprocess import CompletedProcess
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -9,7 +9,9 @@ from tests.system.harness import (
     RelayEoseFrame,
     RelayEventFrame,
     RelayOkFrame,
+    RelaySession,
     build_relay_container_name,
+    build_signed_event,
     build_text_note_event,
     parse_relay_frame,
 )
@@ -33,6 +35,17 @@ class TestBuildTextNoteEvent:
         assert signed.payload["pubkey"] == signed.pubkey
         assert signed.payload["content"] == "relay-harness"
         assert signed.payload["kind"] == 1
+
+    def test_build_signed_event_supports_custom_kind_and_tags(self) -> None:
+        signed = build_signed_event(
+            kind=30382,
+            content="capture-harness",
+            tags=[["d", "provider"], ["t", "audit"]],
+        )
+
+        assert signed.payload["kind"] == 30382
+        assert signed.payload["content"] == "capture-harness"
+        assert signed.payload["tags"] == [["d", "provider"], ["t", "audit"]]
 
 
 class TestParseRelayFrame:
@@ -114,3 +127,43 @@ class TestLocalRelayRuntime:
             timeout=runtime.ready_timeout,
             poll_interval=runtime.poll_interval,
         )
+
+
+class TestRelaySession:
+    async def test_collect_event_frames_preserves_live_order(self) -> None:
+        relay = RelaySession(
+            ws_url="ws://127.0.0.1:18080",
+            session=MagicMock(),
+            websocket=MagicMock(),
+        )
+
+        with patch.object(
+            RelaySession,
+            "receive_frame",
+            new=AsyncMock(
+                side_effect=[
+                    RelayEventFrame(subscription_id="capture", event={"id": "a"}),
+                    RelayEventFrame(subscription_id="capture", event={"id": "b"}),
+                ]
+            ),
+        ):
+            frames = await relay.collect_event_frames(expected_count=2)
+
+        assert [frame.event["id"] for frame in frames] == ["a", "b"]
+
+    async def test_collect_event_frames_rejects_non_event_frames(self) -> None:
+        relay = RelaySession(
+            ws_url="ws://127.0.0.1:18080",
+            session=MagicMock(),
+            websocket=MagicMock(),
+        )
+
+        with (
+            patch.object(
+                RelaySession,
+                "receive_frame",
+                new=AsyncMock(return_value=RelayOkFrame(event_id="a", accepted=True, message="")),
+            ),
+            pytest.raises(RuntimeError, match="expected EVENT"),
+        ):
+            await relay.collect_event_frames(expected_count=1)

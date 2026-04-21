@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
-from nostr_sdk import EventBuilder, Keys, Kind
+from nostr_sdk import EventBuilder, Keys, Kind, Tag
 
 from tests.integration.harness.postgres import (
     ensure_docker_available,
@@ -53,15 +53,29 @@ class SignedRelayEvent:
     payload: dict[str, object]
 
 
-def build_text_note_event(content: str, *, keys: Keys | None = None) -> SignedRelayEvent:
-    """Build and sign a minimal text-note event for relay contract tests."""
-    event = EventBuilder(Kind(1), content).sign_with_keys(keys or Keys.generate())
+def build_signed_event(
+    *,
+    kind: int,
+    content: str,
+    tags: list[list[str]] | None = None,
+    keys: Keys | None = None,
+) -> SignedRelayEvent:
+    """Build and sign a generic event payload for relay contract tests."""
+    builder = EventBuilder(Kind(kind), content)
+    if tags:
+        builder = builder.tags([Tag.parse(tag) for tag in tags])
+    event = builder.sign_with_keys(keys or Keys.generate())
     payload = json.loads(event.as_json())
     return SignedRelayEvent(
         event_id=str(payload["id"]),
         pubkey=str(payload["pubkey"]),
         payload=payload,
     )
+
+
+def build_text_note_event(content: str, *, keys: Keys | None = None) -> SignedRelayEvent:
+    """Build and sign a minimal text-note event for relay contract tests."""
+    return build_signed_event(kind=1, content=content, keys=keys)
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,6 +237,24 @@ class RelaySession:
         raise RuntimeError(
             f"Relay subscription {subscription_id!r} did not reach EOSE within {max_frames} frames"
         )
+
+    async def collect_event_frames(
+        self,
+        *,
+        expected_count: int,
+        timeout: float = DEFAULT_RELAY_FRAME_TIMEOUT,
+    ) -> tuple[RelayEventFrame, ...]:
+        """Collect a fixed number of live EVENT frames in arrival order."""
+        if expected_count <= 0:
+            raise ValueError("Relay collect_event_frames expected_count must be positive")
+
+        events: list[RelayEventFrame] = []
+        while len(events) < expected_count:
+            frame = await self.receive_frame(timeout=timeout)
+            if not isinstance(frame, RelayEventFrame):
+                raise RuntimeError(f"Relay live capture expected EVENT, got {type(frame).__name__}")
+            events.append(frame)
+        return tuple(events)
 
 
 async def publish_event(ws_url: str, event_payload: Mapping[str, object]) -> RelayOkFrame:
