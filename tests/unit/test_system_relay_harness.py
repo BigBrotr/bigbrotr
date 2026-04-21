@@ -45,15 +45,17 @@ class TestDockerContainerExists:
         with patch(
             "tests.system.harness.relay.subprocess.run",
             return_value=CompletedProcess(args=(), returncode=0, stdout="", stderr=""),
-        ):
+        ) as mock_run:
             assert docker_container_exists("relay-cid") is True
+        assert mock_run.call_args.args[0] == ("docker", "container", "inspect", "relay-cid")
 
     def test_returns_false_when_inspect_fails(self) -> None:
         with patch(
             "tests.system.harness.relay.subprocess.run",
             return_value=CompletedProcess(args=(), returncode=1, stdout="", stderr="missing"),
-        ):
+        ) as mock_run:
             assert docker_container_exists("relay-cid") is False
+        assert mock_run.call_args.args[0] == ("docker", "container", "inspect", "relay-cid")
 
 
 class TestBuildTextNoteEvent:

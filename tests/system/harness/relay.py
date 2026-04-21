@@ -402,7 +402,7 @@ def _docker_command(*args: str) -> tuple[str, ...]:
 def docker_container_exists(container_ref: str) -> bool:
     """Return whether one Docker container currently exists."""
     result = subprocess.run(  # noqa: S603
-        _docker_command("inspect", container_ref),
+        _docker_command("container", "inspect", container_ref),
         check=False,
         text=True,
         capture_output=True,
