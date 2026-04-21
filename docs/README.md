@@ -17,11 +17,14 @@ This folder contains the MkDocs site for BigBrotr.
 
 ## Subfolders
 
-- `getting-started/`: installation, quickstart, and first-deployment material.
-- `user-guide/`: architecture, services, database, read side, deployments,
-  configuration, and monitoring.
-- `development/`: contributor-facing engineering guides.
-- `how-to/`: operational tasks and deployment recipes.
+- `getting-started/README.md`: support index for installation, quickstart, and
+  first-deployment material.
+- `user-guide/README.md`: support index for architecture, services, database,
+  read side, deployments, configuration, and monitoring.
+- `development/README.md`: support index for contributor-facing engineering
+  guides.
+- `how-to/README.md`: support index for operational tasks and deployment
+  recipes.
 - `guides/`: longer narrative guides that do not fit the shorter how-to
   format.
 

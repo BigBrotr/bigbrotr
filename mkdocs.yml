@@ -96,8 +96,8 @@ nav:
 
 exclude_docs: |
   README.md
+  **/README.md
   _snippets/**
-  guides/README.md
 
 plugins:
   - search
