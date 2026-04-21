@@ -5,8 +5,10 @@ from .artifacts import ArtifactRecord, SystemArtifactBundle, sanitize_artifact_c
 from .compose import (
     ComposeServiceStatus,
     ComposeStack,
+    build_test_env_values,
     parse_compose_ps,
 )
+from .database import RuntimeDatabaseTarget, fetch_runtime_rows, fetch_runtime_value
 from .faults import (
     TOXIPROXY_IMAGE,
     DockerNetworkRuntime,
@@ -65,6 +67,7 @@ __all__ = [
     "RelayOkFrame",
     "RelaySession",
     "RuntimeAddressPlan",
+    "RuntimeDatabaseTarget",
     "RuntimePortPlan",
     "SignedRelayEvent",
     "SystemArtifactBundle",
@@ -76,9 +79,12 @@ __all__ = [
     "build_relay_container_name",
     "build_rnostr_container_name",
     "build_signed_event",
+    "build_test_env_values",
     "build_text_note_event",
     "docker_container_exists",
     "docker_network_exists",
+    "fetch_runtime_rows",
+    "fetch_runtime_value",
     "parse_compose_ps",
     "parse_relay_frame",
     "publish_event",

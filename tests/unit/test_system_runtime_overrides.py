@@ -47,7 +47,7 @@ class TestPrepareRuntimeComposeConfig:
             "tag_names": ["rank"],
         }
 
-    def test_rewrites_compose_config_mounts_to_runtime_tree(self, tmp_path: Path) -> None:
+    def test_rewrites_compose_runtime_mounts_to_runtime_tree(self, tmp_path: Path) -> None:
         plan = RuntimeAddressPlan.create("bigbrotr", tmp_path, "compose-runtime-overrides")
 
         prepare_runtime_compose_config(plan)
@@ -65,6 +65,15 @@ class TestPrepareRuntimeComposeConfig:
                 isinstance(spec, str) and spec.startswith(f"{plan.runtime_root / 'config'}:")
                 for spec in volumes
             )
+
+        seeder_service = services["seeder"]
+        assert isinstance(seeder_service, dict)
+        seeder_volumes = seeder_service.get("volumes")
+        assert isinstance(seeder_volumes, list)
+        assert any(
+            isinstance(spec, str) and spec.startswith(f"{plan.runtime_root / 'static'}:")
+            for spec in seeder_volumes
+        )
 
 
 class TestResolveRuntimeRelayUrl:

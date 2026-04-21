@@ -19,13 +19,15 @@ if TYPE_CHECKING:
 
 BOOTSTRAP_SERVICES = ("postgres", "pgbouncer", "tor")
 _CONFIG_VOLUME_TARGET = "/app/config"
+_STATIC_VOLUME_TARGET = "/app/static"
 _BASELINE_RELAY_CONTAINER_PORT = 8080
 
 
 def prepare_runtime_compose_config(plan: RuntimeAddressPlan) -> None:
-    """Copy deployment config into the runtime root and rewrite bind mounts to it."""
+    """Copy deployment-owned config/static trees into the runtime root and rewrite mounts."""
     config_dir = _copy_runtime_config_tree(plan)
-    _rewrite_runtime_compose_config_mounts(plan.compose_file, config_dir)
+    static_dir = _copy_runtime_static_tree(plan)
+    _rewrite_runtime_compose_mounts(plan.compose_file, config_dir=config_dir, static_dir=static_dir)
 
 
 def start_baseline_relay(plan: RuntimeAddressPlan) -> LocalRelayRuntime:
@@ -55,6 +57,15 @@ def configure_runtime_relay_targets(plan: RuntimeAddressPlan, relay: LocalRelayR
 def _copy_runtime_config_tree(plan: RuntimeAddressPlan) -> Path:
     source_dir = deployment_dir(plan.profile) / "config"
     target_dir = plan.runtime_root / "config"
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+    shutil.copytree(source_dir, target_dir)
+    return target_dir
+
+
+def _copy_runtime_static_tree(plan: RuntimeAddressPlan) -> Path:
+    source_dir = deployment_dir(plan.profile) / "static"
+    target_dir = plan.runtime_root / "static"
     if target_dir.exists():
         shutil.rmtree(target_dir)
     shutil.copytree(source_dir, target_dir)
@@ -94,7 +105,12 @@ def _override_runtime_relay_targets(config_dir: Path, relay_url: str) -> None:
     assertor_path.write_text(yaml.safe_dump(assertor_config, sort_keys=False))
 
 
-def _rewrite_runtime_compose_config_mounts(compose_file: Path, config_dir: Path) -> None:
+def _rewrite_runtime_compose_mounts(
+    compose_file: Path,
+    *,
+    config_dir: Path,
+    static_dir: Path,
+) -> None:
     compose_data = yaml.safe_load(compose_file.read_text())
     services = compose_data.get("services", {})
     for service_data in services.values():
@@ -102,15 +118,22 @@ def _rewrite_runtime_compose_config_mounts(compose_file: Path, config_dir: Path)
         if not isinstance(volumes, list):
             continue
         service_data["volumes"] = [
-            _replace_config_volume(spec, config_dir) if isinstance(spec, str) else spec
+            _replace_runtime_volume(spec, config_dir=config_dir, static_dir=static_dir)
+            if isinstance(spec, str)
+            else spec
             for spec in volumes
         ]
     compose_file.write_text(yaml.safe_dump(compose_data, sort_keys=False))
 
 
-def _replace_config_volume(spec: str, config_dir: Path) -> str:
+def _replace_runtime_volume(spec: str, *, config_dir: Path, static_dir: Path) -> str:
     parts = spec.split(":")
-    if len(parts) < 2 or parts[1] != _CONFIG_VOLUME_TARGET:
+    if len(parts) < 2:
         return spec
-    parts[0] = config_dir.as_posix()
+    if parts[1] == _CONFIG_VOLUME_TARGET:
+        parts[0] = config_dir.as_posix()
+    elif parts[1] == _STATIC_VOLUME_TARGET:
+        parts[0] = static_dir.as_posix()
+    else:
+        return spec
     return ":".join(parts)

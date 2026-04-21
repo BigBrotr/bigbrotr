@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import time
 from dataclasses import dataclass
@@ -39,6 +40,13 @@ def deployment_dir(profile: str) -> Path:
     if profile not in VALID_PROFILES:
         raise ValueError(f"Unsupported deployment profile: {profile}")
     return DEPLOYMENTS_DIR / profile
+
+
+def _compose_command_env() -> dict[str, str]:
+    """Build an env for `docker compose` that preserves CLI plugin discovery."""
+    env = dict(os.environ)
+    env.pop("DOCKER_CONFIG", None)
+    return env
 
 
 def env_template_path(profile: str) -> Path:
@@ -266,6 +274,7 @@ class ComposeStack:
             check=check,
             text=True,
             capture_output=True,
+            env=_compose_command_env(),
         )
 
     def up(
@@ -273,6 +282,7 @@ class ComposeStack:
         *services: str,
         detach: bool = True,
         build: bool = False,
+        force_recreate: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         """Bring the compose stack up."""
         args = ["up"]
@@ -280,6 +290,8 @@ class ComposeStack:
             args.append("-d")
         if build:
             args.append("--build")
+        if force_recreate:
+            args.append("--force-recreate")
         args.extend(services)
         return self.run(*args)
 
@@ -334,4 +346,46 @@ class ComposeStack:
         raise RuntimeError(
             "Timed out waiting for compose services to become ready: "
             f"{', '.join(services)}; last snapshot: {details or 'no services reported'}"
+        )
+
+    def wait_until_state(
+        self,
+        service: str,
+        *,
+        state: str,
+        exit_code: int | None = None,
+        health: str | None = None,
+        all_services: bool = True,
+        timeout: float | None = None,
+    ) -> ComposeServiceStatus:
+        """Poll compose state until one service reaches the requested state."""
+        if not service.strip():
+            raise ValueError("Compose state polling requires a non-blank service name")
+        if not state.strip():
+            raise ValueError("Compose state polling requires a non-blank target state")
+
+        deadline = time.monotonic() + (timeout or self.ready_timeout)
+        snapshot: dict[str, ComposeServiceStatus] = {}
+
+        while time.monotonic() < deadline:
+            snapshot = {status.service: status for status in self.ps(all_services=all_services)}
+            current = snapshot.get(service)
+            if current is not None and current.state == state:
+                if exit_code is not None and current.exit_code != exit_code:
+                    time.sleep(self.poll_interval)
+                    continue
+                if health is not None and current.health != health:
+                    time.sleep(self.poll_interval)
+                    continue
+                return current
+            time.sleep(self.poll_interval)
+
+        if service in snapshot:
+            last = snapshot[service]
+            details = f"{service}={last.state}/{last.health}/{last.exit_code}"
+        else:
+            details = f"{service}=missing"
+        raise RuntimeError(
+            "Timed out waiting for compose service state: "
+            f"{service}->{state}; last snapshot: {details}"
         )

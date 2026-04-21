@@ -158,7 +158,26 @@ class TestComposeStack:
             check=True,
             text=True,
             capture_output=True,
+            env=mock_run.call_args.kwargs["env"],
         )
+        assert "DOCKER_CONFIG" not in mock_run.call_args.kwargs["env"]
+
+    def test_run_ignores_testcontainers_docker_config_for_compose_plugin_lookup(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        stack = ComposeStack.for_profile("bigbrotr", tmp_path, "bb-system-a")
+
+        with (
+            patch(
+                "tests.system.harness.compose.os.environ",
+                {"DOCKER_CONFIG": "test-only-docker-config"},
+            ),
+            patch("tests.system.harness.compose.subprocess.run") as mock_run,
+        ):
+            stack.run("ps", "--format", "json")
+
+        assert "DOCKER_CONFIG" not in mock_run.call_args.kwargs["env"]
 
     def test_up_can_force_rebuild(self, tmp_path: Path) -> None:
         stack = ComposeStack.for_profile("bigbrotr", tmp_path, "bb-system-a")
@@ -171,6 +190,18 @@ class TestComposeStack:
             stack.up(build=True)
 
         mock_run.assert_called_once_with("up", "-d", "--build")
+
+    def test_up_can_force_recreate(self, tmp_path: Path) -> None:
+        stack = ComposeStack.for_profile("bigbrotr", tmp_path, "bb-system-a")
+
+        with patch.object(
+            ComposeStack,
+            "run",
+            return_value=CompletedProcess(args=(), returncode=0, stdout="", stderr=""),
+        ) as mock_run:
+            stack.up("seeder", force_recreate=True)
+
+        mock_run.assert_called_once_with("up", "-d", "--force-recreate", "seeder")
 
     def test_wait_until_ready_requires_service_names(self, tmp_path: Path) -> None:
         stack = ComposeStack.for_profile("bigbrotr", tmp_path, "bb-system-a")
@@ -264,3 +295,56 @@ class TestComposeStack:
 
         mock_run.assert_called_once_with("ps", "--all", "--format", "json")
         assert statuses == (ComposeServiceStatus("seeder", "exited", None, 0),)
+
+    def test_wait_until_state_requires_non_blank_service_name(self, tmp_path: Path) -> None:
+        stack = ComposeStack.for_profile("bigbrotr", tmp_path, "bb-system-a")
+
+        with pytest.raises(ValueError, match="non-blank service name"):
+            stack.wait_until_state("", state="exited")
+
+    def test_wait_until_state_polls_until_service_matches(self, tmp_path: Path) -> None:
+        stack = ComposeStack.for_profile(
+            "bigbrotr",
+            tmp_path,
+            "bb-system-a",
+            poll_interval=0.01,
+        )
+
+        with (
+            patch.object(
+                ComposeStack,
+                "ps",
+                side_effect=[
+                    (ComposeServiceStatus("seeder", "running", None, None),),
+                    (ComposeServiceStatus("seeder", "exited", None, 0),),
+                ],
+            ) as mock_ps,
+            patch("tests.system.harness.compose.time.sleep") as mock_sleep,
+        ):
+            status = stack.wait_until_state("seeder", state="exited", exit_code=0)
+
+        assert status == ComposeServiceStatus("seeder", "exited", None, 0)
+        assert mock_ps.call_count == 2
+        assert mock_ps.mock_calls[0].kwargs == {"all_services": True}
+        mock_sleep.assert_called_once_with(0.01)
+
+    def test_wait_until_state_times_out_with_last_snapshot(self, tmp_path: Path) -> None:
+        stack = ComposeStack.for_profile(
+            "bigbrotr",
+            tmp_path,
+            "bb-system-a",
+            poll_interval=0.01,
+        )
+
+        monotonic = MagicMock(side_effect=[0.0, 0.4, 1.1])
+        with (
+            patch.object(
+                ComposeStack,
+                "ps",
+                return_value=(ComposeServiceStatus("seeder", "running", None, None),),
+            ),
+            patch("tests.system.harness.compose.time.monotonic", monotonic),
+            patch("tests.system.harness.compose.time.sleep"),
+            pytest.raises(RuntimeError, match=r"seeder=running/None/None"),
+        ):
+            stack.wait_until_state("seeder", state="exited", exit_code=0, timeout=1.0)

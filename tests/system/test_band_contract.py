@@ -6,3 +6,5 @@ def test_system_band_scaffold_exists() -> None:
 
     assert (root / "README.md").is_file()
     assert (root / "harness").is_dir()
+    assert (root / "services").is_dir()
+    assert (root / "services" / "README.md").is_file()
