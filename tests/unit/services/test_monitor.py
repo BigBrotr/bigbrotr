@@ -358,6 +358,10 @@ class TestMetadataFlags:
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             MetadataFlags.model_validate({b"nip11_info": False})
 
+    def test_extra_fields_forbidden(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MetadataFlags(extra_field=True)
+
     @pytest.mark.parametrize(
         ("field_name", "value", "expected_type"),
         [
@@ -471,6 +475,10 @@ class TestProcessingConfig:
     def test_model_validate_rejects_unknown_field_names(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
             ProcessingConfig.model_validate({"batch_size": 50})
+
+    def test_nested_compute_flags_reject_unknown_field_names(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ProcessingConfig(compute={"extra_field": True})
 
 
 class TestRetryConfig:

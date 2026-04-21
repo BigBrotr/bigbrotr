@@ -157,6 +157,8 @@ class MetadataFlags(BaseModel):
             ensuring stored flags are a subset of computed flags.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     nip11_info: bool = Field(default=True, description="NIP-11 relay information document")
     nip66_rtt: bool = Field(default=True, description="NIP-66 round-trip time measurement")
     nip66_ssl: bool = Field(default=True, description="NIP-66 SSL/TLS certificate inspection")
