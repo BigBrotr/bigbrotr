@@ -306,6 +306,16 @@ Frozen inventory of the live built-in deployment and monitoring surface:
 - monitoring subtree shape;
 - and current profile-specific observability differences.
 
+### `37_system_test_and_observability_contract_matrix.md`
+
+Auditable current-versus-required proof matrix for the broader certification
+program:
+
+- service runtime gaps and ownership;
+- cross-service pipeline gaps;
+- real relay/public-boundary requirements;
+- and operator/observability proof still missing at the higher band.
+
 ### `99_definitive_master_plan.md`
 
 Final distilled plan resulting from the three iterations and their audits.
