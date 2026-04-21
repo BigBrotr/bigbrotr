@@ -112,6 +112,44 @@ class TestLocalRelayRuntime:
         assert mock_run.call_args_list[1].args[0][:2] == ("docker", "inspect")
         assert mock_run.call_args_list[2].args[0][:3] == ("docker", "rm", "-f")
 
+    def test_start_includes_network_and_aliases_when_requested(self, tmp_path: Path) -> None:
+        runtime = LocalRelayRuntime(
+            role="baseline",
+            runtime_dir=tmp_path / "relay",
+            network_name="bb-fault-net",
+            network_aliases=("relay-upstream",),
+        )
+
+        with (
+            patch("tests.system.harness.relay.ensure_docker_available"),
+            patch("tests.system.harness.relay.ensure_testcontainers_environment"),
+            patch("tests.system.harness.relay._ensure_relay_image"),
+            patch(
+                "tests.system.harness.relay.subprocess.run",
+                side_effect=[
+                    CompletedProcess(args=(), returncode=0, stdout="relay-cid\n", stderr=""),
+                    CompletedProcess(
+                        args=(),
+                        returncode=0,
+                        stdout=(
+                            '[{"NetworkSettings":{"Ports":{"8080/tcp":'
+                            '[{"HostIp":"127.0.0.1","HostPort":"53887"}]}}}]'
+                        ),
+                        stderr="",
+                    ),
+                    CompletedProcess(args=(), returncode=0, stdout="", stderr=""),
+                ],
+            ) as mock_run,
+        ):
+            runtime.start()
+            runtime.stop()
+
+        command = mock_run.call_args_list[0].args[0]
+        assert "--network" in command
+        assert "bb-fault-net" in command
+        assert "--network-alias" in command
+        assert "relay-upstream" in command
+
     async def test_wait_until_ready_uses_runtime_ws_url(self, tmp_path: Path) -> None:
         runtime = LocalRelayRuntime(role="baseline", runtime_dir=tmp_path / "relay")
         runtime.host_port = 18080
@@ -167,3 +205,18 @@ class TestRelaySession:
             pytest.raises(RuntimeError, match="expected EVENT"),
         ):
             await relay.collect_event_frames(expected_count=1)
+
+    async def test_close_suppresses_websocket_faults_and_closes_session(self) -> None:
+        session = MagicMock()
+        session.close = AsyncMock()
+        websocket = MagicMock()
+        websocket.close = AsyncMock(side_effect=TimeoutError)
+        relay = RelaySession(
+            ws_url="ws://127.0.0.1:18080",
+            session=session,
+            websocket=websocket,
+        )
+
+        await relay.close()
+
+        session.close.assert_awaited_once_with()

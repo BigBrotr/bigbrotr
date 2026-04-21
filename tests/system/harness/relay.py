@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import subprocess
@@ -32,8 +33,10 @@ NOSTR_RS_RELAY_PLATFORM = "linux/amd64"
 NOSTR_RS_RELAY_CONTAINER_PORT = 8080
 NOSTR_RS_RELAY_DATA_PATH = "/usr/src/app/db"
 DEFAULT_RELAY_READY_TIMEOUT = 20.0
+DEFAULT_RELAY_CONNECT_TIMEOUT = 5.0
 DEFAULT_RELAY_FRAME_TIMEOUT = 5.0
 DEFAULT_RELAY_POLL_INTERVAL = 0.25
+DEFAULT_RELAY_CLOSE_TIMEOUT = 1.0
 READINESS_SENTINEL_EVENT_ID = "0" * 64
 
 
@@ -174,9 +177,20 @@ class RelaySession:
         self._websocket = websocket
 
     @classmethod
-    async def connect(cls, ws_url: str) -> RelaySession:
+    async def connect(
+        cls,
+        ws_url: str,
+        *,
+        connect_timeout: float = DEFAULT_RELAY_CONNECT_TIMEOUT,
+    ) -> RelaySession:
         """Open a real WebSocket session to the relay under test."""
-        session = aiohttp.ClientSession()
+        session = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(
+                total=connect_timeout,
+                connect=connect_timeout,
+                sock_connect=connect_timeout,
+            )
+        )
         try:
             websocket = await session.ws_connect(ws_url)
         except Exception:
@@ -188,10 +202,22 @@ class RelaySession:
     def ws_url(self) -> str:
         return self._ws_url
 
+    async def _best_effort_close(self) -> None:
+        with contextlib.suppress(
+            TimeoutError,
+            aiohttp.ClientError,
+            aiohttp.ClientConnectionError,
+            OSError,
+            RuntimeError,
+        ):
+            await asyncio.wait_for(self._websocket.close(), timeout=DEFAULT_RELAY_CLOSE_TIMEOUT)
+
     async def close(self) -> None:
         """Close the WebSocket session and the owning HTTP session."""
-        await self._websocket.close()
-        await self._session.close()
+        try:
+            await self._best_effort_close()
+        finally:
+            await self._session.close()
 
     async def __aenter__(self) -> RelaySession:
         return self
@@ -343,6 +369,8 @@ class LocalRelayRuntime:
     image: str = NOSTR_RS_RELAY_IMAGE
     platform: str = NOSTR_RS_RELAY_PLATFORM
     host: str = "127.0.0.1"
+    network_name: str | None = None
+    network_aliases: tuple[str, ...] = ()
     ready_timeout: float = DEFAULT_RELAY_READY_TIMEOUT
     poll_interval: float = DEFAULT_RELAY_POLL_INTERVAL
     container_id: str | None = field(init=False, default=None)
@@ -383,18 +411,29 @@ class LocalRelayRuntime:
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            result = _run_docker(
+            command = [
                 "run",
                 "-d",
                 "--platform",
                 self.platform,
                 "--name",
                 self.container_name,
-                "-p",
-                f"{self.host}::{NOSTR_RS_RELAY_CONTAINER_PORT}",
-                "-v",
-                f"{self.data_dir}:{NOSTR_RS_RELAY_DATA_PATH}",
-                self.image,
+            ]
+            if self.network_name is not None:
+                command.extend(("--network", self.network_name))
+                for alias in self.network_aliases:
+                    command.extend(("--network-alias", alias))
+            command.extend(
+                (
+                    "-p",
+                    f"{self.host}::{NOSTR_RS_RELAY_CONTAINER_PORT}",
+                    "-v",
+                    f"{self.data_dir}:{NOSTR_RS_RELAY_DATA_PATH}",
+                    self.image,
+                )
+            )
+            result = _run_docker(
+                *command,
             )
             self.container_id = result.stdout.strip()
             if not self.container_id:

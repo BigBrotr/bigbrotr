@@ -2,9 +2,69 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import subprocess
+import time
 from dataclasses import dataclass, field
+from subprocess import CompletedProcess
+from typing import TYPE_CHECKING
 from urllib import error, request
+
+from tests.integration.harness.postgres import (
+    ensure_docker_available,
+    ensure_testcontainers_environment,
+)
+from tests.system.harness.artifacts import sanitize_artifact_component
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+TOXIPROXY_IMAGE = "ghcr.io/shopify/toxiproxy@sha256:9378ed52a28bc50edc1350f936f518f31fa95f0d15917d6eb40b8e376d1a214e"
+TOXIPROXY_ADMIN_PORT = 8474
+DEFAULT_FAULT_READY_TIMEOUT = 10.0
+DEFAULT_FAULT_POLL_INTERVAL = 0.25
+
+
+def build_fault_network_name(role: str, runtime_dir: Path) -> str:
+    """Build a deterministic Docker network name for one fault-control runtime."""
+    normalized_role = sanitize_artifact_component(role)
+    digest = hashlib.sha256(str(runtime_dir.resolve()).encode()).hexdigest()[:12]
+    return f"bigbrotr-fault-net-{normalized_role}-{digest}"
+
+
+def build_fault_container_name(role: str, runtime_dir: Path) -> str:
+    """Build a deterministic Toxiproxy container name for one runtime root."""
+    normalized_role = sanitize_artifact_component(role)
+    digest = hashlib.sha256(str(runtime_dir.resolve()).encode()).hexdigest()[:12]
+    return f"bigbrotr-toxiproxy-{normalized_role}-{digest}"
+
+
+def _docker_command(*args: str) -> tuple[str, ...]:
+    return ("docker", *args)
+
+
+def _run_docker(*args: str) -> CompletedProcess[str]:
+    return subprocess.run(  # noqa: S603
+        _docker_command(*args),
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+
+def _ensure_fault_image(image: str) -> None:
+    inspect_result = subprocess.run(  # noqa: S603
+        _docker_command("image", "inspect", image),
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if inspect_result.returncode == 0:
+        return
+    _run_docker("pull", image)
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,6 +190,13 @@ class ToxiproxyClient:
             raise FaultControlError("Fault-control proxy creation returned a non-object payload")
         return payload
 
+    def set_proxy_enabled(self, proxy_name: str, *, enabled: bool) -> dict[str, object]:
+        """Enable or disable one proxy."""
+        payload = self._request("POST", f"/proxies/{proxy_name}", {"enabled": enabled})
+        if not isinstance(payload, dict):
+            raise FaultControlError("Fault-control proxy update returned a non-object payload")
+        return payload
+
     def delete_proxy(self, proxy_name: str) -> None:
         """Delete one proxy by name."""
         self._request("DELETE", f"/proxies/{proxy_name}")
@@ -144,3 +211,180 @@ class ToxiproxyClient:
     def remove_toxic(self, proxy_name: str, toxic_name: str) -> None:
         """Remove one toxic from a proxy."""
         self._request("DELETE", f"/proxies/{proxy_name}/toxics/{toxic_name}")
+
+
+@dataclass(slots=True)
+class DockerNetworkRuntime:
+    """Lifecycle wrapper around a deterministic Docker bridge network."""
+
+    role: str
+    runtime_dir: Path
+    network_id: str | None = field(init=False, default=None)
+
+    @property
+    def name(self) -> str:
+        return build_fault_network_name(self.role, self.runtime_dir)
+
+    def start(self) -> None:
+        """Create the named Docker network."""
+        if self.network_id is not None:
+            raise RuntimeError("Fault-control Docker network is already running")
+        self.runtime_dir.mkdir(parents=True, exist_ok=True)
+        result = _run_docker("network", "create", self.name)
+        self.network_id = result.stdout.strip() or self.name
+
+    def inspect(self) -> dict[str, object]:
+        """Return the raw inspect payload for the managed network."""
+        result = _run_docker("network", "inspect", self.name)
+        payload = json.loads(result.stdout)
+        if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
+            raise RuntimeError("Fault-control network inspect payload was not a single JSON object")
+        return payload[0]
+
+    def stop(self) -> None:
+        """Remove the Docker network if it still exists."""
+        if self.network_id is None:
+            return
+        try:
+            subprocess.run(  # noqa: S603
+                _docker_command("network", "rm", self.name),
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+        finally:
+            self.network_id = None
+
+    def __enter__(self) -> DockerNetworkRuntime:
+        self.start()
+        return self
+
+    def __exit__(self, *_exc_info: object) -> None:
+        self.stop()
+
+
+@dataclass(slots=True)
+class LocalToxiproxyRuntime:
+    """Lifecycle wrapper around a local Toxiproxy container."""
+
+    role: str
+    runtime_dir: Path
+    network_name: str
+    port_plan: FaultControlPortPlan
+    exposed_proxy_ports: tuple[int, ...]
+    image: str = TOXIPROXY_IMAGE
+    host: str = "127.0.0.1"
+    ready_timeout: float = DEFAULT_FAULT_READY_TIMEOUT
+    poll_interval: float = DEFAULT_FAULT_POLL_INTERVAL
+    container_id: str | None = field(init=False, default=None)
+
+    def __post_init__(self) -> None:
+        if not self.role.strip():
+            raise ValueError("Fault-control runtime role must not be blank")
+        if self.ready_timeout <= 0:
+            raise ValueError("Fault-control ready_timeout must be positive")
+        if self.poll_interval <= 0:
+            raise ValueError("Fault-control poll_interval must be positive")
+
+    @property
+    def container_name(self) -> str:
+        return build_fault_container_name(self.role, self.runtime_dir)
+
+    @property
+    def admin_url(self) -> str:
+        return f"http://{self.host}:{self.port_plan.admin}"
+
+    @property
+    def client(self) -> ToxiproxyClient:
+        return ToxiproxyClient(self.admin_url)
+
+    def proxy_ws_url(self, proxy_port: int) -> str:
+        """Return the host-side WebSocket URL for one exposed proxy port."""
+        return f"ws://{self.host}:{proxy_port}"
+
+    def start(self) -> None:
+        """Start the Toxiproxy container with deterministic port bindings."""
+        if self.container_id is not None:
+            raise RuntimeError("Fault-control runtime is already running")
+
+        ensure_docker_available()
+        ensure_testcontainers_environment()
+        _ensure_fault_image(self.image)
+        self.runtime_dir.mkdir(parents=True, exist_ok=True)
+
+        command = [
+            "run",
+            "-d",
+            "--name",
+            self.container_name,
+            "--network",
+            self.network_name,
+            "-p",
+            f"{self.host}:{self.port_plan.admin}:{TOXIPROXY_ADMIN_PORT}",
+        ]
+        for proxy_port in self.exposed_proxy_ports:
+            command.extend(("-p", f"{self.host}:{proxy_port}:{proxy_port}"))
+
+        try:
+            result = _run_docker(*command, self.image)
+            self.container_id = result.stdout.strip()
+            if not self.container_id:
+                raise RuntimeError("Fault-control container did not return a container id")
+        except Exception:
+            self.stop()
+            raise
+
+    def wait_until_ready(self) -> None:
+        """Wait until the Toxiproxy admin plane accepts requests."""
+        deadline = time.monotonic() + self.ready_timeout
+        last_error: FaultControlError | None = None
+        while time.monotonic() < deadline:
+            try:
+                self.client.list_proxies()
+                return
+            except FaultControlError as exc:
+                last_error = exc
+                time.sleep(self.poll_interval)
+        if last_error is None:
+            raise RuntimeError(
+                f"Fault-control runtime {self.container_name} did not become ready within "
+                f"{self.ready_timeout} seconds"
+            )
+        raise RuntimeError(
+            f"Fault-control runtime {self.container_name} did not become ready: {last_error}"
+        ) from last_error
+
+    def inspect(self) -> dict[str, object]:
+        """Return the raw inspect payload for the managed container."""
+        container_ref = self.container_id or self.container_name
+        result = _run_docker("inspect", container_ref)
+        payload = json.loads(result.stdout)
+        if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
+            raise RuntimeError("Fault-control inspect payload was not a single JSON object")
+        return payload[0]
+
+    def logs(self) -> str:
+        """Return the current Toxiproxy container logs."""
+        container_ref = self.container_id or self.container_name
+        return _run_docker("logs", container_ref).stdout
+
+    def stop(self) -> None:
+        """Force-remove the Toxiproxy container if it is still present."""
+        if self.container_id is None:
+            return
+        try:
+            subprocess.run(  # noqa: S603
+                _docker_command("rm", "-f", self.container_id),
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+        finally:
+            self.container_id = None
+
+    def __enter__(self) -> LocalToxiproxyRuntime:
+        self.start()
+        return self
+
+    def __exit__(self, *_exc_info: object) -> None:
+        self.stop()

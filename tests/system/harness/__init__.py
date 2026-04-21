@@ -7,7 +7,18 @@ from .compose import (
     ComposeStack,
     parse_compose_ps,
 )
-from .faults import FaultControlPortPlan, ProxySpec, ToxicSpec, ToxiproxyClient
+from .faults import (
+    TOXIPROXY_IMAGE,
+    DockerNetworkRuntime,
+    FaultControlError,
+    FaultControlPortPlan,
+    LocalToxiproxyRuntime,
+    ProxySpec,
+    ToxicSpec,
+    ToxiproxyClient,
+    build_fault_container_name,
+    build_fault_network_name,
+)
 from .observability import AlertmanagerApi, GrafanaApi, PrometheusApi
 from .relay import (
     NOSTR_RS_RELAY_IMAGE,
@@ -29,13 +40,17 @@ from .relay import (
 
 __all__ = [
     "NOSTR_RS_RELAY_IMAGE",
+    "TOXIPROXY_IMAGE",
     "AlertmanagerApi",
     "ArtifactRecord",
     "ComposeServiceStatus",
     "ComposeStack",
+    "DockerNetworkRuntime",
+    "FaultControlError",
     "FaultControlPortPlan",
     "GrafanaApi",
     "LocalRelayRuntime",
+    "LocalToxiproxyRuntime",
     "PrometheusApi",
     "ProxySpec",
     "RelayEoseFrame",
@@ -48,6 +63,8 @@ __all__ = [
     "SystemArtifactBundle",
     "ToxicSpec",
     "ToxiproxyClient",
+    "build_fault_container_name",
+    "build_fault_network_name",
     "build_project_name",
     "build_relay_container_name",
     "build_signed_event",
