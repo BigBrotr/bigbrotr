@@ -23,8 +23,8 @@ Use it when you want the fullest built-in storage profile:
   the seed relay file and GeoIP assets.
 - [`monitoring/`](monitoring/) contains Prometheus, Alertmanager, Grafana, and
   exporter configuration.
-- [`pgbouncer/`](pgbouncer/) contains the connection-pooler configuration used
-  by the services.
+- [`pgbouncer/`](pgbouncer/README.md) contains the connection-pooler
+  configuration used by the services.
 
 ## Operational notes
 

@@ -27,8 +27,8 @@ trades event-payload fidelity for a smaller archive footprint.
   the seed relay file.
 - [`monitoring/`](monitoring/) contains Prometheus, Alertmanager, Grafana, and
   exporter configuration.
-- [`pgbouncer/`](pgbouncer/) contains the connection-pooler configuration used
-  by the services.
+- [`pgbouncer/`](pgbouncer/README.md) contains the connection-pooler
+  configuration used by the services.
 
 ## Operational notes
 
