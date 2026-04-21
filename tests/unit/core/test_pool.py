@@ -596,6 +596,11 @@ class TestRetryConfig:
         ):
             RetryConfig(**{field_name: value})
 
+    def test_extra_fields_forbidden(self) -> None:
+        """Test unexpected retry fields are rejected."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            RetryConfig(extra_field="value")
+
     def test_model_validate_rejects_non_string_field_keys(self) -> None:
         """Test raw retry field keys must already be canonical strings."""
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
@@ -922,6 +927,12 @@ class TestPoolConfig:
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             PoolConfig.model_validate({"retry": {b"max_attempts": 5}})
+
+    def test_nested_retry_extra_fields_forbidden(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test nested retry config rejects unexpected fields."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            PoolConfig(retry={"extra_field": "value"})
 
     @pytest.mark.parametrize("value", ["600000", 600000.0])
     def test_nested_server_settings_require_canonical_statement_timeout(

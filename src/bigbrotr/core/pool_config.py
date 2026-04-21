@@ -188,6 +188,8 @@ class TimeoutsConfig(BaseModel):
 class RetryConfig(BaseModel):
     """Retry strategy for failed connection attempts."""
 
+    model_config = ConfigDict(extra="forbid")
+
     max_attempts: int = Field(default=3, ge=1, le=10, description="Max retry attempts")
     initial_delay: float = Field(default=1.0, ge=0.1, description="Initial retry delay")
     max_delay: float = Field(default=10.0, ge=0.1, description="Maximum retry delay")
