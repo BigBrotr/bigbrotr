@@ -230,6 +230,8 @@ class RetryConfig(BaseModel):
 class ServerSettingsConfig(BaseModel):
     """PostgreSQL server-side session settings."""
 
+    model_config = ConfigDict(extra="forbid")
+
     application_name: str = Field(default="bigbrotr", min_length=1, description="Application name")
     timezone: str = Field(default="UTC", min_length=1, description="Timezone")
     statement_timeout: int = Field(

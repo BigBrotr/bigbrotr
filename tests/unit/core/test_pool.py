@@ -659,6 +659,11 @@ class TestServerSettingsConfig:
         ):
             ServerSettingsConfig(statement_timeout=value)
 
+    def test_extra_fields_forbidden(self) -> None:
+        """Test unexpected server-setting fields are rejected."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ServerSettingsConfig(extra_field="value")
+
     def test_empty_application_name_rejected(self) -> None:
         """Test that empty application_name is rejected."""
         with pytest.raises(ValidationError):
@@ -976,6 +981,14 @@ class TestPoolConfig:
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             PoolConfig.model_validate({"server_settings": {b"application_name": "custom_app"}})
+
+    def test_nested_server_settings_extra_fields_forbidden(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test nested server settings reject unexpected fields."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            PoolConfig(server_settings={"extra_field": "value"})
 
     @pytest.mark.parametrize("port", ["5432", 5432.0])
     def test_nested_database_port_requires_canonical_int(self, port: object) -> None:
