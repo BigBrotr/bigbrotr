@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -300,6 +301,15 @@ def _require_score(value: Any, field_name: str = "score") -> int:
     return score
 
 
+def _require_db_score(value: Any, field_name: str = "score") -> int:
+    """Return one row-hydrated score, accepting integer-valued DB floats only."""
+    if isinstance(value, float):
+        if not math.isfinite(value) or not value.is_integer():
+            raise TypeError(f"{field_name} must be a non-negative integer")
+        return _require_score(int(value), field_name)
+    return _require_score(value, field_name)
+
+
 def _require_optional_non_negative_int(value: Any, field_name: str) -> int | None:
     """Return ``None`` or a real non-negative integer timestamp-like value."""
     if value is None:
@@ -341,7 +351,7 @@ def _normalize_non_negative_int_fields(instance: object, field_names: tuple[str,
 def _metric_from_row(row: dict[str, Any], key: str, *, field_name: str | None = None) -> int:
     """Read one integer metric from a DB row without permissive coercion."""
     resolved_field_name = field_name or key
-    normalizer = _require_score if resolved_field_name == "score" else _require_non_negative_int
+    normalizer = _require_db_score if resolved_field_name == "score" else _require_non_negative_int
     return normalizer(row.get(key, 0), resolved_field_name)
 
 

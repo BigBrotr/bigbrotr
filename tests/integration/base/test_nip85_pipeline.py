@@ -29,6 +29,7 @@ pytestmark = pytest.mark.integration
 VALID_HEX_KEY = (
     "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"  # pragma: allowlist secret
 )
+VALID_OUTPUT_EVENT_ID = "aa" * 32
 
 _SCORE_FETCH_QUERIES = {
     "pubkey_score": """
@@ -75,7 +76,7 @@ def _broadcast_results(
 ) -> list[BroadcastClientResult]:
     return [
         BroadcastClientResult(
-            event_ids=("event-id",),
+            event_ids=(VALID_OUTPUT_EVENT_ID,),
             successful_relays=successful_relays,
             failed_relays=failed_relays or {},
         )

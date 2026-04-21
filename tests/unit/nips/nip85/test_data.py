@@ -1173,6 +1173,52 @@ def test_legacy_rank_alias_is_not_used_by_nip85_rows(
     assert assertion.score == 0
 
 
+@pytest.mark.parametrize(
+    ("factory", "row"),
+    [
+        (UserAssertion.from_db_row, {"pubkey": "aa" * 32, "score": 77.0}),
+        (EventAssertion.from_db_row, {"event_id": "bb" * 32, "score": 77.0}),
+        (
+            AddressableAssertion.from_db_row,
+            {"event_address": "30023:" + ("cc" * 32) + ":article", "score": 77.0},
+        ),
+        (
+            IdentifierAssertion.from_db_row,
+            {"identifier": "isbn:9780140328721", "score": 77.0},
+        ),
+    ],
+)
+def test_nip85_from_db_row_accepts_integral_float_score(
+    factory: object,
+    row: dict[str, object],
+) -> None:
+    assertion = factory(row)  # type: ignore[misc]
+    assert assertion.score == 77
+
+
+@pytest.mark.parametrize(
+    ("factory", "row"),
+    [
+        (UserAssertion.from_db_row, {"pubkey": "aa" * 32, "score": 77.5}),
+        (EventAssertion.from_db_row, {"event_id": "bb" * 32, "score": 77.5}),
+        (
+            AddressableAssertion.from_db_row,
+            {"event_address": "30023:" + ("cc" * 32) + ":article", "score": 77.5},
+        ),
+        (
+            IdentifierAssertion.from_db_row,
+            {"identifier": "isbn:9780140328721", "score": 77.5},
+        ),
+    ],
+)
+def test_nip85_from_db_row_rejects_fractional_float_score(
+    factory: object,
+    row: dict[str, object],
+) -> None:
+    with pytest.raises(TypeError, match="score must be a non-negative integer"):
+        factory(row)  # type: ignore[misc]
+
+
 class TestTrustedProviderDeclaration:
     def test_tag_shape_matches_kind_10040_spec(self) -> None:
         declaration = TrustedProviderDeclaration(
