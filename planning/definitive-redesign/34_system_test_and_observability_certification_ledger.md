@@ -58,7 +58,7 @@ Use these statuses consistently:
 
 | Wave | Status | Notes |
 |------|--------|-------|
-| 0. Freeze the expanded test problem | in progress | The non-unit tracked baseline is now frozen explicitly; deployment/monitoring inventory, coverage matrix, and target taxonomy still need their own closing slices |
+| 0. Freeze the expanded test problem | in progress | The non-unit tracked baseline and the live deployment/monitoring inventory are now frozen explicitly; the coverage matrix and target taxonomy still need their own closing slices |
 | 1. Higher-band harness foundation | not started | Compose lifecycle, artifact capture, network fault control, and observability API helpers |
 | 2. Real relay infrastructure | not started | Baseline relay, capture relay, fault-injected relay path, and optional secondary relay matrix |
 | 3. Deployment stack baseline | not started | Clean `bigbrotr` and `lilbrotr` startup, health, dependency ordering, and restart baseline |
@@ -78,7 +78,7 @@ Use these statuses consistently:
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
 | 0.1 Freeze current non-unit test inventory | done | `docs: freeze system test certification baseline` | The broader certification baseline is now frozen in `35_system_test_and_observability_manifest.txt` with `102` tracked files spanning `tests/integration/`, both deployment monitoring trees, both deployment compose files, operator-facing monitoring docs, and the metrics-specific unit suite; `tests/system/` and `tests/live_smoke/` are explicitly frozen at `0` tracked files |
-| 0.2 Freeze live deployment and monitoring inventory | not started |  | Capture compose services, metrics ports, Prometheus/Grafana/Alertmanager/exporter assets, and profile-specific differences |
+| 0.2 Freeze live deployment and monitoring inventory | done | `docs: freeze system deployment inventory` | Added `36_system_test_and_observability_deployment_inventory.md` to freeze the live built-in deployment shape: both profiles currently ship `17` compose services, `25` tracked monitoring files each, identical monitoring subtree shape, distinct DB/metrics/monitoring host-port ranges, and profile-root Grafana dashboards `bigbrotr.json` vs `lilbrotr.json`; the inventory also records that postgres-exporter stays internal-only on `9187` and that `seeder` remains outside the continuous metrics port range |
 | 0.3 Freeze current-vs-required coverage matrix | not started |  | Record current proof vs required proof for services, pipelines, relays, and observability surfaces |
 | 0.4 Freeze target taxonomy | not started |  | Freeze the target tree for `tests/system/`, `tests/live_smoke/`, overlays, artifacts, and helper modules |
 | 0.5 Bootstrap execution ledger | done | `docs: add system test certification program` | This ledger now exists as the operational memory for the broader certification work |

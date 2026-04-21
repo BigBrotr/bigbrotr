@@ -297,6 +297,15 @@ program:
 Exact tracked baseline manifest for the broader system-test and observability
 certification surface at execution start.
 
+### `36_system_test_and_observability_deployment_inventory.md`
+
+Frozen inventory of the live built-in deployment and monitoring surface:
+
+- compose topology by profile;
+- host port layout;
+- monitoring subtree shape;
+- and current profile-specific observability differences.
+
 ### `99_definitive_master_plan.md`
 
 Final distilled plan resulting from the three iterations and their audits.
