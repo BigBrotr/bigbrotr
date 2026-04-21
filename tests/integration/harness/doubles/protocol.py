@@ -14,6 +14,20 @@ from tests.integration.harness.deterministic import DEFAULT_OUTPUT_EVENT_ID
 DEFAULT_PUBLISH_RELAY_URL = "wss://publish-relay.example.com"
 
 
+def build_broadcast_result(
+    *,
+    event_id: str = DEFAULT_OUTPUT_EVENT_ID,
+    successful_relays: tuple[str, ...] = (DEFAULT_PUBLISH_RELAY_URL,),
+    failed_relays: dict[str, str] | None = None,
+) -> BroadcastClientResult:
+    """Build the canonical publish-result payload used by integration doubles."""
+    return BroadcastClientResult(
+        event_ids=(event_id,),
+        successful_relays=successful_relays,
+        failed_relays=failed_relays or {},
+    )
+
+
 @dataclass(slots=True)
 class FakePublishClient:
     """Minimal publish client double for Assertor-facing integration tests."""
@@ -75,8 +89,8 @@ class FakeBroadcastRecorder:
     ) -> list[BroadcastClientResult]:
         self.calls.append(BroadcastCall(builders=list(builders), clients=list(clients)))
         return [
-            BroadcastClientResult(
-                event_ids=(self.event_id,),
+            build_broadcast_result(
+                event_id=self.event_id,
                 successful_relays=self.successful_relays,
                 failed_relays=self.failed_relays,
             )

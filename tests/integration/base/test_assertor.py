@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from nostr_sdk import Event as NostrEvent
@@ -19,8 +19,8 @@ from tests.integration.harness.deterministic import DEFAULT_OUTPUT_EVENT_ID, DEF
 from tests.integration.harness.doubles import (
     FakeBroadcastRecorder,
     FakePublishClient,
-    build_publish_session,
 )
+from tests.integration.harness.failures import patched_assertor_publish_boundary
 
 
 pytestmark = pytest.mark.integration
@@ -488,16 +488,7 @@ class TestAssertorIntegration:
         client = FakePublishClient()
         recorder = FakeBroadcastRecorder(event_id=DEFAULT_OUTPUT_EVENT_ID)
 
-        with (
-            patch(
-                "bigbrotr.services.assertor.service.NostrClientManager.connect_session",
-                new=AsyncMock(return_value=build_publish_session(client)),
-            ),
-            patch(
-                "bigbrotr.services.assertor.service.broadcast_events",
-                new=recorder,
-            ),
-        ):
+        with patched_assertor_publish_boundary(client=client, broadcaster=recorder):
             async with Assertor(brotr=brotr, config=config) as service:
                 await service.run()
 
@@ -538,15 +529,9 @@ class TestAssertorIntegration:
 
         second_recorder = FakeBroadcastRecorder(event_id=DEFAULT_OUTPUT_EVENT_ID)
 
-        with (
-            patch(
-                "bigbrotr.services.assertor.service.NostrClientManager.connect_session",
-                new=AsyncMock(return_value=build_publish_session(FakePublishClient())),
-            ),
-            patch(
-                "bigbrotr.services.assertor.service.broadcast_events",
-                new=second_recorder,
-            ),
+        with patched_assertor_publish_boundary(
+            client=FakePublishClient(),
+            broadcaster=second_recorder,
         ):
             async with Assertor(brotr=brotr, config=config) as service:
                 second_result = await service.publish()
@@ -573,15 +558,9 @@ class TestAssertorIntegration:
         )
         recorder = FakeBroadcastRecorder(event_id=DEFAULT_OUTPUT_EVENT_ID)
 
-        with (
-            patch(
-                "bigbrotr.services.assertor.service.NostrClientManager.connect_session",
-                new=AsyncMock(return_value=build_publish_session(FakePublishClient())),
-            ),
-            patch(
-                "bigbrotr.services.assertor.service.broadcast_events",
-                new=recorder,
-            ),
+        with patched_assertor_publish_boundary(
+            client=FakePublishClient(),
+            broadcaster=recorder,
         ):
             async with Assertor(brotr=brotr, config=config) as service:
                 result = await service.publish()

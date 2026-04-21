@@ -5,6 +5,7 @@ from tests.integration.harness.doubles.protocol import (
     DEFAULT_PUBLISH_RELAY_URL,
     FakeBroadcastRecorder,
     FakePublishClient,
+    build_broadcast_result,
     build_publish_session,
 )
 
@@ -14,5 +15,6 @@ __all__ = [
     "DEFAULT_PUBLISH_RELAY_URL",
     "FakeBroadcastRecorder",
     "FakePublishClient",
+    "build_broadcast_result",
     "build_publish_session",
 ]

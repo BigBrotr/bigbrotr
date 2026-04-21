@@ -10,7 +10,7 @@ Deterministic support layer for the rebuilt integration suite.
 - canonical record builders;
 - named external doubles;
 - deterministic timestamps, identifiers, and temp-storage helpers;
-- later failure-injection support surfaces.
+- explicit failure-injection seams for timeout, cancellation, database, and partial-result flows.
 
 ## Rules
 

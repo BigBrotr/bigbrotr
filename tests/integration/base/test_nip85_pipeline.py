@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from nostr_sdk import Event as NostrEvent
@@ -24,8 +24,8 @@ from tests.integration.harness.deterministic import (
 from tests.integration.harness.doubles import (
     FakeBroadcastRecorder,
     FakePublishClient,
-    build_publish_session,
 )
+from tests.integration.harness.failures import patched_assertor_publish_boundary
 
 
 if TYPE_CHECKING:
@@ -445,16 +445,7 @@ async def _run_assertor_smoke(
 ) -> None:
     recorder = FakeBroadcastRecorder(event_id=DEFAULT_OUTPUT_EVENT_ID)
 
-    with (
-        patch(
-            "bigbrotr.services.assertor.service.NostrClientManager.connect_session",
-            new=AsyncMock(return_value=build_publish_session(client)),
-        ),
-        patch(
-            "bigbrotr.services.assertor.service.broadcast_events",
-            new=recorder,
-        ),
-    ):
+    with patched_assertor_publish_boundary(client=client, broadcaster=recorder):
         async with Assertor(brotr=brotr, config=config) as assertor:
             await assertor.run()
             _assert_published_events(
