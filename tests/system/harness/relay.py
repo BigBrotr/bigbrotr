@@ -399,6 +399,17 @@ def _docker_command(*args: str) -> tuple[str, ...]:
     return ("docker", *args)
 
 
+def docker_container_exists(container_ref: str) -> bool:
+    """Return whether one Docker container currently exists."""
+    result = subprocess.run(  # noqa: S603
+        _docker_command("inspect", container_ref),
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
 def _run_docker(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603
         _docker_command(*args),

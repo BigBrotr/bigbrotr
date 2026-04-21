@@ -18,6 +18,7 @@ from .faults import (
     ToxiproxyClient,
     build_fault_container_name,
     build_fault_network_name,
+    docker_network_exists,
 )
 from .observability import AlertmanagerApi, GrafanaApi, PrometheusApi
 from .relay import (
@@ -34,6 +35,7 @@ from .relay import (
     build_rnostr_container_name,
     build_signed_event,
     build_text_note_event,
+    docker_container_exists,
     parse_relay_frame,
     publish_event,
     query_events,
@@ -75,6 +77,8 @@ __all__ = [
     "build_rnostr_container_name",
     "build_signed_event",
     "build_text_note_event",
+    "docker_container_exists",
+    "docker_network_exists",
     "parse_compose_ps",
     "parse_relay_frame",
     "publish_event",

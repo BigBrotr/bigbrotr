@@ -46,6 +46,17 @@ def _docker_command(*args: str) -> tuple[str, ...]:
     return ("docker", *args)
 
 
+def docker_network_exists(network_name: str) -> bool:
+    """Return whether one Docker network currently exists."""
+    result = subprocess.run(  # noqa: S603
+        _docker_command("network", "inspect", network_name),
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
 def _run_docker(*args: str) -> CompletedProcess[str]:
     return subprocess.run(  # noqa: S603
         _docker_command(*args),

@@ -18,6 +18,7 @@ from tests.system.harness import (
     ToxiproxyClient,
     build_fault_container_name,
     build_fault_network_name,
+    docker_network_exists,
 )
 
 
@@ -68,6 +69,24 @@ class TestFaultRuntimeNames:
 
         assert first == second
         assert first.startswith("bigbrotr-toxiproxy-relay-path-")
+
+
+class TestDockerNetworkExists:
+    def test_returns_true_when_inspect_succeeds(self, mocker: pytest.MockFixture) -> None:
+        mocker.patch(
+            "tests.system.harness.faults.subprocess.run",
+            return_value=CompletedProcess(args=(), returncode=0, stdout="", stderr=""),
+        )
+
+        assert docker_network_exists("bb-fault-net") is True
+
+    def test_returns_false_when_inspect_fails(self, mocker: pytest.MockFixture) -> None:
+        mocker.patch(
+            "tests.system.harness.faults.subprocess.run",
+            return_value=CompletedProcess(args=(), returncode=1, stdout="", stderr="missing"),
+        )
+
+        assert docker_network_exists("bb-fault-net") is False
 
 
 class TestProxySpec:

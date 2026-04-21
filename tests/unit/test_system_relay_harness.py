@@ -15,6 +15,7 @@ from tests.system.harness import (
     build_rnostr_container_name,
     build_signed_event,
     build_text_note_event,
+    docker_container_exists,
     parse_relay_frame,
 )
 
@@ -37,6 +38,22 @@ class TestBuildRnostrContainerName:
         assert first == second
         assert first.startswith("bigbrotr-rnostr-secondary-relay-")
         assert len(first) <= 63
+
+
+class TestDockerContainerExists:
+    def test_returns_true_when_inspect_succeeds(self) -> None:
+        with patch(
+            "tests.system.harness.relay.subprocess.run",
+            return_value=CompletedProcess(args=(), returncode=0, stdout="", stderr=""),
+        ):
+            assert docker_container_exists("relay-cid") is True
+
+    def test_returns_false_when_inspect_fails(self) -> None:
+        with patch(
+            "tests.system.harness.relay.subprocess.run",
+            return_value=CompletedProcess(args=(), returncode=1, stdout="", stderr="missing"),
+        ):
+            assert docker_container_exists("relay-cid") is False
 
 
 class TestBuildTextNoteEvent:
