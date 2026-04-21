@@ -23,8 +23,8 @@ trades event-payload fidelity for a smaller archive footprint.
   per-service YAML files.
 - [`postgres/`](postgres/README.md) contains `postgresql.conf` plus the
   generated database bootstrap package for the lightweight archive profile.
-- [`static/`](static/) contains operator-managed static inputs such as the seed
-  relay file.
+- [`static/`](static/README.md) contains operator-managed static inputs such as
+  the seed relay file.
 - [`monitoring/`](monitoring/) contains Prometheus, Alertmanager, Grafana, and
   exporter configuration.
 - [`pgbouncer/`](pgbouncer/) contains the connection-pooler configuration used

@@ -19,8 +19,8 @@ Use it when you want the fullest built-in storage profile:
   per-service YAML files.
 - [`postgres/`](postgres/README.md) contains `postgresql.conf` plus the
   generated database bootstrap package for this deployment.
-- [`static/`](static/) contains operator-managed static inputs such as the seed
-  relay file and GeoIP assets.
+- [`static/`](static/README.md) contains operator-managed static inputs such as
+  the seed relay file and GeoIP assets.
 - [`monitoring/`](monitoring/) contains Prometheus, Alertmanager, Grafana, and
   exporter configuration.
 - [`pgbouncer/`](pgbouncer/) contains the connection-pooler configuration used
