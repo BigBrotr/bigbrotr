@@ -100,8 +100,9 @@ index schema is inherited from base templates:
 | `service_data_functions` | `05_functions_crud` | Service-state helper functions |
 | `verify_body` | `99_verify` | Deployment verification output |
 
-All deployments generate the same SQL file set. The `OVERRIDES` dict in
-`generate_sql.py` is empty for all deployments (no skip, no rename).
+All built-in deployments currently generate the same SQL file set. The
+`OUTPUT_OVERRIDES` map in `tools/generate_sql.py` is empty for the shipped
+profiles, so generation performs no deployment-local skip or rename.
 
 ---
 
@@ -127,7 +128,9 @@ make sql-check
 
 1. Create `tools/templates/sql/base/NN_name.sql.j2` with Jinja2 blocks for customization
 2. Add `"NN_name"` to `BASE_TEMPLATES` in `tools/generate_sql.py`
-3. Create override templates in `tools/templates/sql/{deployment}/` as needed
+3. Create storage-profile override templates in
+   `tools/templates/sql/{sql_template_namespace}/` when the target profile uses
+   a non-`None` `sql_template_namespace`
 4. Run `make sql-generate` to generate the new files
 5. Run `make sql-check` to verify
 6. Commit both the template and the generated `.sql` files
@@ -142,11 +145,17 @@ make sql-check
 
 ## Adding a New Deployment
 
-1. Add an entry to `OVERRIDES` in `tools/generate_sql.py`
-2. Create a directory `tools/templates/sql/{deployment}/` (only if overrides are needed)
-3. Add override templates for any blocks that need customization
-4. Run `make sql-generate`
-5. Create the deployment directory structure: `deployments/{deployment}/`
+1. Register the built-in deployment contract in `src/bigbrotr/core/deployments.py`
+2. Ensure the deployment is part of `BUILTIN_DEPLOYMENT_PROFILES` so
+   `GENERATED_DEPLOYMENTS` picks it up automatically
+3. Add deployment-local skip/rename entries to `OUTPUT_OVERRIDES` only if this
+   deployment must diverge from the default generated file map
+4. Create `tools/templates/sql/{sql_template_namespace}/` only when the
+   deployment's storage profile uses a template namespace override
+5. Add override templates for any SQL files that need storage-profile-specific
+   rendering
+6. Run `make sql-generate`
+7. Create the deployment directory structure: `deployments/{deployment}/`
 
 ---
 
