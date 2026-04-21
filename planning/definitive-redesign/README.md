@@ -249,6 +249,29 @@ Operational ledger for the integration test rebuild:
 - commit slots and audit notes;
 - deferred watch-point tracking.
 
+### `30_integration_test_rebuild_manifest.txt`
+
+Exact tracked integration-test manifest frozen at rebuild start.
+
+### `31_integration_test_rebuild_contract_matrix.md`
+
+Execution-time matrix for the integration rebuild:
+
+- current tracked coverage;
+- required product-level coverage;
+- service/runtime/deployment/failure gaps;
+- acceptable real boundaries and doubles.
+
+### `32_integration_test_rebuild_taxonomy.md`
+
+Frozen target topology for the rebuilt integration suite:
+
+- target directory structure;
+- area intent;
+- naming rules;
+- migration rules;
+- taxonomy audit questions.
+
 ### `99_definitive_master_plan.md`
 
 Final distilled plan resulting from the three iterations and their audits.
@@ -276,6 +299,9 @@ Recommended order:
 17. `27_repository_content_audit_traversal_map.md`
 18. `28_integration_test_rebuild_program.md`
 19. `29_integration_test_rebuild_ledger.md`
+20. `30_integration_test_rebuild_manifest.txt`
+21. `31_integration_test_rebuild_contract_matrix.md`
+22. `32_integration_test_rebuild_taxonomy.md`
 
 The iteration files are intentionally more verbose and analytical. The final
 plan is intentionally more decisive and executable.

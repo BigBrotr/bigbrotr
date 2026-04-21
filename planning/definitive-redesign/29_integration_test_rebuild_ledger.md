@@ -44,14 +44,22 @@ Use these statuses consistently:
 Fill this section when execution starts for real.
 
 - Integration manifest command:
-  `find tests/integration -type f | sort`
+  `git ls-files tests/integration | sort`
 - Frozen integration-file count:
-  `TBD`
+  `24`
 - Frozen date:
-  `TBD`
+  `2026-04-21`
 - Notes:
-  Record the current suite shape, the chosen target taxonomy, and whether any
-  historical files are explicitly preserved only as reference input.
+  The rebuild starts from baseline commit `e0fb0e45` on branch
+  `refactor/definitive-redesign-execution`. The current tracked integration
+  surface is frozen in
+  [30_integration_test_rebuild_manifest.txt](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/30_integration_test_rebuild_manifest.txt),
+  the live current-vs-target contract matrix is frozen in
+  [31_integration_test_rebuild_contract_matrix.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/31_integration_test_rebuild_contract_matrix.md),
+  and the target suite topology is frozen in
+  [32_integration_test_rebuild_taxonomy.md](/Users/vincenzo/Documents/GitHub/BigBrotr/bigbrotr/planning/definitive-redesign/32_integration_test_rebuild_taxonomy.md).
+  The historical `base/` and `lilbrotr/` trees are preserved only as
+  reference input until the new taxonomy absorbs their unique proof.
 
 ---
 
@@ -59,7 +67,7 @@ Fill this section when execution starts for real.
 
 | Wave | Status | Notes |
 |------|--------|-------|
-| 0. Baseline freeze and rebuild bootstrapping | not started | Freeze current integration inventory, live contract matrix, target taxonomy, and ledger bootstrap |
+| 0. Baseline freeze and rebuild bootstrapping | done | Tracked inventory (`24` files), live contract matrix, and target taxonomy are now frozen explicitly; the rebuild starts from `base/` + `lilbrotr/` as reference-only historical subtrees and will move all new work into the new target topology |
 | 1. Harness redesign | not started | Rebuild container lifecycle, schema bootstrap, builders, named doubles, deterministic support utilities, and failure injection |
 | 2. Shared PostgreSQL contract rebuild | not started | Rebuild shared storage and SQL-contract coverage from scratch |
 | 3. Core runtime integration rebuild | not started | Rebuild `Pool`, `Brotr`, and shared runtime boundary coverage |
@@ -77,9 +85,9 @@ Fill this section when execution starts for real.
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 0.1 Freeze current integration inventory | not started |  | Record exact manifest, file count, deployment split, and legacy-reference-only surfaces |
-| 0.2 Freeze live contract matrix | not started |  | Map tables/functions, services, deployments, and external boundaries to test bands |
-| 0.3 Freeze target suite taxonomy | not started |  | Decide top-level layout, fixture ownership, and file naming rules |
+| 0.1 Freeze current integration inventory | done | `docs: freeze integration rebuild baseline` | Exact tracked baseline frozen in `30_integration_test_rebuild_manifest.txt`; current tracked integration surface is `24` files rooted in the historical `base/` and `lilbrotr/` subtrees plus root harness support files |
+| 0.2 Freeze live contract matrix | done | `docs: freeze integration rebuild baseline` | Live current-vs-target matrix captured in `31_integration_test_rebuild_contract_matrix.md`, including service/runtime/profile/failure gaps and acceptable external-doubles policy |
+| 0.3 Freeze target suite taxonomy | done | `docs: freeze integration rebuild baseline` | Final target topology frozen in `32_integration_test_rebuild_taxonomy.md`; all new integration work must now land under the new `harness/shared_db/core/services/pipelines/deployments/failures` structure |
 | 0.4 Bootstrap execution ledger | done | `docs: add integration rebuild program` | This ledger and the paired normative program now exist as the canonical planning baseline |
 
 ### Wave 1 — Harness Redesign
