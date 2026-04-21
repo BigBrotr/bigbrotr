@@ -27,7 +27,7 @@ class TestRequestNotificationBuffer:
         )
         event = object()
 
-        handler.handle(MagicMock(), "sub-1", event)
+        await handler.handle(MagicMock(), "sub-1", event)
         queued = await asyncio.wait_for(queue.get(), timeout=1.0)
 
         assert queued is event
@@ -40,7 +40,7 @@ class TestRequestNotificationBuffer:
             logger=MagicMock(),
         )
 
-        handler.handle(MagicMock(), "sub-2", object())
+        await handler.handle(MagicMock(), "sub-2", object())
 
         assert queue.empty()
 
@@ -77,7 +77,7 @@ class TestRequestNotificationBuffer:
         for relay_msg in (eose, closed, notice):
             msg = MagicMock()
             msg.as_enum.return_value = relay_msg
-            handler.handle_msg(relay_url, msg)
+            await handler.handle_msg(relay_url, msg)
 
         logger.debug.assert_any_call(
             "request_subscription_eose",

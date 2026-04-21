@@ -44,7 +44,7 @@ class RequestNotificationBuffer:
         self._loop = asyncio.get_running_loop()
         self._logger = logger
 
-    def handle_msg(self, relay_url: RelayUrl, msg: Any) -> None:
+    async def handle_msg(self, relay_url: RelayUrl, msg: Any) -> None:
         relay_msg = msg.as_enum()
         relay = str(relay_url)
 
@@ -71,7 +71,7 @@ class RequestNotificationBuffer:
                 message=relay_msg.message,
             )
 
-    def handle(self, _relay_url: RelayUrl, subscription_id: str, event: Any) -> None:
+    async def handle(self, _relay_url: RelayUrl, subscription_id: str, event: Any) -> None:
         if subscription_id != self._subscription_id or self._loop.is_closed():
             return
         self._loop.call_soon_threadsafe(self._queue.put_nowait, event)

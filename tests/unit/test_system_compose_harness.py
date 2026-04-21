@@ -160,6 +160,18 @@ class TestComposeStack:
             capture_output=True,
         )
 
+    def test_up_can_force_rebuild(self, tmp_path: Path) -> None:
+        stack = ComposeStack.for_profile("bigbrotr", tmp_path, "bb-system-a")
+
+        with patch.object(
+            ComposeStack,
+            "run",
+            return_value=CompletedProcess(args=(), returncode=0, stdout="", stderr=""),
+        ) as mock_run:
+            stack.up(build=True)
+
+        mock_run.assert_called_once_with("up", "-d", "--build")
+
     def test_wait_until_ready_requires_service_names(self, tmp_path: Path) -> None:
         stack = ComposeStack.for_profile("bigbrotr", tmp_path, "bb-system-a")
 
@@ -234,3 +246,21 @@ class TestComposeStack:
             statuses = stack.ps()
 
         assert statuses == (ComposeServiceStatus("postgres", "running", "healthy"),)
+
+    def test_ps_can_include_one_shot_services(self, tmp_path: Path) -> None:
+        stack = ComposeStack.for_profile("bigbrotr", tmp_path, "bb-system-a")
+
+        with patch.object(
+            ComposeStack,
+            "run",
+            return_value=CompletedProcess(
+                args=(),
+                returncode=0,
+                stdout='[{"Service":"seeder","State":"exited","ExitCode":0}]',
+                stderr="",
+            ),
+        ) as mock_run:
+            statuses = stack.ps(all_services=True)
+
+        mock_run.assert_called_once_with("ps", "--all", "--format", "json")
+        assert statuses == (ComposeServiceStatus("seeder", "exited", None, 0),)

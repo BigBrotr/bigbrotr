@@ -268,11 +268,18 @@ class ComposeStack:
             capture_output=True,
         )
 
-    def up(self, *services: str, detach: bool = True) -> subprocess.CompletedProcess[str]:
+    def up(
+        self,
+        *services: str,
+        detach: bool = True,
+        build: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
         """Bring the compose stack up."""
         args = ["up"]
         if detach:
             args.append("-d")
+        if build:
+            args.append("--build")
         args.extend(services)
         return self.run(*args)
 
@@ -290,9 +297,13 @@ class ComposeStack:
             args.append("--volumes")
         return self.run(*args)
 
-    def ps(self) -> tuple[ComposeServiceStatus, ...]:
+    def ps(self, *, all_services: bool = False) -> tuple[ComposeServiceStatus, ...]:
         """Inspect compose service state via the JSON `ps` output."""
-        result = self.run("ps", "--format", "json")
+        args = ["ps"]
+        if all_services:
+            args.append("--all")
+        args.extend(("--format", "json"))
+        result = self.run(*args)
         return parse_compose_ps(result.stdout)
 
     def wait_until_ready(

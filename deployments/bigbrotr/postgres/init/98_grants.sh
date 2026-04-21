@@ -1,7 +1,7 @@
 #!/bin/bash
 # Grant permissions to application roles.
 # Writer:    full DML + EXECUTE on data tables/functions.
-# Reader:    SELECT-only access for API, DVM, and monitoring.
+# Reader:    SELECT-only access for API/postgres-exporter plus service_state DML for DVM cursors.
 # Refresher: SELECT on source tables + DML on derived tables.
 # Ranker:    SELECT on canonical facts tables + DML on private rank outputs.
 # Uses ALTER DEFAULT PRIVILEGES so future objects inherit the same grants.
@@ -24,7 +24,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA public
         GRANT EXECUTE ON FUNCTIONS TO ${WRITER_ROLE};
 
-    -- Reader: SELECT + EXECUTE (SECURITY INVOKER ensures no privilege escalation)
+    -- Reader: SELECT + EXECUTE for public read surfaces
     GRANT USAGE ON SCHEMA public TO ${READER_ROLE};
     GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${READER_ROLE};
     GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${READER_ROLE};
@@ -33,6 +33,9 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
         GRANT SELECT ON TABLES TO ${READER_ROLE};
     ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA public
         GRANT EXECUTE ON FUNCTIONS TO ${READER_ROLE};
+    -- DVM persists its replay cursor in service_state while keeping all domain-data access read-only.
+    -- service_state_* functions are SECURITY INVOKER, so minimal table DML is required here too.
+    GRANT INSERT, UPDATE, DELETE ON service_state TO ${READER_ROLE};
 
     -- Refresher: SELECT on source tables + EXECUTE on refresh functions
     GRANT USAGE ON SCHEMA public TO ${REFRESHER_ROLE};

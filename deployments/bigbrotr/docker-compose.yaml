@@ -231,7 +231,16 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["bigbrotr", "seeder", "--once"]
+    command:
+      - "bigbrotr"
+      - "seeder"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/seeder.yaml"
+      - "--once"
 
     healthcheck:
       disable: true
@@ -273,7 +282,15 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["bigbrotr", "finder"]
+    command:
+      - "bigbrotr"
+      - "finder"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/finder.yaml"
 
     stop_grace_period: 60s
 
@@ -327,7 +344,15 @@ services:
       # lokinet:
       #   condition: service_healthy
 
-    command: ["bigbrotr", "validator"]
+    command:
+      - "bigbrotr"
+      - "validator"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/validator.yaml"
 
     stop_grace_period: 60s
 
@@ -383,7 +408,15 @@ services:
       # lokinet:
       #   condition: service_healthy
 
-    command: ["bigbrotr", "monitor"]
+    command:
+      - "bigbrotr"
+      - "monitor"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/monitor.yaml"
 
     stop_grace_period: 60s
 
@@ -438,7 +471,15 @@ services:
       # lokinet:
       #   condition: service_healthy
 
-    command: ["bigbrotr", "synchronizer"]
+    command:
+      - "bigbrotr"
+      - "synchronizer"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/synchronizer.yaml"
 
     stop_grace_period: 60s
 
@@ -486,7 +527,15 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["bigbrotr", "refresher"]
+    command:
+      - "bigbrotr"
+      - "refresher"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/refresher.yaml"
 
     stop_grace_period: 30s
 
@@ -535,7 +584,15 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["bigbrotr", "ranker"]
+    command:
+      - "bigbrotr"
+      - "ranker"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/ranker.yaml"
 
     stop_grace_period: 30s
 
@@ -583,7 +640,15 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["bigbrotr", "api"]
+    command:
+      - "bigbrotr"
+      - "api"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/api.yaml"
 
     stop_grace_period: 30s
 
@@ -632,7 +697,15 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["bigbrotr", "dvm"]
+    command:
+      - "bigbrotr"
+      - "dvm"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/dvm.yaml"
 
     stop_grace_period: 30s
 
@@ -681,12 +754,20 @@ services:
       pgbouncer:
         condition: service_healthy
 
-    command: ["bigbrotr", "assertor"]
+    command:
+      - "bigbrotr"
+      - "assertor"
+      - "--profile"
+      - "bigbrotr"
+      - "--brotr-config"
+      - "config/brotr.yaml"
+      - "--config"
+      - "config/services/assertor.yaml"
 
     stop_grace_period: 30s
 
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8008/metrics')\""]
       interval: 30s
       timeout: 10s
       retries: 3
