@@ -31,7 +31,8 @@ codebase and repository.
 
     ---
 
-    Jinja2 template system for generating deployment-specific database initialization files.
+    Jinja2 template system for generating built-in deployment SQL packages from
+    shared templates and storage-profile overrides.
 
 -   :material-source-pull:{ .lg .middle } **[Contributing](contributing.md)**
 

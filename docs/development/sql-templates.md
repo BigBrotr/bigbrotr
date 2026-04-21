@@ -1,16 +1,16 @@
 # SQL Templates
 
-How the SQL template system generates deployment-specific database initialization files
-from shared Jinja2 templates.
+How the SQL template system generates built-in deployment SQL packages from
+shared Jinja2 templates and storage-profile override namespaces.
 
 ---
 
 ## Overview
 
-BigBrotr uses Jinja2 templates to generate PostgreSQL init scripts for each deployment
-variant (bigbrotr, lilbrotr). A base set of templates defines the shared schema; each
-deployment can extend the base via Jinja2 block overrides to customize
-deployment-specific objects without duplicating the shared structure.
+BigBrotr uses Jinja2 templates to generate PostgreSQL init scripts for the
+built-in deployment packages (`bigbrotr`, `lilbrotr`). A base set of templates
+defines the shared schema; storage-profile namespaces can extend the base via
+Jinja2 block overrides without duplicating the shared structure.
 
 ---
 
@@ -36,7 +36,8 @@ deployments/
 
 ## Base Templates
 
-The base templates define the Brotr schema shared by all deployments:
+The base templates define the Brotr schema shared by all built-in storage
+profiles:
 
 | Template | Purpose |
 |----------|---------|
@@ -61,12 +62,13 @@ The base templates define the Brotr schema shared by all deployments:
 
 ### Jinja2 Block Inheritance
 
-Base templates define named blocks with `extra_*` extension points. Deployment-specific
-templates extend the base and override only the blocks they need to customize:
+Base templates define named blocks with `extra_*` extension points.
+Storage-profile override templates extend the base and override only the blocks
+they need to customize:
 
 ```jinja2
-{# lilbrotr/02_tables.sql.j2 -- only overrides events_table block #}
-{% extends "base/02_tables.sql.j2" %}
+{# lilbrotr/02_tables_core.sql.j2 -- only overrides events_table block #}
+{% extends "base/02_tables_core.sql.j2" %}
 {% block events_table %}
 CREATE TABLE IF NOT EXISTS event (
     id BYTEA PRIMARY KEY,
@@ -86,19 +88,19 @@ Blocks not overridden are inherited from the base template unchanged.
 ### Extension Points
 
 Base templates expose focused override blocks. LilBrotr currently overrides only
-the lightweight event table, event insertion behavior, and deployment-specific
+the lightweight event table, event insertion behavior, and storage-profile
 verification text; the rest of the current-state, analytics/rank, refresh, and
 index schema is inherited from base templates:
 
 | Block | Defined in | Content |
 |-------|------------|---------|
-| `extra_extensions` | `00_extensions` | Optional deployment-specific extensions |
+| `extra_extensions` | `00_extensions` | Optional profile-specific extensions |
 | `events_table` | `02_tables_core` | Event table shape |
-| `relay_document_roles_comment` | `02_tables_core` | Deployment-specific relay-document role comments |
+| `relay_document_roles_comment` | `02_tables_core` | Profile-specific relay-document role comments |
 | `events_insert_body` | `05_functions_crud` | Event insert behavior |
 | `events_insert_description` | `05_functions_crud` | Event insert documentation |
 | `service_data_functions` | `05_functions_crud` | Service-state helper functions |
-| `verify_body` | `99_verify` | Deployment verification output |
+| `verify_body` | `99_verify` | Profile-specific verification output |
 
 All built-in deployments currently generate the same SQL file set. The
 `OUTPUT_OVERRIDES` map in `tools/generate_sql.py` is empty for the shipped

@@ -91,7 +91,7 @@ bigbrotr/
 |   |   +-- assertor/                 # NIP-85 provider-package publishing
 |   |   +-- api/                      # Read-only REST API
 |   |   +-- dvm/                      # NIP-90 Data Vending Machine
-|   |   +-- common/                   # Shared constants, configs, queries, mixins
+|   |   +-- common/                   # Shared read-core, catalog, config, paging, mixins
 |   +-- utils/                        # DNS, keys, transport helpers
 +-- tests/
 |   +-- conftest.py                   # Root fixtures (mock_pool, mock_brotr, etc.)
