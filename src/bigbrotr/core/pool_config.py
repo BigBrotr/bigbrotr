@@ -166,6 +166,8 @@ class LimitsConfig(BaseModel):
 class TimeoutsConfig(BaseModel):
     """Timeout settings for pool operations (in seconds)."""
 
+    model_config = ConfigDict(extra="forbid")
+
     acquisition: float = Field(default=10.0, ge=0.1, description="Connection acquisition timeout")
 
     @model_validator(mode="before")

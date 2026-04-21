@@ -479,6 +479,11 @@ class TestTimeoutsConfig:
         ):
             TimeoutsConfig(acquisition=value)
 
+    def test_extra_fields_forbidden(self) -> None:
+        """Test unexpected timeout fields are rejected."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            TimeoutsConfig(extra_field="value")
+
     def test_model_validate_rejects_non_string_field_keys(self) -> None:
         """Test raw timeout field keys must already be canonical strings."""
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
@@ -846,6 +851,12 @@ class TestPoolConfig:
         monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
         with pytest.raises(ValidationError, match=r"config: expected string keys, got bytes"):
             PoolConfig.model_validate({"timeouts": {b"acquisition": 30.0}})
+
+    def test_nested_timeouts_extra_fields_forbidden(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test nested timeouts config rejects unexpected fields."""
+        monkeypatch.setenv("DB_ADMIN_PASSWORD", "test_pass")
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            PoolConfig(timeouts={"extra_field": "value"})
 
     def test_nested_limits_reject_non_string_field_keys(
         self, monkeypatch: pytest.MonkeyPatch
