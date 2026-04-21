@@ -272,6 +272,26 @@ Frozen target topology for the rebuilt integration suite:
 - migration rules;
 - taxonomy audit questions.
 
+### `33_system_test_and_observability_certification_program.md`
+
+Normative program for the higher-band test architecture that extends beyond the
+integration rebuild:
+
+- `tests/system/` and `tests/live_smoke/` band design;
+- real relay, compose, and public-boundary certification;
+- Prometheus, Grafana, Alertmanager, and exporter certification;
+- strict per-subsection audit loop and commit discipline.
+
+### `34_system_test_and_observability_certification_ledger.md`
+
+Operational ledger for the higher-band system and observability certification
+program:
+
+- wave-by-wave execution status;
+- detailed work-package checklist;
+- per-section audit record requirements;
+- and closeout update rules.
+
 ### `99_definitive_master_plan.md`
 
 Final distilled plan resulting from the three iterations and their audits.
