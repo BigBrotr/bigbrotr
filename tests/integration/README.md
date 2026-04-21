@@ -5,6 +5,7 @@ Integration coverage for the shared database contract and deployment variants.
 ## Main Areas
 
 - `harness/`: deterministic PostgreSQL, schema-bootstrap, and shared fixture support.
+- `shared_db/`: rebuilt shared-storage and SQL-contract proofs under the target taxonomy.
 - `base/`: historical canonical shared-schema and service integration tests pending migration.
 - `lilbrotr/`: historical lightweight-profile integration coverage pending migration.
 - `conftest.py`: thin root fixture entrypoint that exposes the shared harness.

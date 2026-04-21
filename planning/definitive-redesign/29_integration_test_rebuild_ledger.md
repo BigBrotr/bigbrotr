@@ -69,7 +69,7 @@ Fill this section when execution starts for real.
 |------|--------|-------|
 | 0. Baseline freeze and rebuild bootstrapping | done | Tracked inventory (`24` files), live contract matrix, and target taxonomy are now frozen explicitly; the rebuild starts from `base/` + `lilbrotr/` as reference-only historical subtrees and will move all new work into the new target topology |
 | 1. Harness redesign | done | The harness now has an explicit bootstrap seam under `tests/integration/harness/`: container lifecycle, schema bootstrap, deployment-aware `Brotr` factory, canonical builders, deterministic support, named doubles, explicit failure injection seams, and a repeated self-audit bundle are in place; harness-only reruns (`3x`) and patch-boundary integration reruns (`2x`) stayed stable before closure |
-| 2. Shared PostgreSQL contract rebuild | not started | Rebuild shared storage and SQL-contract coverage from scratch |
+| 2. Shared PostgreSQL contract rebuild | in progress | The first rebuilt storage contract now lives under `tests/integration/shared_db/` with its own local fixture and guidance; historical `base/` files remain only while unique proof is still being migrated slice by slice |
 | 3. Core runtime integration rebuild | not started | Rebuild `Pool`, `Brotr`, and shared runtime boundary coverage |
 | 4. Service runtime rebuild | not started | Rebuild intentional integration coverage for all ten services |
 | 5. Cross-service pipeline rebuild | not started | Rebuild end-to-end system flows across service boundaries |
@@ -105,7 +105,7 @@ Fill this section when execution starts for real.
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 2.1 Relay storage contract | not started |  | Insert/dedup/update/concurrency/idempotency semantics |
+| 2.1 Relay storage contract | done | `test: rebuild relay storage integration contract` | Added the first target-taxonomy shared DB subtree (`tests/integration/shared_db/`) with local `README.md`, package marker, and a `bigbrotr` fixture entrypoint; `test_relay_storage.py` now proves canonical clearnet insert, parse-to-storage canonicalization, idempotent duplicate handling, same-batch dedup, network classification, IPv6 round-trip, and concurrent convergence without adding new relay coverage to the historical `base/` tree |
 | 2.2 Document and relay-document contract | not started |  | Content-addressed dedup, association semantics, missing-parent failures |
 | 2.3 Event and event-observation contract | not started |  | Event persistence, cascade behavior, tag storage, cross-relay observations |
 | 2.4 Service-state contract | not started |  | Owner isolation, CRUD semantics, JSON round-trip, restart continuity |
