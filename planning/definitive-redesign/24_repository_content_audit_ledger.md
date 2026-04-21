@@ -68,12 +68,12 @@ Fill this section when the audit actually starts.
 |------|--------|-------|
 | 0. Inventory freeze and traversal map | done | Baseline frozen from redesign closeout commit `9dc6cc35`: full manifest in `25_repository_content_audit_manifest.txt`, touched/untouched historical-context manifest in `26_repository_content_audit_untouched_manifest.txt`, and concrete folder/wave mapping in `27_repository_content_audit_traversal_map.md`. Final-manifest counts at audit start: `542` tracked files, `315` redesign-touched final files, `227` untouched final files. All `542` remain first-class high-suspicion audit targets |
 | 1. Deepest non-Python leaves | done | `.github`, deployment leaves, monitoring/support leaves, and docs-support leaves are now audited and corrected against the final repository contract |
-| 2. Python leaf packages | in progress | Models/utils/NIP leaves are under active audit; the first remediation slice has already removed legacy score-alias drift and tightened public package/docstring contracts in `models` and `nips` |
-| 3. Tools and tests leaves | not started | Read and classify SQL templates, tooling leaves, fixtures, and the deepest unit/integration test folders against the final repository contract |
-| 4. Parent package and folder surfaces | not started | Read and classify parent `README.md`, package exports, and parent-level local guidance only after children are understood |
-| 5. Narrative docs and planning surfaces | not started | Re-read MkDocs pages, root guides, and planning/reference documents against the final repository state and identify missing/additional surfaces |
-| 6. Root contract and build/CI surfaces | not started | Re-read root config/build/legal/reference surfaces and close any remaining contract drift, including on files the redesign never previously touched |
-| 7. Repository-wide gap remediation and closeout | not started | Apply the final keep/update/remove/add decisions, including newly required files, then run the full closeout gate and summarize any consciously deferred items |
+| 2. Python leaf packages | done | `models`, `utils`, `nips`, `core`, and `services` leaves are now fully audited against the final repository contract: the NIP/assertion leaf hardening run closed across the full remediation series, `pool_config.py` plus `api`/`dvm`/`monitor` config roots now forbid unknown authored keys, public `API`/`DVM` naming drift is gone, and the final residual `BaseModel` scan returns only a test-only false positive in `tests/unit/nips/test_base.py` |
+| 3. Tools and tests leaves | done | `tools/`, SQL-template guidance, unit/integration test packages, and internal fixture surfaces are now audited and aligned, including generated-SQL guidance, test deployment fixture roots, and tracked fixture-data boundaries |
+| 4. Parent package and folder surfaces | done | Parent package exports and parent-level guidance are now aligned across `src`, `tests`, `deployments`, `docs`, hidden tracked support roots (`.claude`, `.vscode`), and the final tracked-directory scan leaves no maintained folder without `README.md` or `AGENTS.md` |
+| 5. Narrative docs and planning surfaces | done | MkDocs section surfaces, docs assets, deployment/operator narratives, root naming drift, and the content-audit ledger itself are now re-read and aligned to the live repository state |
+| 6. Root contract and build/CI surfaces | done | Root entry/config/build/legal surfaces were re-read during closeout; repeated full gates stayed green and no additional root-contract remediation was required beyond the slices already committed during the audit |
+| 7. Repository-wide gap remediation and closeout | done | The audit added the missing maintained counterparts discovered during execution, growing the tracked surface from `542` to `604` files; the final tracked-manifest scan returns `NONE` for directories lacking `README.md` or `AGENTS.md`, the final observable gate is green, and the worktree closes clean |
 
 ---
 
@@ -101,43 +101,43 @@ Fill this section when the audit actually starts.
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 2.1 Models/utils/NIPs leaf audit | in progress | — | `models`, `utils`, and NIP leaf packages with paired local docs/tests. Initial wide read and first remediation slice closed public docstring drift (`API`/`DVM`, static capability-registry wording, NIP-85 package framing) plus the residual `rank` alias in `nip85.data`; the full leaf-package audit remains open until the remaining files and paired tests are fully judged |
-| 2.2 Core/services leaf audit | not started | — | `core`, each concrete service package, and `services/common` |
+| 2.1 Models/utils/NIPs leaf audit | done | `docs: close repository content audit ledger` | `models`, `utils`, and `nips` leaves are now fully judged against the final repository contract. The wave closed across the long NIP/assertion hardening run plus the later docstring/package/test-package alignment slices, and the final residual `BaseModel` scan leaves only a test-only false positive in `tests/unit/nips/test_base.py` rather than a remaining config-model gap |
+| 2.2 Core/services leaf audit | done | `docs: close repository content audit ledger` | `core`, concrete services, and `services/common` are fully closed: `pool_config.py` plus `api`, `dvm`, and monitor config roots now forbid unknown authored keys; service package export surfaces and public `API`/`DVM` naming are aligned; and the full gate stayed green after stabilizing the pre-existing finder fractional-cooldown flake in `a3d056e6` |
 
 ### Wave 3 — Tools And Tests Leaves
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 3.1 SQL-template and tooling leaf audit | not started | — | `tools/` utilities plus SQL-template leaves and generator pairings |
-| 3.2 Tests and fixtures leaf audit | not started | — | Unit/integration leaf folders plus fixtures and contract realism |
+| 3.1 SQL-template and tooling leaf audit | done | `docs: close repository content audit ledger` | `tools/` and SQL-template leaves are now closed against the live generator contract. The wave corrected SQL-template guide/overview drift, custom-deployment guidance, and test-fixture SQL override surfaces, and repeated `tools/generate_sql.py --check` plus docs/build gates stayed green |
+| 3.2 Tests and fixtures leaf audit | done | `docs: close repository content audit ledger` | Test and fixture leaves are now closed: test package surfaces were aligned across unit/integration trees, `testbrotr` fixture deployment/data roots are documented honestly, and the final tracked test/fixture scan leaves no maintained leaf folder without local guidance |
 
 ### Wave 4 — Parent Package And Folder Surfaces
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 4.1 Parent package/export audit | not started | — | Parent Python packages, package exports, and parent-level local guidance |
-| 4.2 Parent folder local-guidance audit | not started | — | `README.md` surfaces across `deployments`, `docs`, `tests`, `tools`, `planning`, `.github`, and `src` |
+| 4.1 Parent package/export audit | done | `docs: close repository content audit ledger` | Parent package/export surfaces are now closed across service packages and test packages; public `API`/`DVM` naming and package-export prose now match the final repository contract |
+| 4.2 Parent folder local-guidance audit | done | `docs: close repository content audit ledger` | Parent folder guidance is now closed across `deployments`, `docs`, `tests`, `tools`, `planning`, `.github`, `src`, plus the tracked hidden support roots `.claude` and `.vscode`; the final tracked-directory scan returns `NONE` |
 
 ### Wave 5 — Narrative Docs And Planning Surfaces
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 5.1 MkDocs page and IA audit | not started | — | Page content, cross-links, and narrative honesty across the docs tree |
-| 5.2 Root references and planning-surface audit | not started | — | Root guides, long-form references, and planning files against the final repository state |
+| 5.1 MkDocs page and IA audit | done | `docs: close repository content audit ledger` | MkDocs pages and IA-related support surfaces are now closed: docs section roots, asset tree, SQL/deployment/monitoring narratives, and support exclusions were re-read and aligned, and `mkdocs build --strict` remains green |
+| 5.2 Root references and planning-surface audit | done | `docs: close repository content audit ledger` | Root references and planning surfaces are now closed against the live repo state. Earlier narrative casing/reference drift was corrected in the committed docs slices, and the remaining formal drift was this audit ledger itself, now aligned to the real execution state |
 
 ### Wave 6 — Root Contract And Build/CI Surfaces
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 6.1 Root config/build/legal surface audit | not started | — | `pyproject.toml`, `uv.lock`, `Makefile`, MkDocs/CI/pre-commit/config/legal files |
-| 6.2 Root entry-surface audit | not started | — | `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, and other root current-state entry surfaces |
+| 6.1 Root config/build/legal surface audit | done | `docs: close repository content audit ledger` | Re-read `pyproject.toml`, `Makefile`, `.pre-commit-config.yaml`, `mkdocs.yml`, `uv.lock`-adjacent gates, and root config/build surfaces during closeout; no further remediation was needed beyond the already-committed audit fixes and repeated full-gate verification |
+| 6.2 Root entry-surface audit | done | `docs: close repository content audit ledger` | Re-read `README.md`, `CONTRIBUTING.md`, and adjacent root entry surfaces during closeout; no remaining root-entry drift required further repository changes after the earlier naming/docs slices |
 
 ### Wave 7 — Repository-Wide Gap Remediation And Closeout
 
 | Work package | Status | Commit | Notes |
 |--------------|--------|--------|-------|
-| 7.1 Gap-remediation sweep | not started | — | Apply the full keep/update/remove/add decisions discovered during the audit, including files that were never touched during the redesign itself |
-| 7.2 Final repository content-audit gate | not started | — | Run the full closeout verification and record the final residual watch points |
+| 7.1 Gap-remediation sweep | done | `docs: close repository content audit ledger` | The final gap-remediation sweep is complete: missing maintained counterparts were added across docs, deployments, internal fixtures, `.claude`, and `.vscode`, raising the tracked surface from `542` to `604` files |
+| 7.2 Final repository content-audit gate | done | `docs: close repository content audit ledger` | Final closeout gate complete: tracked-directory scan returns `NONE`, last observable unit-suite rerun passed (`5226 passed in 6.59s`), repeated `ruff`/`mypy`/SQL/docs/security/pre-commit gates stayed green, and the worktree is clean |
 
 ---
 
@@ -194,6 +194,22 @@ Use this section during execution for:
   - some narrative docs outside the support-layer slice still use public
     service casing such as `Api` / `Dvm`; handle that during the narrative-docs
     and root-reference waves instead of broadening the leaf-support slice.
+- `7.1/7.2` repository-wide closeout, resolved in
+  `docs: close repository content audit ledger`:
+  - the earlier later-wave deferrals are now closed at the correct boundary:
+    tracked support roots such as `.claude/` and `.vscode/` gained explicit
+    local guidance, narrative `API`/`DVM` drift was absorbed by the later docs
+    slices, and non-tracked local `CLAUDE.md` leftovers remain outside the
+    tracked-manifest scope rather than open audit debt;
+  - tracked-file count grew from the frozen baseline `542` to `604` because
+    the audit intentionally added `62` missing maintained counterpart files;
+  - the final tracked-directory scan returns `NONE`, so no maintained tracked
+    folder remains without a `README.md` or `AGENTS.md`;
+  - the last broad residual Pydantic scan hit was a test-only false positive
+    in `tests/unit/nips/test_base.py`, not a remaining runtime config-model
+    gap;
+  - the final observable closeout rerun stayed green (`5226 passed in 6.59s`)
+    with a clean worktree.
 - `2.1` models/utils/NIPs leaf audit, first remediation slice:
   - tightened public `models`/`nips` docstring wording so leaf-package prose
     uses the final `API`/`DVM` adapter framing and the static capability
