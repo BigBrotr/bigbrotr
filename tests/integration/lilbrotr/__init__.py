@@ -1,1 +1,1 @@
-"""LilBrotr-specific integration tests (lightweight event schema)."""
+"""Integration coverage for the lightweight LilBrotr archive profile."""

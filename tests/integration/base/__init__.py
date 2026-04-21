@@ -1,1 +1,1 @@
-"""Base schema integration tests (run against bigbrotr deployment)."""
+"""Canonical integration tests for the shared BigBrotr storage and service contract."""
