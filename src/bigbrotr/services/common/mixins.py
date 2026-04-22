@@ -74,8 +74,12 @@ class NetworkSemaphores:
 
         Returns:
             The semaphore, or ``None`` for non-operational networks
-            (LOCAL, UNKNOWN).
+            that have no direct relay budget. ``LOCAL`` reuses the
+            clearnet semaphore because direct local relays share the
+            same non-proxied execution policy.
         """
+        if network == NetworkType.LOCAL:
+            return self._map[NetworkType.CLEARNET]
         return self._map.get(network)
 
     def max_concurrency(self, enabled_networks: list[NetworkType] | None = None) -> int:

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Protocol
 from nostr_sdk import NostrSdkError
 
 from bigbrotr.models import EventObservation, Relay
+from bigbrotr.models.constants import NetworkType
 from bigbrotr.services.common.types import SyncCursor
 
 from .queries import count_cursors_to_sync, insert_event_observations, upsert_sync_cursors
@@ -30,7 +31,6 @@ if TYPE_CHECKING:
     from bigbrotr.core.brotr import Brotr
     from bigbrotr.core.logger import Logger
     from bigbrotr.models import Event
-    from bigbrotr.models.constants import NetworkType
 
     from .configs import SynchronizerConfig
 
@@ -131,17 +131,20 @@ async def build_sync_cycle_plan(
     count_cursors: CursorCounter | None = None,
 ) -> SyncCyclePlan | None:
     """Compute the enabled networks and batching budget for one cycle."""
-    networks = tuple(config.networks.get_enabled_networks())
-    if not networks:
+    networks = list(config.networks.get_enabled_networks())
+    if config.networks.is_enabled(NetworkType.CLEARNET):
+        networks.append(NetworkType.LOCAL)
+    network_tuple = tuple(networks)
+    if not network_tuple:
         return None
 
     end_time = config.processing.get_end_time()
     count_cursors_fn = count_cursors or count_cursors_to_sync
-    total_relays = await count_cursors_fn(brotr, end_time, list(networks))
+    total_relays = await count_cursors_fn(brotr, end_time, list(network_tuple))
     batch_size = config.processing.batch_size
-    max_concurrency = network_semaphores.max_concurrency(list(networks))
+    max_concurrency = network_semaphores.max_concurrency(list(network_tuple))
     return SyncCyclePlan(
-        networks=networks,
+        networks=network_tuple,
         end_time=end_time,
         total_relays=total_relays,
         batch_size=batch_size,

@@ -26,7 +26,8 @@ _CURSOR_SENTINEL_ID = "0" * 64
 def _row_value(row: Any, key: str, default: Any) -> Any:
     """Read one optional row field with a fallback for lightweight test doubles."""
     with contextlib.suppress(KeyError, IndexError, TypeError):
-        return row[key]
+        value = row[key]
+        return default if value is None else value
     return default
 
 

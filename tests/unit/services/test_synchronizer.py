@@ -480,6 +480,24 @@ class TestFetchCursorsToSync:
 
         assert result == [SyncCursor(key="wss://relay1.example.com")]
 
+    async def test_missing_join_columns_fall_back_to_default_cursor(
+        self, query_brotr: MagicMock
+    ) -> None:
+        query_brotr.fetch = AsyncMock(
+            return_value=[
+                {
+                    "url": "wss://relay1.example.com",
+                    "state_value": None,
+                    "ts": None,
+                    "cursor_id": None,
+                },
+            ]
+        )
+
+        result = await fetch_cursors_to_sync(query_brotr, 1000, [NetworkType.CLEARNET])
+
+        assert result == [SyncCursor(key="wss://relay1.example.com")]
+
     async def test_invalid_persisted_cursor_id_preserves_sanitized_timestamp(
         self, query_brotr: MagicMock
     ) -> None:
@@ -717,14 +735,16 @@ class TestSynchronize:
             plan = await sync._build_sync_cycle_plan()
 
         assert plan is not None
-        assert plan.networks == (NetworkType.CLEARNET,)
+        assert plan.networks == (NetworkType.CLEARNET, NetworkType.LOCAL)
         assert plan.total_relays == 11
         assert plan.batch_size == 100
         assert plan.max_concurrency == 150
         assert plan.page_size == 150
         assert plan.deadline == 700.0
         mock_count.assert_awaited_once_with(
-            mock_synchronizer_brotr, plan.end_time, [NetworkType.CLEARNET]
+            mock_synchronizer_brotr,
+            plan.end_time,
+            [NetworkType.CLEARNET, NetworkType.LOCAL],
         )
 
     async def test_returns_zero_when_no_cursors(self, mock_synchronizer_brotr: Brotr) -> None:

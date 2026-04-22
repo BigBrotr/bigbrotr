@@ -82,7 +82,7 @@ class TestBuildSyncCyclePlan:
             )
 
         assert plan is not None
-        assert plan.networks == (NetworkType.CLEARNET,)
+        assert plan.networks == (NetworkType.CLEARNET, NetworkType.LOCAL)
         assert plan.total_relays == 11
         assert plan.batch_size == 250
         assert plan.max_concurrency == 3
@@ -91,9 +91,11 @@ class TestBuildSyncCyclePlan:
         mock_count.assert_awaited_once_with(
             runtime_brotr,
             plan.end_time,
-            [NetworkType.CLEARNET],
+            [NetworkType.CLEARNET, NetworkType.LOCAL],
         )
-        semaphore_budget.max_concurrency.assert_called_once_with([NetworkType.CLEARNET])
+        semaphore_budget.max_concurrency.assert_called_once_with(
+            [NetworkType.CLEARNET, NetworkType.LOCAL]
+        )
 
 
 class TestFlushSyncBatch:

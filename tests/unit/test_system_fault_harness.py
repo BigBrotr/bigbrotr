@@ -270,6 +270,7 @@ class TestLocalToxiproxyRuntime:
         mocker.patch("tests.system.harness.faults.ensure_docker_available")
         mocker.patch("tests.system.harness.faults.ensure_testcontainers_environment")
         mocker.patch("tests.system.harness.faults._ensure_fault_image")
+        mocker.patch("tests.system.harness.faults._remove_conflicting_toxiproxy_containers")
         mock_run = mocker.patch(
             "tests.system.harness.faults.subprocess.run",
             side_effect=[
@@ -302,6 +303,7 @@ class TestLocalToxiproxyRuntime:
         mocker.patch("tests.system.harness.faults.ensure_docker_available")
         mocker.patch("tests.system.harness.faults.ensure_testcontainers_environment")
         mocker.patch("tests.system.harness.faults._ensure_fault_image")
+        mocker.patch("tests.system.harness.faults._remove_conflicting_toxiproxy_containers")
         mock_run = mocker.patch(
             "tests.system.harness.faults.subprocess.run",
             side_effect=[
@@ -316,6 +318,82 @@ class TestLocalToxiproxyRuntime:
         command = mock_run.call_args_list[0].args[0]
         assert "--network-alias" in command
         assert "proxy.monitor.test" in command
+
+    def test_start_prunes_conflicting_bigbrotr_containers_on_reserved_ports(
+        self,
+        tmp_path: Path,
+        mocker: pytest.MockFixture,
+    ) -> None:
+        runtime = LocalToxiproxyRuntime(
+            role="fault-path",
+            runtime_dir=tmp_path / "runtime",
+            network_name="bb-fault-net",
+            port_plan=FaultControlPortPlan.for_slot(0),
+            exposed_proxy_ports=(19501,),
+        )
+        mocker.patch("tests.system.harness.faults.ensure_docker_available")
+        mocker.patch("tests.system.harness.faults.ensure_testcontainers_environment")
+        mocker.patch("tests.system.harness.faults._ensure_fault_image")
+        mock_run = mocker.patch(
+            "tests.system.harness.faults.subprocess.run",
+            side_effect=[
+                CompletedProcess(args=(), returncode=0, stdout="stale-a\nstale-b\n", stderr=""),
+                CompletedProcess(
+                    args=(),
+                    returncode=0,
+                    stdout=(
+                        '[{"HostConfig":{"PortBindings":{"8474/tcp":'
+                        '[{"HostIp":"127.0.0.1","HostPort":"19500"}]}}}]'
+                    ),
+                    stderr="",
+                ),
+                CompletedProcess(args=(), returncode=0, stdout="", stderr=""),
+                CompletedProcess(
+                    args=(),
+                    returncode=0,
+                    stdout=(
+                        '[{"HostConfig":{"PortBindings":{"28474/tcp":'
+                        '[{"HostIp":"127.0.0.1","HostPort":"28474"}]}}}]'
+                    ),
+                    stderr="",
+                ),
+                CompletedProcess(args=(), returncode=0, stdout="fault-cid\n", stderr=""),
+                CompletedProcess(args=(), returncode=0, stdout="", stderr=""),
+            ],
+        )
+
+        runtime.start()
+        runtime.stop()
+
+        assert mock_run.call_args_list[0].args[0][:4] == ("docker", "ps", "-aq", "--filter")
+        assert mock_run.call_args_list[1].args[0][:2] == ("docker", "inspect")
+        assert mock_run.call_args_list[2].args[0][:3] == ("docker", "rm", "-f")
+        assert mock_run.call_args_list[3].args[0][:2] == ("docker", "inspect")
+        assert mock_run.call_args_list[4].args[0][:4] == ("docker", "run", "-d", "--name")
+        assert mock_run.call_args_list[5].args[0][:3] == ("docker", "rm", "-f")
+
+    def test_stop_removes_named_container_after_failed_start_without_container_id(
+        self,
+        tmp_path: Path,
+        mocker: pytest.MockFixture,
+    ) -> None:
+        runtime = LocalToxiproxyRuntime(
+            role="fault-path",
+            runtime_dir=tmp_path / "runtime",
+            network_name="bb-fault-net",
+            port_plan=FaultControlPortPlan.for_slot(0),
+            exposed_proxy_ports=(19501,),
+        )
+        mocker.patch("tests.system.harness.faults._docker_container_exists", return_value=True)
+        mock_run = mocker.patch(
+            "tests.system.harness.faults.subprocess.run",
+            return_value=CompletedProcess(args=(), returncode=0, stdout="", stderr=""),
+        )
+
+        runtime.stop()
+
+        assert mock_run.call_args.args[0][:3] == ("docker", "rm", "-f")
+        assert mock_run.call_args.args[0][3] == runtime.container_name
 
     def test_wait_until_ready_uses_admin_client(
         self, tmp_path: Path, mocker: pytest.MockFixture

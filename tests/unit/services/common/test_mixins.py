@@ -309,11 +309,16 @@ class TestNetworkSemaphoresGet:
         assert isinstance(sem, asyncio.Semaphore)
         assert sem._value == 7
 
-    def test_returns_none_for_non_operational_network(self) -> None:
-        """get() returns None for LOCAL and UNKNOWN networks."""
+    def test_returns_clearnet_semaphore_for_local_network(self) -> None:
+        """LOCAL relays reuse the clearnet direct-connection budget."""
         net_sems = NetworkSemaphores(_make_network_config())
 
-        assert net_sems.get(NetworkType.LOCAL) is None
+        assert net_sems.get(NetworkType.LOCAL) is net_sems.get(NetworkType.CLEARNET)
+
+    def test_returns_none_for_unknown_network(self) -> None:
+        """get() returns None for UNKNOWN networks."""
+        net_sems = NetworkSemaphores(_make_network_config())
+
         assert net_sems.get(NetworkType.UNKNOWN) is None
 
 

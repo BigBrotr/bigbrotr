@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import socket
 import ssl
 import threading
 import time
@@ -185,15 +184,11 @@ class LocalTlsWebSocketRuntime:
         deadline = time.monotonic() + self.timeout
         while time.monotonic() < deadline:
             try:
-                with (
-                    socket.create_connection(
-                        (self.public_host, self.port),
-                        timeout=self.poll_interval,
-                    ) as sock,
-                    self.client_ssl_context().wrap_socket(
-                        sock,
-                        server_hostname=self.docker_host,
-                    ),
+                with connect(
+                    self.public_url("/ready"),
+                    ssl=self.client_ssl_context(),
+                    open_timeout=self.poll_interval,
+                    close_timeout=self.poll_interval,
                 ):
                     return
             except (ConnectionClosed, OSError, TimeoutError):
@@ -224,8 +219,12 @@ class LocalTlsWebSocketRuntime:
             self._server = None
 
     def _handle_connection(self, websocket: ServerConnection) -> None:
+        path = self._normalize_path(websocket.request.path)
+        if path == "/ready":
+            self._ready_connection(websocket)
+            return
         session = _MutableWebSocketFixtureSession(
-            path=self._normalize_path(websocket.request.path),
+            path=path,
             mode=self.mode,
             opened_at=time.time(),
         )
@@ -319,6 +318,11 @@ class LocalTlsWebSocketRuntime:
             except ConnectionClosed:
                 return
             session.received_messages.append(self._render_message(message))
+
+    @staticmethod
+    def _ready_connection(websocket: ServerConnection) -> None:
+        with contextlib.suppress(Exception):
+            websocket.close()
 
     def _proxy_connection(
         self,

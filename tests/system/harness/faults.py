@@ -26,6 +26,7 @@ TOXIPROXY_IMAGE = "ghcr.io/shopify/toxiproxy@sha256:9378ed52a28bc50edc1350f936f5
 TOXIPROXY_ADMIN_PORT = 8474
 DEFAULT_FAULT_READY_TIMEOUT = 10.0
 DEFAULT_FAULT_POLL_INTERVAL = 0.25
+BIGBROTR_TOXIPROXY_PREFIX = "bigbrotr-toxiproxy-"
 
 
 def build_fault_network_name(role: str, runtime_dir: Path) -> str:
@@ -39,7 +40,7 @@ def build_fault_container_name(role: str, runtime_dir: Path) -> str:
     """Build a deterministic Toxiproxy container name for one runtime root."""
     normalized_role = sanitize_artifact_component(role)
     digest = hashlib.sha256(str(runtime_dir.resolve()).encode()).hexdigest()[:12]
-    return f"bigbrotr-toxiproxy-{normalized_role}-{digest}"
+    return f"{BIGBROTR_TOXIPROXY_PREFIX}{normalized_role}-{digest}"
 
 
 def _docker_command(*args: str) -> tuple[str, ...]:
@@ -50,6 +51,16 @@ def docker_network_exists(network_name: str) -> bool:
     """Return whether one Docker network currently exists."""
     result = subprocess.run(  # noqa: S603
         _docker_command("network", "inspect", network_name),
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def _docker_container_exists(container_ref: str) -> bool:
+    result = subprocess.run(  # noqa: S603
+        _docker_command("container", "inspect", container_ref),
         check=False,
         text=True,
         capture_output=True,
@@ -76,6 +87,58 @@ def _ensure_fault_image(image: str) -> None:
     if inspect_result.returncode == 0:
         return
     _run_docker("pull", image)
+
+
+def _list_bigbrotr_toxiproxy_containers() -> tuple[str, ...]:
+    result = subprocess.run(  # noqa: S603
+        _docker_command("ps", "-aq", "--filter", f"name={BIGBROTR_TOXIPROXY_PREFIX}"),
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    return tuple(line.strip() for line in result.stdout.splitlines() if line.strip())
+
+
+def _container_uses_host_ports(container_ref: str, *, host: str, ports: frozenset[str]) -> bool:
+    result = subprocess.run(  # noqa: S603
+        _docker_command("inspect", container_ref),
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return False
+
+    payload = json.loads(result.stdout)
+    if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
+        return False
+
+    port_bindings = payload[0].get("HostConfig", {}).get("PortBindings", {})
+    if not isinstance(port_bindings, dict):
+        return False
+
+    for host_bindings in port_bindings.values():
+        if not isinstance(host_bindings, list):
+            continue
+        for binding in host_bindings:
+            if not isinstance(binding, dict):
+                continue
+            if binding.get("HostIp") == host and binding.get("HostPort") in ports:
+                return True
+    return False
+
+
+def _remove_conflicting_toxiproxy_containers(*, host: str, ports: tuple[int, ...]) -> None:
+    reserved_ports = frozenset(str(port) for port in ports)
+    for container_ref in _list_bigbrotr_toxiproxy_containers():
+        if not _container_uses_host_ports(container_ref, host=host, ports=reserved_ports):
+            continue
+        subprocess.run(  # noqa: S603
+            _docker_command("rm", "-f", container_ref),
+            check=False,
+            text=True,
+            capture_output=True,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -323,6 +386,10 @@ class LocalToxiproxyRuntime:
         ensure_testcontainers_environment()
         _ensure_fault_image(self.image)
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
+        _remove_conflicting_toxiproxy_containers(
+            host=self.host,
+            ports=(self.port_plan.admin, *self.exposed_proxy_ports),
+        )
 
         command = [
             "run",
@@ -384,11 +451,12 @@ class LocalToxiproxyRuntime:
 
     def stop(self) -> None:
         """Force-remove the Toxiproxy container if it is still present."""
-        if self.container_id is None:
+        container_ref = self.container_id or self.container_name
+        if self.container_id is None and not _docker_container_exists(container_ref):
             return
         try:
             subprocess.run(  # noqa: S603
-                _docker_command("rm", "-f", self.container_id),
+                _docker_command("rm", "-f", container_ref),
                 check=False,
                 text=True,
                 capture_output=True,
