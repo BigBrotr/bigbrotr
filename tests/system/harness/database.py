@@ -95,6 +95,25 @@ async def fetch_value(
         await connection.close()
 
 
+async def execute(
+    target: RuntimeDatabaseTarget,
+    query: str,
+    *args: object,
+) -> str:
+    """Execute one mutation query against the runtime PostgreSQL instance."""
+    connection = await asyncpg.connect(
+        host=target.host,
+        port=target.port,
+        database=target.database,
+        user=target.user,
+        password=target.password,
+    )
+    try:
+        return await connection.execute(query, *args)
+    finally:
+        await connection.close()
+
+
 def fetch_runtime_rows(
     plan: RuntimeAddressPlan,
     query: str,
@@ -113,3 +132,13 @@ def fetch_runtime_value(
 ) -> object:
     """Synchronously query one scalar value from the runtime PostgreSQL instance."""
     return asyncio.run(fetch_value(RuntimeDatabaseTarget.for_plan(plan, role=role), query, *args))
+
+
+def execute_runtime(
+    plan: RuntimeAddressPlan,
+    query: str,
+    *args: object,
+    role: str = "admin",
+) -> str:
+    """Synchronously execute one mutation query against the runtime database."""
+    return asyncio.run(execute(RuntimeDatabaseTarget.for_plan(plan, role=role), query, *args))

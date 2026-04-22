@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from tests.system.harness import RuntimeAddressPlan
-from tests.system.harness.database import RuntimeDatabaseTarget, fetch_rows, fetch_value
+from tests.system.harness.database import RuntimeDatabaseTarget, execute, fetch_rows, fetch_value
 
 
 class TestRuntimeDatabaseTarget:
@@ -74,4 +74,34 @@ class TestRuntimeDatabaseQueries:
 
         assert count == 2
         connection.fetchval.assert_awaited_once_with("SELECT COUNT(*) FROM relay")
+        connection.close.assert_awaited_once()
+
+    async def test_execute_returns_driver_status(self) -> None:
+        connection = AsyncMock()
+        connection.execute.return_value = "INSERT 0 1"
+        fake_password = "pw"  # pragma: allowlist secret
+
+        with patch(
+            "tests.system.harness.database.asyncpg.connect",
+            new=AsyncMock(return_value=connection),
+        ):
+            status = await execute(
+                RuntimeDatabaseTarget(
+                    host="127.0.0.1",
+                    port=5432,
+                    database="bigbrotr",
+                    user="admin",
+                    password=fake_password,
+                ),
+                "INSERT INTO relay (url, network) VALUES ($1, $2)",
+                "wss://relay.example.com",
+                "clearnet",
+            )
+
+        assert status == "INSERT 0 1"
+        connection.execute.assert_awaited_once_with(
+            "INSERT INTO relay (url, network) VALUES ($1, $2)",
+            "wss://relay.example.com",
+            "clearnet",
+        )
         connection.close.assert_awaited_once()

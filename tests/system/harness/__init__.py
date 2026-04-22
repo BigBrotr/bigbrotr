@@ -8,7 +8,12 @@ from .compose import (
     build_test_env_values,
     parse_compose_ps,
 )
-from .database import RuntimeDatabaseTarget, fetch_runtime_rows, fetch_runtime_value
+from .database import (
+    RuntimeDatabaseTarget,
+    execute_runtime,
+    fetch_runtime_rows,
+    fetch_runtime_value,
+)
 from .faults import (
     TOXIPROXY_IMAGE,
     DockerNetworkRuntime,
@@ -44,6 +49,7 @@ from .relay import (
     query_events,
     wait_until_relay_ready,
 )
+from .websocket import LocalTlsWebSocketRuntime, WebSocketFixtureSession
 
 
 __all__ = [
@@ -63,6 +69,7 @@ __all__ = [
     "LocalHttpFixtureRuntime",
     "LocalRelayRuntime",
     "LocalRnostrRuntime",
+    "LocalTlsWebSocketRuntime",
     "LocalToxiproxyRuntime",
     "PrometheusApi",
     "ProxySpec",
@@ -77,6 +84,7 @@ __all__ = [
     "SystemArtifactBundle",
     "ToxicSpec",
     "ToxiproxyClient",
+    "WebSocketFixtureSession",
     "build_fault_container_name",
     "build_fault_network_name",
     "build_project_name",
@@ -87,6 +95,7 @@ __all__ = [
     "build_text_note_event",
     "docker_container_exists",
     "docker_network_exists",
+    "execute_runtime",
     "fetch_runtime_rows",
     "fetch_runtime_value",
     "parse_compose_ps",

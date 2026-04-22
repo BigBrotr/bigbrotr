@@ -141,6 +141,10 @@ class TestIsSslErrorRealMessages:
         """Test detection of self-signed certificate message."""
         assert _is_ssl_error("self signed certificate in certificate chain") is True
 
+    def test_invalid_peer_certificate_unknown_issuer(self) -> None:
+        """Test detection of rust-style invalid peer certificate messages."""
+        assert _is_ssl_error("IO error: invalid peer certificate: UnknownIssuer") is True
+
 
 # =============================================================================
 # create_client() Tests
@@ -1638,6 +1642,45 @@ class TestConnectRelayClearnetAdditional:
             assert result is insecure_client
             assert mock_create.call_count == 2
             # Second call should have allow_insecure=True
+            assert mock_create.call_args_list[1].kwargs.get("allow_insecure") is True
+
+    async def test_ssl_fallback_unknown_issuer_success(self) -> None:
+        """Rust-style unknown issuer errors also trigger insecure fallback."""
+        relay = Relay("wss://relay.example.com")
+
+        mock_url = MagicMock()
+        mock_url.__str__.return_value = relay.url
+        ssl_output = MagicMock()
+        ssl_output.success = []
+        ssl_output.failed = {mock_url: "IO error: invalid peer certificate: UnknownIssuer"}
+
+        insecure_output = MagicMock()
+        insecure_output.success = [mock_url]
+        insecure_output.failed = {}
+
+        with (
+            patch(
+                "bigbrotr.utils.protocol.create_client",
+                new_callable=AsyncMock,
+            ) as mock_create,
+            patch("bigbrotr.utils.protocol.RelayUrl") as mock_relay_url,
+            patch("bigbrotr.utils.protocol.uniffi_set_event_loop"),
+        ):
+            ssl_client = AsyncMock()
+            ssl_client.try_connect = AsyncMock(return_value=ssl_output)
+            ssl_client.disconnect = AsyncMock()
+
+            insecure_client = AsyncMock()
+            insecure_client.try_connect = AsyncMock(return_value=insecure_output)
+
+            mock_create.side_effect = [ssl_client, insecure_client]
+            mock_relay_url.parse.return_value = mock_url
+
+            from bigbrotr.utils.protocol import connect_relay
+
+            result = await connect_relay(relay, allow_insecure=True)
+            assert result is insecure_client
+            assert mock_create.call_count == 2
             assert mock_create.call_args_list[1].kwargs.get("allow_insecure") is True
 
     async def test_ssl_fallback_insecure_failure_raises(self) -> None:
