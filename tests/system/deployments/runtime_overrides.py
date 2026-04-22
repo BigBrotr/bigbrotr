@@ -21,6 +21,7 @@ BOOTSTRAP_SERVICES = ("postgres", "pgbouncer", "tor")
 _CONFIG_VOLUME_TARGET = "/app/config"
 _STATIC_VOLUME_TARGET = "/app/static"
 _BASELINE_RELAY_CONTAINER_PORT = 8080
+_RUNTIME_HOST_GATEWAY_ALIAS = "host.docker.internal:host-gateway"
 
 
 def prepare_runtime_compose_config(plan: RuntimeAddressPlan) -> None:
@@ -52,6 +53,33 @@ def configure_runtime_relay_targets(plan: RuntimeAddressPlan, relay: LocalRelayR
     relay_url = resolve_runtime_relay_url(plan, relay)
     _override_runtime_relay_targets(plan.runtime_root / "config", relay_url)
     return relay_url
+
+
+def configure_runtime_host_gateway(plan: RuntimeAddressPlan, *service_names: str) -> None:
+    """Allow selected runtime services to reach host-side fixture services."""
+    if not service_names:
+        raise ValueError("Runtime host gateway override requires at least one service")
+
+    compose_data = yaml.safe_load(plan.compose_file.read_text())
+    services = compose_data.get("services", {})
+    if not isinstance(services, dict):
+        raise RuntimeError("Runtime compose file does not contain a services mapping")
+
+    for service_name in service_names:
+        if not service_name.strip():
+            raise ValueError("Runtime host gateway override requires non-blank service names")
+        service_data = services.get(service_name)
+        if not isinstance(service_data, dict):
+            raise RuntimeError(f"Runtime compose file does not contain service {service_name!r}")
+        extra_hosts = service_data.setdefault("extra_hosts", [])
+        if not isinstance(extra_hosts, list):
+            raise RuntimeError(
+                f"Runtime compose service {service_name!r} has a non-list extra_hosts payload"
+            )
+        if _RUNTIME_HOST_GATEWAY_ALIAS not in extra_hosts:
+            extra_hosts.append(_RUNTIME_HOST_GATEWAY_ALIAS)
+
+    plan.compose_file.write_text(yaml.safe_dump(compose_data, sort_keys=False))
 
 
 def _copy_runtime_config_tree(plan: RuntimeAddressPlan) -> Path:

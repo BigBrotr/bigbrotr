@@ -22,6 +22,7 @@ from .faults import (
     build_fault_network_name,
     docker_network_exists,
 )
+from .http import HttpFixtureRequest, HttpFixtureResponse, LocalHttpFixtureRuntime
 from .observability import AlertmanagerApi, GrafanaApi, PrometheusApi
 from .relay import (
     NOSTR_RS_RELAY_IMAGE,
@@ -57,6 +58,9 @@ __all__ = [
     "FaultControlError",
     "FaultControlPortPlan",
     "GrafanaApi",
+    "HttpFixtureRequest",
+    "HttpFixtureResponse",
+    "LocalHttpFixtureRuntime",
     "LocalRelayRuntime",
     "LocalRnostrRuntime",
     "LocalToxiproxyRuntime",

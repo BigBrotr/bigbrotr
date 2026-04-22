@@ -1,9 +1,11 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
 import yaml
 
 from tests.system.deployments.runtime_overrides import (
+    configure_runtime_host_gateway,
     configure_runtime_relay_targets,
     prepare_runtime_compose_config,
     resolve_runtime_relay_url,
@@ -74,6 +76,28 @@ class TestPrepareRuntimeComposeConfig:
             isinstance(spec, str) and spec.startswith(f"{plan.runtime_root / 'static'}:")
             for spec in seeder_volumes
         )
+
+
+class TestConfigureRuntimeHostGateway:
+    def test_adds_host_gateway_alias_once_for_requested_services(self, tmp_path: Path) -> None:
+        plan = RuntimeAddressPlan.create("bigbrotr", tmp_path, "compose-runtime-host-gateway")
+        prepare_runtime_compose_config(plan)
+
+        configure_runtime_host_gateway(plan, "finder", "finder")
+
+        compose_data = _load_yaml(plan.compose_file)
+        services = compose_data["services"]
+        assert isinstance(services, dict)
+        finder = services["finder"]
+        assert isinstance(finder, dict)
+        assert finder["extra_hosts"] == ["host.docker.internal:host-gateway"]
+
+    def test_rejects_unknown_service_name(self, tmp_path: Path) -> None:
+        plan = RuntimeAddressPlan.create("bigbrotr", tmp_path, "compose-runtime-host-gateway")
+        prepare_runtime_compose_config(plan)
+
+        with pytest.raises(RuntimeError, match="does not contain service 'unknown'"):
+            configure_runtime_host_gateway(plan, "unknown")
 
 
 class TestResolveRuntimeRelayUrl:

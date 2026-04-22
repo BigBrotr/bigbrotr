@@ -6,6 +6,7 @@ Deterministic support layer for the higher-band system-test suite.
 
 - Docker Compose lifecycle helpers;
 - runtime PostgreSQL query helpers;
+- local HTTP fixture helpers for service-boundary tests;
 - deterministic env generation for built-in deployments;
 - readiness polling and teardown helpers;
 - artifact-capture support;
