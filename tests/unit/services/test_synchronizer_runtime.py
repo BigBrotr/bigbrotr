@@ -344,7 +344,11 @@ class TestSynchronizeWorker:
             )
         ]
 
-        assert items == [(event, relay)]
+        assert len(items) == 1
+        yielded_event, yielded_relay = items[0]
+        assert yielded_event is event
+        assert yielded_relay.url == relay.url
+        assert yielded_relay.network == relay.network
         client_manager.get_relay_client.assert_awaited_once_with(relay)
         inc_gauge.assert_called_once_with("relays_seen")
         logger.warning.assert_not_called()
@@ -384,7 +388,11 @@ class TestSynchronizeWorker:
             )
         ]
 
-        assert items == [(event, relay)]
+        assert len(items) == 1
+        yielded_event, yielded_relay = items[0]
+        assert yielded_event is event
+        assert yielded_relay.url == relay.url
+        assert yielded_relay.network == relay.network
 
     async def test_logs_unknown_network_and_returns(self) -> None:
         config = SynchronizerConfig()
