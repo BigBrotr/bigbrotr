@@ -18,6 +18,13 @@ class TestLocalTlsWebSocketRuntime:
         with pytest.raises(ValueError, match="requires a backend_url"):
             LocalTlsWebSocketRuntime(tmp_path / "proxy-runtime", mode="proxy")
 
+    def test_http_backend_url_requires_proxy_mode(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="requires proxy mode"):
+            LocalTlsWebSocketRuntime(
+                tmp_path / "blackhole-runtime",
+                http_backend_url="http://backend.example.test",
+            )
+
     def test_public_url_requires_started_runtime(self, tmp_path: Path) -> None:
         runtime = LocalTlsWebSocketRuntime(tmp_path / "blackhole-runtime")
 
@@ -67,6 +74,18 @@ class TestLocalTlsWebSocketRuntime:
         assert len(sessions) == 1
         assert sessions[0].mode == "invalid-text"
         assert sessions[0].received_messages == ('["REQ","validator",{"kinds":[1]}]',)
+
+    def test_http_backend_request_url_uses_backend_origin(self, tmp_path: Path) -> None:
+        runtime = LocalTlsWebSocketRuntime(
+            tmp_path / "proxy-runtime",
+            mode="proxy",
+            backend_url="ws://relay.example.test:8080",
+            http_backend_url="http://relay.example.test:8080/base",
+        )
+
+        assert runtime._http_backend_request_url("/nip11?ignored=true") == (
+            "http://relay.example.test:8080/nip11"
+        )
 
     @staticmethod
     def _wait_until(

@@ -286,6 +286,37 @@ class TestLocalToxiproxyRuntime:
         assert mock_run.call_args_list[0].args[0][:4] == ("docker", "run", "-d", "--name")
         assert mock_run.call_args_list[1].args[0][:3] == ("docker", "rm", "-f")
 
+    def test_start_includes_network_aliases_when_requested(
+        self,
+        tmp_path: Path,
+        mocker: pytest.MockFixture,
+    ) -> None:
+        runtime = LocalToxiproxyRuntime(
+            role="fault-path",
+            runtime_dir=tmp_path / "runtime",
+            network_name="bb-fault-net",
+            network_aliases=("proxy.monitor.test",),
+            port_plan=FaultControlPortPlan.for_slot(0),
+            exposed_proxy_ports=(19501,),
+        )
+        mocker.patch("tests.system.harness.faults.ensure_docker_available")
+        mocker.patch("tests.system.harness.faults.ensure_testcontainers_environment")
+        mocker.patch("tests.system.harness.faults._ensure_fault_image")
+        mock_run = mocker.patch(
+            "tests.system.harness.faults.subprocess.run",
+            side_effect=[
+                CompletedProcess(args=(), returncode=0, stdout="fault-cid\n", stderr=""),
+                CompletedProcess(args=(), returncode=0, stdout="", stderr=""),
+            ],
+        )
+
+        runtime.start()
+        runtime.stop()
+
+        command = mock_run.call_args_list[0].args[0]
+        assert "--network-alias" in command
+        assert "proxy.monitor.test" in command
+
     def test_wait_until_ready_uses_admin_client(
         self, tmp_path: Path, mocker: pytest.MockFixture
     ) -> None:

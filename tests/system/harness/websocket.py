@@ -4,19 +4,25 @@ from __future__ import annotations
 
 import contextlib
 import json
+import socket
 import ssl
 import threading
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
+from http import HTTPStatus
 from ipaddress import ip_address
 from typing import TYPE_CHECKING, Literal
+from urllib import error, parse
+from urllib import request as urlrequest
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
+from websockets.datastructures import Headers
 from websockets.exceptions import ConnectionClosed
+from websockets.http11 import Request, Response
 from websockets.sync.client import connect
 from websockets.sync.server import serve
 
@@ -68,6 +74,7 @@ class LocalTlsWebSocketRuntime:
     runtime_dir: Path
     mode: Literal["blackhole", "invalid-text", "proxy"] = "blackhole"
     backend_url: str | None = None
+    http_backend_url: str | None = None
     listen_host: str = "0.0.0.0"
     public_host: str = "127.0.0.1"
     docker_host: str = "host.docker.internal"
@@ -87,6 +94,8 @@ class LocalTlsWebSocketRuntime:
             )
         if self.mode == "proxy" and not self.backend_url:
             raise ValueError("TLS WebSocket proxy mode requires a backend_url")
+        if self.mode != "proxy" and self.http_backend_url is not None:
+            raise ValueError("TLS WebSocket http_backend_url requires proxy mode")
         if self.timeout <= 0:
             raise ValueError("TLS WebSocket runtime timeout must be positive")
         if self.poll_interval <= 0:
@@ -176,11 +185,15 @@ class LocalTlsWebSocketRuntime:
         deadline = time.monotonic() + self.timeout
         while time.monotonic() < deadline:
             try:
-                with connect(
-                    self.public_url("/ready"),
-                    ssl=self.client_ssl_context(),
-                    open_timeout=self.poll_interval,
-                    close_timeout=self.poll_interval,
+                with (
+                    socket.create_connection(
+                        (self.public_host, self.port),
+                        timeout=self.poll_interval,
+                    ) as sock,
+                    self.client_ssl_context().wrap_socket(
+                        sock,
+                        server_hostname=self.docker_host,
+                    ),
                 ):
                     return
             except (ConnectionClosed, OSError, TimeoutError):
@@ -195,6 +208,7 @@ class LocalTlsWebSocketRuntime:
                 self.listen_host,
                 0,
                 ssl=self._server_ssl_context(),
+                process_request=self._process_request,
                 open_timeout=self.timeout,
                 close_timeout=self.timeout,
                 ping_interval=None,
@@ -231,6 +245,68 @@ class LocalTlsWebSocketRuntime:
         finally:
             session.closed_at = time.time()
             self._record_session(session.freeze())
+
+    def _process_request(
+        self,
+        _connection: ServerConnection,
+        request: Request,
+    ) -> Response | None:
+        if self.mode != "proxy" or self.http_backend_url is None:
+            return None
+
+        upgrade = request.headers.get("Upgrade", "")
+        if isinstance(upgrade, str) and upgrade.lower() == "websocket":
+            return None
+
+        backend_url = self._http_backend_request_url(request.path)
+        backend_request = urlrequest.Request(backend_url, method="GET")  # noqa: S310
+        accept = request.headers.get("Accept")
+        if isinstance(accept, str) and accept:
+            backend_request.add_header("Accept", accept)
+
+        try:
+            with urlrequest.urlopen(backend_request, timeout=self.timeout) as response:  # noqa: S310
+                body = response.read()
+                content_type = response.headers.get("Content-Type", "application/octet-stream")
+                headers = Headers(
+                    {
+                        "content-type": content_type,
+                        "content-length": str(len(body)),
+                    }
+                )
+                return Response(
+                    status_code=response.status,
+                    reason_phrase=HTTPStatus(response.status).phrase,
+                    headers=headers,
+                    body=body,
+                )
+        except error.HTTPError as exc:
+            body = exc.read()
+            headers = Headers(
+                {
+                    "content-type": exc.headers.get("Content-Type", "text/plain; charset=utf-8"),
+                    "content-length": str(len(body)),
+                }
+            )
+            return Response(
+                status_code=exc.code,
+                reason_phrase=HTTPStatus(exc.code).phrase,
+                headers=headers,
+                body=body,
+            )
+        except (error.URLError, OSError, TimeoutError):
+            body = b"upstream timeout"
+            return Response(
+                status_code=HTTPStatus.GATEWAY_TIMEOUT,
+                reason_phrase=HTTPStatus.GATEWAY_TIMEOUT.phrase,
+                headers=Headers(
+                    {
+                        "content-type": "text/plain; charset=utf-8",
+                        "content-length": str(len(body)),
+                    }
+                ),
+                body=body,
+            )
 
     def _blackhole_connection(
         self,
@@ -312,6 +388,20 @@ class LocalTlsWebSocketRuntime:
         self.sessions_log_path.parent.mkdir(parents=True, exist_ok=True)
         with self.sessions_log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(asdict(session), sort_keys=True) + "\n")
+
+    def _http_backend_request_url(self, path: str) -> str:
+        assert self.http_backend_url is not None
+        backend = parse.urlsplit(self.http_backend_url)
+        request_path = self._normalize_path(path)
+        return parse.urlunsplit(
+            (
+                backend.scheme,
+                backend.netloc,
+                request_path,
+                "",
+                "",
+            )
+        )
 
     def _write_certificate_chain(self) -> None:
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)

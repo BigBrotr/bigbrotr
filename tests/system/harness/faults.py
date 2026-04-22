@@ -283,6 +283,7 @@ class LocalToxiproxyRuntime:
     network_name: str
     port_plan: FaultControlPortPlan
     exposed_proxy_ports: tuple[int, ...]
+    network_aliases: tuple[str, ...] = ()
     image: str = TOXIPROXY_IMAGE
     host: str = "127.0.0.1"
     ready_timeout: float = DEFAULT_FAULT_READY_TIMEOUT
@@ -333,6 +334,8 @@ class LocalToxiproxyRuntime:
             "-p",
             f"{self.host}:{self.port_plan.admin}:{TOXIPROXY_ADMIN_PORT}",
         ]
+        for alias in self.network_aliases:
+            command.extend(("--network-alias", alias))
         for proxy_port in self.exposed_proxy_ports:
             command.extend(("-p", f"{self.host}:{proxy_port}:{proxy_port}"))
 
