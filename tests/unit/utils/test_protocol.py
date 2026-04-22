@@ -31,6 +31,7 @@ from bigbrotr.utils.protocol import (
     normalize_send_output,
     summarize_broadcast_results,
 )
+from bigbrotr.utils.protocol_outcomes import normalize_output_event_id
 
 
 # =============================================================================
@@ -1566,6 +1567,23 @@ class TestNormalizeSendOutput:
 
         with pytest.raises(ValueError, match="relay output contained invalid relay URL"):
             normalize_send_output(output)
+
+
+class TestNormalizeOutputEventId:
+    def test_accepts_canonical_hex(self) -> None:
+        event_id = "ab" * 32
+
+        assert normalize_output_event_id(event_id) == event_id
+
+    def test_accepts_sdk_wrapper_repr(self) -> None:
+        event_id = "cd" * 32
+        wrapped = f"EventId {{ inner: EventId({event_id}) }}"
+
+        assert normalize_output_event_id(wrapped) == event_id
+
+    def test_rejects_missing_hex_payload(self) -> None:
+        with pytest.raises(ValueError, match="event output contained invalid event id"):
+            normalize_output_event_id("EventId { inner: EventId(invalid) }")
 
 
 # =============================================================================

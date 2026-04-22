@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 
 from bigbrotr.models.relay_url import normalize_relay_url
 
 
 _HEX_32_TEXT_LENGTH = 64
+_HEX_32_TEXT_RE = re.compile(r"\b[0-9A-Fa-f]{64}\b")
 
 
 def normalize_failed_relays(failed_relays: dict[str, str]) -> dict[str, str]:
@@ -34,16 +36,20 @@ def normalize_output_relay_url(value: object) -> str:
 
 def normalize_output_event_id(value: object) -> str:
     """Return one SDK event output id as a canonical 32-byte hex string."""
-    event_id = str(value)
-    if len(event_id) != _HEX_32_TEXT_LENGTH:
-        raise ValueError(f"event output contained invalid event id: {event_id!r}")
+    raw_event_id = str(value)
+    candidate = raw_event_id
+    if len(candidate) != _HEX_32_TEXT_LENGTH:
+        matches = _HEX_32_TEXT_RE.findall(raw_event_id)
+        if len(matches) != 1:
+            raise ValueError(f"event output contained invalid event id: {raw_event_id!r}")
+        candidate = matches[0]
 
     try:
-        bytes.fromhex(event_id)
+        bytes.fromhex(candidate)
     except ValueError as exc:
-        raise ValueError(f"event output contained invalid event id: {event_id!r}") from exc
+        raise ValueError(f"event output contained invalid event id: {raw_event_id!r}") from exc
 
-    return event_id.lower()
+    return candidate.lower()
 
 
 def normalize_relay_outcomes(output: object) -> tuple[tuple[str, ...], dict[str, str]]:
