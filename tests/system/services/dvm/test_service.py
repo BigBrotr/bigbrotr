@@ -83,6 +83,8 @@ _EVENT_CONTENT = "system-dvm-event"
 _REQUEST_KIND = 5050
 _RESULT_KIND = 6050
 _ERROR_KIND = 7000
+_SEED_RETRY_ATTEMPTS = 5
+_SEED_RETRY_DELAY_SECONDS = 1.0
 _REQUESTER_KEYS = Keys.parse(
     "71a1f9f06318b8074f8f3d7e7f00d7e0e0ca6abbb23772e0f5a4ed70854b71d7"  # pragma: allowlist secret
 )
@@ -129,7 +131,19 @@ async def _async_seed_dvm_contract(plan: RuntimeAddressPlan) -> None:
 
 
 def _seed_dvm_contract(plan: RuntimeAddressPlan) -> None:
-    asyncio.run(_async_seed_dvm_contract(plan))
+    last_error: ConnectionError | OSError | None = None
+    for attempt in range(_SEED_RETRY_ATTEMPTS):
+        try:
+            asyncio.run(_async_seed_dvm_contract(plan))
+            return
+        except (ConnectionError, OSError) as exc:
+            last_error = exc
+            if attempt + 1 >= _SEED_RETRY_ATTEMPTS:
+                break
+            time.sleep(_SEED_RETRY_DELAY_SECONDS)
+
+    assert last_error is not None
+    raise last_error
 
 
 def _configure_dvm_runtime(plan: RuntimeAddressPlan, *, interval: float) -> None:

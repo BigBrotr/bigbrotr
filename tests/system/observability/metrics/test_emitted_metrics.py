@@ -59,10 +59,7 @@ _METRICS_PORT_ATTR = {
     "api": "api_metrics",
     "dvm": "dvm_metrics",
 }
-_ASSERTOR_INTERNAL_METRICS_PORT = {
-    "bigbrotr": 8008,
-    "lilbrotr": 9008,
-}
+_ASSERTOR_INTERNAL_METRICS_PORT = 8000
 _EXPECTED_DURATION_BUCKETS = (
     "1.0",
     "5.0",
@@ -102,7 +99,6 @@ def _service_metrics_snapshot(
     service_name: str,
 ) -> MetricsSnapshot:
     if service_name == "assertor":
-        port = _ASSERTOR_INTERNAL_METRICS_PORT[plan.profile]
         result = stack.run(
             "exec",
             "-T",
@@ -111,7 +107,9 @@ def _service_metrics_snapshot(
             "-c",
             (
                 "import sys, urllib.request; "
-                f"sys.stdout.write(urllib.request.urlopen('http://127.0.0.1:{port}/metrics').read().decode())"
+                "sys.stdout.write(urllib.request.urlopen("
+                f"'http://127.0.0.1:{_ASSERTOR_INTERNAL_METRICS_PORT}/metrics'"
+                ").read().decode())"
             ),
         )
         return parse_metrics_text(result.stdout)

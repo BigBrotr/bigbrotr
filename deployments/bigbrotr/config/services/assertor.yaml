@@ -49,4 +49,4 @@ trusted_provider_list:
 
 metrics:
   enabled: true
-  port: 8008
+  host: "0.0.0.0"

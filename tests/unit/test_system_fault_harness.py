@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import io
 import json
 from subprocess import CompletedProcess
@@ -231,6 +232,18 @@ class TestToxiproxyClient:
                     listen_port=17500,
                 )
             )
+
+    def test_http_connection_closure_raises_fault_control_error(
+        self, mocker: pytest.MockFixture
+    ) -> None:
+        client = ToxiproxyClient("http://toxiproxy:8474")
+        mocker.patch(
+            "tests.system.harness.faults.request.urlopen",
+            side_effect=http.client.RemoteDisconnected("closed"),
+        )
+
+        with pytest.raises(RuntimeError, match="Fault-control request failed: closed"):
+            client.list_proxies()
 
 
 class TestDockerNetworkRuntime:

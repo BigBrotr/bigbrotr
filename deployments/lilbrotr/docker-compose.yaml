@@ -767,7 +767,7 @@ services:
     stop_grace_period: 30s
 
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9008/metrics')\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics')\""]
       interval: 30s
       timeout: 10s
       retries: 3

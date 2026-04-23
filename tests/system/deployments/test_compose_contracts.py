@@ -70,7 +70,6 @@ def _wget_healthcheck(
 
 
 def _expected_healthchecks(profile: str) -> dict[str, dict[str, object]]:
-    assertor_port = 8008 if profile == "bigbrotr" else 9008
     return {
         "postgres": {
             "test": ["CMD-SHELL", f"pg_isready -U admin -d {profile}"],
@@ -111,7 +110,7 @@ def _expected_healthchecks(profile: str) -> dict[str, dict[str, object]]:
             "start_period": "30s",
         },
         "dvm": _metrics_healthcheck(),
-        "assertor": _metrics_healthcheck(assertor_port),
+        "assertor": _metrics_healthcheck(),
         "postgres-exporter": {
             "test": ["CMD-SHELL", "wget -q --spider http://localhost:9187/metrics || exit 1"],
             "interval": "30s",
@@ -212,14 +211,5 @@ def test_profile_compose_contracts_only_differ_on_intended_fields() -> None:
 
     big_healthchecks["postgres"]["test"] = ["CMD-SHELL", "pg_isready -U admin -d <profile>"]
     lil_healthchecks["postgres"]["test"] = ["CMD-SHELL", "pg_isready -U admin -d <profile>"]
-    big_healthchecks["assertor"]["test"] = [
-        "CMD-SHELL",
-        "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:<assertor-metrics-port>/metrics')\"",
-    ]
-    lil_healthchecks["assertor"]["test"] = [
-        "CMD-SHELL",
-        "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:<assertor-metrics-port>/metrics')\"",
-    ]
-
     assert big_depends_on == lil_depends_on == _COMMON_DEPENDS_ON
     assert big_healthchecks == lil_healthchecks

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import subprocess
 import time
@@ -241,6 +242,8 @@ class ToxiproxyClient:
             ) from exc
         except error.URLError as exc:
             raise FaultControlError(f"Fault-control request failed: {exc.reason}") from exc
+        except http.client.HTTPException as exc:
+            raise FaultControlError(f"Fault-control request failed: {exc}") from exc
 
         if not body:
             return None
