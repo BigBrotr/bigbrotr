@@ -77,6 +77,66 @@ class TestPrepareRuntimeComposeConfig:
             for spec in seeder_volumes
         )
 
+    def test_rewrites_monitoring_mounts_to_runtime_tree(self, tmp_path: Path) -> None:
+        plan = RuntimeAddressPlan.create("bigbrotr", tmp_path, "monitoring-runtime-overrides")
+
+        prepare_runtime_compose_config(plan)
+
+        compose_data = _load_yaml(plan.compose_file)
+        services = compose_data["services"]
+        assert isinstance(services, dict)
+
+        prometheus = services["prometheus"]
+        assert isinstance(prometheus, dict)
+        prometheus_volumes = prometheus.get("volumes")
+        assert isinstance(prometheus_volumes, list)
+        assert any(
+            isinstance(spec, str)
+            and spec.startswith(
+                f"{plan.runtime_root / 'monitoring' / 'prometheus' / 'prometheus.yaml'}:"
+            )
+            for spec in prometheus_volumes
+        )
+        assert any(
+            isinstance(spec, str)
+            and spec.startswith(f"{plan.runtime_root / 'monitoring' / 'prometheus' / 'rules'}:")
+            for spec in prometheus_volumes
+        )
+
+        alertmanager = services["alertmanager"]
+        assert isinstance(alertmanager, dict)
+        alertmanager_volumes = alertmanager.get("volumes")
+        assert isinstance(alertmanager_volumes, list)
+        assert any(
+            isinstance(spec, str)
+            and spec.startswith(
+                f"{plan.runtime_root / 'monitoring' / 'alertmanager' / 'alertmanager.yml'}:"
+            )
+            for spec in alertmanager_volumes
+        )
+
+        grafana = services["grafana"]
+        assert isinstance(grafana, dict)
+        grafana_volumes = grafana.get("volumes")
+        assert isinstance(grafana_volumes, list)
+        assert any(
+            isinstance(spec, str)
+            and spec.startswith(f"{plan.runtime_root / 'monitoring' / 'grafana' / 'provisioning'}:")
+            for spec in grafana_volumes
+        )
+
+        postgres_exporter = services["postgres-exporter"]
+        assert isinstance(postgres_exporter, dict)
+        postgres_exporter_volumes = postgres_exporter.get("volumes")
+        assert isinstance(postgres_exporter_volumes, list)
+        assert any(
+            isinstance(spec, str)
+            and spec.startswith(
+                f"{plan.runtime_root / 'monitoring' / 'postgres-exporter' / 'queries.yaml'}:"
+            )
+            for spec in postgres_exporter_volumes
+        )
+
 
 class TestConfigureRuntimeHostGateway:
     def test_adds_host_gateway_alias_once_for_requested_services(self, tmp_path: Path) -> None:
