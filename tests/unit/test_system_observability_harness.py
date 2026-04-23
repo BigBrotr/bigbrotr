@@ -140,6 +140,19 @@ class TestGrafanaApi:
 
 
 class TestAlertmanagerApi:
+    def test_status_hits_expected_endpoint(self, mocker: pytest.MockFixture) -> None:
+        api = AlertmanagerApi("http://alertmanager:9093")
+        mock_urlopen = mocker.patch(
+            "tests.system.harness.observability.request.urlopen",
+            return_value=_FakeResponse({"config": {"original": "route:\n  receiver: default\n"}}),
+        )
+
+        payload = api.status()
+
+        req = mock_urlopen.call_args.args[0]
+        assert req.full_url == "http://alertmanager:9093/api/v2/status"
+        assert payload == {"config": {"original": "route:\n  receiver: default\n"}}
+
     def test_alerts_hits_expected_endpoint(self, mocker: pytest.MockFixture) -> None:
         api = AlertmanagerApi("http://alertmanager:9093")
         mock_urlopen = mocker.patch(
