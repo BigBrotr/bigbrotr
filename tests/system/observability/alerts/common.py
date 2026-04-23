@@ -295,4 +295,4 @@ def certify_service_down_alert_contract(
         if relay is not None:
             relay.stop()
         if stack is not None:
-            stack.down()
+            stack.down(timeout=30)

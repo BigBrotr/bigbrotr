@@ -203,6 +203,24 @@ class TestComposeStack:
 
         mock_run.assert_called_once_with("up", "-d", "--force-recreate", "seeder")
 
+    def test_down_can_cap_stop_timeout(self, tmp_path: Path) -> None:
+        stack = ComposeStack.for_profile("bigbrotr", tmp_path, "bb-system-a")
+
+        with patch.object(
+            ComposeStack,
+            "run",
+            return_value=CompletedProcess(args=(), returncode=0, stdout="", stderr=""),
+        ) as mock_run:
+            stack.down(timeout=15)
+
+        mock_run.assert_called_once_with("down", "--remove-orphans", "--volumes", "--timeout", "15")
+
+    def test_down_rejects_non_positive_timeout(self, tmp_path: Path) -> None:
+        stack = ComposeStack.for_profile("bigbrotr", tmp_path, "bb-system-a")
+
+        with pytest.raises(ValueError, match="timeout must be positive"):
+            stack.down(timeout=0)
+
     def test_wait_until_ready_requires_service_names(self, tmp_path: Path) -> None:
         stack = ComposeStack.for_profile("bigbrotr", tmp_path, "bb-system-a")
 

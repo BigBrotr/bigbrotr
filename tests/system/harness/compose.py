@@ -300,6 +300,7 @@ class ComposeStack:
         *,
         remove_orphans: bool = True,
         volumes: bool = True,
+        timeout: int | None = None,
     ) -> subprocess.CompletedProcess[str]:
         """Tear the compose stack down."""
         args = ["down"]
@@ -307,6 +308,10 @@ class ComposeStack:
             args.append("--remove-orphans")
         if volumes:
             args.append("--volumes")
+        if timeout is not None:
+            if timeout <= 0:
+                raise ValueError("Compose down timeout must be positive")
+            args.extend(("--timeout", str(timeout)))
         return self.run(*args)
 
     def ps(self, *, all_services: bool = False) -> tuple[ComposeServiceStatus, ...]:
