@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from dataclasses import dataclass
 from urllib import error, parse, request
@@ -15,10 +16,21 @@ class ObservabilityApiError(RuntimeError):
 class _HttpClient:
     base_url: str
     timeout: float = 5.0
+    username: str | None = None
+    password: str | None = None
 
     def __post_init__(self) -> None:
         if not self.base_url.startswith(("http://", "https://")):
             raise ValueError("Observability base_url must use http:// or https://")
+        if (self.username is None) != (self.password is None):
+            raise ValueError("Observability auth requires both username and password")
+
+    def _build_request(self, url: str) -> request.Request:
+        req = request.Request(url, method="GET")  # noqa: S310
+        if self.username is not None and self.password is not None:
+            token = base64.b64encode(f"{self.username}:{self.password}".encode()).decode()
+            req.add_header("Authorization", f"Basic {token}")
+        return req
 
     def _request_json(
         self,
@@ -30,7 +42,7 @@ class _HttpClient:
         if params:
             suffix = f"{path}?{parse.urlencode(params)}"
         url = f"{self.base_url.rstrip('/')}{suffix}"
-        req = request.Request(url, method="GET")  # noqa: S310
+        req = self._build_request(url)
         try:
             with request.urlopen(req, timeout=self.timeout) as response:  # noqa: S310
                 body = response.read().decode()
@@ -49,7 +61,7 @@ class _HttpClient:
 
     def _request_text(self, path: str) -> str:
         url = f"{self.base_url.rstrip('/')}{path}"
-        req = request.Request(url, method="GET")  # noqa: S310
+        req = self._build_request(url)
         try:
             with request.urlopen(req, timeout=self.timeout) as response:  # noqa: S310
                 return response.read().decode()
@@ -91,6 +103,12 @@ class GrafanaApi(_HttpClient):
 
     def datasources(self) -> object:
         return self._request_json("/api/datasources")
+
+    def datasource(self, uid: str) -> object:
+        return self._request_json(f"/api/datasources/uid/{uid}")
+
+    def datasource_health(self, uid: str) -> object:
+        return self._request_json(f"/api/datasources/uid/{uid}/health")
 
     def dashboards(self) -> object:
         return self._request_json("/api/search", params={"type": "dash-db"})

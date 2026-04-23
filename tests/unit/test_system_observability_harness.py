@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+from base64 import b64encode
 from urllib import error
 
 import pytest
@@ -79,6 +80,21 @@ class TestGrafanaApi:
         assert req.full_url == "http://grafana:3000/api/health"
         assert payload == {"database": "ok"}
 
+    def test_basic_auth_is_sent_when_credentials_are_configured(
+        self,
+        mocker: pytest.MockFixture,
+    ) -> None:
+        api = GrafanaApi("http://grafana:3000", username="admin", password="secret")
+        mock_urlopen = mocker.patch(
+            "tests.system.harness.observability.request.urlopen",
+            return_value=_FakeResponse([{"uid": "prometheus"}]),
+        )
+
+        api.datasources()
+
+        req = mock_urlopen.call_args.args[0]
+        assert req.get_header("Authorization") == f"Basic {b64encode(b'admin:secret').decode()}"
+
     def test_dashboards_uses_search_endpoint(self, mocker: pytest.MockFixture) -> None:
         api = GrafanaApi("http://grafana:3000")
         mock_urlopen = mocker.patch(
@@ -91,6 +107,36 @@ class TestGrafanaApi:
         req = mock_urlopen.call_args.args[0]
         assert req.full_url == "http://grafana:3000/api/search?type=dash-db"
         assert payload == [{"uid": "finder"}]
+
+    def test_datasource_uses_uid_endpoint(self, mocker: pytest.MockFixture) -> None:
+        api = GrafanaApi("http://grafana:3000")
+        mock_urlopen = mocker.patch(
+            "tests.system.harness.observability.request.urlopen",
+            return_value=_FakeResponse({"uid": "prometheus"}),
+        )
+
+        payload = api.datasource("prometheus")
+
+        req = mock_urlopen.call_args.args[0]
+        assert req.full_url == "http://grafana:3000/api/datasources/uid/prometheus"
+        assert payload == {"uid": "prometheus"}
+
+    def test_datasource_health_uses_uid_health_endpoint(self, mocker: pytest.MockFixture) -> None:
+        api = GrafanaApi("http://grafana:3000")
+        mock_urlopen = mocker.patch(
+            "tests.system.harness.observability.request.urlopen",
+            return_value=_FakeResponse({"status": "OK"}),
+        )
+
+        payload = api.datasource_health("prometheus")
+
+        req = mock_urlopen.call_args.args[0]
+        assert req.full_url == "http://grafana:3000/api/datasources/uid/prometheus/health"
+        assert payload == {"status": "OK"}
+
+    def test_rejects_partial_auth_configuration(self) -> None:
+        with pytest.raises(ValueError, match="both username and password"):
+            GrafanaApi("http://grafana:3000", username="admin")
 
 
 class TestAlertmanagerApi:
