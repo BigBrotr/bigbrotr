@@ -8,7 +8,16 @@ import yaml
 
 from tests.system.harness import GrafanaApi, RuntimeAddressPlan, SystemArtifactBundle
 from tests.system.harness.compose import build_test_env_values
-from tests.system.observability.prometheus.common import start_prometheus_stack, wait_until
+from tests.system.observability.prometheus.common import (
+    collect_prometheus_snapshot,
+    prometheus_api,
+    start_prometheus_stack,
+    vector_result,
+    wait_until,
+)
+from tests.system.observability.prometheus.common import (
+    ready_snapshot as ready_prometheus_snapshot,
+)
 
 
 if TYPE_CHECKING:
@@ -24,6 +33,17 @@ _EXPECTED_DATASOURCE = {
     "isDefault": True,
     "readOnly": True,
 }
+_SERVICE_QUERY_ANCHOR_NAMES = (
+    "finder",
+    "validator",
+    "monitor",
+    "synchronizer",
+    "refresher",
+    "ranker",
+    "assertor",
+    "api",
+    "dvm",
+)
 
 
 def _load_yaml(path: Path) -> dict[str, object]:
@@ -261,6 +281,128 @@ def dashboard_ready_snapshot(
     )
 
 
+def _dashboard_target_expressions(panels: object) -> tuple[str, ...]:
+    assert isinstance(panels, list)
+    expressions: list[str] = []
+    for panel in panels:
+        assert isinstance(panel, dict)
+        targets = panel.get("targets", [])
+        assert isinstance(targets, list)
+        for target in targets:
+            assert isinstance(target, dict)
+            expr = target.get("expr")
+            if isinstance(expr, str):
+                expressions.append(expr)
+        nested_panels = panel.get("panels", [])
+        expressions.extend(_dashboard_target_expressions(nested_panels))
+    return tuple(expressions)
+
+
+def _live_dashboard_expressions(
+    dashboard_details: dict[str, object],
+) -> dict[str, tuple[str, ...]]:
+    expressions: dict[str, tuple[str, ...]] = {}
+    for uid, payload in dashboard_details.items():
+        assert isinstance(payload, dict)
+        dashboard = payload["dashboard"]
+        assert isinstance(dashboard, dict)
+        expressions[uid] = _dashboard_target_expressions(dashboard["panels"])
+    return expressions
+
+
+def _query_anchor_contracts(profile: str) -> dict[str, dict[str, str]]:
+    anchors = {
+        f'service_gauge{{service="{service_name}", name="consecutive_failures"}}': {
+            "kind": "service_gauge",
+            "service": service_name,
+            "name": "consecutive_failures",
+        }
+        for service_name in _SERVICE_QUERY_ANCHOR_NAMES
+    }
+    anchors.update(
+        {
+            f'service_gauge{{service="{service_name}", name="readable_resources_exposed"}}': {
+                "kind": "service_gauge",
+                "service": service_name,
+                "name": "readable_resources_exposed",
+            }
+            for service_name in ("api", "dvm")
+        }
+    )
+    anchors[f"{profile}_table_sizes_total_bytes"] = {"kind": "table_metric"}
+    anchors[f"{profile}_row_estimates_approx_rows"] = {"kind": "table_metric"}
+    return anchors
+
+
+def _collect_anchor_query_results(
+    profile: str,
+    *,
+    dashboard_details: dict[str, object],
+    query_results: dict[str, object],
+) -> dict[str, object]:
+    live_expressions = _live_dashboard_expressions(dashboard_details)
+    all_live_expressions = {
+        expr for expressions in live_expressions.values() for expr in expressions
+    }
+    anchors = _query_anchor_contracts(profile)
+    assert set(anchors).issubset(all_live_expressions)
+    return {expr: query_results[expr] for expr in anchors}
+
+
+def _anchors_ready(payloads: dict[str, object], *, profile: str) -> bool:
+    for expr, contract in _query_anchor_contracts(profile).items():
+        rows = vector_result(payloads[expr])
+        if not rows:
+            return False
+        if contract["kind"] == "service_gauge":
+            row = rows[0]
+            metric = row["metric"]
+            assert isinstance(metric, dict)
+            if metric.get("service") != contract["service"]:
+                return False
+            if metric.get("name") != contract["name"]:
+                return False
+            continue
+        if not all("table_name" in row["metric"] for row in rows):
+            return False
+    return True
+
+
+def _query_result_payload_contract(payload: object) -> None:
+    assert isinstance(payload, dict)
+    assert payload["status"] == "success"
+    data = payload["data"]
+    assert isinstance(data, dict)
+    assert data["resultType"] in {"vector", "scalar"}
+
+
+def _capture_dashboard_query_semantics_artifacts(
+    bundle: SystemArtifactBundle,
+    *,
+    expressions_by_uid: dict[str, tuple[str, ...]],
+    anchor_query_results: dict[str, object],
+    query_results: dict[str, object],
+) -> None:
+    bundle.write_json_artifact(
+        category="observability",
+        subdir="observability/grafana",
+        name="dashboard-expressions",
+        payload={uid: list(expressions) for uid, expressions in expressions_by_uid.items()},
+    )
+    bundle.write_json_artifact(
+        category="observability",
+        subdir="observability/grafana",
+        name="dashboard-anchor-query-results",
+        payload=anchor_query_results,
+    )
+    bundle.write_json_artifact(
+        category="observability",
+        subdir="observability/grafana",
+        name="dashboard-query-results",
+        payload=query_results,
+    )
+
+
 def assert_datasource_contract(snapshot: dict[str, object], *, profile: str) -> None:
     health = snapshot["health"]
     assert isinstance(health, dict)
@@ -410,6 +552,78 @@ def certify_grafana_dashboard_provisioning_contract(
         )
         capture_dashboard_provisioning_artifacts(bundle, plan=plan, snapshot=snapshot)
         assert_dashboard_provisioning_contract(snapshot, profile=profile)
+    finally:
+        if bundle is not None and stack is not None:
+            from tests.system.deployments.baseline import capture_stack_artifacts
+
+            capture_stack_artifacts(bundle, stack)
+        if relay is not None:
+            relay.stop()
+        if stack is not None:
+            stack.down(timeout=30)
+
+
+def certify_grafana_dashboard_query_semantics_contract(
+    tmp_path: Path,
+    *,
+    profile: str,
+    run_name: str,
+    slot: int,
+) -> None:
+    bundle: SystemArtifactBundle | None = None
+    stack: ComposeStack | None = None
+    relay: LocalRelayRuntime | None = None
+
+    try:
+        bundle, plan, stack, relay = start_prometheus_stack(
+            tmp_path,
+            profile=profile,
+            run_name=run_name,
+            slot=slot,
+        )
+        grafana = grafana_api(plan)
+        prometheus = prometheus_api(plan)
+
+        wait_until(
+            lambda: collect_prometheus_snapshot(prometheus),
+            is_ready=ready_prometheus_snapshot,
+            description=f"{profile} Prometheus readiness before dashboard query semantics",
+        )
+
+        expected_uids = tuple(sorted(_expected_dashboard_definitions(profile)))
+        dashboard_snapshot = wait_until(
+            lambda: collect_dashboard_provisioning_snapshot(
+                grafana,
+                expected_uids=expected_uids,
+            ),
+            is_ready=lambda current: dashboard_ready_snapshot(
+                current,
+                expected_uids=expected_uids,
+            ),
+            description=f"{profile} Grafana dashboard readiness before query semantics",
+        )
+        dashboard_details = dashboard_snapshot["dashboard_details"]
+        assert isinstance(dashboard_details, dict)
+        expressions_by_uid = _live_dashboard_expressions(dashboard_details)
+        all_live_expressions = tuple(
+            sorted({expr for expressions in expressions_by_uid.values() for expr in expressions})
+        )
+        anchor_query_results = wait_until(
+            lambda: {expr: prometheus.query(expr) for expr in _query_anchor_contracts(profile)},
+            is_ready=lambda current: _anchors_ready(current, profile=profile),
+            description=f"{profile} dashboard anchor query readiness",
+        )
+        query_results = {expr: prometheus.query(expr) for expr in all_live_expressions}
+
+        for payload in query_results.values():
+            _query_result_payload_contract(payload)
+
+        _capture_dashboard_query_semantics_artifacts(
+            bundle,
+            expressions_by_uid=expressions_by_uid,
+            anchor_query_results=anchor_query_results,
+            query_results=query_results,
+        )
     finally:
         if bundle is not None and stack is not None:
             from tests.system.deployments.baseline import capture_stack_artifacts
