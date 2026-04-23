@@ -128,8 +128,6 @@ def _override_runtime_relay_targets(config_dir: Path, relay_url: str) -> None:
     assertor_config = yaml.safe_load(assertor_path.read_text())
     publishing = assertor_config.setdefault("publishing", {})
     publishing["relays"] = [relay_url]
-    trusted_provider_list = assertor_config.setdefault("trusted_provider_list", {})
-    trusted_provider_list["relay_hint"] = relay_url
     assertor_path.write_text(yaml.safe_dump(assertor_config, sort_keys=False))
 
 

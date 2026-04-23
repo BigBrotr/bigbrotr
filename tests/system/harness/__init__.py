@@ -28,6 +28,13 @@ from .faults import (
     docker_network_exists,
 )
 from .http import HttpFixtureRequest, HttpFixtureResponse, LocalHttpFixtureRuntime
+from .metrics import (
+    MetricsSampleSnapshot,
+    MetricsScrapeError,
+    MetricsSnapshot,
+    fetch_metrics_snapshot,
+    parse_metrics_text,
+)
 from .observability import AlertmanagerApi, GrafanaApi, PrometheusApi
 from .relay import (
     NOSTR_RS_RELAY_IMAGE,
@@ -71,6 +78,9 @@ __all__ = [
     "LocalRnostrRuntime",
     "LocalTlsWebSocketRuntime",
     "LocalToxiproxyRuntime",
+    "MetricsSampleSnapshot",
+    "MetricsScrapeError",
+    "MetricsSnapshot",
     "PrometheusApi",
     "ProxySpec",
     "RelayEoseFrame",
@@ -96,9 +106,11 @@ __all__ = [
     "docker_container_exists",
     "docker_network_exists",
     "execute_runtime",
+    "fetch_metrics_snapshot",
     "fetch_runtime_rows",
     "fetch_runtime_value",
     "parse_compose_ps",
+    "parse_metrics_text",
     "parse_relay_frame",
     "publish_event",
     "query_events",

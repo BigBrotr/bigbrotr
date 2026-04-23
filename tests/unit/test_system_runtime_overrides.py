@@ -45,7 +45,7 @@ class TestPrepareRuntimeComposeConfig:
         assert assertor_config["publishing"] == {"relays": [relay_url]}
         assert assertor_config["trusted_provider_list"] == {
             "enabled": True,
-            "relay_hint": relay_url,
+            "relay_hint": "wss://relay.damus.io",
             "tag_names": ["rank"],
         }
 
