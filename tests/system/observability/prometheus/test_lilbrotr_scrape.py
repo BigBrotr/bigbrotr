@@ -15,12 +15,12 @@ pytestmark = pytest.mark.system
 
 
 @pytest.mark.timeout(1200)
-def test_bigbrotr_prometheus_scrapes_all_expected_targets_with_required_series(
+def test_lilbrotr_prometheus_scrapes_all_expected_targets_with_required_series(
     tmp_path: Path,
 ) -> None:
     certify_prometheus_scrape_contract(
         tmp_path,
-        profile="bigbrotr",
-        run_name="bigbrotr-prometheus-scrape-contract",
-        slot=61,
+        profile="lilbrotr",
+        run_name="lilbrotr-prometheus-scrape-contract",
+        slot=62,
     )
